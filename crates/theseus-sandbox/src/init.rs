@@ -574,6 +574,7 @@ fn walk(dir: &Path, shown: &Path, s: &mut Scratch, budget: &mut u32) {
         } else {
             s.files += 1;
             s.bytes += m.len();
+            s.allocated += m.blocks() * 512;
             if s.paths.len() < 20 {
                 s.paths.push(shown_path.display().to_string());
             }

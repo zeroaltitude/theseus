@@ -12,7 +12,8 @@ use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::projects::{
     MilestoneSpec, ProjectAttachParams, ProjectAttachResult, ProjectCreateParams,
-    ProjectCreateResult, ProjectGrant, ProjectInfo, ProjectListParams, ProjectListResult,
+    ProjectCreateResult, ProjectGrant, ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams,
+    ProjectItemListParams, ProjectItemsResult, ProjectListParams, ProjectListResult,
     ProjectShowParams, ProjectShowResult, ProjectTrustParams, ProjectTrustedParams,
     ProjectTrustedResult,
 };
@@ -56,6 +57,11 @@ pub enum ProjectCmd {
     Attach { session: String, id: String },
     /// Detach a session from its project.
     Detach { session: String },
+    /// A project's own list of items: add one, close one, or list them.
+    Item {
+        #[command(subcommand)]
+        cmd: ItemCmd,
+    },
     /// Trust a repository: its own AGENTS.md and CLAUDE.md join the system block. Yours to give, from
     /// your own shell; the path defaults to the current directory.
     Trust { path: Option<String> },
@@ -63,6 +69,21 @@ pub enum ProjectCmd {
     Untrust { path: Option<String> },
     /// The trusted repositories.
     Trusted,
+}
+
+/// `theseus project item …`: the project's items, each a title and a state.
+#[derive(Subcommand, Debug)]
+pub enum ItemCmd {
+    /// Add an item to a project (its id, an end of it, or its title).
+    Add { project: String, title: String },
+    /// Close an item (its id, or an end of it).
+    Close { item: String },
+    /// A project's open items; `--all` adds the closed.
+    List {
+        project: String,
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 impl Default for ProjectCmd {
@@ -134,6 +155,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ProjectCmd) -> Result<()> {
                 Ok(())
             })
         }
+        ProjectCmd::Item { cmd } => item(conn, json, cmd).await,
         ProjectCmd::Attach { session, id } => attach(conn, json, session, Some(id)).await,
         ProjectCmd::Detach { session } => attach(conn, json, session, None).await,
         ProjectCmd::Trust { path } => trust(conn, json, method::PROJECT_TRUST, path).await,
@@ -153,6 +175,54 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ProjectCmd) -> Result<()> {
             })
         }
     }
+}
+
+/// `theseus project item add|close|list`: the words are the core's own
+/// (`project::items`), so the CLI and a chat say the same thing.
+async fn item(conn: &mut Conn, json: bool, cmd: ItemCmd) -> Result<()> {
+    let (name, params, closed) = match cmd {
+        ItemCmd::Add { project, title } => (
+            method::PROJECT_ITEM_ADD,
+            serde_json::to_value(ProjectItemAddParams {
+                project,
+                title,
+                ..Default::default()
+            })?,
+            false,
+        ),
+        ItemCmd::Close { item } => (
+            method::PROJECT_ITEM_CLOSE,
+            serde_json::to_value(ProjectItemCloseParams {
+                item,
+                ..Default::default()
+            })?,
+            true,
+        ),
+        ItemCmd::List { project, all } => (
+            method::PROJECT_ITEM_LIST,
+            serde_json::to_value(ProjectItemListParams { project, all })?,
+            false,
+        ),
+    };
+    let v = conn.request(name, params).await?;
+    output(json, v, |r: ProjectItemsResult| {
+        match (name, &r.changed) {
+            (method::PROJECT_ITEM_ADD, Some(i)) => {
+                println!(
+                    "{}",
+                    theseus_protocol::projects::item_added(&r.title, &i.title)
+                );
+            }
+            (method::PROJECT_ITEM_CLOSE, Some(i)) if closed => {
+                println!("{}", theseus_protocol::projects::item_closed(&i.title));
+            }
+            _ => println!(
+                "{}",
+                theseus_protocol::projects::item_list(&r.title, &r.items)
+            ),
+        }
+        Ok(())
+    })
 }
 
 /// `theseus project trust|untrust`: the path made absolute here, against the

@@ -394,7 +394,7 @@ mod tests {
             argv: Some(argv),
             ..Plan::default()
         };
-        Touch::of(&theseus_tools::proc::Run, &Value::Null, &plan)
+        Touch::of(&theseus_tools::proc::Run::default(), &Value::Null, &plan)
     }
 
     /// The whole rule, keys and operands, on the shapes a model writes a

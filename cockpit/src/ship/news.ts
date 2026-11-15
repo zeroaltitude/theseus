@@ -42,7 +42,7 @@ export const NEWS: NewsItem[] = [
   },
   {
     id: 'context', since: '2026-10-07', title: 'What Theseus knows, and what a turn sees',
-    body: 'The Context page (in the rail): the imported episodes with their sources, places, labels and summaries, the topics, the books’ state, and asking the index. Pick a ship (or a bench) and “Its context” opens what its turn carried: the system block part by part, the guidance, the tools, the recall and why each note came, with token counts.',
+    body: 'The Context page (in the rail): the imported episodes with their sources, places, labels and summaries, the topics, the shelves’ state, and asking the index. Pick a ship (or a bench) and “Its context” opens what its turn carried: the system block part by part, the guidance, the tools, the recall and why each note came, with token counts.',
     anchor: { kind: 'fleet' },
   },
   {

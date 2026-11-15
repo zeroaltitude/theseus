@@ -62,7 +62,7 @@ The reserved ones, with the row that wires each in, are listed in `docs/design/R
   `check.sh` (see its README).
 - **`docs/`**: the spec in chapters, `spec/` (its PDF is rendered and sent, never committed), `status.md`,
   `technical-overview.md`, `design/`, `research/`, and `notes/`.
-- **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason),
+- **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason; a duplicated crate version is skipped by name, with who pulls it),
   `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
   `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.
 
@@ -191,8 +191,8 @@ Each traces to the Part III item that taught it.
   `flock` or `theseus-quiet.sh`. Chain with `&&`, never `;`. Its first phases need no build: the door (when this
   tree's `gate.sh` is not origin/main's, main's copy judges the tree first) and the keel guard (a deleted or loosened
   test, budget, cap, ceiling or CI step fails unless a commit signed by a key in `scripts/keel-signers` carries the
-  owner's `Keel:` ack; an agent writes one only on his explicit yes, quoted). A join starts main's copy of the gate
-  itself. `scripts/AGENTS.md` has the rest.
+  `Keel:` ack: an agent writes and signs a removed test's itself; any other needs the owner's quoted yes and his
+  key). A join starts main's copy of the gate itself. `scripts/AGENTS.md` has the rest.
 - **Commits** are signed (`git commit -S`), one per green sub-step. The subject is `area: what changed`,
   the area in lower case (`kernel`, `store`, `toolrun`, `cli`, `docs`, …), and the body says what changed and why, in
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the

@@ -69,6 +69,16 @@
 //! here changed for it: `never_ran` is still `Declined | Cancelled` only, so
 //! a genuine `Error` from a tool that really ran still counts as progress.
 //!
+//! A REFUSAL IS THE SAME (issue 13, theseus-n88g). A call a place, a mode or a
+//! glide refuses is also "Not run", and was also written as `Error`, so a model
+//! that answered plan mode's refusal by asking for the identical write again
+//! got the same result every loop and ran to the end of its script: measured, 15
+//! loops of a 14-call script, `no_tool_calls`, where it now ends at the sixth
+//! (`tests_m3::modes::a_model_that_keeps_re_asking_for_a_call_plan_mode_refused_ends_the_turn`).
+//! `toolrun::invalid_input` writes every refusal as `Declined`. Invalid input
+//! (a call whose arguments do not validate) stays `Error`: that is a model
+//! fixing its arguments, and its next call differs.
+//!
 //! The counter lives on the `Turn`, so it dies with the turn: a turn's repeats
 //! are its own, and nothing is stored.
 
@@ -102,8 +112,8 @@ pub fn made_no_progress(outcomes: &[ResultStatus], awaiting: bool) -> bool {
     !awaiting && !outcomes.is_empty() && outcomes.iter().all(|s| never_ran(*s))
 }
 
-/// A status that means the tool never ran: the operator declined the call, or
-/// it was cancelled. `Error` is deliberately not one — it means the tool ran
+/// A status that means the tool never ran: the operator declined the call, a
+/// hold or a refusal (a place's, a mode's) stopped it, or it was cancelled. `Error` is deliberately not one — it means the tool ran
 /// and failed, or its input was invalid (`node::ResultStatus`) — and nor is
 /// `Unknown`, where the harness restarted mid-call and the call may well have
 /// run.

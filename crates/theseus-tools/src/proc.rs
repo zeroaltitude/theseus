@@ -10,7 +10,25 @@ use serde_json::{json, Value};
 
 use crate::{parse, Access, Backend, JobSpec, Plan, Resource, Retry, Tool, ToolClass, ToolCtx};
 
-pub struct Run;
+/// `proc.run`. `sandbox` is whether its schema offers the sandboxed tier: a
+/// host that cannot run it (a root daemon) is not asked for it
+/// (theseus-n88g.13).
+pub struct Run {
+    pub sandbox: bool,
+}
+
+impl Default for Run {
+    fn default() -> Self {
+        Run { sandbox: true }
+    }
+}
+
+impl Run {
+    /// The tool as a host that cannot run L1 offers it: no `sandbox` input.
+    pub fn without_sandbox() -> Self {
+        Run { sandbox: false }
+    }
+}
 
 /// The most steps a call may give (theseus-7gir.3): a batch is a handful of
 /// shell steps, and its card lists every one of them whole.
@@ -147,7 +165,7 @@ impl Tool for Run {
         "Run a program: builds, tests, linters, git commands the git tools do not cover. `argv` runs one program with no shell; `command` runs a line in bash. Returns combined stdout and stderr with the exit code and the directory it ran in. The proc_run calls of one response run at once, each its own job, except that one naming a file or other thing (a service, a container) an earlier one names waits for it; programs that must run in order go in one call as `steps`. Prefer the fs, text, and git tools when they can do the job. A run past its time limit goes on as a background job that job_read, job_wait and job_stop take, and its result arrives by itself when it ends; `background` starts one so at once."
     }
     fn input_schema(&self) -> Value {
-        json!({
+        let mut schema = json!({
             "type": "object",
             "properties": {
                 "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "One program and its arguments, run with no shell, e.g. [\"cargo\", \"test\", \"-p\", \"core\"]. Give exactly one of argv, command and steps."},
@@ -160,7 +178,18 @@ impl Tool for Run {
                 "sandbox": {"anyOf": [{"type": "boolean"}, {"type": "object", "properties": {"egress": {"type": "array", "items": {"type": "string"}}}}], "description": "Run it in the sandbox (L1): no network, an empty HOME, and its writes discarded afterwards. For untrusted code, builds, and tests. {\"egress\": [\"host:port\"]} lets it reach those hosts through the proxy HTTPS_PROXY names, once approved if the operator has not listed them; what it brings back is outside text."}
             },
             "additionalProperties": false
-        })
+        });
+        if !self.sandbox {
+            // A host that cannot run L1 never offers it: the call would only fail there.
+            schema["properties"]
+                .as_object_mut()
+                .map(|p| p.remove("sandbox"));
+            let steps = &mut schema["properties"]["steps"]["description"];
+            if let Some(d) = steps.as_str() {
+                *steps = json!(d.replace("env and sandbox apply", "env applies"));
+            }
+        }
+        schema
     }
     fn class(&self) -> ToolClass {
         ToolClass::Run
@@ -302,15 +331,17 @@ mod tests {
     fn plans_argv_and_clamps_timeouts() {
         let d = tempfile::tempdir().unwrap();
         let c = ToolCtx::for_tests(d.path());
-        let p = Run.plan(&json!({"argv": ["cargo", "test"]}), &c).unwrap();
+        let p = Run::default()
+            .plan(&json!({"argv": ["cargo", "test"]}), &c)
+            .unwrap();
         assert_eq!(p.argv.unwrap(), vec!["cargo", "test"]);
         assert_eq!(p.resources[0].access, Access::Exec);
-        let j = Run
+        let j = Run::default()
             .job(&json!({"argv": ["sleep", "1"], "timeout_secs": 999999}), &c)
             .unwrap();
         assert_eq!(j.timeout_secs, 3600);
-        assert!(Run.plan(&json!({"argv": []}), &c).is_err());
-        assert!(Run
+        assert!(Run::default().plan(&json!({"argv": []}), &c).is_err());
+        assert!(Run::default()
             .job(&json!({"argv": ["ls"], "cwd": "no/such/dir"}), &c)
             .is_err());
     }
@@ -323,7 +354,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir(d.path().join("sub")).unwrap();
         let c = ToolCtx::for_tests(d.path());
-        let err = |i: Value| Run.plan(&i, &c).unwrap_err();
+        let err = |i: Value| Run::default().plan(&i, &c).unwrap_err();
         assert!(
             err(json!({"argv": ["a"], "steps": [{"argv": ["b"]}]})).contains("exactly one of argv")
         );
@@ -334,7 +365,7 @@ mod tests {
         let many: Vec<Value> = (0..=MAX_STEPS).map(|_| json!({"argv": ["true"]})).collect();
         assert!(err(json!({"steps": many})).contains("more than 16"));
         let batch = json!({"steps": [{"argv": ["make", "x"]}, {"argv": ["ls"], "cwd": "sub", "timeout_secs": 5}], "env": {"A": "1"}, "timeout_secs": 9});
-        let p = Run.plan(&batch, &c).unwrap();
+        let p = Run::default().plan(&batch, &c).unwrap();
         assert_eq!(p.argv, None);
         assert_eq!(
             p.steps,
@@ -350,18 +381,21 @@ mod tests {
         );
         assert!(p.summary.contains("/sub"), "{}", p.summary);
         assert_eq!(p.resources.len(), 2);
-        let alone = Run.steps(&batch).unwrap();
+        let alone = Run::default().steps(&batch).unwrap();
         assert_eq!(
             alone[1],
             json!({"argv": ["ls"], "cwd": "sub", "timeout_secs": 5, "env": {"A": "1"}})
         );
         assert_eq!(alone[0]["timeout_secs"], 9);
-        let jobs = Run.jobs(&batch, &c).unwrap();
+        let jobs = Run::default().jobs(&batch, &c).unwrap();
         assert_eq!((jobs[0].timeout_secs, jobs[1].timeout_secs), (9, 5));
         assert!(jobs[1].cwd.ends_with("sub"));
         let gone = json!({"steps": [{"argv": ["ls"]}, {"argv": ["ls"], "cwd": "nowhere"}]});
-        assert!(Run.jobs(&gone, &c).unwrap_err().starts_with("step 2: "));
-        assert!(Run.steps(&json!({"argv": ["ls"]})).is_none());
+        assert!(Run::default()
+            .jobs(&gone, &c)
+            .unwrap_err()
+            .starts_with("step 2: "));
+        assert!(Run::default().steps(&json!({"argv": ["ls"]})).is_none());
     }
 
     /// `command` is a line run as `["bash", "-c", line]` in the call's
@@ -373,7 +407,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir(d.path().join("sub")).unwrap();
         let c = ToolCtx::for_tests(d.path());
-        let p = Run
+        let p = Run::default()
             .plan(&json!({"command": "echo $((1+1)) | cat"}), &c)
             .unwrap();
         assert_eq!(
@@ -381,12 +415,18 @@ mod tests {
             vec!["bash", "-c", "echo $((1+1)) | cat"],
             "the gate judges the argv it runs as"
         );
-        let j = Run
+        let j = Run::default()
             .job(&json!({"command": "pwd", "cwd": "sub"}), &c)
             .unwrap();
         assert_eq!(j.argv, vec!["bash", "-c", "pwd"]);
         assert!(j.cwd.ends_with("sub"));
-        assert_eq!(Run.job(&json!({"command": "pwd"}), &c).unwrap().cwd, c.cwd);
+        assert_eq!(
+            Run::default()
+                .job(&json!({"command": "pwd"}), &c)
+                .unwrap()
+                .cwd,
+            c.cwd
+        );
         for input in [
             json!({"command": "ls", "argv": ["ls"]}),
             json!({"command": "ls", "steps": [{"argv": ["ls"]}]}),
@@ -394,22 +434,49 @@ mod tests {
             json!({}),
             json!({"cwd": "sub"}),
         ] {
-            let e = Run.plan(&input, &c).unwrap_err();
+            let e = Run::default().plan(&input, &c).unwrap_err();
             assert!(
                 ["argv", "steps", "command"].iter().all(|f| e.contains(f)),
                 "{input}: {e}"
             );
         }
-        assert!(Run.plan(&json!({"command": "  "}), &c).is_err());
-        let schema = Run.input_schema();
+        assert!(Run::default().plan(&json!({"command": "  "}), &c).is_err());
+        let schema = Run::default().input_schema();
         assert!(schema["properties"]["command"].is_object());
         assert!(
-            Run.description()
+            Run::default()
+                .description()
                 .contains("`argv` runs one program with no shell")
-                && Run.description().contains("`command` runs a line in bash"),
+                && Run::default()
+                    .description()
+                    .contains("`command` runs a line in bash"),
             "{}",
-            Run.description()
+            Run::default().description()
         );
+    }
+
+    /// A host that cannot run the sandboxed tier does not offer it
+    /// (theseus-n88g.13): no `sandbox` input, and nothing else in the schema
+    /// changes but the words that mention it.
+    #[test]
+    fn a_host_that_cannot_run_l1_does_not_offer_sandbox() {
+        let offered = Run::default().input_schema();
+        let bare = Run::without_sandbox().input_schema();
+        assert!(offered["properties"]["sandbox"].is_object());
+        assert!(bare["properties"]["sandbox"].is_null(), "{bare}");
+        let keys = |s: &Value| -> Vec<String> {
+            s["properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect()
+        };
+        let mut want = keys(&offered);
+        want.retain(|k| k != "sandbox");
+        assert_eq!(keys(&bare), want);
+        assert!(!bare.to_string().contains("sandbox"), "{bare}");
+        assert_eq!(bare["additionalProperties"], false);
     }
 
     /// `sandbox` is `true`, or `{ egress: [...] }` whose every entry is
@@ -418,7 +485,9 @@ mod tests {
     fn a_sandbox_with_egress_names_hosts_as_host_and_port() {
         let d = tempfile::tempdir().unwrap();
         let c = ToolCtx::for_tests(d.path());
-        let plan = |sandbox: Value| Run.plan(&json!({"argv": ["true"], "sandbox": sandbox}), &c);
+        let plan = |sandbox: Value| {
+            Run::default().plan(&json!({"argv": ["true"], "sandbox": sandbox}), &c)
+        };
         assert!(plan(json!(true)).is_ok());
         assert!(plan(json!({})).is_ok());
         assert!(plan(json!({"egress": ["api.github.com:443", "*.crates.io:443"]})).is_ok());
@@ -436,22 +505,22 @@ mod tests {
     fn background_takes_one_program_and_never_a_batch() {
         let d = tempfile::tempdir().unwrap();
         let c = ToolCtx::for_tests(d.path());
-        let p = Run
+        let p = Run::default()
             .plan(&json!({"argv": ["sleep", "20"], "background": true}), &c)
             .unwrap();
         assert_eq!(p.argv.unwrap(), vec!["sleep", "20"]);
-        let j = Run
+        let j = Run::default()
             .job(&json!({"argv": ["sleep", "20"], "background": true}), &c)
             .unwrap();
         assert_eq!(j.argv, vec!["sleep", "20"]);
-        let bad = Run
+        let bad = Run::default()
             .plan(
                 &json!({"steps": [{"argv": ["ls"]}], "background": true}),
                 &c,
             )
             .unwrap_err();
         assert!(bad.starts_with("background runs one program"), "{bad}");
-        assert!(Run
+        assert!(Run::default()
             .plan(&json!({"argv": ["ls"], "background": "yes"}), &c)
             .is_err());
     }

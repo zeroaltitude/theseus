@@ -319,7 +319,8 @@ async fn a_place_not_bound_here_fails_with_words() {
     let cli = session(&r.core, None);
     turn(&r.core, &cli, "POST #nowhere :: hello").await;
     let (status, text, _) = result(&r.core, &cli, "channel.post");
-    assert_eq!(status, ResultStatus::Error);
+    // "Not run": a call that never ran, which the repeat cap reads (issue 13).
+    assert_eq!(status, ResultStatus::Declined);
     assert!(
         text.starts_with("Not run: #nowhere is not a place Theseus is bound to"),
         "{text}"

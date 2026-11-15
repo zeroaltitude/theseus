@@ -470,6 +470,7 @@ facts![
     sandbox::SandboxStarted<'static>,
     sandbox::SandboxEgress<'static>,
     sandbox::SandboxEgressRefused<'static>,
+    sandbox::SandboxLimitHit<'static>,
     start::CrashFound<'static>,
     ontology::CategorySet<'static>,
     ontology::GuidanceSet<'static>,

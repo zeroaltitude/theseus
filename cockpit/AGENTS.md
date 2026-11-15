@@ -28,10 +28,45 @@ build.
   - `Hosted.tsx` shows the Ship's own views inside the simple frame, as tabs kept in `?v=`; `Bench.tsx`,
     `Telemetry.tsx`, `Config.tsx` and `Memories.tsx` only name which views, in what order. A hosted view is the same
     component as on the Ship, so its panes, reads and controls cannot drift; its own query keys must not be `v`.
+  - `BenchBoard.tsx` (Benchmarks, At a glance) says how much it shows: one sentence counts the reports the build embeds and
+    the benchmark families they fall in, and how many of those the table ranks (`lib/benchfamilies.ts`'s `summaryWords`,
+    all counted from the build's own files). A family is one card of `cardsOf`; `familiesOf` places every report in exactly
+    one (the manifest's benchmark and tier where a row cites it, else the README's suite, else the oldest measured family
+    of its suite). Each family is on the page once: a ranked row (`standing()`'s rule is unchanged), or a line under
+    "Measured against itself, or too small to rank" with one reason (`whyNotRanked`: a smoke or an earlier run says so from
+    the card; a suite known only from its reports has a row in `UNRANKED_WHY`) and its newest report.
+    `test/benchfamilies.test.ts` fails a report no family takes and a suite with no reason.
   - `kit.tsx`: the page heading, the tabs, a stat. Cards are `Panel`, so every pane has its "?" and the
     explainers test holds the simple pages too (the help id is a literal at each `Panel`).
   - Daylight is the default look since these pages (`lib/daylight.ts`'s `choiceOf`, `public/mode.js`); the Ship
     stays a night sea.
+
+- **Memories and a session's own pages** (`src/simple/Memories.tsx`, `src/simple/memories/`; GitHub issue 17). Memories
+  opens on `memories/Search.tsx`: one box whose words go to the people and topics that carry them (`ontology.list`),
+  to what recall would bring (`memory.search`, which writes nothing) and to the imported episodes' titles, places and
+  topics (`import.sessions`), each its own card; with no words it counts what Theseus holds. `memories/Kinds.tsx` is
+  People and Topics: a list (`?f=` its words) and the chosen one's page (`?sel=`); a page's conversations are
+  `ontology.list`'s memberships read once (`find.ts`'s `holdersOf`) and the rows come by id. `memories/Turn.tsx` is
+  the explorer's own turn view in this frame. The explorer and the shelves stay behind them as hosted tabs
+  (`?v=context`, `?v=books`). Its pure half is `memories/find.ts` (the addresses, the matching, the chain of a topic),
+  tested by `test/simple-memories.test.ts`; every address it writes stays under `/memories` except a session's.
+  `/session/:id`, `/session/:id/turn/:turn` and `/session/:id/unlabel/:flag` are routes of the simple frame
+  (`memories/Session.tsx` hosts the Ship's `SessionDeck`, `TurnInspect` and `Unlabel` whole, with a way back to Ops and
+  to what the turn was shown; `test/simple-session.test.ts` pins that no Ship route matches them too). Nothing here
+  writes the ontology: people and topics are changed on the Configuration page.
+
+- **Telemetry board and Configuration map** (issue 17, step 5; `simple/telemetry/`, `simple/config/`). Telemetry's first tab is
+  `Board.tsx`: six `ChartPanel`s (running, failures, latency, headroom, spend, the machine), each with its "?" and its table view,
+  whose numbers are `board.ts`'s reading of `health`, the lists and the ledger's provider calls (tested in
+  `test/simple-telemetry.test.ts`); the Ship's pages stay behind it as tabs. Configuration's first tab is `Settings.tsx`, over
+  the inventory `settings.ts`: LIVE (a control a tab or link away), FIXED (the configuration file's sections, read only at
+  start) and CLI_ONLY (changeable live, but the daemon answers only its own command line: Google's four methods).
+  `test/simple-config.test.ts` holds it to the protocol crate's method names, to what `src/` calls, and to the example file's
+  sections: a new section or a new control fails it until the map says so. A control added here calls what the Ship's page
+  calls, behind its confirmation. The "More controls" tab (`config/Controls.tsx`, panels in `config/controls/`) holds the
+  daemon-level acts no other page had: each is an `ActButton` over a row of `config/verbs.ts`, whose posture (do, arm, ask) it
+  must take, pinned by `test/simple-config-controls.test.ts` (every act that destroys or interrupts asks, in words that name the
+  effect; the erase of an import wants its name typed). Their answers are kept as notes (`config/notes.ts`), held at the top.
 
 - `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) beside
   every built file but the fonts; theseusd embeds only those, one copy, and sends it by `Accept-Encoding` (theseus-rwpbg.5).
@@ -41,7 +76,7 @@ build.
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
   searchable by handle, a person's page and merge, adding one, and Jev's proposals with select-all accept, in
-  `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx; the growth chart and the list of what the machines minted sit above the tree, `src/components/OntologyGrowth.tsx` over `growthOf` and `mintedOf` in `src/lib/ontology.ts`: 90 days of `ontology.category` and `ontology.kind` rows from the shared ledger history, stacked by origin, a ring on a day whose write was later undone, and each mint with its judgment link and an `ontology.undo` button, theseus-dd3kw; the tree's origin and confidence columns and its origin filter, `?origin=`, from the first `ontology.category` row of each category, `originsOf` and `originFilter`: a match keeps its ancestors as dimmed context and `unknown` is an option, so no category is hidden from every filter, theseus-tq7s8; an add-a-kind form beside add-a-topic, `src/components/OntologyKindAdd.tsx` over `buildKindAdd` and `kindAddAsk` in `src/lib/ontokinds.ts`: it mirrors the daemon's checks of `ontology.kind.add`, and its confirm carries the exact params it sends, theseus-s430x; the Judgment view draws the ontology pack's line under its row, `ontoLine` over `ontoStatsOf` in `src/lib/ontostats.ts`: judgments, acts, confirms and undos counted from the ledger's `judge.call`, `onto.filed` and `ontology.undo` rows, theseus-wzvxp; the learning report's ontology block draws the same line for the report's day with the undo rate per kind: the line's counts are `ontoStatsOf(rows, { day })` from the ledger (theseus-0vhyn), the undo rate is the daemon's, the report's own `pack.undo` and `pack.undo_days` worded by `ontoKindWords` (one definition, `onto_undo::undo_rates`, theseus-ukmbn); the kind groups fold open and shut in `src/lib/groupfold.ts`, the reader's own set kept while a filter forces them all open, theseus-5kd37), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their book, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
+  `src/components/People.tsx` over `src/lib/people.ts`, theseus-wy7y; it shows the present only; its proposals panel lists people one row per proposed person, each with one accept and one reject, theseus-fvyx; the growth chart and the list of what the machines minted sit above the tree, `src/components/OntologyGrowth.tsx` over `growthOf` and `mintedOf` in `src/lib/ontology.ts`: 90 days of `ontology.category` and `ontology.kind` rows from the shared ledger history, stacked by origin, a ring on a day whose write was later undone, and each mint with its judgment link and an `ontology.undo` button, theseus-dd3kw; the tree's origin and confidence columns and its origin filter, `?origin=`, from the first `ontology.category` row of each category, `originsOf` and `originFilter`: a match keeps its ancestors as dimmed context and `unknown` is an option, so no category is hidden from every filter, theseus-tq7s8; an add-a-kind form beside add-a-topic, `src/components/OntologyKindAdd.tsx` over `buildKindAdd` and `kindAddAsk` in `src/lib/ontokinds.ts`: it mirrors the daemon's checks of `ontology.kind.add`, and its confirm carries the exact params it sends, theseus-s430x; the Judgment view draws the ontology pack's line under its row, `ontoLine` over `ontoStatsOf` in `src/lib/ontostats.ts`: judgments, acts, confirms and undos counted from the ledger's `judge.call`, `onto.filed` and `ontology.undo` rows, theseus-wzvxp; the learning report's ontology block draws the same line for the report's day with the undo rate per kind: the line's counts are `ontoStatsOf(rows, { day })` from the ledger (theseus-0vhyn), the undo rate is the daemon's, the report's own `pack.undo` and `pack.undo_days` worded by `ontoKindWords` (one definition, `onto_undo::undo_rates`, theseus-ukmbn); the kind groups fold open and shut in `src/lib/groupfold.ts`, the reader's own set kept while a filter forces them all open, theseus-5kd37), `Context` (the context explorer, theseus-7n3e: what Theseus knows and what a turn sees), and `Books` (the imported episodes by their shelf, first cut: `books.list`, `books.page`, an episode's messages by `session.history`; its pure parts are `src/lib/books.ts`, theseus-civ0). **Shelf and book are two things** (the owner's ruling, 2026-11-14): a shelf is one of the sorted sets of imported conversations and exists today; a book is what Theseus will write from a shelf, planned for 3.0.0 (GitHub issue 19), and none exists. What a person reads says "shelf" and the Books view and the context page's note say which of the two they show (`FIRST_CUT` and `SHELVES_TODAY` in `books.ts`, tested by `test/shelves.test.ts`); the route `/books`, the RPC names and the identifiers keep the word "book". A session's memberships are in its deck's Context tab (`src/components/Memberships.tsx`), whose pulldown groups topics and people and searches both.
 - The Agenda (theseus-p17fd; horizon HZ9): its page moved whole into the Operations page's Timeline lens
   (`src/ops/TimelineLens.tsx`, theseus-jid7t.5; `/agenda` redirects there, `g d`; `?w=` the week, `?sel=` the selected mark). The first week strip (`src/components/WeekStrip.tsx`, which the lens's v2 replaced: seven local days by the hour; a dot a reminder, a ring a
   check-in, a tick a routine run, a ✓ ✗ – for a past one by outcome, ▷ a deferred task's start, a flag a milestone, a bar a
@@ -265,7 +300,7 @@ build.
   report's exact phrase, and the test holds each phrase to its report. A new report shows after the next install; a
   new harness table (another task set) is a row of `TASK_SETS`.
 - The context explorer (theseus-7n3e): `src/views/Context.tsx` (the holdings, the imported episodes over
-  `import.sessions` with their facets, topic tree, as-of months and an episode's messages, and the books' state) and
+  `import.sessions` with their facets, topic tree, as-of months and an episode's messages, and the shelves' state) and
   `src/components/ContextTurn.tsx` (a turn's context over `context.explain`: the request's parts with their tokens,
   said against the turn's compilation, and why each note was recalled; and asking the index, `memory.search`). Its
   pure parts are `src/lib/explorer.ts`, tested by `test/explorer.test.ts`. The Ship's vessel panel and the session
@@ -481,3 +516,15 @@ build.
   the shader file, not the cause.
 - **Never add a `/ws` proxy** (theseus-88im): it relays other pages and users to the daemon from your socket.
 - The first load after adding a dependency can fail while Vite re-optimizes ("Outdated Optimize Dep"). Load it again.
+
+## The simple Ops page: one work set, one key table (issue 17)
+
+`simple/ops/workset.ts` is the page's whole work set, the Operations page's own steps run once (`queueOf`, `boardRows`,
+`columnsOf`, `allCounters`, `spendToday`): never call them in `simple/Ops.tsx`. `test/simple-ops-parity.test.ts` runs the
+Ship's pipeline and this one over `test/simple-ops-fixtures.ts` and holds every number equal, each list as long as its
+counter (In flight lists the counted cards; a job is inside its card). Keys: `simple/ops/keys.ts` names which entries of
+`ops/keys.ts` work here (`SIMPLE_VERBS`) and resolves them by the Ship's rules; `useOpsKeys.ts` is the handler and the
+Keys dialog is `helpHere()`, the same table's overlay. A new entry in `ops/keys.ts` needs a verdict here: the keys test
+fails until it is in `SIMPLE_VERBS` with a handler, or left out on purpose. A project's plan, next steps and what it waits on
+(`simple/ops/Horizon.tsx` over `horizon.ts`, `project.show` and issue 13's `project.item.add` and `.close`) is a section of the
+Inspector, so both Operations pages draw the one component.

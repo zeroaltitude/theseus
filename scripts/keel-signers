@@ -1,6 +1,11 @@
-# The keel's signers (theseus-pw1q.1): the GPG fingerprints, one a line, whose signed commits may ack a keel
-# guard finding (scripts/keel-guard.py) with a `Keel: <rule> <path>[, <path>…] — <why>` trailer. The guard reads
-# this file at the range's base, never its head, so a branch cannot list its own key. Adding a key here is itself
-# a keel finding, which only a listed key's signed ack passes.
-# The owner's key is listed below (added at the join).
-7CA7E3202D474BBA01DAF25477592FB1C703882E
+# The keel's signers (theseus-pw1q.1; two classes since issue 15): the keys whose signed commits may ack a keel guard
+# finding (scripts/keel-guard.py) with a `Keel: <rule> <path>[, <path>…] — <why>` trailer. The guard reads this file
+# at the range's base, never its head, so a branch cannot list its own key. Changing it is itself a keel finding.
+#
+# One key a line, `<class> <kind> <key>`:
+#   routine  acks test-removed only (the owner, 2026-11-14): the key the agents who build this repository sign with.
+#   owner    acks every rule: the owner's own ssh key, held where only his approval on each request can use it, named
+#            here on his word of 2026-11-14. `owner none` in its place would mean no owner key, and nothing could sign
+#            his class.
+routine gpg 7CA7E3202D474BBA01DAF25477592FB1C703882E
+owner ssh ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJKJLnP38/9FKytUKXVuiXt2A4hwRfjT1UR7lUGmroy8

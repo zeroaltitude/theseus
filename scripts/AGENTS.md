@@ -121,6 +121,26 @@ including in a commit message, because it is stale by the next departure.
   answer to a file over the ceiling is to move depth out of it (`RELEASES.md` is the worked example); **raising
   `MAX_BYTES` is not a fix** -- it spends context on every session for every file. Run it by hand as
   `python3 scripts/context-ceiling.py` for the full headroom table.
+- `keel-ack.sh`, `tests/test_keel_ack.py` (issue 15): the owner's acknowledgement given from chat. He says yes in his
+  DM; the agent runs it with his words and the message id, and it writes one empty commit of `Keel:` trailers signed
+  with the OWNER key `keel-signers` names at main, so his own device signs. With `owner none` it writes nothing and
+  exits 3. An ssh owner key signs through `keel-ssh-sign.sh` (git's ssh program for that commit only): on WSL it hands
+  the signature to Windows' ssh-keygen, which reaches 1Password (Windows paths, files copied where Windows reads
+  them, the signature copied back); elsewhere plain `ssh-keygen`. Its tests use a fake Windows program only: never
+  run anything that reaches the owner's key, since an unexpected prompt on his screen is the alarm. An agent's own `test-removed` ack is an ordinary signed commit and needs none of this.
+- `main-tree-guard.sh`, `hooks/post-checkout`, `tests/test_main_tree_guard.py` (issue 15): keeps the main working
+  tree on `main`. `install`, run from the main working tree only (from a lane it would install that branch's hook),
+  copies the hook into the shared hooks directory, so a later checkout does not change what runs. The hook acts only
+  in the main working tree and puts a checkout that moved it straight back, failing that checkout; a bisect is left to
+  finish. Not covered: `reset`, `merge`, `checkout -B main <commit>`, and a rebase (`git rebase <upstream> <other
+  branch>` can end on that branch). Run by `setup.sh` step 3; `check` says whether it is installed and current.
+- `status-page.py`, `tests/test_status_page.py` (issue 15; theseus-fly32): the gate's **`status page`** phase, HARD.
+  `docs/status.md`'s first `_Updated` line has one shape (the script's docstring) and each part is read back: the
+  workspace version, the newest `release-*` tag reachable from HEAD with its commit and date, and the release's name.
+  Every reachable tag's own workspace version must be its version (`release-1.0.5`, tagged at 1.0.4, is the one
+  recorded exception). On a tagged commit the page may still name the tag before it. A clone with no tags checks the
+  version alone and says `skipped`. `--tag release-<version>`, run before tagging, refuses a tag name that is not the
+  workspace version. After a tag, the first join is red until the page names it.
 - `test-code-map.py`, `tests/test_test_code_map.py` (theseus-4vsrz): the map of what the compiler reads as test code, and
   two reports over it. **Membership comes from the declaration, never from a file's own text and never from a `tests_`-shaped
   path** — `#[cfg(test)] mod N;` resolved against the declaring file's module directory, an inline `mod N { .. }`'s
@@ -374,11 +394,12 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   `~/reports/theseus-105-kickoff/logistics/fleet-gate-door-fix.md`).
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
-  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. Only a
-  GPG key's signature counts: an ssh or x509 one is refused by name even where it verifies (an ssh signature verifies
-  against whatever `gpg.ssh.allowedSignersFile` the machine names, and its SHA256 fingerprint would match a listed
-  one; theseus-pw1q.18). At a
-  join the owner's signed merge commit carries the trailers in its message.
+  lines to fill in), and the key's class covers the rule: a `routine` key acks `test-removed` only, an `owner` key
+  every rule (issue 15). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. A
+  GPG signature is matched by fingerprint; an ssh one is verified against the list's own ssh keys only, never the
+  machine's `gpg.ssh.allowedSignersFile` (theseus-pw1q.18's reason for refusing ssh); an x509 one is refused. The
+  owner's key is an ssh key only his approval can use, so a join's merge commit, signed with the agents' key, carries
+  only `test-removed` trailers; any other is his, through `keel-ack.sh`.
 - **Moved and renamed tests** are matched, not proven the same: by name, then by body, then a test that went and one
   that came at least half alike (difflib over their words, a guess; the guard prints each pairing, how it was matched
   and a count). An assertion made a wait

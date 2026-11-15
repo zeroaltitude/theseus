@@ -7,14 +7,22 @@ range's net change, base tree against head tree, and names every erosion in it, 
     <path>:<line>: <rule>: <old> -> <new>
 
 A finding passes only when a commit in the range whose signature verifies against a key in the BASE's
-scripts/keel-signers carries a trailer for it:
+scripts/keel-signers carries a trailer for it, and that key's class covers the finding's rule:
 
     Keel: <rule> <path>[, <path>...] — <why>
+
+Two classes (issue 15, the owner's "yes to all!" of 2026-11-14 12:15 MST): a key listed `routine` acks
+`test-removed` only (ROUTINE); a key listed `owner` acks every rule. The list's lines are
+`routine gpg <fingerprint>`, `owner gpg <fingerprint>`, `owner ssh <key type> <base64 key> [comment]`, or
+`owner none`: the owner's place held for a key that does not exist yet, which nothing can sign with. A bare
+fingerprint, the list's older form, is an `owner gpg` key. An ssh signature is verified against the list's own ssh
+keys only, never the machine's allowed-signers file.
 
 (`--` or ` - ` may stand for the dash; a path may be a glob). A line whose rule is not one of the rules below, whose
 path holds a space, or that is no trailer (a `Keel:` line above the message's last paragraph, which git never reads)
 is refused, saying so. An unsigned commit's trailer counts for nothing, so a
-branch can't ack itself; nor does one signed with an ssh or x509 key, whatever it verifies against: GPG keys only. The signer list is read from the base, never the head, so a branch can't list its own key.
+branch can't ack itself; nor does one signed with an x509 key, or an ssh key the list does not name. The signer list
+is read from the base, never the head, so a branch can't list its own key.
 
 The range (`THESEUS_KEEL_BASE=<rev>` or `--base` overrides its base, and the gate finds it as below in its own shell,
 then passes it as `--base` to the base's copy of this script, so a branch's copy decides neither; `--head` names a commit to judge instead of the
@@ -109,6 +117,13 @@ The rules, by the name the report and the ack use:
                   (theseus-s1hgd; the owner's lock of 2026-10-22, and his word of 2026-11-07 that the rule means
                   exactly this). The trailer quotes his OK for that change. A golden added is no finding: nothing
                   locked is changed by a new file.
+  owner-reach     a change inside a function that decides who may act as the owner, or from where (OWNER_REACH: the
+                  place rule's owner checks and which places count as private, judge_act's match of acts, which
+                  surfaces and tools are the owner's alone with the AWS reads an agent may answer, a channel's privacy
+                  and a guild's trust), or that item gone from its file (issue 15, the owner's 5c). Whitespace alone
+                  is no finding. It sees an edit inside those items only: not a function they call (a change to
+                  `slug_of_place`, which class_alone asks, is no finding), and not a new caller that goes around
+                  them. Review owns those.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
@@ -121,11 +136,15 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter, defaultdict
 
 RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "allow-added", "budget-raised",
-         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file", "sealed-reach", "locked-flow")
+         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file", "sealed-reach", "locked-flow", "owner-reach")
+# The rules a `routine` key in scripts/keel-signers may ack: an agent's key (the owner, 2026-11-14 12:15 MST, Discord
+# message 1571242156927221841, answering "only 'a test was removed or replaced'"). Every other rule is the owner's.
+ROUTINE = ("test-removed",)
 # The first three are the guard itself; the rest are the sealed scorer's code, its runner and relay, and the exam set,
 # which `sealed::KEEL_PATHS` lists too (a Rust test holds the two lists together: theseus-pw1q.21.2).
 KEEL_FILES = (
@@ -1170,6 +1189,57 @@ BUDGETS = {
                                                  ("const", "CHANNEL_TOKENS"), ("const", "HEADLESS_TOKENS")],
 }
 
+# The functions (and the one constant, `const NAME`) that decide who may act as the owner, or from where (the
+# `owner-reach` rule, issue 15). A change inside one widens or narrows that, and either is the owner's to sign.
+OWNER_REACH = {
+    "crates/theseus-core/src/places.rs": ["owners", "owner_anywhere", "owner_in_private", "owner_in_person",
+                                          "owner_in_person_of", "class", "class_alone"],
+    "crates/theseus-core/src/rpc/confirms.rs": ["judge_act"],
+    "crates/theseus-core/src/approval.rs": ["unknown", "owners_alone", "const AWS_READS"],
+    "crates/theseus-discord/src/bindings.rs": ["is_private", "trusted"],
+}
+
+
+def owner_reach_items(path):
+    """(kind, name) for each item OWNER_REACH watches in `path`: `const NAME` is a constant, any other name a fn."""
+    return [tuple(n.split(" ", 1)) if n.startswith("const ") else ("fn", n) for n in OWNER_REACH[path]]
+
+
+def owner_reach_lines(src, kind, name):
+    """`rust_item_lines`, but a constant runs to the `;` outside brackets, so `[&str; 6] = [...]` is read whole."""
+    if kind != "const" or src is None:
+        return rust_item_lines(src, kind, name)
+    code = strip_rs_comments(src)
+    m = re.search(r"\bconst\s+" + name + r"\b", code)
+    if not m:
+        return []
+    depth, j = 0, m.end()
+    while j < len(code) and not (code[j] == ";" and depth == 0):
+        depth += {"[": 1, "(": 1, "{": 1, "]": -1, ")": -1, "}": -1}.get(code[j], 0)
+        j += 1
+    first = line_of(code, m.start())
+    return [(first + k, t) for k, t in enumerate(code[m.start():j + 1].split("\n"))]
+
+
+def owner_reach_rule(tree, path, out):
+    for kind, name in owner_reach_items(path):
+        old = owner_reach_lines(tree.old(path), kind, name)
+        if not old:
+            continue
+        new = owner_reach_lines(tree.new(path), kind, name)
+        if not new:
+            out.append(Finding("owner-reach", path, old[0][0], f"{kind} {name}", "(gone from this file)"))
+            continue
+        squeeze = lambda rows: [" ".join(t.split()) for _, t in rows if t.strip()]
+        a, b = squeeze(old), squeeze(new)
+        if a == b:
+            continue
+        at = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+        rows = [r for r in new if r[1].strip()]
+        line = rows[at][0] if at < len(rows) else rows[-1][0]
+        out.append(Finding("owner-reach", path, line, f"{kind} {name}: {a[at] if at < len(a) else '(end)'}",
+                           b[at] if at < len(b) else "(end)"))
+
 
 # One arm's head: `"a" | "b"`, an optional `if guard` (on the pattern's line or the next, as rustfmt breaks a long
 # one), then `=>`; or the fall-through `_ =>`. A head starts a line or follows the comma that ends an arm, so two arms on
@@ -1851,6 +1921,8 @@ def judge(tree, paths):
             keel_rule(tree, p, out)
         if locked_flow_path(p):
             locked_flow_rule(tree, p, out)
+        if p in OWNER_REACH:
+            owner_reach_rule(tree, p, out)
     sealed_reach_rule(tree, [p for p in paths if p.endswith(".rs")], out)
     return out
 
@@ -1860,19 +1932,68 @@ def judge(tree, paths):
 ACK = re.compile(r"^\s*(?P<rule>[\w-]+)\s+(?P<paths>.+?)\s+(?:—|--|-)\s+(?P<why>\S.*)$")
 
 
+class Signers:
+    """The base's scripts/keel-signers: GPG fingerprints and ssh keys, each with its class (`routine` or `owner`)."""
+
+    def __init__(self, src):
+        self.gpg, self.ssh, self.owner_placeholder = {}, [], False
+        for n, raw in enumerate((src or "").split("\n"), 1):
+            words = raw.split("#")[0].split()
+            if not words:
+                continue
+            if len(words) == 1:
+                words = ["owner", "gpg", words[0]]
+            cls, kind, key = (words + ["", ""])[0], (words + ["", ""])[1], words[2:]
+            if cls not in ("routine", "owner") or kind not in ("gpg", "ssh", "none"):
+                raise GuardError(f"{SIGNERS}:{n} at the base is not `<routine|owner> <gpg|ssh|none> <key>`: {raw!r}")
+            if kind == "none":
+                if cls != "owner":
+                    raise GuardError(f"{SIGNERS}:{n} at the base: only the owner's place may be held empty: {raw!r}")
+                self.owner_placeholder = True
+            elif kind == "gpg" and len(key) == 1:
+                self.gpg[key[0].upper()] = cls
+            elif kind == "ssh" and len(key) >= 2:
+                self.ssh.append((cls, key[0], key[1]))
+            else:
+                raise GuardError(f"{SIGNERS}:{n} at the base names no key: {raw!r}")
+        if self.owner_placeholder and self.owner_key():
+            raise GuardError(f"{SIGNERS} at the base holds both `owner none` and an owner key: delete `owner none`")
+
+    def __bool__(self):
+        return bool(self.gpg or self.ssh or self.owner_placeholder)
+
+    def owner_key(self):
+        return "owner" in self.gpg.values() or any(c == "owner" for c, _, _ in self.ssh)
+
+
 def signers(tree):
-    src = tree.old(SIGNERS) or ""
-    keys = set()
-    for raw in src.split("\n"):
-        s = raw.split("#")[0].strip().replace(" ", "").upper()
-        if s:
-            keys.add(s)
-    return keys
+    return Signers(tree.old(SIGNERS))
 
 
-# A signature's kind, from the armour in the commit's gpgsig header. The keel takes a GPG (OpenPGP) key's only
-# (theseus-pw1q.18): scripts/keel-signers lists GPG fingerprints, and an ssh signature verifies against whatever
-# gpg.ssh.allowedSignersFile the machine names, with its SHA256 fingerprint as %GF; an x509 one against gpgsm's keys.
+def covers(cls, rule):
+    return cls == "owner" or (cls == "routine" and rule in ROUTINE)
+
+
+def ssh_class(repo, sha, keys):
+    """The class of the listed ssh key that signed `sha`, verified against the list's own keys alone, or None."""
+    if not keys.ssh:
+        return None
+    fd, allowed = tempfile.mkstemp(prefix="keel-signers-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            for cls, typ, key in keys.ssh:
+                f.write(f"keel-{cls} {typ} {key}\n")
+        out = git(repo, "-c", f"gpg.ssh.allowedSignersFile={allowed}", "log", "-1", "--format=%G?%x00%GS", sha,
+                  check=False) or ""
+    finally:
+        os.unlink(allowed)
+    mark, _, who = out.strip("\n").partition("\0")
+    return who[len("keel-"):] if mark == "G" and who.startswith("keel-") else None
+
+
+# A signature's kind, from the armour in the commit's gpgsig header (theseus-pw1q.18). A GPG one is matched by its
+# fingerprint against the list's gpg keys; an ssh one is verified against the list's ssh keys only, never whatever
+# gpg.ssh.allowedSignersFile the machine names (issue 15); an x509 one is never taken.
 SIG_KINDS = {"PGP SIGNATURE": "gpg", "SSH SIGNATURE": "ssh", "SIGNED MESSAGE": "x509"}
 
 
@@ -1913,17 +2034,20 @@ def acks(repo, base, head_commit, keys):
         verdict = git(repo, "log", "-1", "--format=%G?%x00%GF%x00%GP", sha, check=False) or "N\0\0"
         mark, fpr, primary = (verdict.strip("\n").split("\0") + ["", ""])[:3]
         kind = signature_kind(repo, sha)
-        ok = kind == "gpg" and mark in ("G", "U") and keys and (fpr.upper() in keys or primary.upper() in keys)
+        cls = None
+        if kind == "gpg" and mark in ("G", "U"):
+            cls = keys.gpg.get(fpr.upper()) or keys.gpg.get(primary.upper())
+        elif kind == "ssh":
+            cls = ssh_class(repo, sha, keys)
         for x in lines:
             m = ACK.match(x)
             if not m:
                 refused.append((sha, x, "not of the form `<rule> <path>[, <path>…] — <why>`"))
                 continue
-            if not ok and kind not in (None, "gpg"):
-                refused.append((sha, x, f"an {kind} signature: the keel takes a GPG key's only ({SIGNERS} lists GPG "
-                                        "fingerprints)"))
+            if cls is None and kind not in (None, "gpg"):
+                refused.append((sha, x, f"an {kind} signature by a key {SIGNERS} does not list as ssh at the base"))
                 continue
-            if not ok:
+            if cls is None:
                 why = "unsigned" if mark == "N" else (
                     f"signed by {fpr or 'an unknown key'}, not a key in {SIGNERS} at the base" if mark in ("G", "U")
                     else f"its signature does not verify (%G? is {mark})")
@@ -1931,6 +2055,10 @@ def acks(repo, base, head_commit, keys):
                 continue
             if ack_fault(m):
                 refused.append((sha, x, ack_fault(m)))
+                continue
+            if not covers(cls, m.group("rule")):
+                refused.append((sha, x, f"signed by {fpr or 'a key'}, which {SIGNERS} lists for the routine class: "
+                                        f"it acks only {', '.join(ROUTINE)}, and `{m.group('rule')}` is the owner's"))
                 continue
             paths = [p.strip() for p in m.group("paths").split(",") if p.strip()]
             found.append((m.group("rule"), paths, sha))
@@ -1997,12 +2125,16 @@ def main(argv=None):
         if f.path not in groups[f.rule]:
             groups[f.rule].append(f.path)
     print("keel: each passes only with the owner's yes: a commit in the range, signed by a key in "
-          f"{SIGNERS} (at the base), whose message carries these trailers, each with its reason:")
+          f"{SIGNERS} (at the base) whose class covers the rule ({', '.join(ROUTINE)}: a routine or an owner key; "
+          "every other rule: an owner key), whose message carries these trailers, each with its reason:")
     for rule in RULES:
         if rule in groups:
             print(f"  Keel: {rule} {', '.join(groups[rule])} — <why>")
     if not keys:
         print(f"keel: {SIGNERS} lists no key at the base, so no ack can pass yet")
+    elif not keys.owner_key() and any(r not in ROUTINE for r in groups):
+        print(f"keel: {SIGNERS} at the base holds the owner's place with no key yet (`owner none`), so a finding of a "
+              "rule but " + ", ".join(ROUTINE) + " cannot pass until his key is listed")
     return 1
 
 

@@ -209,6 +209,18 @@ impl State {
             .cloned()
     }
 
+    /// The newest routed message of the place `home` (or of the thread session
+    /// `home` names) that is not `turn`'s: the one placed before the message
+    /// that is running now (`chat.move_to_thread`).
+    pub fn find_routed_before(&self, session: &str, turn: &str) -> Option<Routed> {
+        let g = lock(&self.recent);
+        g.routed
+            .iter()
+            .rev()
+            .find(|r| r.turn != turn && (r.home == session || r.session == session))
+            .cloned()
+    }
+
     /// The message has moved: it is no longer placed where it was.
     pub fn moved(&self, turn: &str) {
         lock(&self.recent).routed.retain(|r| r.turn != turn);

@@ -47,7 +47,7 @@ export default function Systems() {
         <Field label="name · version" mono>{h.name} {h.version} · protocol {h.protocol}</Field>
         <Field label="up" mono>{uptime(h.uptime_secs + (now - dataUpdatedAt) / 1000)}</Field>
         <Field label="sessions · turns" mono>{h.sessions} · {h.turns}</Field>
-        {importedWords(h) && <Field label="imported sessions" mono>{importedWords(h)} · <Link to="/books" className="hover:text-live">the books →</Link></Field>}
+        {importedWords(h) && <Field label="imported sessions" mono>{importedWords(h)} · <Link to="/books" className="hover:text-live">the shelves →</Link></Field>}
         {syncWords(h, (ms) => new Date(ms).toLocaleString()) && (() => {
           const w = syncWords(h, (ms) => new Date(ms).toLocaleString())!
           return <Field label="OpenClaw sync" mono>{w.line}{w.warn && <div className="mt-1 text-fault">⚠ {w.warn}</div>}</Field>

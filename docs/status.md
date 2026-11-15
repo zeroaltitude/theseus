@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-11-13 21:3x MST. Version 1.0.5 (v1 patch5), tagged `release-1.0.5` at `72af5c3f` on 2026-11-12; the design document is at v0.92. 1.0.6 is being built now: the workspace version is 1.0.6 and it is not yet tagged. Next is v1 patch6._
+_Updated 2026-11-14 11:5x MST. Workspace version 1.0.6; newest release tag `release-1.0.6` (v1 patch6) at `b8b403b7`, 2026-11-14. The design document is at v0.92._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -18,6 +18,42 @@ This page changes with every step that lands. The [README](../README.md) stays t
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1 patch6: it asks before it does the one thing it cannot undo
+
+**v1 patch6 (version 1.0.6)**, tagged `release-1.0.6` on 2026-11-14. **The headline is the reversibility
+classifier.** Before a tool call runs, the model is asked whether it can be undone, and a call that cannot be, and
+that would be reshaped rather than refused, is held and put to the person instead. Most of the release is the facts
+behind that question: whether a file is under version control, whether a copy of its bytes is already held, whether a
+path is something a build makes and remakes. Where the code knows a call's whole effect (a plain file write or edit)
+and nothing holds a copy, the call is held whatever the model answers; a hold always offers the way to say "go
+ahead".
+
+Also in it: a warning about untrusted content follows the content (a task made by a flagged session starts flagged);
+acting on what a person asks for in chat is done by tools the model calls, never by matching words; a request to
+re-import outside work runs the import at once; tool activity in chat is small and grey; the daemon starts from a
+socket and reports readiness to its supervisor; a model switch keeps reasoning the provider would have kept.
+
+**Named rather than discovered later:** a test family in the chat gateway still fails under full-suite load and
+passes alone, and is deliberately not on the flaky list, because one of its tests asserts an access-control rule;
+the keel's signature rule binds the self-improvement loop, while for the project's own agents, who sign with the
+owner's key, the rule that an agent never acknowledges the serious classes is still policy (two keys are 1.0.7's
+work); the self-improvement loop is paused by the owner's decision; the benchmarks stay parked.
+
+Next is **v1 patch7**.
+
+## v1 patch5: it builds, gates and lands its own change
+
+**v1 patch5 (version 1.0.5)**, tagged `release-1.0.5` on 2026-11-12. **The self-improvement loop made its first
+unattended merge to `main`:** it found a real defect (`fs.edit` refused an edit whose old and new text were equal; it
+now answers "No change made"), built the fix in its own sandbox view, passed main's gate there, was reviewed by a
+different model, and joined under the join lock. Also in it: commits on `main` carry a signature the forge verifies;
+a repository's own instruction files are found, budgeted and placed, and enter a prompt only for a repository the
+owner has trusted; the nightly import has a deadline that cannot race the host's clock.
+
+**Named rather than discovered later:** the self-made merge's two commits are not verified by the forge; this
+release was tagged on a tree whose workspace version still said 1.0.4, so its binaries print `1.0.4` (the status
+page check, added in 1.0.7, now catches that at the next tag).
 
 ## v1 patch4: Jev chooses the model, and the approve lists go
 
@@ -53,8 +89,6 @@ hidden**: `W33`, the half of the owner's stalled-task ruling that should bump to
 (its twin `W44`, which should stay, passes); `W15`, which answers Haiku where Sonnet is wanted; and `W28`, a Flash
 case lost because the state names only the single cheapest model, so Flash disappears from view between about 40K
 and 100K tokens while still being cheaper than staying.
-
-Next is **v1 patch5**.
 
 ## v1 patch3: trust, privacy and content
 
@@ -535,7 +569,7 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   October 3: the Ontology view and a session's memberships (Item 111), the Judgment section, the
   task graph, the Budgets, Ledger and Policy tabs, the Extensions card, and a plain page where WebGL is missing (Item
   135). New since October 7: the Context page, what Theseus knows and what a turn sees (theseus-7n3e): the imported
-  episodes filtered, counted by facet and opened to their messages (`import.sessions`), their topics and book hints,
+  episodes filtered, counted by facet and opened to their messages (`import.sessions`), their topics and shelves (the sorted sets the import made),
   asking the index, and a turn's request part by part with its tokens and why each note was recalled
   (`context.explain`), from any ship or bench.
 - **The ontology, wired in:** categories, guidance and memberships as records, which every compile walks (Item
@@ -723,7 +757,7 @@ before it joins.
 | **C. M4, boundaries** | The sandbox wired into `proc.run`, egress, credentials at launch, private and shared places, integrity, the ontology, the job host | Done for v1. L1, cancellation verified per backend, egress, credentials at launch, the place rule, integrity's light pieces and the sandbox's trims landed on October 2 and 3; the trusted guild and 18e on October 3's evening; the ontology wired in (21b) and its cockpit view (21c) on October 4. The job host (22b) moves after v1. |
 | **D. AWS** | The bound account, its stacks and budget, curated tools, the durability tender, restore from S3, hands on Lambda and Fargate | Built. The bound account (C1) and its stacks and writes (C2) by October 3; on October 4 the curated tools (C3), the durability tender (15), restore from S3 (16), and the hands (step 40, both parts, and their network), installed at 14:09; runaway mode at 20:00; fixes to the tender, restore and runaway mode on October 5, and the S3 backup on the operator's daemon from October 6 (install #6); every credential mint held to a reviewed decision that night. The hands' stack and their live checks on the account wait for the operator, and the AWS tools' tree is decided, to build. |
 | **E. M5, judgment** | Jev wired in: the loop's stopping point, the gate's safety call, roles, continuation, all in shadow and then under canary | Built, from October 4: the wire-in (23a), its surfaces (23b), the security check and its live notices (24), inbound class and role (25a), continuation (25b), the learning ledger (25c), replay (25d), routing (25e, live), the ladder (26a), the task arrangement (27), independent checks (28a), topics (28b), L3's proof (row 50) and the learning loop; on October 5 and 6, fixes to replay, the judgment log and the learning rules, the judge's sink between turns and a learned version's promotion, and route.v1's own request to Jev. Left: JUDGE_STOP for tasks under canary (26b) and the roles table under canary (26c). |
-| **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and books | Built, from October 4: recall in shadow (30a), then live in front of the model (30b), compaction (30c), the exam's arms (34b), the memory pass (31a), consolidation (31b), retention (32a), activation (32b), Jev's rerank, in shadow and then live (32c, 32d), tiering (33), and situations (35a), enforced from October 5; the importer for the operator's earlier history on October 6, and the import itself that evening, with the lists and health that step over it. Left: lessons (35b). |
+| **F. M6, memory** | Recall in turns, the memory pass, retention and activation as measured arms, tiering, and shelves (written books are planned for 3.0.0, not built) | Built, from October 4: recall in shadow (30a), then live in front of the model (30b), compaction (30c), the exam's arms (34b), the memory pass (31a), consolidation (31b), retention (32a), activation (32b), Jev's rerank, in shadow and then live (32c, 32d), tiering (33), and situations (35a), enforced from October 5; the importer for the operator's earlier history on October 6, and the import itself that evening, with the lists and health that step over it. Left: lessons (35b). |
 | **G. M7, surface** | MCP in turns, repeating schedules, many-server bindings, the task board, budget and policy views, self-proposed extensions, voice | Built, from October 3: repeating wakes (37a) and voice (rows 77 and 78); on October 4 and 5, MCP tools and prompts (36b, 36c), tasks that set wakes (37b), bindings' second format (38a), gliding (38b), the task record and board (39a, 39b), the MCP server (41b), budgets and policy (42a) and their tabs (42b), and self-proposed extensions (43a, 43b); on October 5 and 6, history pages, Discord's bindings read live, and voice's held barge-in and echoes; on October 6 and 7, voice that is told what was heard and notices a deaf call, and the cockpit's rethink (its phase 2's four lanes). |
 
 **After v1:** [the v1.1 roadmap](design/roadmap-v1.1.md) plans the week that follows, about 60 agent-hours: the

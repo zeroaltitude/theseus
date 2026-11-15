@@ -85,6 +85,15 @@ A lane is local work beside the spine:
   `CARGO_BUILD_JOBS=4` and `NEXTEST_TEST_THREADS=4`. A lane that touches the start path also runs the lifecycle bench
   once before its join: alone, at normal priority, with the result quoted.
 
+**The main working tree stays on `main`.** Work on, test or review another commit in a worktree of your own; read
+one with `git show <commit>:<path>`. `scripts/main-tree-guard.sh install` (run by `scripts/setup.sh`) installs a hook
+that puts the main tree straight back on `main` when a checkout moves it, and fails that checkout (issue 15). No hook
+fires for `git reset` or `git merge`, so the guard does not cover them: in the main tree they are for the join's
+fast-forward and reset of `main` and the install's fast-forward, never for looking at another commit. A bisect there
+is left to finish. Not covered either: `git checkout -B main <commit>`, which moves `main` itself, and a rebase: one of
+`main` ends on `main`, but `git rebase <upstream> <other branch>` can end on that branch, and with git's default
+backend nothing the hook says during a rebase is shown.
+
 A lane pushes only its own branch. The machine has room for only a few compiling trees at once. Each tree is many
 gigabytes, and the whole machine slows past three concurrent compiles. So a build starts only when a capacity check
 says there is room, and idle lanes are closed rather than kept.
@@ -167,6 +176,7 @@ The phases run in this order, and the first failure stops the gate:
 | `keel`, `keel tests` | no | No test, budget, cap or ceiling deleted or loosened without the owner's signed ack ([The keel](#the-keel)) |
 | `fmt` | no | `cargo fmt --all -- --check` |
 | `shape` | no | No Rust file over 2,500 lines unless listed with a ceiling |
+| `status page` | no | `docs/status.md`'s version line names the workspace version and the newest release tag, and each tag's tree holds its own version (`scripts/status-page.py`) |
 | `features` | no | The shipped binaries, built alone, get the same features as in the workspace |
 | `clippy` | no | `-D warnings` over the workspace, which also holds the function budget |
 | cockpit | no | `npm run lint`, `npm test`, `npm run build` |
@@ -218,6 +228,7 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `keel-file` | The guard itself, its test suite, the gate's door, or a gate phase removed |
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
 | `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
+| `owner-reach` | A change inside a function that decides who may act as the owner, or from where (the place rule's owner checks and which places count as private, `judge_act`, which surfaces and tools are the owner's alone and the free AWS reads an agent may answer, a channel's privacy, a guild's trust), or one of them gone from its file. It reads inside those items only: a function they call, or a new caller that goes around them, is review's to catch |
 
 **Two halves, and a brief must say which it means.** The table above mixes them, and the confusion
 has cost a gate twice.
@@ -244,29 +255,41 @@ guard's own remedy text asks for there would be a false statement that the owner
 exists, and that is never written.
 
 - **The ack.** A finding passes only when a commit in the range carries a trailer
-  `Keel: <rule> <path>[, <path>…] — <why>`, and that commit is signed with a GPG key listed in `scripts/keel-signers`.
+  `Keel: <rule> <path>[, <path>…] — <why>`, signed by a key listed in `scripts/keel-signers` whose class covers
+  the rule.
   - The list is read as it is at the base, so a branch cannot list its own key.
-  - An unsigned trailer, or one signed by any other key, counts for nothing.
+  - An unsigned trailer, or one signed by a key the list does not name, counts for nothing. An ssh signature is
+    checked against the list's own ssh keys, never the machine's allowed-signers file.
   - `python3 scripts/keel-guard.py --base <main> --head HEAD --quiet` prints the exact lines to fill in.
-- **What the list enforces, and what it does not.** It holds one key, the owner's, and against Theseus itself
-  that is a real cryptographic gate: the self-improvement loop signs with the key `user.signingkey` names in
-  `[self] repo` (`crates/theseus-core/src/rsi/tree.rs`), and **so long as that key is not the one listed here —
-  which nothing in this repository enforces or tests — a self branch cannot ack its own finding**. Independently
-  of any key, a change that touches a keel **path class** stops at the owner's card, and nothing a branch writes
-  clears a path class (`crates/theseus-core/src/rsi/join/keel.rs`). Against the agents that build this
-  repository it enforces nothing, because they sign with the owner's own key and the guard would accept an ack
-  from any of them; there the control is policy rather than cryptography — the brief that authorises the change,
-  his yes quoted in the trailer's reason, and an independent review that reads both. Read neither half as the
-  other: no rule is exempt from the ack, there is no never-ack list, and `keel-file` is owner-ackable like every
-  other rule; and policy held by briefs and review is a weaker control than a key, but it is not an absent one.
-- **Only on the owner's explicit yes.** An agent writes a `Keel:` trailer only after the owner has said yes to that
-  specific erosion, and quotes the yes in the trailer's reason.
+- **Two classes of key (issue 15; the owner's "yes to all!", 2026-11-14 12:15 MST).**
+  - **`routine`**, the key the agents who build this repository sign with, acks `test-removed` only: a test removed
+    or replaced, which review checks anyway.
+  - **`owner`** acks every rule. His key is an ssh key held by 1Password on his own desktop, which asks him to approve
+    each signature, in a vault the agents cannot read (named in the list on his word, 2026-11-14). He gives the
+    signature from chat: he says yes in his DM, the agent runs `scripts/keel-ack.sh`, and his approval signs. So every
+    ack but `test-removed` now needs that prompt on his screen; a prompt he did not expect is the alarm.
+  - **Signing from WSL.** Linux `ssh-keygen` inside WSL does not reach 1Password; `scripts/keel-ssh-sign.sh`, which
+    `keel-ack.sh` passes as git's ssh program for that one commit, hands the signature to Windows' own ssh-keygen.
+    The machine needs 1Password's ssh agent on, Windows' "OpenSSH Authentication Agent" service stopped, and Windows
+    OpenSSH at `C:\Windows\System32\OpenSSH`. Elsewhere it is plain `ssh-keygen` and the operator's own agent.
+  - **`owner none`** in the list means no owner key: nothing can sign his class. The guard keeps that reading, and
+    refuses `owner none` beside an owner key.
+- **What the classes enforce, and what they do not.** Against the agents that build this repository, the
+  restriction to `test-removed` is now the key's, not only the brief's. Against Theseus itself, the self-improvement
+  loop signs with the key `user.signingkey` names in `[self] repo` (`crates/theseus-core/src/rsi/tree.rs`); if that
+  is the agents' key, a self branch can ack `test-removed` and nothing else, and independently of any key, a change
+  that touches a keel **path class** stops at the owner's card (`crates/theseus-core/src/rsi/join/keel.rs`). No rule
+  is exempt from the ack; every rule is the owner's to sign.
+- **Who writes a `Keel:` trailer.** A `test-removed` ack is the agents' own: the owner allowed "a test was removed
+  or replaced" without him (2026-11-14). An agent writes it, signed with the agents' key, says why in its report, and
+  review checks it. Every other ack is the owner's: written only after he has said yes to that specific erosion,
+  quoting the yes in the trailer's reason, and signed with his key (`scripts/keel-ack.sh`).
   - A vendored crate's `allow` is still `allow-added`.
   - Any edit to the guard is still `keel-file`, even one that tightens it.
   - Without a yes, avoid the finding: restore the test rather than ask for an ack to remove it.
-- **What "his yes" has to be before an agent may write the trailer: all five, or none.** The bullet above states
-  the rule; this is the test that applies it when the hand on the keyboard is an agent. An agent may ack a finding
-  only when every one of these holds, and one failure means stop and report rather than ack:
+- **What "his yes" has to be before an agent may prepare a trailer of his class: all five, or none.** The bullet
+  above states the rule; this is the test that applies it when the hand on the keyboard is an agent. An agent may
+  prepare such an ack only when every one of these holds, and one failure means stop and report rather than ack:
   1. **A specific, dated, quotable owner utterance already in the record** — not an inference, not a stated
      default, not a prior agent's recommendation, not an assent to a bundle that happened to contain it.
   2. **It covers exactly the bytes that move.** Nothing is acked by generalising from it.
@@ -275,14 +298,13 @@ exists, and that is never written.
   4. **The trailer quotes the utterance verbatim, with a dereferenceable id, and names every moving path.**
   5. **The ack is declared, never silent.** The agent's report says that it acked, which finding, why, and hands
      the ratification up. A silent ack is a violation even when the other four hold.
-- **The hard negative, whatever the agent believes the owner said.** No rule is exempt from the ack and the guard
-  keeps no never-ack list; that is true of the guard and true of the owner, and it is not true of an agent. An
-  agent never acks `keel-file`, `cap-raised`, `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a
-  key to `scripts/keel-signers`.
-  Those change what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them.
-  `locked-flow` on a golden that his own ruling necessarily moves is the one class an agent clears this way.
-  **This is a bound on the agent, not on the rule:** the guard accepts an owner-signed ack of any rule, so the
-  restriction holds exactly as far as the agent observes it, and not one step further.
+- **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`, `cap-raised`,
+  `ceiling-raised`, `ci-loosened`, `sealed-reach` or `owner-reach`, and never adds a key to `scripts/keel-signers`:
+  those change what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them,
+  unless he says in words that an agent may do that one thing, and the commit quotes it (2026-11-14: "an agent may
+  sign this one", for the two-keys change's acknowledgement; "Yes that sounds good", for naming his key). Since the
+  two classes, the guard holds the agents' key to `test-removed` whatever an agent does; where a branch is judged by a
+  base whose list is older (one key, the agents', listed for everything), the bound is this sentence alone.
 - **The base's guard judges.** The gate runs the base's copy of the guard, never the branch's.
 - **The door.** A branch's `gate.sh` could drop the keel phase and then judge itself with its weakened copy. So when a
   tree's `gate.sh` differs from `main`'s, `main`'s copy runs first. A caller that trusts nothing in the tree (a join,
@@ -446,6 +468,10 @@ under `build.sh`, and "glibc or static musl").
 - **Tags** are signed and annotated, and name the version: `release-1.0.0` for v1, then `release-1.0.1` for v1 patch1,
   `release-1.0.2` for v1 patch2. GitHub lists them under Tags. The workspace version moves with them. The versioned
   binaries are kept with the commit and their sha256 checksums.
+- **The status page names the release before the tag.** The cut commit's `docs/status.md` line names the workspace
+  version and the newest tag as they are when it is written. Before tagging, `python3 scripts/status-page.py --tag
+  release-<version>` refuses a tag name that is not the tree's workspace version. After a tag, the `status page` phase
+  fails every gate whose page does not name it, and every gate at all if a tag's tree holds another version.
 - **Run `scripts/repro.sh`** before a release, after a toolchain bump, and after a dependency gains a build script.
 - **The cut's docs**: the spec's version line, `status.md`, the README's numbers from the cut's benchmark reports, and
   the omnibus of benchmarks.

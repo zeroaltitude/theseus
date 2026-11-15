@@ -1623,6 +1623,11 @@ phase shape scripts/shape.sh
 # considered and rejected: a printed warning is exactly what that file's own "wc -c this file before you add
 # to it" header already was, and it went stale two commits after it was written.
 phase "context ceiling" python3 scripts/context-ceiling.py --quiet
+# The status page's first line, read back against the tree (issue 15; theseus-fly32): the workspace version, the
+# newest release tag and its commit, and every reachable tag's own workspace version, which is what its binaries
+# print. HARD: the page shipped two releases stale inside a tagged release because nothing read it, and one release
+# was tagged on the version before it. A clone with no release tags checks the version alone and says it skipped.
+phase "status page" ran_or_skipped python3 scripts/status-page.py
 # The two warning phases, between the file ceiling above and clippy's function ceiling below, and before the
 # compiles so that a branch which reddens clippy's `too_many_lines` already has the near-ceiling list above the
 # failure. Neither can fail the gate (their own comments say why).

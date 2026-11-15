@@ -45,6 +45,8 @@ mod tests_recall;
 #[cfg(test)]
 pub(crate) mod tests_resumed;
 #[cfg(test)]
+mod tests_sandbox;
+#[cfg(test)]
 mod tests_tools;
 #[cfg(test)]
 mod tests_voice;
@@ -309,6 +311,26 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .cancel(backend, state);
+    }
+
+    /// An L1 job's start, from the spawn to the command's exec (theseus-zupk),
+    /// by class. Only L1 measures it, so `class` is `l1` for now.
+    pub fn record_job_start(&self, class: &str, ms: f64) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .job_start(class, ms);
+    }
+
+    /// An L1 job that reached `limit` (theseus-zupk), by the limit's key in
+    /// `[sandbox]`.
+    pub fn record_sandbox_limit(&self, limit: &str) {
+        let Some(s) = self.shared() else { return };
+        s.metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sandbox_limit(limit);
     }
 
     /// A tool family's use in a turn (theseus-7m7w.2), by event, place kind

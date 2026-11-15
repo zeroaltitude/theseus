@@ -955,3 +955,50 @@ async fn a_loosened_call_keeps_its_outside_roots_label() {
         d.reason
     );
 }
+
+/// How many times the scripted model asks for the same refused call: more than
+/// the repeat cap, so a turn the cap did not end has loops to spare.
+const REPLANS: usize = 14;
+
+/// **A call a mode refuses is a call that never ran** (theseus-n88g, issue 13):
+/// a model that answers plan mode's refusal by asking for the identical write
+/// again ends the turn at the repeat cap, in single-digit loops, and not at the
+/// end of its script or the spend stop. Measured first: the refusal was written
+/// as `Error`, which counts as a call that ran and failed, so the cap never saw
+/// it and every loop got the same result again.
+#[tokio::test]
+async fn a_model_that_keeps_re_asking_for_a_call_plan_mode_refused_ends_the_turn() {
+    let r = rig(vec![]);
+    {
+        let mut script = r.fake.script.lock().unwrap();
+        script.extend((0..REPLANS).map(|i| {
+            Scripted::tools(
+                "I'll write it.",
+                &[(&format!("w{}", i + 1), "fs_write", write_in(&r, "a.txt"))],
+            )
+        }));
+        script.push_back(Scripted::text("Done."));
+    }
+    let sid = new_session(&r);
+    put(&r, &sid, SessionMode::Plan);
+    let res = turn(&r.core, Some(&sid), "write it").await;
+
+    assert_eq!(
+        res.stop_reason,
+        crate::turn::repeat_step::REPEATING,
+        "{res:?}"
+    );
+    assert_eq!(res.loops, crate::turn::repeat_step::MAX_REPEATS, "{res:?}");
+    assert!(!r.root.join("a.txt").exists(), "the call never ran");
+    // The field the cap reads: each result says the call never ran, and the
+    // words the model reads are the refusal's own.
+    let answers = results(&r.core, &sid);
+    assert_eq!(answers.len() as u32, crate::turn::repeat_step::MAX_REPEATS);
+    for (status, text) in &answers {
+        assert_eq!(*status, crate::node::ResultStatus::Declined, "{text}");
+        assert!(
+            text.starts_with("Not run: plan mode: read-only; present the plan with plan_present"),
+            "{text}"
+        );
+    }
+}

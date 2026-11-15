@@ -546,7 +546,7 @@ pub fn default_registry() -> Registry {
     r.register(Arc::new(text::Diff));
     r.register(Arc::new(git::Diff));
     r.register(Arc::new(git::Log));
-    r.register(Arc::new(proc::Run));
+    r.register(Arc::new(proc::Run::default()));
     for t in jobs::all() {
         r.register(t);
     }

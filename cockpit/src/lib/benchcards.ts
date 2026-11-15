@@ -91,12 +91,12 @@ const BENCH_NAMES: Record<string, string> = {
   'terminal-bench': 'Terminal-Bench', 'terminal-bench@2.0': 'Terminal-Bench 2.0', harbor: 'Harbor',
   'gate-bench': 'Gate bench', 'memory-exam': 'Memory exam', retrieval: 'Retrieval', recall: 'Recall', async: 'Async', context: 'Context',
   'bughunt-rs': 'Bug Hunt RS',
-  h2h: 'Head to head', f10: 'The first ten minutes', 'swe-bench': 'SWE-bench',
+  h2h: 'Head to head', f10: 'The first ten minutes', 'swe-bench': 'SWE-bench', threadbench: 'Thread bench',
 }
 const nameOf = (b: string) => BENCH_NAMES[b] ?? b
 
 /** The suite a manifest benchmark name belongs to (`terminal-bench@2.0` → `terminal-bench`). */
-const suiteOf = (benchmark: string) => benchmark.replace(/@.*$/, '')
+export const suiteOf = (benchmark: string) => benchmark.replace(/@.*$/, '')
 
 export const githubUrl = (report: string, reports: readonly string[]): string | null => (reports.includes(report) ? `${GITHUB_DOCS}${report}.md` : null)
 const heldOr = (report: string, reports: readonly string[]) => (reports.includes(report) ? report : null)

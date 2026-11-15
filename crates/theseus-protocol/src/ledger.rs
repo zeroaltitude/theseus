@@ -262,6 +262,7 @@ ledger_kinds! {
     RequestRedacted = "request.redacted",
     SandboxEgress = "sandbox.egress",
     SandboxEgressRefused = "sandbox.egress_refused",
+    SandboxLimitHit = "sandbox.limit_hit",
     SandboxStarted = "sandbox.started",
     SecretGranted = "secret.granted",
     SecretWithheld = "secret.withheld",

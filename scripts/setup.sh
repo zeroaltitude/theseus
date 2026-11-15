@@ -7,9 +7,11 @@
 #   2. build      the cockpit (npm ci, npm run build: the web UI the daemon embeds), then the five binaries (four are installed)
 #                 (scripts/build.sh --profile release, the install profile: the host's glibc).
 #   3. install    each binary into the prefix (default ~/.local/bin) by copy-then-rename, so a running daemon
-#                 keeps its image until it restarts. A binary that matches the build is left alone.
+#                 keeps its image until it restarts. A binary that matches the build is left alone. In a git
+#                 checkout, also the main-tree guard (scripts/main-tree-guard.sh), which keeps the main working
+#                 tree on `main`.
 #   4. config     /etc/theseus/theseus.toml (or --config): when there is none, the template cut to what differs
-#                 from the defaults (`theseusd example-config`, then `config --sparse`), every [secrets] entry an
+#                 from the defaults (`theseusd example-config --for-this-host`, then `config --sparse`), every [secrets] entry an
 #                 op:// placeholder for you to fill in, never a value. /etc/theseus is made once with sudo, owned
 #                 by you, 0750, and the file 0640, so nothing later needs sudo. An existing config is never
 #                 overwritten: the run says which keys differ from the template instead. A new config also asks
@@ -495,13 +497,27 @@ else
   ok "installed $CHANGED_BINS ($same already matched): $("$PREFIX/theseusd" --version 2>/dev/null)"
 fi
 THESEUSD=$PREFIX/theseusd
+# The main working tree stays on `main` (issue 15): installs build from it, and agents once checked it out onto a
+# builder's commit twice in an evening. A hook of someone else's in the way is said, never replaced.
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  if dry; then
+    show "$ROOT/scripts/main-tree-guard.sh" install
+  elif guard=$("$ROOT/scripts/main-tree-guard.sh" install); then
+    ok "$guard"
+  else
+    warn "$guard"
+  fi
+fi
 
 # ===================================================================================================
 step "4. config: $CONFIG"
 # The template, cut to what differs from the defaults, with the operator's projects dir: what a new config is,
 # and what an existing one is compared with. Every [secrets] entry is an op:// placeholder: asserted.
+# The template is the one for this host: the sandbox is the default only where its self-test runs a job here, and
+# the line that says which, and why, goes into the header. An existing config is compared with the same template, so
+# a config this script wrote is never reported as differing from the one it was written from.
 cut_template() { # cut_template DIR: writes DIR/template.toml, DIR/config.toml
-  "$THESEUSD" example-config >"$1/template.toml" &&
+  "$THESEUSD" example-config --for-this-host >"$1/template.toml" 2>"$1/host.err" &&
     env -u OP_SERVICE_ACCOUNT_TOKEN -u THESEUS_OP_TOKEN_FILE "$THESEUSD" --config "$1/template.toml" config --sparse \
       >"$1/sparse.toml" 2>"$1/sparse.err" || {
     say "the template did not cut: $(tail -n 3 "$1/sparse.err" | mask)"
@@ -513,6 +529,7 @@ cut_template() { # cut_template DIR: writes DIR/template.toml, DIR/config.toml
     echo "# every key. Each [secrets] entry is an op:// reference, never a value: put your own vault's in place of"
     echo "# each placeholder (op://<vault>/<item>/<field>), or, for a service you don't use, delete its line and turn"
     echo "# that part off in its own table (for Discord, [discord] enabled = false)."
+    grep '^L1, the sandbox' "$1/host.err" | sed 's/^/# /'
     awk '
       /^\[/ { intools = ($0 == "[tools]") }
       intools && /^projects_dir[[:space:]]*=/ { print "projects_dir = \"~/projects\""; next }
@@ -603,8 +620,9 @@ else
     fi
   fi
   if dry; then
-    show "$THESEUSD" example-config
+    show "$THESEUSD" example-config --for-this-host
     show "$THESEUSD" --config TEMPLATE config --sparse
+    note "the sandbox is the default (default = \"l1\") only where its self-test runs a job on this host, and l0 with the reason otherwise"
     note "the template cut to what differs from the defaults, [tools] projects_dir set to ~/projects, a header"
     note "asserted before anything is written: every [secrets] entry is an op:// placeholder, and no token-like text"
     note "then, on a terminal and without --yes, one question: the Jev key's reference (op:// or env:NAME, never the value)"
@@ -613,6 +631,7 @@ else
     work=$(mktemp -d)
     trap 'rm -rf "$work"' EXIT
     cut_template "$work" || stop_here 1 "Not set up: the config was not written (above)."
+    info "sandbox: $(grep '^L1, the sandbox' "$work/host.err" || echo 'the template did not say whether L1 runs here; the default stays l0')"
     jev=$(jev_key_answer) || jev=""
     case $jev in
     "") info "Jev: not asked. The config keeps its jev_api_key placeholder, so the judge stays off until you put the key's reference there (or pass --jev-key)" ;;

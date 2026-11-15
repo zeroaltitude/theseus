@@ -1289,13 +1289,42 @@ async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follow
         .contains("already ran in security-fix"));
 }
 
-/// The owner's words "that was for the security fix" are a move, whose answer
-/// is the turn that ran the message again; before any message was placed they
-/// are a message like another.
+/// **The owner's words "that was for the security fix" move nothing on their
+/// own; a model that chooses to call `chat.move_to_thread` moves the message
+/// the router placed, once, and the same `thread.moved` row is written**
+/// (issue 13; the owner's ruling of 2026-11-14 11:37). The successor of
+/// `words_that_a_message_was_for_another_thread_move_it`, which asserted that
+/// the words moved the message before any turn ran.
+///
+/// The model's script: a reply to each message, and, to the correcting one, a
+/// call of the tool and a line saying it is moving. The move runs when that
+/// turn ends: the note in the wrong thread, the one `thread.moved` row, the
+/// message run again once in the right thread, and the correcting message left
+/// where it was routed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn words_that_a_message_was_for_another_thread_move_it() {
+async fn a_model_that_calls_the_move_tool_moves_the_placed_message_and_the_bare_words_move_nothing()
+{
     let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 8);
+    let script = vec![
+        Scripted::text("Done: the words."),
+        Scripted::text("Done: the keys."),
+        Scripted::tools(
+            "",
+            &[("mv1", "chat_move_to_thread", json!({"to": "security-fix"}))],
+        ),
+        Scripted::text("Moving it to the security fix."),
+        Scripted::text("Done: rotated."),
+        Scripted::text("Done: the other words."),
+        Scripted::text("Done: spare."),
+    ];
+    let r = rig_on(script, Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.places.owner = Some(vec![
+            format!("discord:{OWNER}"),
+            format!("discord:{OWNER2}"),
+        ]);
+    });
     let c = &r.core;
     two_threads(c);
     let dm = home(c, None);
@@ -1308,18 +1337,137 @@ async fn words_that_a_message_was_for_another_thread_move_it() {
     thread_answer(&jev, "pr-round", 0.75);
     let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
     assert_eq!(wrong.session_id, session_of(c, "pr-round"));
-    let moved = submit(c, &dm, "No, that was for the security fix.").await;
-    assert_eq!(moved.session_id, session_of(c, "security-fix"));
-    let t = tag(&moved);
+
+    // The correcting message: the model chooses to call the tool.
+    let said = submit(c, &dm, "No, that was for the security fix.").await;
+    assert_eq!(said.session_id, session_of(c, "pr-round"), "{said:?}");
+    let moved = rows(c, "thread.moved");
+    assert_eq!(moved.len(), 1, "{moved:?}");
     assert_eq!(
-        (t.how, t.slug.as_deref()),
-        (RouteHow::Moved, Some("security-fix"))
+        (moved[0].data["from"].as_str(), moved[0].data["to"].as_str()),
+        (Some("pr-round"), Some("security-fix")),
+        "{:?}",
+        moved[0].data
     );
     assert_eq!(
-        texts_of(c, &moved.session_id),
-        ["rotate the signing keys on the gateway"]
+        moved[0].data["redirected"], true,
+        "the wrong thread was told"
     );
-    assert_eq!(rows(c, "thread.moved").len(), 1);
+    assert_eq!(
+        texts_of(c, &session_of(c, "security-fix")),
+        ["rotate the signing keys on the gateway"],
+        "the placed message ran again, once, in the right thread, and the words did not"
+    );
+
+    // The words alone, with a message placed before them: the model calls
+    // nothing, so nothing moves.
+    let before = rows(c, "thread.moved").len();
+    submit(c, &dm, "that was for the security fix").await;
+    assert_eq!(
+        rows(c, "thread.moved").len(),
+        before,
+        "bare words move nothing"
+    );
+}
+
+/// A rig of the inbound batch with the owner's DMs private and a scripted model.
+fn move_rig(jev: &FakeJev, script: Vec<Scripted>) -> Rig {
+    rig_on(script, Some(jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.places.owner = Some(vec![
+            format!("discord:{OWNER}"),
+            format!("discord:{OWNER2}"),
+        ]);
+    })
+}
+
+/// **A correction the router puts into the thread it names still moves the
+/// placed message** (round 2 of issue 13, B2). "No, that was for the security
+/// fix" names that thread's title, which is evidence for it, so the correction
+/// can run in the very thread the message should go to; the tool finds the
+/// placed message by the place's own session, not by where the correction ran.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_correction_routed_into_the_thread_it_names_still_moves_the_placed_message() {
+    let jev = FakeJev::start().unwrap();
+    let r = move_rig(
+        &jev,
+        vec![
+            Scripted::text("Done: the keys."),
+            Scripted::tools(
+                "",
+                &[("mv1", "chat_move_to_thread", json!({"to": "security-fix"}))],
+            ),
+            Scripted::text("Moving it to the security fix."),
+            Scripted::text("Done: rotated."),
+            Scripted::text("Done: spare."),
+        ],
+    );
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    thread_answer(&jev, "pr-round", 0.75);
+    let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
+    assert_eq!(wrong.session_id, session_of(c, "pr-round"));
+
+    thread_answer(&jev, "security-fix", 0.75);
+    let said = submit(c, &dm, "No, that was for the security fix.").await;
+    assert_eq!(said.session_id, session_of(c, "security-fix"), "{said:?}");
+    let moved = rows(c, "thread.moved");
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert_eq!(moved[0].data["from"], "pr-round", "{:?}", moved[0].data);
+    assert!(
+        texts_of(c, &session_of(c, "security-fix"))
+            .iter()
+            .any(|t| t == "rotate the signing keys on the gateway"),
+        "the placed message ran again in the right thread"
+    );
+}
+
+/// **A move staged in a turn that fails is not kept for a later one** (round 2
+/// of issue 13, B1): the model calls the tool, its next model call fails, the
+/// turn ends in an error; the owner's next message, which ends well, carries
+/// nothing out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_move_staged_in_a_turn_that_failed_is_not_carried_out_by_the_next_turn() {
+    let jev = FakeJev::start().unwrap();
+    let r = move_rig(
+        &jev,
+        vec![
+            Scripted::text("Done: the keys."),
+            Scripted::tools(
+                "",
+                &[("mv1", "chat_move_to_thread", json!({"to": "security-fix"}))],
+            ),
+            Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+                status: 400,
+                message: "refused".into(),
+            }),
+            Scripted::text("Done: the next message."),
+            Scripted::text("Done: spare."),
+        ],
+    );
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    thread_answer(&jev, "pr-round", 0.75);
+    submit(c, &dm, "rotate the signing keys on the gateway").await;
+
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(&dm, "No, that was for the security fix.", None),
+        )
+        .await;
+    let failed = w.response(id).await;
+    assert!(failed["error"].is_object(), "the turn failed: {failed}");
+
+    submit(c, &dm, "and another thing").await;
+    assert!(
+        rows(c, "thread.moved").is_empty(),
+        "a move from a failed turn was carried out later"
+    );
 }
 
 // ---------------------------------------------------- 40 messages, four threads
