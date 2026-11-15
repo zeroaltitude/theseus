@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-11-13 21:3x MST. Version 1.0.5 (v1 patch5), tagged `release-1.0.5` at `72af5c3f` on 2026-11-12; the design document is at v0.92. 1.0.6 is being built now: the workspace version is 1.0.6 and it is not yet tagged. Next is v1 patch6._
+_Updated 2026-11-14 11:5x MST. Workspace version 1.0.6; newest release tag `release-1.0.6` (v1 patch6) at `b8b403b7`, 2026-11-14. The design document is at v0.92._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -18,6 +18,42 @@ This page changes with every step that lands. The [README](../README.md) stays t
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1 patch6: it asks before it does the one thing it cannot undo
+
+**v1 patch6 (version 1.0.6)**, tagged `release-1.0.6` on 2026-11-14. **The headline is the reversibility
+classifier.** Before a tool call runs, the model is asked whether it can be undone, and a call that cannot be, and
+that would be reshaped rather than refused, is held and put to the person instead. Most of the release is the facts
+behind that question: whether a file is under version control, whether a copy of its bytes is already held, whether a
+path is something a build makes and remakes. Where the code knows a call's whole effect (a plain file write or edit)
+and nothing holds a copy, the call is held whatever the model answers; a hold always offers the way to say "go
+ahead".
+
+Also in it: a warning about untrusted content follows the content (a task made by a flagged session starts flagged);
+acting on what a person asks for in chat is done by tools the model calls, never by matching words; a request to
+re-import outside work runs the import at once; tool activity in chat is small and grey; the daemon starts from a
+socket and reports readiness to its supervisor; a model switch keeps reasoning the provider would have kept.
+
+**Named rather than discovered later:** a test family in the chat gateway still fails under full-suite load and
+passes alone, and is deliberately not on the flaky list, because one of its tests asserts an access-control rule;
+the keel's signature rule binds the self-improvement loop, while for the project's own agents, who sign with the
+owner's key, the rule that an agent never acknowledges the serious classes is still policy (two keys are 1.0.7's
+work); the self-improvement loop is paused by the owner's decision; the benchmarks stay parked.
+
+Next is **v1 patch7**.
+
+## v1 patch5: it builds, gates and lands its own change
+
+**v1 patch5 (version 1.0.5)**, tagged `release-1.0.5` on 2026-11-12. **The self-improvement loop made its first
+unattended merge to `main`:** it found a real defect (`fs.edit` refused an edit whose old and new text were equal; it
+now answers "No change made"), built the fix in its own sandbox view, passed main's gate there, was reviewed by a
+different model, and joined under the join lock. Also in it: commits on `main` carry a signature the forge verifies;
+a repository's own instruction files are found, budgeted and placed, and enter a prompt only for a repository the
+owner has trusted; the nightly import has a deadline that cannot race the host's clock.
+
+**Named rather than discovered later:** the self-made merge's two commits are not verified by the forge; this
+release was tagged on a tree whose workspace version still said 1.0.4, so its binaries print `1.0.4` (the status
+page check, added in 1.0.7, now catches that at the next tag).
 
 ## v1 patch4: Jev chooses the model, and the approve lists go
 
@@ -53,8 +89,6 @@ hidden**: `W33`, the half of the owner's stalled-task ruling that should bump to
 (its twin `W44`, which should stay, passes); `W15`, which answers Haiku where Sonnet is wanted; and `W28`, a Flash
 case lost because the state names only the single cheapest model, so Flash disappears from view between about 40K
 and 100K tokens while still being cheaper than staying.
-
-Next is **v1 patch5**.
 
 ## v1 patch3: trust, privacy and content
 

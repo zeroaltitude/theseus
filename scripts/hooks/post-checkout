@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# theseus-main-tree-guard: the main working tree stays on `main` (issue 15).
+#
+# Installed by `scripts/main-tree-guard.sh install` into the repository's shared hooks directory, so it runs in
+# every worktree, and acts only in the MAIN working tree (the checkout whose git directory is the common one).
+# A lane, a linked worktree of its own, is left alone.
+#
+# Why: on 2026-11-13 the main tree was checked out onto a builder's commit twice in one evening, by agents reading
+# other commits there instead of in a worktree of their own, and an install that builds from it stopped twice. Git
+# has no hook that runs before a checkout, so this one undoes it straight after: when a checkout leaves the main
+# tree anywhere but `main`, it checks `main` out again and fails the command, saying what to do instead. Local
+# edits carried by the checkout are carried back. A branch the checkout created (`checkout -b`) is left in place.
+#
+# During a rebase or a bisect it changes nothing, and exits 0: git counts a failing post-checkout as the failure of
+# the rebase's or bisect's own checkout, which would abort it halfway and leave the tree detached with nothing to
+# finish (git 2.34). A rebase is known by its state directory, or, before that exists (the `apply` backend detaches
+# HEAD first, and `git pull --rebase` with it), by the HEAD reflog entry git writes for this very move, which a rebase
+# or a pull names after itself (`rebase: checkout ...`, `pull ...: checkout ...`) where a checkout writes
+# `checkout: moving from ...` (traced on git 2.34 and 2.43). A put-back there would leave HEAD on `main` and the
+# rebase would then commit onto `main` itself. The reflog, not GIT_REFLOG_ACTION, because git stopped exporting that
+# variable to a rebase's own checkout in 2.40. The costs: a checkout run from inside `git rebase -x '...'` is logged
+# under the rebase's name and is let through; and git writes the entry only while HEAD's reflog is on (the default,
+# and kept on once `logs/HEAD` exists), so with it turned off an apply-backend rebase is not recognised.
+#
+# Not covered:
+#   - `git reset` and `git merge`, for which git runs no hook, and `git checkout -B main <commit>`, which moves
+#     `main` itself and leaves the tree on it. In the main tree reset and merge are for the join's and the install's
+#     own updates of `main`, never for looking at another commit;
+#   - a rebase. One of `main` ends on `main`; `git rebase <upstream> <other branch>` can end on that other branch,
+#     and with the default backend git 2.34 shows nothing this hook prints during a rebase.
+#
+# Arguments, from git: the previous HEAD, the new HEAD, and 1 for a branch checkout (0 for a file checkout).
+[ "${3:-0}" = 1 ] || exit 0
+[ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || exit 0
+gd=$(git rev-parse --path-format=absolute --git-dir) || exit 0
+common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
+[ "$gd" = "$common" ] || exit 0
+git show-ref --verify --quiet refs/heads/main || exit 0
+[ "$(git symbolic-ref -q HEAD)" = refs/heads/main ] && exit 0
+top=$(git rev-parse --show-toplevel)
+case "$(git reflog -1 --format=%gs HEAD 2>/dev/null)" in rebase* | pull*) rebasing=1 ;; *) rebasing= ;; esac
+[ -d "$gd/rebase-merge" ] || [ -d "$gd/rebase-apply" ] && rebasing=1
+if [ -n "$rebasing" ]; then
+  echo "theseus: $top is the main working tree, and a rebase has moved it off main; it is left to finish." >&2
+  echo "theseus: when it is done, 'git checkout main'. Next time, rebase in a worktree of your own." >&2
+  exit 0
+fi
+if [ -f "$gd/BISECT_LOG" ]; then
+  echo "theseus: $top is the main working tree, and a bisect has moved it off main; it is left to finish." >&2
+  echo "theseus: 'git bisect reset' puts it back. Next time, bisect in a worktree of your own." >&2
+  exit 0
+fi
+echo "theseus: $top is the main working tree, and it stays on main; it has been put back." >&2
+echo "theseus: to work on or test another commit, make a worktree of your own: git worktree add <dir> <commit>" >&2
+echo "theseus: to read one, use git show <commit>:<path> or git -C <worktree> ..., never a checkout here." >&2
+echo "theseus: if this checkout created a branch, the branch is still there." >&2
+if ! git checkout -q main; then
+  echo "theseus: putting it back FAILED; it is still off main. Run 'git checkout main' in $top." >&2
+fi
+exit 1

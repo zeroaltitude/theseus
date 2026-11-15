@@ -1677,6 +1677,83 @@ class Vocabulary(unittest.TestCase):
                 self.assertIn(f"`{rule}`", guide, f"`{rule}` is not in docs/development.md's table")
 
 
+REACH = """\
+pub fn owner_anywhere(who: &Answerer, rule: &PlaceRule, cfg: &Config) -> Result<Option<String>, String> {
+    if !rule.owners(cfg).contains(&who.user) {
+        return Err(format!("{} is not an owner", who.user));
+    }
+    Ok(None)
+}
+
+pub fn public_tool(name: &str) -> bool {
+    name == "web.fetch"
+}
+"""
+PLACES = "crates/theseus-core/src/places.rs"
+
+
+class OwnerReach(Case):
+    """A change inside a function that decides who may act as the owner, or from where (issue 15, the owner's 5c)."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({PLACES: REACH}, "the place rule")
+        self.repo.git("checkout", "-q", "-B", "lane")
+
+    def test_a_widened_owner_check_is_caught(self):
+        self.assertCaught("owner-reach", PLACES, {PLACES: sub(REACH, "    if !rule.owners(cfg).contains(&who.user) {\n"
+                                                              "        return Err(format!(\"{} is not an owner\", "
+                                                              "who.user));\n    }\n", "")})
+
+    def test_the_function_gone_from_its_file_is_caught(self):
+        self.assertCaught("owner-reach", PLACES, {PLACES: REACH.split("pub fn public_tool")[0].replace(
+            "pub fn owner_anywhere", "pub fn owner_somewhere")})
+
+    def test_every_watched_function_is_in_its_file(self):
+        # A rename is reported once as gone; after that the entry would be silently dead. So every name the rule
+        # watches must still resolve in the real tree.
+        guard = load_guard()
+        for path in guard.OWNER_REACH:
+            src = (GUARD.parent.parent / path).read_text()
+            for kind, name in guard.owner_reach_items(path):
+                with self.subTest(path=path, name=name):
+                    self.assertTrue(guard.owner_reach_lines(src, kind, name), f"{kind} {name} is not in {path}")
+
+    def test_the_watched_items_are_the_ones_named(self):
+        # Review round 7: removing round 6's entries left every case green. The list is pinned here, so dropping an
+        # item from the rule is a visible edit to this test, which is the guard's own file.
+        self.assertEqual(load_guard().OWNER_REACH, {
+            "crates/theseus-core/src/places.rs": ["owners", "owner_anywhere", "owner_in_private", "owner_in_person",
+                                                  "owner_in_person_of", "class", "class_alone"],
+            "crates/theseus-core/src/rpc/confirms.rs": ["judge_act"],
+            "crates/theseus-core/src/approval.rs": ["unknown", "owners_alone", "const AWS_READS"],
+            "crates/theseus-discord/src/bindings.rs": ["is_private", "trusted"],
+        })
+
+    def test_the_real_private_place_and_free_read_predicates_are_watched(self):
+        # Planted on copies of the real files: a widening of which places are private, and an AWS tool made free.
+        root = GUARD.parent.parent
+        places = (root / "crates/theseus-core/src/places.rs").read_text()
+        approval = (root / "crates/theseus-core/src/approval.rs").read_text()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({PLACES: places, "crates/theseus-core/src/approval.rs": approval}, "the real files")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        wide = sub(places, '        let private = t.starts_with("discord:channel:")\n            && self\n',
+                   '        let private = t.starts_with("discord:channel:")\n            || self\n')
+        free = sub(approval, '    "aws.trail",\n', '    "aws.trail",\n    "aws.call",\n')
+        free = free.replace("const AWS_READS: [&str; 6]", "const AWS_READS: [&str; 7]")
+        self.repo.commit({PLACES: wide, "crates/theseus-core/src/approval.rs": free}, "widen")
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, rf"{PLACES}:\d+: owner-reach: fn class_alone")
+        self.assertRegex(out, r"crates/theseus-core/src/approval.rs:\d+: owner-reach: const AWS_READS")
+
+    def test_whitespace_alone_and_another_function_are_no_finding(self):
+        self.assertClean({PLACES: sub(sub(REACH, "    Ok(None)\n", "\n        Ok(None)\n"), '"web.fetch"',
+                                      '"web.search"')})
+
+
 def gpg_key(home, name):
     subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", f"{name} <{name}@example.invalid>",
                     "ed25519", "sign", "never"], env={**os.environ, "GNUPGHOME": home}, check=True,
@@ -1834,7 +1911,94 @@ class Acks(unittest.TestCase):
         self.assertEqual(self.repo.git("log", "-1", "--format=%G?|%GF").strip(), f"G|{fpr}", "it verifies")
         code, out = self.repo.guard()
         self.assertEqual(code, 1, out)
-        self.assertIn("an ssh signature: the keel takes a GPG key's only", out)
+        self.assertIn("an ssh signature by a key scripts/keel-signers does not list as ssh at the base", out)
+
+    def classed(self, signers, lane="lane"):
+        """A base whose keel-signers is `signers`, and a lane that removes a test and raises a ceiling."""
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/keel-signers": f"# the keel's signers\n{signers}"}, "the classes")
+        self.repo.git("checkout", "-q", "-B", lane)
+        gone = ("    #[tokio::test]\n    async fn a_zero_changes_nothing() {\n"
+                "        assert_eq!(add(7, 0), 7);\n    }\n\n")
+        self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3050"),
+                          "crates/demo/src/lib.rs": sub(LIB, gone, "")},
+                         "remove a test, raise a ceiling")
+
+    TEST_ACK = "Keel: test-removed crates/demo/src/lib.rs — folded into its neighbour\n"
+
+    def test_a_routine_key_acks_a_removed_test_and_nothing_else(self):
+        self.classed(f"routine gpg {self.stranger}\nowner gpg {self.listed}\n")
+        self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.stranger)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("keel: acked: crates/demo/src/lib.rs", out)
+        self.assertIn("which scripts/keel-signers lists for the routine class: it acks only test-removed, and "
+                      "`ceiling-raised` is the owner's", out)
+        self.assertRegex(out, r"  scripts/long-files.txt:\d+: ceiling-raised")
+
+    def test_an_owner_key_acks_both_classes(self):
+        self.classed(f"routine gpg {self.stranger}\nowner gpg {self.listed}\n")
+        self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+
+    def test_the_owner_s_place_with_no_key_passes_nothing_of_his_and_says_so(self):
+        self.classed(f"routine gpg {self.listed}\nowner none\n")
+        self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("keel: acked: crates/demo/src/lib.rs", out)
+        self.assertIn("holds the owner's place with no key yet (`owner none`)", out)
+
+    def test_a_list_that_is_not_the_form_stops_the_guard(self):
+        self.classed(f"admin gpg {self.listed}\n")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 2, out)
+        self.assertIn("is not `<routine|owner> <gpg|ssh|none> <key>`", out)
+        # Two readers of one list must agree: an owner key beside `owner none`, or an empty routine place, is refused.
+        for bad, said in ((f"owner none\nowner gpg {self.listed}\n", "holds both `owner none` and an owner key"),
+                          ("routine none\n", "only the owner's place may be held empty")):
+            self.classed(bad, lane="lane-" + str(len(bad)))
+            code, out = self.repo.guard()
+            self.assertEqual(code, 2, out)
+            self.assertIn(said, out)
+
+    def test_the_real_list_names_a_routine_key_and_one_owner_key(self):
+        # The repository's own list must parse, and name exactly one owner key, which only his approval can use.
+        keys = load_guard().Signers((GUARD.parent / "keel-signers").read_text())
+        self.assertEqual(list(keys.gpg.values()), ["routine"])
+        self.assertEqual([c for c, _, _ in keys.ssh], ["owner"])
+        self.assertFalse(keys.owner_placeholder)
+
+    def test_a_list_holding_only_the_owner_s_place_says_so(self):
+        self.classed("owner none\n")
+        self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("holds the owner's place with no key yet", out)
+
+    @unittest.skipIf(shutil.which("ssh-keygen") is None, "no ssh-keygen: the ssh-signed ack is not tested here")
+    def test_an_ssh_key_the_list_names_acks_by_its_class_alone(self):
+        keys = tempfile.mkdtemp(prefix="keel-ssh-")
+        self.addCleanup(shutil.rmtree, keys, True)
+        key = f"{keys}/key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "wren@example.invalid", "-f", key],
+                       check=True, capture_output=True)
+        pub = Path(key + ".pub").read_text().strip()
+        # No allowed-signers file on the machine: the guard verifies against the list's own key.
+        ssh_ack = ["-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "commit", "-q", "--allow-empty", "-S",
+                   "-m", self.ACK + self.TEST_ACK]
+        self.classed(f"routine gpg {self.stranger}\nowner ssh {pub}\n")
+        self.repo.git(*ssh_ack)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        # The same key listed routine acks the removed test only.
+        self.classed(f"routine ssh {pub}\n", lane="lane2")
+        self.repo.git(*ssh_ack)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("keel: acked: crates/demo/src/lib.rs", out)
+        self.assertIn("lists for the routine class", out)
 
     def test_a_signed_merge_carries_the_join_s_acks(self):
         self.repo.git("checkout", "-q", "main")

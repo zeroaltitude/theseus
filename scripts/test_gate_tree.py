@@ -151,6 +151,9 @@ COMMITTED = {
     # is where a ceiling bug should surface. Unlike line-pressure.py below, this phase CAN fail a gate, so
     # the "real script, interesting exit 2" argument does not transfer.
     "scripts/context-ceiling.py": PASSES_PY,
+    # The same for the `status page` phase, also HARD: a real run would need a status page, a workspace version and
+    # release tags in this tree. Its logic is covered by scripts/tests/test_status_page.py.
+    "scripts/status-page.py": PASSES_PY,
     "scripts/build.sh": PASSES,
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
@@ -784,6 +787,26 @@ class GateTree(unittest.TestCase):
         self.assertEqual(order.count("context ceiling"), 1, order)
         self.assertLess(order.index("shape"), order.index("context ceiling"), order)
         self.assertLess(order.index("context ceiling"), order.index("clippy"), order)
+
+    def test_the_status_page_phase_is_wired_and_hard(self):
+        """The status page shipped two releases stale because nothing read it (issue 15; theseus-fly32). Its
+        script's cases test the script, so the wiring is asserted here: the phase runs once, among the cheap file
+        checks before clippy, and a page the script refuses fails the gate under that phase's name."""
+        names = re.findall(r'\nphase\s+(?:"([^"]+)"|(\S+))', (HERE / "gate.sh").read_text())
+        order = [a or b for a, b in names]
+        self.assertEqual(order.count("status page"), 1, order)
+        self.assertLess(order.index("shape"), order.index("status page"), order)
+        self.assertLess(order.index("status page"), order.index("clippy"), order)
+        # A clone with no tags stands the tag half down; the verdict names it rather than calling it a pass.
+        self.put(self.root / "scripts" / "status-page.py", 'print("status page: skipped: no release tag")\n')
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("status page", self.verdict(out).partition("(skipped:")[2], self.verdict(out))
+        self.put(self.root / "scripts" / "status-page.py",
+                 'print("status page: the page says workspace version 1.0.5")\nraise SystemExit(1)\n')
+        rc, out, _ = self.gate()
+        self.assertNotEqual(rc, 0, out)
+        self.assertEqual("gate: FAILED in status page", self.verdict(out))
 
     def test_a_df_that_cannot_be_read_refuses_the_gate_and_says_so(self):
         # A gate that cannot show it has room is not told it has; the override is named, and df is not asked under it.
