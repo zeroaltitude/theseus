@@ -75,6 +75,8 @@ mod tests_earlier;
 #[cfg(test)]
 mod tests_enosys;
 #[cfg(test)]
+mod tests_failure_error;
+#[cfg(test)]
 mod tests_frames;
 #[cfg(test)]
 mod tests_gone;

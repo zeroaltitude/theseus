@@ -2132,6 +2132,8 @@ fn map_retry(r: Retry) -> RetryClass {
 mod tests;
 
 #[cfg(test)]
+mod tests_failed_detail;
+#[cfg(test)]
 mod tests_login;
 #[cfg(test)]
 mod tests_undo;

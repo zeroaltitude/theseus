@@ -45,6 +45,21 @@ pub fn stamp(data: &mut Value, c: &Completion) {
     if let Some(f) = classify(c.detail.as_ref()) {
         data["failure"] = json!(f);
     }
+    if let Some(why) = error_of(c.detail.as_ref()) {
+        data["detail"] = json!({ "error": why });
+    }
+}
+
+/// The most of a failure's words a row keeps.
+const ERROR_MAX: usize = 500;
+
+/// The words a failed completion's detail gives for why it failed
+/// (`detail.error`), cut to [`ERROR_MAX`] characters; `None` when it gave
+/// none. Without them the row said only "failed after N ms", and the item
+/// filed for it could not tell a patch that did not apply from a fault.
+fn error_of(detail: Option<&Value>) -> Option<String> {
+    let s = detail?.get("error")?.as_str()?.trim();
+    (!s.is_empty()).then(|| s.chars().take(ERROR_MAX).collect())
 }
 
 #[cfg(test)]
