@@ -64,8 +64,10 @@ pub const ITEM_VERSION: u32 = 1;
 
 /// What the keel guard holds in its `KEEL_FILES` (a path ending in `/` in its
 /// `KEEL_PREFIXES`): a change to the sealed set's code, its runner and relay,
-/// its tests or the exam set is the owner's (the hard keel). A test in
-/// `sealed/tests.rs` fails when the guard's lists lack one.
+/// its tests or the exam set is the owner's (the hard keel). So is the hold's
+/// list of behaviour paths (`hold.rs`, issue 15): it decides which branches
+/// are scored at all, so a change to the list is the owner's like the scorer's.
+/// A test in `sealed/tests.rs` fails when the guard's lists lack one.
 pub const KEEL_PATHS: &[&str] = &[
     "crates/theseus-core/src/rsi/sealed.rs",
     "crates/theseus-core/src/rsi/sealed/check.rs",
@@ -73,6 +75,7 @@ pub const KEEL_PATHS: &[&str] = &[
     "crates/theseus-core/src/rsi/sealed/daemon.rs",
     "crates/theseus-core/src/rsi/sealed/runner.rs",
     "crates/theseus-core/src/rsi/sealed/relay.rs",
+    "crates/theseus-core/src/rsi/sealed/hold.rs",
     "crates/theseus-core/src/toolrun/guarded.rs",
     "crates/theseus-core/src/config/self_improve.rs",
     "crates/theseus-core/src/rsi/sealed/tests.rs",

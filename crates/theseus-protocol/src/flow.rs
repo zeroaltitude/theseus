@@ -1,6 +1,7 @@
-//! Flows on the wire (theseus-pw1q.21.4): what `Core::flow_list` tells of a
-//! loaded flow, and the structured state a flow hands back when a step needs
-//! the model's judgment. The spec itself is core's (`theseus_core::flow::spec`).
+//! Flows (theseus-pw1q.21.4): what `Core::flow_list` tells of a loaded flow,
+//! and the structured state a flow hands back when a step needs the model's
+//! judgment. No method carries either yet, so neither is a wire type (`ts.rs`'s
+//! `NOT_WIRE`). The spec itself is core's (`theseus_core::flow::spec`).
 
 use serde::{Deserialize, Serialize};
 

@@ -235,7 +235,7 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   (`TaskKind`), `due_at_ms` and `review` (store format 45, each left out of the bytes at its default). `notices.rs` reads a reminder
   whose note begins `⚑` as a milestone's (`MILESTONE_MARK`, no clock icon), and `⚑ overdue` as `Why::Overdue`: an Interrupt with no sound.
 - `flow.rs` (theseus-pw1q.21.4): `FlowInfo` (a loaded flow, as `Core::flow_list` tells it) and `FlowHandback` (the state a flow
-  hands the model). Not in the TypeScript: no cockpit reader yet.
+  hands the model). Not in the TypeScript: no method carries them (`ts.rs`'s `NOT_WIRE`).
 - `tasks.rs` also holds `task.list`'s params and result (moved out of lib.rs, theseus-ypnxt.1): the filters `ended`, `since_ms`,
   `query`, `id` and `limit`, and `TaskListResult.details` (`TaskDetail`: the report's first line, whole report and hold),
   absent from the bytes when no filter is set. `work_digest.rs`: a reported task's `DigestLine` carries its `report` and is
@@ -272,7 +272,8 @@ siblings. A rename of a wire field or a stored value is a store-format step, nev
 - **The generated TypeScript is part of the change.** Any test run of this crate rewrites
   `cockpit/src/protocol.gen/` (`the_cockpits_types_are_generated_from_the_rust_ones`). `git add` it, or the gate
   fails. A `serde_json::Value` field names its TypeScript type with `#[ts(type = "...")]`. Large integers are
-  `number`.
+  `number`. The test reads every source file of the crate (issue 15): a public type is a wire type, derives `TS`
+  and is on its export list, or is on `ts.rs`'s `NOT_WIRE` with the reason it never crosses the wire.
 
 ## Tests
 

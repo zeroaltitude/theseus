@@ -172,7 +172,9 @@ fn wildcards_match_a_run_and_a_behaviour_path_is_not_a_test() {
         Some("crates/theseus-core/src/compiler/ring.rs")
     );
     // A test of a behaviour path measures it, so changing one is no change
-    // of behaviour; nor is a path nothing lists.
+    // of behaviour; nor is a path nothing lists. The hold's own list is no
+    // behaviour either: a shorter list answers the same and would score the
+    // same, so scoring cannot guard it. The keel does (`sealed::KEEL_PATHS`).
     let tests = [
         "crates/theseus-core/src/compiler/tests_ring.rs",
         "crates/theseus-core/src/compiler/tests.rs",
