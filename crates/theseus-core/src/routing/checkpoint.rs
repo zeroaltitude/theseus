@@ -337,7 +337,7 @@ mod tests {
         // since theseus-ig13o. `model::decide` reads it: an answer under its
         // bar runs it, and route.v10's is `parent`, which stays on the turn's
         // own profile, `unsure` — see `the_declared_default_is_what_the_live_path_runs`.
-        let declared = theseus_judge::pack::by_name("route.v10")
+        let declared = theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK)
             .and_then(|p| p.question("model").and_then(|q| q.no_match.clone()));
         let pick = |choice: &str, sure| {
             Box::new(Pick {

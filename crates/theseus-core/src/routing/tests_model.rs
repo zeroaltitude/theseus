@@ -38,8 +38,8 @@ fn five_options() -> Profiles {
 /// route.v10's own declared default for its `model` question, read out of the
 /// pack. Every pick this file builds carries it, as a live one does.
 fn declared() -> String {
-    theseus_judge::pack::by_name("route.v10")
-        .expect("route.v10 is embedded")
+    theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK)
+        .expect("the acting route pack is embedded")
         .question("model")
         .expect("route.v10 asks `model`")
         .no_match
@@ -199,8 +199,8 @@ fn a_pick_under_the_bar_stays_and_says_unsure() {
 fn the_declared_default_is_what_the_live_path_runs() {
     // 1. Declared, and carried onto the answer by the ask.
     assert_eq!(declared(), model::PARENT);
-    let carried = theseus_judge::pack::by_name("route.v10")
-        .expect("route.v10")
+    let carried = theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK)
+        .expect("the acting route pack")
         .ask(&theseus_judge::pack::Dynamic::default())
         .iter()
         .find(|a| a.def == "model")
@@ -546,4 +546,34 @@ fn a_brief_starts_a_task_on_jevs_pick() {
         (got.profile.as_str(), got.reason, got.switch),
         ("haiku", Reason::Verdict, true)
     );
+}
+
+/// The acting route pack's `fable` description names the model the router's `fable` option runs and its
+/// prices as the catalog holds them, so the judge is never told one model's name and prices for an
+/// option that runs another (issue 5 of 1.0.7: `route.v10` said Fable 5.1 while the option ran 5.2).
+#[test]
+fn the_packs_fable_description_names_the_model_the_option_runs_at_its_catalog_prices() {
+    let pack = theseus_judge::pack::by_name(crate::judge::inbound::ROUTE_PACK).expect("embedded");
+    let means = pack
+        .question("model")
+        .expect("`model`")
+        .options
+        .iter()
+        .find(|o| o.id == "fable")
+        .and_then(|o| o.means.clone())
+        .expect("a fable option with a description");
+    let model = model::model_of("fable").expect("the fable option names a model");
+    let e = crate::catalog::Catalog::builtin()
+        .get(model)
+        .expect("in the catalog")
+        .clone();
+    let version = model
+        .strip_prefix("claude-fable-")
+        .expect("a Fable id")
+        .replace('-', ".");
+    let want = format!(
+        "Fable {version} (Anthropic, US), the most capable: ${} in, ${} out, ${:.2} a cache read per million.",
+        e.input_per_mtok, e.output_per_mtok, e.cache_read_per_mtok
+    );
+    assert!(means.starts_with(&want), "{means}\n   wants {want}");
 }

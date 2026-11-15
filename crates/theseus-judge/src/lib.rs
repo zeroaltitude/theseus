@@ -86,6 +86,8 @@ mod tests_route_state;
 #[cfg(test)]
 mod tests_route_v10;
 #[cfg(test)]
+mod tests_route_v11;
+#[cfg(test)]
 mod tests_route_v5;
 #[cfg(test)]
 mod tests_threads;

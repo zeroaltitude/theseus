@@ -48,8 +48,8 @@ pub(crate) fn judgment(answers: Vec<AnswerRecord>, drift: bool) -> Judgment {
 }
 
 #[test]
-fn the_acting_route_pack_is_v10() {
-    assert_eq!(ROUTE_PACK, "route.v10");
+fn the_acting_route_pack_is_v11() {
+    assert_eq!(ROUTE_PACK, "route.v11");
 }
 
 #[test]

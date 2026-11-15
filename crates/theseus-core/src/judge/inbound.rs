@@ -62,12 +62,13 @@ pub const OFFER_QUESTION: &str = "offer_task";
 pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
-/// The acting route pack: `route.v10` (theseus-h66v4), where Jev chooses the model
+/// The acting route pack: `route.v11` (theseus-h66v4), where Jev chooses the model
 /// directly (`effort.v1`, `work.v1` and `split.v1` are asked beside it), live at once
-/// with its own rollback rules (the ladder's adoption row, `judge::ladder::adopt`);
-/// `route.v8` and earlier stay embedded for their history, and the ladder never runs
-/// them again.
-pub const ROUTE_PACK: &str = "route.v10";
+/// with its own rollback rules (the ladder's adoption row, `judge::ladder::adopt`).
+/// It is `route.v10` with the `fable` option's description saying Fable 5.2 and its
+/// prices (the owner, 2026-11-14); `route.v10` and earlier stay embedded for their
+/// history, and the ladder never runs them again.
+pub const ROUTE_PACK: &str = "route.v11";
 /// DIRECTIVE (theseus-slvl.5), at `inbound`, batched with `classify.v1` and
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).

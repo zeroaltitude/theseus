@@ -73,7 +73,7 @@ impl Rig {
                 "classify.v4",
                 "role.v1",
                 "split.v1",
-                "route.v10",
+                "route.v11",
                 "directive.v2",
                 "onto.v1",
                 "content.v4",

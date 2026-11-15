@@ -33,12 +33,13 @@ const FEEDABLE: [&str; 5] = [
 ];
 
 /// Every (pack, rule) pair declared and unfed, sorted.
-const EXPECTED_DEAD: [(&str, &str); 10] = [
+const EXPECTED_DEAD: [(&str, &str); 11] = [
     ("loop.v1", "on_path_p95"),
     ("loop.v1", "operator_stop_within_nudge"),
     ("loop.v1", "spend_ratio"),
     ("role.v1", "switches_per_exchange"),
     ("route.v10", "on_path_p95"),
+    ("route.v11", "on_path_p95"),
     ("route.v5", "on_path_p95"),
     ("route.v6", "on_path_p95"),
     ("route.v7", "on_path_p95"),

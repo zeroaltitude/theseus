@@ -873,6 +873,17 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "route.v11",
+            &[
+                "Inbound Route SessionProfile Route",
+                "model Choice decides [haiku sonnet opus fable deepseek_flash parent]",
+                "persona Choice from Personas + [prior] only_when Personas",
+                "personal Choice [none elicit expose]",
+                "seal Choice [yes no] only_when ThreadNow",
+                "rollback [labels_per_day on_path_p95 pins_per_day]",
+            ],
+        ),
+        (
             "effort.v1",
             &[
                 "Inbound Effort None None",
@@ -903,7 +914,7 @@ fn the_six_packs_ask_what_the_design_says() {
         for q in &p.questions {
             // route.v10's `model` confirms at 0.40 (theseus-h66v4.7, the owner 2026-11-03: "adjust
             // the instruction prompt, test assumptions and bar until we're safely good").
-            let bands = if (*name, q.id.as_str()) == ("route.v10", "model") {
+            let bands = if matches!((*name, q.id.as_str()), ("route.v10" | "route.v11", "model")) {
                 (0.90, 0.40)
             } else {
                 bands

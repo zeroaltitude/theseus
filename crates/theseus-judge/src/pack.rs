@@ -69,6 +69,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v7", include_str!("../packs/route.v7.toml")),
     ("route.v8", include_str!("../packs/route.v8.toml")),
     ("route.v10", include_str!("../packs/route.v10.toml")),
+    ("route.v11", include_str!("../packs/route.v11.toml")),
     ("effort.v1", include_str!("../packs/effort.v1.toml")),
     ("work.v1", include_str!("../packs/work.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),

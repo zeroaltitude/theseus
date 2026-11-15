@@ -90,7 +90,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
             ("classify.v4".to_string(), 1),
             ("effort.v1".to_string(), 1),
             ("role.v1".to_string(), 1),
-            ("route.v10".to_string(), 1),
+            ("route.v11".to_string(), 1),
             ("split.v1".to_string(), 1),
             ("work.v1".to_string(), 1)
         ]),
@@ -185,7 +185,7 @@ async fn the_verdict_reaches_the_turn_before_the_batch_answers() {
     assert!(
         kinds(&r.core.store, "judge.call")
             .iter()
-            .all(|j| j.data["pack"] == "route.v10"),
+            .all(|j| j.data["pack"] == "route.v11"),
         "the batch had not answered"
     );
 }

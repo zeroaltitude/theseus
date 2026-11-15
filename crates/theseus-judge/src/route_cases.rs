@@ -425,12 +425,23 @@ pub fn declared_pack(text: &str) -> Result<String, String> {
         .ok_or_else(|| "the cases file names no `pack`".to_string())
 }
 
+/// Whether a file written for `written` is also read for `pack`, without a word of the file changed:
+/// `route.v11` is `route.v10` with one option's description, so `route.v10.cases.toml` is its set too (the
+/// owner, 2026-11-14: the labelled cases are read for v11 as they are for v10), as `directive.v1`'s
+/// labelled sentences are read for both directive names.
+fn read_as(written: &str, pack: &str) -> bool {
+    (written, pack) == ("route.v10", "route.v11")
+}
+
 impl CaseSet {
     /// The cases in `text`, each label checked against the pack's own
     /// `model` and `effort` options.
     pub fn parse(text: &str, pack: &Pack) -> Result<CaseSet, String> {
         let file: File = toml::from_str(text).map_err(|e| format!("the cases file: {e}"))?;
-        if file.pack != pack.name() && !file.also.contains(&pack.name()) {
+        if file.pack != pack.name()
+            && !file.also.contains(&pack.name())
+            && !read_as(&file.pack, &pack.name())
+        {
             return Err(format!(
                 "the cases are written for {}, not {}",
                 file.pack,

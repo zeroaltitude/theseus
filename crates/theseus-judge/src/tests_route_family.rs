@@ -25,6 +25,7 @@ fn counts(set: &CaseSet, q: &str) -> BTreeMap<String, u32> {
 fn each_pack_grades_the_questions_it_decides() {
     let q = |p: &str| graded_questions(&by_name(p).unwrap());
     assert_eq!(q("route.v10"), ["model"]);
+    assert_eq!(q("route.v11"), ["model"]);
     assert_eq!(q("effort.v1"), ["effort"]);
     assert_eq!(q("work.v1"), ["work"]);
     assert_eq!(q("split.v1"), ["split"]);
