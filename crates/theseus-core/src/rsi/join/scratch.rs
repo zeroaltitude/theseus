@@ -9,55 +9,100 @@
 //! So a review is given a directory of its own ([`dir`]), named in its ask, and it is removed
 //! when the reviewer has answered, whatever it answered. An instruction is not a guarantee,
 //! so [`close`] also removes any directory that appeared under the self trees while the
-//! reviewer ran and is not the pipeline's own: not a join's tree, and not a build's (a
-//! worktree of the self repo on a `self/` branch). It removes directories under the self
-//! state and nothing else: a worktree a reviewer registered in some other checkout is left
-//! for that checkout's own `git worktree prune`, because the pipeline writes in no checkout
-//! but its own.
+//! reviewer ran and is not the pipeline's own. **A doubt keeps the directory**: a build's
+//! tree holds a builder's uncommitted work, and a tree left standing costs a slot that a
+//! person can clear, where a tree wrongly removed costs work nobody can bring back. The
+//! pipeline's own are a join's trees (by their prefixes), a build's (it has a build tree
+//! beside it, which only `tree::open` makes, or it is a worktree of the self repo on a
+//! `self/` branch), and anything git could not answer for.
+//!
+//! A review that never closed (the daemon stopped while it ran) is closed by the next one to
+//! open: what was open before it is kept in a file beside its scratch until it closes.
+//!
+//! It removes directories under the self state and nothing else: a worktree a reviewer
+//! registered in some other checkout is left for that checkout's own `git worktree prune`,
+//! because the pipeline writes in no checkout but its own.
 
 use std::path::{Path, PathBuf};
-
-use anyhow::{Context, Result};
 
 use crate::rsi::capacity::trees_named;
 use crate::rsi::tree::{self, Place};
 
-/// The trees a join opens for itself (`guard`'s phase trees and the merge's).
+/// The trees a join, a dry run, a revert or a probe opens for itself (`git::detached`'s
+/// callers), by the prefix each names its tree with.
 const JOIN_TREES: &[&str] = &[
-    "keel-", "planted-", "install-", "probe-", "revert-", "join-",
+    "keel-", "planted-", "install-", "probe-", "revert-", "join-", "dry-",
 ];
 
-/// Where `branch`'s review keeps what it makes: `<state>/self/review/<slug>`, outside the
-/// self trees, so nothing in it holds a slot.
+/// Where the reviews keep what they make: `<state>/self/review`, outside the self trees, so
+/// nothing in it holds a slot.
+fn root(p: &Place) -> PathBuf {
+    p.root().join("review")
+}
+
+/// `branch`'s scratch: `<state>/self/review/<slug>`.
 pub fn dir(p: &Place, branch: &str) -> PathBuf {
-    p.root().join("review").join(tree::slug(branch))
+    root(p).join(tree::slug(branch))
+}
+
+/// The file that says a scratch is open, and what was under the self trees before it: one
+/// name a line.
+fn mark(scratch: &Path) -> PathBuf {
+    scratch.with_extension("before")
 }
 
 /// A review's scratch, open: its directory, and the self trees that were open before it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scratch {
     pub dir: PathBuf,
     before: Vec<String>,
 }
 
-/// Make `branch`'s scratch, empty (one an earlier review left is removed first).
-pub fn open(p: &Place, branch: &str) -> Result<Scratch> {
-    let dir = dir(p, branch);
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir)
-            .with_context(|| format!("an earlier review's scratch {} stays", dir.display()))?;
+/// Make `branch`'s scratch, empty, after closing any review that never closed. A scratch
+/// that cannot be made is said and the review runs all the same: its close still clears what
+/// it leaves.
+pub fn open(p: &Place, branch: &str) -> Scratch {
+    for left in unclosed(p) {
+        let swept = close(p, &left);
+        tracing::warn!(
+            dir = %left.dir.display(),
+            trees = ?swept,
+            "self-review: a review that never closed was closed now"
+        );
     }
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("the review's scratch {} could not be made", dir.display()))?;
-    Ok(Scratch {
-        dir,
+    let s = Scratch {
+        dir: dir(p, branch),
         before: trees_named(&p.trees()),
-    })
+    };
+    let made = std::fs::create_dir_all(&s.dir)
+        .and_then(|()| std::fs::write(mark(&s.dir), s.before.join("\n")));
+    if let Err(e) = made {
+        tracing::warn!(dir = %s.dir.display(), "self-review: its scratch could not be made: {e}");
+    }
+    s
+}
+
+/// The reviews whose mark is still there: each opened and never closed.
+fn unclosed(p: &Place) -> Vec<Scratch> {
+    let Ok(d) = std::fs::read_dir(root(p)) else {
+        return Vec::new();
+    };
+    d.filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|m| m.extension().is_some_and(|x| x == "before"))
+        .filter_map(|m| {
+            let before = std::fs::read_to_string(&m).ok()?;
+            Some(Scratch {
+                dir: m.with_extension(""),
+                before: before.lines().map(str::to_string).collect(),
+            })
+        })
+        .collect()
 }
 
 /// Remove the scratch, and every directory the review left under the self trees: the names
-/// of those. A build's tree and a join's are never touched, and a tree open before the
-/// review is not this review's to remove.
+/// of those. A tree open before the review is not this review's to remove, and the
+/// pipeline's own are never touched.
 pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
     if let Err(e) = std::fs::remove_dir_all(&s.dir) {
         if s.dir.exists() {
@@ -69,13 +114,10 @@ pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
     let trees = p.trees();
     let mut left = Vec::new();
     for name in trees_named(&trees) {
-        if s.before.contains(&name) || JOIN_TREES.iter().any(|j| name.starts_with(j)) {
+        if s.before.contains(&name) || is_the_pipelines(p, &trees, &name) {
             continue;
         }
         let d = trees.join(&name);
-        if is_build_tree(p, &d) {
-            continue;
-        }
         match std::fs::remove_dir_all(&d) {
             Ok(()) => left.push(name),
             Err(e) => {
@@ -84,26 +126,39 @@ pub fn close(p: &Place, s: &Scratch) -> Vec<String> {
         }
     }
     let _ = p.git(&p.repo, &["worktree", "prune"]);
+    let _ = std::fs::remove_file(mark(&s.dir));
     left
 }
 
-/// Whether `dir` is a tree a build opened: a worktree of the self repo, on a `self/` branch.
-fn is_build_tree(p: &Place, dir: &Path) -> bool {
+/// Whether the tree `name` is one the pipeline opened, or might be: a join's, a build's, or
+/// one git could not answer for.
+fn is_the_pipelines(p: &Place, trees: &Path, name: &str) -> bool {
+    if JOIN_TREES.iter().any(|j| name.starts_with(j)) {
+        return true;
+    }
+    // A build's tree has its build tree beside it from the moment it is open, whatever its
+    // builder has since checked out in it.
+    if p.targets().join(name).exists() {
+        return true;
+    }
+    let dir = trees.join(name);
     if !dir.join(".git").exists() {
+        // No checkout at all: nothing a build or a join makes.
         return false;
     }
-    let common = |at: &Path| {
-        p.git_ok(
-            at,
-            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-        )
-        .ok()
-        .and_then(|d| std::fs::canonicalize(d).ok())
+    let common = |at: &Path| -> Option<PathBuf> {
+        let d = p.git_ok(at, &["rev-parse", "--git-common-dir"]).ok()?;
+        std::fs::canonicalize(at.join(d)).ok()
     };
-    let (Some(its), Some(ours)) = (common(dir), common(&p.repo)) else {
+    let (Some(its), Some(ours)) = (common(&dir), common(&p.repo)) else {
+        tracing::warn!(dir = %dir.display(), "self-review: git did not say whose this tree is, so it stays");
+        return true;
+    };
+    if its != ours {
         return false;
-    };
-    its == ours
-        && p.git_ok(dir, &["rev-parse", "--abbrev-ref", "HEAD"])
-            .is_ok_and(|b| b.starts_with("self/"))
+    }
+    match p.git_ok(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]) {
+        Ok(branch) => branch.starts_with("self/"),
+        Err(_) => true,
+    }
 }

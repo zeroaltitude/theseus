@@ -113,17 +113,23 @@ impl Run<'_> {
         let remote = remote_of(&self.core.cfg);
         // The reviewer's own place to write, and what it leaves is removed whatever it says:
         // a tree it left under the self trees held the pipeline's slot for good (`scratch`).
-        let own = scratch::open(&self.place, &self.b.branch)?;
+        let (p, b) = (self.place.clone(), self.b.branch.clone());
+        let own = blocking(move || Ok(scratch::open(&p, &b))).await?;
+        let place = self.place.clone();
+        let closed = |own: scratch::Scratch| {
+            let p = place.clone();
+            blocking(move || Ok(scratch::close(&p, &own)))
+        };
         let ask = match self.ask(&remote, target, &own.dir).await {
             Ok(a) => a,
             Err(e) => {
-                scratch::close(&self.place, &own);
+                let _ = closed(own).await;
                 return Err(e);
             }
         };
         let core = self.core.clone();
         let reviewed = self.seams.reviewer.review(&core, &ask).await;
-        let left = scratch::close(&self.place, &own);
+        let left = closed(own).await.unwrap_or_default();
         if !left.is_empty() {
             tracing::warn!(
                 branch = %self.b.branch,

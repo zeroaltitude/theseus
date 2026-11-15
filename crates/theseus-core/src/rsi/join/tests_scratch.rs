@@ -1,6 +1,6 @@
 //! A review's scratch is removed when the reviewer has answered, and so is a tree it left
-//! under the self trees: one left there held the pipeline's only slot for thirteen hours
-//! (`scratch`).
+//! under the self trees: one left there held the pipeline's only slot for thirteen hours.
+//! A build's tree is never the price of that (`scratch`).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -8,15 +8,19 @@ use std::sync::{Arc, Mutex};
 use theseus_protocol::rsi::SelfMode;
 
 use super::review::{self, Ask, Fut, Review, Reviewer};
-use super::tests::{rig_with, PROVED, SONNET};
+use super::tests::{git, rig_with, PROVED, SONNET};
 use super::{scratch, Seams};
 use crate::rpc::Core;
 use crate::rsi::capacity::{trees_named, trees_open};
 use crate::rsi::tree::{self, Place};
 
-/// A reviewer that makes itself a checkout under the self trees and a build in its scratch,
-/// as a model with a shell does, leaves both, and rejects. With `builds`, a build opens its
-/// own tree while the review runs.
+/// The tree the reviewer leaves, named as the one of 2026-11-14 was.
+const LEFT: &str = "review-0a1b2c-2";
+
+/// A reviewer that makes itself a checkout under the self trees (a detached worktree of the
+/// self repo, as a model with a shell does) and a build in its scratch, leaves both, and
+/// rejects. With `builds`, a build opens its own tree while the review runs, and its
+/// builder checks a commit out in it.
 struct Litter {
     place: Place,
     builds: bool,
@@ -36,14 +40,26 @@ impl Litter {
 
 impl Reviewer for Litter {
     fn review<'a>(&'a self, _core: &'a Arc<Core>, ask: &'a Ask) -> Fut<'a> {
-        let left = self.place.trees().join("review-0a1b2c-2");
-        std::fs::create_dir_all(left.join("src")).unwrap();
-        std::fs::write(left.join("src/lib.rs"), "// a checkout the reviewer made\n").unwrap();
+        let left = self.place.trees().join(LEFT);
+        std::fs::create_dir_all(self.place.trees()).unwrap();
+        git(
+            &self.place.repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                left.to_str().unwrap(),
+                "origin/main",
+            ],
+        );
         let build = PathBuf::from(&ask.scratch).join("target/debug");
         std::fs::create_dir_all(&build).unwrap();
         std::fs::write(build.join("out"), "a build\n").unwrap();
         if self.builds {
-            tree::open(&self.place, "mend the nets", 1_794_700_000_000).unwrap();
+            let t = tree::open(&self.place, "mend the nets", 1_794_700_000_000).unwrap();
+            std::fs::write(t.dir.join("half-done.txt"), "not committed yet\n").unwrap();
+            git(&t.dir, &["checkout", "-q", "--detach"]);
         }
         *self.seen.lock().unwrap() = Some((ask.scratch.clone(), review::prompt(ask)));
         Box::pin(async {
@@ -58,7 +74,7 @@ impl Reviewer for Litter {
 }
 
 /// KEY: what the reviewer leaves is gone when the pass ends, so the next start has its slot.
-/// Without the close, `review-0a1b2c-2` is still under the self trees and counts as one open.
+/// Without the close, its tree is still under the self trees and counts as one open.
 #[tokio::test]
 async fn a_tree_the_reviewer_leaves_holds_no_slot() {
     let r = rig_with(SelfMode::Act, |_| {});
@@ -81,10 +97,15 @@ async fn a_tree_the_reviewer_leaves_holds_no_slot() {
     assert!(!PathBuf::from(&given).exists(), "{given} was left");
     assert_eq!(trees_named(&r.f.place.trees()), Vec::<String>::new());
     assert_eq!(trees_open(&r.f.place.trees()), 0);
+    // The self repo no longer lists it, and the review is closed: nothing says it is open.
+    let listed = git(&r.f.place.repo, &["worktree", "list"]);
+    assert!(!listed.contains(LEFT), "{listed}");
+    assert!(!PathBuf::from(&given).with_extension("before").exists());
 }
 
-/// A build that opens its tree while a review runs keeps it: the close removes what a
-/// review left, never the pipeline's own.
+/// KEY: a build that opens its tree while a review runs keeps it, with its uncommitted
+/// work, whatever its builder has checked out in it: the close removes what a review left,
+/// never the pipeline's own.
 #[tokio::test]
 async fn a_builds_tree_opened_during_a_review_is_kept() {
     let r = rig_with(SelfMode::Act, |_| {});
@@ -96,25 +117,53 @@ async fn a_builds_tree_opened_during_a_review_is_kept() {
     };
     r.core.self_join_pass(&seams).await.unwrap();
     assert_eq!(trees_named(&r.f.place.trees()), ["mend-the-nets"]);
-    assert!(tree::find(&r.f.place, "mend the nets").is_some());
+    let kept = r.f.place.trees().join("mend-the-nets/half-done.txt");
+    assert!(kept.exists(), "the builder's uncommitted work stays");
 }
 
-/// A tree that was open before the review, and a join's own, are not the review's to remove.
+/// A tree that was open before the review, a join's own, and one git cannot answer for are
+/// not the review's to remove.
 #[test]
-fn only_what_appeared_during_the_review_is_removed() {
+fn only_what_appeared_during_the_review_and_is_not_the_pipelines_is_removed() {
     let f = crate::rsi::tests_tree::fixture();
     let trees = f.place.trees();
     std::fs::create_dir_all(trees.join("left-by-an-earlier-run")).unwrap();
-    let own = scratch::open(&f.place, "self/20261014-trim-the-sails").unwrap();
+    let own = scratch::open(&f.place, "self/20261014-trim-the-sails");
     assert!(own.dir.is_dir());
-    std::fs::create_dir_all(trees.join("planted-trim")).unwrap();
-    std::fs::create_dir_all(trees.join("review-0a1b2c-2")).unwrap();
-    assert_eq!(scratch::close(&f.place, &own), ["review-0a1b2c-2"]);
+    for join in ["planted-trim", "dry-trim"] {
+        std::fs::create_dir_all(trees.join(join)).unwrap();
+    }
+    // A checkout whose `.git` git cannot read: a doubt, so it stays.
+    std::fs::create_dir_all(trees.join("unreadable")).unwrap();
+    std::fs::write(trees.join("unreadable/.git"), "gitdir: /nowhere/at/all\n").unwrap();
+    std::fs::create_dir_all(trees.join(LEFT)).unwrap();
+    assert_eq!(scratch::close(&f.place, &own), [LEFT]);
     assert!(!own.dir.exists());
     assert_eq!(
         trees_named(&trees),
-        ["left-by-an-earlier-run", "planted-trim"]
+        [
+            "dry-trim",
+            "left-by-an-earlier-run",
+            "planted-trim",
+            "unreadable"
+        ]
     );
     // A second close finds nothing more.
     assert_eq!(scratch::close(&f.place, &own), Vec::<String>::new());
+}
+
+/// A review the daemon stopped under never closed; the next review to open closes it.
+#[test]
+fn a_review_that_never_closed_is_closed_by_the_next_to_open() {
+    let f = crate::rsi::tests_tree::fixture();
+    let trees = f.place.trees();
+    let first = scratch::open(&f.place, "self/20261014-trim-the-sails");
+    std::fs::create_dir_all(trees.join(LEFT)).unwrap();
+    std::fs::write(first.dir.join("notes"), "half a review\n").unwrap();
+    // No close: the daemon stopped here. Another branch's review opens later.
+    let next = scratch::open(&f.place, "self/20261014-mend-the-nets");
+    assert!(!first.dir.exists(), "the first review's scratch was left");
+    assert_eq!(trees_named(&trees), Vec::<String>::new());
+    assert!(next.dir.is_dir());
+    assert_eq!(scratch::close(&f.place, &next), Vec::<String>::new());
 }
