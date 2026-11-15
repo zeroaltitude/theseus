@@ -65,6 +65,51 @@ async fn three_conversations_about_one_country_make_the_kind_country_with_france
     assert_eq!(rows[0].data["names"], json!(["country"]));
 }
 
+/// With the sweep's model part off (`sweep_usd_per_day = 0`) there is nothing to
+/// name the class, so no kind is made, and the entry it would have filed waits
+/// (the owner's answer, 2026-11-14): three conversations about one thing make
+/// nothing, and nothing already written is touched. On a night when the model
+/// part is on, the same three conversations make the kind, named for its class.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_the_model_part_off_no_kind_is_made_and_when_it_is_on_the_kind_is_the_class() {
+    let off = rig_classed(FakeJev::start().unwrap(), classes("country", 4), |c| {
+        c.ontology.sweep_usd_per_day = 0.0;
+    });
+    france(&off);
+    let before = snapshot(&off.core);
+    let swept = off.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!(
+        (swept.kinds, swept.refused, swept.failed),
+        (0, 0, 0),
+        "{swept:?}"
+    );
+    let o = snapshot(&off.core);
+    assert!(o.kind("france").is_none(), "no kind named after the thing");
+    assert!(
+        o.kind("country").is_none(),
+        "and no class without the model"
+    );
+    assert_eq!(*o, *before, "nothing was written");
+    let held = crate::tests_judge::kinds(&off.core.store, "onto.filed");
+    assert_eq!(
+        held.len(),
+        3,
+        "what it would have filed is still there to wait"
+    );
+
+    // The model part on, the same three conversations: the kind, for its class.
+    let on = rig_classed(FakeJev::start().unwrap(), classes("country", 4), |_| {});
+    france(&on);
+    let swept = on.core.onto_sweep_night(fresh()).await.unwrap();
+    assert_eq!((swept.kinds, swept.failed), (1, 0), "{swept:?}");
+    let o = snapshot(&on.core);
+    assert_eq!(
+        o.kind("country").unwrap().examples,
+        vec!["France".to_string()]
+    );
+    assert!(o.kind("france").is_none());
+}
+
 /// A class call that fails, or gives a word a kind cannot hold or the thing
 /// itself, makes no kind that night, and the next night asks again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

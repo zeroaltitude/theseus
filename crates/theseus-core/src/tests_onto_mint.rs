@@ -33,6 +33,18 @@ fn said_other(core: &Core, session: &str, names: &[&str], confidence: f64) {
     core.store.append_ledger(&row).unwrap();
 }
 
+/// What the class call would have said: `class` for each cluster by its key.
+fn classed(class: &[(&str, &str)]) -> crate::judge::onto::mint::Hints {
+    crate::judge::onto::mint::Hints {
+        class: class
+            .iter()
+            .map(|(k, c)| (k.to_string(), c.to_string()))
+            .collect(),
+        class_asked: true,
+        ..Default::default()
+    }
+}
+
 fn snapshot(core: &Core) -> Arc<theseus_ontology::Ontology> {
     core.runner.ontology.snapshot(&core.store).unwrap()
 }
@@ -41,22 +53,24 @@ fn snapshot(core: &Core) -> Arc<theseus_ontology::Ontology> {
 fn three_other_sessions_mint_a_kind_and_two_do_not() {
     let (core, _dir) = core();
     let now = now_unix_ms();
+    // The class call said `document` for the cluster the three share.
+    let hints = classed(&[("releasenotes", "document")]);
     said_other(&core, "s1", &["Release Notes", "Lantern"], 0.9);
     said_other(&core, "s2", &["release-notes"], 0.85);
-    let swept = core.onto_sweep(now).unwrap();
+    let swept = core.onto_sweep_with(now, &hints).unwrap();
     assert_eq!((swept.kinds, swept.refused, swept.writes.len()), (0, 0, 0));
     assert!(
-        snapshot(&core).kind("release-notes").is_none(),
+        snapshot(&core).kind("document").is_none(),
         "two do not mint"
     );
 
     said_other(&core, "s3", &["Release Notes"], 0.8);
-    let swept = core.onto_sweep(now).unwrap();
+    let swept = core.onto_sweep_with(now, &hints).unwrap();
     assert_eq!((swept.kinds, swept.failed), (1, 0));
     let write = swept.writes[0].clone();
     assert!(write.ends_with("-kind"), "{write}");
     let o = snapshot(&core);
-    let kind = o.kind("release-notes").expect("the kind is minted");
+    let kind = o.kind("document").expect("the kind is minted");
     assert_eq!(kind.added_by, format!("sweep:{write}"));
     assert_eq!(kind.examples, vec!["Release Notes".to_string()]);
     assert!(
@@ -76,39 +90,36 @@ fn three_other_sessions_mint_a_kind_and_two_do_not() {
             * 10
             + 10
     );
-    let cats: Vec<_> = o
-        .categories()
-        .filter(|c| c.kind() == "release-notes")
-        .collect();
+    let cats: Vec<_> = o.categories().filter(|c| c.kind() == "document").collect();
     let [cat] = cats.as_slice() else {
         panic!("one category: {cats:?}")
     };
     assert_eq!(cat.name, "Release Notes");
     for s in ["s1", "s2", "s3"] {
-        let l = o.member_list(s, "release-notes").expect("a membership");
+        let l = o.member_list(s, "document").expect("a membership");
         assert_eq!(l.members.len(), 1);
         assert_eq!(l.members[0].category, cat.id);
     }
 
     // A second run writes nothing: the kind lists the name.
-    let again = core.onto_sweep(now).unwrap();
+    let again = core.onto_sweep_with(now, &hints).unwrap();
     assert_eq!((again.kinds, again.writes.len()), (0, 0));
 
     // The undo retires the kind, its category and the memberships.
     core.ontology_undo(&write, "test", "test").unwrap();
     let o = snapshot(&core);
-    assert!(o.kind("release-notes").unwrap().retired_ms.is_some());
-    assert!(o.categories().all(|c| c.kind() != "release-notes"));
+    assert!(o.kind("document").unwrap().retired_ms.is_some());
+    assert!(o.categories().all(|c| c.kind() != "document"));
     assert!(o
-        .member_list("s1", "release-notes")
+        .member_list("s1", "document")
         .is_none_or(|l| l.members.is_empty()));
     // And an undone kind is not minted again.
-    let after = core.onto_sweep(now).unwrap();
+    let after = core.onto_sweep_with(now, &hints).unwrap();
     assert_eq!((after.kinds, after.writes.len()), (0, 0));
 }
 
 #[test]
-fn a_name_that_is_no_kind_name_mints_nothing_and_is_counted() {
+fn a_class_that_is_no_kind_name_or_none_at_all_mints_nothing_and_is_counted() {
     let (core, _dir) = core();
     let now = now_unix_ms();
     // A name that starts with a digit, and the table's own `topic`.
@@ -118,7 +129,10 @@ fn a_name_that_is_no_kind_name_mints_nothing_and_is_counted() {
     for s in ["s4", "s5", "s6"] {
         said_other(&core, s, &["topic"], 0.9);
     }
-    let swept = core.onto_sweep(now).unwrap();
+    // The class call said `topic` for the first (the table's own kind) and gave
+    // nothing for the second: neither makes a kind, and both are counted.
+    let hints = classed(&[("2026plan", "topic")]);
+    let swept = core.onto_sweep_with(now, &hints).unwrap();
     assert_eq!((swept.kinds, swept.refused), (0, 2));
     assert!(swept.writes.is_empty());
 }
@@ -161,6 +175,8 @@ fn a_chain_of_singletons_clusters() {
             pair("alphaledger", "betaledger"),
             pair("betaledger", "gammaledger"),
         ],
+        class: [("alphaledger".to_string(), "product".to_string())].into(),
+        class_asked: true,
         ..Hints::default()
     };
     let plan = plan_with(&o, &all, now, |n| format!("sweep-{now}-{n}-kind"), &hints);
@@ -186,15 +202,11 @@ fn two_clusters_are_asked_before_both_mint() {
     );
     let now = now_unix_ms();
     let write = |n: usize| format!("sweep-{now}-{n}-kind");
-    assert_eq!(
-        plan_with(&o, &all, now, write, &Hints::default())
-            .minted
-            .len(),
-        2
-    );
+    let both = classed(&[("lanternledger", "product"), ("ledgerapp", "tool")]);
+    assert_eq!(plan_with(&o, &all, now, write, &both).minted.len(), 2);
     let hints = Hints {
         same: pairs,
-        ..Hints::default()
+        ..both
     };
     assert_eq!(plan_with(&o, &all, now, write, &hints).minted.len(), 1);
 }
@@ -265,7 +277,7 @@ fn a_kept_yes_is_void_once_its_partner_is_listed_another_way() {
     all.extend(said(&["s4"], "Ledger App"));
     let hints = Hints {
         same: vec![("lanternledger".to_string(), "ledgerapp".to_string())],
-        ..Hints::default()
+        ..classed(&[("lanternledger", "product")])
     };
     let now = now_unix_ms();
     let write = |n: usize| format!("sweep-{now}-{n}-kind");
@@ -300,7 +312,7 @@ fn a_kept_yes_is_void_once_its_partner_is_listed_another_way() {
 /// A kept pick names only a cluster that still holds it (theseus-7e7hc): the
 /// pick `Ledger App` was made for the cluster the kept yes joined, and the
 /// owner has since listed it, so the cluster keyed `lanternledger` no longer
-/// holds it and its kind takes the most shared name.
+/// holds it; the class names the kind either way, and the pick names nothing.
 #[test]
 fn a_kept_pick_not_in_the_cluster_does_not_name_its_kind() {
     use crate::judge::onto::mint::{plan_with, Hints};
@@ -311,7 +323,7 @@ fn a_kept_pick_not_in_the_cluster_does_not_name_its_kind() {
     let hints = Hints {
         same: vec![("lanternledger".to_string(), "ledgerapp".to_string())],
         named: [("lanternledger".to_string(), "Ledger App".to_string())].into(),
-        ..Hints::default()
+        ..classed(&[("lanternledger", "product")])
     };
     core.ontology_kind_add(
         &OntologyKindAddParams {
@@ -333,7 +345,7 @@ fn a_kept_pick_not_in_the_cluster_does_not_name_its_kind() {
     );
     assert_eq!(plan.minted.len(), 1, "{plan:?}");
     let made = &plan.minted[0];
-    assert_eq!(made.kind, "lantern-ledger");
+    assert_eq!(made.kind, "product");
     assert!(!made.named, "{made:?}");
     assert!(
         !format!("{:?}", made.records).contains("Ledger App"),
