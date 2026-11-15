@@ -145,7 +145,7 @@ impl Core {
         })
     }
 
-    /// A record was revoked: if `directive.v1` kept it, its judgment is
+    /// A record was revoked: if `directive.v2` kept it, its judgment is
     /// labeled `wrong capture` (one a day-count away from the pack's
     /// rollback) and the record is forgotten as kept. The undo has already
     /// happened; a label that cannot be written is logged.
@@ -228,7 +228,7 @@ impl Core {
     /// The rule `expect_capture` notes by, for the router's early judge too
     /// (thread-route asks the inbound batch before `turn.submit` notes the
     /// message: the owner's 2026-10-15 "I think that sounds right" to asking
-    /// `directive.v1` in the routing call each message already makes).
+    /// `directive.v2` in the routing call each message already makes).
     pub(super) fn capture_wanted(&self, p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
         self.cfg.standing.capture && self.cfg.judge.enabled && Self::owner_message(p, conn)
     }

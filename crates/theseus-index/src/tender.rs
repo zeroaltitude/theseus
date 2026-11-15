@@ -182,7 +182,7 @@ impl Shared {
         gone: &(dyn Fn() -> bool + Sync),
     ) -> anyhow::Result<QueryResult> {
         let t0 = Instant::now();
-        let weights = self.weights.with(&p.weights).map_err(anyhow::Error::msg)?;
+        let mut weights = self.weights.with(&p.weights).map_err(anyhow::Error::msg)?;
         let mut wanted: Vec<&str> = if p.sources.is_empty() {
             let mut v = vec!["bm25", "entity"];
             if self.vectors.mode() == "hybrid" {
@@ -199,6 +199,22 @@ impl Shared {
             );
         }
         wanted.dedup();
+        // The tender's own vector weight is for an index whose vectors are
+        // made; while they are not (a first backfill, a re-embed) the few
+        // chunks that have one fill the vector list's best ranks whatever
+        // they say, and would outrank every exact match. The weight is
+        // scaled by the coverage squared (theseus-pv7m): once for the share
+        // of the index the source can see, once for the share its ranks are
+        // measured against, so a source that sees a sixth of the index
+        // weighs a thirty-sixth, below a lone exact match, and a whole one
+        // weighs the default. The exact match leads only while the scaled
+        // weight stays under 1, that is below about 41% coverage; above it
+        // a hit only the vectors find can lead again. A weight the query
+        // names is its own.
+        if wanted.contains(&"vector") && !p.weights.contains_key("vector") {
+            let covered = self.vectors.coverage();
+            weights.vector *= covered * covered;
+        }
         let mut skipped = BTreeMap::new();
         let mut vector = None;
         let (mut embed_ms, mut scan_ms) = (0.0, 0.0);

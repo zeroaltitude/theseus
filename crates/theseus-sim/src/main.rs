@@ -229,7 +229,7 @@ enum Cmd {
         #[arg(long = "say")]
         say: Vec<String>,
         /// Each `--choose QUESTION=OPTION:P` answers that Choice question with
-        /// OPTION at confidence P (`directive.v1/kind=preference:0.93`, theseus-slvl.5's
+        /// OPTION at confidence P (`directive.v2/kind=preference:0.93`, theseus-slvl.5's
         /// live check).
         #[arg(long = "choose")]
         choose: Vec<String>,
@@ -431,10 +431,10 @@ fn main() -> Result<()> {
             let jev = theseus_judge::fake::FakeJev::start()?;
             for c in &choose {
                 let (q, rest) = c.split_once('=').context(
-                    "--choose takes QUESTION=OPTION:P, as directive.v1/kind=preference:0.93",
+                    "--choose takes QUESTION=OPTION:P, as directive.v2/kind=preference:0.93",
                 )?;
                 let (option, p) = rest.rsplit_once(':').context(
-                    "--choose takes QUESTION=OPTION:P, as directive.v1/kind=preference:0.93",
+                    "--choose takes QUESTION=OPTION:P, as directive.v2/kind=preference:0.93",
                 )?;
                 let confidence: f64 = p.parse().context("--choose's P is a confidence")?;
                 jev.script(

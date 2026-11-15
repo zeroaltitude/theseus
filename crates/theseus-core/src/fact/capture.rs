@@ -1,4 +1,4 @@
-//! The facts of capture (theseus-slvl.5): what `directive.v1` heard in the
+//! The facts of capture (theseus-slvl.5): what `directive.v2` heard in the
 //! owner's words, and what the core did about it. A kept record is also a
 //! `standing.added` row (`fact::standing`), in the same frame; these rows say
 //! why it was kept and which judgment said so. Rows hold ids, kinds and sizes,
@@ -113,7 +113,7 @@ impl Fact for StandingAnswered<'_> {
 pub struct StandingCandidate<'a> {
     pub node: &'a str,
     pub judgment: &'a str,
-    /// The probability `directive.v1` gave `correction`.
+    /// The probability `directive.v2` gave `correction`.
     pub strength: f64,
 }
 

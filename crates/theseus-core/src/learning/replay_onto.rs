@@ -277,6 +277,7 @@ impl Core {
             route: PackMode::Shadow,
             chosen: None,
             task: false,
+            own: false,
             persona: Default::default(),
             capture: false,
             data_names: Default::default(),

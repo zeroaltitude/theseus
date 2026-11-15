@@ -47,9 +47,13 @@ pub enum Step {
     /// The confirm band: ask, write nothing.
     Ask {
         kind: String,
-        text: String,
+        /// What it asks about, whole: the category's path, a project's
+        /// title, or a new category's name; none while a new one has none.
+        name: Option<String>,
         /// The category it asks to file under; none for a new one.
         category: Option<CategoryId>,
+        /// The command that answers yes, when there is one.
+        how: Option<String>,
         confidence: f64,
     },
     /// The session was attached to a project, at the act band (theseus-jrf4c):
@@ -261,12 +265,9 @@ fn project(plan: &mut Plan, j: &Judgment, ctx: &Value, candidates: &[String], ba
     if confidence < bands.act {
         plan.steps.push(Step::Ask {
             kind: "project".into(),
-            text: format!(
-                "Attach this session to the project «{title}»? (nothing is attached until you do) \
-                 `theseus project attach {} {id}` does.",
-                plan.session
-            ),
+            name: Some(title),
             category: None,
+            how: Some(format!("theseus project attach {} {id}", plan.session)),
             confidence,
         });
         return;
@@ -375,10 +376,8 @@ fn existing(at: &At, kind: &str, id: &str, act: bool, confidence: f64) -> Result
     if !act {
         return Ok(Done::Step(Step::Ask {
             kind: kind.into(),
-            text: format!(
-                "File this session under the {kind} «{}»? (nothing is written until you do)",
-                path_of(o, &id).join(" › ")
-            ),
+            name: Some(path_of(o, &id).join(" › ")),
+            how: Some(format!("theseus ontology member {} +{id}", plan.session)),
             category: Some(id),
             confidence,
         }));
@@ -437,16 +436,11 @@ fn new_category(at: &At, kind: &str, names: &[String], confidence: f64) -> Resul
         .filter(|(_, c)| *c >= bands.confirm)
         .and_then(|(a, c)| Some((nth(names, &a, 'n')?.clone(), c)));
     if confidence < bands.act {
-        let what = named.as_ref().map_or_else(
-            || format!("a new {kind}"),
-            |(n, _)| format!("a new {kind} «{n}»"),
-        );
         return Ok(Done::Step(Step::Ask {
             kind: kind.into(),
-            text: format!(
-                "Start {what} and file this session under it? (nothing is written until you do)"
-            ),
+            name: named.map(|(n, _)| n),
             category: None,
+            how: None,
             confidence,
         }));
     }

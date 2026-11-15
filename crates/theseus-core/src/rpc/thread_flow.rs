@@ -588,8 +588,9 @@ impl Core {
                 route,
                 chosen: None,
                 task: false,
+                own: false,
                 persona: self.runner.persona_ctx(home, class),
-                // The owner's own words: `directive.v1` rides this call, and
+                // The owner's own words: `directive.v2` rides this call, and
                 // the turn says where the message was written (`Early::said`).
                 capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
                 data_names: self.cfg.privacy.data_names(),

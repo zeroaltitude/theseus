@@ -440,6 +440,7 @@ impl TurnRunner {
                 route,
                 chosen: None,
                 task: a.task,
+                own: false,
                 threads: Vec::new(),
                 in_thread: false,
                 persona: self.persona_ctx(sid, class),

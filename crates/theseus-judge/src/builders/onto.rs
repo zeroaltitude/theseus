@@ -146,6 +146,11 @@ pub struct OntoInput {
     /// The message's text-like attachments.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub texts: Vec<OntoText>,
+    /// Directories whose paths are never mined as names (Theseus's own state
+    /// directory: its build trees are not anything a person works on).
+    /// Never serialized: a fact of this process, not of the state.
+    #[serde(skip)]
+    pub private_dirs: Vec<String>,
     /// The message came from a shared place: only the pictures' own
     /// questions are asked, with nothing of any session's.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -266,6 +271,7 @@ impl OntoInput {
                 previous,
                 thread_title: self.thread_title.as_deref(),
                 project_title: self.project_title.as_deref(),
+                private: &self.private_dirs,
             },
             &sources,
         );

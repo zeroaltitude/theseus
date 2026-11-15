@@ -63,6 +63,7 @@ pub const FAMILY: &str = FILE;
 /// Register `self.file`, only while `[self] mode = "act"`: the same rule
 /// `self.evidence` is registered under, so no default catalog moves.
 pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
+    super::open_work::register(cfg, r);
     if cfg.self_improve.mode == theseus_protocol::rsi::SelfMode::Act {
         r.register(Arc::new(SelfFile));
     }

@@ -67,7 +67,10 @@ pub(crate) fn notice_text(body: &Value) -> String {
     };
     theseus_core::owner_note::note(
         theseus_core::owner_note::Kind::Alert,
-        &format!("Jev flagged a call that already ran{task}: `{}`", s("tool")),
+        &format!(
+            "Theseus flagged a call that already ran{task}: `{}`",
+            s("tool")
+        ),
         &format!("notified after it ran: {}", s("line")),
         &format!(
             "> {}\nThe call did not wait. Judgment `{}`.",

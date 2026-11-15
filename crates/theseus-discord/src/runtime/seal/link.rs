@@ -90,7 +90,7 @@ impl Shared {
                 Err(e) => failed(&e, "Nothing was linked"),
             }
         } else {
-            "Not linked. Jev does not ask about this pair again.".to_string()
+            "Not linked. Theseus will not ask about this pair again.".to_string()
         };
         self.followup(i, &text).await;
     }

@@ -447,7 +447,7 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<OntologyProposalAnswered> {
         let who = who.into();
-        let what = format!("Jev's proposal {}", p.judgment.trim());
+        let what = format!("Theseus's proposal {}", p.judgment.trim());
         self.judge_act(
             &who,
             Act::Ontology {
@@ -466,7 +466,7 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> Result<OntologyProposalAnswered> {
         let who = who.into();
-        let what = format!("Jev's proposal {}", p.judgment.trim());
+        let what = format!("Theseus's proposal {}", p.judgment.trim());
         self.judge_act(
             &who,
             Act::Ontology {

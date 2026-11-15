@@ -25,6 +25,15 @@ timeout`, never `⚠️ Alert · ✗ Tide check failed`). `head` drops one a tit
 `is_headed` refuses a text that keeps one; a reminder's title is the owner's words as he wrote them (the owner,
 2026-10-22).
 
+**Who acts (theseus-nzwa5).** The actor in a message is Theseus, never the small model that judged: a message does not
+name Jev, and `tests_owner_note::no_unasked_message_names_the_small_model` holds that for the families it builds (the
+one exception is the detail line of a flagged call, `Jev: 95% risky`, a score label the cockpit and the CLI share, which
+the owner chose to leave as a technical detail: a headline, a title or a sentence still says Theseus). The
+notice that an entry was added to the things Theseus knows about, and the question for one it is not sure of, use the
+owner's own words (`judge/onto/words.rs`, pinned word for word in `tests_onto_notice.rs`): they say what came up in
+plain words (a folder, a person, a topic), show its whole name, name the conversation by its title, and never say
+"tagged", "filed", "categorized" or "resource", which read as a label being applied.
+
 The head is built by one helper, `theseus_core::owner_note` (`head`, `note`; `is_headed` is what the tests ask). Every
 new unasked message uses it. A digest's items are one line each in plain words (what, how often, since when), never a
 bare internal label or id: a self-repair backlog item's title is plain words ("Harness tool calls failing", not "Calls
@@ -58,7 +67,7 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Narrower policy | `aws/narrow/proposal.rs` `Proposal::card` | the weekly CloudTrail read of a hand role | DM, `self_narrow` | Decision |
 | Narrower policy red | `rsi/narrow.rs` `red_card` | AccessDenied after an applied narrower policy | DM, `self_narrow_red` | Alert |
 | Home size | `turn/home_size_step.rs` `warning_text` | a place's home passed `[threads] home_warn_percent` | DM, `home_size` | FYI |
-| Privacy warning | `turn/personal_step.rs` `warning_text` | Jev read a message as after the owner's details | DM, `privacy_warning` | Alert |
+| Privacy warning | `turn/personal_step.rs` `warning_text` | Theseus read a message as after the owner's details | DM, `privacy_warning` | Alert |
 | Privacy, reply held | `turn/personal_step.rs` `held_text` | the same in a shared place: the reply was held | DM, `privacy_warning` | Alert |
 | Day ceiling / runaway line | `day_ceiling.rs` `notice_text`, `runaway_text` | a model call refused at the day's line | DM, `spend_ceiling` | Alert |
 | Day warning | `day_ceiling.rs` `warning_text` | today's spend passed the ceiling under notify | DM, `spend_ceiling` | Alert |
@@ -68,14 +77,14 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Google lapse | `google/tend.rs` `lapse_text` | Google refused the token's refresh | DM, `spend_ceiling` | Action |
 | Morning note, consolidation finding | `initiative/speak.rs` `headed` (from `initiative_post`) | the day's first tick after `morning_hour`; the night's consolidation | DM, `initiative` | FYI (the persona's words unchanged below) |
 | Posted digest | `initiative/digest.rs` `posted_text` | a `[discord] digest_at` slot with lines | DM, `digest` | FYI |
-| Ontology mint | `judge/onto/stage.rs` `minted_text` | Jev minted a category and filed a session | DM, `onto_card` | FYI |
-| Ontology ask | `judge/onto/stage.rs` `ask_text` | Jev was not sure where a session belongs | DM, `onto_card` | Decision |
-| Jev notice | Discord `runtime/jev.rs` `notice_text` | Jev's notice on a call that ran | DM, `jev_notice` | Alert |
-| Jev notices paused | `judge/notice.rs` `paused_text` | the day's brake | DM, `jev_paused` | FYI |
+| Ontology mint | `judge/onto/words.rs` `minted_text` | Theseus added an entry to the things it knows about (the notice names the conversation by its title) | DM, `onto_card` | FYI |
+| Ontology ask | `judge/onto/words.rs` `ask_text` | Theseus was not sure enough to add or link an entry, and changed nothing | DM, `onto_card` | Decision |
+| Flagged call | Discord `runtime/jev.rs` `notice_text` | Theseus's notice on a call that ran | DM, `jev_notice` | Alert |
+| Warnings paused | `judge/notice.rs` `paused_text` | the day's limit on warnings | DM, `jev_paused` | FYI |
 | Seal card | `rpc/thread_seal.rs` `seal_text` | a thread looks embargoed | DM, `seal_card` | Decision |
 | Link card | `thread_link_seen.rs` `Pair::text` | another thread's notes answered twice | DM, `link_card` | Decision |
 | Retraction card | `retract.rs` `card_text` | a retracted note reached tasks | DM, `retraction` | Decision |
-| Standing kept / ask | `capture/mod.rs` `kept_card`, `ask_card` | `directive.v1` kept the owner's words, or asks | DM, `standing_card` | FYI / Decision |
+| Standing kept / ask | `capture/mod.rs` `kept_card`, `ask_card` | `directive.v2` kept the owner's words, or asks | DM, `standing_card` | FYI / Decision |
 | Persona file missing | `turn/persona_step.rs` `missing_text` | a persona's file cannot be read | DM, `notice` | Alert |
 | Routine failed / blocked | `rpc/routines_watch.rs` `routine_note` | a routine's run failed or was blocked | place, `reminder` | Alert |
 | Routine month spent | `routine.rs` `month_spent_text` | a routine's month budget is spent | place, `notice` | Action |

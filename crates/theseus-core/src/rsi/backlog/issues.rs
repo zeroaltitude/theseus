@@ -153,7 +153,7 @@ impl Issue {
             && self.state.as_deref().unwrap_or("open") == "open"
     }
 
-    fn has_label(&self, want: &str) -> bool {
+    pub(crate) fn has_label(&self, want: &str) -> bool {
         self.labels
             .iter()
             .any(|l| l.name().eq_ignore_ascii_case(want))
