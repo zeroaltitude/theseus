@@ -84,6 +84,7 @@ pub(crate) mod tests_tree;
 pub mod tree;
 pub mod tree_fmt;
 pub mod tree_lease;
+pub mod tree_main;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 

@@ -11,6 +11,9 @@
 //! `self.join.stopped` row that names the phase. For each green
 //! `self.branch.built` row (seam S4), oldest first:
 //!
+//! 0. **Main's move** ([`moved`], issue 20): a branch not yet reviewed whose dry run on main's
+//!    tip conflicts is not reviewed. It goes back to its builder with main merged into a
+//!    working copy of it, and none of that is a try.
 //! 1. **The review**, once per branch, head and reviewer model. The
 //!    reviewer's model must differ from the builder's (the builder's
 //!    session's last target): the same model, an unknown builder or an
@@ -30,8 +33,9 @@
 //!    nothing is pushed), the push of main, never forced; main moved before
 //!    the push redoes the dry run, the merge and the gate, at most
 //!    [`TRIES`] times. A dry run that conflicts with main returns the item to
-//!    the backlog with a notice (its tree closed, so the next build cuts a
-//!    fresh branch from the new main) and drops it at the third conflict. The
+//!    the backlog with a notice, as step 0 does (where the working copy cannot
+//!    be made, its tree is closed and the next build cuts a fresh branch from
+//!    the new main), and drops it at the third conflict. The
 //!    lock is released with its `done:` line. One `self.joined` row.
 //!    **The sealed check** ([`sealing`], theseus-pw1q.21.7) runs on each try's
 //!    merge between main's gate and the signature, when the branch's diff
@@ -55,6 +59,7 @@ pub mod install;
 pub(crate) mod joining;
 pub mod keel;
 pub mod lock;
+mod moved;
 pub mod planted;
 pub mod review;
 mod reviewing;
@@ -63,6 +68,8 @@ mod sealing;
 mod tender;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_moved;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
@@ -421,10 +428,17 @@ impl Core {
             };
             let verdict = match mine {
                 Some(v) => v.verdict.clone(),
-                None => match run.review().await? {
-                    Some(v) => v,
-                    None => break,
-                },
+                None => {
+                    // Before its review is spent: a change main has moved under goes back to
+                    // its builder (`moved`).
+                    if run.moved_under(&remote_of(&self.cfg)).await? {
+                        continue;
+                    }
+                    match run.review().await? {
+                        Some(v) => v,
+                        None => break,
+                    }
+                }
             };
             if verdict != "accept" || joined_one {
                 continue;

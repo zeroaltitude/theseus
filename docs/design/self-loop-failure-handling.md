@@ -26,6 +26,16 @@ so a planted revert can prove it).
   end of a pass, a failure in tests; the install's build tree is reaped by `install::reap_target` when its build fails or its
   `self.installed` row is written, and `reap_installed_targets` clears earlier leftovers); a hold on the slots names the trees open.
 
+**Main moved under a finished change** (issue 20; `rsi/join/moved.rs`, `rsi/tree_main.rs`, `backlog/brief.rs`). A green branch whose dry run
+  on main's tip conflicts is found at the head of the join pass, before its review is spent (the pass holds `Shared::joins`, which
+  a pipeline tick does not, and it owns the conflict path's card and bound). The item goes back to `proposed`, the head is held as a
+  `conflict`, and the builder's tree is made on the branch's own commits, on a new `-N` branch, with main merged in and not committed
+  (`tree_main::bring_main_in`): what clashes is left in the files, and the builder's next `self.propose_change` commits the merge. Its
+  first turn says so (`brief::main_moved`, read from the `main-merged:` evidence newer than the item's last `session:`). None of it is
+  a try (`attempts` reads no `conflict:` or `main-merged:` evidence). The bound is the old one: a third conflict since the owner's last
+  retry fails the item, and the stop's row says so. Where the working copy cannot be made (the item has a tree open, or git says no) the
+  old path stands: the tree is closed and the next build cuts a fresh branch from the new main.
+
 ## What this does NOT do
 
 - A self-join's own gate is not read by the main-is-red hold: its row lands in the sandbox's tmpfs `HOME` and is lost,

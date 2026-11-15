@@ -172,6 +172,8 @@ impl Core {
             let Some(t) = w.tasks.get_mut(&id) else {
                 continue;
             };
+            // Read before this start's own `session:` evidence is written.
+            let moved = super::brief::main_moved(t).map(|m| format!("\n\n{m}"));
             t.session = Some(session.clone());
             t.state = TaskState::InProgress;
             t.version += 1;
@@ -189,11 +191,12 @@ impl Core {
                 });
             }
             let objective = format!(
-                "{}\n\n{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.{}",
+                "{}\n\n{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.{}{}",
                 super::brief::rules(super::attempts::MAX_ATTEMPTS),
                 t.objective,
                 tree.dir.display(),
                 tree.branch,
+                moved.unwrap_or_default(),
                 crate::rsi::evidence::briefing(&self.tools.self_pr.state, &id),
             );
             if let Some(m) = w.st.items.get_mut(&id) {

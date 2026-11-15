@@ -603,25 +603,31 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
 
 /// Move the tree to a fresh branch for another attempt, from where it is.
 pub fn next_branch(p: &Place, tree: &mut Tree) -> Result<()> {
-    let base = tree.branch.clone();
-    let stem = match base.rsplit_once('-') {
+    let b = next_name(p, &tree.dir, &tree.branch)?;
+    p.git_ok(&tree.dir, &["checkout", "-q", "-b", &b])?;
+    tree.branch = b;
+    Ok(())
+}
+
+/// The first `<stem>-N` (N from 2) that names no branch of the repository `dir` is in, where
+/// the stem is `branch` without its own `-N`.
+pub(super) fn next_name(p: &Place, dir: &Path, branch: &str) -> Result<String> {
+    let stem = match branch.rsplit_once('-') {
         Some((s, n)) if n.chars().all(|c| c.is_ascii_digit()) && s.contains('-') => s.to_string(),
-        _ => base.clone(),
+        _ => branch.to_string(),
     };
     let mut n = 2;
     loop {
         let b = format!("{stem}-{n}");
         let taken = p
             .git(
-                &tree.dir,
+                dir,
                 &["rev-parse", "-q", "--verify", &format!("refs/heads/{b}")],
             )?
             .status
             .success();
         if !taken {
-            p.git_ok(&tree.dir, &["checkout", "-q", "-b", &b])?;
-            tree.branch = b;
-            return Ok(());
+            return Ok(b);
         }
         n += 1;
     }
