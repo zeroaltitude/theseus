@@ -727,11 +727,10 @@ async fn a_project_with_no_review_needs_no_card_and_makes_no_routine() {
 /// The project's list, from a command and through the protocol: an item is
 /// added, listed and closed; the project's view and the slice a conversation
 /// attached to it receives both show the open ones; a milestone is no item; a
-/// closed item cannot be closed twice; and the list is what it was after the
-/// store is read again by a fresh core. Each item is an ordinary task record
+/// closed item cannot be closed twice. Each item is an ordinary task record
 /// of kind `item` under the project, so the progress counts move with it.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_projects_items_are_added_listed_closed_shown_and_survive_a_reopen() {
+async fn a_projects_items_are_added_listed_closed_and_shown() {
     let r = rig();
     let p = made(&r, json!({"review": "none"})).await;
     let id = p["project"]["id"].as_str().unwrap().to_string();
@@ -840,6 +839,33 @@ async fn a_projects_items_are_added_listed_closed_shown_and_survive_a_reopen() {
         .is_err(),
         "an item is one line"
     );
+}
+
+/// The list is durable: the store read again by a fresh core holds the same
+/// records, and `project.item.list` of it says what it said.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_projects_items_survive_a_reopen() {
+    let r = rig();
+    let p = made(&r, json!({"review": "none"})).await;
+    let id = p["project"]["id"].as_str().unwrap().to_string();
+    for title in ["Order the sounding line", "Book the boat"] {
+        rpc(
+            &r.core,
+            "project.item.add",
+            json!({"project": id, "title": title}),
+        )
+        .await
+        .unwrap();
+    }
+    let first = r
+        .tasks()
+        .into_iter()
+        .find(|t| t.kind == TaskKind::Item)
+        .unwrap()
+        .id;
+    rpc(&r.core, "project.item.close", json!({"item": first}))
+        .await
+        .unwrap();
 
     // The store read again by a fresh core: the list is what it was.
     use theseus_store::Store as _;

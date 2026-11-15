@@ -192,6 +192,25 @@ impl Tool for MoveToThread {
     }
 }
 
+/// The wire definitions of the two thread tools this turn is offered.
+pub(crate) fn definitions(s: Option<&Sealable>, m: Option<&Movable>) -> Vec<Value> {
+    let def = |name: &str, description: &str, schema: Value| {
+        json!({
+            "name": theseus_tools::wire_name(name),
+            "description": description,
+            "input_schema": schema,
+        })
+    };
+    let mut out = Vec::new();
+    if let Some(s) = s {
+        out.push(def(SEAL, &seal_description(s), SealThread.input_schema()));
+    }
+    if let Some(m) = m {
+        out.push(def(MOVE, &move_description(m), MoveToThread.input_schema()));
+    }
+    out
+}
+
 /// The seal tool's description for this turn: the thread it would seal.
 pub(crate) fn seal_description(s: &Sealable) -> String {
     format!(
@@ -252,7 +271,7 @@ impl Board {
             .collect();
         targets.push(("home".into(), "home".into()));
         targets.retain(|(slug, _)| *slug != from);
-        (!targets.is_empty()).then(|| Movable {
+        (!targets.is_empty()).then_some(Movable {
             turn: routed.turn,
             home: routed.home,
             from,

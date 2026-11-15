@@ -180,6 +180,33 @@ impl Tool for ItemList {
     }
 }
 
+/// The wire definitions of the item tools this conversation is offered: add
+/// and list always, close once there is an open item.
+pub(crate) fn definitions(p: Option<&ProjectOffer>) -> Vec<Value> {
+    let def = |name: &str, description: &str, schema: Value| {
+        json!({
+            "name": theseus_tools::wire_name(name),
+            "description": description,
+            "input_schema": schema,
+        })
+    };
+    let Some(p) = p else {
+        return Vec::new();
+    };
+    let mut out = vec![
+        def(ITEM_ADD, &add_description(p), ItemAdd.input_schema()),
+        def(ITEM_LIST, &list_description(p), ItemList.input_schema()),
+    ];
+    if !p.open.is_empty() {
+        out.push(def(
+            ITEM_CLOSE,
+            &close_description(p),
+            ItemClose.input_schema(),
+        ));
+    }
+    out
+}
+
 /// The add tool's description for this turn: the project it adds to.
 pub(crate) fn add_description(p: &ProjectOffer) -> String {
     format!(
@@ -256,11 +283,11 @@ impl Board {
         let r = core
             .project_item_add(
                 &ProjectItemAddParams {
-                    project: p.id.clone(),
+                    project: p.id,
                     title: a.title,
                     ..Default::default()
                 },
-                offered.said.who.clone(),
+                offered.said.who,
             )
             .map_err(|e| format!("nothing was added: {}", e.message))?;
         let item = r.changed.ok_or("the item was not recorded")?;
@@ -302,7 +329,7 @@ impl Board {
                     item: id.clone(),
                     ..Default::default()
                 },
-                offered.said.who.clone(),
+                offered.said.who,
             )
             .map_err(|e| format!("nothing was closed: {}", e.message))?;
         let item = r.changed.ok_or("the item was not recorded")?;
@@ -318,7 +345,7 @@ impl Board {
         let a: ListArgs = parse(input)?;
         let r = core
             .project_item_list(&ProjectItemListParams {
-                project: p.id.clone(),
+                project: p.id,
                 all: a.all()?,
             })
             .map_err(|e| format!("the list could not be read: {}", e.message))?;

@@ -398,59 +398,21 @@ impl Board {
         if let Some(d) = Self::sync_offer(&core) {
             defs.push(d);
         }
-        // The two thread acts are the owner's own words' too.
-        let (sealable, movable) = match said.owner_input {
-            true => (
-                Self::seal_offer(&core, session),
-                Self::move_offer(
-                    &core,
-                    &self
-                        .heard
-                        .home_of(session)
-                        .unwrap_or_else(|| session.to_string()),
-                    turn,
-                ),
-            ),
-            false => (None, None),
-        };
-        if let Some(s) = &sealable {
-            defs.push(definition(
-                SEAL,
-                &threads::seal_description(s),
-                threads::SealThread.input_schema(),
-            ));
-        }
-        if let Some(m) = &movable {
-            defs.push(definition(
-                MOVE,
-                &threads::move_description(m),
-                threads::MoveToThread.input_schema(),
-            ));
-        }
-        // The project's own list, where the conversation serves a project.
-        let project = match said.owner_input {
-            true => Self::project_offer(&core, session),
-            false => None,
-        };
-        if let Some(p) = &project {
-            defs.push(definition(
-                ITEM_ADD,
-                &items::add_description(p),
-                items::ItemAdd.input_schema(),
-            ));
-            defs.push(definition(
-                ITEM_LIST,
-                &items::list_description(p),
-                items::ItemList.input_schema(),
-            ));
-            if !p.open.is_empty() {
-                defs.push(definition(
-                    ITEM_CLOSE,
-                    &items::close_description(p),
-                    items::ItemClose.input_schema(),
-                ));
+        // The two thread acts and the project's items are the owner's own
+        // words' too (`threads.rs`, `items.rs`).
+        let (sealable, movable, project) = match said.owner_input {
+            true => {
+                let home = self.heard.home_of(session);
+                (
+                    Self::seal_offer(&core, session),
+                    Self::move_offer(&core, home.as_deref().unwrap_or(session), turn),
+                    Self::project_offer(&core, session),
+                )
             }
-        }
+            false => (None, None, None),
+        };
+        defs.extend(threads::definitions(sealable.as_ref(), movable.as_ref()));
+        defs.extend(items::definitions(project.as_ref()));
         self.offered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
