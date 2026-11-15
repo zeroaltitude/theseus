@@ -1630,7 +1630,11 @@ pub(crate) mod tests {
     /// binding row with no frame behind it waits at most ONE SECOND before
     /// the store syncs it on its own". The bound itself is asserted here;
     /// the wait is lowered so the test costs milliseconds, and the loop ends
-    /// on the frame, never on a sleep's length.
+    /// on the frame, never on a sleep's length. The frame counts when the log
+    /// has taken it and the writer indexes it a moment later, which is where a
+    /// read of the row looks (`scan`), so the loop waits for the row to be
+    /// readable as well: under load the 5 ms poll looked between the two and
+    /// read an empty log (the row was there, once, a moment after).
     #[tokio::test]
     async fn a_row_with_no_frame_behind_it_is_written_within_the_bound() {
         assert_eq!(
@@ -1653,7 +1657,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(frames(&store), f0, "not on the caller's path");
         let t0 = std::time::Instant::now();
-        while frames(&store) == f0 {
+        while frames(&store) == f0 || labels(&store, p0).is_empty() {
             assert!(
                 t0.elapsed() < std::time::Duration::from_secs(20),
                 "the row waited {:?} with no frame behind it",
