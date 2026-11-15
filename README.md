@@ -118,8 +118,9 @@ up. New kinds and renames are in the morning note, and what the sweep does can b
 with many handles, and it holds what they do and own.
 
 The map is part of indexed memory: a note that shares an entry with the conversation ranks higher in recall.
-Imported history is sorted into seven books (a diary, an encyclopedia, a cookbook, procedures, a casebook, a
-register and a dictionary), read from the memory index. [The
+Imported history is sorted onto seven shelves (a diary, an encyclopedia, a cookbook, procedures, a casebook, a
+register and a dictionary), read from the memory index. A shelf is a sorted set of conversations; a book is what
+Theseus will write from a shelf, and none is written yet (planned for 3.0.0). [The
 ontology](docs/design/m4-boundaries.md#28-the-ontologys-first-slice).
 
 ### It gets better while you sleep
