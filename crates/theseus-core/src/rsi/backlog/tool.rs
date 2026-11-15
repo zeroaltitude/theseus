@@ -57,8 +57,6 @@ use theseus_tools::{
 use crate::rpc::Core;
 
 pub const FILE: &str = "self.file";
-/// The dispatch family (`toolrun.rs`).
-pub const FAMILY: &str = FILE;
 
 /// Register `self.file`, only while `[self] mode = "act"`: the same rule
 /// `self.evidence` is registered under, so no default catalog moves.
@@ -128,7 +126,8 @@ impl Tool for SelfFile {
     }
 
     fn backend(&self) -> Backend {
-        Backend::Harness
+        // Dispatched by name in `toolrun/inproc.rs`, which only an async tool reaches.
+        Backend::Async
     }
 
     fn retry(&self) -> Retry {
