@@ -1,13 +1,15 @@
-// The Books view's words and its address (theseus-civ0): the seven books and the unsorted, what each is for, a book's
+// The Books view's words and its address (theseus-civ0): the seven shelves and the unsorted, what each holds, a shelf's
 // span, an episode's labels in a line, the filters as `books.page` takes them from the address, and the bars' shares.
-// Pure, with no import but the protocol's types, so `node --test` runs its test (test/books.test.ts).
+// A shelf is one of the sorted sets of imported conversations, and exists today; a book is what Theseus will write from a
+// shelf, and none exists (planned for 3.0.0). The wire, the route and these identifiers keep the word "book"; what a
+// person reads says "shelf". Pure, with no import but the protocol's types, so `node --test` runs its test (test/books.test.ts).
 import type { BookEpisode, BookFacet, BookInfo, BooksPageParams } from '@protocol'
 import { span } from './figures.ts'
 
-/** The books in the order every surface lists them, then the episodes the import gave no book. */
+/** The shelves in the order every surface lists them, then the episodes the import put on no shelf. */
 export const BOOK_ORDER = ['diary', 'encyclopedia', 'cookbook', 'sop', 'casebook', 'register', 'dictionary', 'unsorted'] as const
 
-/** What each book holds, in a line: the owner's design for organizing memory. */
+/** What each shelf holds, in a line: the owner's design for organizing memory. */
 export const BOOK_WORDS: Record<string, string> = {
   diary: 'what happened, day by day',
   encyclopedia: 'what is known about things',
@@ -16,29 +18,37 @@ export const BOOK_WORDS: Record<string, string> = {
   casebook: 'cases worked, and what they taught',
   register: 'who and what is on record',
   dictionary: 'what words and names mean',
-  unsorted: 'episodes the import gave no book',
+  unsorted: 'episodes the import put on no shelf',
 }
 
-/** What this first cut is not, said once at the top of the view. */
+/** What this view shows, and what it does not, said once at the top: shelves exist, books do not yet. */
 export const FIRST_CUT =
-  'These are your imported conversations, each put on a shelf by the import’s best guess at where it belongs. ' +
-  'What is on a shelf is the conversations themselves, not a written book: Theseus has not yet written the dictionary, ' +
-  'the encyclopedia and the rest from them. Nothing here can be changed.'
+  'This page shows shelves, not books. A shelf is one of the sorted sets of your imported conversations: the import put ' +
+  'each conversation on the shelf it guessed it belongs on. A book is something Theseus will write from a shelf, a real ' +
+  'dictionary or diary. None is written yet; written books are planned for Theseus 3.0.0. Nothing here can be changed.'
 
-/** A book's title as the view shows it: the sop is the SOP reference. */
+/** The line a note says to the reader about what is and is not built, in the same words wherever it is shown. */
+export const SHELVES_TODAY = 'Shelves exist today. Written books are planned for Theseus 3.0.0 and are not built.'
+
+/** A shelf's name as the view shows it: the sop is the SOP reference. */
 export function bookTitle(book: string): string {
   if (book === 'sop') return 'SOP reference'
   return book.charAt(0).toUpperCase() + book.slice(1)
 }
 
-/** The books in `BOOK_ORDER`, those the daemon did not name as empty, and any it named beyond them after. */
+/** A shelf's title in a heading: the diary is the Diary shelf; the unsorted are on no shelf. */
+export function shelfTitle(book: string): string {
+  return book === 'unsorted' ? 'Unsorted: on no shelf' : `${bookTitle(book)} shelf`
+}
+
+/** The shelves in `BOOK_ORDER`, those the daemon did not name as empty, and any it named beyond them after. */
 export function ordered(books: BookInfo[]): BookInfo[] {
   const by = new Map(books.map((b) => [b.book, b]))
   const known = BOOK_ORDER.map((book) => by.get(book) ?? { book, episodes: 0 })
   return [...known, ...books.filter((b) => !(BOOK_ORDER as readonly string[]).includes(b.book))]
 }
 
-/** Each book's bar as a share of the largest, from 0 to 1; an empty one 0. */
+/** Each shelf's bar as a share of the largest, from 0 to 1; an empty one 0. */
 export function shares(books: BookInfo[]): number[] {
   const most = Math.max(0, ...books.map((b) => b.episodes))
   return books.map((b) => (most > 0 ? b.episodes / most : 0))
@@ -46,7 +56,7 @@ export function shares(books: BookInfo[]): number[] {
 
 const day = (ms: number): string => new Date(ms).toISOString().slice(0, 10)
 
-/** A book's span: `2024-03-01 to 2026-09-30`, one day once, or `empty`. */
+/** A shelf's span: `2024-03-01 to 2026-09-30`, one day once, or `empty`. */
 export function spanWords(b: Pick<BookInfo, 'episodes' | 'first_ms' | 'last_ms'>): string {
   if (!b.episodes || b.first_ms == null || b.last_ms == null) return 'empty'
   const [a, z] = [day(b.first_ms), day(b.last_ms)]
@@ -81,7 +91,7 @@ export function guarded(sensitivity: string): boolean {
   return sensitivity === 'personal' || sensitivity === 'partner-confidential'
 }
 
-/** The filters a page takes from the address: a book (the diary when none or an unknown one), and a topic, source, and
+/** The filters a page takes from the address: a shelf (the diary when none or an unknown one), and a topic, source, and
  *  place when set. */
 export interface Filters { book: string; topic?: string; source?: string; place?: string }
 

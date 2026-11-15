@@ -547,7 +547,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Context and Books
   'context.filters': e(
     'Narrow the imported episodes to the ones you mean.',
-    'Search text, then groups to pick from: source, place, sensitivity, book hint and import, each value with how many episodes it holds; the month and topic you pick show as well. “Clear all” resets.',
+    'Search text, then groups to pick from: source, place, sensitivity, shelf and import, each value with how many episodes it holds; the month and topic you pick show as well. “Clear all” resets.',
     'The import can hold many thousands of episodes. Filters, kept in the address, let you share the exact view you are looking at.'),
   'context.episodes': e(
     'List the imported episodes, so you can read what Theseus can recall from the past.',
@@ -574,13 +574,13 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Each proposal is one question: a short fact or preference, how many of the imported episodes it rests on, and Keep, Edit or Not this. Keep writes a standing record; Not this is remembered, so those sources are never proposed again; an unanswered one becomes Not this after a while. At most a few dozen wait at once, and the job that makes them has a daily spend line.',
     'Nothing is added without an answer, so the card holds what the owner chose; what they decline is a label for the next proposals.'),
   'context.books': e(
-    'Say honestly what the books are today and what they are not yet.',
-    'A note in two parts. Today: the imported conversations are sorted onto seven shelves (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) by the import\u2019s guess, and the count says how many have a shelf. Not yet: the books Theseus would write itself from those conversations.',
-    'It keeps anyone from reading the Books view as finished books. Until Theseus writes them, recall reads the imported conversations directly, not a distilled book.'),
+    'Say plainly what exists today (shelves) and what does not yet (books).',
+    'A note in two parts. Shelves, today: the imported conversations are sorted onto seven shelves (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) by the import\u2019s guess, and the count says how many have a shelf. Written books, not yet: a book is what Theseus will write from a shelf; none exists, and they are planned for Theseus 3.0.0.',
+    'It keeps anyone from reading the shelves as finished books. Until Theseus writes books, recall reads the imported conversations directly, not a written book.'),
   'context.hints': e(
-    'Show how many episodes the import hinted at each book.',
-    'One bar per book, its width the number of episodes; the table says what each book holds. Click a bar to list its episodes.',
-    'The hint is the import’s guess, not a compiled book. A large “unsorted” share means the import could not place them.'),
+    'Show how many episodes the import put on each shelf.',
+    'One bar per shelf, its width the number of episodes; the table says what each shelf holds. Click a bar to list its episodes.',
+    'The shelf is the import’s guess, not a written book. A large “unsorted” share means the import could not place them.'),
   'context.pick': e(
     'Pick a session whose turn you want to look into.',
     'A list of sessions; choosing one opens its turns.',
@@ -606,17 +606,17 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Type a query; the answer lists the notes the index returns for it, with their scores.',
     'It lets you test what Theseus would remember before it matters.'),
   'books.chart': e(
-    'Show the imported books and how many episodes each holds.',
-    'One bar per book, its width the share of episodes, with the first-to-last span of each; the table has the same rows. Click a book to list its episodes.',
-    'It shows which book is large and which is thin, and how far back each reaches.'),
+    'Show the shelves of imported conversations and how many episodes each holds.',
+    'One bar per shelf, its width the share of episodes, with the first-to-last span of each; the table has the same rows. Click a shelf to list its episodes. These are shelves; written books are planned for Theseus 3.0.0 and are not built.',
+    'It shows which shelf is large and which is thin, and how far back each reaches.'),
   'books.book': e(
-    'List one book’s episodes, newest first.',
-    'One row per episode; filter by topic, source and place from the book’s own facets; a page at a time.',
-    'It lets you read a book from its newest end, and find an episode by where it came from.'),
+    'List one shelf’s episodes, newest first.',
+    'One row per episode; filter by topic, source and place from the shelf’s own facets; a page at a time.',
+    'It lets you read a shelf from its newest end, and find an episode by where it came from.'),
   'books.episode': e(
-    'Read one imported episode in its book.',
+    'Read one imported episode on its shelf.',
     'Its summary, labels and messages.',
-    'It is the source for what the book says, so you can check a fact against what was said.'),
+    'It is the original conversation, so you can check a fact against what was said.'),
 
   // ---- the session deck
   'deck.transcript': e(
