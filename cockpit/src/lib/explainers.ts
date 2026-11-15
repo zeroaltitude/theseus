@@ -51,7 +51,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Theseus reads this file only when it starts, so a change needs the file edited and Theseus restarted. Knowing which group a setting is in saves hunting through a long file.'),
   'simple.config.projects': e(
     'Say which project folders Theseus trusts, and let you change that or start a project.',
-    'Each row of the list is a repository whose AGENTS.md and CLAUDE.md files Theseus reads as instructions, with who trusted it and when. Stop trusting takes two presses. Trust this folder asks first and says what will change. Start a project takes a title and what done looks like, one line each, and asks before it makes the first tasks.',
+    'Each row of the list is a repository whose AGENTS.md and CLAUDE.md files Theseus reads as instructions, with who trusted it and when. Stop trusting takes two presses. Trust this folder asks first and says what will change. Start a project takes a title and what done looks like, one line each, and asks first, saying that it also sets up the project’s weekly review, which costs money.',
     'Those files tell Theseus how to behave in a repository, so trusting a folder is trusting its author. Check the list now and then, and stop trusting a folder you no longer want to guide it.'),
   'simple.config.standing': e(
     'Let you add a standing rule and answer what Theseus noticed about rules.',
@@ -67,16 +67,16 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Kinds and topics are how Theseus files what it remembers. Answering a proposal here is the same as on the Ontology tab, one proposal at a time, for when a bulk answer would be too blunt.'),
   'simple.config.judging': e(
     'Let you run, check and fill in the small judging model’s learning.',
-    'Pick which part of the judging model to work on. Learn now runs its learning loop at once instead of tonight, and asks first. Judge past events again goes back to a day you give and judges what the model missed; it spends money, asks first, and Theseus refuses unless its configuration file says you agree. Read the proof says whether the canary version beat the one in use, and changes nothing.',
-    'The judging model decides small things all through Theseus. Learning keeps it good, and the proof says whether a newer version has earned a bigger share. Moving a version up or back is on the Judging tab.'),
+    'Pick which part of the judging model to work on. Learn now runs its learning loop at once instead of tonight, which costs money and may put the new version in place, and asks first. Judge past events again goes back to a day you give and judges what the model missed; it spends money, asks first, and Theseus refuses unless its configuration file says you agree. Read the proof says whether the canary version beat the one in use, and changes nothing.',
+    'The judging model decides small things all through Theseus. Learning keeps it good, and the proof says whether a newer version has earned a bigger share. Moving a version up or back by hand is on the Judging tab.'),
   'simple.config.initiative': e(
     'Show how welcome it is when Theseus speaks first, and let you say so.',
     'The numbers are the last seven days: how often Theseus spoke first, how many you welcomed and how many not, and how many promised follow-ups it kept. The two buttons mark the latest message Theseus sent first as welcome or not. Each is one press.',
-    'Your answers are what Theseus counts when it decides how often to speak up. A run of thumbs down is a reason to set a persona to speak first less, on the Controls tab’s personas.'),
+    'Your answers are what Theseus counts when it decides how often to speak up. A run of thumbs down is a reason to set a persona to speak first less, in this tab’s personas panel.'),
   'simple.config.selfpause': e(
     'Let you pause Theseus’s self-improvement builds, and resume it after a halt.',
     'The line says whether the loop is halted. Pause new builds holds back builds that have not started; those running finish, and a restart of Theseus clears the pause. Let builds start again takes two presses. Resume after the halt appears only while halted, and asks first, because it lets every self step run again.',
-    'A pause is the light way to say not now, and anyone can set it. A halt is the kill switch, and only you can resume from one. Both are written to the record with who did it.'),
+    'A pause is the light way to say not now, and anyone can set it. A halt is the kill switch, and only you can resume from one. A halt and its resume are written to the record with who did it; a pause is held only while Theseus runs.'),
   'simple.config.servers': e(
     'Show each tool server Theseus started and let you restart one that has stopped working.',
     'One row is one server, with its state, how many tools it offers, and how many calls, errors and crashes it has had. Restart asks first: a call to it that is running right now is cut off, and its tools come back when it is up again.',
@@ -87,11 +87,11 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'The index is how Theseus finds what it remembers. If search answers look wrong or stay stale, a rebuild from the record is the repair; nothing it remembers is lost by one.'),
   'simple.config.pins': e(
     'Show which models are fixed in place and let you let go of them.',
-    'The sentence names the live model and how many conversations and tasks are fixed to a model of their own. Release the live model goes back to the model the configuration file names, and asks first. Unpin every model lets all of them follow the live model, and asks first.',
+    'The sentence names the live model and how many conversations and tasks are fixed to a model of their own. Release the live model goes back to the model the configuration file names, and asks first. Unpin every model releases the live model too and lets each of the conversations and tasks you fixed go back to the model it ran on before, and asks first.',
     'A fixed model keeps a conversation on it even after you change the live one. If a model is retired or too expensive, unpinning is how the rest of Theseus moves off it.'),
   'simple.config.imports': e(
     'List what was imported and let you erase one import completely.',
-    'One row is one import, with how many conversations and memory entries it brought in. Erase… asks in words that give those counts and wants the import’s name typed before it will go, because it cannot be undone from here.',
+    'One row is one import, with how many of its conversations are still held. Erase… asks in words that give those counts and wants the import’s name typed before it will go, because it cannot be undone from here.',
     'Erasing is for an import that was wrong, private, or no longer wanted. The originals you imported from are not touched, so the import can be run again.'),
   'simple.config.google': e(
     'Say where Google sign-in and its access are managed, since a page cannot do it.',

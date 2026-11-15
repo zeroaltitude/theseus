@@ -21,7 +21,7 @@ export function projectParams(title: string, objective: string, acceptance: stri
 }
 
 export const projectWords = (title: string, acceptance: number): string =>
-  `Theseus starts a project called “${title.trim()}” with ${plural(acceptance, 'line')} saying what done looks like. It makes the project’s first tasks from them, and those can start work.`
+  `Theseus records a project called “${title.trim()}” with ${plural(acceptance, 'line')} saying what done looks like. It also sets up the project’s weekly review: a routine that runs a model on the schedule and within the budgets the configuration file sets for project reviews, so it costs money each week. The review can be paused or deleted on the Operations timeline.`
 
 /** The standing rule's kind and scope, in words a person chooses between. */
 export const KINDS = [['order', 'An order: always do, or never do'], ['preference', 'A preference: how I like things'], ['fact', 'A fact: something true that matters']] as const
@@ -41,7 +41,7 @@ export const REBUILD_WORDS = 'Theseus throws away the search index of everything
 
 export const releaseWords = (live: string): string => `Theseus stops holding “${live}” as the live model and goes back to the model its configuration file names. New turns use that one.`
 
-export const UNPIN_WORDS = 'Every conversation and task that was fixed to a particular model is let go of: from its next turn each uses the live model. The models you chose for them are forgotten.'
+export const UNPIN_WORDS = 'The live model is released, as Release does, and every conversation, and every task you started on a model of your own choosing, is let go of: from its next turn each goes back to the model it ran on before it was fixed (a task that is running finishes its current turn first). A task Theseus fixed to a model itself is left as it is. The models you chose for them are forgotten.'
 
 /** The conversations of an import that are still held: `import.list`'s count includes the ones already erased. */
 export const heldOf = (t: Pick<ImportTagInfo, 'sessions' | 'erased'>): number => Math.max(0, t.sessions - t.erased)
@@ -51,7 +51,7 @@ export function eraseWords(t: Pick<ImportTagInfo, 'tag' | 'sessions' | 'erased'>
   return `Theseus erases everything the import “${t.tag}” still holds: ${plural(heldOf(t), 'conversation')} and the memory entries in them. Each is marked erased and dropped from search, and the topics and people that import made, which nothing else uses, are removed with them. This cannot be undone from here; to get them back the original files would have to be imported again.`
 }
 
-export const learnWords = (pack: string): string => `Theseus runs the learning loop for “${pack}” now, instead of waiting for tonight: it trains on recent labelled events and tests the result on events it kept apart. It writes a new version of the pack; moving that version up is a separate step on the Judging tab.`
+export const learnWords = (pack: string): string => `Theseus runs the learning loop for “${pack}” now, instead of waiting for tonight: a writing model reads the answers you labelled wrong and writes a new version of the pack, which costs money, within the daily limit the configuration file sets for it; then the new version is tested on events kept apart. Depending on how it scores, Theseus may put it in place itself (live, as a canary beside the one in use, or in shadow), by the same step as the Judging tab’s promote, which asks you first where that step asks; otherwise it is held, and says why. The Judging tab shows where it went and rolls it back.`
 
 export const backfillWords = (pack: string, since: string): string => `Theseus judges events since ${since} again with “${pack}”, for the ones the model missed. This calls a model and costs money, up to the limit set in the configuration file, and it refuses unless the configuration file says you consent. It records which configuration it ran under.`
 

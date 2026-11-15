@@ -1,6 +1,7 @@
 // The ontology's controls: retire a kind (`ontology.kind.retire`, which the daemon allows only for a kind nothing holds, and
 // refuses otherwise in words), and answer the proposals one at a time (`ontology.proposal.accept` and `.reject`; the Ontology
-// tab answers them in bulk and the people's own). Retiring asks first; accepting takes a second press.
+// tab answers them in bulk and the people's own, so the read asks `by_person` and keeps the topics' alone). Retiring asks
+// first; accepting takes a second press.
 import { useState } from 'react'
 import { Vote } from 'lucide-react'
 import type { OntologyListResult, OntologyProposal, OntologyProposalsResult } from '@protocol'
@@ -27,7 +28,7 @@ function Proposal({ p }: { p: OntologyProposal }) {
 
 export function Kinds() {
   const { data: onto } = useRpc<OntologyListResult>('ontology.list', {}, 15_000)
-  const { data: props } = useRpc<OntologyProposalsResult>('ontology.proposals', { limit: 25 }, 15_000)
+  const { data: props } = useRpc<OntologyProposalsResult>('ontology.proposals', { limit: 25, by_person: true }, 15_000)
   // Theseus's own kinds (those it was built with) are never taken away; only a kind someone added is offered.
   const kinds = (onto?.kinds ?? []).filter((k) => k.added_by !== 'seed' && k.basis !== 'given')
   return (
