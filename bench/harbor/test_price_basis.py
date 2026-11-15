@@ -21,6 +21,7 @@ import efficiency as ef
 import price_basis as pb
 
 S55 = "claude-sonnet-5-5"
+F52 = "claude-fable-5-2"
 
 
 def usage(i=0, r=0, w=0, o=0):
@@ -40,9 +41,17 @@ def row(arm, table, r=4_000_000, o=20_000, dollars=None):
 
 
 class Digest(unittest.TestCase):
-    def test_the_two_tables_have_different_digests(self):
-        self.assertEqual(len(pb.TABLES), 2)
-        self.assertEqual(len({pb.digest_of(n) for n in pb.TABLES}), 2)
+    def test_the_tables_have_different_digests(self):
+        self.assertEqual(len(pb.TABLES), 3)
+        self.assertEqual(len({pb.digest_of(n) for n in pb.TABLES}), 3)
+
+    def test_a_table_once_recorded_keeps_its_digest(self):
+        """A result is stamped with its table's digest and named by it later: adding Fable 5.2 (issue 5 of
+        1.0.7) is a new table, so the two before it must read exactly as they always did."""
+        self.assertEqual(pb.digest_of(pb.CURRENT), "8414028cd0f7")
+        self.assertEqual(pb.digest_of(pb.PRE_RKO44), "dc6b41397353")
+        self.assertEqual(pb.name_of("8414028cd0f7"), "list-2026-10-25")
+        self.assertEqual(pb.name_of(pb.digest_of(pb.LATEST)), "list-2026-11-14")
 
     def test_the_digest_is_stable_and_order_blind(self):
         t = pb.TABLES[pb.CURRENT]
@@ -54,9 +63,17 @@ class Digest(unittest.TestCase):
         t[S55]["output"] += 0.01
         self.assertNotEqual(pb.table_digest(t), pb.digest_of(pb.CURRENT))
 
-    def test_the_current_table_is_the_efficiency_list_prices(self):
+    def test_the_latest_table_is_the_efficiency_list_prices(self):
         # drift between the two would make every new record's digest a lie
-        self.assertEqual(pb.TABLES[pb.CURRENT], ef.LIST_PRICES)
+        self.assertEqual(pb.TABLES[pb.LATEST], ef.LIST_PRICES)
+
+    def test_the_latest_table_is_the_one_before_it_and_the_fable_5_2_row(self):
+        old, new = pb.TABLES[pb.CURRENT], pb.TABLES[pb.LATEST]
+        self.assertEqual({m: new[m] for m in old}, old)
+        self.assertEqual(set(new) - set(old), {"claude-fable-5-2"})
+        f = new["claude-fable-5-2"]
+        self.assertEqual((f["input"], f["cache_read"], f["cache_write"], f["output"]), (8.0, 0.2, 10.0, 40.0))
+        self.assertEqual(f, {c: round(0.8 * v, 6) for c, v in new["claude-fable-5-1"].items()})
 
     def test_the_two_tables_differ_only_in_sonnet_cache_reads(self):
         a, b = pb.TABLES[pb.PRE_RKO44], pb.TABLES[pb.CURRENT]
@@ -68,10 +85,30 @@ class Digest(unittest.TestCase):
 
 class Measure(unittest.TestCase):
     def test_a_bill_on_each_table_is_recognised(self):
-        for name in pb.TABLES:
+        for name in (pb.CURRENT, pb.PRE_RKO44):
             r = row("x", name)
             d, how = pb.measure(r["by_model"], r["dollars"])
             self.assertEqual((d, how), (pb.digest_of(name), "measured"), name)
+
+    def test_a_bill_of_fable_5_2_is_on_the_table_that_adds_it(self):
+        by = {F52: usage(i=10_000, r=4_000_000, w=100_000, o=20_000)}
+        d, how = pb.measure(by, billed(pb.LATEST, by))
+        self.assertEqual((d, how), (pb.digest_of(pb.LATEST), "measured"))
+
+    def test_a_bill_both_tables_price_alike_stays_on_the_earlier_one(self):
+        """The table that only adds a model claims no record the one before it can price: a Sonnet bill reads
+        as it always did, not as `ambiguous`, so results already recorded stay comparable."""
+        by = {S55: usage(i=10_000, r=4_000_000, w=100_000, o=20_000)}
+        d, how = pb.measure(by, billed(pb.CURRENT, by))
+        self.assertEqual((d, how), (pb.digest_of(pb.CURRENT), "measured"))
+        # And a model the older tables priced alike stays as ambiguous as it was between them.
+        by = {"claude-fable-5-1": usage(i=10_000, r=4_000_000, w=100_000, o=20_000)}
+        self.assertEqual(pb.measure(by, billed(pb.CURRENT, by)), (None, "ambiguous"))
+
+    def test_a_routed_run_that_reached_fable_5_2_and_sonnet_is_on_the_new_table(self):
+        by = {S55: usage(i=10_000, r=4_000_000, w=100_000, o=20_000), F52: usage(i=5_000, r=1_000_000, w=50_000, o=9_000)}
+        d, how = pb.measure(by, billed(pb.LATEST, by))
+        self.assertEqual((d, how), (pb.digest_of(pb.LATEST), "measured"))
 
     def test_a_bill_with_no_cache_reads_fits_both_and_is_ambiguous(self):
         by = {S55: usage(i=1000, o=500)}
@@ -104,7 +141,7 @@ class MeasureMany(unittest.TestCase):
         return [(by, billed(table, by)) for _ in range(n)]
 
     def test_a_run_on_one_table_is_that_table(self):
-        for name in pb.TABLES:
+        for name in (pb.CURRENT, pb.PRE_RKO44):
             got = pb.measure_many(self.turns(name))
             self.assertEqual(got["digest"], pb.digest_of(name))
             self.assertEqual(got["how"], "measured")
@@ -136,7 +173,7 @@ class Stamp(unittest.TestCase):
         s = pb.stamp(rec)
         self.assertEqual(s["price_digest"], pb.digest_of(pb.CURRENT))
         self.assertEqual(s["price_basis"], "measured")
-        self.assertEqual(s["list_price_digest"], pb.digest_of(pb.CURRENT))
+        self.assertEqual(s["list_price_digest"], pb.digest_of(pb.LATEST))
 
     def test_an_unmeasurable_record_says_so_rather_than_omitting_the_key(self):
         s = pb.stamp({"by_model": {}, "cost_usd": None})

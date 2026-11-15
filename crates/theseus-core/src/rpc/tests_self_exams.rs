@@ -514,7 +514,7 @@ fn one_item(c: &Core) -> Item {
     Item::scrubbed(&raws[0], &scrub)
 }
 
-/// The reviewer's request (theseus-j06y6): Fable 5.1 answers a forced
+/// The reviewer's request (theseus-j06y6): Fable 5.2 answers a forced
 /// `tool_choice` with a 400, so the call asks with `auto`, a strict tool and
 /// an instruction naming it, and its cap leaves room for thinking that
 /// cannot be turned off.
@@ -534,11 +534,11 @@ async fn the_reviewer_does_not_force_the_tool_and_leaves_room_to_think() {
     assert!(v.tests_behaviour && v.answer_right && v.not_gamed);
     let sent = fake.requests();
     let req = &sent[0];
-    assert_eq!(req.model, "claude-fable-5-1");
+    assert_eq!(req.model, "claude-fable-5-2");
     let forced = req.extra.get("tool_choice").map(|t| t["type"].as_str());
     assert!(
         matches!(forced, None | Some(Some("auto"))),
-        "a forced tool_choice is a 400 on Fable 5.1: {forced:?}"
+        "a forced tool_choice is a 400 on Fable 5.2: {forced:?}"
     );
     assert_eq!(req.tools[0]["strict"], true);
     // A strict tool's schema closes its object.

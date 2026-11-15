@@ -63,6 +63,10 @@ pub const ADOPTED: &[Adopted] = &[
         why: WHY_ROUTE_V10,
     },
     Adopted {
+        pack: "route.v11",
+        why: WHY_ROUTE_V11,
+    },
+    Adopted {
         pack: "rerank.v1",
         why: WHY,
     },
@@ -95,6 +99,11 @@ pub const WHY_ROUTE_V8: &str = "the owner's decision of 2026-10-23";
 /// `route.v10`'s adoption row's reason: Jev chooses the model and its effort
 /// (theseus-h66v4).
 pub const WHY_ROUTE_V10: &str = "the owner's decision of 2026-10-29";
+
+/// `route.v11`'s adoption row's reason: route.v10 word for word but the
+/// `fable` option's description, which says Fable 5.2 and its prices
+/// (issue 5 of 1.0.7).
+pub const WHY_ROUTE_V11: &str = "the owner's decision of 2026-11-14";
 
 /// The rules this table gives a pack id (every version of it). Most are the
 /// adoption's, from the owner's decisions of 2026-10-04; `recall_cross` has

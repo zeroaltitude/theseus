@@ -36,7 +36,7 @@ fn night() -> Vec<LedgerRow> {
         row(
             "self.review.verdict",
             t1,
-            json!({"branch": "self/2026-10-18-lsp-timeout", "head": "h1", "reviewer": "fable (claude-fable-5-1)",
+            json!({"branch": "self/2026-10-18-lsp-timeout", "head": "h1", "reviewer": "fable (claude-fable-5-2)",
                    "verdict": "accept", "planted_revert": "failed"}),
         ),
         row(

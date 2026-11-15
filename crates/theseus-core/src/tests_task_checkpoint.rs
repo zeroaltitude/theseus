@@ -203,7 +203,7 @@ impl Task {
                 "claude-haiku-5-5" => "haiku",
                 "claude-sonnet-5-5" => "sonnet",
                 "claude-opus-5-5" => "opus",
-                "claude-fable-5-1" => "fable",
+                "claude-fable-5-2" => "fable",
                 _ => "other",
             })
             .collect()
@@ -307,7 +307,7 @@ async fn an_open_task_asks_the_work_question_at_its_brief_and_each_checkpoint() 
             .count()
     };
     let (model, effort, work) = (
-        asked("route.v10/model"),
+        asked("route.v11/model"),
         asked("effort.v1/effort"),
         asked("work.v1/work"),
     );

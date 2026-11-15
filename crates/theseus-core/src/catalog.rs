@@ -1928,8 +1928,8 @@ mod tests {
     /// models overview of the same day. The id is also its own published
     /// alias: a dateless id is its own pinned snapshot, so a profile naming
     /// `claude-fable-5-2` and a request carrying the alias reach one row.
-    /// Selectable, not chosen: it is deliberately NOT a `routing::model`
-    /// option, so Jev never picks it and no default moves.
+    /// Since 1.0.7 (issue 5) it is also the `routing::model` option `fable`,
+    /// so Jev reaches it through whichever profile runs it.
     #[test]
     fn fable_5_2_is_selectable_by_its_id_and_priced_as_published() {
         let c = Catalog::builtin();

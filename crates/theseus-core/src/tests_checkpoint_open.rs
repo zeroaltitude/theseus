@@ -152,7 +152,7 @@ impl Task {
                 "claude-haiku-5-5" => "haiku",
                 "claude-sonnet-5-5" => "sonnet",
                 "claude-opus-5-5" => "opus",
-                "claude-fable-5-1" => "fable",
+                "claude-fable-5-2" => "fable",
                 _ => "other",
             })
             .collect()

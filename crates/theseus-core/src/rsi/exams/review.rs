@@ -3,7 +3,7 @@
 //! that made the mistake (the check task's rule: judge by the claim, never the
 //! working). Three questions, each a boolean: does it test the behaviour and
 //! not the wording, is its expected answer right, is it not trivially gamed.
-//! The tool is not forced: the reviewer, Fable 5.1, answers a forced
+//! The tool is not forced: the reviewer, Fable 5.2, answers a forced
 //! `tool_choice` with a 400 (the API reference; theseus-j06y6), so the call
 //! asks with `auto`, a strict tool, and an instruction that names the tool.
 //! The call is booked like the people pass's: priced, held against the day's
@@ -27,7 +27,7 @@ pub const REVIEWER_PROFILE: &str = "fable";
 /// The one tool the reviewer answers through.
 pub const TOOL: &str = "judge_exam_item";
 /// The answer's tokens at most. The reviewer thinks whether it is asked to or
-/// not (Fable 5.1's thinking cannot be turned off), and its thinking counts
+/// not (Fable 5.2's thinking cannot be turned off), and its thinking counts
 /// here: the verdict is a few dozen tokens after it (theseus-j06y6).
 pub const MAX_TOKENS: u32 = 4_096;
 
@@ -58,7 +58,7 @@ fn tool() -> Value {
 }
 
 /// The request for `item`, with `how` as `catalog::forcing` gives it: for
-/// Fable 5.1, which always thinks, no `thinking` and the tool left to `auto`,
+/// Fable 5.2, which always thinks, no `thinking` and the tool left to `auto`,
 /// strict and closed.
 pub fn request(model: &str, how: Forcing, item: &Item) -> ProviderRequest {
     let content = format!(

@@ -1,4 +1,4 @@
-# Two notes for the core crate (issue 5, 1.0.7)
+# Three notes for the core crate (issue 5, 1.0.7)
 
 Notes for the core crate that live here, because `crates/theseus-core/AGENTS.md` takes no new prose (the owner's ruling of 2026-11-14 14:58).
 
@@ -7,6 +7,21 @@ Notes for the core crate that live here, because `crates/theseus-core/AGENTS.md`
 `capture::PACK` names `directive.v2`: `directive.v1` with the `none` and `order` answers reworded so that a request for one act,
 done once, is no standing order. It is live from the day it landed (`judge::WIRED` makes the named pack live; no ladder step). v1
 stays embedded, byte for byte, its judgments under its own text. The core guide's capture entry names v2. The rule for any new pack version is in `docs/development.md`, under Self-improvement.
+
+## The route pack is `route.v11`
+
+`inbound::ROUTE_PACK` names `route.v11`: `route.v10` word for word, with the `fable` option's description saying Fable 5.2 at its
+catalog prices ($8 in, $40 out, $0.20 a cache read per million) where v10 said Fable 5.1. The owner chose it ("1 A; 2 A", 2026-11-14
+17:55 MST): a new version, live when it landed, v10 and its golden untouched. `judge::WIRED` takes the constant, and the ladder
+adopts v11 beside v10's row (`ladder::adopt`, `WHY_ROUTE_V11`). Its golden request is v10's with the pack's name and that one
+description. The labelled cases are written for v10 and read for v11 without a word changed (`route_cases::read_as`).
+`routing::tests_model::the_packs_fable_description_names_the_model_the_option_runs_at_its_catalog_prices` holds the description to
+the router's option and the catalog row, so the pack and the router cannot name two models again.
+
+**What does not carry over from v10.** A pack's standing on the ladder, a rollback, a `[judge.packs."route.v10"]` key and any
+learned rewrite stand on a version's own name. On a live daemon, check `theseus packs` (it lists the wired packs and learned ones: v11 `live`, and v10 no longer) and the config
+file for a `[judge.packs."route.v10"]` table, which now does nothing: rename it to `route.v11`. Rows the ledger holds under
+`route.v10` stay readable under that name.
 
 ## A cut call booked from the provider's own usage events (theseus-k48c)
 

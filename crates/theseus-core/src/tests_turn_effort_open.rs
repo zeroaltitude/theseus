@@ -60,7 +60,7 @@ fn recorded(r: &Rig, session: &str) -> Vec<Option<Effort>> {
         .collect()
 }
 
-/// The owner's case on Fable 5.1, the one model that takes per-message effort (its profile leaves
+/// The owner's case on Fable 5.2, the one model that takes per-message effort (its profile leaves
 /// effort to the model, `high`): a turn at that level, one Jev puts at `low`, and one at `high`
 /// again. Each request repeats the one before it whole across the turns (the first says `high`, the model's own, before its message); the `low` turn's message
 /// stays where it went, and the next turn's message puts the level back. Jev picks Fable on every
@@ -103,7 +103,7 @@ async fn a_turn_at_jevs_effort_repeats_the_cached_prefix() {
     assert!(r2.betas.iter().any(|b| b == BETA_TURN_EFFORT));
     keeps(r2, r3, "the turn after it");
     assert_eq!(r3.messages[r2.messages.len() + 1], level_message("high"));
-    assert_eq!(effective(r3), Some(Effort::High), "Fable 5.1's default");
+    assert_eq!(effective(r3), Some(Effort::High), "Fable 5.2's default");
     assert_eq!(
         recorded(r, &one.session_id),
         [Some(Effort::High), Some(Effort::Low), Some(Effort::High)]
@@ -111,7 +111,7 @@ async fn a_turn_at_jevs_effort_repeats_the_cached_prefix() {
 }
 
 /// The history's messages come from its answers' records, whatever the request's top-level
-/// effort: on Fable 5.1 the `low` turn's message is still just before its user message. Opus 5.5
+/// effort: on Fable 5.2 the `low` turn's message is still just before its user message. Opus 5.5
 /// and Haiku 5.5, which are not known to take per-message effort, get none (here pinned with `-P`,
 /// so no route is asked and the profile's own effort stands), and the beta rides no request of
 /// theirs.
@@ -144,7 +144,7 @@ async fn the_historys_messages_follow_the_records() {
     let haiku = reqs.last().unwrap();
     assert_eq!(effective(haiku), Some(Effort::Low), "Haiku's profile's own");
     let fable = &reqs[1];
-    assert_eq!(fable.model, "claude-fable-5-1");
+    assert_eq!(fable.model, "claude-fable-5-2");
     assert_eq!(
         (&fable.messages[0], &fable.messages[1]),
         (&level_message("low"), &reqs[0].messages[1])
@@ -152,7 +152,7 @@ async fn the_historys_messages_follow_the_records() {
     assert_eq!(
         fable.messages[3],
         level_message("high"),
-        "Fable 5.1's default puts it back"
+        "Fable 5.2's default puts it back"
     );
 }
 

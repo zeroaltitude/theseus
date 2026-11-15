@@ -15,7 +15,7 @@ use crate::turn::Target;
 /// Who would review, and whether that review would be independent.
 struct Reviewer {
     target: Option<Target>,
-    /// `fable (claude-fable-5-1)`.
+    /// `fable (claude-fable-5-2)`.
     name: String,
     model: String,
     refusal: Option<String>,

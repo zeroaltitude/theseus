@@ -873,6 +873,17 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "route.v11",
+            &[
+                "Inbound Route SessionProfile Route",
+                "model Choice decides [haiku sonnet opus fable deepseek_flash parent]",
+                "persona Choice from Personas + [prior] only_when Personas",
+                "personal Choice [none elicit expose]",
+                "seal Choice [yes no] only_when ThreadNow",
+                "rollback [labels_per_day on_path_p95 pins_per_day]",
+            ],
+        ),
+        (
             "effort.v1",
             &[
                 "Inbound Effort None None",
@@ -903,7 +914,7 @@ fn the_six_packs_ask_what_the_design_says() {
         for q in &p.questions {
             // route.v10's `model` confirms at 0.40 (theseus-h66v4.7, the owner 2026-11-03: "adjust
             // the instruction prompt, test assumptions and bar until we're safely good").
-            let bands = if (*name, q.id.as_str()) == ("route.v10", "model") {
+            let bands = if matches!((*name, q.id.as_str()), ("route.v10" | "route.v11", "model")) {
                 (0.90, 0.40)
             } else {
                 bands
@@ -1017,8 +1028,8 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
     assert_eq!(
         six.len(),
-        42,
-        "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, effort.v1, work.v1, \
+        43,
+        "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10 and v11, effort.v1, work.v1, \
          citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1 and v2, \
          onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
          content.v1 to v4, split.v1, undo.v1, delay.v1, precedence.v1 and allow_said.v1"

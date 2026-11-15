@@ -457,6 +457,20 @@ class RoutePart(unittest.TestCase):
             self.assertFalse(p.get("na"), live)
             self.assertIn("37/61 on the model < 49", p["note"])
 
+    def test_the_pack_that_follows_the_cases_pack_is_held_to_the_bar_on_the_same_cases(self):
+        """route.v11 is route.v10 with one option's words, and v10's cases are its set: a v10-cases set on a
+        daemon that acts with v11 is graded, and a failing one fails, not "n/a until the flip"."""
+        p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live="route.v11")
+        self.assertFalse(p["ok"])
+        self.assertFalse(p.get("na"))
+        self.assertIn("37/61 on the model < 49", p["note"])
+        met = smoke.route_part(self.runs(*[replay(model_ok=49, must_ok=11)] * 3), None, live="route.v11")
+        self.assertTrue(met["ok"])
+        self.assertFalse(met.get("na"))
+        # The pairing is the one pair: an older pack's daemon is still n/a, whatever the cases.
+        old = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live="route.v8")
+        self.assertTrue(old["na"])
+
     def test_a_canary_of_the_cases_pack_or_an_unreadable_ladder_is_held_to_the_bar(self):
         for live in ("route.v8,route.v10", "None", "route.v8,", ""):
             p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live=live)

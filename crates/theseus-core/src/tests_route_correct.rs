@@ -134,7 +134,7 @@ async fn words_in_a_private_place_label_switch_and_steer_a_close_message() {
     let two = ask(&r.core, Some(&sid), "hey, that should have been on fable").await;
     assert_eq!(
         (two.profile.as_str(), two.model.as_str()),
-        ("fable", "claude-fable-5-1")
+        ("fable", "claude-fable-5-2")
     );
     let route = two.route.clone().unwrap();
     assert_eq!(

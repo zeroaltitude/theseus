@@ -19,6 +19,7 @@ pub(crate) mod google_calendars;
 pub use context::ContextConfig;
 mod cache;
 mod inherit;
+mod option_profiles;
 pub use cache::{CacheConfig, CacheTtl};
 pub mod calendar;
 pub mod discord;
@@ -1588,6 +1589,7 @@ impl Config {
         cfg.validate()?;
         let mut warnings = Vec::new();
         warnings.extend(cfg.persona_warnings());
+        warnings.extend(cfg.option_profile_warnings());
         let mut retired = cfg.routing.retired();
         retired.extend(cfg.tools.defer.retired());
         if !retired.is_empty() {
@@ -2389,5 +2391,7 @@ mod tests_moonshot;
 mod tests_ontology;
 #[cfg(test)]
 mod tests_openai;
+#[cfg(test)]
+mod tests_option_profiles;
 #[cfg(test)]
 mod tests_persona;

@@ -69,7 +69,8 @@ def build(runs: Path, seed7_table: str, seed_table: str, *extra: str):
 
 class RunBasis(unittest.TestCase):
     def test_a_run_reads_its_table_from_its_own_turns(self):
-        for name in pb.TABLES:
+        # Sonnet turns: a table that only adds Fable 5.2 claims none of them (`price_basis.ADDS_ONLY`).
+        for name in (pb.CURRENT, pb.PRE_RKO44):
             with tempfile.TemporaryDirectory() as t:
                 p = Path(t) / "turns.jsonl"
                 write_turns(p, name)

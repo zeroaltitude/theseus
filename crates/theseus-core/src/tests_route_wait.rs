@@ -90,7 +90,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
             ("classify.v4".to_string(), 1),
             ("effort.v1".to_string(), 1),
             ("role.v1".to_string(), 1),
-            ("route.v10".to_string(), 1),
+            ("route.v11".to_string(), 1),
             ("split.v1".to_string(), 1),
             ("work.v1".to_string(), 1)
         ]),
@@ -100,15 +100,15 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(seen.len(), 5, "route, effort, work, split and the batch");
     let route_req = seen
         .iter()
-        .find(|s| asked(&s.body).contains("route.v10/model"))
+        .find(|s| asked(&s.body).contains("route.v11/model"))
         .unwrap();
     // route.v10's two questions, the model and the personal one, in its one request
     // (theseus-qe3v, theseus-gasov; the effort and the context are not its any more).
     assert_eq!(
         asked(&route_req.body),
         BTreeSet::from([
-            "route.v10/model".to_string(),
-            "route.v10/personal".to_string()
+            "route.v11/model".to_string(),
+            "route.v11/personal".to_string()
         ]),
         "route.v10's two questions, one request"
     );
@@ -185,7 +185,7 @@ async fn the_verdict_reaches_the_turn_before_the_batch_answers() {
     assert!(
         kinds(&r.core.store, "judge.call")
             .iter()
-            .all(|j| j.data["pack"] == "route.v10"),
+            .all(|j| j.data["pack"] == "route.v11"),
         "the batch had not answered"
     );
 }

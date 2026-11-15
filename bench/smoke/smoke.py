@@ -208,6 +208,11 @@ def tb_part(rows: list[dict[str, Any]], s: dict[str, Any], floor: dict | None, w
 
 # --- part 2: routing ------------------------------------------------------
 
+# The cases written for one route pack that are also the set of the pack that acts after it: `route.v11` is
+# `route.v10` with one option's description, so `route.v10.cases.toml` is its set (the owner, 2026-11-14), the same
+# explicit pair as `theseus_judge::route_cases::read_as`. Never "any later version": a route.v8 daemon stays n/a.
+CASES_ALSO_FOR: dict[str, str] = {"route.v10": "route.v11"}
+
 # Where a cache-busting copy's pack version starts: above anything anybody writes by hand
 # (route.v10 is 10), so a bumped copy is never mistaken for a version of the pack's own history.
 BUMP_BASE = 1_000_000
@@ -441,8 +446,8 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     their packs act in 1.0.4 is an open owner question, and a pack that does not act is "n/a" by the rule below.
 
     `live` is the route packs the daemon's ladder acts with (live or canary),
-    comma-separated. The cases are written for one pack (route.v10): on a daemon
-    whose ladder does not act with it, the bar does not apply, and three answered
+    comma-separated. The cases are written for one pack (route.v10), and are also the set of the pack that
+    follows it (`CASES_ALSO_FOR`, route.v11): on a daemon whose ladder acts with neither, the bar does not apply, and three answered
     runs are "n/a until the flip", their reading kept for the record, never a
     FAIL and never a floor. An unknown or unreadable `live` is held to the bar."""
     problems = []
@@ -494,7 +499,8 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     acting = (live or "").split(",") if live else []
     if not acting or not all(re.fullmatch(r"route\.v\d+", p) for p in acting):
         acting = []
-    if acting and cases_pack and cases_pack not in acting and len(real) >= RUNS_WANTED:
+    if (acting and cases_pack and cases_pack not in acting and CASES_ALSO_FOR.get(cases_pack) not in acting
+            and len(real) >= RUNS_WANTED):
         return {"part": "route", "ok": True, "na": True, "count": len(real), "number": worst,
                 "unit": unit, "floor": None, "delta": None, "worst": worst_bars, "readings": readings,
                 "note": f"n/a until the flip: the daemon routes with {', '.join(acting)}, "

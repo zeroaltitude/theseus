@@ -73,7 +73,7 @@ impl Rig {
                 "classify.v4",
                 "role.v1",
                 "split.v1",
-                "route.v10",
+                "route.v11",
                 "directive.v2",
                 "onto.v1",
                 "content.v4",
@@ -157,7 +157,7 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "classify.v4: off",
             "role.v1: off",
             "split.v1: off",
-            "route.v10: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-29))",
+            "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
             "directive.v2: off",
             "onto.v1: off",
             // The sweep's merge and split packs, live from their landing (theseus-nzzz4).
