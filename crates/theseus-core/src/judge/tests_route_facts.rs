@@ -248,7 +248,7 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
 
 /// theseus-h66v4.8: the facts are priced at the hour the ask is made and under
 /// the session's data rule, and they name the cheaper model. The same 200K
-/// Sonnet session reads differently at peak and off-peak, which is the whole
+/// warm session reads differently at peak and off-peak, which is the whole
 /// point of Flash being a candidate at all. It is read on Opus, whose $0.20
 /// cache read leaves two candidates under staying; a warm Sonnet 5.5 reads its
 /// cache at $0.10, which none undercuts, and is held to that at the end.
