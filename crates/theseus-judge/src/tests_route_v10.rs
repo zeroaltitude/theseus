@@ -234,12 +234,8 @@ fn the_stalled_checkpoint_pair_carries_its_cause_and_differs_only_there() {
         // Both halves are one task at 220K, so the daemon's own rule gives
         // them the same answer (`every_cases_switch_cost_is_what_the_daemons_rule_says`
         // holds the declared fact to it); what must be equal is that they agree.
-        assert_eq!(c.state.switch_cost, "cheaper_to_switch", "{}", c.id);
-        assert_eq!(
-            c.state.cheaper_model, "deepseek_flash (off-peak)",
-            "{}",
-            c.id
-        );
+        assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{}", c.id);
+        assert_eq!(c.state.cheaper_model, "", "{}", c.id);
         assert_eq!(c.want.effort, "high", "{}", c.id);
         // The cause is in the loops, which is where the daemon's checkpoint text puts it.
         assert!(
@@ -364,13 +360,17 @@ fn the_cases_carry_the_states_the_design_gives_them() {
 /// cheaper model is one a thank-you is not for, a long Haiku session where
 /// nothing is cheaper at all, and a fresh session with nothing warm.
 ///
-/// theseus-h66v4.8 moved W1's and W41's state, not their labels. They now read
-/// `cheaper_to_switch` with Flash named, which is the arithmetic: at 200K
-/// off-peak Flash's $0.15 input undercuts Sonnet's $0.20 cache read. The label
-/// stays Sonnet because a thank-you is no work Flash is for, and because Haiku,
-/// whose block does name a thank-you, costs $0.50 a million at that length —
-/// more than staying. These two cases are the reason the state names the model
-/// instead of saying "something is cheaper".
+/// theseus-h66v4.8 moved W1's and W41's state, not their labels. They read
+/// `cheaper_to_switch` with Flash named while Sonnet's cache read was $0.20,
+/// which was the arithmetic: at 200K off-peak Flash's $0.15 input undercut it.
+/// The label stayed Sonnet because a thank-you is no work Flash is for, and
+/// because Haiku, whose block does name a thank-you, costs $0.50 a million at
+/// that length: more than staying. These two cases were the reason the state
+/// names the model instead of saying "something is cheaper".
+///
+/// On 2026-11-14 Sonnet 5.5's cache read became the page's $0.10, and the same
+/// two states read `cheaper_to_stay` with nothing named: Flash's $0.15 is
+/// dearer than staying too. Neither label moved.
 #[test]
 fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
     let s = set();
@@ -381,8 +381,8 @@ fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
         assert_eq!(c.state.est_tokens, 200_000, "{id}");
         assert_eq!(c.state.current_model, "claude-sonnet-5-5", "{id}");
         assert_eq!(c.state.price_period, "off_peak", "{id}");
-        assert_eq!(c.state.switch_cost, "cheaper_to_switch", "{id}");
-        assert_eq!(c.state.cheaper_model, "deepseek_flash (off-peak)", "{id}");
+        assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{id}");
+        assert_eq!(c.state.cheaper_model, "", "{id}");
         assert_eq!(c.want.model, "sonnet", "{id}");
     }
     // A hard design question on a long Haiku session moves to Opus despite cheaper_to_stay.
@@ -406,7 +406,7 @@ fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
     for id in ["W42", "W43"] {
         assert!(st(id).get("cheaper_model").is_none(), "{id}");
     }
-    assert_eq!(st("W1")["cheaper_model"], "deepseek_flash (off-peak)");
+    assert_eq!(st("W1").get("cheaper_model"), None);
     // No case asks Jev about a context any more, and L20 (once `default`) wants high.
     assert_eq!(case("L20").want.effort, "high");
 }
