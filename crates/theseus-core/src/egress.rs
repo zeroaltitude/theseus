@@ -23,9 +23,11 @@
 //!   row for each limit its end shows it reached (`detail.sandbox.limit_hits`,
 //!   written by the wrapper): `output_mb` and `scratch_mb`, never `pids` (L1 has
 //!   no cgroup). `Sandbox::counted` counts them and the job's start once per
-//!   result. **Known gap, measured:** a job a cancel stops mid-tunnel has no
-//!   `sandbox.egress` row, because the cancel writes its result before the
-//!   wrapper's completion is in the store.
+//!   result. A job a cancel stops writes no completion, so its wrapper leaves
+//!   its `detail` in the spool beside its verdict (`Spool::write_detail`); the
+//!   stopped job's result reads it as a finished job's reads its completion's,
+//!   and its rows ride in the frame the cancel writes that result in. Its
+//!   limits are not read: the stop returns before they are looked at.
 
 use serde_json::Value;
 use theseus_kernel::Action;
@@ -202,39 +204,68 @@ pub fn limit_hits(detail: &Value) -> Vec<(String, u64)> {
 /// `sandbox.egress_refused` for each refusal) and of the limits it reached
 /// (`sandbox.limit_hit`), for the frame that writes its result `node`.
 pub(crate) fn rows(rec: &Rec<'_>, node: &Node) -> anyhow::Result<Vec<NewRecord>> {
+    rows_in(rec.session, rec.turn, node)
+}
+
+/// `rows`, for a site with no `Rec`: a cancel writes the results of the jobs
+/// it stopped (`answer_after_cancel`), and a stopped job's egress is read
+/// from the report its wrapper left (theseus-zupk), as a completed job's is.
+pub(crate) fn rows_in(
+    session: Option<&str>,
+    turn: Option<&str>,
+    node: &Node,
+) -> anyhow::Result<Vec<NewRecord>> {
     let Some((correlation_id, tool, detail)) = of_node(node) else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
     if let Some(s) = summary(detail) {
         for reached in &s.hosts {
-            out.push(rec.row(&SandboxEgress {
-                correlation_id,
-                tool,
-                reached,
-            })?);
+            out.push(crate::fact::row(
+                &SandboxEgress {
+                    correlation_id,
+                    tool,
+                    reached,
+                },
+                session,
+                turn,
+            )?);
         }
         for refused in &s.refused {
-            out.push(rec.row(&SandboxEgressRefused {
-                correlation_id,
-                tool,
-                refused,
-            })?);
+            out.push(crate::fact::row(
+                &SandboxEgressRefused {
+                    correlation_id,
+                    tool,
+                    refused,
+                },
+                session,
+                turn,
+            )?);
         }
     }
     for (limit, max_mb) in &limit_hits(detail) {
-        out.push(rec.row(&SandboxLimitHit {
-            correlation_id,
-            tool,
-            limit,
-            max_mb: *max_mb,
-        })?);
+        out.push(crate::fact::row(
+            &SandboxLimitHit {
+                correlation_id,
+                tool,
+                limit,
+                max_mb: *max_mb,
+            },
+            session,
+            turn,
+        )?);
     }
     Ok(out)
 }
 
 /// Their sentences, and health's count, once that frame is written.
 pub(crate) fn announce(rec: &Rec<'_>, sandbox: &Sandbox, node: &Node) {
+    said(rec, node);
+    seen(sandbox, node);
+}
+
+/// A result node's egress and limit sentences, on `rec`'s channels.
+pub(crate) fn said(rec: &Rec<'_>, node: &Node) {
     let Some((correlation_id, tool, detail)) = of_node(node) else {
         return;
     };
@@ -253,7 +284,6 @@ pub(crate) fn announce(rec: &Rec<'_>, sandbox: &Sandbox, node: &Node) {
                 refused,
             });
         }
-        sandbox.egress_seen(&s);
     }
     for (limit, max_mb) in &limit_hits(detail) {
         rec.announce(&SandboxLimitHit {
@@ -262,6 +292,16 @@ pub(crate) fn announce(rec: &Rec<'_>, sandbox: &Sandbox, node: &Node) {
             limit,
             max_mb: *max_mb,
         });
+    }
+}
+
+/// Health's count of a result node's egress, its start and its limits, once its rows are written.
+pub(crate) fn seen(sandbox: &Sandbox, node: &Node) {
+    let Some((_, _, detail)) = of_node(node) else {
+        return;
+    };
+    if let Some(s) = summary(detail) {
+        sandbox.egress_seen(&s);
     }
     sandbox.counted(detail);
 }

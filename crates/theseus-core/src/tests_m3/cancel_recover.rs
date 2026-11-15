@@ -244,3 +244,117 @@ async fn a_job_a_stop_reached_before_its_pid_ends_verified_by_its_launchs_stop()
     let next = turn(&r.core, Some(&res.session_id), "go on").await;
     assert_eq!(next.output, "Resumed.");
 }
+
+/// What a wrapper that stopped its L1 job mid-tunnel left beside its verdict: the completion's `detail`, with
+/// one host reached (theseus-zupk).
+fn wrappers_report() -> Value {
+    json!({
+        "stopped": true,
+        "sandbox": {"class": "l1"},
+        "egress": {
+            "allow": ["stand.test:8443"],
+            "hosts": [{"host": "stand.test", "port": 8443, "connections": 1, "up": 40, "down": 120, "ms": 1500}],
+        },
+    })
+}
+
+/// The egress rows of the session's one stopped job, and whether its result says what it reached.
+fn egress_of_the_stopped_job(core: &Core, sid: &str) -> (Vec<Value>, bool) {
+    let said = late_results(core, sid)
+        .iter()
+        .any(|t| t.contains("[L1: it reached stand.test:8443 (1 connection, "));
+    (crate::test_support::rows(core, "sandbox.egress"), said)
+}
+
+/// KEY (zupk): a cancel stops an L1 job mid-tunnel and its wrapper writes a verdict and no completion. What it
+/// reached is recorded as a finished job's is, in the frame that writes the stopped job's result: a
+/// `sandbox.egress` row, and a line in the result. Before, the wrapper's report went with it, and a stopped job
+/// reached what it liked unrecorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_records_what_the_job_it_stopped_reached() {
+    let (r, first, job) = background_job().await;
+    cancel_then_die(&r.core, &job.execution_id);
+    let spool = &r.core.spool;
+    spool
+        .write_detail(&job.correlation_id, &wrappers_report())
+        .unwrap();
+    let said = Verdict::verified_as(VerifiedBy::Tree, Some(2));
+    r.core
+        .kernel
+        .cancel_acknowledged(&job.correlation_id)
+        .unwrap();
+    r.core
+        .kernel
+        .cancel_verified(&job.correlation_id, Some(&said))
+        .unwrap();
+    let nodes = r
+        .core
+        .tools
+        .answer_after_cancel(
+            &r.core.kernel,
+            &r.core.store,
+            &first.session_id,
+            &job.execution_id,
+        )
+        .unwrap();
+    assert_eq!(nodes.len(), 1);
+    let (rows, said) = egress_of_the_stopped_job(&r.core, &first.session_id);
+    assert_eq!(rows.len(), 1, "one row for the one host: {rows:?}");
+    assert_eq!(rows[0]["host"], "stand.test", "{rows:?}");
+    assert_eq!(rows[0]["connections"], 1, "{rows:?}");
+    assert!(said, "{:?}", late_results(&r.core, &first.session_id));
+    assert!(
+        spool.read_detail(&job.correlation_id).is_none(),
+        "the report goes with the result it was read for"
+    );
+    // Said once: a second answer finds the call answered and writes nothing more.
+    r.core
+        .tools
+        .answer_after_cancel(
+            &r.core.kernel,
+            &r.core.store,
+            &first.session_id,
+            &job.execution_id,
+        )
+        .unwrap();
+    assert_eq!(
+        egress_of_the_stopped_job(&r.core, &first.session_id)
+            .0
+            .len(),
+        1
+    );
+}
+
+/// KEY (zupk, with 1og8): the daemon killed after the stopped wrapper wrote its report and verdict, and before
+/// it read either, loses nothing of what the job reached: the restart settles the call from the verdict and
+/// the answer it writes reads the report beside it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restart_mid_cancel_still_records_what_the_stopped_job_reached() {
+    let (r, first, job) = background_job().await;
+    cancel_then_die(&r.core, &job.execution_id);
+    let spool = &r.core.spool;
+    spool
+        .write_detail(&job.correlation_id, &wrappers_report())
+        .unwrap();
+    spool
+        .write_stop(
+            &job.correlation_id,
+            &Verdict::verified_as(VerifiedBy::Tree, Some(2)),
+        )
+        .unwrap();
+    let again = restart(&r);
+    assert!(
+        crate::test_support::rows(&again, "sandbox.egress").is_empty(),
+        "nothing is written before the answer"
+    );
+    again.answer_earlier_cancels();
+    let (rows, said) = egress_of_the_stopped_job(&again, &first.session_id);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["host"], "stand.test", "{rows:?}");
+    assert!(said, "{:?}", late_results(&again, &first.session_id));
+    again.answer_earlier_cancels();
+    assert_eq!(
+        egress_of_the_stopped_job(&again, &first.session_id).0.len(),
+        1
+    );
+}

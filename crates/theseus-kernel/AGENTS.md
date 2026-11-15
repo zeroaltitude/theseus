@@ -19,7 +19,8 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   daemon spawns it with no `pre_exec`, so by posix_spawn, which copies nothing of the daemon; the wrapper makes its
   own session as it starts (theseus-ypqg).
   Since M4 18a a wrapper catches SIGTERM: the daemon's cancel asks it alone (`ask_to_stop`, by `sigqueue`, the grace
-  in the signal's value), and it stops its whole tree, writes its verdict to the spool's `stops/`, and exits with no
+  in the signal's value), and it stops its whole tree, writes its `detail` (what it reached on the network) to
+  `results/<id>.detail`, then its verdict to the spool's `stops/`, and exits with no
   completion. `Stopping` tells it from a wrapper from before 18a by `/proc/<pid>/status`'s `SigCgt`
   (`catches_sigterm`) and stops an older one by its process group, as before (`verified_by: group`).
 - `job_wait.rs` (Tier 7.1): the wrapper's wait on its command, asleep until something happens: the command's pidfd

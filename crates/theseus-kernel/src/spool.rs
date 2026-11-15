@@ -10,6 +10,8 @@
 //! - `lingering/<correlation_id>`   the wrapper's pid while it waits, its command done,
 //!   for descendants that outlived the command (theseus-6qy)
 //! - `results/<correlation_id>.out` captured output the completion's `result_ref` points at
+//! - `results/<correlation_id>.detail` what a stopped job's wrapper knew when it ended it (its egress, its sandbox
+//!   report), written before the verdict, since a cancelled job writes no completion to carry it
 //! - `stops/<correlation_id>`       a cancel's verdict, from the wrapper that stopped the job
 //!   (M4 18a): a cancelled job writes it, and no completion
 //! - `malformed/`                   files that did not parse, moved aside and surfaced
@@ -116,6 +118,31 @@ impl Spool {
     }
     pub fn result_path(&self, id: &str) -> PathBuf {
         self.dir.join("results").join(format!("{id}.out"))
+    }
+
+    /// Where a stopped job's report is: its completion's `detail`, as far as the wrapper knew it.
+    fn detail_path(&self, id: &str) -> PathBuf {
+        self.dir.join("results").join(format!("{id}.detail"))
+    }
+
+    /// What a wrapper that stopped its job knew of it (the completion's `detail`): a stop writes no
+    /// completion, and this is how the egress it carried reaches the daemon (theseus-zupk). Tmp and rename,
+    /// and written before the verdict, so whoever reads the verdict finds it.
+    pub fn write_detail(&self, id: &str, detail: &serde_json::Value) -> Result<()> {
+        let tmp = self.dir.join("results").join(format!("{id}.detail.tmp"));
+        fs::write(&tmp, serde_json::to_vec(detail)?)?;
+        fs::rename(&tmp, self.detail_path(id))?;
+        Ok(())
+    }
+
+    /// The report a wrapper left for the job it stopped, if it left one.
+    pub fn read_detail(&self, id: &str) -> Option<serde_json::Value> {
+        serde_json::from_slice(&fs::read(self.detail_path(id)).ok()?).ok()
+    }
+
+    /// Remove job `id`'s stopped report once its result is written, or with its raw output.
+    pub fn remove_detail(&self, id: &str) {
+        let _ = fs::remove_file(self.detail_path(id));
     }
 
     /// Durably write a completion, with one sync: the tmp file written and

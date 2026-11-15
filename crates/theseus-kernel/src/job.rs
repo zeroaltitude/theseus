@@ -471,6 +471,9 @@ fn run(
     if detail.get("stopped").is_some() {
         let _ = copier.wait(crate::redact::DRAIN);
         let marked = mark_if_lingering(&spool, &args.correlation_id, reap);
+        // What the job reached on the network ends with the wrapper unless it is left: first, so that
+        // whoever reads the verdict finds it (theseus-zupk).
+        let _ = spool.write_detail(&args.correlation_id, &detail);
         if let (Some(StopAsked::Cancel { .. }), Ok(v)) = (
             stop_asked(),
             serde_json::from_value::<Verdict>(detail["stop"].clone()),
