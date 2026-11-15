@@ -460,6 +460,13 @@ pub fn find(p: &Place, item: &str) -> Option<Tree> {
 /// once, after the fetch, whichever commit that is (theseus-6vlr4).
 static REPO: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// [`REPO`], held: for a caller that reads the trees and must not see one half made (a
+/// review's close, `join::scratch`).
+pub(crate) fn repo_lock() -> std::sync::MutexGuard<'static, ()> {
+    REPO.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// The remote the door reads main from: the `origin/main` its refs name.
 const DOOR_REMOTE: &str = "origin";
 

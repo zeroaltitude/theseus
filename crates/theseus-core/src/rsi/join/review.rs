@@ -33,6 +33,10 @@ pub struct Ask {
     pub target: Target,
     /// When the branch was built (the claim's time).
     pub built_ms: u64,
+    /// The directory the review may write in (`scratch::dir`): removed when it has answered.
+    pub scratch: String,
+    /// The self repo, which holds the branch: where a checkout for the review is taken from.
+    pub repo: String,
 }
 
 /// The reviewer's verdict.
@@ -74,8 +78,16 @@ pub fn prompt(a: &Ask) -> String {
         "{}\n\nYou are the independent reviewer of a change Theseus made to its own source. Judge \
          whether the diff does what the report claims, fixes what the evidence shows, and breaks \
          nothing else; a test that would pass without the fix proves nothing. Then end your reply \
-         with one line, `VERDICT: accept` or `VERDICT: reject`, and after it one line per reason.",
-        crate::check::render(&[], Some(&claim))
+         with one line, `VERDICT: accept` or `VERDICT: reject`, and after it one line per reason.\n\n\
+         If you need a checkout or a build to check this, make them under `{scratch}`. That \
+         directory is yours for this review and is removed when you have answered, so there is \
+         nothing to clean up. Take the checkout from the self repository (`git -C {repo} worktree \
+         add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Add no \
+         worktree to any other checkout, and write nothing under the self trees directory.",
+        crate::check::render(&[], Some(&claim)),
+        scratch = a.scratch,
+        repo = a.repo,
+        head = a.head,
     )
 }
 

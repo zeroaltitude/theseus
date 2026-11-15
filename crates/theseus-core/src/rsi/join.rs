@@ -58,6 +58,7 @@ pub mod lock;
 pub mod planted;
 pub mod review;
 mod reviewing;
+pub mod scratch;
 mod sealing;
 mod tender;
 #[cfg(test)]
@@ -66,6 +67,8 @@ pub(crate) mod tests;
 mod tests_notify;
 #[cfg(test)]
 mod tests_reap;
+#[cfg(test)]
+mod tests_scratch;
 #[cfg(test)]
 mod tests_sealed;
 
