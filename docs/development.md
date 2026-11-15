@@ -395,6 +395,12 @@ may join together as a batch, landed with one gate.
    - If the red is in the branch, reset `main` (it was never pushed), fix the branch, and take the lock again.
    - If the red is a race in a test no branch touched, fix the race in its own commit, then land and gate the two
      together.
+   - **A landing's verdict comes from a run of the full set, on the exact tree that lands.** A gate that ran under a
+     default-filter, or with tests withheld, is evidence for a branch and never the verdict for a landing: a test the
+     filter left out can be red on `main` while that gate says `ok`, and one did, for hours. The gate says which set
+     it ran: `gate: suite set: FULL, …` or `gate: suite set: PARTIAL, run under …`, under its table and again in the
+     suite's own output. Where a landing races two hosts, it waits for the host that runs the full set and never
+     takes whichever returns first. `acceptance_journey`'s main test is in the default set of this repository.
 6. **Push before you release.** Push `main` (never forced) and confirm `origin/main` is the gated commit. Only then
    release the lock. Releasing first lets the next join's merge reach `origin` ungated. If `main` moved before the
    push, redo the dry run, the merge and the gate.
@@ -545,6 +551,12 @@ build.
 Since v1, Theseus improves itself in one loop, run by its own daemon. The model does not change; the harness around it
 does. The design is [`design/rsi-plan.md`](design/rsi-plan.md); the rules are summarised here.
 
+**A new version of a judgment pack goes live on landing**, unless the owner asks for a side-by-side run (the owner,
+2026-11-14 13:56 MST, Discord message 1571267707125506159: "ship it as a new version, but put it into action
+immediately; only very rarely do we want live a/b tests"). The new version is named in `judge::WIRED` as `Live` and in
+its root's constant (`capture::PACK` for `directive.v2`, `CLASSIFY_PACK`); the old one stays embedded, its judgments
+under its own text; there is no shadow period and no ladder wait.
+
 ### What it does by itself, then tells the owner
 
 - **Every night it files its own backlog.** It reads its ledger: failed calls and turns, provider errors, invalid tool
@@ -600,7 +612,16 @@ queue goes on.
 - `[self.budget]` sets a spend line per branch and per day, for all self-improvement together. Raising either is keel.
 - A capacity guard: a build starts only when there is a free slot, free disk, low memory pressure, and an unsaturated host (the
   five-minute load average under two runnable tasks a core; CPU *pressure* is shown, not held on: its `some` line
-  reads busy on a host with idle cores, and the system-wide `full` line is always zero).
+  reads busy on a host with idle cores, and the system-wide `full` line is always zero). A hold on the slots names
+  the trees that hold them.
+- A cap on tries: an item has three (`rsi/backlog/attempts.rs`: a red gate, a rejecting review, or a build that died
+  with no gate; a gate that never judged the code is none). The try that reaches it fails the item with every reason
+  and one notice, and it waits for `theseus self retry`. A red inside twelve hours of another for the item is not posted
+  again; the note lists it.
+- No build starts on a red main: the newest recorded whole gate of the commit main is at failed (the gate-times log). A
+  later green gate of that commit lifts it, and so does main moving on. No record means nothing is known.
+- `theseus self set-aside ITEM` stops one item and forbids nothing, where `drop` forbids its cause for good;
+  `theseus self bring-back ITEM` puts it back. Both are the owner's.
 - `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good.
 - Everything is visible: `theseus self log`, `self pipeline`, `self backlog` and `self branches`, a morning notice,
   and a weekly digest.

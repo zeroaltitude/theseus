@@ -175,8 +175,9 @@ Recompilation never loses anything. The old compilation, the tail, and the new c
   cut answer stays in the record, and is left out of the retry and of every later request, with its calls; its
   turn's later answer replaced it. A retry that passes the window too, or a ring with nothing earlier to drop,
   fails the turn with `context_window`, naming the window and the estimate, and the session waits on its next
-  message, which gives the ring a place to cut. Each is a `context.overflow` row. A GLM refusal is read only in
-  Anthropic's wording for now (theseus-kucs). _(Since 2026-10-04, step 30c; Part III Item 131: where the ring would cut, a compaction summarizes the dropped range first (§4.2), and the ring is its fallback. When the ring's last cut still has an overage, or a request has nothing to drop, the turn fails before any call with `context_overage`, naming the model, the window, the estimate and its upper bound, the limit and how far over, with a `context.overage` row, and the session waits on its next message as for `context_window`. Both classes stay: `context_window` is the provider's verdict after a send, `context_overage` the estimate's before one.)_
+  message, which gives the ring a place to cut. Each is a `context.overflow` row. Z.ai's refusal of a GLM prompt past
+  its window (HTTP 400, code 1261, "prompt is too long", no count and no maximum; captured live 2026-11-14) is read as
+  the same refusal with both numbers unknown (theseus-kucs). _(Since 2026-10-04, step 30c; Part III Item 131: where the ring would cut, a compaction summarizes the dropped range first (§4.2), and the ring is its fallback. When the ring's last cut still has an overage, or a request has nothing to drop, the turn fails before any call with `context_overage`, naming the model, the window, the estimate and its upper bound, the limit and how far over, with a `context.overage` row, and the session waits on its next message as for `context_window`. Both classes stay: `context_window` is the provider's verdict after a send, `context_overage` the estimate's before one.)_
 
 ### 4.4b How sessions persist across runtime restarts
 

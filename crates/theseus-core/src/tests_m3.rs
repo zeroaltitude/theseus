@@ -1583,7 +1583,11 @@ async fn a_stop_during_a_jobs_launch_stops_it_once_its_pid_is_written() {
     );
     let (status, text) = results(&r.core, &res.session_id).remove(0);
     assert_eq!(status, ResultStatus::Cancelled);
-    assert!(text.starts_with("[cancelled: stopped by test]\n"), "{text}");
+    // The launch's stop has a verdict, and the call's action takes it (theseus-vn4d): the result says so.
+    assert!(
+        text.starts_with("[cancelled: stopped by test; verified: process group, "),
+        "{text}"
+    );
     assert!(!text.contains("killed"), "{text}");
 }
 
@@ -1617,9 +1621,12 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
 
 /// Admission's queue through the whole core (theseus-4g0l).
 mod admission;
+/// A cancel the daemon died in the middle of (issue 6).
+mod cancel_recover;
 mod modes;
 /// What is left once earned autonomy and scoped grants are gone.
 mod no_grants;
+mod pause_turn;
 /// A question's notice count ends with the question (theseus-1kw2v).
 mod question_ends;
 /// A question that waits past its life is noticed, not declined (theseus-v2dnc).

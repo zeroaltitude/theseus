@@ -355,6 +355,19 @@ impl Spool {
         serde_json::from_slice(&fs::read(self.stop_path(id)).ok()?).ok()
     }
 
+    /// The ids of the verdicts the spool holds (a file a writer's `.tmp` is not one). A few at most:
+    /// a verdict is taken by the cancel that asked for it.
+    pub fn stops_listed(&self) -> Vec<String> {
+        fs::read_dir(self.dir.join("stops"))
+            .map(|d| {
+                d.filter_map(Result::ok)
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .filter(|n| !n.ends_with(".tmp"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Remove job `id`'s verdict once its cancel has read it.
     pub fn remove_stop(&self, id: &str) {
         let _ = fs::remove_file(self.stop_path(id));

@@ -144,7 +144,7 @@ impl Core {
         if let Some(r) = self.store.ledger_by_key(&key)? {
             return r.decode();
         }
-        // A record `directive.v1` kept names its judgment and its pack
+        // A record `directive.v2` kept names its judgment and its pack
         // (theseus-slvl.5): the owner's undo labels it at once.
         match self
             .store

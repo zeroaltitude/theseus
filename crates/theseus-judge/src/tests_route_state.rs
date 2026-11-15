@@ -19,6 +19,7 @@ fn facts() -> RouteFacts {
         current_model: Some("claude-sonnet-5-5".into()),
         switch_cost: Some(SwitchCost::CheaperToStay),
         cheaper_model: None,
+        previous_turn: None,
     }
 }
 
@@ -94,6 +95,54 @@ fn the_estimate_is_left_out_where_there_is_none() {
     f.est_tokens = None;
     let p = route_state(&route_input("x", "job", f), 3000, &NoScrub);
     assert!(p.state.value().get("est_tokens").is_none());
+}
+
+/// theseus-8euum, the owner's "tell the small model that the last turn failed and what effort it ran at"
+/// (2026-11-14 13:54): the effort slice carries those two facts when the input has them, and is byte
+/// for byte what it was when it has none; the route slice never carries them.
+#[test]
+fn the_effort_state_carries_the_previous_turn_and_only_when_there_is_one() {
+    use crate::builders::{Input, PreviousTurn};
+    let mut f = facts();
+    let mut i = route_input("fix the build", "discord_dm", f.clone());
+    i.previous_human_message = Some("did the build pass?".into());
+    i.last_reply = Some("no".into());
+    let pack = crate::pack::by_name("effort.v1").unwrap();
+    let state = |i: &crate::builders::InboundInput| {
+        crate::builders::prepare(&pack, &Input::Inbound(i.clone()), &NoScrub)
+            .unwrap()
+            .state
+    };
+    let without = state(&i);
+    assert!(without.value().get("previous_turn").is_none());
+    assert_eq!(keys(&without.value()), EFFORT_STATE_KEYS);
+    f.previous_turn = Some(Box::new(PreviousTurn {
+        effort: "low".into(),
+        failed: true,
+    }));
+    i.route = Some(f);
+    let with = state(&i);
+    assert_eq!(
+        with.value()["previous_turn"],
+        serde_json::json!({"effort": "low", "failed": true})
+    );
+    let mut four: Vec<&str> = EFFORT_STATE_KEYS.to_vec();
+    four.push("previous_turn");
+    four.sort_unstable();
+    assert_eq!(keys(&with.value()), four);
+    // Everything else of the state is as it was.
+    let mut rest = with.value();
+    rest.as_object_mut().unwrap().remove("previous_turn");
+    rest.as_object_mut().unwrap().remove("slice_version");
+    let mut base = without.value();
+    base.as_object_mut().unwrap().remove("slice_version");
+    assert_eq!(rest, base);
+    // The route's own state does not carry it.
+    assert!(route_state(&i, 3000, &NoScrub)
+        .state
+        .value()
+        .get("previous_turn")
+        .is_none());
 }
 
 /// theseus-h66v4.6: the other two packs of the family read their own slice of the same input, and

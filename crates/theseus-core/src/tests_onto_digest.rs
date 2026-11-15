@@ -273,8 +273,9 @@ fn a_rename_is_a_line_with_both_names() {
     );
 }
 
-/// A kind Jev named (theseus-e3pxa) says so in its line; one the most shared
-/// name named does not.
+/// A kind Jev named (theseus-e3pxa) says so in its line; one the class named
+/// does not. Since issue 9 the class names every kind the sweep makes, so a
+/// kind Jev named is one written before: its description ends with the note.
 #[test]
 fn a_kind_jev_named_says_so_in_its_line() {
     use crate::judge::onto::mint::{plan_with, Hints, Said};
@@ -287,20 +288,26 @@ fn a_kind_jev_named_says_so_in_its_line() {
             confidence: 0.9,
         })
         .collect();
-    for (pick, tail) in [(Some("Ledger Works"), ", named by Jev"), (None, "")] {
+    for (pick, tail) in [(Some("Ledger Works"), ", named by Theseus"), (None, "")] {
         let r = rig(|_| {});
         let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
-        let mut hints = Hints {
+        let hints = Hints {
             same: vec![("lanternledger".to_string(), "ledgerworks".to_string())],
+            class: [("lanternledger".to_string(), "product".to_string())].into(),
+            class_asked: true,
             ..Hints::default()
         };
-        hints
-            .named
-            .extend(pick.map(|p| ("lanternledger".to_string(), p.to_string())));
         let plan = plan_with(&o, &said, now, |n| format!("sweep-{now}-{n}-kind"), &hints);
         let m = &plan.minted[0];
+        let mut records = m.records.clone();
+        if pick.is_some() {
+            if let Record::Kind(k) = &mut records[0] {
+                k.description
+                    .push_str(&format!(" {}", crate::judge::onto::mint::NAMED_NOTE));
+            }
+        }
         r.core
-            .ontology_machine_write(Origin::Sweep, &m.write, m.records.clone())
+            .ontology_machine_write(Origin::Sweep, &m.write, records)
             .unwrap();
         let lines = r.core.onto_night_lines(now + 1_000);
         let want = format!("from 3 sessions{tail} · undo");

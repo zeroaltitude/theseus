@@ -108,7 +108,7 @@ pub const RULES: &[Spec] = &[
     s(
         Rule::D1,
         "D1",
-        "Jev's shadow day budget",
+        "the day's budget for Theseus's practice judgments",
         "[judge] shadow_limit_usd_per_day",
     ),
     s(

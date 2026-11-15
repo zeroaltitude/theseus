@@ -36,6 +36,24 @@
 //! caching minimum (a 498-token prefix was not cached, a 542-token one was).
 //! It is the first model priced in tiers: see [`LongPrompt`].
 //!
+//! The 2026-11-14 sweep read each vendor's own pages on that day: the Claude
+//! models overview, pricing page and the Fable 5.2 and Sonnet 5.5 model pages
+//! (platform.claude.com); docs.z.ai's pricing, release notes and GLM pages;
+//! api-docs.deepseek.com's Models & Pricing page. Every row of those matched its
+//! page's window, output cap and prices, but one: the pages give Sonnet 5.5's
+//! cache read as $0.10 (0.05x of input), and the row keeps the owner's $0.20 of
+//! 2026-10-25, because $0.10 re-labels `switch_cost`'s cases and is the owner's
+//! call. The GLM Flash rows held 1,048,576 and 131,072 where the page says 1M and
+//! 128K; the owner chose the page's, as GLM-5.3's are (2026-11-14, chat message
+//! 1571309047377039411), and they now hold 1,000,000 and 128,000. Moonshot's docs moved to platform.kimi.ai: its model
+//! pages and parameter reference (read 2026-11-14) agree with the Kimi rows'
+//! window, effort levels and always-on thinking, but state no output cap, and
+//! the price tables of its pricing pages are drawn by script and are not in the
+//! page text. Only `kimi-k3`'s prices are written out (its caching page), and
+//! `kimi-k3` is the previous generation, with no output price stated. So the
+//! Kimi rows' prices and caps stand as of the 2026-10-24 probe, and no row is
+//! added for `kimi-k3`.
+//!
 //! `off_peak` (theseus-9f72b) is a provider's cheaper hours (DeepSeek's: half of
 //! input, output and cache read outside 01:00 to 04:00 and 06:00 to 10:00 UTC on
 //! weekdays, [`price_period_at`]). A row's own prices stay the peak ones, which
@@ -57,7 +75,7 @@ pub use peak::price_period_at;
 mod switch;
 pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
 
-pub const BUILTIN_VERSION: &str = "2026-11-09.1";
+pub const BUILTIN_VERSION: &str = "2026-11-14.2";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -820,7 +838,10 @@ fn claude(
         vision: true,
         pdf: true,
         tool_search: true,
-        source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
+        source: "Claude API reference (2026-06-24 model table; model-migration pricing); \
+                 prices and limits checked against the models overview and pricing page, \
+                 2026-11-14"
+            .into(),
         bytes_per_token: TokenRates::CLAUDE,
         origin: ModelOrigin::Us,
         default_effort: None,
@@ -860,7 +881,9 @@ fn glm(
         // GLM reads a PDF's text (theseus-c9l6).
         pdf: false,
         tool_search: false,
-        source: "docs.z.ai pricing and model pages, 2026-10-17".into(),
+        source: "docs.z.ai pricing and model pages, 2026-10-17; checked again against them, \
+                 2026-11-14"
+            .into(),
         bytes_per_token: TokenRates::GLM,
         origin: ModelOrigin::Cn,
         default_effort: None,
@@ -895,8 +918,8 @@ fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str
         pdf: false,
         tool_search: false,
         source: format!(
-            "api-docs.deepseek.com pricing and Anthropic API pages, 2026-10-17; peak rates \
-             (off-peak is half); {served}"
+            "api-docs.deepseek.com pricing and Anthropic API pages, 2026-10-17, and the Models \
+             & Pricing page again 2026-11-14; peak rates (off-peak is half); {served}"
         ),
         bytes_per_token: TokenRates::of("deepseek-"),
         origin: ModelOrigin::Cn,
@@ -940,7 +963,11 @@ fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
         vision: true,
         pdf: false,
         tool_search: false,
-        source: format!("Moonshot AI Kimi API docs and a live probe, 2026-10-24; {served}"),
+        source: format!(
+            "Moonshot AI Kimi API docs and a live probe, 2026-10-24; window, effort levels \
+             and always-on thinking checked again against platform.kimi.ai, 2026-11-14, whose \
+             price table is not in the page text; {served}"
+        ),
         bytes_per_token: TokenRates::of("kimi-"),
         origin: ModelOrigin::Cn,
         default_effort: None,
@@ -965,7 +992,8 @@ fn fable_rows(e: &mut BTreeMap<String, CatalogEntry>) {
             source: "Anthropic Models API and pricing page, 2026-11-09 (release day): \
                      1M in, 128k out, $8 in and $40 out a million, a 5-minute write at \
                      1.25 × input and an hour at 2 ×, and cache reads at 0.025 × input \
-                     as Fable 5.1's are"
+                     as Fable 5.1's are; checked again against the models overview, \
+                     pricing page and Fable 5.2 page, 2026-11-14"
                 .into(),
             per_message_effort: true,
             ..claude(m, 128_000, 8.0, 40.0, 0.20, 10.00, Always, true, 512)
@@ -1111,10 +1139,11 @@ impl Catalog {
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
-                source: "Anthropic Models API and pricing page, 2026-09-28; cache reads $0.20, \
-                         the pricing page's 0.1x of input, as before the 2026-10-17 change to \
-                         $0.10 that undercounted them by half (the owner, 2026-10-25: \
-                         \"Do make the sonnet fix.\")"
+                source: "Anthropic Models API and pricing page, 2026-09-28, other figures \
+                         checked again against the overview, pricing page and Sonnet 5.5 page, \
+                         2026-11-14; cache reads $0.20, the owner's figure of 2026-10-25 (\
+                         \"Do make the sonnet fix.\"), where the 2026-11-14 pages say $0.10, \
+                         0.05x of input: left open, see the module notes"
                     .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
                 // The live probe of 2026-10-17: a per-message change keeps the
@@ -1137,8 +1166,10 @@ impl Catalog {
         e.insert(
             "claude-haiku-5-5".into(),
             CatalogEntry {
-                source: "Anthropic pricing page, Haiku 5.5 model page, and Models API, 2026-10-07"
-                    .into(),
+                source:
+                    "Anthropic pricing page, Haiku 5.5 model page, and Models API, 2026-10-07; \
+                         overview and pricing page again 2026-11-14"
+                        .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
                 long_prompt: Some(LongPrompt {
                     above_tokens: 100_000,
@@ -1177,13 +1208,22 @@ impl Catalog {
                 ..glm(1_000_000, 128_000, 1.40, 4.40, 0.26, 1.40)
             },
         );
+        let flash_source = "docs.z.ai pricing and GLM-5.3-Flash/FlashX pages, read 2026-11-14: \
+                            1M context, 128K output, text parameters consistent with GLM-5.3 \
+                            (the owner chose these over 1,048,576 and 131,072, 2026-11-14)";
         e.insert(
             "glm-5.3-flash".into(),
-            glm(1_048_576, 131_072, 0.15, 0.50, 0.03, 0.15),
+            CatalogEntry {
+                source: flash_source.into(),
+                ..glm(1_000_000, 128_000, 0.15, 0.50, 0.03, 0.15)
+            },
         );
         e.insert(
             "glm-5.3-flashx".into(),
-            glm(1_048_576, 131_072, 0.37, 1.25, 0.075, 0.37),
+            CatalogEntry {
+                source: flash_source.into(),
+                ..glm(1_000_000, 128_000, 0.37, 1.25, 0.075, 0.37)
+            },
         );
         deepseek_rows(&mut e);
         kimi_rows(&mut e);
@@ -1873,7 +1913,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-11-09.1");
+        assert_eq!(c.version, "2026-11-14.2");
         // Sonnet 5.5's cache read is $0.20, as Sonnet 5's is.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
@@ -2211,6 +2251,28 @@ mod tests {
         assert!(f.vision && !p.vision);
         assert!(f.source.contains("V4.1-Flash-1017") && p.source.contains("V4-Pro-0813"));
         assert_eq!(TokenRates::of("deepseek-flash"), TokenRates::CLAUDE);
+    }
+
+    /// The Flash rows hold the page's "1M" and "128K", as GLM-5.3's do (owner,
+    /// 2026-11-14, chat message 1571309047377039411), and say so in their source.
+    #[test]
+    fn the_glm_flash_rows_hold_the_pages_window_and_output_cap() {
+        let c = Catalog::builtin();
+        for id in ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"] {
+            let e = c.get(id).unwrap();
+            assert_eq!(
+                (e.context_window, e.max_output_tokens),
+                (1_000_000, 128_000),
+                "{id}"
+            );
+        }
+        for id in ["glm-5.3-flash", "glm-5.3-flashx"] {
+            let s = &c.get(id).unwrap().source;
+            assert!(
+                s.contains("1M context, 128K output") && s.contains("2026-11-14"),
+                "{s}"
+            );
+        }
     }
 
     /// The GLM rows' cache writes are priced at their input (no premium, a

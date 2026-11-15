@@ -7,7 +7,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## What's here
 
-- **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
+- **The turn**: `turn.rs` and `turn/` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
   and the cancel path). A turn waits for its slot in `turn/admission.rs`'s queue (theseus-4g0l): three classes (a
@@ -597,9 +597,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the latest slot today that has come and is later than the last claimed). Tests: `tests_work_digest.rs`, `digest::tests`.
   Tests: `tests_initiative.rs`, `initiative::promise::tests`,
   `initiative::lines::tests`, the protocol's `tests_notices.rs`.
-- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v1`; no store
+- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v2`; no store
   format: new META key `standing.capture` and new ledger kinds): the owner's words become standing records without a
-  command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
+  command. `directive.v2` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
   (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
@@ -3385,8 +3385,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   passing command, reset only by one; a turn that has not edited (a read-only helper) is stopped at 0.85 as before, one that
   has edited and keeps opening new files is stopped at 0.95 (a build that runs is the one carve-out, below). Each is a harness node
   (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend, a stop's `condition`;
-  `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
-  is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
+  `fact/progress.rs`). The turn's state is a field of its `Checkpoints`, begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
   online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
@@ -3566,8 +3565,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## Where the big things live
 
-- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, and `tx.rs`. Every mutating method writes
-  one frame.
+- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, `kernel/` and `tx.rs`. Every mutating method writes one frame.
 - **The store's WAL and index**: `crates/theseus-store/src/wal.rs`, `index.rs`, and `store.rs`.
 - **The turn loop**: `crates/theseus-core/src/turn.rs`, with `advancer.rs`; the harness loop in `harness.rs`, and
   what it drives (continuations, the heartbeat) in `rpc/driver.rs`.
@@ -3890,11 +3888,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   META record written in the taking frame (`wake.target.<session>`); a retry frames its reply from the unanswered
   wake and report nodes. No in-memory field carries it.
 - **A `/stop` cuts the model's stream** (theseus-yey): `Core::stop_execution` signals `TurnRunner::stops`, which only
-  wakes `call_model`; the kernel's record of the stop decides. The cut call settles as failed at an estimate (the
-  input its reservation assumed, split as the request was sent: the turn's previous call's cache at the read price,
-  the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
-  output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
-  it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+  wakes `call_model`; the kernel's record of the stop decides. The cut call settles as failed at an estimate (input
+  split as the request was sent, `turn/cut_step.rs`, theseus-3p36; output from the characters streamed), or, when the
+  stream had sent a usage event (`Delta::Usage`, theseus-k48c), from the last one, the prompt exactly (`split: provider_events`). Capped at its reservation, never held
+  unknown; a `provider.cut` row says whether it is an `estimated` one and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - **A spec's tools are shared, never copied** (theseus-nsp9l.2): `RequestSpec.tools` is a `tool_set::Tools` (an `Arc` of the
   definitions, immutable; its JSON length, digest and hash state, and the sets a deferral loads, are kept with it), and
   `ToolRuntime::definitions_for` keeps each place's catalog (`toolrun/catalogs.rs`). A compile clones specs and digests

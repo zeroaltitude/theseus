@@ -400,8 +400,9 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   machine's `gpg.ssh.allowedSignersFile` (theseus-pw1q.18's reason for refusing ssh); an x509 one is refused. The
   owner's key is an ssh key only his approval can use, so a join's merge commit, signed with the agents' key, carries
   only `test-removed` trailers; any other is his, through `keel-ack.sh`.
-- **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
-  came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
+- **Moved and renamed tests** are matched, not proven the same: by name, then by body, then a test that went and one
+  that came at least half alike (difflib over their words, a guess; the guard prints each pairing, how it was matched
+  and a count). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.
 - **A pairing found only by similarity, landing in another file, is a GUESS, and in a batch it misattributes
   (theseus-4vsrz).** Measured at `12889bcf` with `scripts/keel-batch-repro.sh`: the deleted routing test and the

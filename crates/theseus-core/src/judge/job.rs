@@ -93,6 +93,7 @@ impl JudgeService {
             current_model: None,
             switch_cost: None,
             cheaper_model: None,
+            previous_turn: None,
         };
         let (tx, rx) = oneshot::channel();
         rt.spawn(judge_job(

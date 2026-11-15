@@ -1,6 +1,6 @@
 // The dock (theseus-jid7t.6; `\` folds it): the live streams, `narrative.watch` over every session, newest first, and
 // the models strip. `␣` pauses the streams while the dock has focus (anywhere else `␣` is the selection's); "follow"
-// shows the selected session's lines alone. The strip lists each MODEL once (Sonnet 5.5, not `sonnet` and `sonnethi`)
+// shows the selected session's lines alone. The strip lists each MODEL once (Sonnet 5.5, not `sonnet` and `sonnet_high`)
 // with its origin, the sessions on it and the headroom from the newest call's rate headers, its effort as a sub-line
 // (the turns' real efforts, or the profiles' configured ones, said so; `ops/models.ts`), and its profiles under it; a
 // profile's click filters the page by it, ⌥-click makes it the live profile (`profile.use`, which asks: it changes the

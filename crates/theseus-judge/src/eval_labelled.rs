@@ -26,9 +26,10 @@ const CONTENT_V3: &str = include_str!("../fixtures/eval/content.v3.json");
 const CONTENT_V4: &str = include_str!("../fixtures/eval/content.v4.json");
 const UNDO_V1: &str = include_str!("../fixtures/eval/undo.v1.json");
 const PRECEDENCE_V1: &str = include_str!("../fixtures/eval/precedence.v1.json");
+const DIRECTIVE_V1: &str = include_str!("../fixtures/eval/directive.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 9] = [
+pub const PACKS: [&str; 11] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
@@ -38,6 +39,8 @@ pub const PACKS: [&str; 9] = [
     "content.v4",
     "undo.v1",
     "precedence.v1",
+    "directive.v1",
+    "directive.v2",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,6 +67,8 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "content.v4" => CONTENT_V4,
         "undo.v1" => UNDO_V1,
         "precedence.v1" => PRECEDENCE_V1,
+        // v2 is measured on v1's set: the same sentences, so the two versions are scored alike.
+        "directive.v1" | "directive.v2" => DIRECTIVE_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -111,6 +116,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A sentence that asks for one act, once, was offered as a
+    /// standing order for the place. `directive.v1`'s set holds such
+    /// sentences, each expecting `none`, beside the rules, preferences, facts
+    /// and corrections that are to be kept, so a wording that fixes one cannot
+    /// quietly stop keeping the other.
+    #[test]
+    fn directive_v1s_set_holds_one_act_requests_that_expect_nothing_to_keep() {
+        let cases = set("directive.v1").unwrap();
+        assert_eq!(
+            cases.iter().map(|c| &c.name).collect::<Vec<_>>(),
+            set("directive.v2")
+                .unwrap()
+                .iter()
+                .map(|c| &c.name)
+                .collect::<Vec<_>>(),
+            "directive.v2 is measured on directive.v1's sentences"
+        );
+        let once: Vec<_> = cases
+            .iter()
+            .filter(|c| c.name.starts_with("once_"))
+            .collect();
+        assert!(once.len() >= 12, "{} one-act cases", once.len());
+        for c in &once {
+            assert_eq!(
+                c.expect.get("kind").map(String::as_str),
+                Some("none"),
+                "{}",
+                c.name
+            );
+        }
+        for kept in ["order", "preference", "fact", "correction"] {
+            assert!(
+                cases
+                    .iter()
+                    .any(|c| c.expect.get("kind").map(String::as_str) == Some(kept)),
+                "a case that expects {kept}"
+            );
+        }
+        let names: std::collections::BTreeSet<&str> =
+            cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), cases.len(), "names are unique");
     }
 
     /// `content.v1`'s set is design §10's: ten clear cases for each of the four

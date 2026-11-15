@@ -35,18 +35,18 @@ test("an effort that did not apply says Jev's answer and why, and a row before r
 })
 
 test("a task checkpoint's line says why it was asked and what the switch wrote cold (theseus-ypnxt.9)", () => {
-  const r = row({ mode: 'deep_coding', reason: 'verdict', from: 'haikuhi', profile: 'sonnet', source: 'task checkpoint',
+  const r = row({ mode: 'deep_coding', reason: 'verdict', from: 'haiku_high', profile: 'sonnet', source: 'task checkpoint',
     trigger: 'failing', loop: 6, cold_tokens: 12000, cache_usd: 0.045, cost_usd: 0.002, switch: true, wait_ms: 0, late: false })
   assert.equal(
     routeLine(r),
-    'deep_coding · haikuhi → sonnet (verdict) · task checkpoint: failing, 12000 cold tokens (~$0.0450) · waited 0 ms',
+    'deep_coding · haiku_high → sonnet (verdict) · task checkpoint: failing, 12000 cold tokens (~$0.0450) · waited 0 ms',
   )
   // A checkpoint that left the task where it was has no cold cost to say.
-  const held = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haikuhi', profile: 'haikuhi', source: 'task checkpoint', trigger: 'quiet' })
-  assert.equal(routeLine(held), 'deep_coding · haikuhi (cache_hold) · task checkpoint: quiet')
+  const held = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haiku_high', profile: 'haiku_high', source: 'task checkpoint', trigger: 'quiet' })
+  assert.equal(routeLine(held), 'deep_coding · haiku_high (cache_hold) · task checkpoint: quiet')
   // A routed conversation turn's (theseus-a1wvq).
-  const turn = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haikuhi', profile: 'haikuhi', source: 'turn checkpoint', trigger: 'failing' })
-  assert.equal(routeLine(turn), 'deep_coding · haikuhi (cache_hold) · turn checkpoint: failing')
+  const turn = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haiku_high', profile: 'haiku_high', source: 'turn checkpoint', trigger: 'failing' })
+  assert.equal(routeLine(turn), 'deep_coding · haiku_high (cache_hold) · turn checkpoint: failing')
 })
 
 test("a turn chip says a model was pinned, by its reason and never by its model (theseus-h66v4.3)", () => {

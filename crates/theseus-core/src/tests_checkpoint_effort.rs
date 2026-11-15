@@ -4,7 +4,7 @@
 //! gate for `xhigh` and `max` still holds, and a checkpoint never lowers a
 //! turn's effort. And the floor: a profile a routing class chose never runs
 //! below its own effort. The rigs are `tests_turn_checkpoint`'s and
-//! `tests_route`'s, on the template with a `sonnethi` profile (Sonnet 5.5 at
+//! `tests_route`'s, on the template with a `sonnet_high` profile (Sonnet 5.5 at
 //! high) that takes no per-message effort, as `tests_effort_sticky`'s does.
 
 use std::sync::Arc;
@@ -19,16 +19,16 @@ use crate::tests_route::{mode, rig_parts, turn, Rig};
 use crate::tests_turn_checkpoint::{checkpoints, loops, ASK};
 use crate::Config;
 
-/// The template with `sonnethi` added (and the live profile `live`), under
+/// The template with `sonnet_high` added (and the live profile `live`), under
 /// the rig's own sections; Sonnet 5.5 takes no per-message effort, and every
 /// request is long enough for the sticky rule.
-fn sonnethi(c: &mut Config, live: &str) {
+fn sonnet_high(c: &mut Config, live: &str) {
     let text = Config::EXAMPLE_TOML
         .replace("live = \"sonnet\"\n", &format!("live = \"{live}\"\n"))
         .replace(
-            "[profiles.haikuhi]\n",
-            "[profiles.sonnethi]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\n\
-             effort = \"high\"\n\n[profiles.haikuhi]\n",
+            "[profiles.haiku]\n",
+            "[profiles.sonnet_high]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\n\
+             effort = \"high\"\n\n[profiles.haiku]\n",
         );
     let (mut with, _) = Config::parse(&text).unwrap();
     with.server = c.server.clone();
@@ -56,7 +56,7 @@ fn choice(option: &str, confidence: f64) -> Jev {
 }
 
 /// A conversation whose route reads the message as routine coding, run on
-/// `sonnethi` at high (Jev's first effort), and whose checkpoint, on three
+/// `sonnet_high` at high (Jev's first effort), and whose checkpoint, on three
 /// failed loops, says routine coding again (`checkpoint_mode`) and asks
 /// `level` at `confidence`; on `live` as the session's base.
 fn routed(
@@ -79,7 +79,7 @@ fn routed(
         Some(&jev),
         4,
         |c| {
-            sonnethi(c, live);
+            sonnet_high(c, live);
             // The gate's line the tests draw between 0.69 and 0.71.
         },
         move |p| {
@@ -135,15 +135,15 @@ fn row(d: &Value) -> (Value, Value, Value, Value, Value) {
 /// it holds: the row says `sticky`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_checkpoint_never_lowers_effort() {
-    let (rig, claude, _jev) = routed("sonnethi", "routine_coding", ("low", 0.95));
+    let (rig, claude, _jev) = routed("sonnet_high", "routine_coding", ("low", 0.95));
     let res = turn(&rig.core, None, ASK, None).await;
-    assert_eq!(res.profile, "sonnethi");
+    assert_eq!(res.profile, "sonnet_high");
     assert_eq!(levels(&claude), ["high"; 9]);
     let rows = checkpoints(&rig);
     assert_eq!(
         row(&rows[0]),
         (
-            json!("sonnethi"),
+            json!("sonnet_high"),
             json!(false),
             json!("applied"),
             json!(false),
@@ -173,7 +173,7 @@ async fn a_model_with_per_message_effort_is_not_raised_mid_turn() {
         Some(&jev),
         4,
         |c| {
-            sonnethi(c, "sonnet");
+            sonnet_high(c, "sonnet");
             c.catalog.remove("claude-sonnet-5-5");
         },
         move |p| {

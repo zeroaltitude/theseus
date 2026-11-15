@@ -13,7 +13,8 @@ use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult, SelfFileParams,
-    SelfFileResult, SelfMoveParams, SelfMoveResult, SelfRetryParams, SelfRetryResult,
+    SelfFileResult, SelfMoveParams, SelfMoveResult, SelfPauseParams, SelfPauseResult,
+    SelfRetryParams, SelfRetryResult,
 };
 
 use crate::cmd::output;
@@ -55,6 +56,79 @@ pub async fn drop_item(conn: &mut Conn, json: bool, item: String) -> Result<()> 
         );
         Ok(())
     })
+}
+
+pub async fn set_aside(conn: &mut Conn, json: bool, item: String, why: Vec<String>) -> Result<()> {
+    let why = why.join(" ");
+    let p = SelfDropParams {
+        item,
+        set_aside: true,
+        why: (!why.trim().is_empty()).then_some(why),
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_DROP, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfDropResult| {
+        println!("{}", aside_words(&r)?);
+        Ok(())
+    })
+}
+
+/// What a set-aside's answer says in words, or why it must not say it worked. A daemon older
+/// than this command reads the request as a plain drop, which forbids the item's cause for good,
+/// and answers without `set_aside`: saying "nothing is forbidden" then would be false (the first
+/// review's F6).
+pub(crate) fn aside_words(r: &SelfDropResult) -> Result<String> {
+    if !r.set_aside {
+        anyhow::bail!(
+            "the daemon is older than this command, so it DROPPED {} ({}) instead of setting it \
+             aside: its cause, {}, is now never filed again. Restart the daemon onto this build \
+             first next time",
+            r.item,
+            r.title,
+            r.cause
+        );
+    }
+    Ok(match r.changed {
+        true => format!(
+            "Set {} ({}) aside. Nothing starts it, and nothing is forbidden: its cause, {}, is \
+             still watched. `theseus self bring-back {}` puts it back.",
+            r.item, r.title, r.cause, r.item
+        ),
+        false => format!("{} ({}) was set aside already.", r.item, r.title),
+    })
+}
+
+/// `theseus self pause [WHY]` and `unpause`: new self builds held or let go. A pause is the running
+/// daemon's, so the words say that a restart clears it.
+pub async fn pause(conn: &mut Conn, json: bool, clear: bool, why: Vec<String>) -> Result<()> {
+    let why = why.join(" ");
+    let p = SelfPauseParams {
+        clear,
+        why: (!why.trim().is_empty()).then_some(why),
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_PAUSE, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfPauseResult| {
+        println!("{}", pause_words(&r, clear));
+        Ok(())
+    })
+}
+
+/// What a pause's answer says in words.
+pub(crate) fn pause_words(r: &SelfPauseResult, cleared: bool) -> String {
+    match (cleared, r.changed, &r.words) {
+        (false, true, Some(w)) => format!("New self builds are {w}."),
+        (false, false, Some(w)) => format!("Already {w}."),
+        (true, true, _) => "Unpaused: new self builds may start again.".to_string(),
+        (true, false, _) => "Nothing was paused.".to_string(),
+        (false, _, None) => "The pause was not set.".to_string(),
+    }
 }
 
 pub async fn move_item(conn: &mut Conn, json: bool, item: String, rank: u32) -> Result<()> {

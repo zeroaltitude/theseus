@@ -183,6 +183,21 @@ pub fn trees_open(trees: &Path) -> usize {
         .unwrap_or(0)
 }
 
+/// The names of the self trees open under `trees`, sorted: what a hold on the slots names, so a
+/// tree nothing owns (a join's) is a name to look for and not a count.
+pub fn trees_named(trees: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(trees)
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
 /// Whether a build may start: what was read, and the first hold, if any.
 /// `at` is a path on the build trees' filesystem (the state dir's `self`,
 /// or the state dir before it exists).

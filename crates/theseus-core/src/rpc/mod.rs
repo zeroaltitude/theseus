@@ -60,6 +60,7 @@ mod forecast;
 mod grants;
 mod judge_latency;
 mod memory_read;
+mod money;
 mod never;
 pub(crate) mod ontology;
 pub(crate) mod ontology_kinds;
@@ -156,6 +157,8 @@ mod tests_live_pin;
 #[cfg(test)]
 mod tests_live_release;
 #[cfg(test)]
+mod tests_money;
+#[cfg(test)]
 mod tests_named_by_reply;
 #[cfg(test)]
 mod tests_node_names;
@@ -195,6 +198,8 @@ mod tests_self_graduate;
 mod tests_self_mint;
 #[cfg(test)]
 mod tests_self_patterns;
+#[cfg(test)]
+mod tests_self_pause;
 #[cfg(test)]
 mod tests_session_find;
 #[cfg(test)]
@@ -1037,7 +1042,9 @@ impl Core {
             Some(released) if released.is_empty() => (cfg.model.live.clone(), "config".to_string()),
             Some(name) if profiles.contains_key(&name) => (name, "runtime".to_string()),
             Some(stale) => {
-                tracing::warn!(profile = %stale, "persisted live profile no longer configured; using config");
+                let why = crate::config::renamed::renamed_profile(&stale)
+                    .unwrap_or_else(|| "it is no longer configured".to_string());
+                tracing::warn!(profile = %stale, "persisted live profile {stale:?} not used ({why}); using the config's {:?}", cfg.model.live);
                 (cfg.model.live.clone(), "config".to_string())
             }
             None => (cfg.model.live.clone(), "config".to_string()),
@@ -1103,6 +1110,7 @@ impl Core {
         core.tools.thread_read.attach(&core);
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
+        core.tools.self_pause.attach(&core);
         core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools

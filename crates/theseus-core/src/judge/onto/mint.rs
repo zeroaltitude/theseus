@@ -14,10 +14,11 @@
 //!   plan, a pair of mined names no session shares is asked `same_kind.v1`
 //!   (`renamed.rs`); a yes at the act band joins the two names' sessions into
 //!   one cluster ([`Hints::same`]), each name an example of the kind.
-//! - **The kind's name** is a Choice among the cluster's names
-//!   (`name_it.v1`): Jev's pick at the act band names the kind
-//!   ([`Hints::named`]); `none`, a pick below the band, a single name or no
-//!   answer fall back to the most shared name, as before.
+//! - **The kind's name** is its class (`class.rs`, issue 9), which only the
+//!   sweep's model part can give: with it off no kind is made, and what would
+//!   have been filed waits for a night when it is on (the `other` answers stay
+//!   in the ledger for [`WINDOW_MS`]). Jev's `name_it.v1` pick ([`Hints::named`])
+//!   is still asked and kept, but names nothing now.
 //! - **Undo** retires the kind with its category and drops the memberships
 //!   (`Ontology::undo`). A name a kind of the table already lists in
 //!   `examples` is not clustered again, an undone kind's included, so a
@@ -96,7 +97,8 @@ pub struct Minted {
     pub precedence: u32,
     pub records: Vec<Record>,
     pub sessions: usize,
-    /// Named by Jev's pick (else by the most shared name).
+    /// Named by Jev's pick; since issue 9 the class names every kind the
+    /// sweep makes, so this is false.
     pub named: bool,
 }
 
@@ -132,6 +134,14 @@ pub struct Hints {
     /// A pick names only a cluster that still holds it: the key outlives a
     /// cluster's shape, so a pick for a name now elsewhere is ignored.
     pub named: BTreeMap<String, String>,
+    /// The class each cluster belongs to, by the cluster's key: the one
+    /// lowercase word the class call gave (`class.rs`).
+    pub class: BTreeMap<String, String>,
+    /// Whether the class call was part of this run. When it was, a cluster
+    /// with no class makes no kind that night (a kind is a class of things,
+    /// and the thing that prompted it is an entry of it); when it was not
+    /// (the sweep's model part is off), no kind is made at all.
+    pub class_asked: bool,
     /// What the questions cost.
     pub spent: theseus_judge::price::Micros,
 }
@@ -301,7 +311,8 @@ pub fn leads<'a>(o: &Ontology, names: &Folds<'a>, same: &[(String, String)]) -> 
     found
 }
 
-/// What `said` mints against `o`: `write(n)` is the id of the nth write
+/// What `said` mints against `o` with no class call: nothing, since issue 9
+/// (see [`plan_with`]). `write(n)` is the id of the nth write
 /// (`sweep-<ms>-<n>-kind`), which the kind's and category's `added_by` carry.
 pub fn plan(o: &Ontology, said: &[Said], now_ms: u64, write: impl Fn(usize) -> String) -> Plan {
     plan_with(o, said, now_ms, write, &Hints::default())
@@ -315,6 +326,14 @@ pub fn plan_with(
     write: impl Fn(usize) -> String,
     hints: &Hints,
 ) -> Plan {
+    // No class call, no kind (the owner's answer, 2026-11-14): with the sweep's
+    // model part off there is nothing to name the class, and a kind named
+    // after the thing is the fault this line exists for. What would have been
+    // filed waits: the `other` answers stay in the ledger, and a night when
+    // the model part is on makes the kind then.
+    if !hints.class_asked {
+        return Plan::default();
+    }
     let names = folds(said);
     let mut listed = listed_in(o);
     let all = clusters(&names, &live_same(&listed, &hints.same));
@@ -330,6 +349,30 @@ pub fn plan_with(
             break;
         };
         let spelled = cluster.spelled(&names);
+        if hints.class_asked {
+            // A kind is a class of things: named for the class, with each
+            // name of the cluster an entry under it.
+            let n = plan.minted.len() + plan.refused as usize;
+            let made = hints.class.get(&cluster.key).and_then(|class| {
+                mint_class(
+                    &mut working,
+                    class,
+                    (cluster, &names),
+                    now_ms,
+                    precedence,
+                    &write(n),
+                )
+            });
+            listed.extend(cluster.folds.iter().cloned());
+            match made {
+                Some(m) => {
+                    precedence = m.precedence;
+                    plan.minted.push(m);
+                }
+                None => plan.refused += 1,
+            }
+            continue;
+        }
         let default = spelled[0].clone();
         let picked = hints
             .named
@@ -462,6 +505,91 @@ fn mint(
         records,
         sessions: sessions.len(),
         named,
+    })
+}
+
+/// A kind named for its class (`class`: country), one category for each name
+/// of the cluster (France), and each session's membership of the categories
+/// it said, applied to `working` when every record checks as the sweep's.
+fn mint_class(
+    working: &mut Ontology,
+    class: &str,
+    (cluster, names): (&Cluster<'_>, &Folds<'_>),
+    now_ms: u64,
+    precedence: u32,
+    write: &str,
+) -> Option<Minted> {
+    let by = format!("sweep:{write}");
+    let entries = cluster.spelled(names);
+    let mut examples = entries.clone();
+    examples.truncate(EXAMPLES_MAX);
+    let kind = Kind {
+        name: kind_name(class),
+        basis: Basis::Interpreted,
+        assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
+        per_session: PerSession::AtMost(3),
+        parent: None,
+        precedence: (precedence / 10 + 1) * 10,
+        rule: Rule::Chain,
+        description: format!(
+            "A kind the sweep made: {class}. {} sessions' messages were about none of the listed \
+             kinds, and these are its first entries: {}.",
+            cluster.sessions.len(),
+            examples.join(", "),
+        ),
+        version: 1,
+        added_by: by.clone(),
+        retired_ms: None,
+        examples,
+        mined_from: Vec::new(),
+    };
+    if kind.name != class || kind.check_row().is_err() || working.kind(&kind.name).is_some() {
+        return None;
+    }
+    let mut trial = working.clone();
+    trial.put(Record::Kind(kind.clone()), Origin::Sweep).ok()?;
+    let mut records = vec![Record::Kind(kind.clone())];
+    let mut ids = Vec::new();
+    for (fold, entry) in cluster.folds.iter().zip(&entries) {
+        let id = trial.mint_id(&kind.name, entry).ok()?;
+        let category = Category::new(id.clone(), entry, by.clone());
+        trial
+            .put(Record::Category(category.clone()), Origin::Sweep)
+            .ok()?;
+        records.push(Record::Category(category));
+        ids.push((fold, id));
+    }
+    for (session, confidence) in &cluster.sessions {
+        let members: Vec<Membership> = ids
+            .iter()
+            .filter(|(fold, _)| names[*fold].1.contains_key(session))
+            .take(3)
+            .map(|(_, id)| Membership {
+                category: id.clone(),
+                origin: Origin::Sweep,
+                confidence: Some(*confidence as f32),
+                as_of_ms: now_ms,
+            })
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        let list = Record::Members(MemberList {
+            session: (*session).to_string(),
+            kind: kind.name.clone(),
+            members,
+        });
+        trial.put(list.clone(), Origin::Sweep).ok()?;
+        records.push(list);
+    }
+    *working = trial;
+    Some(Minted {
+        write: write.to_string(),
+        precedence: kind.precedence,
+        kind: kind.name,
+        records,
+        sessions: cluster.sessions.len(),
+        named: false,
     })
 }
 

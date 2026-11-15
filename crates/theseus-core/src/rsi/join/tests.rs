@@ -67,7 +67,7 @@ impl Provider for Says {
 /// real one — with a stand-in for the L1 build in place of cargo, and
 /// neither the unit nor the restart. Each build tree it was left with.
 #[derive(Default)]
-struct Builds {
+pub(super) struct Builds {
     targets: Mutex<Vec<PathBuf>>,
 }
 

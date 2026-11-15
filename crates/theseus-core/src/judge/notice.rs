@@ -639,8 +639,8 @@ fn learned_v3(pack: Option<&str>) -> bool {
 pub(crate) fn paused_text(why: &str) -> String {
     crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
-        &format!("Jev's notices are paused until tomorrow: {why}"),
-        "the day's brake on Jev's notices",
+        &format!("Theseus's warnings are paused until tomorrow: {why}"),
+        "the day's limit on how many warnings Theseus sends",
         "",
     )
 }

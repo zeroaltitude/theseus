@@ -251,6 +251,14 @@ failed_in() {
 # (`ec2.sh tail LANE gate` is 30 lines by default, and that phase runs minutes of compiling before the end).
 # Empty when the phase did not run: every locked part, and any gate that stopped before it.
 line_pressure_said=""
+# Which set of tests the suite ran, in one line (issue 14). A landing's verdict is a run of the FULL set on the exact
+# tree that lands, so the gate says which set it ran, beside the table where a reader of the tail gets it. Set in the
+# locked part, where the suite runs, and carried back to this process in locked.rec like a stand-down.
+suite_said=""
+# The commit the gate judged and the state of its tree, from the identity read before the first compile (issue 14): the
+# verdict names it, so a later push can be compared with it (scripts/gate-judged.sh) and "the commit gated is the commit
+# pushed" is a check and not a belief.
+judged=""
 # WHAT THIS RUN DID NOT DO (theseus-4vsrz, B7). `gate: ok` read identically for a run that made every check and
 # one that made most of them, so a reader could not tell them apart. That cost 2026-11-10 three separate times,
 # the sharpest being a real blocking name hit a fleet gate would have shipped, because the fleet asks for
@@ -290,8 +298,25 @@ skipped_list() {
 # The clause the verdict lines carry, and empty when the run made every check it has. APPENDED by its callers,
 # never substituted for what they already said.
 skipped_clause() {
-  [ "${#skipped[@]}" -gt 0 ] || return 0
-  printf ' (skipped: %s)' "$(skipped_list)"
+  if [ "${#skipped[@]}" -gt 0 ]; then printf ' (skipped: %s)' "$(skipped_list)"; fi
+  # What the run warned of rides the same clause (issue 14): both verdict lines keep every word they had.
+  warned_clause
+}
+# WHAT A RUN WARNED OF (issue 14). A phase that is not fatal by decision and failed anyway (the helper scripts' own tests)
+# used to leave `gate: FAILED` text in the log above a verdict that read plain `gate: ok`. It registers here and the
+# verdict carries it, in the same place and after the stand-downs: `(skipped: ...; WARNED: script tests failed: ...)`.
+# Not a skip: the phase ran, and what it found is the news. The decision that these stay non-fatal is the owner's.
+warned=()
+warn() {
+  local s
+  for s in ${warned[@]+"${warned[@]}"}; do [ "$s" != "$1" ] || return 0; done
+  warned+=("$1")
+}
+warned_clause() {
+  local out="" s
+  [ "${#warned[@]}" -gt 0 ] || return 0
+  for s in "${warned[@]}"; do out="${out:+$out; }$s"; done
+  printf ' (WARNED: %s)' "$out"
 }
 # A phase whose own script decides whether it can run and says so on stdout (`size: skipped: no release build
 # of …`, `recall tests: skipped (no Python >= 3.11 …)`, `prompt: skipped: no …`), each exiting 0. The gate cannot
@@ -318,7 +343,7 @@ phase() {
 summary() {
   [ -z "$summary_printed" ] || return 0
   summary_printed=1
-  local status=$1 total=$((SECONDS - gate_began)) i when failed_as="${phase_failed_as:-$phase_now}"
+  local status=$1 total=$((SECONDS - gate_began)) i st when failed_as="${phase_failed_as:-$phase_now}"
   when="$(date -Iseconds)"
   echo "gate: phase times, in seconds"
   for i in "${!phase_names[@]}"; do
@@ -329,6 +354,8 @@ summary() {
   fi
   printf '  %-16s %5d\n' total "$total"
   [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
+  [ -z "$suite_said" ] || echo "gate: $suite_said"
+  [ -z "$judged" ] || echo "gate: judged $judged"
   # A self build runs below a view that grants it a pseudo-terminal, more device nodes and the calls that build a
   # sandbox, so the 108 tests whose SUBJECT is one of those three can be run rather than left out. Two things a
   # reader of the tail is then owed, and the launcher puts both in the environment because only it knows the view:
@@ -346,12 +373,14 @@ summary() {
   # Beside the table, where a reader of the tail gets it, and on a FAILED run too: what a run did not do is as
   # much a part of reading its result as the phases it timed.
   [ "${#skipped[@]}" -eq 0 ] || echo "gate: what this run did NOT do: $(skipped_list)"
+  [ "${#warned[@]}" -eq 0 ] || echo "gate: what this run WARNED of (not fatal by decision): $(warned_clause | sed -e 's/^ (WARNED: //' -e 's/)$//')"
   [ -z "${THESEUS_VIEW_GRANTS:-}" ] || echo "gate: the view this run had: ${THESEUS_VIEW_GRANTS}"
   mkdir -p "$(dirname "$times")" 2>/dev/null || true
   {
     [ -s "$times" ] || echo "time,label,phase,seconds,status"
     for i in "${!phase_names[@]}"; do
-      printf '%s,"%s",%s,%s,ok\n' "$when" "$label" "${phase_names[$i]// /_}" "${phase_secs[$i]}"
+      case "${phase_names[$i]}" in *" warned") st=warned ;; *) st=ok ;; esac
+      printf '%s,"%s",%s,%s,%s\n' "$when" "$label" "${phase_names[$i]// /_}" "${phase_secs[$i]}" "$st"
     done
     if [ -n "$phase_now" ]; then
       printf '%s,"%s",%s,%s,failed\n' "$when" "$label" "${failed_as// /_}" "$((SECONDS - phase_began))"
@@ -375,6 +404,8 @@ save_locked_record() {
       # which is the lesson the `skipped` records below were added for.
       printf 'failed %s %s\n' "$((SECONDS - phase_began))" "${phase_failed_as:-$phase_now}"
     fi
+    # Which set the suite ran, for the line under the table.
+    [ -z "$suite_said" ] || printf 'said 0 %s\n' "$suite_said"
     # What the part stood down, for the gate above it: that is where the verdict line is printed, in another
     # process, so a stand-down registered in here reaches a reader only by being written down. The seconds
     # field is 0 and means nothing -- a check that did not run took no time -- and is there so every record in
@@ -421,8 +452,11 @@ tree_paths() {
   GIT_OPTIONAL_LOCKS=0 git status --porcelain -uall -- . "${tree_unseen[@]}" 2>/dev/null || true
 }
 tree_begin() {
+  local head digest
   tree_identity >"$gate_tmp/tree.base"
   tree_paths >"$gate_tmp/tree.paths"
+  read -r head digest _ <"$gate_tmp/tree.base"
+  if [ "$digest" = clean ]; then judged="commit $head, tree clean"; else judged="commit $head, tree edited beyond it ($digest)"; fi
 }
 # What moved, said so it cannot be taken for a test failure: the tree built, the tree found, and what differs.
 tree_moved_report() {
@@ -654,6 +688,22 @@ suite_applied() {
     echo "gate: MISMATCH: the banner said a default-filter is ACTIVE, and nextest's summary names none applied"
   fi
 }
+# Which set the suite ran, said once, from nextest's own summary line and from whether anything filtered the run: the
+# FULL set is every test the workspace builds but the #[ignore]d ones, and a run under a default-filter or a withheld
+# set is PARTIAL and says by what. A landing takes its verdict from a FULL run of the exact tree that lands.
+suite_set() {
+  local ran why=""
+  ran="$(grep -oE '[0-9]+ tests? run: .*' "$1" | tail -1 || true)"
+  [ -n "$ran" ] || ran="no summary line from nextest"
+  [ "$phase_label" != "suite filtered" ] || why="a default-filter"
+  [ -z "$(view_withheld_set)" ] || why="${why:+$why and }a withheld set"
+  if [ -n "$why" ]; then
+    suite_said="suite set: PARTIAL, run under $why ($ran): not the full set, so not a landing's verdict"
+  else
+    suite_said="suite set: FULL, no filter and no test left out ($ran)"
+  fi
+  echo "gate: $suite_said"
+}
 suite() {
   local log="$gate_tmp/suite.log" view_e
   suite_filters
@@ -672,6 +722,7 @@ suite() {
     echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
   fi
   suite_applied "$log"
+  suite_set "$log"
   # The gate judges its own claim before it makes it: a member of the set that appears in the run's output ran,
   # and the verdict is about to call it withheld. That is the defect this whole mechanism replaces, so it fails
   # the gate rather than printing a falsehood.
@@ -1212,6 +1263,7 @@ script_tests() {
     echo "script tests: helpers' own unit tests, so a failure here means a helper lies, not that this branch is"
     echo "script tests: over a limit. Fix it in its own change; the owner decides whether this phase becomes fatal."
     phase_label="script tests warned"
+    warn "script tests failed: ${bad[*]}"
   fi
   [ "$ran" -gt 0 ] || skip
   return 0
@@ -1433,6 +1485,9 @@ locked_checks() {
           ;;
         skipped)
           skip "$name"
+          ;;
+        said)
+          suite_said="$name"
           ;;
       esac
     done <"$rec"

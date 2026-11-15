@@ -596,6 +596,14 @@ pub struct SelfDropParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub from_job: Option<String>,
+    /// Set the item aside instead of dropping it: nothing starts it, its cause is still
+    /// filed against it, and nothing is forbidden. `self.retry` brings it back.
+    #[serde(default)]
+    pub set_aside: bool,
+    /// Why, in a few words, for a set-aside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
 }
 
 /// `self.drop`'s answer.
@@ -608,6 +616,9 @@ pub struct SelfDropResult {
     pub cause: String,
     /// False when the item had left the backlog already.
     pub changed: bool,
+    /// The item was set aside, not dropped: its cause is not forbidden.
+    #[serde(default)]
+    pub set_aside: bool,
 }
 
 /// `self.move`'s params: the owner's. Rank 1 is the top.
@@ -635,6 +646,45 @@ pub struct SelfMoveResult {
     pub title: String,
     pub was: u32,
     pub rank: u32,
+}
+
+/// `self.pause`'s params (theseus-7glm6): set a pause on new self builds (anyone's), or clear it
+/// (`clear`, the owner's). A pause is a state of the running daemon and nowhere in the store, so a
+/// restart of the daemon clears it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPauseParams {
+    /// Clear the pause instead of setting it.
+    #[serde(default)]
+    pub clear: bool,
+    /// Why, in the setter's few words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    /// The `THESEUS_SESSION` of the shell that sent it: a job's never clears a pause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// `self.pause`'s answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfPauseResult {
+    /// Whether new self builds are paused now.
+    pub paused: bool,
+    /// False when the word changed nothing (already paused, or nothing to clear).
+    pub changed: bool,
+    /// The pause in force, in words (`paused by the owner at 12:30: ...`); none when not paused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub words: Option<String>,
 }
 
 /// `self.retry`'s params: the owner's. A failed item is queued again.

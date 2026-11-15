@@ -180,14 +180,20 @@ impl Ontology {
         Ok(())
     }
 
-    /// A category a machine origin takes away: only the sweep, only by
-    /// merging (never retiring), only one a machine wrote, with no guidance,
-    /// and the record changes nothing of it but `merged_into`.
+    /// A category a machine origin takes away: only the sweep, only one a
+    /// machine wrote, with no guidance, by merging it (the record changes
+    /// nothing of it but `merged_into`) or by retiring it (nothing but
+    /// `retired_ms`), and a retire only once no session is filed under it:
+    /// the same write has emptied every membership first, so the sweep never
+    /// retires an entry anyone still holds. The operator's and an import's
+    /// entries are never the sweep's to take away (issue 9; the owner's yes).
     fn check_machine_merge(&self, c: &Category, by: Origin) -> Result<(), Refusal> {
         let refuse = |why: String| Err(Refusal::Writer { why });
-        if by != Origin::Sweep || c.retired_ms.is_some() {
+        if by != Origin::Sweep {
             return refuse(format!(
-                "`{by}` may not take a category away: only the operator retires one, and only the                  operator or the sweep merges one"
+                "`{by}` may not take a category away: only the operator, or the sweep for an \
+                 empty one a machine wrote, retires one, and only the operator or the sweep \
+                 merges one"
             ));
         }
         let Some(old) = self.categories.get(&c.id) else {
@@ -202,15 +208,42 @@ impl Ontology {
                 c.id, old.added_by
             ));
         }
-        let same = Category {
-            merged_into: c.merged_into.clone(),
-            ..old.clone()
-        };
-        if same != *c {
-            return refuse(format!(
-                "a merge changes nothing of `{}` but its merged_into",
-                c.id
-            ));
+        if c.retired_ms.is_some() {
+            let same = Category {
+                retired_ms: c.retired_ms,
+                ..old.clone()
+            };
+            if same != *c || c.merged_into.is_some() {
+                return refuse(format!(
+                    "a retire changes nothing of `{}` but its retired_ms",
+                    c.id
+                ));
+            }
+            let held = self
+                .members
+                .values()
+                .filter(|l| l.kind == c.kind())
+                .filter(|l| l.members.iter().any(|m| m.category == c.id))
+                .count();
+            if held > 0 {
+                return Err(Refusal::InUse {
+                    id: c.id.to_string(),
+                    by: format!(
+                        "{held} sessions' memberships: the sweep retires only an empty one"
+                    ),
+                });
+            }
+        } else {
+            let same = Category {
+                merged_into: c.merged_into.clone(),
+                ..old.clone()
+            };
+            if same != *c {
+                return refuse(format!(
+                    "a merge changes nothing of `{}` but its merged_into",
+                    c.id
+                ));
+            }
         }
         if self.guidance.get(&c.id).is_some_and(|g| !g.is_empty()) {
             return Err(Refusal::InUse {

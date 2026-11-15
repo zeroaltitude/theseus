@@ -41,7 +41,7 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use theseus_store::wal::{self, FrameRead};
+use theseus_store::wal::{self, FrameRead, WalError};
 use theseus_store::Record;
 
 mod wake;
@@ -149,7 +149,11 @@ pub struct Batch {
     pub frames: u64,
     pub bytes: u64,
     /// The bytes read, as (segment, from, to): whole frames only, so a
-    /// follower that ships segments ships these ranges.
+    /// follower that ships segments ships these ranges. A follower that skips
+    /// wrong frames ([`WalFollower::skipping_wrong`]) makes no such promise: a
+    /// span may run over a frame it skipped, and none is kept for the whole
+    /// frames before a skip a read carried on from. Only the index tender skips,
+    /// and it reads neither this nor `ends`.
     pub spans: Vec<(u32, u64, u64)>,
     /// Each span's last position, in step with `spans`: which segment holds
     /// a record (the durability tender's index rows).
@@ -157,11 +161,46 @@ pub struct Batch {
     /// Segments this read finished: a later segment exists, so nothing more
     /// is ever written to them.
     pub sealed: Vec<u32>,
+    /// Frames that checked but were wrong and were read past
+    /// ([`WalFollower::skipping_wrong`]).
+    pub skipped: Vec<Skipped>,
+}
+
+/// A frame that passed its checksum but was wrong, which a follower read past.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skipped {
+    pub segment: u32,
+    pub offset: u64,
+    /// What was wrong with it.
+    pub reason: String,
 }
 
 impl Batch {
     pub fn is_empty(&self) -> bool {
         self.frames == 0
+    }
+}
+
+/// What reading one window's frames came to: how far it got, and why it stopped short.
+struct Frames {
+    i: usize,
+    partial: Option<&'static str>,
+    held: Option<Stop>,
+}
+
+/// Frames skipped since the last whole one, and where the first began (its segment and its offset
+/// in that segment): they count only once a whole frame follows them, which may be the first of the
+/// next segment.
+#[derive(Default)]
+struct Skips {
+    pending: Vec<Skipped>,
+    from: Option<(u32, u64)>,
+}
+
+impl Skips {
+    fn clear(&mut self) {
+        self.pending.clear();
+        self.from = None;
     }
 }
 
@@ -172,6 +211,11 @@ pub struct WalFollower {
     stop: Stop,
     /// The last segment a batch named sealed, so none is named twice.
     sealed_upto: u32,
+    /// Skip a frame that checks but is wrong, and read on past it
+    /// ([`WalFollower::skipping_wrong`]).
+    skip_wrong: bool,
+    /// A frame was just skipped, so the next may begin past the position it expected.
+    resync: bool,
 }
 
 impl WalFollower {
@@ -184,9 +228,23 @@ impl WalFollower {
             cursor,
             stop: Stop::Opened,
             sealed_upto: 0,
+            skip_wrong: false,
+            resync: false,
         };
         f.verify()?;
         Ok(f)
+    }
+
+    /// Read on past a frame that checks but is wrong (a record that does not decode, a
+    /// position out of sequence) instead of stopping at it, listing each in
+    /// [`Batch::skipped`] (issue 6). The core serves on past such a frame, so a reader that
+    /// stopped at it would stall for good where the core does not. A frame is skipped only
+    /// when a whole frame follows it, so a cursor never rests on one: it would not verify
+    /// when reopened. A reader that ships the log keeps the default, which stops.
+    #[must_use]
+    pub fn skipping_wrong(mut self) -> Self {
+        self.skip_wrong = true;
+        self
     }
 
     pub fn dir(&self) -> &Path {
@@ -353,6 +411,99 @@ impl WalFollower {
         }
     }
 
+    /// The frames of one window, read from its start: the whole ones into the batch (the cursor
+    /// moves past each), a held one or a partial one stopping it, and a wrong one skipped when
+    /// the follower skips ([`WalFollower::skipping_wrong`]). `at` is the window's segment and
+    /// its offset in it.
+    fn read_frames(
+        &mut self,
+        window: &[u8],
+        (seg, off): (u32, u64),
+        upto: u64,
+        batch: &mut Batch,
+        skips: &mut Skips,
+    ) -> Result<Frames, FollowError> {
+        let mut out = Frames {
+            i: 0,
+            partial: None,
+            held: None,
+        };
+        while out.i < window.len() {
+            let i = out.i;
+            // After a skipped frame the next one may begin past the position expected.
+            let mut first = self.cursor.position + 1;
+            let read = loop {
+                match wal::read_frame(window, i, seg, off, first) {
+                    FrameRead::Wrong(WalError::Sequence { found, .. })
+                        if self.resync && found > first =>
+                    {
+                        first = found;
+                    }
+                    other => break other,
+                }
+            };
+            match read {
+                FrameRead::Whole { records, .. }
+                    if records.last().is_some_and(|(r, _)| r.position > upto) =>
+                {
+                    out.held = Some(Stop::held(seg, off + i as u64, &records[0].0));
+                    break;
+                }
+                FrameRead::Whole {
+                    end, crc, records, ..
+                } => {
+                    let first = records.first().map_or(0, |(r, _)| r.position);
+                    if let Some((r, _)) = records.last() {
+                        self.cursor.position = r.position;
+                    }
+                    self.cursor.last = Some(FrameMark {
+                        start: off + i as u64,
+                        first,
+                        crc,
+                    });
+                    self.cursor.segment = seg;
+                    self.cursor.offset = off + end as u64;
+                    self.resync = false;
+                    batch.skipped.append(&mut skips.pending);
+                    skips.from = None;
+                    batch.records.extend(records.into_iter().map(|(r, _)| r));
+                    batch.frames += 1;
+                    batch.bytes += (end - i) as u64;
+                    out.i = end;
+                }
+                FrameRead::Partial { reason } => {
+                    out.partial = Some(reason);
+                    break;
+                }
+                // The frame passed its checksum, so its length is true: read past it, but only
+                // to a whole frame that follows, never to rest on it.
+                FrameRead::Wrong(e) if self.skip_wrong => {
+                    let len = u32::from_le_bytes([
+                        window[i + 4],
+                        window[i + 5],
+                        window[i + 6],
+                        window[i + 7],
+                    ]) as usize;
+                    skips.from.get_or_insert((seg, off + i as u64));
+                    skips.pending.push(Skipped {
+                        segment: seg,
+                        offset: off + i as u64,
+                        reason: e.to_string(),
+                    });
+                    self.resync = true;
+                    out.i = i + wal::FRAME_HEADER + len;
+                }
+                FrameRead::Wrong(e) => {
+                    return Err(FollowError::Corrupt(format!(
+                        "segment {seg}, offset {}: {e}",
+                        off + i as u64
+                    )))
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn read_into(
         &mut self,
         max_bytes: usize,
@@ -363,54 +514,64 @@ impl WalFollower {
             self.stop = Stop::CaughtUp;
             return Ok(());
         };
+        let mut skips = Skips::default();
         loop {
             // Checked before this segment is read: once segment n+1 exists,
             // nothing more is written to n, so what is read of n is all of it.
             let next_exists = wal::segment_path(&self.dir, seg + 1).exists();
             let (file, len) = self.segment(seg, off)?;
             let budget = max_bytes.saturating_sub(batch.bytes as usize);
-            let (window, capped) = read_window(&file, off, len, budget, batch.is_empty())?;
-            let mut i = 0usize;
+            let (window, capped) =
+                read_window(&file, off, len, budget, (batch.is_empty(), self.skip_wrong))?;
             let span_from = off;
-            let mut partial = None;
-            let mut held = None;
-            while i < window.len() {
-                match wal::read_frame(&window, i, seg, off, self.cursor.position + 1) {
-                    FrameRead::Whole { records, .. }
-                        if records.last().is_some_and(|(r, _)| r.position > upto) =>
-                    {
-                        held = Some(Stop::held(seg, off + i as u64, &records[0].0));
-                        break;
+            let Frames {
+                mut i,
+                mut partial,
+                held,
+            } = self.read_frames(&window, (seg, off), upto, batch, &mut skips)?;
+            // A skipped frame with no whole frame after it yet. When it was the last frame of a
+            // sealed segment, the frame after it is the next segment's first: the skip is
+            // carried there. Otherwise it is not skipped, and the cursor stays before it, so it
+            // is read again once the frame after it is there.
+            let carry = skips.from.is_some()
+                && partial.is_none()
+                && held.is_none()
+                && !capped
+                && next_exists;
+            // A window the budget cut that held only skipped frames up to where it ended (or up to
+            // the frame the cut went through: `capped` says the window cut the frame short, not
+            // the log): read on from there, in the same segment, with the skips still pending.
+            // Without this a run of wrong frames longer than the budget is met again, whole, for
+            // ever. Only while the window made progress and the batch has room: a batch that
+            // already met its budget would read an empty window for ever.
+            if skips.from.is_some()
+                && held.is_none()
+                && capped
+                && i > 0
+                && (batch.bytes as usize) < max_bytes
+            {
+                off += i as u64;
+                continue;
+            }
+            // Where a stop that abandons a skip is named: at the cursor, which is where the first
+            // skipped frame began, in whatever segment that was.
+            let mut stop_at = None;
+            if let (Some((from_seg, from_at)), false) = (skips.from, carry) {
+                skips.clear();
+                self.resync = false;
+                stop_at = Some((from_seg, from_at));
+                // Back to where the first skipped frame began: inside this window, or (when the
+                // skip was carried here) the offset in the segment it began at.
+                i = match (from_seg == seg, from_at >= span_from) {
+                    (true, true) => (from_at - span_from) as usize,
+                    (true, false) => {
+                        off = from_at;
+                        0
                     }
-                    FrameRead::Whole {
-                        end, crc, records, ..
-                    } => {
-                        let first = records.first().map_or(0, |(r, _)| r.position);
-                        if let Some((r, _)) = records.last() {
-                            self.cursor.position = r.position;
-                        }
-                        self.cursor.last = Some(FrameMark {
-                            start: off + i as u64,
-                            first,
-                            crc,
-                        });
-                        self.cursor.segment = seg;
-                        self.cursor.offset = off + end as u64;
-                        batch.records.extend(records.into_iter().map(|(r, _)| r));
-                        batch.frames += 1;
-                        batch.bytes += (end - i) as u64;
-                        i = end;
-                    }
-                    FrameRead::Partial { reason } => {
-                        partial = Some(reason);
-                        break;
-                    }
-                    FrameRead::Wrong(e) => {
-                        return Err(FollowError::Corrupt(format!(
-                            "segment {seg}, offset {}: {e}",
-                            off + i as u64
-                        )))
-                    }
+                    (false, _) => 0,
+                };
+                if partial.is_none() && held.is_none() {
+                    partial = Some("a wrong frame waits for the frame after it");
                 }
             }
             if i > 0 {
@@ -431,9 +592,10 @@ impl WalFollower {
                         "segment {seg}, offset {off}: {reason}, in a segment that has a successor"
                     )));
                 } else {
+                    let (segment, offset) = stop_at.unwrap_or((seg, off));
                     self.stop = Stop::Partial {
-                        segment: seg,
-                        offset: off,
+                        segment,
+                        offset,
                         reason: reason.to_string(),
                     };
                 }
@@ -455,6 +617,9 @@ impl WalFollower {
             seg += 1;
             off = 0;
             if batch.bytes as usize >= max_bytes {
+                // A skip carried this far has no whole frame after it in this batch.
+                skips.clear();
+                self.resync = false;
                 self.stop = Stop::Budget;
                 return Ok(());
             }
@@ -470,7 +635,7 @@ fn read_window(
     off: u64,
     len: u64,
     budget: usize,
-    whole_first: bool,
+    (whole_first, two): (bool, bool),
 ) -> io::Result<(Vec<u8>, bool)> {
     let avail = len - off;
     let mut want = avail.min(budget as u64);
@@ -486,6 +651,20 @@ fn read_window(
             let frame = wal::FRAME_HEADER as u64 + body;
             if frame <= avail {
                 want = want.max(frame);
+                // A reader that skips a wrong frame needs the frame after it in the same window
+                // (the budget must not cut a wrong frame off from its successor, or the read
+                // would meet the same window for ever).
+                let next = off + frame;
+                if two && next + wal::FRAME_HEADER as u64 <= len {
+                    file.read_exact_at(&mut header, next)?;
+                    let after = u64::from(u32::from_le_bytes([
+                        header[4], header[5], header[6], header[7],
+                    ]));
+                    let both = frame + wal::FRAME_HEADER as u64 + after;
+                    if both <= avail {
+                        want = want.max(both);
+                    }
+                }
             }
         }
     }

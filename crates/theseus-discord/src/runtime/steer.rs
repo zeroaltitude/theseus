@@ -90,7 +90,7 @@ pub(super) fn speaker_of(batch: &[Inbound]) -> Option<DiscordOrigin> {
     let one = batch.first()?;
     batch
         .last()
-        .filter(|_| batch.iter().all(|m| m.author == one.author))
+        .filter(|_| batch.iter().all(|m| m.author_id == one.author_id))
         .map(Inbound::origin)
 }
 

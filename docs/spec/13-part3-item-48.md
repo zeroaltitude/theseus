@@ -423,7 +423,7 @@ and `stop_call` into `stops.rs`, raised `kernel.rs`'s ceiling to 3,030 with its 
 clippy's 100 lines. k52m's feature rebuilds every crate that uses serde_json, once per target.
 
 **Known gaps** (all P3, post-v1). A daemon that dies between a cancel and its sweep leaves the calls unanswered
-(theseus-fvxh); a cut stream's exact usage, from the provider's own events (theseus-k48c); a per-job disk quota, so the
+(theseus-fvxh); ~~a cut stream's exact usage, from the provider's own events (theseus-k48c)~~ (a stream cut by a stop is booked from the last usage event it sent, its prompt exactly; its output is still the larger of what was reported and the characters streamed); a per-job disk quota, so the
 floor stops only the writer (theseus-dszu); and no operator verb settles or forgives a call held unknown, a decision
 for the owner (theseus-cv3v).
 

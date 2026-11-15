@@ -343,6 +343,13 @@ fn long_failed_and_cut_calls_are_lines_and_short_ones_are_not() {
             json!({"by": "stop", "elapsed_ms": 2_500, "cost_usd": 0.01, "model": "opus"}),
         ),
         (
+            34_450,
+            "provider.cut",
+            Some(S1),
+            Some("t1"),
+            json!({"by": "stop", "elapsed_ms": 1_500, "cost_usd": 0.01, "model": "opus", "estimated": false}),
+        ),
+        (
             35_000,
             "turn.ended",
             Some(S1),
@@ -367,7 +374,14 @@ fn long_failed_and_cut_calls_are_lines_and_short_ones_are_not() {
     assert!(
         texts
             .iter()
-            .any(|t| t.contains("model call cut (stop) after 2.5 s")),
+            .any(|t| t.contains("model call cut (stop) after 2.5 s") && t.ends_with("estimated")),
+        "a row with no `estimated` is an estimate: {texts:#?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("model call cut (stop) after 1.5 s")
+                && t.ends_with("from the provider's usage report")),
         "{texts:#?}"
     );
     assert!(

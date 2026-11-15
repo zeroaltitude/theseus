@@ -128,7 +128,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "plan mode: put a plan to the owner for approval, and mark its steps as you do them",
     ),
     ("extensions", "propose a new extension of your own tools"),
-    ("self", "propose and inspect changes to Theseus itself"),
+    (
+        "self",
+        "propose and inspect changes to Theseus itself, and list what is open on its own development",
+    ),
 ];
 
 /// What `mcp:<server>` holds.

@@ -51,10 +51,12 @@ pub struct Swept {
     /// write of the sweep's (`judged.rs`), and what its questions cost.
     pub judged_merges: u64,
     pub splits: u64,
-    /// The categories Jev renamed, and the kinds it named (the rest of the
-    /// kinds took the most shared name).
+    /// The categories Jev renamed, and the kinds it named (none since issue
+    /// 9: the class names every kind the sweep makes).
     pub renamed: u64,
     pub named_kinds: u64,
+    /// The entries the one-time cleanup retired (`tidy.rs`).
+    pub tidied: u64,
     pub spent: theseus_judge::price::Micros,
     pub failed: u64,
     pub writes: Vec<String>,
@@ -103,6 +105,7 @@ impl Core {
                                 splits = s.splits,
                                 renamed = s.renamed,
                                 named_kinds = s.named_kinds,
+                                tidied = s.tidied,
                                 spent = s.spent,
                                 failed = s.failed,
                                 "ontology: the sweep ran"
@@ -140,7 +143,7 @@ impl Core {
         self.onto_sweep_with(now_ms, &Hints::default())
     }
 
-    fn onto_sweep_with(&self, now_ms: u64, hints: &Hints) -> anyhow::Result<Swept> {
+    pub(crate) fn onto_sweep_with(&self, now_ms: u64, hints: &Hints) -> anyhow::Result<Swept> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let mut out = Swept::default();
         let steps = o.sweep_plan(now_ms);
@@ -163,6 +166,7 @@ impl Core {
             }
         }
         self.onto_mint(now_ms, first, hints, &mut out)?;
+        self.onto_tidy(now_ms, first + super::mint::PER_RUN, &mut out)?;
         Ok(out)
     }
 }

@@ -130,7 +130,7 @@ pub struct RouteFacts {
     pub restricted_models: RestrictedModels,
     /// The model that answered the previous turn; left out when none did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_reply_model: Option<String>,
+    pub last_reply_model: Option<Box<str>>,
     /// Every model that has written in this task, oldest first; left out
     /// outside a task.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -144,7 +144,7 @@ pub struct RouteFacts {
     /// The session's warm model: the one that answered last, whose prompt
     /// cache holds the prefix. Left out when none has answered (and for a job).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_model: Option<String>,
+    pub current_model: Option<Box<str>>,
     /// What a switch would cost this message; left out for a job.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switch_cost: Option<SwitchCost>,
@@ -163,6 +163,22 @@ pub struct RouteFacts {
     /// pointer has to box `Input::Inbound` (36 call sites) or shrink something.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cheaper_model: Option<Box<str>>,
+    /// How the session's previous turn ran: the effort it ran at and whether it
+    /// failed (it ended in an error). Left out when the session has no earlier
+    /// turn the daemon can read, so every state without it is byte for byte the
+    /// one before. Boxed, as `Input::Inbound` carries these facts (see above); it
+    /// took the room two of the model names gave up by becoming `Box<str>` too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_turn: Option<Box<PreviousTurn>>,
+}
+
+/// The previous turn of the session, as the route is told it (theseus-8euum):
+/// the level it ran at (`low` to `max`) and whether it failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreviousTurn {
+    pub effort: String,
+    pub failed: bool,
 }
 
 /// The keys of the `route` slice's state (`route.v10`, the model) for a plain message in a
@@ -193,6 +209,19 @@ pub fn route_input(message: &str, place_kind: &str, facts: RouteFacts) -> Inboun
         place_kind: place_kind.into(),
         route: Some(facts),
         ..InboundInput::default()
+    }
+}
+
+/// How the session's previous turn ran, in a state that tells it (`effort.v1`'s, by the owner's word of
+/// 2026-11-14 13:54: "tell the small model that the last turn failed and what effort it ran at", and
+/// those two facts only): `{"effort": "low", "failed": true}`. Left out when the input has none, so a
+/// state without a previous turn is byte for byte the one before.
+pub(super) fn previous_turn(b: &mut StateBuilder, i: &InboundInput) {
+    if let Some(p) = i.route.as_ref().and_then(|f| f.previous_turn.as_deref()) {
+        b.scalar(
+            "previous_turn",
+            json!({"effort": p.effort, "failed": p.failed}),
+        );
     }
 }
 

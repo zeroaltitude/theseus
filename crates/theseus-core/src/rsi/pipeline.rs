@@ -73,14 +73,32 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
+pub mod main_red;
 pub(crate) mod queues;
+mod stale;
 mod tender;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_aside;
+#[cfg(test)]
+mod tests_brief;
+#[cfg(test)]
+mod tests_cap;
+#[cfg(test)]
 mod tests_fetch;
 #[cfg(test)]
+mod tests_lease;
+#[cfg(test)]
+mod tests_main_red;
+#[cfg(test)]
+mod tests_named;
+#[cfg(test)]
 mod tests_notify;
+#[cfg(test)]
+mod tests_pause;
+#[cfg(test)]
+mod tests_stale;
 #[cfg(test)]
 mod tests_trees;
 mod view;
@@ -125,6 +143,9 @@ pub struct Shared {
     halt_swept: AtomicBool,
     /// Wakes the tender: a drop, a move, a halt, a night, a built branch.
     kick: Arc<tokio::sync::Notify>,
+    /// New self builds are paused (`super::pause`): memory of this process only, so a restart of
+    /// the daemon clears it.
+    pub(crate) paused: std::sync::Mutex<Option<super::pause::Pause>>,
 }
 
 impl std::fmt::Debug for Shared {
@@ -205,6 +226,8 @@ impl Builder for Local {
 pub struct Seams {
     pub builder: Arc<dyn Builder>,
     pub probe: Arc<dyn Probe>,
+    /// What main's own gate last said: no build starts on a red main.
+    pub main: Arc<dyn main_red::Main>,
     pub join: super::join::Seams,
     /// How long a started build counts as building before its turn begins.
     pub grace: Duration,
@@ -215,6 +238,12 @@ impl Default for Seams {
         Self {
             builder: Arc::new(Local),
             probe: Arc::new(capacity::Host),
+            // A test never reads the machine's own gate log.
+            main: if cfg!(test) {
+                Arc::new(main_red::Unrecorded)
+            } else {
+                Arc::new(main_red::Recorded::default())
+            },
             join: super::join::Seams::default(),
             grace: GRACE,
         }
@@ -412,7 +441,9 @@ impl Core {
         tick: &mut Tick,
     ) -> Result<()> {
         self.pipeline_reviewed(q, w)?;
+        self.pipeline_capped(q, w)?;
         self.pipeline_ended(place, q, w)?;
+        self.pipeline_stale(place, q, w)?;
         for e in &q.dropped {
             if let (Some(session), Some(exec)) = (&e.session, &e.execution) {
                 let key = format!("stopped:{}:{session}", e.item);
@@ -422,7 +453,7 @@ impl Core {
                     let m = Moved::new(&e.item, format!("the build of {} stopped", e.item))
                         .with("session", session.clone())
                         .with("reason", "dropped")
-                        .why("the owner dropped it");
+                        .why("the owner dropped it or set it aside");
                     w.say(key, Transition::Ended(Ended(m)))?;
                 }
             }
@@ -510,6 +541,40 @@ impl Core {
         Ok(())
     }
 
+    /// A ready item that has used up its tries, by whatever mix of red gates, rejections and
+    /// dead builds (issue 6, condition 4): failed with its reasons and one notice, before a
+    /// build starts it again. The ready queue is read before this, so its start finds the item
+    /// no longer proposed and passes it by.
+    fn pipeline_capped(&self, q: &Queues, w: &mut Write) -> Result<()> {
+        let now = theseus_protocol::now_unix_ms();
+        for e in &q.ready {
+            let Some(mut t) = crate::task_graph::get(&self.store, &e.item)? else {
+                continue;
+            };
+            if t.state != TaskState::Proposed || super::backlog::attempts::tries(&t, 0).is_empty() {
+                continue;
+            }
+            let Some(text) = self.cap_check(&mut t, now) else {
+                continue;
+            };
+            t.state = TaskState::Failed;
+            t.session = None;
+            w.task(&t)?;
+            let m = Moved::new(
+                &e.item,
+                format!("{} used up its tries and is failed", e.item),
+            )
+            .with("reason", "cap")
+            .why("every one of its tries failed");
+            w.say(
+                format!("capped:{}:{}", e.item, t.version),
+                Transition::Ended(Ended(m)),
+            )?;
+            w.told.push(text);
+        }
+        Ok(())
+    }
+
     /// Builds whose turn ended with no green branch: failed, trees deleted.
     fn pipeline_ended(&self, place: &tree::Place, q: &Queues, w: &mut Write) -> Result<()> {
         let now = theseus_protocol::now_unix_ms();
@@ -523,6 +588,10 @@ impl Core {
                     "its build's turn ended with no green branch".into(),
                     now,
                 ));
+                // The try that reaches the cap is the item's one notice.
+                if let Some(text) = self.cap_check(&mut t, now) {
+                    w.told.push(text);
+                }
                 w.task(&t)?;
             }
             let session = e.session.clone().unwrap_or_default();
@@ -573,6 +642,10 @@ impl Core {
             cfg.pipeline_builds,
             cfg.min_free_gb,
         );
+        // A pause holds every new build, whatever room there is (`super::pause`).
+        if let Some(p) = self.self_paused() {
+            return (room, Some(("paused".into(), p.words())));
+        }
         if let Some(b) = self.runner.self_budget.view() {
             if b.day_spent_usd >= b.day_line_usd {
                 let why = format!(
@@ -582,7 +655,21 @@ impl Core {
                 return (room, Some(("budget".into(), why)));
             }
         }
-        let hold = hold.map(|h: Hold| (h.name().to_string(), h.why(&room)));
+        // A red main fails every build, whatever room there is.
+        if let Some(red) = seams.main.red(place) {
+            return (room, Some(("main_red".into(), red.why())));
+        }
+        let hold = hold.map(|h: Hold| {
+            let mut why = h.why(&room);
+            // A tree held the slot: say which, so it is a name to look for (issue 6).
+            if matches!(h, Hold::Slots) {
+                let open = capacity::trees_named(&place.trees());
+                if !open.is_empty() {
+                    why = format!("{why}; open now: {}", open.join(", "));
+                }
+            }
+            (h.name().to_string(), why)
+        });
         (room, hold)
     }
 
@@ -745,7 +832,19 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
     // git and the disk, off the runtime's worker (theseus_store::blocking).
     let gone = theseus_store::blocking(|| -> Result<Vec<String>> {
         let mut gone = Vec::new();
-        if let Some(t) = tree::find(place, &e.item) {
+        // A gate still runs in it (the record says the item is over, the child says
+        // otherwise): leave the tree for a later tick (`tree_lease`).
+        let target = place.targets().join(tree::slug(&e.item));
+        let own = tree::find(place, &e.item);
+        let mut paths = vec![target.as_path()];
+        paths.extend(
+            own.iter()
+                .flat_map(|t| [t.dir.as_path(), t.target.as_path()]),
+        );
+        if super::tree_lease::held(&paths).is_some() {
+            return Ok(gone);
+        }
+        if let Some(t) = own {
             tree::close(place, &t)?;
             gone.push(t.dir.display().to_string());
             // A branch with no commit of its own is nothing to keep; one
@@ -755,7 +854,6 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
                 gone.push(format!("branch {}", t.branch));
             }
         }
-        let target = place.targets().join(tree::slug(&e.item));
         if target.exists() {
             std::fs::remove_dir_all(&target)?;
             gone.push(target.display().to_string());

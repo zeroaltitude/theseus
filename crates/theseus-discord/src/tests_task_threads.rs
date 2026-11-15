@@ -120,18 +120,46 @@ pub(crate) fn start(briefs: &[&str]) -> Scripted {
 }
 
 /// A wait as long as a loaded machine needs, and shorter than nextest's
-/// 120 s, so a wait that never ends names itself (theseus-1dbb5).
+/// 120 s, so a wait that never ends names itself (theseus-1dbb5). The
+/// rig's waits share one deadline (`Rig::task_wait_spent`), 110 s from the
+/// rig's construction, so its connect wait, its bind wait and every one of
+/// these end inside it: 100 s each, from when each was called, could pass the kill.
 pub(crate) async fn until(r: &Rig, what: &str, f: impl Fn() -> bool) {
-    let t0 = std::time::Instant::now();
     while !f() {
         assert!(
-            t0.elapsed() < Duration::from_secs(100),
+            !r.task_wait_spent(),
             "timed out: {what}; #lab holds {:#?}; threads {:#?}",
             r.fake.messages(LAB),
             r.fake.threads()
         );
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+}
+
+/// The family's `until` ends at its rig's deadline and not at a clock of its own (issue 14): with the deadline already
+/// past, a wait that cannot come true gives up at once and says so, where a clock begun at the call would wait 100 s.
+#[tokio::test]
+async fn a_wait_of_the_family_gives_up_at_the_rigs_deadline() {
+    let mut r = rig(vec![], |_| vec![], false).await;
+    r.pretend_the_task_deadline_passed();
+    let r = std::sync::Arc::new(r);
+    let began = std::time::Instant::now();
+    let e = tokio::spawn(async move { until(&r, "a wait that cannot come true", || false).await })
+        .await
+        .expect_err("the wait gave up");
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        began.elapsed()
+    );
+    let said = e
+        .into_panic()
+        .downcast::<String>()
+        .expect("an assert! message");
+    assert!(
+        said.starts_with("timed out: a wait that cannot come true"),
+        "{said}"
+    );
 }
 
 /// The turn in `place` has ended on `reply`. The places share one model
@@ -995,7 +1023,7 @@ async fn a_gate_ends_at_its_cap() {
 }
 
 /// **The `until` family, by membership** (theseus-a0kte). Every test file that
-/// waits with this module's `until` shares its guard (the 100 s bound above),
+/// waits with this module's `until` shares its guard (the rig's one deadline above),
 /// so a hang or a timeout there is one mechanism. That membership used to
 /// live only in a bead's prose, and the prose named a test that could not be
 /// in it. This is the record, and the test below holds it to the source.
@@ -1035,7 +1063,7 @@ const UNTIL_FAMILY: &[&str] = &[
 
 /// **What the fake-Discord forum fix can reach, which is a different
 /// partition** (theseus-a0kte, re-derived at 12889bcf). `UNTIL_FAMILY` above
-/// answers one question: which files share the 100 s `until` guard. A recipe
+/// answers one question: which files share this `until` guard (the rig's one deadline). A recipe
 /// built on the fake-Discord forum fix answers another: which tests that fix's
 /// code could have broken. **The two sets are not the same**, and reading one
 /// as the other is how a test that cannot share the mechanism got into the
@@ -1070,7 +1098,8 @@ const UNTIL_FAMILY: &[&str] = &[
 /// `tests_gateway::horizon`'s rig is `tests_gateway`'s own builder, which
 /// writes no `private` beside `guild_id` either, so it trusts zero guilds and
 /// has no forum to break; what makes that pair load-sensitive is its own
-/// `Rig::until`, bounded at 20 s against this module's 100 s. And theseusd's
+/// `Rig::until`, bounded by one 20 s stall-credited budget per rig against
+/// this module's one 110 s deadline per rig. And theseusd's
 /// `an_acting_call_waits_and_the_cli_approves_it` runs a daemon with
 /// `[discord] enabled = false` (its fixture's `safe_note`, which that test's
 /// own config never overrides), so it has no Discord runtime at all: **it has
@@ -1373,3 +1402,95 @@ fn the_until_family_is_exactly_the_files_that_share_its_guard() {
 
 #[path = "tests_task_react.rs"]
 mod react;
+
+// ------------------------------------------- whose words a redirected message is
+
+/// A rig of `#lab` (private, ana the owner, cy a guest the channel lists) with
+/// the real judge live against `jev`.
+async fn judged_task_rig(
+    jev: &theseus_judge::fake::FakeJev,
+    parent: Vec<Scripted>,
+    kids: impl FnOnce(&Path) -> Vec<(&'static str, Vec<Scripted>)>,
+) -> Rig {
+    let base = jev.base();
+    Rig::start_tweaked(
+        |dir, fake| placed_model(fake, parent, kids(dir)),
+        guild(),
+        &bindings(true, ""),
+        &[],
+        move |c| {
+            tweak(c);
+            c.judge.enabled = true;
+            c.judge.api_base = base;
+            c.judge.connect_secs = 1;
+            c.judge.total_secs = 10;
+            c.places.owner = Some(vec![format!("discord:{ANA}")]);
+        },
+    )
+    .await
+}
+
+/// The kind the conversation's judge was asked the message with `needle` as,
+/// once it has been asked.
+async fn kind_asked(r: &Rig, session: &str, needle: &str) -> Value {
+    let node = || {
+        r.core
+            .store
+            .session_nodes(session)
+            .unwrap()
+            .into_iter()
+            .find(|(_, n)| format!("{:?}", n.body).contains(needle))
+            .map(|(_, n)| n.id)
+    };
+    until(r, "the message is in the conversation", || node().is_some()).await;
+    let id = node().unwrap();
+    let judged = || {
+        r.ledger("content.judged")
+            .into_iter()
+            .find(|d| d["node"] == id.as_str())
+    };
+    until(r, "the message is judged", || judged().is_some()).await;
+    judged().unwrap()
+}
+
+/// A message redirected to the conversation that started an ended task is its
+/// writer's own, by id: the owner's is the operator's and is not asked the
+/// injection question. Before, the redirect named no one, so the owner's own
+/// words were asked it.
+#[tokio::test]
+async fn a_redirected_message_keeps_who_wrote_it() {
+    let jev = crate::tests_gateway::injection_jev();
+    let r = judged_task_rig(
+        &jev,
+        vec![
+            start(&[REEF]),
+            Scripted::text("Started."),
+            Scripted::text("Noted."),
+            Scripted::text("Noted again."),
+        ],
+        |_| vec![(REEF, answers("Reef charted."))],
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "a thread for the task", || !threads(&r).is_empty()).await;
+    let t = threads(&r).remove(0);
+    until(&r, "the thread is renamed at the task's end", || {
+        threads(&r)[0].names.len() == 2
+    })
+    .await;
+    let parent = parent_session(&r);
+    r.say((ANA, "ana"), Some(t.id), "one more chart of the reef");
+    let row = kind_asked(&r, &parent, "one more chart of the reef").await;
+    assert_eq!(
+        row["kind"], "operator_message",
+        "the owner's own words: {row}"
+    );
+    let asked = |row: &Value| {
+        row["answers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["question"] == "injection")
+    };
+    assert!(!asked(&row), "the owner's words were asked it: {row}");
+}

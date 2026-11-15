@@ -16,9 +16,9 @@
 //!   that together would make a cluster are asked, at most [`KIND_PAIRS_MAX`]
 //!   a run, largest union first. A yes joins the two names' sessions.
 //! - **The kind's name** (`name_it.v1`, same method): a cluster that will mint
-//!   and has two names or more is asked which of them names the kind. Jev's pick
-//!   names it; `none`, a pick below the band, or no answer leaves the most
-//!   shared name, as before. A kept pick names only a cluster that still
+//!   and has two names or more is asked which of them names the kind. Since
+//!   issue 9 the class names it (`class.rs`) and this pick names nothing; it is
+//!   still asked and kept. A kept pick belongs to a cluster that still
 //!   holds it: one the cluster no longer holds is dropped with its ask, and the
 //!   cluster is asked again. So is a kept ask with no pick, once the cluster's
 //!   names differ from those it offered.
@@ -32,6 +32,7 @@ use theseus_judge::Input;
 use theseus_ontology::sweep::fold;
 use theseus_ontology::{CategoryId, Ontology};
 
+use super::class::Classed;
 use super::judged::{acts, named, noul, Asked, Run, KIND_PACK, NAME_PACK};
 use super::mint::{self, Hints};
 use crate::pace::pace;
@@ -182,8 +183,58 @@ impl Run<'_> {
             ..Hints::default()
         };
         self.kind_names(o, &folds, &mut hints).await;
+        self.kind_classes(o, &folds, &mut hints).await;
         hints.spent = self.spent;
         hints
+    }
+
+    /// The class of each cluster that will mint, in `hints.class`: one call
+    /// of the sweep's own (`class.rs`), kept in the mark when it gave a usable
+    /// word. A cluster with none makes no kind tonight.
+    async fn kind_classes(&mut self, o: &Ontology, folds: &mint::Folds<'_>, hints: &mut Hints) {
+        hints.class_asked = true;
+        let mut asked = 0;
+        for cluster in mint::leads(o, folds, &hints.same) {
+            if let Some(class) = self.mark.classed.get(&cluster.key) {
+                hints.class.insert(cluster.key.clone(), class.clone());
+                continue;
+            }
+            if !self.going() {
+                continue;
+            }
+            let ids: Vec<&str> = cluster.sessions.keys().copied().collect();
+            let titles = self.titles_of(&ids);
+            if asked > 0 {
+                pace().await;
+            }
+            let key = format!("class {}", cluster.key);
+            let names: Vec<String> = cluster.spelled(folds);
+            match self
+                .core
+                .onto_class(ids[0], &names, &titles, self.left())
+                .await
+            {
+                Classed::Said(class, cost) => {
+                    asked += 1;
+                    self.mark.classed.insert(cluster.key.clone(), class.clone());
+                    hints.class.insert(cluster.key.clone(), class);
+                    self.paid(key, cost);
+                }
+                Classed::Unusable(cost) => {
+                    asked += 1;
+                    self.paid(key, cost);
+                }
+                Classed::Over(need) => {
+                    self.stopping(need);
+                    tracing::info!(
+                        need,
+                        "ontology: the sweep's day cap would pass; no more kind classes"
+                    );
+                    break;
+                }
+                Classed::Off => break,
+            }
+        }
     }
 
     /// The pairs of names Jev called one kind at the act band tonight.

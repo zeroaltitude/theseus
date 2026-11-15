@@ -978,6 +978,7 @@ impl Place {
         let (author, text, message) = (format!("discord:{}", m.author), m.text.clone(), m.message);
         // The core judges the owner from the place they spoke in (theseus-slmj1).
         let origin = m.origin();
+        let parent_origin = origin.clone();
         let pending: Vec<Pending> = m.files.into_iter().collect();
         tokio::spawn(async move {
             let mut attachments = Vec::new();
@@ -1028,6 +1029,11 @@ impl Place {
                 input: said,
                 author: Some(author),
                 attachments,
+                // The same writer, by id: the redirect is their message too.
+                speaking: Some(theseus_protocol::threads::Speaking {
+                    discord: parent_origin,
+                    answer_at: None,
+                }),
                 ..Default::default()
             };
             let sent = rpc

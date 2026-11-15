@@ -82,6 +82,43 @@ pub(crate) fn failing_open(
     }
 }
 
+/// A self session's L1 call that runs in its own tree, with the owner's hold on the tool
+/// made a notice (issue 6, condition 1). The owner's `[policy.tools]` line for `proc.run`
+/// (and a tightening) holds an L1 call at approve, and `failing_open` leaves every L1 call
+/// out, so a build that ran the tests its change touches, in its own sandbox, waited for an
+/// answer, and in one night its only test loop was the half-hour gate. L1 is the boundary
+/// for such a call (it reaches nothing of the floor), so the hold is lifted for exactly
+/// this: a self session, an L1 call, and every place it reaches inside its own tree. The
+/// floor, an AWS call, a private address and a call that reaches anywhere else keep the
+/// hold, as in `failing_open`.
+pub(crate) fn l1_in_own_tree(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    tool: &dyn Tool,
+    plan: &theseus_tools::Plan,
+    l1: bool,
+    decision: crate::policy::Decision,
+) -> crate::policy::Decision {
+    let Some(s) = session else {
+        return decision;
+    };
+    if !(l1 && decision.posture == crate::policy::Posture::Approve && !decision.floor) {
+        return decision;
+    }
+    let inside = of(rt, s).is_some_and(|tree| {
+        !plan.resources.is_empty()
+            && plan
+                .resources
+                .iter()
+                .all(|r| paths::within(&paths::canonical_best_effort(&r.path), &tree))
+    });
+    if inside && rt.policy.fails_open(plan) {
+        fail_open(decision, tool.name())
+    } else {
+        decision
+    }
+}
+
 /// A self session's call that waited for approval, now a notice that runs
 /// (theseus-cudar): the posture's own reason is kept, so the notice says
 /// what would have asked. The floor and the owner's other holds never come

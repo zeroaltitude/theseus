@@ -277,6 +277,7 @@ fn the_stream_sends_deltas_live_and_builds_blocks_from_finished_items() {
                 Delta::Text(t) => format!("text:{t}"),
                 Delta::Thinking(t) => format!("think:{t}"),
                 Delta::ToolUseStart { id, name } => format!("call:{name}:{id}"),
+                Delta::Usage(_) => "usage".to_string(),
             });
         };
         for ev in &events {

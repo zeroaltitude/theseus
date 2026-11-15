@@ -172,3 +172,73 @@ fn the_place_rule_offers_join_on_a_private_discord_place_only_once_voice_is_boun
     rule.bind_voice(false);
     assert!(!rule.place(&cfg, dm).voice);
 }
+
+/// A thread has no place of its own: its class is private always, and what
+/// the place tells the model (the chat route, `/join`) is the underlying
+/// place's, when the message came from a private Discord one. A shared place,
+/// the CLI, and no place add nothing.
+#[test]
+fn a_thread_takes_the_chat_route_and_the_voice_channel_of_its_underlying_place() {
+    let cfg = config(|_| {});
+    let rule = bound();
+    rule.bind_voice(true);
+    let thread = Some("thread:tides");
+    let plain = rule.place_under(&cfg, thread, None);
+    assert!(
+        !plain.chat && !plain.voice,
+        "a thread's own string has no chat prefix"
+    );
+    let over_dm = rule.place_under(&cfg, thread, Some(DM));
+    assert!(over_dm.chat && over_dm.voice, "over the owner's DM");
+    assert_eq!(
+        over_dm.class,
+        PlaceClass::Private,
+        "a thread is private always"
+    );
+    let over_lobby = rule.place_under(&cfg, thread, Some(LOBBY));
+    assert!(
+        !over_lobby.chat && !over_lobby.voice,
+        "a shared place offers neither"
+    );
+    assert_eq!(
+        over_lobby.class,
+        PlaceClass::Private,
+        "and it does not change the class"
+    );
+    // The card says so, and says nothing of either for the others.
+    let rt = runtime(&cfg);
+    assert!(card(&cfg, &rt, over_dm).ends_with(CHAT));
+    assert!(card(&cfg, &rt, over_dm).contains("/join"));
+    assert!(!card(&cfg, &rt, plain).contains("/trust"));
+    // A place that has its own string is as it was.
+    assert_eq!(
+        rule.place_under(&cfg, Some(DM), None).chat,
+        rule.place(&cfg, Some(DM)).chat
+    );
+}
+
+/// The two sentences that depend on where a turn was spoken ride in the
+/// turn's tail, not in the shared header: `told` gives them in the card's
+/// order, for a place that has them and for none other, and the header's view
+/// of a place has neither.
+#[test]
+fn the_place_dependent_sentences_are_told_apart_from_the_header() {
+    let cfg = config(|_| {});
+    let rule = bound();
+    rule.bind_voice(true);
+    let dm = rule.place(&cfg, Some(DM));
+    assert_eq!(crate::self_card::told(&cfg, dm), [VOICE, CHAT]);
+    assert!(crate::self_card::told(&cfg, rule.place(&cfg, Some(LOBBY))).is_empty());
+    assert!(crate::self_card::told(&cfg, rule.place(&cfg, None)).is_empty());
+    let rt = runtime(&cfg);
+    let header = card(&cfg, &rt, dm.for_header());
+    assert!(
+        !header.contains("/trust") && !header.contains("/join"),
+        "{header}"
+    );
+    assert_eq!(
+        header,
+        card(&cfg, &rt, rule.place(&cfg, None)),
+        "the header of a private Discord place is the CLI's"
+    );
+}

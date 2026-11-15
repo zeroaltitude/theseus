@@ -609,6 +609,37 @@ impl Core {
         self.said_jobs_at_start(&out, t0);
     }
 
+    /// What a cancel left when the daemon died during it (theseus-fvxh, theseus-1og8), once serving:
+    /// the transcripts of the executions it had told calls to stop, answered as the cancel's own
+    /// sweep would have, and the verdicts nothing will read now, removed. A cancel that finished
+    /// leaves nothing here.
+    pub fn answer_earlier_cancels(&self) {
+        for id in self.kernel.take_cancelled_earlier() {
+            let Ok(Some(e)) = self.kernel.execution(&id) else {
+                continue;
+            };
+            if e.state != theseus_kernel::ExecState::Cancelled {
+                continue;
+            }
+            match self
+                .tools
+                .answer_after_cancel(&self.kernel, &self.store, &e.session_id, &id)
+            {
+                Ok(nodes) => crate::toolrun::announce_cancelled(
+                    &self.session_rec(&e.session_id),
+                    &e.session_id,
+                    &nodes,
+                ),
+                Err(err) => {
+                    tracing::warn!(error = %format!("{err:#}"), execution_id = %id, "a cancel an earlier process left was not answered")
+                }
+            }
+        }
+        if let Err(err) = self.kernel.sweep_old_stops(&self.spool) {
+            tracing::warn!(error = %format!("{err:#}"), "the verdicts an earlier process left were not swept");
+        }
+    }
+
     /// What the start's probe found, in the log and as its startup phase:
     /// last, so health shows the phase once its facts are recorded.
     fn said_jobs_at_start(&self, out: &theseus_kernel::gone::GoneJobs, t0: Instant) {

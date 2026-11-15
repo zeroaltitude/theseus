@@ -1488,6 +1488,14 @@ impl Evidence for WrapperEvidence {
             _ => Probe::Gone,
         }
     }
+
+    fn stopped(&self, action: &Action) -> Option<Verdict> {
+        self.spool.read_stop(&action.correlation_id)
+    }
+
+    fn stop_taken(&self, action: &Action) {
+        self.spool.remove_stop(&action.correlation_id);
+    }
 }
 
 /// Parse wrapper-mode argv (everything after the mode word). Kept here so

@@ -179,13 +179,21 @@ fn card_families() -> Vec<(&'static str, String)> {
     let morning = crate::initiative::speak::headed("morning", "Good morning: 2 tasks ended.");
     let finding = crate::initiative::speak::headed("consolidation", "Two notes say the same.");
     let digest = crate::initiative::digest::posted_text("◆ 2 reported\n📋 task a: done");
-    use crate::judge::onto::stage;
-    let minted = stage::minted_text("topic", "harbour › tides", 0.9, "jdg_1");
-    let onto_ask = stage::ask_text(
-        "Is this harbour?",
-        0.6,
-        "\n`theseus ontology member ses_1 +c` files it.",
+    let minted = crate::judge::onto::words::minted_text(
+        Some("harbour notes"),
+        "topic",
+        &["harbour".into(), "tides".into()],
+        0.9,
+        "jdg_1",
     );
+    let onto_ask = crate::judge::onto::words::ask_text(&crate::judge::onto::words::Asked {
+        title: Some("harbour notes"),
+        kind: "topic",
+        name: Some("harbour"),
+        known: true,
+        how: Some("theseus ontology member ses_1 +c"),
+        confidence: 0.6,
+    });
     let paused = crate::judge::notice::paused_text("more than 30 notices today");
     let routine = crate::rpc::routines_watch::routine_note("✗ Tide check failed: a timeout");
     let routine_month = crate::routine::month_spent_text("Tide check", 1.0, "ab12cd");
@@ -247,6 +255,35 @@ fn every_unasked_message_starts_with_a_kind_and_a_title() {
         "families without a head:\n{}",
         bad.join("\n")
     );
+}
+
+/// Theseus is the one who acts, in every message to the owner: none names the
+/// small model that judges (theseus-nzwa5). The Discord binding's own
+/// families check theirs in its `tests_owner_note.rs`.
+#[test]
+fn no_unasked_message_names_the_small_model() {
+    use crate::places::PlaceClass;
+    use crate::turn::personal_step::{held_text, warning_text};
+    let mut all = families();
+    for class in [PlaceClass::Shared, PlaceClass::Private] {
+        all.push(("privacy warning", warning_text("expose", 0.9, class, "q")));
+    }
+    all.push(("privacy hold", held_text("draw", 0.9, ("a", "b"), "q")));
+    all.push(("seal reason", crate::judge::seal::reason(0.9)));
+    all.push((
+        "a rule's name",
+        crate::rule_notice::RULES
+            .iter()
+            .map(|r| r.what)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ));
+    let bad: Vec<String> = all
+        .into_iter()
+        .filter(|(_, text)| text.contains("Jev"))
+        .map(|(name, text)| format!("{name}: {text:?}"))
+        .collect();
+    assert!(bad.is_empty(), "name the small model:\n{}", bad.join("\n"));
 }
 
 /// The owner's example: each night's item says what it is, how often and

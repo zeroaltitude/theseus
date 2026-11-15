@@ -17,6 +17,18 @@ use crate::store::Store;
 use crate::tests_judge::{board, judge_config, texts, warm};
 use crate::{Config, Core};
 
+/// The class the fake class provider gives every cluster.
+pub(crate) const CLASS: &str = "product";
+
+/// `n` answers of the class call, each `class`.
+pub(crate) fn classes(class: &str, n: usize) -> Vec<crate::provider::Scripted> {
+    let one = crate::provider::Scripted::tools(
+        "",
+        &[("tu_1", "name_class", serde_json::json!({ "class": class }))],
+    );
+    vec![one; n]
+}
+
 pub(crate) struct Rig {
     pub(crate) core: Arc<Core>,
     pub(crate) jev: FakeJev,
@@ -24,15 +36,29 @@ pub(crate) struct Rig {
 }
 
 pub(crate) fn rig(jev: FakeJev, more: impl FnOnce(&mut Config)) -> Rig {
+    rig_classed(jev, classes(CLASS, 8), more)
+}
+
+/// [`rig`] with the class call's own answers scripted.
+pub(crate) fn rig_classed(
+    jev: FakeJev,
+    class: Vec<crate::provider::Scripted>,
+    more: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), Some(&jev));
     // A pin: an unset naming key asks Jev for its model too, which these tests
-    // count the asks of.
-    cfg.ontology.name_profile = Some("haiku".into());
+    // count the asks of. The class call (`class.rs`) reads the sessions' text,
+    // so it runs an unrestricted model on a provider of its own, which says
+    // `product` however often it is asked (`CLASS`).
+    cfg.ontology.name_profile = Some("glm".into());
+    cfg.serve_glm_unrestricted();
     more(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
     let mut p = Parts::for_tests(cfg, Arc::new(FakeProvider::scripted(texts(2))), store);
+    p.providers
+        .insert("zai".into(), Arc::new(FakeProvider::scripted(class)));
     p.secrets = board();
     let core = Core::build(p).unwrap();
     warm(&core);

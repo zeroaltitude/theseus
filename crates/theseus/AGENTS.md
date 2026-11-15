@@ -206,7 +206,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
 - `src/standing_cmd.rs` (theseus-a7vi): `theseus standing` (the live records: id, kind, scope, since, source, text,
   and a last line "in every compile of their scope since they began: N compiles, M missing" from the manifests;
   `--all` adds the ended), `standing add [--kind order|preference|fact] [--scope everywhere|place:T|surface:NAME|session:ID | --surface
-  terminal|discord|voice|cockpit|mcp] [--until AGE] [--replaces ID] TEXT`, `standing revoke ID` (the undo of a record Theseus kept from your words) and `standing answer ID keep|everywhere|not` (an ask `directive.v1` raised; the list shows the open asks, `[kept from your words]`, and `[said again Nx this week]`; theseus-slvl.5). The writes are in `client::OPERATORS`, so a job's shell
+  terminal|discord|voice|cockpit|mcp] [--until AGE] [--replaces ID] TEXT`, `standing revoke ID` (the undo of a record Theseus kept from your words) and `standing answer ID keep|everywhere|not` (an ask `directive.v2` raised; the list shows the open asks, `[kept from your words]`, and `[said again Nx this week]`; theseus-slvl.5). The writes are in `client::OPERATORS`, so a job's shell
   is refused. The rows' words are `list_lines` (goldens in its tests).
 - `src/seen.rs` and `src/shown.rs` (theseus-yus0): the machine's seen file (`$XDG_STATE_HOME/theseus/seen.json`) and
   the one call, `shown::shown(conn, sessions)`, by which a command records what it displayed: after its output,
@@ -227,7 +227,7 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   path (`--spawn /opt/bin/theseusd ask`, `--spawn=PATH`) still names it (`src/spawn_args_tests.rs`, theseus-4356).
 - `src/self_cmd.rs` (theseus-pw1q): `theseus self log [--since 7d] [--json]`, `self halt [why]`, `self resume`
   (sends the shell's `THESEUS_SESSION` as `from_job`, so the daemon refuses a job's resume and ledgers it, rather
-  than the CLI refusing it unseen), `self digest`, `self retry ITEM` (`self_cmd/backlog.rs`, theseus-czlzg: queues a failed backlog item again; the owner's, sent with `from_job` as `drop` and `move` are), and `self revert MERGE` (`self_cmd/revert.rs`, theseus-pw1q.10: the owner's
+  than the CLI refusing it unseen), `self digest`, `self retry ITEM` (`self_cmd/backlog.rs`, theseus-czlzg: queues a failed backlog item again, or one set aside, as `self bring-back ITEM`; the owner's, sent with `from_job` as `drop` and `move` are), `self set-aside ITEM [WHY]` (issue 6 of 1.0.7: `self.drop` with `set_aside`, so nothing starts the item and nothing is forbidden; `aside_words` refuses to say it worked when an older daemon dropped the item instead), and `self revert MERGE` (`self_cmd/revert.rs`, theseus-pw1q.10: the owner's
   veto of a self-join, sent with `from_job` as the resume is; the daemon runs main's gate on the revert before it answers). `self narrow [list|show ID|run [--profile owner|read] [--dry]|apply ID|decline ID|revert ID]`
   (`self_cmd/narrow.rs`, theseus-pw1q.15) is the narrower policies Theseus proposes for its hand roles: `list` and `show` read; `run`,
   `apply`, `decline` and `revert` are the owner's (`client::OPERATORS`; the daemon refuses a non-owner and a job's shell and ledgers it). The state's words are the library's `render/rsi.rs`

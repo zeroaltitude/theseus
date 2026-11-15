@@ -65,6 +65,8 @@ mod tests_new_task;
 #[cfg(test)]
 mod tests_notice;
 #[cfg(test)]
+mod tests_older;
+#[cfg(test)]
 mod tests_order;
 #[cfg(test)]
 mod tests_paste;

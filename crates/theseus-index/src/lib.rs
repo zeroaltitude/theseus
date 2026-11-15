@@ -92,6 +92,8 @@ mod ftests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_coverage;
+#[cfg(test)]
 mod tests_files;
 #[cfg(test)]
 mod tests_gate;
@@ -101,6 +103,8 @@ mod tests_import;
 mod tests_priority;
 #[cfg(test)]
 mod tests_query;
+#[cfg(test)]
+mod tests_skip;
 #[cfg(test)]
 mod tests_status;
 #[cfg(test)]

@@ -35,7 +35,7 @@ pub(crate) fn facts_of(
         }
     }
     let last = models().next_back();
-    let est = est_tokens(before);
+    let est = est_tokens(before.iter());
     let period = price_period_at(now_ms);
     // The warm model is the one that answered last: its cache holds the prefix.
     // What a switch would cost this message, and which model the cheaper one
@@ -45,12 +45,13 @@ pub(crate) fn facts_of(
     RouteFacts {
         price_period: period,
         restricted_models: restricted,
-        last_reply_model: last.map(str::to_string),
+        last_reply_model: last.map(Box::from),
         task_models,
         est_tokens: Some(est),
-        current_model: last.map(str::to_string),
+        current_model: last.map(Box::from),
         switch_cost: Some(switch.cost),
         cheaper_model: switch.cheaper_model,
+        previous_turn: None,
     }
 }
 
@@ -60,12 +61,13 @@ fn builtin() -> &'static Catalog {
     BUILTIN.get_or_init(Catalog::builtin)
 }
 
-/// How many tokens the conversation holds: the last request's prompt as the
+/// How many tokens the conversation holds (the thread router reads a thread's
+/// size the same way, `rpc::thread_flow`): the last request's prompt as the
 /// provider counted it (new, cache-read and cache-written input), else a
 /// quarter of the text's bytes. The table's "a long context" and "above 100K"
 /// are read against it; Jev never works it out.
-fn est_tokens(before: &[Node]) -> u64 {
-    let counted = before.iter().rev().find_map(|n| match &n.body {
+pub(crate) fn est_tokens<'a>(before: impl DoubleEndedIterator<Item = &'a Node> + Clone) -> u64 {
+    let counted = before.clone().rev().find_map(|n| match &n.body {
         Body::AssistantMessage { usage, .. }
             if usage.input_tokens
                 + usage.cache_read_input_tokens
@@ -82,7 +84,6 @@ fn est_tokens(before: &[Node]) -> u64 {
     });
     counted.unwrap_or_else(|| {
         let bytes: usize = before
-            .iter()
             .map(|n| match &n.body {
                 Body::UserMessage { text, .. } => text.len(),
                 Body::AssistantMessage { blocks, .. } => crate::provider::text_of(blocks).len(),
@@ -129,6 +130,12 @@ impl Carried {
             facts,
             shared,
         }
+    }
+
+    /// What the effort pack reads: its own slice of the input, which takes the facts' `previous_turn`
+    /// and nothing else of them.
+    pub(crate) fn for_effort(&self) -> &Input {
+        &self.facts
     }
 
     /// What the route pack reads: the facts when it asks `model`.
