@@ -249,17 +249,27 @@ async fn an_aborted_check_runs_again_and_is_no_try() {
     assert!(attempts::tries(&t, 0).is_empty());
 }
 
-/// A check that keeps aborting is run again twice, no more, ends the build with its own words,
-/// and is still no try: the gate never judged the code.
+/// KEY: a check that keeps aborting is run again twice, no more, ends the build with its own
+/// words, and is a red of that item: one try, the reason in the task's evidence, the report and
+/// the row. The re-runs inside the bound cost nothing.
 #[tokio::test]
-async fn a_check_that_keeps_aborting_is_bounded_says_so_and_is_no_try() {
+async fn a_check_that_keeps_aborting_is_bounded_says_so_and_is_a_red_of_its_item() {
     let (r, sid, s) = scenario("abort-always", None, None);
     r.open_and_edit(&sid, "crates/a/src/lib.rs").await;
     let said = r.turn(&sid, WIRE, propose()).await;
     assert_eq!(runs(&s, "gate.runs"), 3, "the first run and two more");
     assert!(said.contains("kept aborting"), "{said}");
     let t = task_of(&r);
-    assert!(attempts::tries(&t, 0).is_empty(), "{:?}", t.evidence);
+    let tries = attempts::tries(&t, 0);
+    assert_eq!(tries.len(), 1, "one try, not three: {:?}", t.evidence);
+    assert!(
+        tries[0].why.contains("its check kept aborting"),
+        "{tries:?}"
+    );
+    assert!(
+        !t.evidence.iter().any(|e| e.identity == "gate:unjudged"),
+        "it is judged, a red of its item"
+    );
     let note = t
         .evidence
         .iter()
@@ -267,5 +277,12 @@ async fn a_check_that_keeps_aborting_is_bounded_says_so_and_is_no_try() {
         .and_then(|e| e.note.clone())
         .unwrap();
     assert!(note.contains("kept aborting"), "{note}");
-    assert_eq!(r.rows()[0]["numbers"]["exit"], 75);
+    let row = &r.rows()[0];
+    assert_eq!(
+        (&row["numbers"]["exit"], &row["gate"]),
+        (&json!(75), &json!("red"))
+    );
+    assert_eq!(row["numbers"]["kept_aborting"], true, "{row}");
+    let report = std::fs::read_to_string(row["report"].as_str().unwrap()).unwrap();
+    assert!(report.contains("the check kept aborting"), "{report}");
 }

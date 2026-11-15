@@ -38,8 +38,10 @@ so a planted revert can prove it).
 
 **A failure that is not the change's fault** (issue 20; `rsi/rerun.rs`, `rsi/reach.rs`, `tree::rerun_tests`, `infra::judge`). **An aborted check**
   (the gate's exit 75, "THE TREE MOVED", which it calls no verdict on the code) is run again at once, `rerun::ABORT_RERUNS` (2) more times; past
-  that the build ends saying the check kept aborting, and `infra::judge` reads exit 75 as infrastructure, so `gate:unjudged` takes the try
-  back (and the kill switch's streak counts it, as for any gate that never judged: a branch whose own test leaves a file in its checkout aborts every gate, and two such attempts halt self builds, where they used to cost that item its tries). **A red suite's failures, once more**, when the gate
+  that the build ends saying "its check kept aborting", which is **a red of that item**: it costs one try, as a red does, and
+  is no part of the kill switch's streak (`infra::judge` reads exit 75 as red, whatever the seconds; an abort is about one working copy,
+  something wrote in it while its gate ran, not about the machine, so a branch whose own test leaves a file in its checkout fails that item
+  and halts nothing). The re-runs inside the bound are free. **A red suite's failures, once more**, when the gate
   failed in its suite and nowhere else, the log reads whole (one summary, a distinct `FAIL` line per failed test and that many in the
   summary, no timeout, signal or leak), every failed test's package is **outside what the change reaches**, and those tests alone, run again
   (`tree::rerun_tests`: L1, nice 19, the tree's own build folder, with the gate's `CARGO_INCREMENTAL=0` so nothing is rebuilt), all pass: then the build is green, and the report and the row's

@@ -10,8 +10,10 @@
 //! gate itself calls "NOT a test failure and no verdict on the code") is run again at once, up
 //! to [`ABORT_RERUNS`] more times: two aborts in a row are a pattern, a third would be a loop
 //! with nothing learnt. Past that the build ends with the check's own words, "the check kept
-//! aborting", and the item's tries do not move (`infra::judge` reads the status as infrastructure,
-//! which also counts toward the kill switch's streak, as any gate that never judged does).
+//! aborting", which is a **red of that item**: it costs the item one try, as a red does, and
+//! `infra::judge` reads it as red, so it is no part of the streak that halts self builds (an
+//! abort is about one working copy, something wrote in it while its gate ran, not about the
+//! machine). The re-runs inside the bound are free.
 //!
 //! **A red suite's failures, once more**, when and only when all of this holds:
 //!

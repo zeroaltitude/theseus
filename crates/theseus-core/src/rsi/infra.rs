@@ -53,6 +53,8 @@ pub enum Outcome {
 ///
 /// - `green` is green, even at `exit 0` with 0 seconds: the gate said so.
 /// - `keel` is judged: the guard ran and found something, however fast.
+/// - `red` at exit 75 (the check kept aborting after its re-runs, `rerun`) is red, whatever the
+///   seconds: it is its item's, never infrastructure.
 /// - `failed` (the gate did not run) is infrastructure.
 /// - `red` is infrastructure when the gate stopped at a phase it could not run
 ///   (`unrunnable`: a tool it needs is missing), whatever its exit and seconds;
@@ -64,12 +66,11 @@ fn judge(gate: &str, exit: Option<i64>, secs: Option<u64>, unrunnable: bool) -> 
         "green" => Some(Outcome::Green),
         "keel" => Some(Outcome::Red),
         "failed" => Some(Outcome::Infrastructure),
-        "red"
-            if unrunnable
-                || exit == Some(i64::from(NOT_FOUND))
-                || exit == Some(i64::from(super::tree::GATE_ABORTED))
-                || secs.unwrap_or(0) == 0 =>
-        {
+        // A check that kept aborting after its re-runs is about that one working copy, not the
+        // machine: a red of its item (issue 20), whatever the seconds, and no part of the streak
+        // that halts self builds.
+        "red" if exit == Some(i64::from(super::tree::GATE_ABORTED)) => Some(Outcome::Red),
+        "red" if unrunnable || exit == Some(i64::from(NOT_FOUND)) || secs.unwrap_or(0) == 0 => {
             Some(Outcome::Infrastructure)
         }
         "red" => Some(Outcome::Red),

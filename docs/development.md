@@ -619,8 +619,8 @@ queue goes on.
   reads busy on a host with idle cores, and the system-wide `full` line is always zero). A hold on the slots names
   the trees that hold them.
 - A cap on tries: an item has three (`rsi/backlog/attempts.rs`: a red gate, a rejecting review, or a build that died
-  with no gate; a gate that never judged the code is none, and an aborted gate, exit 75, is run again twice at most and is
-  none; a red suite whose only failures are tests outside what the change reaches has those run once more, and is green
+  with no gate; a gate that never judged the code is none, and an aborted gate, exit 75, is run again twice at most, free, and
+  one that still aborts is a red of its item, one try and no part of the kill switch's count; a red suite whose only failures are tests outside what the change reaches has those run once more, and is green
   when they pass). The try that reaches it fails the item with every reason
   and one notice, and it waits for `theseus self retry`. A red inside twelve hours of another for the item is not posted
   again; the note lists it.

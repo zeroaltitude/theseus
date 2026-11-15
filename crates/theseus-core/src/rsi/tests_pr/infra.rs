@@ -89,6 +89,26 @@ async fn two_in_a_row_halt_and_tell_the_owner_once() {
     assert!(text.contains("self/20261026-trim-0") && text.contains("self/20261026-trim-1"));
 }
 
+/// KEY: a check that kept aborting is about its own working copy, not the machine: two such
+/// builds in a row halt nothing, while two gates that never started in a row still do (the test
+/// above), as on main.
+#[tokio::test]
+async fn two_checks_that_kept_aborting_in_a_row_do_not_halt_self_builds() {
+    let w = watching();
+    w.attempt("red", Some(75), Some(310));
+    w.attempt("red", Some(75), Some(310));
+    w.attempt("red", Some(75), Some(0));
+    assert!(!w.halted());
+    assert!(w.told.lock().unwrap().is_empty());
+    // An abort between two never-started gates is a judged red, as any red is: it ends their run.
+    w.infra();
+    w.attempt("red", Some(75), Some(310));
+    w.infra();
+    assert!(!w.halted());
+    w.infra();
+    assert!(w.halted(), "two never-started gates in a row still halt");
+}
+
 #[tokio::test]
 async fn a_real_red_between_two_resets_the_run() {
     let w = watching();

@@ -505,8 +505,9 @@ async fn attempt(
         Verdict::Red if run.aborted() => {
             return Ok(said(
                 a,
-                "The check kept aborting, so it says nothing about your change and no try is \
-                 used. The tree stays open: call self.propose_change again.",
+                "The check kept aborting, so this attempt is red and uses one try. Something \
+                 wrote in your tree while its check ran: the tail names what moved. The tree \
+                 stays open for another attempt.",
             ))
         }
         Verdict::Red => return Ok(said(a, "The tree stays open for another attempt.")),
@@ -757,11 +758,13 @@ fn told_on_task(
         == Some(super::infra::Outcome::Infrastructure);
     t.version += 1;
     t.updated_at_ms = now;
+    let kept_aborting = run.aborted().then_some("its check kept aborting; ");
     t.evidence.push(theseus_protocol::tasks::TaskEvidence {
         node: None,
         identity: format!("gate:{}", e.verdict),
         note: Some(format!(
-            "{} (exit {}, {} s)",
+            "{}{} (exit {}, {} s)",
+            kept_aborting.unwrap_or_default(),
             e.line(),
             run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
             run.secs
@@ -897,6 +900,9 @@ fn built(tc: &TurnCtx<'_>, a: &Attempt<'_>) {
             let mut n = built_numbers(g, a.diff, a.pushed.is_some());
             if !a.reran.is_empty() {
                 n["reran"] = json!(a.reran);
+            }
+            if g.is_some_and(GateRun::aborted) {
+                n["kept_aborting"] = json!(true);
             }
             n
         },
