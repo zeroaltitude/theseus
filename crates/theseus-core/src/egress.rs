@@ -19,6 +19,13 @@
 //!   still `Owner`. A job that reached only the hosts the operator listed, or
 //!   none, keeps 19a's label and is not marked: the operator chose those
 //!   hosts (theseus-gyin; theseus-20f, closed for L1).
+//! - **Limits** (theseus-zupk). Beside a job's egress rows, a `sandbox.limit_hit`
+//!   row for each limit its end shows it reached (`detail.sandbox.limit_hits`,
+//!   written by the wrapper): `output_mb` and `scratch_mb`, never `pids` (L1 has
+//!   no cgroup). `Sandbox::counted` counts them and the job's start once per
+//!   result. **Known gap, measured:** a job a cancel stops mid-tunnel has no
+//!   `sandbox.egress` row, because the cancel writes its result before the
+//!   wrapper's completion is in the store.
 
 use serde_json::Value;
 use theseus_kernel::Action;
