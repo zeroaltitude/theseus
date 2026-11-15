@@ -11,12 +11,16 @@
 //! It is not the kill switch, which stays in the store, stops builds in flight and waits for the
 //! owner's resume. A pause is the lighter word for "not now".
 //!
-//! Setting it and clearing it will be the owner's, from a command (`theseus self pause`, `unpause`)
-//! and from chat (a tool the model calls). **Neither is here yet**: they add an RPC method and a tool,
-//! which wait for the hot files' split to land on main, so this module is the state and its two
-//! moves and nothing in production calls them yet.
+//! **Who.** Setting a pause is anyone's, as a halt is (it only makes Theseus do less); clearing
+//! it is the owner's, from any place they are, never from a job's shell (`Core::self_pause`,
+//! judged as the backlog's words are). It is reached by `theseus self pause` and `unpause`, by
+//! the RPC method `self.pause`, and from chat by the tool `self.pause` (`pause_tool.rs`), where
+//! the gate asks for the owner's own yes at every posture.
 
-use crate::rpc::Core;
+use theseus_protocol::rsi::{SelfPauseParams, SelfPauseResult};
+
+use crate::approval::Answerer;
+use crate::rpc::{Act, Core};
 
 /// A pause now in force.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,5 +98,52 @@ impl Core {
             self.rsi.pipeline.kick();
         }
         was
+    }
+
+    /// `self.pause`: set a pause (anyone's) or, with `clear`, clear it (the owner's, from any place,
+    /// never a job's shell). Idempotent: the answer says whether anything changed.
+    pub fn self_pause(
+        &self,
+        p: &SelfPauseParams,
+        who: &Answerer,
+    ) -> anyhow::Result<SelfPauseResult> {
+        if p.clear {
+            let from_job = p
+                .from_job
+                .as_deref()
+                .map(str::trim)
+                .filter(|j| !j.is_empty());
+            self.judge_act(
+                who,
+                Act::SelfBacklog {
+                    method: theseus_protocol::method::SELF_PAUSE,
+                    what: "the pause",
+                    from_job,
+                },
+            )?;
+        }
+        Ok(self.self_pause_apply(p.clear, p.why.as_deref(), &who.who()))
+    }
+
+    /// The move itself, judged by the caller: the RPC's `self_pause` above, and the chat tool,
+    /// whose wall (the owner's own place, never a task's) and the gate's ask for the owner's yes
+    /// stand for the judgement.
+    pub(crate) fn self_pause_apply(
+        &self,
+        clear: bool,
+        why: Option<&str>,
+        by: &str,
+    ) -> SelfPauseResult {
+        let changed = if clear {
+            self.self_pause_clear()
+        } else {
+            self.self_pause_set(why, by)
+        };
+        let now = self.self_paused();
+        SelfPauseResult {
+            paused: now.is_some(),
+            changed,
+            words: now.map(|n| n.words()),
+        }
     }
 }

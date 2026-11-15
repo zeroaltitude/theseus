@@ -173,4 +173,23 @@ impl Kernel {
         out.elapsed_us = t0.elapsed().as_micros() as u64;
         Ok(out)
     }
+
+    /// Remove the verdicts nothing will read (theseus-1og8): one whose action settled by another way
+    /// (a completion, a deadline, a restart's own reconcile) or is none any more. A verdict whose
+    /// action still waits on its cancel is left for it. The spool holds few (a cancel takes its
+    /// own), so the listing is the whole cost. How many were removed.
+    pub fn sweep_old_stops(&self, spool: &Spool) -> Result<u32> {
+        let mut gone = 0;
+        for id in spool.stops_listed() {
+            let settled = match self.action(&id)? {
+                Some(a) => a.state.is_settled(),
+                None => true,
+            };
+            if settled {
+                spool.remove_stop(&id);
+                gone += 1;
+            }
+        }
+        Ok(gone)
+    }
 }

@@ -333,6 +333,13 @@ impl Drop for TurnGuard {
 /// the spool, the job wrapper's pid, an external service.
 pub trait Evidence: Send + Sync {
     fn probe(&self, action: &Action) -> Probe;
+    /// The verdict a wrapper left for a cancel that stopped `action`, if one did (theseus-1og8): a
+    /// daemon that died after the stop and before it read the verdict finds it here at its start.
+    fn stopped(&self, _action: &Action) -> Option<Verdict> {
+        None
+    }
+    /// `action`'s verdict is taken: remove it.
+    fn stop_taken(&self, _action: &Action) {}
     /// Whether it ran in the kernel's own process, with no evidence outside it: a provider call.
     fn in_process(&self, action: &Action) -> bool {
         action.tool == PROVIDER_TOOL
@@ -398,6 +405,10 @@ pub struct ReconcileReport {
     pub marked_unknown: Vec<CorrelationId>,
     pub still_running_past_deadline: Vec<CorrelationId>,
     pub resolved_unknown: Vec<CorrelationId>,
+    /// Calls a cancel had stopped before an earlier process died, settled from the verdict their
+    /// wrapper left (theseus-1og8).
+    #[serde(default)]
+    pub settled_from_stop: Vec<CorrelationId>,
     pub open_actions: u64,
     pub open_executions: u64,
     pub elapsed_us: u64,

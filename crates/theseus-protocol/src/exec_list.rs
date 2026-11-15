@@ -37,4 +37,9 @@ pub struct ExecutionListResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub older: Option<u64>,
+    /// How many execution records did not decode and were left out of this answer, which names
+    /// the rest: one bad record no longer fails the whole listing (theseus-q6nt). Absent when none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub skipped: Option<u64>,
 }
