@@ -8,7 +8,7 @@ use theseus_store::NewRecord;
 
 use super::planted::{self, Outcome};
 use super::review::Ask;
-use super::{blocking, git, remote_of, Run, Said};
+use super::{blocking, git, remote_of, scratch, Run, Said};
 use crate::fact::rsi_join::SelfReviewVerdict;
 use crate::turn::Target;
 
@@ -111,9 +111,27 @@ impl Run<'_> {
             return Ok(None);
         }
         let remote = remote_of(&self.core.cfg);
-        let ask = self.ask(&remote, target).await?;
+        // The reviewer's own place to write, and what it leaves is removed whatever it says:
+        // a tree it left under the self trees held the pipeline's slot for good (`scratch`).
+        let own = scratch::open(&self.place, &self.b.branch)?;
+        let ask = match self.ask(&remote, target, &own.dir).await {
+            Ok(a) => a,
+            Err(e) => {
+                scratch::close(&self.place, &own);
+                return Err(e);
+            }
+        };
         let core = self.core.clone();
-        let r = match self.seams.reviewer.review(&core, &ask).await {
+        let reviewed = self.seams.reviewer.review(&core, &ask).await;
+        let left = scratch::close(&self.place, &own);
+        if !left.is_empty() {
+            tracing::warn!(
+                branch = %self.b.branch,
+                trees = ?left,
+                "self-review: the reviewer left a tree under the self trees; it was removed, so it holds no slot"
+            );
+        }
+        let r = match reviewed {
             Ok(r) => r,
             Err(e) => {
                 let why = format!("the reviewer did not answer: {e:#}");
@@ -155,7 +173,7 @@ impl Run<'_> {
     }
 
     /// What the reviewer is given: the diff, the report, the evidence.
-    async fn ask(&self, remote: &str, target: Target) -> Result<Ask> {
+    async fn ask(&self, remote: &str, target: Target, scratch: &std::path::Path) -> Result<Ask> {
         let (p, r, h) = (self.place.clone(), remote.to_string(), self.b.head.clone());
         let diff = blocking(move || {
             let base = git::main_of(&p, &r)?;
@@ -189,6 +207,8 @@ impl Run<'_> {
             evidence,
             target,
             built_ms: self.b.at_ms,
+            scratch: scratch.display().to_string(),
+            repo: self.place.repo.display().to_string(),
         })
     }
 
