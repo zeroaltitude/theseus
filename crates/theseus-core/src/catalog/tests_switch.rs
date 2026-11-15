@@ -1,10 +1,12 @@
 //! `switch_cost` (theseus-h66v4.1, theseus-h66v4.8): what a switch costs this
 //! message against staying on the warm model, and which model the cheaper one
 //! is, from the resident prefix and the catalog's prices at the hour. The
-//! owner's three cases are here as arithmetic: a thank-you on a 200K Sonnet
+//! owner's three cases are here as arithmetic: a thank-you on a 200K Opus
 //! session is told that Flash is the cheaper model (it is, and a thank-you is
 //! not its work), a fresh session has nothing to lose, and the band is plus or
-//! minus 20%.
+//! minus 20%. A warm Sonnet 5.5 reads its cache at $0.10 (2026-11-14, the
+//! vendor's page), which no candidate undercuts by the band, so it is the one
+//! warm model never told a switch is cheaper.
 
 use theseus_judge::builders::PricePeriod::{OffPeak, Peak};
 use theseus_judge::builders::RestrictedModels::{Allowed, NotAllowed};
@@ -44,18 +46,16 @@ fn name(current: &str, tokens: u64, period: PricePeriod) -> String {
 
 #[test]
 fn a_long_session_off_peak_is_cheaper_to_switch_and_the_cheaper_one_is_flash() {
-    // 200K off-peak: Flash's input is $0.15 a million against Sonnet's $0.20
+    // 200K off-peak: Flash's input is $0.15 a million against Opus's $0.20
     // cache read, and Haiku's long tier is $0.50. The word was
     // `cheaper_to_stay` while Flash was left out of the candidates, which put
     // Flash's own block out of reach through the price (theseus-h66v4.8).
-    for m in [SONNET, OPUS] {
-        assert_eq!(at(m, 200_000), CheaperToSwitch, "{m}");
-        assert_eq!(
-            name(m, 200_000, OffPeak),
-            "deepseek_flash (off-peak)",
-            "{m}"
-        );
-    }
+    assert_eq!(at(OPUS, 200_000), CheaperToSwitch);
+    assert_eq!(name(OPUS, 200_000, OffPeak), "deepseek_flash (off-peak)");
+    // Sonnet 5.5's cache read is $0.10: Flash's $0.15 is dearer by more than
+    // the band, so the same thank-you on the same prefix is told to stay.
+    assert_eq!(at(SONNET, 200_000), CheaperToStay);
+    assert_eq!(name(SONNET, 200_000, OffPeak), "-");
     // Fable's cache read is $0.25, so its gap is wider still.
     assert_eq!(at(FABLE, 200_000), CheaperToSwitch);
 }
@@ -63,8 +63,9 @@ fn a_long_session_off_peak_is_cheaper_to_switch_and_the_cheaper_one_is_flash() {
 #[test]
 fn a_long_session_at_peak_is_cheaper_to_stay_and_names_nothing() {
     // At peak Flash's input is $0.30 and Haiku's long tier $0.50, both above
-    // the $0.20 cache read of staying: nothing is cheaper, nothing is named.
-    // W13 is this case, and it is why W13's label did not move.
+    // the cache read of staying ($0.20 on Opus, $0.10 on Sonnet 5.5): nothing
+    // is cheaper, nothing is named. W13 is this case, and it is why W13's
+    // label did not move.
     for m in [SONNET, OPUS] {
         assert_eq!(word(m, 150_000, Peak), CheaperToStay, "{m}");
         assert_eq!(name(m, 150_000, Peak), "-", "{m}");
@@ -74,8 +75,8 @@ fn a_long_session_at_peak_is_cheaper_to_stay_and_names_nothing() {
 #[test]
 fn a_short_session_is_cheaper_to_switch_and_haiku_is_the_cheapest() {
     // 40K: Haiku's input is $0.10 a million, under Flash's $0.15 off-peak, and
-    // a cache read on Sonnet or Opus is $0.20: Haiku is named first, Flash after.
-    for m in [SONNET, OPUS, FABLE] {
+    // a cache read on Opus is $0.20: Haiku is named first, Flash after.
+    for m in [OPUS, FABLE] {
         assert_eq!(at(m, 40_000), CheaperToSwitch, "{m}");
         assert_eq!(
             name(m, 40_000, OffPeak),
@@ -84,17 +85,20 @@ fn a_short_session_is_cheaper_to_switch_and_haiku_is_the_cheapest() {
         );
     }
     // At peak Haiku is cheapest too, and then the name carries no off-peak mark.
-    assert_eq!(name(SONNET, 40_000, Peak), "haiku");
+    assert_eq!(name(OPUS, 40_000, Peak), "haiku");
+    // A Sonnet 5.5 cache read is $0.10, Haiku's input exactly: about the same.
+    assert_eq!(at(SONNET, 40_000), AboutTheSame);
+    assert_eq!(name(SONNET, 40_000, OffPeak), "-");
 }
 
 /// theseus-g0phw: the state names EVERY candidate cheaper than staying, cheapest
 /// first, and not only the one cheapest. Through Haiku's short tier Haiku is the
-/// cheapest ($0.10) but Flash ($0.15 off-peak) is still under staying on Sonnet
+/// cheapest ($0.10) but Flash ($0.15 off-peak) is still under staying on Opus
 /// ($0.20): naming only Haiku hid Flash, and W28, a brief that fits Flash's
 /// sentence at 90K, lost its model.
 #[test]
 fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
-    for m in [SONNET, OPUS, FABLE] {
+    for m in [OPUS, FABLE] {
         for n in [40_000, 90_000, 100_000] {
             assert_eq!(
                 name(m, n, OffPeak),
@@ -104,12 +108,12 @@ fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
         }
     }
     // Past Haiku's long tier it is dearer than staying, so only Flash is left.
-    assert_eq!(name(SONNET, 100_001, OffPeak), "deepseek_flash (off-peak)");
+    assert_eq!(name(OPUS, 100_001, OffPeak), "deepseek_flash (off-peak)");
     // At peak Flash's $0.30 is above staying's $0.20: only Haiku is named.
-    assert_eq!(name(SONNET, 90_000, Peak), "haiku");
+    assert_eq!(name(OPUS, 90_000, Peak), "haiku");
     // The data rule keeps Flash out of the list and leaves Haiku in it.
     assert_eq!(
-        full(SONNET, 90_000, OffPeak, NotAllowed)
+        full(OPUS, 90_000, OffPeak, NotAllowed)
             .cheaper_model
             .as_deref(),
         Some("haiku")
@@ -145,15 +149,19 @@ fn a_list_of_cheaper_models_fits_the_states_clip() {
 
 #[test]
 fn haikus_long_tier_takes_haiku_out_of_the_cheaper_models() {
-    assert_eq!(at(SONNET, 100_000), CheaperToSwitch);
+    assert_eq!(at(OPUS, 100_000), CheaperToSwitch);
     assert_eq!(
-        name(SONNET, 100_000, OffPeak),
+        name(OPUS, 100_000, OffPeak),
         "haiku, deepseek_flash (off-peak)"
     );
     // One token past the tier Haiku's input is $0.50 and Flash is the cheaper
     // one. The word does not change; what Jev is told to weigh does.
-    assert_eq!(at(SONNET, 100_001), CheaperToSwitch);
-    assert_eq!(name(SONNET, 100_001, OffPeak), "deepseek_flash (off-peak)");
+    assert_eq!(at(OPUS, 100_001), CheaperToSwitch);
+    assert_eq!(name(OPUS, 100_001, OffPeak), "deepseek_flash (off-peak)");
+    // Sonnet 5.5 at the same two prefixes: Haiku's $0.10 is about the same as
+    // its $0.10 cache read, and one token past the tier Flash's $0.15 is dearer.
+    assert_eq!(at(SONNET, 100_000), AboutTheSame);
+    assert_eq!(at(SONNET, 100_001), CheaperToStay);
 }
 
 #[test]
@@ -174,13 +182,13 @@ fn nothing_is_cheaper_than_a_warm_haiku_or_a_warm_flash() {
 /// `routing::model`'s and is untouched.
 #[test]
 fn a_restricted_session_is_never_told_flash_is_cheaper() {
-    let s = full(SONNET, 180_000, OffPeak, NotAllowed);
+    let s = full(OPUS, 180_000, OffPeak, NotAllowed);
     // Without Flash the cheapest left at 180K is Haiku's long tier, $0.50,
     // against staying at $0.20: there is nothing cheaper to name.
     assert_eq!(s.cost, CheaperToStay);
     assert_eq!(s.cheaper_model, None);
     // The same message with the labels allowing it is Flash's.
-    let s = full(SONNET, 180_000, OffPeak, Allowed);
+    let s = full(OPUS, 180_000, OffPeak, Allowed);
     assert_eq!(s.cost, CheaperToSwitch);
     assert_eq!(
         s.cheaper_model.as_deref(),
@@ -191,10 +199,38 @@ fn a_restricted_session_is_never_told_flash_is_cheaper() {
         (Allowed, "haiku, deepseek_flash (off-peak)"),
         (NotAllowed, "haiku"),
     ] {
-        let s = full(SONNET, 40_000, OffPeak, r);
+        let s = full(OPUS, 40_000, OffPeak, r);
         assert_eq!(s.cost, CheaperToSwitch, "{r:?}");
         assert_eq!(s.cheaper_model.as_deref(), Some(named), "{r:?}");
     }
+}
+
+/// Sonnet 5.5 reads its cache at $0.10, the vendor's page (2026-11-14): Haiku's
+/// short tier is the same price, Flash is $0.15 off-peak and $0.30 at peak, and
+/// every long-tier Haiku price is $0.50, so no candidate is under staying by the
+/// band at any prefix, hour or data rule. The word is `about_the_same` where
+/// Haiku is the cheapest candidate, `cheaper_to_stay` past its tier, and no
+/// name is ever carried.
+#[test]
+fn a_warm_sonnet_is_never_told_a_switch_is_cheaper() {
+    let c = Catalog::builtin();
+    let mut seen = 0;
+    for n in (0..=500_000).step_by(5_000) {
+        for p in [OffPeak, Peak] {
+            for r in [Allowed, NotAllowed] {
+                let s = switch_cost(&c, Some(SONNET), n, p, r);
+                let want = if n <= 100_000 {
+                    AboutTheSame
+                } else {
+                    CheaperToStay
+                };
+                assert_eq!(s.cost, want, "{n} {p:?} {r:?}");
+                assert_eq!(s.cheaper_model, None, "{n} {p:?} {r:?}");
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, 101 * 2 * 2);
 }
 
 #[test]

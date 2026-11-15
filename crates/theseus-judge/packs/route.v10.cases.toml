@@ -1,3 +1,11 @@
+# VERSION 4 (2026-11-14, the owner's "A", chat message 1571308847040168028). NO LABEL MOVED. Sonnet 5.5's cache read is the
+# vendor's page's $0.10 (it was $0.20), which no candidate undercuts by the 20% band: warm on Sonnet, a prefix of 100,000 tokens or
+# less is `about_the_same` (Haiku's $0.10 input is the same price) and a longer one `cheaper_to_stay` (Flash's $0.15 off-peak),
+# and the daemon names no cheaper model. So the state of 53 cases follows the rule: the file's default is `about_the_same` (every
+# warm-Sonnet case at 100,000 tokens or less, 46 of them, and the default no longer names a model), and W1, W11, W12, W16, W33, W41
+# and W44 go `cheaper_to_switch` -> `cheaper_to_stay` with no name. W15 loses its `cheaper_model` (it is `about_the_same` now).
+# The state is derived, and `catalog::tests_switch` holds it to the rule. What the judge answers to each changed state is not
+# derived: it is measured, and the measured answers are in the report of that run.
 # VERSION 3 (theseus-h66v4.7 round 2, 2026-11-03). The owner read VERSION 2's report and ruled on the three cases it put to him
 # (Discord DM 09:18). His rulings, and what each did here:
 #   - W34 and W35 (a 140K-token compaction) KEEP their Haiku key: "Haiku can do long, that's an instruction update. It should
@@ -71,8 +79,7 @@ restricted_models = "allowed"
 price_period = "off_peak"
 est_tokens = 40000
 last_reply_model = "claude-sonnet-5-5"
-switch_cost = "cheaper_to_switch"
-cheaper_model = "haiku, deepseek_flash (off-peak)"
+switch_cost = "about_the_same"
 
 [[case]]
 id = "L1"
@@ -228,12 +235,11 @@ why = "item 37, the owner: leave, which was `default`; the option is gone and hi
 id = "W1"
 message = "thanks!"
 est_tokens = 200000
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "sonnet"
 effort = "low"
 must = true
-why = "greeting on a big session: at 200K off-peak the cheaper model is Flash, and a thank-you is not work Flash is for, while every other model (Haiku's long tier at $0.50) costs more than staying on the warm Sonnet, so it stays on Sonnet; the owner, 2026-10-29 22:50 (relabelled from haiku, theseus-h66v4.1; the state follows the daemon's named-candidate rule, theseus-h66v4.8)"
+why = "greeting on a big session: at 200K off-peak every other model costs more than staying on the warm Sonnet (Flash's $0.15 and Haiku's long tier at $0.50 against a $0.10 cache read), so it stays on Sonnet; the owner, 2026-10-29 22:50 (relabelled from haiku, theseus-h66v4.1; the state follows the daemon's rule, which named Flash as the cheaper model until Sonnet's cache read became the page's $0.10, 2026-11-14)"
 
 [[case]]
 id = "W2"
@@ -304,8 +310,7 @@ why = "planned feature, repo known, but new code paths: Sonnet"
 id = "W11"
 message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
 est_tokens = 180000
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "deepseek_flash"
 effort = "medium"
 must = true
@@ -315,8 +320,7 @@ why = "Flash's sentence: mechanical, known plan, long context, cheap to redo (re
 id = "W12"
 message = "add unit tests for `routing::carries` covering late, detour and unreachable"
 est_tokens = 120000
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "deepseek_flash"
 effort = "medium"
 why = "Flash: writing tests for code that works (repo open-source)"
@@ -346,7 +350,6 @@ why = "the data rule in the state wins over Flash's sentence (W11 with restricte
 id = "W15"
 message = "fix the failing test in the private service's ingest module, cause is the new column"
 restricted_models = "not_allowed"
-cheaper_model = "haiku"
 model = "sonnet"
 effort = "medium"
 must = true
@@ -356,12 +359,11 @@ why = "a sensitive-name hit makes restricted_models not_allowed: never a China-o
 id = "W16"
 message = "repeat the slow.sh load run until it fails, then bisect the commit"
 est_tokens = 160000
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "sonnet"
 effort = "high"
 must = true
-why = "terminal step-by-step work: not Flash (repo open-source), though at 160K off-peak the state names Flash as the cheaper model; cheaper does not mean it should do this work"
+why = "terminal step-by-step work: not Flash (repo open-source), and at 160K off-peak the state says cheaper_to_stay in any case"
 
 [[case]]
 id = "W17"
@@ -511,8 +513,7 @@ Now: no progress for 4 loops"""
 place_kind = "task_checkpoint"
 est_tokens = 220000
 task_models = ["claude-sonnet-5-5"]
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "opus"
 effort = "high"
 why = "the owner, 2026-11-03 09:18: \"If a stall is due to bad planning, strategy or tactics, then it's a model bump, but not otherwise.\" The loops show the task going round on its own strategy and re-deciding settled ground, so this half of the pair is the bump: up to Opus. Its twin is W44."
@@ -578,11 +579,10 @@ why = "the reviewer, when unpinned: Opus (differs from the builder)"
 id = "W41"
 message = "thanks, that fixed it"
 est_tokens = 200000
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "sonnet"
 effort = "low"
-why = "switch_cost: a thank-you on a 200K Sonnet session stays on Sonnet; the cheaper model named is Flash, which a thank-you is not for, and Haiku is dearer than staying at that length (theseus-h66v4.8)"
+why = "switch_cost: a thank-you on a 200K Sonnet session stays on Sonnet; the state says cheaper_to_stay, as Flash's $0.15 and Haiku's long tier at $0.50 are both dearer than a $0.10 cache read (theseus-h66v4.8; Flash was the cheaper model while Sonnet's cache read was $0.20)"
 
 [[case]]
 id = "W42"
@@ -624,8 +624,7 @@ Now: no progress for 4 loops"""
 place_kind = "task_checkpoint"
 est_tokens = 220000
 task_models = ["claude-sonnet-5-5"]
-switch_cost = "cheaper_to_switch"
-cheaper_model = "deepseek_flash (off-peak)"
+switch_cost = "cheaper_to_stay"
 model = "sonnet"
 effort = "high"
 why = "the second half of the owner's W33 split (09:18): the same task, stalled the same number of loops, but the loops show it waiting on an external job, not failing to think. \"If a stall is due to bad planning, strategy or tactics, then it's a model bump, but not otherwise\" -- so this one is not, and the task stays on the Sonnet it is on."

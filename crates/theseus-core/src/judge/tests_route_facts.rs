@@ -209,10 +209,18 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
     let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-sonnet-5-5"));
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
-    // The same model on 40K: a cheaper one is cheaper.
+    // The same model on 40K: Haiku's $0.10 input is Sonnet 5.5's $0.10 cache
+    // read, so about the same; on Opus, whose cache read is $0.20, it is cheaper.
     let nodes = [
         asked("one"),
         said_on("claude-sonnet-5-5", 40_000),
+        asked("two"),
+    ];
+    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    assert_eq!(f.switch_cost, Some(SwitchCost::AboutTheSame));
+    let nodes = [
+        asked("one"),
+        said_on("claude-opus-5-5", 40_000),
         asked("two"),
     ];
     let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
@@ -240,13 +248,15 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
 
 /// theseus-h66v4.8: the facts are priced at the hour the ask is made and under
 /// the session's data rule, and they name the cheaper model. The same 200K
-/// Sonnet session reads differently at peak and off-peak, which is the whole
-/// point of Flash being a candidate at all.
+/// warm session reads differently at peak and off-peak, which is the whole
+/// point of Flash being a candidate at all. It is read on Opus, whose $0.20
+/// cache read leaves two candidates under staying; a warm Sonnet 5.5 reads its
+/// cache at $0.10, which none undercuts, and is held to that at the end.
 #[test]
 fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
     let nodes = [
         asked("one"),
-        said_on("claude-sonnet-5-5", 200_000),
+        said_on("claude-opus-5-5", 200_000),
         asked("thanks"),
     ];
     // Peak: Flash's $0.30 input is dearer than the $0.20 cache read of staying.
@@ -274,11 +284,11 @@ fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
     assert_eq!(f.cheaper_model, None);
     // On a short session Haiku is the cheapest at either hour; at peak it is
-    // the only one under staying, and off-peak Flash's $0.15 is under Sonnet's
+    // the only one under staying, and off-peak Flash's $0.15 is under Opus's
     // $0.20 cache read too, so it is named after Haiku (theseus-g0phw).
     let short = [
         asked("one"),
-        said_on("claude-sonnet-5-5", 40_000),
+        said_on("claude-opus-5-5", 40_000),
         asked("two"),
     ];
     for (at, want) in [
@@ -287,6 +297,23 @@ fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
     ] {
         let f = facts_of(&short, false, RestrictedModels::Allowed, at);
         assert_eq!(f.cheaper_model.as_deref(), Some(want), "{at}");
+    }
+    // The same two sessions on Sonnet 5.5 ($0.10 cache read): nothing is under
+    // staying at either length or hour, and no model is named.
+    for (prompt, word) in [
+        (200_000, SwitchCost::CheaperToStay),
+        (40_000, SwitchCost::AboutTheSame),
+    ] {
+        for at in [TUE_0200_PHOENIX, TUE_0400_PHOENIX] {
+            let sonnet = [
+                asked("one"),
+                said_on("claude-sonnet-5-5", prompt),
+                asked("two"),
+            ];
+            let f = facts_of(&sonnet, false, RestrictedModels::Allowed, at);
+            assert_eq!(f.switch_cost, Some(word), "{prompt} {at}");
+            assert_eq!(f.cheaper_model, None, "{prompt} {at}");
+        }
     }
 }
 
