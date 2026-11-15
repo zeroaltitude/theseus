@@ -1321,6 +1321,75 @@ fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
     assert_eq!(r.ledger("sandbox.egress").len(), 1);
 }
 
+/// A job the operator STOPS (not one its deadline ends) while it holds a tunnel open: the wrapper stops the proxy with
+/// the job and writes no completion, and the connection is recorded all the same, as a `sandbox.egress` row and in the
+/// stopped job's result (theseus-zupk). Measured first: the cancel wrote the result with no row, and the detail the
+/// wrapper held was gone with it.
+#[test]
+fn a_stop_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
+    let port = stand_in();
+    let stand = format!("stand.test:{port}");
+    let r = Rig::start(|t| {
+        let tools = t.get_mut("tools").and_then(|v| v.as_table_mut()).unwrap();
+        tools.insert("proc_sync_secs".into(), 1.into());
+        let mut s = toml::Table::new();
+        s.insert(
+            "egress".into(),
+            toml::Value::Array(vec![toml::Value::String(stand.clone())]),
+        );
+        t.insert("sandbox".into(), toml::Value::Table(s));
+    });
+    let held = "exec 3<>/dev/tcp/127.0.0.1/3128\n\
+        printf 'CONNECT %s HTTP/1.1\\r\\n\\r\\n' \"$1\" >&3\n\
+        IFS= read -r status <&3\n\
+        sleep 60\n";
+    let call = json!({"argv": ["bash", "-c", held, "held", stand], "sandbox": true});
+    let (sid, out) = r.turn_in("held tunnel", vec![("proc_run", call)]);
+    assert!(out[0].contains("Still running as job j1 "), "{}", out[0]);
+    // The tunnel is up once the proxy has answered; the connection is counted when it is made.
+    std::thread::sleep(Duration::from_millis(1500));
+    let actions = r.call("action.list", json!({})).unwrap();
+    let job = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["tool"] == "proc.run" && a["state"] == "dispatched")
+        .cloned()
+        .expect("the job, running");
+    r.call(
+        "execution.cancel",
+        json!({"execution_id": job["execution_id"], "author": "test"}),
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    let rows = loop {
+        let rows = r.ledger("sandbox.egress");
+        if !rows.is_empty() || t0.elapsed() > Duration::from_secs(20) {
+            break rows;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(rows.len(), 1, "no egress row for a stopped job: {rows:?}");
+    assert_eq!(rows[0]["host"], "stand.test", "{rows:?}");
+    assert_eq!(rows[0]["connections"], 1, "{rows:?}");
+    let history = r
+        .call("session.history", json!({"session_id": sid}))
+        .unwrap();
+    let results: Vec<&str> = history["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["kind"] == "tool_result")
+        .filter_map(|n| n["text"].as_str())
+        .collect();
+    assert!(
+        results
+            .iter()
+            .any(|t| t.contains(&format!("[L1: it reached {stand} (1 connection, "))),
+        "the stopped job's result says what it reached: {results:?}"
+    );
+}
+
 /// A rig whose `[sandbox]` sets `limits` (`output_mb`, `scratch_mb`).
 fn limits_rig(limits: &[(&str, i64)]) -> Rig {
     Rig::start(|t| {

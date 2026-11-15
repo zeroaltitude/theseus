@@ -1248,6 +1248,62 @@ fn offered_in(r: &Rig, sid: &str, turn: &str) -> Vec<String> {
         .collect()
 }
 
+/// The item tools, the list among them, are a private place's alone (issue 13, review round 2's B3, the model's
+/// half): a conversation attached to a project is offered them where the owner's own message came from a private
+/// place, and in a shared place, or in a turn no message of his started, it is offered none, so the project's items
+/// are not read out to whoever else is in the room.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_item_tools_are_offered_in_a_private_place_alone() {
+    let jev = jev_says(REVERSIBLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let made = crate::tests_m3::rpc_as(
+        &r.core,
+        owner_cli(),
+        method::PROJECT_CREATE,
+        json!({"title": "Harbour survey", "review": "none"}),
+    )
+    .await
+    .expect("project.create");
+    let pid = made["project"]["id"].as_str().unwrap().to_string();
+    let sid = session(&r.core);
+    crate::tests_m3::rpc_as(
+        &r.core,
+        owner_cli(),
+        method::PROJECT_ATTACH,
+        json!({"session": sid, "project": pid}),
+    )
+    .await
+    .expect("project.attach");
+    let acts = &r.core.runner.tools.chat_acts;
+    let items_offered = |turn: &str, class: crate::places::PlaceClass, continuation: bool| {
+        acts.heard.stage(
+            &sid,
+            crate::chat_acts::Said {
+                text: "whatever he said".into(),
+                who: crate::approval::Answerer::from("owner"),
+                owner_input: true,
+            },
+        );
+        acts.offers(&sid, turn, class, continuation)
+            .iter()
+            .filter_map(|d| d["name"].as_str())
+            .any(|n| n == "project_item_list")
+    };
+    use crate::places::PlaceClass;
+    assert!(
+        items_offered("turn_p", PlaceClass::Private, false),
+        "a private place is offered the list"
+    );
+    assert!(
+        !items_offered("turn_s", PlaceClass::Shared, false),
+        "a shared place is not"
+    );
+    assert!(
+        !items_offered("turn_c", PlaceClass::Private, true),
+        "nor is a turn no message of his started"
+    );
+}
+
 /// **Seal this thread is a tool the model calls, and the old phrases seal
 /// nothing** (issue 13; the successor of
 /// `the_owners_explicit_verb_seals_the_thread`, which asserted that `/seal` and

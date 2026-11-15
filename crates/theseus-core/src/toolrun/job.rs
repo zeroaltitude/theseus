@@ -863,8 +863,11 @@ impl ToolRuntime {
         tool: &'a str,
         input: Option<&Value>,
     ) -> ResultNode<'a> {
+        // A job a cancel stopped has no completion: its wrapper left its report beside the verdict
+        // (theseus-zupk), so what it reached on the network is read as a finished job's is.
         let detail = completion
-            .and_then(|c| c.detail.clone())
+            .map(|c| c.detail.clone().unwrap_or(Value::Null))
+            .or_else(|| self.spool.as_ref()?.read_detail(&a.correlation_id))
             .unwrap_or(Value::Null);
         // An L1 job's launch, as health's last one (theseus-gyin).
         if let Some(c) = completion {
@@ -1103,6 +1106,7 @@ impl ToolRuntime {
             return;
         }
         beside::forget(corr);
+        spool.remove_detail(corr);
         match a.result_ref.as_deref() {
             Some(path) => self.remove_raw_output(path),
             None => self.remove_raw_output(&spool.result_path(corr).to_string_lossy()),

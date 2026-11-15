@@ -104,6 +104,24 @@ impl FakeDiscord {
         self.send_interaction(from, |i| fake_gateway::slash_command(i, None, data))
     }
 
+    /// `/<command> <group> <sub> key:value…`: a subcommand inside a group
+    /// (`/project item list project:…`), whose options are strings.
+    pub fn slash_in_group(
+        &self,
+        from: &Sender<'_>,
+        command: &str,
+        (group, sub): (&str, &str),
+        options: &[(&str, &str)],
+    ) -> Result<String, String> {
+        let options: Vec<Value> = options
+            .iter()
+            .map(|(k, v)| json!({"name": k, "type": 3, "value": v}))
+            .collect();
+        let data = json!({"id": "1000000000000000004", "name": command, "type": 1, "options": [
+            {"name": group, "type": 2, "options": [{"name": sub, "type": 1, "options": options}]}]});
+        self.send_interaction(from, |i| fake_gateway::slash_command(i, None, data))
+    }
+
     /// The autocomplete of `command`'s option `focused`, after `typed`.
     pub fn autocomplete_typed(
         &self,

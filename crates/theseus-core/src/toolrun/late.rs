@@ -232,7 +232,13 @@ impl ToolRuntime {
                 return Ok(t);
             }
             let (nodes, raw) = self.cancelled_results(k, store, session_id, &e)?;
-            let records = nodes.iter().map(Node::record).collect::<Result<Vec<_>>>()?;
+            // A stopped job's egress rows ride with its result, as a completed job's do
+            // (theseus-zupk).
+            let mut records = Vec::new();
+            for n in &nodes {
+                records.push(n.record()?);
+                records.extend(egress::rows_in(Some(session_id), n.turn_id.as_deref(), n)?);
+            }
             k.stage(&records)?;
             (written, outputs) = (nodes, raw);
             Ok(t)
@@ -241,6 +247,9 @@ impl ToolRuntime {
         // result read within a turn (`answer_job`, theseus-wz2).
         for a in &outputs {
             self.remove_job_output(a);
+        }
+        for n in &written {
+            egress::seen(&self.sandbox, n);
         }
         Ok((written, t))
     }
@@ -473,6 +482,7 @@ fn call_input<'n>(nodes: &'n crate::store::Transcript, correlation_id: &str) -> 
 /// wrote, as a turn tells them of its own (`announce_end`).
 pub(crate) fn announce_cancelled(rec: &crate::fact::Rec<'_>, session_id: &str, nodes: &[Node]) {
     for node in nodes {
+        egress::said(rec, node);
         rec.record(&fact::tool::ToolEnded {
             session_id,
             turn_id: node.turn_id.as_deref().unwrap_or_default(),
