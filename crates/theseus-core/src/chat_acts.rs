@@ -35,7 +35,8 @@
 //! for a message and asks when unsure; it moves nothing already written.
 //! `expect_correction` and `expect_capture` read his words too, but hand a hint
 //! to Jev rather than acting. The read of the whole turn path for issue 13
-//! found no other place acting on a match of a message's text.
+//! found no other place acting on a match of a message's text. The rest of issue
+//! 13's notes for the core are in `docs/design/trust-tools-and-data.md`.
 //!
 //! What replaces the three routes is three tools (and since issue 13 five more:
 //! seal, move, and a project's item add, close and list):
