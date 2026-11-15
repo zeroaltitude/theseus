@@ -272,7 +272,8 @@ siblings. A rename of a wire field or a stored value is a store-format step, nev
 - **The generated TypeScript is part of the change.** Any test run of this crate rewrites
   `cockpit/src/protocol.gen/` (`the_cockpits_types_are_generated_from_the_rust_ones`). `git add` it, or the gate
   fails. A `serde_json::Value` field names its TypeScript type with `#[ts(type = "...")]`. Large integers are
-  `number`.
+  `number`. The test reads every source file of the crate (issue 15): a public type is a wire type, derives `TS`
+  and is on its export list, or is on `ts.rs`'s `NOT_WIRE` with the reason it never crosses the wire.
 
 ## Tests
 
