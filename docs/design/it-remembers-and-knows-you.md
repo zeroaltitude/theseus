@@ -22,7 +22,7 @@ _Issue 9. Notes for the core crate that would have gone in its AGENTS.md, which 
   the sweep is about to make a kind for is asked one cheap text call, paid under `[ontology] sweep_usd_per_day` and held on
   the day's ceiling, written as an `onto.named` row of kind `class`. The kind is the one lowercase word it gives; every name
   of the cluster is an entry under it. A failed, over-cap or unusable call, or a word that is a name itself, makes no kind
-  that night. With the model part off the kind is named after the thing as before, and Jev's `name_it` pick names nothing now.
+  that night. With the model part off (`sweep_usd_per_day = 0`) no kind is made at all: what the sweep would have filed waits for a night when the model part is on (the owner's choice, 2026-11-14). Jev's `name_it` pick names nothing now.
 - **The one-time cleanup** (`judge/onto/tidy.rs`, `tests_onto_tidy.rs`; the owner's yes of 2026-11-14 to its rule). The sweep
   may retire an entry of the kind that holds folders and files, that Theseus made (`jev:`), with no guidance, every session
   filed under it a conversation of the self-improvement loop's own, as one undoable write (`sweep-<ms>-<n>-tidy`) that
