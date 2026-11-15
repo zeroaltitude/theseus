@@ -7,9 +7,9 @@
 // What is selected is in the address (`?sel=`, and `?pane=details`), so a link reopens it. Every act is the
 // Operations page's own: an answer is `work.answer`, a message is `turn.submit`, each confirmed where that page
 // confirms it.
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
-import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, ListTodo, Loader, Lock, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, Split, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, Keyboard, ListTodo, Loader, Lock, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, Split, type LucideIcon } from 'lucide-react'
 import type { ConfirmRequest, SessionInfo, SessionListResult, TaskListResult } from '@protocol'
 import { useConn, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
@@ -32,6 +32,8 @@ import { NewTask } from '@/ops/NewTask'
 import { Toast } from '@/ops/Toast'
 import { Page, Stat } from './kit'
 import { workSetOf, defaultSel, selectedOf } from './ops/workset'
+import { useOpsKeys } from './ops/useOpsKeys'
+import { KeysHelp } from './ops/KeysHelp'
 
 /** One empty list for every absent read, so a memo over it holds. */
 const NONE: never[] = []
@@ -87,14 +89,21 @@ export default function SimpleOps() {
   const [note, setNote] = useState<{ key: string; text: string } | null>(null)
   const [menu, setMenu] = useState<{ kind: 'model' | 'mode'; sid: string } | null>(null)
   const [newTask, setNewTask] = useState(false)
+  const [keysOpen, setKeysOpen] = useState(false)
   const menuSession = menu ? sessions.find((x) => x.session_id === menu.sid) : undefined
   const onMenu = (kind: 'model' | 'mode', sid: string) => setMenu({ kind, sid })
+  useOpsKeys({ work, sessions, sel, pick, showDetails: () => set({ pane: 'details' }), note, setNote, modal: newTask || !!menu, keysOpen, toggleKeys: () => setKeysOpen((v) => !v), newTask: () => setNewTask(true), menu: onMenu, history: history.rows })
+  // The choice a key moves to is scrolled into view.
+  useEffect(() => { document.querySelector('.simple-row[aria-current="true"]')?.scrollIntoView({ block: 'nearest' }) }, [sel])
 
   const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
     <Page fill title="Ops" sub="What Theseus is doing right now, what waits for you, and what comes next."
-      actions={<button type="button" onClick={() => setNewTask(true)} className="brass-button"><Plus size={14} aria-hidden /> New task</button>}>
+      actions={<>
+        <button type="button" onClick={() => setKeysOpen(true)} className="brass-button" title="The keys that work on this page (press ? too)"><Keyboard size={14} aria-hidden /> Keys</button>
+        <button type="button" onClick={() => setNewTask(true)} className="brass-button"><Plus size={14} aria-hidden /> New task</button>
+      </>}>
       <Panel help="simple.ops.now" title="Right now" icon={<Radio size={14} />} className="shrink-0" bodyClassName="grid grid-cols-2 gap-1 p-2 sm:grid-cols-5">
         <Stat n={counts.needs} label={counts.needs === 1 ? 'needs you' : 'need you'} tone={counts.needs > 0 ? 'wait' : undefined} onClick={() => jump('ops-needs')} title="pieces of work that wait on you" />
         <Stat n={counts.working} label="in flight" tone={counts.working > 0 ? 'live' : undefined} onClick={() => jump('ops-flight')} title="tasks and conversations working now" />
@@ -143,6 +152,7 @@ export default function SimpleOps() {
         <Detail item={item} row={row} session={session} rows={rows} records={records} confirms={confirms} now={now} tab={paneAsked} onTab={(pane) => set({ pane })}
           note={note} onNote={setNote} onMenu={onMenu} onPick={pick} />
       </div>
+      {keysOpen && <KeysHelp onClose={() => setKeysOpen(false)} />}
       {newTask && <NewTask home={row?.kind === 'conversation' ? row.sessionId ?? '' : ''} onClose={() => setNewTask(false)} onStarted={(id) => { setNewTask(false); pick(id) }} />}
       {menu?.kind === 'model' && menuSession && <ModelMenu session={menuSession} onClose={() => setMenu(null)} />}
       {menu?.kind === 'mode' && menuSession && <ModeMenu session={menuSession} onClose={() => setMenu(null)} />}
@@ -161,11 +171,13 @@ const counted = (title: string, n: number, glow = false, more?: string) => (
 function Rows({ empty, short, children }: { empty: string; /** show only the first few until asked */ short?: boolean; children: ReactNode }) {
   const all = (Array.isArray(children) ? children.flat() : [children]).filter(Boolean)
   const [open, setOpen] = useState(false)
-  const shown = short && !open ? all.slice(0, SHORT) : all
+  // A choice a key moved to is never hidden behind "show all".
+  const chosen = all.findIndex((c) => (c as { props?: { current?: boolean } }).props?.current)
+  const shown = short && !open && chosen < SHORT ? all.slice(0, SHORT) : all
   return (
     <>
       {all.length === 0 ? <div className="px-3 py-4 text-[12.5px] text-ink-faint">{empty}</div> : shown}
-      {short && all.length > SHORT && (
+      {short && all.length > SHORT && chosen < SHORT && (
         <button type="button" onClick={() => setOpen(!open)} className="mt-0.5 w-full rounded-lg px-3 py-1.5 text-left text-[12px] text-live hover:underline">{open ? 'Show fewer' : `Show all ${all.length}`}</button>
       )}
     </>

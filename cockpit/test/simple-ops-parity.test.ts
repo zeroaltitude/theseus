@@ -112,4 +112,7 @@ test('a running turn is steered from the simple page by the Ship’s Join pane: 
   assert.match(mine, /import \{ JoinPane \} from '@\/ops\/JoinPane'/)
   assert.match(mine, /<JoinPane key=\{sid\} sessionId=\{sid\} session=\{row\?\.session \?\? session\}/)
   assert.match(src('ops/JoinPane.tsx'), /post\('join', 'turn\.submit', params\)/)
+  // The page can stop and pause a running turn by key, too, through the same acts as the Ship's page.
+  const keys = src('simple/ops/useOpsKeys.ts')
+  assert.match(keys, /'execution\.stop', \{ execution_id: f\.exe \}/)
 })

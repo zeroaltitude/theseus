@@ -481,3 +481,13 @@ build.
   the shader file, not the cause.
 - **Never add a `/ws` proxy** (theseus-88im): it relays other pages and users to the daemon from your socket.
 - The first load after adding a dependency can fail while Vite re-optimizes ("Outdated Optimize Dep"). Load it again.
+
+## The simple Ops page: one work set, one key table (issue 17)
+
+`simple/ops/workset.ts` is the page's whole work set, the Operations page's own steps run once (`queueOf`, `boardRows`,
+`columnsOf`, `allCounters`, `spendToday`): never call them in `simple/Ops.tsx`. `test/simple-ops-parity.test.ts` runs the
+Ship's pipeline and this one over `test/simple-ops-fixtures.ts` and holds every number equal, each list as long as its
+counter (In flight lists the counted cards; a job is inside its card). Keys: `simple/ops/keys.ts` names which entries of
+`ops/keys.ts` work here (`SIMPLE_VERBS`) and resolves them by the Ship's rules; `useOpsKeys.ts` is the handler and the
+Keys dialog is `helpHere()`, the same table's overlay. A new entry in `ops/keys.ts` needs a verdict here: the keys test
+fails until it is in `SIMPLE_VERBS` with a handler, or left out on purpose.

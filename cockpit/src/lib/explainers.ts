@@ -27,11 +27,11 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A number that is not what you expect is the reason to look further. Needs you above zero means something is stopped until you answer it.'),
   'simple.ops.needs': e(
     'List everything that is waiting for you, the longest waiting first.',
-    'One row is one thing to answer: an approval, a budget question, a choice, a failure, a seal, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. Click a row to open it on the right, with its answers.',
+    'One row is one thing to answer: an approval, a budget question, a choice, a failure, a seal, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. The number at the top counts pieces of work, so it is the same as the number above; when one piece of work holds two questions the rows are one more, and the heading says how many there are to answer. Click a row to open it on the right, with its answers.',
     'Work behind one of these does not move until you answer. Clearing this list is the most useful thing you can do on this page.'),
   'simple.ops.flight': e(
     'Show what Theseus is working on right now.',
-    'One row is one task, conversation or job that is running. Under its title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
+    'One row is one task or conversation that is running; a job it started is shown inside it, under Details. Under the title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
     'If a row has not changed for a long time, or is doing something you did not expect, open it and steer it before it spends more.'),
   'simple.ops.planned': e(
     'Show the work that is planned and has not started: what comes after the things running now.',
@@ -47,7 +47,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A task that failed or was cancelled is here as well as the ones that worked. Read the report before you rely on the result.'),
   'simple.ops.session': e(
     'Open one piece of work whole, to watch it and to guide it.',
-    'Talk is its conversation, live, with a box to write to it: a message sent while it works steers the running turn. Anything it has asked you is answered at the top. Details holds its facts (state, model, place, spend), its controls (pause, stop, cancel, change the model or the mode) and its record. With nothing chosen, the first thing waiting on you is shown.',
+    'Talk is its conversation, live, with a box to write to it: a message sent while it works steers the running turn. Anything it has asked you is answered at the top. Details holds its facts, its controls (pause, stop, cancel, change the model or the mode) and its record. With nothing chosen, the first thing waiting on you is shown. Keys work here: j and k move, tab goes to the next thing that waits on you, y and n answer it; ? lists them all.',
     'This is where you act. Answering, steering, pausing and stopping here are the same acts as everywhere else in Theseus, and each is written to the ledger.'),
 
   // ---- the Ship
