@@ -31,6 +31,7 @@ import { RehomeSheet, RescheduleSheet } from './TaskSheets'
 import { targetOf, verbEntries } from './palette'
 import { isRunning } from './state'
 import { useRunEntry } from './useRunEntry'
+import { Horizon } from '../simple/ops/Horizon'
 
 /** What the inspector needs of the page beyond the selection. */
 export interface InspectorCx {
@@ -210,6 +211,8 @@ function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readon
   const rec = recordFacts(r.record ?? cx.records.find((t) => t.id === r.recordId), now)
   const { on } = useOpsAct()
   const select = cx.onParent // the page's `pick`: a plan's child, a breadcrumb or a dependency
+  // A project is a long-horizon task: its plan, next steps and what it waits on, with the change the daemon offers (issue 17).
+  const proj = r.record?.kind === 'project' ? r.record : cx.records.find((t) => t.id === r.recordId && t.kind === 'project')
   return (
     <div className="flex flex-col gap-2 p-2.5" data-testid="inspector-step">
       <div className="flex items-center gap-1.5">
@@ -223,6 +226,7 @@ function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readon
           <ul className="flex flex-col gap-0.5 text-[12px]">{v.children.map((c) => <li key={c.id}><button type="button" onClick={() => select(c.id)} className={cn('flex w-full items-baseline gap-2 text-left hover:underline', c.closed ? 'text-ink-faint' : 'text-ink')}><span aria-hidden>{c.glyph}</span><span className="min-w-0 flex-1 truncate">{c.title}</span><span className="num text-[10.5px] text-ink-faint">{c.stateWord}</span></button></li>)}</ul>
         </Section>
       )}
+      {proj && <Horizon project={proj.id} now={now} onPick={select} />}
       {rec && <Section title="Record"><RecordBlock f={rec} /></Section>}
       {r.record?.deps.length ? <Section title="Waits on"><ul className="flex flex-wrap gap-1.5 text-[11.5px]">{r.record.deps.map((d) => <li key={d}><button type="button" onClick={() => select(d)} className="num text-live hover:underline">{d}</button></li>)}</ul></Section> : null}
       {v.history.length > 0 && <Section title="History" hint={v.ledger && <Link className="text-live" to={v.ledger}>its ledger rows</Link>}><Facts lines={v.history} /></Section>}

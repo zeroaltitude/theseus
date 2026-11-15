@@ -498,4 +498,6 @@ Ship's pipeline and this one over `test/simple-ops-fixtures.ts` and holds every 
 counter (In flight lists the counted cards; a job is inside its card). Keys: `simple/ops/keys.ts` names which entries of
 `ops/keys.ts` work here (`SIMPLE_VERBS`) and resolves them by the Ship's rules; `useOpsKeys.ts` is the handler and the
 Keys dialog is `helpHere()`, the same table's overlay. A new entry in `ops/keys.ts` needs a verdict here: the keys test
-fails until it is in `SIMPLE_VERBS` with a handler, or left out on purpose.
+fails until it is in `SIMPLE_VERBS` with a handler, or left out on purpose. A project's plan, next steps and what it waits on
+(`simple/ops/Horizon.tsx` over `horizon.ts`, `project.show` and issue 13's `project.item.add` and `.close`) is a section of the
+Inspector, so both Operations pages draw the one component.

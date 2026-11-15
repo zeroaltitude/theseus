@@ -50,6 +50,12 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Talk is its conversation, live, with a box to write to it: a message sent while it works steers the running turn. Anything it has asked you is answered at the top. Details holds its facts, its controls (pause, stop, cancel, change the model or the mode) and its record. With nothing chosen, the first thing waiting on you is shown. Keys work here: j and k move, tab goes to the next thing that waits on you, y and n answer it; ? lists them all.',
     'This is where you act. Answering, steering, pausing and stopping here are the same acts as everywhere else in Theseus, and each is written to the ledger.'),
 
+  // ---- the simple pages (src/simple): Ops, a long-horizon task (also drawn on the Ship's Operations page)
+  'simple.ops.horizon': e(
+    'Show a long-horizon task whole: what Theseus plans for it, what comes next, and what it is waiting on, and let you change the list of steps.',
+    'The count is steps or milestones done of the total. Plan holds the dated milestones. Doing now and Next steps are the steps under the project that are being worked and that no one has begun. Waiting on names each thing that is stopped and why: it waits for a person, another step, a change you have not answered, or a date that has passed.',
+    'Long work only moves if the next step is right and nothing is stuck. Add a step to say what should come next; press Done on one that is finished. Both are written to the ledger.'),
+
   // ---- the Ship
   'ship.watch': e(
     'Answer the six questions an operator asks first: what is working, what waits for me, what is slow, what has it cost today, what went wrong, and what happened while I was away.',
