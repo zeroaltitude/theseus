@@ -1,8 +1,8 @@
 // The context explorer (theseus-7n3e): what Theseus knows and what a turn sees. Its holdings (the owner's sessions, the
-// imported episodes and their nodes, the topics, the books' state, the index), then four tabs: the imported episodes
+// imported episodes and their nodes, the topics, the shelves' state, the index), then four tabs: the imported episodes
 // (`import.sessions`: filtered, counted by facet, a page at a time, each opened to its provenance, summary and
 // messages), a turn's context (`context.explain`, in components/ContextTurn.tsx), asking the index (`memory.search`),
-// and the books. Read only: no control here writes. Every filter, the tab, the page and the episode open are in the
+// and the shelves (the tab keeps the id `books`). Read only: no control here writes. Every filter, the tab, the page and the episode open are in the
 // address, so any view deep-links. The pure parts are lib/explorer.ts.
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router'
@@ -20,6 +20,7 @@ import { useInPast } from '@/components/OntologyParts'
 import { AskIndex, TurnContext } from '@/components/ContextTurn'
 import { StandingRecords } from '@/components/StandingRecords'
 import { CardProposals } from '@/components/CardProposals'
+import { BOOK_WORDS } from '@/lib/books'
 import {
   DATED_FLOOR, PAGE, RANGES, SCALES, TABS, ancestors, barHeight, count, filtersOf, monthSpan, namedParams, ontologyPaths, paramsOf, rangeOf, scaleOf, sensitivityWords, tabOf, timelineView, topicTree, veiled, when,
   type FilterKey, type Tab,
@@ -42,7 +43,7 @@ const TAB_WORDS: Record<Tab, { word: string; icon: ReactNode }> = {
   episodes: { word: 'Episodes', icon: <Library size={13} /> },
   turn: { word: 'A turn’s context', icon: <Layers size={13} /> },
   search: { word: 'Ask the index', icon: <Search size={13} /> },
-  books: { word: 'The books', icon: <BookOpen size={13} /> },
+  books: { word: 'The shelves', icon: <BookOpen size={13} /> },
   standing: { word: 'Standing', icon: <Pin size={13} /> },
   card: { word: 'Card', icon: <Pin size={13} /> },
 }
@@ -102,8 +103,8 @@ function Holdings({ go }: { go: (tab: Tab, patch?: Patch) => void }) {
         hint="messages and summaries, recall’s testimony" onClick={() => go('episodes')} />
       <StatTile label="topics" icon={<ListTree size={12} />} value={topics.length} format={count}
         hint={ontoTopics ? `${roots} roots · ${count(ontoTopics)} in the ontology` : `${roots} roots, from the labels · none in the ontology yet`} onClick={() => go('episodes')} />
-      <StatTile label="book hints" icon={<BookOpen size={12} />} value={hinted} format={count}
-        hint="sorted history; the books are not written yet" onClick={() => go('books')} />
+      <StatTile label="on shelves" icon={<BookOpen size={12} />} value={hinted} format={count}
+        hint="sorted history, not written books" onClick={() => go('books')} />
       <StatTile label="indexed nodes" icon={<Telescope size={12} />} value={index?.status?.nodes ?? 0} format={count}
         hint={index ? `${index.state}${index.status?.vectors ? ` · vectors ${count(index.status.vectors.vectors)} of ${count(index.status.vectors.chunks)} chunks` : ''}` : 'reading…'} onClick={() => go('search')} />
     </div>
@@ -116,7 +117,7 @@ const FACETS: { key: FilterKey; facet: 'tags' | 'sources' | 'places' | 'sensitiv
   { key: 'source', facet: 'sources', word: 'source' },
   { key: 'place', facet: 'places', word: 'place' },
   { key: 'sens', facet: 'sensitivities', word: 'sensitivity' },
-  { key: 'book', facet: 'books', word: 'book hint' },
+  { key: 'book', facet: 'books', word: 'shelf' },
   { key: 'tag', facet: 'tags', word: 'import' },
 ]
 
@@ -392,7 +393,7 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
           <>
             <div className="flex flex-wrap items-center gap-1.5">
               <Sensitivity s={e.sensitivity} />
-              {e.book && <Pill tone="model" title="the import's guess at the book this belongs in">book: {e.book}</Pill>}
+              {e.book && <Pill tone="model" title="the shelf the import guessed this belongs on">shelf: {e.book}</Pill>}
               {e.partner && <Pill tone="fault">{e.partner}</Pill>}
               {e.triage && <Pill tone="idle" title={`the pipeline's triage: keep ${e.keep?.toFixed(2) ?? '—'}`}>{e.triage}</Pill>}
               {e.topics.map((t) => <button key={t} type="button" onClick={() => onTopic(t)} className="rounded bg-white/[0.04] px-1.5 py-px text-[10.5px] text-ink-dim ring-1 ring-inset ring-line hover:text-ink">{t}</button>)}
@@ -463,18 +464,8 @@ function Message({ n, cited }: { n: NodeInfo; cited: boolean }) {
 
 // ---------------------------------------------------------------- books
 
-const BOOK_WORDS: Record<string, string> = {
-  dictionary: 'terms and their meanings',
-  encyclopedia: 'what is known about things',
-  cookbook: 'procedures that worked',
-  sop: 'the operator’s standing procedures',
-  diary: 'what happened, day by day',
-  casebook: 'decisions and what superseded them',
-  register: 'tracked work',
-}
-
-/** The books, said honestly and in plain words (the owner's question of 2026-11-14): what is there now is the import's
- *  guess at where each episode belongs; the books Theseus would write from them are not built. */
+/** The shelves, said honestly and in plain words (the owner's question of 2026-11-14): shelves exist, the import's guess at
+ *  where each episode belongs; the books Theseus will write from them are planned for 3.0.0 and not built. */
 function Books({ go }: { go: (book: string) => void }) {
   // Shown inside the simple pages' Memories section, the Books view is that section's other tab, not the Ship's page.
   const booksAt = useLocation().pathname.startsWith('/memories') ? '/memories?v=books' : '/books'
@@ -483,16 +474,16 @@ function Books({ go }: { go: (book: string) => void }) {
   const hinted = books.reduce((a, b) => a + b.count, 0)
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <Panel help="context.books" title="the books" icon={<BookOpen size={13} />}>
+      <Panel help="context.books" title="shelves today · books planned" icon={<BookOpen size={13} />}>
         <div className="flex flex-col gap-2 p-3 text-[12.5px] leading-relaxed text-ink-dim">
-          <p><span className="text-ink">Your imported history is sorted onto seven shelves</span> (a dictionary, an encyclopedia, a cookbook, standing procedures, a diary, a casebook and a register) by the import’s best guess at where each conversation belongs: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} have a shelf, on the right. <Link to={booksAt} className="text-live hover:underline">Browse them by book in the Books view →</Link></p>
-          <p><span className="text-ink">Theseus has not written the books themselves yet.</span> The step after this one is for it to write each book from those conversations: a real dictionary of your terms, an encyclopedia of facts, a cookbook of how-tos. Until it does, recall reads the conversations directly.</p>
+          <p><span className="text-ink">Shelves exist today.</span> Your imported history is sorted onto seven shelves (a dictionary, an encyclopedia, a cookbook, standing procedures, a diary, a casebook and a register) by the import’s best guess at where each conversation belongs: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} have a shelf, on the right. <Link to={booksAt} className="text-live hover:underline">Browse the shelves →</Link></p>
+          <p><span className="text-ink">Written books are planned for Theseus 3.0.0 and are not built.</span> A book is what Theseus will write from a shelf: a real dictionary of your terms, an encyclopedia of facts, a cookbook of how-tos. Until then, recall reads the conversations directly.</p>
         </div>
       </Panel>
-      <ChartPanel id="books" help="context.hints" title="book hints · episodes a book" icon={<Library size={13} />} height={Math.max(120, books.length * 30 + 16)}
-        empty={books.length ? undefined : 'no hints'}
-        table={{ caption: 'imported episodes by the book the import hinted', rows: books, rowKey: (b) => b.value,
-          columns: [{ key: 'b', label: 'book', cell: (b) => b.value }, { key: 'w', label: 'what it holds', cell: (b) => BOOK_WORDS[b.value] ?? '' }, { key: 'n', label: 'episodes', num: true, cell: (b) => count(b.count) }] }}>
+      <ChartPanel id="books" help="context.hints" title="shelves · episodes on a shelf" icon={<Library size={13} />} height={Math.max(120, books.length * 30 + 16)}
+        empty={books.length ? undefined : 'nothing on a shelf yet'}
+        table={{ caption: 'imported episodes by the shelf the import put them on', rows: books, rowKey: (b) => b.value,
+          columns: [{ key: 'b', label: 'shelf', cell: (b) => b.value }, { key: 'w', label: 'what it holds', cell: (b) => BOOK_WORDS[b.value] ?? '' }, { key: 'n', label: 'episodes', num: true, cell: (b) => count(b.count) }] }}>
         <BookBars books={books} go={go} />
       </ChartPanel>
     </div>
@@ -507,7 +498,7 @@ function BookBars({ books, go }: { books: ImportFacet[]; go: (book: string) => v
     <TipArea className="flex flex-col gap-1.5 p-1">
       {books.map((b) => (
         <TipTarget key={b.value} onClick={() => go(b.value)} label={`${b.value}: ${b.count} episodes`} className="viz-mark flex items-center gap-2 text-left"
-          tip={<TipBody head={b.value} rows={[{ value: count(b.count), label: 'episodes hinted here', color, mark: 'rect' }]} foot="click to list them" />}>
+          tip={<TipBody head={b.value} rows={[{ value: count(b.count), label: 'episodes on this shelf', color, mark: 'rect' }]} foot="click to list them" />}>
           <span className="w-24 shrink-0 truncate text-[11.5px] text-ink-dim">{b.value}</span>
           <span className="h-3 rounded-r-[3px]" style={{ width: `${(b.count / max) * 70}%`, minWidth: 2, background: color }} />
           <span className="num text-[11px] text-ink">{count(b.count)}</span>

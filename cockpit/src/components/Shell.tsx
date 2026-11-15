@@ -52,7 +52,7 @@ const NAV = [
   { to: '/systems', label: 'Systems', icon: Cpu },
   { to: '/ontology', label: 'Ontology', icon: Shapes },
   { to: '/context', label: 'Context', icon: Telescope },
-  { to: '/books', label: 'Books', icon: Library },
+  { to: '/books', label: 'Shelves', icon: Library },
 ] as const
 
 type NavItemDef = (typeof NAV)[number]
