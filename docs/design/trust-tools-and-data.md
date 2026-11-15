@@ -32,8 +32,9 @@ repeat cap (`turn/repeat_step.rs`) bounds a model that asks for the same refused
   wrote to scratch occupies the whole limit, from `Scratch.allocated`). Never `pids` (no cgroup), and not a full `/tmp`,
   `/dev/shm` or HOME. Counted as `theseus.sandbox.limit_hits{limit}`; a job's start as `theseus.job.start_ms{class}`,
   both once per result (`Sandbox::counted`).
-- Known gap, measured: an L1 job a cancel stops mid-tunnel has no `sandbox.egress` row, because the cancel writes its
-  result before the wrapper's completion is in the store.
+- A job a cancel stops writes no completion, so its wrapper leaves its `detail` in the spool (`results/<id>.detail`)
+  before its verdict; the stopped job's result reads it, and its `sandbox.egress` rows ride in the frame the cancel's
+  answer writes (theseus-zupk). Its limits are still not read.
 - `theseusd example-config --for-this-host` is the template with `[sandbox] default` chosen by L1's own self-test
   (`sandbox/new_install.rs`); `scripts/setup.sh` writes a new config from it. The built-in default stays `l0`.
 - `proc.run` stops offering `sandbox` for a root daemon (`Run::without_sandbox`); a container that cannot make user

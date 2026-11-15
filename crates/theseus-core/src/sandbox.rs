@@ -743,7 +743,8 @@ impl Sandbox {
     }
 
     /// An L1 job's result, counted once where its rows are written
-    /// (`egress::record` in a turn, `egress::announce` for a late result), and
+    /// (`egress::record` in a turn, `egress::announce` for a late result,
+    /// `egress::seen` for a cancel's answer), and
     /// not where health reads a launch, which any result may do again and in
     /// any order: its start (`theseus.job.start_ms`) and each limit it
     /// reached (`theseus.sandbox.limit_hits`). An L0 job's detail has neither.
