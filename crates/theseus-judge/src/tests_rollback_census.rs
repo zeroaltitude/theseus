@@ -66,8 +66,8 @@ fn the_rollback_rules_no_production_code_can_feed_are_exactly_these() {
         .map(|(p, r)| ((*p).to_string(), *r))
         .collect();
     assert_eq!(
-        declared, 26,
-        "the embedded packs declare 26 rollback rules in all"
+        declared, 29,
+        "the embedded packs declare 29 rollback rules in all"
     );
     assert_eq!(
         dead, expected,

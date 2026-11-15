@@ -491,7 +491,7 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "classify.v4: off",
             "role.v1: off",
             "split.v1: off",
-            "route.v10: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-29))",
+            "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
         "directive.v2: off",
         "onto.v1: off",
         "same_thing.v1: live",

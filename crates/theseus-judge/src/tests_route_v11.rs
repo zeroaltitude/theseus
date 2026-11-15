@@ -26,6 +26,8 @@ fn v11_is_v10_but_for_the_fable_options_words() {
     assert_eq!((v10.version, v11.version), (10, 11));
     let mut planted = (*v10).clone();
     planted.version = 11;
+    // The file's own hash is the one field that is its text, not what it says.
+    planted.sha256 = v11.sha256.clone();
     for q in planted.questions.iter_mut().filter(|q| q.id == "model") {
         for o in q.options.iter_mut().filter(|o| o.id == "fable") {
             o.means = Some(means_of(&v11));

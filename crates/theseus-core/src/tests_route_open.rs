@@ -67,7 +67,7 @@ fn asked(jev: &FakeJev) -> Vec<String> {
                 .map(|q| q.keys().cloned().collect::<Vec<_>>())
                 .unwrap_or_default()
         })
-        .filter(|id| id.starts_with("route.v10/"))
+        .filter(|id| id.starts_with("route.v11/"))
         .collect();
     ids.sort();
     ids.dedup();
@@ -188,7 +188,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
     assert_eq!(
         asked(&jev),
-        ["route.v10/model", "route.v10/personal"],
+        ["route.v11/model", "route.v11/personal"],
         "the route pack asks the model: no `effort`, no `mode`, no `context`"
     );
     // The effort, the task type and the split are each asked of a pack of their own, in the batch.
@@ -202,7 +202,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
                 .unwrap_or_default()
         })
         .filter(|id| {
-            !id.starts_with("route.v10/")
+            !id.starts_with("route.v11/")
                 && !id.starts_with("classify.")
                 && !id.starts_with("role.")
         })
@@ -484,7 +484,7 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "haiku", "low", 0.97);
     let o = open(&jev, 1, |_| {});
-    // `route.v10/...` ids are read off the requests the fake Jev saw.
+    // `route.v11/...` ids are read off the requests the fake Jev saw.
     let res = turn(
         &o.r.core,
         None,
@@ -497,10 +497,10 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     crate::tests_route::until_calls(&jev, 2).await;
     let asked = asked(&jev);
     assert!(
-        asked.contains(&"route.v10/personal".to_string()),
+        asked.contains(&"route.v11/personal".to_string()),
         "the other questions still ask: {asked:?}"
     );
-    for gone in ["route.v10/model", "route.v10/effort"] {
+    for gone in ["route.v11/model", "route.v11/effort"] {
         assert!(
             !asked.contains(&gone.to_string()),
             "{gone} is not asked of a pin: {asked:?}"
@@ -776,7 +776,7 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
         .seen()
         .iter()
         .rev()
-        .find(|s| s.body["questions"].get("route.v10/model").is_some())
+        .find(|s| s.body["questions"].get("route.v11/model").is_some())
         .map(|s| s.body["state"].clone())
         .expect("a route request");
     let dynamic = [
