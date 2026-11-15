@@ -20,6 +20,31 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Say in a sentence what every other published run found, where a pass rate would mislead.',
     'Each row is a benchmark whose newest run does not support a headline pass rate: it measured something else (time, memory, recall), ran too few trials, or did not include Theseus as an arm. The words are the run\u2019s own finding, from its report, cut to three lines. When a pass rate exists but is not led with, the reason is given under it.',
     'These runs still decide things: start-up time, recall, what survives a crash. Open a report before quoting it; the sentence here is a summary, not the measurement.'),
+  // ---- the simple pages (src/simple): Telemetry and Configuration
+  'simple.telemetry.running': e(
+    'Say what Theseus is doing at this moment, and what is holding it back.',
+    'Each figure is a count taken now from Theseus itself: conversations and tasks working, tool calls started and not yet finished, approvals waiting for you, turns held back because Theseus runs only so many at once, and wakes due. The line under a figure says what makes up the rest. The table view lists the same figures.',
+    'A figure that is not what you expect is the place to look first. Approvals waiting means something is stopped until you answer; turns held means Theseus is at its limit and new work queues.'),
+  'simple.telemetry.failures': e(
+    'Show what has gone wrong in the window chosen above, so a problem is seen before someone reports it.',
+    'The number is how many failures Theseus wrote down in that window: a tool that failed, a turn that failed, a request refused, a model error. Under it are the kinds, the most frequent first, with how long ago each last happened. The table view lists the newest failures one by one with what each said.',
+    'A kind that repeats is a fault, not bad luck. Open the Ledger tab to read the rows around it, or the Safety tab when the kind is a refusal.'),
+  'simple.telemetry.latency': e(
+    'Show how long each model takes to answer, so a slow model is noticed.',
+    'One block is one model. Typical is the middle call of the window; slow is the one in twenty that took longest. The first word is how long until anything came back; in all is until the answer was complete. The bar compares the models by their typical whole answer. The table view has every figure.',
+    'A model that is slow to its first word makes every conversation feel stuck. When the slow figure is many times the typical one, the provider is struggling, not the question.'),
+  'simple.telemetry.headroom': e(
+    'Show how much of each provider\u2019s allowance is left, before a limit stops the work.',
+    'One block is one provider, from the limits it reported on its newest answer: requests and tokens left of what it allows in a window. A full bar is plenty, amber is running low (under half), red is nearly out (under a sixth). The table view gives the numbers and when they were reported.',
+    'When a provider runs out, its calls wait or fail. Seeing it run low early is the time to slow the work or move it to another model.'),
+  'simple.telemetry.spend': e(
+    'Show what Theseus has cost, today and in the window chosen above, and where it went.',
+    'The three figures are the spend since midnight, in the last hour and in the chosen window, in US dollars. Under them each model has a bar for its share of the window\u2019s spend. The line below says the total since Theseus began and the sum at which a single conversation stops to ask you. The table view gives each model\u2019s calls, tokens and cost.',
+    'Spend is the one measure that only grows. A model that is most of the bar is where a cheaper choice would save the most; the Spend and Budgets tabs have the full breakdown.'),
+  'simple.telemetry.machine': e(
+    'Show whether the computer Theseus runs on is in good shape.',
+    'Each line is one fact Theseus reports about itself: how long it has run, whether it is taking new work, disk room, memory, whether the store has refused anything, whether its secrets resolved, and the state of its configuration. A line in amber is worth a look; red is wrong. The table view says the same in words.',
+    'Theseus stops writing when the disk is nearly full, and a refused record or an unresolved secret means something it needs is missing. These are the quiet causes behind a failure shown elsewhere.'),
   // ---- the simple pages (src/simple): Ops
   'simple.ops.now': e(
     'Say in five numbers where everything stands at this moment.',
