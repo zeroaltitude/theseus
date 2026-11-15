@@ -45,10 +45,14 @@ build.
   `Board.tsx`: six `ChartPanel`s (running, failures, latency, headroom, spend, the machine), each with its "?" and its table view,
   whose numbers are `board.ts`'s reading of `health`, the lists and the ledger's provider calls (tested in
   `test/simple-telemetry.test.ts`); the Ship's pages stay behind it as tabs. Configuration's first tab is `Settings.tsx`, over
-  the inventory `settings.ts`: LIVE (a Ship control a tab or link away), FIXED (the configuration file's sections, read only at
-  start) and NO_PAGE (live in the daemon, no page calls it). `test/simple-config.test.ts` holds it to the protocol crate's
-  method names, to what `src/` calls, and to the example file's sections: a new section or a new control fails it until the map
-  says so. A control added here calls what the Ship's page calls, behind its confirmation, never a path of its own.
+  the inventory `settings.ts`: LIVE (a control a tab or link away), FIXED (the configuration file's sections, read only at
+  start) and CLI_ONLY (changeable live, but the daemon answers only its own command line: Google's four methods).
+  `test/simple-config.test.ts` holds it to the protocol crate's method names, to what `src/` calls, and to the example file's
+  sections: a new section or a new control fails it until the map says so. A control added here calls what the Ship's page
+  calls, behind its confirmation. The "More controls" tab (`config/Controls.tsx`, panels in `config/controls/`) holds the
+  daemon-level acts no other page had: each is an `ActButton` over a row of `config/verbs.ts`, whose posture (do, arm, ask) it
+  must take, pinned by `test/simple-config-controls.test.ts` (every act that destroys or interrupts asks, in words that name the
+  effect; the erase of an import wants its name typed). Their answers are kept as notes (`config/notes.ts`), held at the top.
 
 - `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) beside
   every built file but the fonts; theseusd embeds only those, one copy, and sends it by `Accept-Encoding` (theseus-rwpbg.5).

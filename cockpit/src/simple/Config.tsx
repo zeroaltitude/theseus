@@ -19,6 +19,7 @@ const TABS = [
   { id: 'policy', label: 'Policy', hint: 'what Theseus may do without asking, and what tightened it', view: lazy(() => import('@/views/Policy')) },
   { id: 'approvals', label: 'Tools and approvals', hint: 'each tool’s posture, the approvals waiting and the wakes set', view: lazy(() => import('@/views/Actions')) },
   { id: 'packs', label: 'Judging', hint: 'how Theseus’s small judging model is tuned: each pack’s ladder and versions, to promote or roll back', view: lazy(() => import('./config/Packs')) },
+  { id: 'controls', label: 'More controls', hint: 'projects, standing rules, personas, kinds, judging, self-improvement, tool servers, the search index, pinned models and imports', view: lazy(() => import('./config/Controls')) },
   { id: 'system', label: 'Models and system', hint: 'the profiles, the catalog, the configuration file and who may open this page', view: lazy(() => import('@/views/Systems')) },
 ] as const
 

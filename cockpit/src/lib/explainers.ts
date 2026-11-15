@@ -49,10 +49,58 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'List the settings that cannot be changed while Theseus runs, and say where they are changed.',
     'One row is a group of settings, with the sections of the configuration file they live in written in square brackets. Where Theseus reports what it is running on, that is shown under the words. The mark at the top says whether the configuration it started from was confirmed.',
     'Theseus reads this file only when it starts, so a change needs the file edited and Theseus restarted. Knowing which group a setting is in saves hunting through a long file.'),
-  'simple.config.nopage': e(
-    'Say plainly which settings could be changed while Theseus runs but have no control on any page yet.',
-    'One row is a change Theseus is able to make now when asked, for which no page has a button. Hover a row to see the name of the call behind it. Asking Theseus in a conversation, or the command line, is how these are done today.',
-    'It keeps the gap in view instead of hiding it. When a page grows a control for one of these, the row moves up to the list of what can be changed now.'),
+  'simple.config.projects': e(
+    'Say which project folders Theseus trusts, and let you change that or start a project.',
+    'Each row of the list is a repository whose AGENTS.md and CLAUDE.md files Theseus reads as instructions, with who trusted it and when. Stop trusting takes two presses. Trust this folder asks first and says what will change. Start a project takes a title and what done looks like, one line each, and asks before it makes the first tasks.',
+    'Those files tell Theseus how to behave in a repository, so trusting a folder is trusting its author. Check the list now and then, and stop trusting a folder you no longer want to guide it.'),
+  'simple.config.standing': e(
+    'Let you add a standing rule and answer what Theseus noticed about rules.',
+    'The first part adds a rule that every conversation carries until you revoke it. The second lists rules proposed from a persona’s notes, each to keep or dismiss. The third lists questions Theseus asked because it was unsure whether to keep a rule, and why it asked; answer with two presses. Revoking a rule is on the Standing rules tab.',
+    'A standing rule changes what Theseus does from its next turn, everywhere it applies. Keeping the list short and true is what keeps its behaviour predictable.'),
+  'simple.config.personas': e(
+    'Let you change a persona’s short fields, and bring an agent over as a persona.',
+    'Pick a persona to edit its name, emoji, voice and how much it speaks first; Save is on only when something changed. To bring an agent over, give the place its files are in and a name, and press Preview: it lists the files that would come in and changes nothing. Import asks first and works only after a preview.',
+    'A persona is who Theseus is in a place. Previewing first shows exactly what an import would copy before anything is written. Adding, retiring and writing a persona’s character are on the Personality tab.'),
+  'simple.config.kinds': e(
+    'Let you retire a kind of thing, and answer Theseus’s proposed topics one at a time.',
+    'Only a kind that someone added is listed, because the kinds Theseus was built with are never taken away. Retire asks first and works only for a kind nothing uses: otherwise Theseus refuses and says what still holds it. Each proposed topic shows the conversation it is for and how sure Theseus is; Accept takes two presses, and a new topic with no name needs one typed. Reject is one press.',
+    'Kinds and topics are how Theseus files what it remembers. Answering a proposal here is the same as on the Ontology tab, one proposal at a time, for when a bulk answer would be too blunt.'),
+  'simple.config.judging': e(
+    'Let you run, check and fill in the small judging model’s learning.',
+    'Pick which part of the judging model to work on. Learn now runs its learning loop at once instead of tonight, and asks first. Judge past events again goes back to a day you give and judges what the model missed; it spends money, asks first, and Theseus refuses unless its configuration file says you agree. Read the proof says whether the canary version beat the one in use, and changes nothing.',
+    'The judging model decides small things all through Theseus. Learning keeps it good, and the proof says whether a newer version has earned a bigger share. Moving a version up or back is on the Judging tab.'),
+  'simple.config.initiative': e(
+    'Show how welcome it is when Theseus speaks first, and let you say so.',
+    'The numbers are the last seven days: how often Theseus spoke first, how many you welcomed and how many not, and how many promised follow-ups it kept. The two buttons mark the latest message Theseus sent first as welcome or not. Each is one press.',
+    'Your answers are what Theseus counts when it decides how often to speak up. A run of thumbs down is a reason to set a persona to speak first less, on the Controls tab’s personas.'),
+  'simple.config.selfpause': e(
+    'Let you pause Theseus’s self-improvement builds, and resume it after a halt.',
+    'The line says whether the loop is halted. Pause new builds holds back builds that have not started; those running finish, and a restart of Theseus clears the pause. Let builds start again takes two presses. Resume after the halt appears only while halted, and asks first, because it lets every self step run again.',
+    'A pause is the light way to say not now, and anyone can set it. A halt is the kill switch, and only you can resume from one. Both are written to the record with who did it.'),
+  'simple.config.servers': e(
+    'Show each tool server Theseus started and let you restart one that has stopped working.',
+    'One row is one server, with its state, how many tools it offers, and how many calls, errors and crashes it has had. Restart asks first: a call to it that is running right now is cut off, and its tools come back when it is up again.',
+    'A tool server that has crashed or stopped answering takes its tools with it. Restarting is the first thing to try before changing its configuration.'),
+  'simple.config.index': e(
+    'Show whether the search index is healthy and let you rebuild it.',
+    'The sentence says the index’s state and how it answers. Rebuild asks first and says what happens: the index is thrown away and built again from the record, so search is slower and less complete until it is done.',
+    'The index is how Theseus finds what it remembers. If search answers look wrong or stay stale, a rebuild from the record is the repair; nothing it remembers is lost by one.'),
+  'simple.config.pins': e(
+    'Show which models are fixed in place and let you let go of them.',
+    'The sentence names the live model and how many conversations and tasks are fixed to a model of their own. Release the live model goes back to the model the configuration file names, and asks first. Unpin every model lets all of them follow the live model, and asks first.',
+    'A fixed model keeps a conversation on it even after you change the live one. If a model is retired or too expensive, unpinning is how the rest of Theseus moves off it.'),
+  'simple.config.imports': e(
+    'List what was imported and let you erase one import completely.',
+    'One row is one import, with how many conversations and memory entries it brought in. Erase… asks in words that give those counts and wants the import’s name typed before it will go, because it cannot be undone from here.',
+    'Erasing is for an import that was wrong, private, or no longer wanted. The originals you imported from are not touched, so the import can be run again.'),
+  'simple.config.google': e(
+    'Say where Google sign-in and its access are managed, since a page cannot do it.',
+    'The text names three commands for the computer Theseus runs on: one to sign in, one to see what it may do, and one to take the access back. Theseus refuses all of them from any page.',
+    'This is a safeguard, not a missing button: a page open in a browser can never grant or remove access to your Google account.'),
+  'simple.config.cli': e(
+    'Say which settings can be changed while Theseus runs but only at its command line, and give the command.',
+    'One row is a setting Theseus will change on request, from the command line on the computer it runs on and nowhere else. The command is on the right. Theseus itself refuses the same request from a page.',
+    'It keeps the list of what can be changed complete, and says why a page has no button for one of them: the refusal is a safeguard, not a gap.'),
   'simple.bench.unranked': e(
     'Say which benchmark families the table does not rank, and why, so none looks missing.',
     'The sentence above the table counts the reports this build holds and the families they fall in. Each family is on the page once: a row in the table, or a line here with the one reason it is not ranked (it measures speed or memory rather than a pass rate, Theseus was only measured against itself, the run was too small, or a later run replaced it) and a link to its newest report. A family has several reports when it was run again.',

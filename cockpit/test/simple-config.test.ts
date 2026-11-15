@@ -1,13 +1,13 @@
 // Configuration's map (issue 17): the inventory of settings is held to the daemon and to the cockpit. Every method it names
 // is a method of the protocol crate; every setting called live is called from some page of the cockpit; every one called
-// "no page yet" is called from none (so the day a page grows a control, this fails and the setting moves up); every section
+// "command line only" is called from none (the daemon refuses them from any page); every section
 // of the configuration file's example is on the page; and every tab a row points to is a tab of the page.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Health } from '../src/protocol.gen/index.ts'
-import { CONFIG_TABS, FIXED, LIVE, NO_PAGE, tableHead } from '../src/simple/config/settings.ts'
+import { CONFIG_TABS, CLI_ONLY, FIXED, LIVE, tableHead } from '../src/simple/config/settings.ts'
 
 const ROOT = new URL('../..', import.meta.url).pathname
 const SRC = join(ROOT, 'cockpit/src')
@@ -21,22 +21,22 @@ function files(dir: string, ext: RegExp): string[] {
 const cockpit = files(SRC, /\.tsx?$/).filter((f) => !f.endsWith('simple/config/settings.ts')).map((f) => readFileSync(f, 'utf8')).join('\n')
 const protocol = files(join(ROOT, 'crates/theseus-protocol/src'), /\.rs$/).map((f) => readFileSync(f, 'utf8')).join('\n')
 const live = LIVE.flatMap((s) => s.methods)
-const nopage = NO_PAGE.flatMap((s) => s.methods)
+const cliOnly = CLI_ONLY.flatMap((s) => s.methods)
 
 test('every method the map names is a method of the protocol crate', () => {
-  const missing = [...live, ...nopage].filter((m) => !protocol.includes(`"${m}"`))
+  const missing = [...live, ...cliOnly].filter((m) => !protocol.includes(`"${m}"`))
   assert.deepEqual(missing, [])
 })
 
-test('what is called live is called from the cockpit, and what is called "no page yet" is called from none', () => {
+test('what is called live is called from the cockpit, and what is command-line only is called from none', () => {
   assert.deepEqual(live.filter((m) => !cockpit.includes(`'${m}'`)), [], 'a live setting no page calls')
-  assert.deepEqual(nopage.filter((m) => cockpit.includes(`'${m}'`)), [], 'a page now calls it: move the setting to LIVE')
+  assert.deepEqual(cliOnly.filter((m) => cockpit.includes(`'${m}'`)), [], 'a page now calls it: move the setting to LIVE')
 })
 
 test('no setting is listed twice, and no method is both live and without a page', () => {
-  const ids = [...LIVE, ...FIXED, ...NO_PAGE].map((s) => s.id)
+  const ids = [...LIVE, ...FIXED, ...CLI_ONLY].map((s) => s.id)
   assert.equal(new Set(ids).size, ids.length)
-  assert.deepEqual(nopage.filter((m) => live.includes(m)), [])
+  assert.deepEqual(cliOnly.filter((m) => live.includes(m)), [])
 })
 
 test('every section of the configuration file’s example is on the page, and no section is on it twice', () => {
@@ -57,7 +57,7 @@ test('each row that points into this page points to a tab of it, and the page ha
 })
 
 test('the words are for a person: no internal name, and each setting says Theseus where it names it', () => {
-  for (const s of [...LIVE, ...FIXED, ...NO_PAGE]) {
+  for (const s of [...LIVE, ...FIXED, ...CLI_ONLY]) {
     for (const t of [s.name, s.words]) assert.doesNotMatch(t, /\b(kernel|daemon|theseusd|rpc|protocol|ledger)\b/i, `${s.id}: ${t}`)
     assert.ok(s.words.length >= 20 && /[.]$/.test(s.words), `${s.id} says its words in a sentence`)
   }
