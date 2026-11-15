@@ -262,13 +262,13 @@ fn a_job_that_reads_the_daemons_environment_leaves_both_keys_in_the_record() {
 
 /// At the plain arm's $2 limit the money gate refuses the first call Jev
 /// sends to Opus or Fable: the profiles cap no output, so the reservation is
-/// 128,000 tokens at the model's price (about $2.6 and $6.5). A pick that
+/// 128,000 tokens at the model's price (about $2.6 and $5.2). A pick that
 /// reaches Haiku or Sonnet is unaffected.
 #[test]
 fn at_two_dollars_an_opus_or_fable_route_is_refused_by_the_money_gate() {
     for (mode, profile, model, refused) in [
         ("opus", "opus", "claude-opus-5-5", true),
-        ("fable", "fable", "claude-fable-5-1", true),
+        ("fable", "fable", "claude-fable-5-2", true),
         ("sonnet", "sonnet", "claude-sonnet-5-5", false),
         ("haiku", "haiku", "claude-haiku-5-5", false),
     ] {

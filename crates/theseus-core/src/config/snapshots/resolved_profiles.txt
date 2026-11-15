@@ -466,7 +466,7 @@ ProfileConfig {
 -- fable
 ProfileConfig {
     provider: "anthropic",
-    model: "claude-fable-5-1",
+    model: "claude-fable-5-2",
     max_output_tokens: None,
     system: None,
     effort: Some(

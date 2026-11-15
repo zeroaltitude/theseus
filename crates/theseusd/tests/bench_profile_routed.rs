@@ -58,7 +58,7 @@ fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
         ("sonnet_high", "claude-sonnet-5-5", Some(Effort::High)),
         ("opus", "claude-opus-5-5", Some(Effort::Medium)),
         ("opus_high", "claude-opus-5-5", Some(Effort::High)),
-        ("fable", "claude-fable-5-1", Some(Effort::High)),
+        ("fable", "claude-fable-5-2", Some(Effort::High)),
         ("haiku", "claude-haiku-5-5", Some(Effort::Low)),
         ("haiku_high", "claude-haiku-5-5", Some(Effort::High)),
     ] {

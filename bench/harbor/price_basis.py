@@ -33,6 +33,11 @@ from typing import Any, Callable, Iterable, Mapping
 CLASSES = ("input", "cache_read", "cache_write", "output")
 CURRENT = "list-2026-10-25"
 PRE_RKO44 = "list-pre-rko44"
+# The table that adds Fable 5.2 (issue 5 of 1.0.7: the routed arm's `fable` profile runs it) and changes no price
+# the table before it holds. `CURRENT` stays the table of 2026-10-25, the basis of every record that names no
+# model this one adds; a record with Fable 5.2 tokens is on this one, and nothing recorded is re-priced.
+LIST_2026_11_14 = "list-2026-11-14"
+LATEST = LIST_2026_11_14
 
 # The same rows as `efficiency.LIST_PRICES` (a test holds them equal), dollars a
 # million tokens. `PRE_RKO44` is that table before the Sonnet 5.5 cache-read move.
@@ -52,11 +57,19 @@ _CURRENT_TABLE: dict[str, dict[str, float]] = {
 }
 _PRE_RKO44_TABLE = copy.deepcopy(_CURRENT_TABLE)
 _PRE_RKO44_TABLE["claude-sonnet-5-5"]["cache_read"] = 0.10
+# 0.8 of Fable 5.1's, as the built-in catalog's row for `claude-fable-5-2` holds them.
+_LIST_2026_11_14_TABLE = copy.deepcopy(_CURRENT_TABLE)
+_LIST_2026_11_14_TABLE["claude-fable-5-2"] = {"input": 8.0, "cache_read": 0.2, "cache_write": 10.0, "output": 40.0}
 
 TABLES: dict[str, dict[str, dict[str, float]]] = {
     CURRENT: _CURRENT_TABLE,
     PRE_RKO44: _PRE_RKO44_TABLE,
+    LIST_2026_11_14: _LIST_2026_11_14_TABLE,
 }
+# A table that only ADDS models to an earlier one prices every record the earlier one can price exactly as it
+# does, so a bill that fits both is the earlier table's: the new one claims only a record the earlier one cannot
+# price. Without this every bill of a model both tables hold would read `ambiguous`.
+ADDS_ONLY: dict[str, str] = {LIST_2026_11_14: CURRENT}
 
 
 class CrossBasisError(ValueError):
@@ -102,13 +115,17 @@ def measure(by_model: Mapping[str, Mapping[str, Any]], recorded: float | None,
     `unpriced` when the record has no cost."""
     if recorded is None:
         return None, "unpriced"
-    fits = []
+    fits, unpriceable = [], 0
     for name, table in TABLES.items():
         priced = reprice(by_model, table)
         if priced is None:
-            return None, "unmeasurable"
+            unpriceable += 1
+            continue
         if abs(priced - recorded) <= max(1e-4, rel_tol * abs(recorded)):
             fits.append(name)
+    if unpriceable == len(TABLES):
+        return None, "unmeasurable"
+    fits = [n for n in fits if ADDS_ONLY.get(n) not in fits]
     if len(fits) == 1:
         return digest_of(fits[0]), "measured"
     return None, "ambiguous" if fits else "unmatched"
@@ -147,7 +164,7 @@ def stamp(rec: Mapping[str, Any]) -> dict[str, Any]:
     if cost is None:
         cost = rec.get("cost_usd")
     digest, how = measure(rec.get("by_model") or {}, cost)
-    return {"price_digest": digest, "price_basis": how, "list_price_digest": digest_of(CURRENT)}
+    return {"price_digest": digest, "price_basis": how, "list_price_digest": digest_of(LATEST)}
 
 
 def stamp_grade(grade: dict[str, Any]) -> dict[str, Any]:

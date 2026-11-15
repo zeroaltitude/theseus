@@ -168,7 +168,7 @@ class Routed(unittest.TestCase):
         self.assertGreaterEqual(len(models), 4, models)
         for m in sorted(models):
             self.assertIn(m, ef.LIST_PRICES, f"{m} has no list price row")
-        for m in ("claude-opus-5-5", "claude-fable-5-1", "claude-haiku-5-5"):
+        for m in ("claude-opus-5-5", "claude-fable-5-2", "claude-haiku-5-5"):
             by = {m: {"input": 1_000_000, "output": 1_000_000}}
             p = ef.LIST_PRICES[m]
             self.assertAlmostEqual(ef.list_price(by), p["input"] + p["output"])
@@ -204,7 +204,7 @@ class Routed(unittest.TestCase):
         self.assertLessEqual(named, set(cfg["profiles"]))
         self.assertEqual({n: cfg["profiles"][n]["model"] for n in tb.ROUTED_PROFILES}, {
             "sonnet": "claude-sonnet-5-5", "sonnet_high": "claude-sonnet-5-5", "opus": "claude-opus-5-5",
-            "opus_high": "claude-opus-5-5", "fable": "claude-fable-5-1",
+            "opus_high": "claude-opus-5-5", "fable": "claude-fable-5-2",
             "haiku": "claude-haiku-5-5", "haiku_high": "claude-haiku-5-5"})
         self.assertEqual({n: cfg["profiles"][n]["effort"] for n in tb.ROUTED_PROFILES}, {
             "sonnet": "medium", "sonnet_high": "high", "opus": "medium", "opus_high": "high",
@@ -413,7 +413,7 @@ class Routed(unittest.TestCase):
     def test_the_routed_arm_defaults_to_a_spend_limit_that_clears_an_opus_or_fable_reserve(self):
         """The kernel reserves a call's worst case (128,000 output tokens at
         the model's price) before it runs: $2 refuses the first Opus 5.5 call
-        (about $2.6) and Fable 5.1 call (about $6.5) the router sends, so the
+        (about $2.6) and Fable 5.2 call (about $5.2) the router sends, so the
         routed arm's default is higher, and the plain arm's is still $2.
         THESEUS_BENCH_SPEND_LIMIT wins on either. Needs Harbor."""
         try:
@@ -463,7 +463,7 @@ class Routed(unittest.TestCase):
         self.assertEqual(asyncio.run(limit(theseus_agent.Theseus, "3")), 3.0)
         # The reserve at 128,000 output tokens, input aside, per model.
         self.assertGreater(128_000 * 20.0 / 1e6, 2.0)   # Opus 5.5
-        self.assertGreater(128_000 * 50.0 / 1e6, 2.0)   # Fable 5.1
+        self.assertGreater(128_000 * 50.0 / 1e6, 2.0)   # Fable 5.1, the larger of the two Fables' reserves
         self.assertLess(128_000 * 50.0 / 1e6 + 10.0, tb.ROUTED_SPEND_LIMIT_USD)  # a 1M-token prompt
 
 
