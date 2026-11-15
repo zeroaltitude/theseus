@@ -25,6 +25,7 @@
 //!   processes are capped by `RLIMIT_NPROC`, so a daemon that runs as root,
 //!   whom Linux exempts from it, gets no L1 job at all (theseus-pv6i).
 
+pub mod new_install;
 mod self_build;
 pub use self_build::{env as self_build_env, node_home, supply_chain, SelfBuild, NODE_PIN};
 
@@ -519,6 +520,16 @@ pub fn result_lines(detail: &Value) -> String {
         )),
     }
     lines.extend(crate::egress::lines(detail));
+    if crate::egress::limit_hits(detail)
+        .iter()
+        .any(|(l, _)| l == "scratch_mb")
+    {
+        lines.push(
+            "[L1: what it wrote to scratch reached its limit ([sandbox] scratch_mb): no more can \
+             be written there]"
+                .into(),
+        );
+    }
     if sb["output_capped"] == true {
         lines.push(
             "[L1: it wrote a file past its size limit ([sandbox] output_mb), and was stopped \
@@ -617,6 +628,9 @@ pub struct Sandbox {
     /// refusals; and the latest refusal's words.
     egress: [AtomicU64; 4],
     refused_last: Mutex<Option<String>>,
+    /// Where an L1 job's start time and the limits it reached are counted
+    /// (theseus-zupk), once the core has built its telemetry.
+    telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
     /// The L1 jobs that run, by correlation id, for `sandbox.usage`
     /// (theseus-kpz1): listed from the launch until the call returns, or, for
     /// a job that went on in the background, until its action ends
@@ -664,6 +678,7 @@ impl Sandbox {
             started: [AtomicU64::new(0), AtomicU64::new(0)],
             egress: Default::default(),
             refused_last: Mutex::default(),
+            telemetry: std::sync::OnceLock::new(),
             running: Mutex::default(),
         }
     }
@@ -718,6 +733,32 @@ impl Sandbox {
         }
         if let Some(r) = s.refused.last() {
             *self.refused_last.lock().unwrap() = Some(r.why.clone());
+        }
+    }
+
+    /// The telemetry that counts L1's starts and limit hits, once the core
+    /// has built it.
+    pub fn export_to(&self, telemetry: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(telemetry);
+    }
+
+    /// An L1 job's result, counted once where its rows are written
+    /// (`egress::record` in a turn, `egress::announce` for a late result), and
+    /// not where health reads a launch, which any result may do again and in
+    /// any order: its start (`theseus.job.start_ms`) and each limit it
+    /// reached (`theseus.sandbox.limit_hits`). An L0 job's detail has neither.
+    pub fn counted(&self, detail: &Value) {
+        let Some(t) = self.telemetry.get() else {
+            return;
+        };
+        if let Some(us) = detail["sandbox"]["start_us"]
+            .as_u64()
+            .filter(|_| detail["sandbox"]["class"] == "l1")
+        {
+            t.record_job_start("l1", us as f64 / 1000.0);
+        }
+        for (limit, _) in crate::egress::limit_hits(detail) {
+            t.record_sandbox_limit(&limit);
         }
     }
 
@@ -860,6 +901,18 @@ pub(crate) fn the_templates_sandbox_section(s: &SandboxConfig) {
     assert!(crate::Config::example().sandbox.egress.is_empty());
 }
 
+/// `proc.run` as this host offers it (theseus-n88g.13): where L1 refuses every
+/// job (`refused`, a root daemon's), the schema carries no `sandbox` input, so
+/// a model is not asked for a tier that would only fail. Nothing else about
+/// the tool changes, and a call that names it anyway still fails and says why.
+pub fn offer(r: &mut theseus_tools::Registry, refused: Option<&str>) {
+    if refused.is_some() {
+        r.register(std::sync::Arc::new(
+            theseus_tools::proc::Run::without_sandbox(),
+        ));
+    }
+}
+
 /// `[sandbox]`'s limits as the sandbox takes them. `/tmp`, `/dev/shm`, and
 /// HOME are each capped as scratch is (17a's `tmp_mb`, no key of its own).
 fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
@@ -875,6 +928,21 @@ fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Where L1 refuses every job, `proc.run` is not offered a `sandbox` input;
+    /// where it can run, the schema is the default one (theseus-n88g.13).
+    #[test]
+    fn proc_run_offers_the_sandbox_only_where_l1_can_run() {
+        let schema = |refused: Option<&str>| {
+            let mut r = theseus_tools::default_registry();
+            offer(&mut r, refused);
+            r.get(PROC_RUN).unwrap().input_schema()
+        };
+        assert!(schema(None)["properties"]["sandbox"].is_object());
+        let root = schema(Some("a root daemon"));
+        assert!(root["properties"]["sandbox"].is_null(), "{root}");
+        assert!(root["properties"]["argv"].is_object());
+    }
 
     /// An action as a restart finds one: dispatched, its job still running.
     fn dispatched(corr: &str, class: Class) -> theseus_kernel::Action {

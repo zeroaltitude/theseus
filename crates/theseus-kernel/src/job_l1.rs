@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use theseus_sandbox::{Exit, Init, SandboxChild, Spec, Stdio};
+use theseus_sandbox::{Exit, Init, Limits, SandboxChild, Spec, Stdio};
 
 use crate::children::{self, Kind};
 use crate::job::{Reap, WrapperArgs, L1};
@@ -175,7 +175,7 @@ pub(crate) fn run(
             detail["stopped"] = json!(true);
             (Outcome::Failed, format!("stopped: {}", v.words()))
         }
-        (Ok(e), end) => ended(&e, end, patience, &mut sandbox, detail),
+        (Ok(e), end) => ended(&e, end, patience, &l1.limits, &mut sandbox, detail),
         (Err(e), End::TimedOut(v, cut)) => (
             Outcome::Failed,
             patience.words(cut, &format!("{}: {e}", v.words())),
@@ -379,12 +379,32 @@ fn reap_init(child: &mut SandboxChild) -> std::io::Result<Option<Exit>> {
     }
 }
 
+/// The limits a job reached, as its end shows them (theseus-zupk): `output_mb`
+/// when the command was killed by `SIGXFSZ`, and `scratch_mb` when what its
+/// writes to the workspace occupy on the scratch tmpfs has reached the limit
+/// (`Scratch.allocated`, which counts pages, not file sizes, as the tmpfs
+/// does). Not observed, and never reported: the process limit (L1 has no
+/// cgroup, and a refused fork leaves nothing at exit), and a write that filled
+/// `/tmp`, `/dev/shm` or HOME, which are not in the scratch report.
+fn limit_hits(e: &Exit, limits: &Limits) -> Vec<Value> {
+    let mut hits = Vec::new();
+    if e.output_capped {
+        hits.push(json!({"limit": "output_mb", "max_mb": limits.output_mb}));
+    }
+    let scratch = limits.scratch_mb.saturating_mul(1 << 20);
+    if e.scratch.as_ref().is_some_and(|s| s.allocated >= scratch) {
+        hits.push(json!({"limit": "scratch_mb", "max_mb": limits.scratch_mb}));
+    }
+    hits
+}
+
 /// How the job ended, into `detail` as an L0 job's end goes, with its
 /// scratch summary: its outcome and the note.
 fn ended(
     e: &Exit,
     end: End,
     patience: &Patience,
+    limits: &Limits,
     sandbox: &mut Value,
     detail: &mut Value,
 ) -> (Outcome, String) {
@@ -396,6 +416,10 @@ fn ended(
     if let Some(s) = &e.scratch {
         detail["scratch"] = json!({"files": s.files, "bytes": s.bytes, "removed": s.removed,
             "paths": s.paths, "summary": s.summary()});
+    }
+    let hits = limit_hits(e, limits);
+    if !hits.is_empty() {
+        sandbox["limit_hits"] = json!(hits);
     }
     if let End::TimedOut(v, cut) = &end {
         detail["timed_out"] = json!(true);
@@ -409,5 +433,66 @@ fn ended(
         (Some(c), _) => (Outcome::Failed, format!("exit status: {c}")),
         (None, Some(s)) => (Outcome::Failed, format!("signal: {s}")),
         (None, None) => (Outcome::Failed, "it ended with no status".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use theseus_sandbox::Scratch;
+
+    use super::*;
+
+    fn exit(output_capped: bool, allocated: Option<u64>) -> Exit {
+        Exit {
+            code: None,
+            signal: None,
+            init_signal: None,
+            output_capped,
+            scratch: allocated.map(|allocated| Scratch {
+                // A sparse file's size is beyond any limit and says nothing.
+                bytes: 10 << 20,
+                allocated,
+                ..Scratch::default()
+            }),
+        }
+    }
+
+    fn hits(e: &Exit) -> Vec<(String, u64)> {
+        let limits = Limits {
+            scratch_mb: 4,
+            output_mb: 2,
+            ..Limits::default()
+        };
+        limit_hits(e, &limits)
+            .iter()
+            .map(|h| {
+                (
+                    h["limit"].as_str().unwrap().into(),
+                    h["max_mb"].as_u64().unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    /// A job ends having reached the limits its end shows (theseus-zupk): the
+    /// file-size limit when it was killed by `SIGXFSZ`, and the scratch limit
+    /// when what it wrote there occupies the whole of it, whatever the files'
+    /// sizes say; nothing otherwise, and a job that left no scratch report is
+    /// not said to have hit one.
+    #[test]
+    fn a_job_that_ended_at_a_limit_says_which() {
+        let mb = 1 << 20;
+        assert_eq!(hits(&exit(true, None)), [("output_mb".into(), 2)]);
+        assert_eq!(hits(&exit(false, Some(4 * mb))), [("scratch_mb".into(), 4)]);
+        assert_eq!(
+            hits(&exit(true, Some(4 * mb))),
+            [("output_mb".into(), 2), ("scratch_mb".into(), 4)]
+        );
+        assert!(
+            hits(&exit(false, Some(0))).is_empty(),
+            "a 10 MB sparse file occupies nothing"
+        );
+        assert!(hits(&exit(false, Some(4 * mb - 4096))).is_empty());
+        assert!(hits(&exit(false, None)).is_empty());
     }
 }

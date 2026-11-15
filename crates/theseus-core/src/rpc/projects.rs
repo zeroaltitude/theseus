@@ -11,7 +11,8 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::projects::{
     ProjectAttachParams, ProjectAttachResult, ProjectCreateParams, ProjectCreateResult,
-    ProjectInfo, ProjectListParams, ProjectListResult, ProjectShowParams, ProjectShowResult,
+    ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams, ProjectListParams,
+    ProjectListResult, ProjectShowParams, ProjectShowResult,
 };
 use theseus_protocol::tasks::{TaskOrigin, TaskRecord};
 use theseus_protocol::{error_code, method};
@@ -23,11 +24,14 @@ use crate::approval::{Answerer, Refusal};
 use crate::project::{self, create::NewProject, remind};
 
 /// The projects' methods, routed by `rpc_prefixed`.
-pub(super) const OWN: [&str; 4] = [
+pub(super) const OWN: [&str; 7] = [
     method::PROJECT_CREATE,
     method::PROJECT_LIST,
     method::PROJECT_SHOW,
     method::PROJECT_ATTACH,
+    method::PROJECT_ITEM_ADD,
+    method::PROJECT_ITEM_CLOSE,
+    method::PROJECT_ITEM_LIST,
 ];
 
 fn invalid(e: impl std::fmt::Display) -> RpcFailure {
@@ -64,6 +68,15 @@ impl Core {
             }),
             method::PROJECT_LIST => route(params, |p| self.project_list(&p)),
             method::PROJECT_SHOW => route(params, |p| self.project_show(&p)),
+            method::PROJECT_ITEM_ADD => route(params, |p: ProjectItemAddParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.project_item_add(&p, who)
+            }),
+            method::PROJECT_ITEM_CLOSE => route(params, |p: ProjectItemCloseParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.project_item_close(&p, who)
+            }),
+            method::PROJECT_ITEM_LIST => route(params, |p| self.project_item_list(&p)),
             _ => route(params, |p: ProjectAttachParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.project_attach(&p, who)
@@ -203,7 +216,7 @@ impl Core {
         Ok(ProjectListResult { projects })
     }
 
-    fn project_named<'a>(
+    pub(super) fn project_named<'a>(
         tasks: &'a [TaskRecord],
         name: &str,
     ) -> Result<&'a TaskRecord, RpcFailure> {

@@ -62,7 +62,7 @@ The reserved ones, with the row that wires each in, are listed in `docs/design/R
   `check.sh` (see its README).
 - **`docs/`**: the spec in chapters, `spec/` (its PDF is rendered and sent, never committed), `status.md`,
   `technical-overview.md`, `design/`, `research/`, and `notes/`.
-- **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason),
+- **At the root**: `deny.toml` (permissive licences only; each ignored advisory gives its reason; a duplicated crate version is skipped by name, with who pulls it),
   `rust-toolchain.toml` (one exact release), `clippy.toml` (shape), `.cargo/config.toml` (the musl target),
   `.config/nextest.toml` (a hung test dies at two minutes; named flaky tests retry), and `.github/workflows/ci.yml`.
 

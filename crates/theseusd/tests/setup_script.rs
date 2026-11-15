@@ -286,6 +286,23 @@ fn a_dry_run_prints_every_step_and_changes_nothing() {
     }
 }
 
+/// The sandbox is the default only where this host's self-test ran a job (theseus-fdxy): l1 there, and nothing set
+/// (l0) with the reason in the header where it did not. The run says which, whichever host runs the test.
+fn the_sandbox_default_follows_the_host(out: &str, text: &str) {
+    let runs = out.contains("sandbox: L1, the sandbox, runs on this host");
+    assert!(
+        runs || out.contains("sandbox: L1, the sandbox, cannot run on this host"),
+        "{out}"
+    );
+    assert_eq!(text.contains("\ndefault = \"l1\""), runs, "{text}");
+    let said = if runs {
+        "# L1, the sandbox, runs on this host"
+    } else {
+        "# L1, the sandbox, cannot run on this host"
+    };
+    assert!(text.contains(said), "{text}");
+}
+
 /// A first run installs the binaries and writes the config from the template: its directory 0750, the file 0640,
 /// every secret an op:// placeholder, the projects dir the operator's, and a header; then it stops for the operator
 /// (exit 3). A second run changes nothing and says so. Once the operator's secrets are in, the check runs and passes,
@@ -314,6 +331,7 @@ fn a_first_run_writes_the_config_a_second_changes_nothing_and_the_check_follows_
         "{text}"
     );
     assert!(text.contains("\nprojects_dir = \"~/projects\"\n"), "{text}");
+    the_sandbox_default_follows_the_host(&out, &text);
     let secrets: Vec<&str> = text
         .split("\n[secrets]\n")
         .nth(1)

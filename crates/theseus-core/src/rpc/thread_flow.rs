@@ -517,17 +517,6 @@ impl Core {
         }
     }
 
-    /// Whether a message may be the owner's "that was for ..." (a move by
-    /// words): the same messages the router places.
-    pub(super) fn words_may_move(&self, p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
-        self.cfg.threads.enabled
-            && p.thread.is_none()
-            && p.prompt.is_none()
-            && p.opened_from.is_none()
-            && !matches!(conn.surface, Surface::Mcp | Surface::Unnamed)
-            && p.input.len() < 200
-    }
-
     /// The layer's entry closest to the message, when the owner moved one
     /// like it: that thread gains the evidence of the owner's word.
     fn learned_thread(&self, text: &str, pre: &mut [Pre]) {

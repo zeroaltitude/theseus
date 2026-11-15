@@ -19,18 +19,27 @@
 //! not land, `sync_in_words`. All three are gone. **No chat ACT — answering,
 //! allowing, syncing — is reached by matching his words any more.**
 //!
-//! ⛔ That is the claim, and it is narrower than "no code path matches his
-//! text", which would be FALSE of this tree. Thread **routing** still reads
-//! his words and is its own question, deliberately left alone here:
-//! `thread_move.rs`'s `moved_by_words` is a prefix matcher that MOVES a
-//! session, `thread_route::address` parses a leading `#slug`, `/t slug` or
-//! `"in the <title> thread:"` and ROUTES the turn (and `has_token` scores
-//! `pre_route`), and `thread_seal.rs`'s `seal_by_word` is a whole-message
-//! equality that SEALS. `expect_correction` and `expect_capture` read his
-//! words too, but hand a hint to Jev rather than acting. None of those five
-//! is a chat act; all are pre-existing and none is touched by this module.
+//! Issue 13 (1.0.7; the owner, 2026-11-14 11:37 and his yes of 12:15) took the
+//! last two out: `seal_by_word`, a whole-message equality that SEALED a
+//! thread, and `moved_by_words`, a prefix matcher that MOVED the last placed
+//! message. Both are tools now ([`SEAL`], [`MOVE`], in `threads.rs`) and, for
+//! the owner at a prompt, `/thread seal`, `/move` and the CLI. **No chat ACT
+//! (answering, allowing, syncing, sealing, moving, a project's items) is
+//! reached by matching his words.**
 //!
-//! What replaces the three routes is three tools:
+//! ⛔ That is the claim, and it is narrower than "no code path reads his
+//! text". Thread **routing** still reads his words and is its own question:
+//! `thread_route::address` parses a leading `#slug`, `/t slug` or
+//! `"in the <title> thread:"` and ROUTES the turn (an explicit address, a
+//! typed token), and `has_token` scores `pre_route`, which chooses a thread
+//! for a message and asks when unsure; it moves nothing already written.
+//! `expect_correction` and `expect_capture` read his words too, but hand a hint
+//! to Jev rather than acting. The read of the whole turn path for issue 13
+//! found no other place acting on a match of a message's text. The rest of issue
+//! 13's notes for the core are in `docs/design/trust-tools-and-data.md`.
+//!
+//! What replaces the three routes is three tools (and since issue 13 five more:
+//! seal, move, and a project's item add, close and list):
 //!
 //! - [`ANSWER`] answers the question waiting here, with one of its answers.
 //! - [`ALLOW`] lets the held call run as it was first proposed.
@@ -113,14 +122,17 @@ use theseus_tools::Tool as _;
 use crate::approval::Answerer;
 use crate::Core;
 
+mod items;
 pub mod judged;
 mod run;
+mod threads;
 mod tools;
 
 #[cfg(test)]
 mod tests;
 
 pub use run::{held_here, waiting_here};
+pub use threads::StagedMove;
 pub(crate) use tools::named_question;
 
 /// The family the three share, as the deferred tools' board counts families.
@@ -132,9 +144,19 @@ pub const ANSWER: &str = "chat.answer_question";
 pub const ALLOW: &str = "chat.allow_held_call";
 /// The tool that asks for an OpenClaw import sync now.
 pub const SYNC: &str = "chat.import_sync";
+/// The tool that seals this conversation's thread.
+pub const SEAL: &str = "chat.seal_thread";
+/// The tool that moves the message the router placed wrongly.
+pub const MOVE: &str = "chat.move_to_thread";
+/// The tools that add, close and list an item of the conversation's project.
+pub const ITEM_ADD: &str = "project.item_add";
+pub const ITEM_CLOSE: &str = "project.item_close";
+pub const ITEM_LIST: &str = "project.item_list";
 
-/// The three, as `[policy.tools]` names them.
-pub const NAMES: [&str; 3] = [ANSWER, ALLOW, SYNC];
+/// The eight, as `[policy.tools]` names them.
+pub const NAMES: [&str; 8] = [
+    ANSWER, ALLOW, SYNC, SEAL, MOVE, ITEM_ADD, ITEM_CLOSE, ITEM_LIST,
+];
 
 /// Whether `name` is a chat act: **never in a place's kept catalog**, and put
 /// into a turn's request only by [`Board::offers`], which knows what is
@@ -176,6 +198,9 @@ struct Pending {
 #[derive(Default)]
 pub struct Heard {
     by_session: Mutex<HashMap<String, Pending>>,
+    /// For a session a message was routed into: the place's own session the
+    /// message arrived in, for the move tool (`threads.rs`).
+    homes: Mutex<HashMap<String, String>>,
 }
 
 impl Heard {
@@ -190,6 +215,23 @@ impl Heard {
     pub(crate) fn stage(&self, session: &str, said: Said) {
         self.lock()
             .insert(session.to_string(), Pending { said, turn: None });
+    }
+
+    /// The place's own session `session`'s message arrived in.
+    pub(crate) fn stage_home(&self, session: &str, home: &str) {
+        self.homes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session.to_string(), home.to_string());
+    }
+
+    /// The place session the message `session` is running was routed from.
+    pub(crate) fn home_of(&self, session: &str) -> Option<String> {
+        self.homes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session)
+            .cloned()
     }
 
     /// Bind the staged message to `turn`, and return it. The first turn to ask
@@ -241,6 +283,14 @@ pub(crate) struct Offered {
     pub said: Said,
     pub waiting: Vec<theseus_protocol::ConfirmRequest>,
     pub held: Vec<theseus_protocol::work::undo::HeldCall>,
+    /// The thread a seal would seal, and where the placed message could go
+    /// (`threads.rs`): kept for the same reason, so the call acts on what
+    /// the model was shown.
+    pub sealable: Option<threads::Sealable>,
+    pub movable: Option<threads::Movable>,
+    /// The project the conversation is attached to, with its open items
+    /// (`items.rs`).
+    pub project: Option<items::ProjectOffer>,
 }
 
 /// What the chat acts reach: the core, given once it is built
@@ -251,6 +301,8 @@ pub struct Board {
     core: OnceLock<Weak<Core>>,
     pub heard: Heard,
     offered: Mutex<HashMap<String, Offered>>,
+    /// The moves a turn asked for, run when it ends (`threads.rs`).
+    staged: threads::Staged,
 }
 
 impl Board {
@@ -346,6 +398,21 @@ impl Board {
         if let Some(d) = Self::sync_offer(&core) {
             defs.push(d);
         }
+        // The two thread acts and the project's items are the owner's own
+        // words' too (`threads.rs`, `items.rs`).
+        let (sealable, movable, project) = match said.owner_input {
+            true => {
+                let home = self.heard.home_of(session);
+                (
+                    Self::seal_offer(&core, session),
+                    Self::move_offer(&core, home.as_deref().unwrap_or(session), turn),
+                    Self::project_offer(&core, session),
+                )
+            }
+            false => (None, None, None),
+        };
+        defs.extend(threads::definitions(sealable.as_ref(), movable.as_ref()));
+        defs.extend(items::definitions(project.as_ref()));
         self.offered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -356,6 +423,9 @@ impl Board {
                     said,
                     waiting,
                     held,
+                    sealable,
+                    movable,
+                    project,
                 },
             );
         defs.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
@@ -382,7 +452,7 @@ fn definition(name: &str, description: &str, schema: Value) -> Value {
     })
 }
 
-/// Register the three with the runtime's registry: they are ordinary tools to
+/// Register the five with the runtime's registry: they are ordinary tools to
 /// the gate, the ledger and `tools.find`, and only their *offering* is
 /// conditional.
 pub(crate) fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
@@ -391,4 +461,9 @@ pub(crate) fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
     r.register(Arc::new(tools::ImportSync {
         configured: cfg.import.openclaw.state_dir.is_some(),
     }));
+    r.register(Arc::new(threads::SealThread));
+    r.register(Arc::new(threads::MoveToThread));
+    r.register(Arc::new(items::ItemAdd));
+    r.register(Arc::new(items::ItemClose));
+    r.register(Arc::new(items::ItemList));
 }

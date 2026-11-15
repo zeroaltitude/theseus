@@ -19,6 +19,13 @@
 //!   still `Owner`. A job that reached only the hosts the operator listed, or
 //!   none, keeps 19a's label and is not marked: the operator chose those
 //!   hosts (theseus-gyin; theseus-20f, closed for L1).
+//! - **Limits** (theseus-zupk). Beside a job's egress rows, a `sandbox.limit_hit`
+//!   row for each limit its end shows it reached (`detail.sandbox.limit_hits`,
+//!   written by the wrapper): `output_mb` and `scratch_mb`, never `pids` (L1 has
+//!   no cgroup). `Sandbox::counted` counts them and the job's start once per
+//!   result. **Known gap, measured:** a job a cancel stops mid-tunnel has no
+//!   `sandbox.egress` row, because the cancel writes its result before the
+//!   wrapper's completion is in the store.
 
 use serde_json::Value;
 use theseus_kernel::Action;
@@ -26,7 +33,7 @@ use theseus_protocol::Proposal;
 use theseus_sandbox::egress::{Allow, Summary};
 use theseus_store::NewRecord;
 
-use crate::fact::sandbox::{SandboxEgress, SandboxEgressRefused};
+use crate::fact::sandbox::{SandboxEgress, SandboxEgressRefused, SandboxLimitHit};
 use crate::fact::Rec;
 use crate::node::{Body, Node};
 use crate::policy::{Decision, Posture};
@@ -165,8 +172,8 @@ pub fn marker(
     })
 }
 
-/// A job's egress, from its result node: its id, its tool, and its summary.
-fn of_node(node: &Node) -> Option<(&str, &str, Summary)> {
+/// A job's result node: its id, its tool, and its completion's detail.
+fn of_node(node: &Node) -> Option<(&str, &str, &Value)> {
     let Body::ToolResult {
         correlation_id: Some(c),
         tool,
@@ -176,29 +183,51 @@ fn of_node(node: &Node) -> Option<(&str, &str, Summary)> {
     else {
         return None;
     };
-    Some((c, tool, summary(&meta["detail"])?))
+    Some((c, tool, &meta["detail"]))
+}
+
+/// The limits an L1 job reached, from its completion's
+/// `detail.sandbox.limit_hits`: each limit's key in `[sandbox]` and its value
+/// in MB (theseus-zupk).
+pub fn limit_hits(detail: &Value) -> Vec<(String, u64)> {
+    detail["sandbox"]["limit_hits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|h| Some((h["limit"].as_str()?.to_string(), h["max_mb"].as_u64()?)))
+        .collect()
 }
 
 /// The rows of a job's egress (`sandbox.egress` for each host it reached,
-/// `sandbox.egress_refused` for each refusal), for the frame that writes its
-/// result `node`.
+/// `sandbox.egress_refused` for each refusal) and of the limits it reached
+/// (`sandbox.limit_hit`), for the frame that writes its result `node`.
 pub(crate) fn rows(rec: &Rec<'_>, node: &Node) -> anyhow::Result<Vec<NewRecord>> {
-    let Some((correlation_id, tool, s)) = of_node(node) else {
+    let Some((correlation_id, tool, detail)) = of_node(node) else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
-    for reached in &s.hosts {
-        out.push(rec.row(&SandboxEgress {
-            correlation_id,
-            tool,
-            reached,
-        })?);
+    if let Some(s) = summary(detail) {
+        for reached in &s.hosts {
+            out.push(rec.row(&SandboxEgress {
+                correlation_id,
+                tool,
+                reached,
+            })?);
+        }
+        for refused in &s.refused {
+            out.push(rec.row(&SandboxEgressRefused {
+                correlation_id,
+                tool,
+                refused,
+            })?);
+        }
     }
-    for refused in &s.refused {
-        out.push(rec.row(&SandboxEgressRefused {
+    for (limit, max_mb) in &limit_hits(detail) {
+        out.push(rec.row(&SandboxLimitHit {
             correlation_id,
             tool,
-            refused,
+            limit,
+            max_mb: *max_mb,
         })?);
     }
     Ok(out)
@@ -206,48 +235,67 @@ pub(crate) fn rows(rec: &Rec<'_>, node: &Node) -> anyhow::Result<Vec<NewRecord>>
 
 /// Their sentences, and health's count, once that frame is written.
 pub(crate) fn announce(rec: &Rec<'_>, sandbox: &Sandbox, node: &Node) {
-    let Some((correlation_id, tool, s)) = of_node(node) else {
+    let Some((correlation_id, tool, detail)) = of_node(node) else {
         return;
     };
-    for reached in &s.hosts {
-        rec.announce(&SandboxEgress {
+    if let Some(s) = summary(detail) {
+        for reached in &s.hosts {
+            rec.announce(&SandboxEgress {
+                correlation_id,
+                tool,
+                reached,
+            });
+        }
+        for refused in &s.refused {
+            rec.announce(&SandboxEgressRefused {
+                correlation_id,
+                tool,
+                refused,
+            });
+        }
+        sandbox.egress_seen(&s);
+    }
+    for (limit, max_mb) in &limit_hits(detail) {
+        rec.announce(&SandboxLimitHit {
             correlation_id,
             tool,
-            reached,
+            limit,
+            max_mb: *max_mb,
         });
     }
-    for refused in &s.refused {
-        rec.announce(&SandboxEgressRefused {
-            correlation_id,
-            tool,
-            refused,
-        });
-    }
-    sandbox.egress_seen(&s);
+    sandbox.counted(detail);
 }
 
-/// A job's egress, recorded in a turn just before its result is written:
-/// its rows wait for the turn's next frame, which is that result's.
+/// A job's egress and limits, recorded in a turn just before its result is
+/// written: its rows wait for the turn's next frame, which is that result's.
 pub(crate) fn record(tc: &TurnCtx<'_>, sandbox: &Sandbox, a: &Action, detail: &Value) {
-    let Some(s) = summary(detail) else {
-        return;
-    };
     let (correlation_id, tool) = (a.correlation_id.as_str(), a.tool.as_str());
-    for reached in &s.hosts {
-        tc.record(&SandboxEgress {
+    if let Some(s) = summary(detail) {
+        for reached in &s.hosts {
+            tc.record(&SandboxEgress {
+                correlation_id,
+                tool,
+                reached,
+            });
+        }
+        for refused in &s.refused {
+            tc.record(&SandboxEgressRefused {
+                correlation_id,
+                tool,
+                refused,
+            });
+        }
+        sandbox.egress_seen(&s);
+    }
+    for (limit, max_mb) in &limit_hits(detail) {
+        tc.record(&SandboxLimitHit {
             correlation_id,
             tool,
-            reached,
+            limit,
+            max_mb: *max_mb,
         });
     }
-    for refused in &s.refused {
-        tc.record(&SandboxEgressRefused {
-            correlation_id,
-            tool,
-            refused,
-        });
-    }
-    sandbox.egress_seen(&s);
+    sandbox.counted(detail);
 }
 
 /// What `n` bytes are, in words: `640 B`, `12.5 KB`, `3.1 MB`.
@@ -459,6 +507,25 @@ mod tests {
         assert_eq!(lines(&none), ["[L1: it reached none of its egress hosts]"]);
         assert!(external(&json!({"exit_code": 0}), &[]).is_none());
         assert_eq!(reach_words(&json!({})), "no network");
+    }
+
+    /// The limits a job reached are read from its completion's
+    /// `detail.sandbox.limit_hits`, each with its value in MB (theseus-zupk); a
+    /// completion from before, or a job that reached none, has none.
+    #[test]
+    fn a_jobs_limit_hits_are_read_from_its_completion() {
+        let detail = json!({"sandbox": {"class": "l1", "limit_hits": [
+            {"limit": "output_mb", "max_mb": 64}, {"limit": "scratch_mb", "max_mb": 1024}]}});
+        assert_eq!(
+            limit_hits(&detail),
+            [
+                ("output_mb".to_string(), 64),
+                ("scratch_mb".to_string(), 1024)
+            ]
+        );
+        assert!(limit_hits(&json!({"sandbox": {"class": "l1"}})).is_empty());
+        assert!(limit_hits(&json!({"exit_code": 0})).is_empty());
+        assert!(limit_hits(&Value::Null).is_empty());
     }
 
     /// A job that left no completion has no record of its connections: when

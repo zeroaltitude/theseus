@@ -32,6 +32,8 @@ const KINDS = new Set([
   'tool.job_started', 'sandbox.started', 'action.succeeded', 'action.failed', 'action.cancelled',
   // 18c's egress.
   'sandbox.egress', 'sandbox.egress_refused',
+  // The limits an L1 job reached (output_mb, scratch_mb).
+  'sandbox.limit_hit',
 ])
 
 export default function Boundaries() {
@@ -71,6 +73,7 @@ export default function Boundaries() {
   const shared = (h?.places?.places ?? []).filter((p) => p.class === 'shared').length
   const secretsWithheld = mine.filter((r) => r.kind === 'secret.withheld').length
   const egress = mine.filter((r) => r.kind === 'sandbox.egress' || r.kind === 'sandbox.egress_refused')
+  const limited = new Set(mine.filter((r) => r.kind === 'sandbox.limit_hit').map((r) => String((r.data as D)?.correlation_id))).size
   const reachedOut = new Set(egress.filter((r) => r.kind === 'sandbox.egress').map((r) => String((r.data as D)?.correlation_id))).size
 
   return (
@@ -87,6 +90,7 @@ export default function Boundaries() {
         <Seal icon={<ShieldHalf size={15} />} n={world ? l1Then : live.length} word={world ? 'in L1 then' : 'in L1 now'} tone="#5eead4" hint="sandboxed jobs running" />
         <Seal icon={<KeyRound size={15} />} n={h?.broker.length ?? 0} word="grants" tone="#d6a548" hint="the broker's grants: who is handed which secret (names only)" />
         <Seal icon={<Eye size={15} />} n={shared} word="shared places" tone="#22d3ee" hint="guild places others read: the public tools alone, and only the context files marked public" />
+        <Seal icon={<OctagonX size={15} />} n={limited} word="hit a limit" tone="#fb7185" hint="sandboxed jobs that reached their file-size or scratch limit ([sandbox] output_mb, scratch_mb)" />
         <Seal icon={<Radar size={15} />} n={reachedOut} word="reached out" tone="#5eead4" hint="sandboxed jobs that connected out through their egress list (18c)" />
       </div>
 

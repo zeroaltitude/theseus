@@ -44,45 +44,25 @@ impl Core {
         Ok(self.thread_move_run(p, who, conn).await?.0)
     }
 
-    /// "That was for the security fix", typed as a message in a private place
-    /// with a message the router placed: the move, and the turn it ran again
-    /// as. The place is the judge here (the board offers a shared place no
-    /// thread), as it is for the router's own choice.
-    pub(super) async fn moved_by_words(
-        &self,
-        p: &TurnSubmitParams,
-        conn: Conn<'_>,
-    ) -> Result<Option<TurnSubmitResult>, RpcFailure> {
-        let Some(session) = p
-            .session_id
-            .as_deref()
-            .filter(|_| self.words_may_move(p, conn))
-        else {
-            return Ok(None);
-        };
-        let board = self.threads();
-        let live = board.live(self.runner.class_of(session));
-        let Some(to) = crate::thread_route::moved_words(&p.input, &live) else {
-            return Ok(None);
-        };
-        if self
-            .runner
-            .threads
-            .route
-            .find_routed(session, None)
-            .is_none()
-        {
-            return Ok(None);
-        }
-        let who = conn.answerer(p.author.clone(), None);
+    /// The move a turn's model asked for with `chat.move_to_thread`, run now
+    /// that the turn has ended: the message the router placed before it, run
+    /// again where the owner said. A failure is logged: the turn has answered.
+    pub(super) async fn carry_out_move(&self, m: crate::chat_acts::StagedMove, conn: Conn<'_>) {
         let mp = ThreadMoveParams {
-            session_id: session.to_string(),
-            to,
-            turn_id: None,
-            author: p.author.clone(),
+            session_id: m.home,
+            to: m.to.clone(),
+            turn_id: Some(m.turn),
+            author: None,
             discord: None,
         };
-        Ok(Some(self.thread_move_run(mp, who, conn).await?.1))
+        if let Err(e) = self.judge_thread(&m.who, method::THREAD_MOVE, &m.to) {
+            tracing::warn!(error = %e.message, "a move the model asked for was refused");
+            return;
+        }
+        let done = self.thread_move_run(mp, m.who, conn).await;
+        if let Err(e) = done {
+            tracing::warn!(error = %e.message, "a move the model asked for did not run");
+        }
     }
 
     /// The session a moved message goes to, opened if it is a thread's first,

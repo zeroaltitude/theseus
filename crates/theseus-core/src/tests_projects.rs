@@ -721,3 +721,181 @@ async fn a_project_with_no_review_needs_no_card_and_makes_no_routine() {
     let routines = rpc(&r.core, "routine.list", json!({})).await.unwrap();
     assert!(routines["routines"].as_array().unwrap().is_empty());
 }
+
+// ------------------------------------------------ the project's own list (issue 13)
+
+/// The project's list, from a command and through the protocol: an item is
+/// added, listed and closed; the project's view and the slice a conversation
+/// attached to it receives both show the open ones; a milestone is no item; a
+/// closed item cannot be closed twice. Each item is an ordinary task record
+/// of kind `item` under the project, so the progress counts move with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_projects_items_are_added_listed_closed_and_shown() {
+    let r = rig();
+    let p = made(&r, json!({"review": "none"})).await;
+    let id = p["project"]["id"].as_str().unwrap().to_string();
+    let milestone = milestone(&r, &p, 1);
+
+    let a = rpc(
+        &r.core,
+        "project.item.add",
+        json!({"project": id, "title": "Order the sounding line"}),
+    )
+    .await
+    .unwrap();
+    let first = a["changed"]["id"].as_str().unwrap().to_string();
+    let rec = r.task(&first);
+    assert_eq!(
+        (rec.kind, rec.parent.as_deref(), rec.state),
+        (TaskKind::Item, Some(id.as_str()), TaskState::Accepted)
+    );
+    rpc(
+        &r.core,
+        "project.item.add",
+        json!({"project": "Harbour survey", "title": "Book the boat"}),
+    )
+    .await
+    .unwrap();
+
+    // The project's own view lists them, and the count moves.
+    let show = rpc(&r.core, "project.show", json!({"id": id}))
+        .await
+        .unwrap();
+    assert_eq!(show["project"]["progress"]["steps_total"], 2, "{show}");
+    let titles: Vec<&str> = show["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["kind"].is_null() || t["kind"] == "item")
+        .map(|t| t["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Order the sounding line", "Book the boat"]);
+
+    // The slice a conversation attached to it receives.
+    let tasks = r.tasks();
+    let now = r.core.kernel.now_ms();
+    let slice = crate::project::slice::render(&tasks, &id, now, &crate::wake::local).unwrap();
+    assert!(
+        slice.text.contains("Order the sounding line") && slice.text.contains("Book the boat"),
+        "{}",
+        slice.text
+    );
+
+    // List: open ones; then close one by an end of its id.
+    let open = rpc(&r.core, "project.item.list", json!({"project": id}))
+        .await
+        .unwrap();
+    assert_eq!(open["items"].as_array().unwrap().len(), 2);
+    let end = &first[first.len() - 6..];
+    let closed = rpc(&r.core, "project.item.close", json!({"item": end}))
+        .await
+        .unwrap();
+    assert_eq!(closed["changed"]["state"], "done", "{closed}");
+    assert_eq!(closed["items"].as_array().unwrap().len(), 1);
+    assert_eq!(r.task(&first).state, TaskState::Done);
+    assert_eq!(r.task(&first).version, 2);
+    let all = rpc(
+        &r.core,
+        "project.item.list",
+        json!({"project": id, "all": true}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(all["items"].as_array().unwrap().len(), 2);
+    let show = rpc(&r.core, "project.show", json!({"id": id}))
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            show["project"]["progress"]["steps_done"].as_u64(),
+            show["project"]["progress"]["steps_total"].as_u64()
+        ),
+        (Some(1), Some(2))
+    );
+
+    // Refused, with words: closing twice, closing a milestone, an unknown project.
+    let again = rpc(&r.core, "project.item.close", json!({"item": first}))
+        .await
+        .unwrap_err();
+    assert!(again.contains("closed already"), "{again}");
+    let not_item = rpc(&r.core, "project.item.close", json!({"item": milestone}))
+        .await
+        .unwrap_err();
+    assert!(not_item.contains("not an item"), "{not_item}");
+    assert!(rpc(
+        &r.core,
+        "project.item.add",
+        json!({"project": "no such project", "title": "x"})
+    )
+    .await
+    .is_err());
+    assert!(
+        rpc(
+            &r.core,
+            "project.item.add",
+            json!({"project": id, "title": "one\ntwo"})
+        )
+        .await
+        .is_err(),
+        "an item is one line"
+    );
+}
+
+/// The list is durable: the store read again by a fresh core holds the same
+/// records, and `project.item.list` of it says what it said.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_projects_items_survive_a_reopen() {
+    let r = rig();
+    let p = made(&r, json!({"review": "none"})).await;
+    let id = p["project"]["id"].as_str().unwrap().to_string();
+    for title in ["Order the sounding line", "Book the boat"] {
+        rpc(
+            &r.core,
+            "project.item.add",
+            json!({"project": id, "title": title}),
+        )
+        .await
+        .unwrap();
+    }
+    let first = r
+        .tasks()
+        .into_iter()
+        .find(|t| t.kind == TaskKind::Item)
+        .unwrap()
+        .id;
+    rpc(&r.core, "project.item.close", json!({"item": first}))
+        .await
+        .unwrap();
+
+    // The store read again by a fresh core: the list is what it was.
+    use theseus_store::Store as _;
+    let before = r.tasks();
+    let dir = tempfile::tempdir().unwrap();
+    let copy = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let frame: Vec<theseus_store::NewRecord> = r
+        .core
+        .store
+        .inner()
+        .scan(1, None, usize::MAX)
+        .unwrap()
+        .iter()
+        .map(|rec| theseus_store::NewRecord {
+            kind: rec.kind,
+            key: rec.key.clone(),
+            scope: rec.scope.clone(),
+            payload: rec.payload.clone(),
+        })
+        .collect();
+    copy.append(&frame).unwrap();
+    drop(copy);
+    let again = crate::tests_task_graph::rig_on(dir, |_| {});
+    assert_eq!(again.tasks(), before);
+    let list = rpc(
+        &again.core,
+        "project.item.list",
+        json!({"project": id, "all": true}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(list["items"].as_array().unwrap().len(), 2, "{list}");
+}

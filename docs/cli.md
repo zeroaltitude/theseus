@@ -205,6 +205,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   --milestone "ship@fri"`; `project show|attach|detach`; `project trust|untrust [PATH]` and
   `project trusted` grant, take back and list a repository's own AGENTS.md and CLAUDE.md (yours to give, not from a job).
   The same three are Discord slash commands, `/project trust|untrust|trusted`: see [discord.md](discord.md).
+  `project item add PROJECT TITLE`, `project item close ITEM` and `project item list PROJECT [--all]` keep a project's
+  own list of items (yours, not from a job; `/project item` in Discord).
 - **`herdr`**: the herdr terminal workspace manager: `herdr sync` gives each session that needs you or is working a
   pane; `herdr up`, `answer`, `main`, `setup`. See [herdr.md](herdr.md).
 

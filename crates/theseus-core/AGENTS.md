@@ -621,7 +621,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   carries the depth; was theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`,
   both gone; the owner, 2026-11-13 23:32, Discord message `1571050236367995101`). **No chat ACT -- answering,
   allowing, syncing -- is reached by matching his words any more**; thread ROUTING still reads them
-  (`moved_by_words`, `thread_route::address`, `seal_by_word`): its own question. Three tools:
+  (`thread_route::address`): its own question. Three tools:
   `chat.answer_question` (`Core::confirm_action_with`), `chat.allow_held_call` (`Core::undo_allow`),
   `chat.import_sync` (`import.sync.request`, its `judge_act(Act::Import)` kept). The buttons, slash commands and
   CLI are untouched: a fourth way in; nothing these acts MEAN is widened. None is in a place's kept catalog
@@ -766,7 +766,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `thread.seal_dismissed.<slug>` holding the content digest, so one proposal per thread until its card, goal, title or
   working set changes), `Core::thread_recommend_seal` (the entry point a later Jev pack calls, row theseus-c1uz: sets
   `seal_pending`, writes `thread.seal_proposed` and posts a `seal_card` to the owner's DM, Discord's Seal this thread /
-  Not needed), and `seal_by_word` (the owner's `/seal` or "seal this thread" in a thread's session, before the turn).
+  Not needed), and the owner's own seal, `chat.seal_thread` (a tool) or `/thread seal`.
   `thread.new { sealed, split_from }`: a split from a sealed thread starts sealed; a task's session is its parent's
   thread; `threads::merged_seal` is the rule for a merge. `thread_read.rs`: the model tool `thread.read {thread,
   query?}` (private places; the card and the top hits, cited by thread and position; `gate` raises it to `approve`
