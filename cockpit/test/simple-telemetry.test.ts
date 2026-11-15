@@ -32,9 +32,9 @@ test('what is running reads the kernel the way the Bridge tiles do', () => {
   assert.equal(runningOf(undefined, [], 0).find((x) => x.key === 'running')!.n, 0, 'before health arrives, zero not a crash')
 })
 
-test('quantile is the nearest rank and says nothing for nothing', () => {
+test('quantile is the Ship’s own rule, and says nothing for nothing', () => {
   assert.equal(quantile([], 0.5), undefined)
-  assert.equal(quantile([5, 1, 9, 3], 0.5), 3)
+  assert.equal(quantile([100, 300], 0.5), 300, 'the Ship reads the upper of two for its median; so does the board')
   assert.equal(quantile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.95), 10)
 })
 

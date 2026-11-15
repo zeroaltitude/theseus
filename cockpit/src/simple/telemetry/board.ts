@@ -6,6 +6,10 @@ import type { ExecutionInfo, Health, LedgerEntry } from '@protocol'
 import type { ProviderCall } from '../../lib/calls.ts'
 import { totalIn } from '../../lib/calls.ts'
 import { ledgerKind } from '../../lib/taxonomy.ts'
+import { quantile } from '../../lib/viz.ts'
+
+// The quantile is the Ship's own (`lib/viz.ts`), so a typical or slow figure here is the figure on the Bridge and Economics.
+export { quantile }
 
 export const RANGES = ['30m', '6h', '24h', '7d', 'all'] as const
 export type Range = (typeof RANGES)[number]
@@ -26,13 +30,6 @@ export function autoRange(rows: LedgerEntry[], now: number): Range {
     if (n >= 25) return r
   }
   return 'all'
-}
-
-/** The p-th quantile (0 to 1) by the nearest rank; undefined for no values. */
-export function quantile(values: number[], p: number): number | undefined {
-  if (!values.length) return undefined
-  const v = [...values].sort((a, b) => a - b)
-  return v[Math.min(v.length - 1, Math.max(0, Math.ceil(p * v.length) - 1))]
 }
 
 // ---------------------------------------------------------------- what is running
