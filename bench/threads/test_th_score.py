@@ -32,25 +32,25 @@ class Price(unittest.TestCase):
 
     def test_a_turn_by_hand_warm_and_after_a_miss_at_both_ttls(self):
         r = price.rates(SONNET)
-        self.assertEqual(r, (2.0, 10.0, 0.20, 2.50))
-        # warm: 1000*2 + 500*10 + 10000*0.2 + 2000*2.5 = 2000 + 5000 + 2000 + 5000 = 14000 micro-dollars
-        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "5m", False, 2), 0.014)
-        # a miss, two calls: half the reads (5000) are written again: 2000 + 5000 + 1000 + 7000*2.5 = 25500
-        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "5m", True, 2), 0.0255)
-        # the 1-hour write is twice the input price, 4.00: warm 2000 + 5000 + 2000 + 8000; a miss 2000 + 5000 + 1000 + 28000
-        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "1h", False, 2), 0.017)
-        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "1h", True, 2), 0.036)
+        self.assertEqual(r, (2.0, 10.0, 0.10, 2.50))
+        # warm: 1000*2 + 500*10 + 10000*0.1 + 2000*2.5 = 2000 + 5000 + 1000 + 5000 = 13000 micro-dollars
+        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "5m", False, 2), 0.013)
+        # a miss, two calls: half the reads (5000) are written again: 2000 + 5000 + 500 + 7000*2.5 = 25000
+        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "5m", True, 2), 0.025)
+        # the 1-hour write is twice the input price, 4.00: warm 2000 + 5000 + 1000 + 8000; a miss 2000 + 5000 + 500 + 28000
+        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "1h", False, 2), 0.016)
+        self.assertAlmostEqual(price.turn_usd(self.TOK, r, "1h", True, 2), 0.0355)
 
     def test_the_gap_is_the_sessions_own_and_a_split_pays_for_it(self):
         turns = [{"tokens": self.TOK, "calls": 2}] * 3
         # gaps since the session's previous message: the first has none, then 3 minutes, then 7
         out = price.reprice(turns, [None, 3.0, 7.0], SONNET, "5m")
         self.assertEqual(out["misses"], 1)
-        self.assertAlmostEqual(out["usd"], 0.014 + 0.014 + 0.0255)
-        self.assertAlmostEqual(out["warm_usd"], 0.042)
+        self.assertAlmostEqual(out["usd"], 0.013 + 0.013 + 0.025)
+        self.assertAlmostEqual(out["warm_usd"], 0.039)
         one_h = price.reprice(turns, [None, 3.0, 61.0], SONNET, "1h")
         self.assertEqual(one_h["misses"], 1)
-        self.assertAlmostEqual(one_h["usd"], 0.017 + 0.017 + 0.036)
+        self.assertAlmostEqual(one_h["usd"], 0.016 + 0.016 + 0.0355)
         # the same messages in one session or in two: the split sees the longer gaps
         session_of_one = [0] * len(PROG.messages)
         per = {s.id: i for i, s in enumerate(PROG.streams)}

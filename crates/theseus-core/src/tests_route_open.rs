@@ -756,7 +756,7 @@ async fn a_placeholder_key_is_no_key_at_pick_time() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "sonnet", "high", 0.95);
+    says(&jev, "opus", "high", 0.95);
     let o = open(&jev, 2, |_| {});
     let first = turn(
         &o.r.core,
@@ -793,17 +793,18 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
         .collect();
     keys.sort();
     // theseus-h66v4.8: the daemon adds `cheaper_model` where it has one to
-    // name, which on this short warm Sonnet session it does — Haiku's $0.10
-    // input under Sonnet's $0.20 cache read, and off-peak Flash's $0.15 after it
+    // name, which on this short warm Opus session it does: Haiku's $0.10
+    // input under Opus's $0.20 cache read, and off-peak Flash's $0.15 after it
     // (theseus-g0phw). The name reaching Jev through the live path, and not only
-    // through a replay, is what this asserts.
+    // through a replay, is what this asserts. (It is Opus because a warm Sonnet
+    // 5.5 reads its cache at $0.10, which no candidate undercuts: it names none.)
     let mut want: Vec<String> = theseus_judge::builders::ROUTE_STATE_KEYS
         .iter()
         .map(|s| s.to_string())
         .collect();
     assert_eq!(
         state["switch_cost"], "cheaper_to_switch",
-        "a short warm Sonnet session: Haiku's $0.10 input beats a $0.20 cache read at either \
+        "a short warm Opus session: Haiku's $0.10 input beats a $0.20 cache read at either \
          hour, so this does not depend on when the test runs: {state}"
     );
     // The wall clock decides the hour: Haiku alone at peak, and Flash after it

@@ -23,7 +23,8 @@ const ANSWER: u64 = 450;
 /// Sonnet 5.5's prices, dollars per million tokens, as the catalog holds them
 /// (theseus-vzzcz): cache read, cache write, output. The replay held its own
 /// copy ($0.10 a million for the read) until the catalog moved to $0.20
-/// (theseus-rko44) and the two disagreed. The figures it is held against, the
+/// (theseus-rko44) and the two disagreed; the catalog's is $0.10 again since
+/// 2026-11-14, the vendor's page. The figures it is held against, the
 /// 20-exchange rule's $17.67 and the owner's hunt's ~$16, were priced at
 /// $0.10; at $0.20 they are $23.91 (its 62,350,444 cache-read tokens add
 /// $6.24) and about $22 (a mean context of 318K against the rule's 321K).
@@ -328,7 +329,7 @@ fn the_replays_low_grid() {
 /// rewrite each, a mean context well under what the 20-exchange rule held.
 /// The same script at the 20-exchange rule (b69236c1): 9 passes, mean
 /// 321,508, max 433,338, rewrite 2,479,623, read 62,350,444, $17.67 at $0.10 a
-/// million cache-read tokens ($23.91 at the catalog's $0.20); the owner's hunt
+/// million cache-read tokens ($23.91 at $0.20); the owner's hunt
 /// measured a mean of 318K and 7-8 passes of ~$16 at $0.10 (about $22 at
 /// $0.20). The replay costs $15.20 at $0.20 ($11.88 at $0.10), and the bound
 /// keeps the headroom it had over that.

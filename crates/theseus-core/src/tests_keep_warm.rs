@@ -475,7 +475,7 @@ async fn the_reads_prefix_holds_with_tools_deferred() {
 
 /// Reads stop at the model's break-even (theseus-rwpbg.3, M3): a 1-hour write costs `write / read`
 /// reads, a read every 55 minutes, so past that many windows the reads cost more than the rewrite
-/// they avoid. Sonnet 5.5 (4 against 0.20 a million) breaks even at 18.3 hours (36.7 while its cache reads were $0.10), under a 72-hour window.
+/// they avoid. Sonnet 5.5 (4 against 0.10 a million) breaks even at 36.7 hours (18.3 while the owner had its cache reads at $0.20, 2026-10-25 to 2026-11-14), under a 72-hour window.
 #[tokio::test]
 async fn keep_warm_stops_at_break_even() {
     let dir = tempfile::tempdir().unwrap();
@@ -483,16 +483,16 @@ async fn keep_warm_stops_at_break_even() {
     let live = core.live_profile().0;
     let entry = core.catalog.get("claude-sonnet-5-5").unwrap();
     let cap = crate::keep_warm::break_even_hours(entry, 55.0).unwrap();
-    assert!((cap - 18.33).abs() < 0.01, "{cap}");
+    assert!((cap - 36.67).abs() < 0.01, "{cap}");
     let sid = session(&core, SessionKind::Conversation, None);
     tokio::time::pause();
     turn(&core, &sid, "first").await;
-    tokio::time::advance(17 * 60 * MIN).await;
+    tokio::time::advance(35 * 60 * MIN).await;
     assert!(matches!(
         core.runner.keep_warm_once(&sid, &live).await,
         Outcome::Read { .. }
     ));
-    tokio::time::advance(2 * 60 * MIN).await;
+    tokio::time::advance(3 * 60 * MIN).await;
     assert_eq!(
         core.runner.keep_warm_once(&sid, &live).await,
         Outcome::Forgotten("its window closed".into())

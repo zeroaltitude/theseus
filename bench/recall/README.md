@@ -106,12 +106,13 @@ least one of each kind. `full` is three sessions of 200 turns: two on one day an
 topic blocks each, a mark in each session, and 6 probes in each of the 34 bucket × salience × kind cells (204 in
 all; an abstention has no supersession). The generator prints the counts and an estimate of the tokens and dollars
 per arm at the catalog's price (`--model`), each mark's reads with their bounds, and the window and its budget.
-For seed 7, planned at 13,943, it says about $0.60 an arm for the smoke and about $16.97 for the full, at Sonnet
-5.5's $0.20 a million for cache reads (read from the catalog). The smoke reads 1.05M tokens from the cache and the
-full 63.75M, so the cache reads are $0.21 and $12.75 of those. The figures have moved with the plan and the price:
+For seed 7, planned at 13,943, it says about $0.49 an arm for the smoke and about $10.59 for the full, at Sonnet
+5.5's $0.10 a million for cache reads (read from the catalog). The smoke reads 1.05M tokens from the cache and the
+full 63.75M, so the cache reads are $0.11 and $6.38 of those. The figures have moved with the plan and the price:
 $0.54 and $12.02 at $0.20 before the recall window; $0.57 and $11.98 with it; $0.48 and $7.89 once the catalog said
 $0.10 (2026-10-17 to 2026-10-25); $0.49 and $10.59 when the full's crossing was planned inside one exchange
-(theseus-fqy4r); and $0.60 and $16.97 now that the catalog's price is $0.20 again (theseus-rko44). Treat these as
+(theseus-fqy4r); $0.60 and $16.97 when the catalog's price was $0.20 again (theseus-rko44, 2026-10-25 to
+2026-11-14); and $0.49 and $10.59 now that it is the vendor's page's $0.10. Treat these as
 a budget, not a measurement: the replies' length and the turns' recall notes are guesses.
 
 **Run live only in a throwaway container or VM.** Neither arm's tools are confined to the workspace on a bare host.
