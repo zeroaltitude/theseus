@@ -26,8 +26,8 @@ export function Topics() {
 }
 
 const WORDS = {
-  person: { many: 'People', one: 'person', list: 'Everyone Theseus has on file', filter: 'Find a person by name or handle', none: 'Theseus has no people on file yet.' },
-  topic: { many: 'Topics', one: 'topic', list: 'Everything Theseus sorts conversations under', filter: 'Find a topic', none: 'Theseus has no topics on file yet.' },
+  person: { many: 'People', one: 'person', list: 'Everyone Theseus has on file', filter: 'Find a person by name or handle', none: 'Theseus has no people on file yet.', miss: 'Nobody matches those words.' },
+  topic: { many: 'Topics', one: 'topic', list: 'Everything Theseus sorts conversations under', filter: 'Find a topic', none: 'Theseus has no topics on file yet.', miss: 'No topic matches those words.' },
 } as const
 
 function Kinds({ kind }: { kind: 'person' | 'topic' }) {
@@ -53,7 +53,7 @@ function Kinds({ kind }: { kind: 'person' | 'topic' }) {
         <div className="min-h-0 flex-1 overflow-auto p-2" role="list" aria-label={w.many.toLowerCase()}>
           {!data ? <Empty>reading…</Empty>
             : !all.length ? <Empty>{w.none}</Empty>
-            : !list.length ? <Empty>Nobody matches those words.</Empty>
+            : !list.length ? <Empty>{w.miss}</Empty>
             : list.slice(0, LISTED).map((c) => (
               <LinkRow key={c.id} to={listHref(kind, c.id, f)} current={c.id === sel} title={c.name} sub={lineOf(cats, c)} />
             ))}
