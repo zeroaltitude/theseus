@@ -162,7 +162,6 @@ max_loops = 40
 # provider = "anthropic"
 # model = "claude-fable-5-1"
 # thinking_display = "summarized"
-# max_loops = 40
 
 # GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial): a pin only.
 [profiles.glm53]

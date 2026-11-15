@@ -377,7 +377,10 @@ async fn a_flash_pick_the_floor_refuses_runs_the_live_profile_with_data_gate() {
 async fn a_pick_no_profile_runs_is_a_fallback_that_says_why() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "fable", "low", 0.95);
-    let o = open(&jev, 1, |c| c.remove_profile("fable"));
+    let o = open(&jev, 1, |c| {
+        c.remove_profile("fable");
+        c.remove_profile("fable52");
+    });
     let res = turn(&o.r.core, None, "Design a thing nobody has designed.", None).await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-sonnet-5-5");
     assert_eq!(res.route.unwrap().reason, "fallback");
@@ -702,7 +705,10 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     // A fallback.
     let jev = FakeJev::start().unwrap();
     says(&jev, "fable", "low", 0.95);
-    let o = open(&jev, 1, |c| c.remove_profile("fable"));
+    let o = open(&jev, 1, |c| {
+        c.remove_profile("fable");
+        c.remove_profile("fable52");
+    });
     let res = turn(&o.r.core, None, "Design a thing.", None).await;
     let lines = why(&o, &res.session_id);
     let l = routing_line(&lines);
