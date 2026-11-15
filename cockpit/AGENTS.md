@@ -33,6 +33,15 @@ build.
   - Daylight is the default look since these pages (`lib/daylight.ts`'s `choiceOf`, `public/mode.js`); the Ship
     stays a night sea.
 
+- **Telemetry board and Configuration map** (issue 17, step 5; `simple/telemetry/`, `simple/config/`). Telemetry's first tab is
+  `Board.tsx`: six `ChartPanel`s (running, failures, latency, headroom, spend, the machine), each with its "?" and its table view,
+  whose numbers are `board.ts`'s reading of `health`, the lists and the ledger's provider calls (tested in
+  `test/simple-telemetry.test.ts`); the Ship's pages stay behind it as tabs. Configuration's first tab is `Settings.tsx`, over
+  the inventory `settings.ts`: LIVE (a Ship control a tab or link away), FIXED (the configuration file's sections, read only at
+  start) and NO_PAGE (live in the daemon, no page calls it). `test/simple-config.test.ts` holds it to the protocol crate's
+  method names, to what `src/` calls, and to the example file's sections: a new section or a new control fails it until the map
+  says so. A control added here calls what the Ship's page calls, behind its confirmation, never a path of its own.
+
 - `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) beside
   every built file but the fonts; theseusd embeds only those, one copy, and sends it by `Accept-Encoding` (theseus-rwpbg.5).
 

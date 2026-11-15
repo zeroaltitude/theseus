@@ -45,6 +45,18 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Show whether the computer Theseus runs on is in good shape.',
     'Each line is one fact Theseus reports about itself: how long it has run, whether it is taking new work, disk room, memory, whether the store has refused anything, whether its secrets resolved, and the state of its configuration. A line in amber is worth a look; red is wrong. The table view says the same in words.',
     'Theseus stops writing when the disk is nearly full, and a refused record or an unresolved secret means something it needs is missing. These are the quiet causes behind a failure shown elsewhere.'),
+  'simple.config.live': e(
+    'List every setting of Theseus that can be changed while it runs, and say where.',
+    'One row is one thing you can change now, in plain words. The button on the right goes to the page that holds its control: a tab of this page, or another page of Theseus. Those controls are the same ones the Ship uses, and each asks you first where the Ship does.',
+    'Nothing here needs a restart. If a setting you want is not in this list, it is in the next one, set in the configuration file.'),
+  'simple.config.fixed': e(
+    'List the settings that cannot be changed while Theseus runs, and say where they are changed.',
+    'One row is a group of settings, with the sections of the configuration file they live in written in square brackets. Where Theseus reports what it is running on, that is shown under the words. The mark at the top says whether the configuration it started from was confirmed.',
+    'Theseus reads this file only when it starts, so a change needs the file edited and Theseus restarted. Knowing which group a setting is in saves hunting through a long file.'),
+  'simple.config.nopage': e(
+    'Say plainly which settings could be changed while Theseus runs but have no control on any page yet.',
+    'One row is a change Theseus is able to make now when asked, for which no page has a button. Hover a row to see the name of the call behind it. Asking Theseus in a conversation, or the command line, is how these are done today.',
+    'It keeps the gap in view instead of hiding it. When a page grows a control for one of these, the row moves up to the list of what can be changed now.'),
   // ---- the simple pages (src/simple): Ops
   'simple.ops.now': e(
     'Say in five numbers where everything stands at this moment.',
