@@ -25,9 +25,10 @@ const SimpleBench = lazy(() => import('./simple/Bench'))
 const SimpleTelemetry = lazy(() => import('./simple/Telemetry'))
 const SimpleConfig = lazy(() => import('./simple/Config'))
 const SimpleMemories = lazy(() => import('./simple/Memories'))
+// A session's own pages sit under the simple bar too: the whole session, one turn of it, a label taken off it.
+const SimpleSession = lazy(() => import('./simple/memories/Session'))
 const Bridge = lazy(() => import('./views/Bridge').then((m) => ({ default: m.Bridge })))
 const Fleet = lazy(() => import('./views/Fleet'))
-const SessionDeck = lazy(() => import('./views/SessionDeck'))
 const Actions = lazy(() => import('./views/Actions'))
 const Ledger = lazy(() => import('./views/Ledger'))
 const Economics = lazy(() => import('./views/Economics'))
@@ -73,6 +74,11 @@ const router = createBrowserRouter(
             { path: 'telemetry', element: <SimpleTelemetry /> },
             { path: 'config', element: <SimpleConfig /> },
             { path: 'memories', element: <SimpleMemories /> },
+            { path: 'session/:id', element: <SimpleSession view="deck" /> },
+            // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
+            { path: 'session/:id/turn/:turn', element: <SimpleSession view="turn" /> },
+            // Taking one label off one session (theseus-emqbm): the address every reply's footer links, one per label.
+            { path: 'session/:id/unlabel/:flag', element: <SimpleSession view="unlabel" /> },
           ],
         },
       ],
@@ -88,16 +94,11 @@ const router = createBrowserRouter(
             { path: 'ship', element: wrapShip(<Ship />) },
             { path: 'bridge', element: wrap(<Bridge />) },
             { path: 'fleet', element: wrap(<Fleet />) },
-            { path: 'session/:id', element: wrap(<SessionDeck />) },
             // Operations (theseus-jid7t.3): the needs-you queue, the lenses and the inspector. The route loads its chunk.
             { path: 'ops', lazy: async () => ({ Component: (await import('./views/Ops')).default }) },
             // The threads on the work board (theseus-5i8i) are the Threads lens now; one thread's view stays a page.
             { path: 'threads', element: <ToOps /> },
             { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
-            // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
-            { path: 'session/:id/turn/:turn', lazy: async () => ({ Component: (await import('./views/TurnInspect')).default }) },
-            // Taking one label off one session (theseus-emqbm): the address every reply's footer links, one per label.
-            { path: 'session/:id/unlabel/:flag', lazy: async () => ({ Component: (await import('./views/Unlabel')).default }) },
             // The Tasks and Agenda pages are the Board and Timeline lenses now (theseus-jid7t.3).
             { path: 'tasks', element: <ToOps /> },
             { path: 'agenda', element: <ToOps /> },

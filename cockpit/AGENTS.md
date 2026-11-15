@@ -41,6 +41,20 @@ build.
   - Daylight is the default look since these pages (`lib/daylight.ts`'s `choiceOf`, `public/mode.js`); the Ship
     stays a night sea.
 
+- **Memories and a session's own pages** (`src/simple/Memories.tsx`, `src/simple/memories/`; GitHub issue 17). Memories
+  opens on `memories/Search.tsx`: one box whose words go to the people and topics that carry them (`ontology.list`),
+  to what recall would bring (`memory.search`, which writes nothing) and to the imported episodes' titles, places and
+  topics (`import.sessions`), each its own card; with no words it counts what Theseus holds. `memories/Kinds.tsx` is
+  People and Topics: a list (`?f=` its words) and the chosen one's page (`?sel=`); a page's conversations are
+  `ontology.list`'s memberships read once (`find.ts`'s `holdersOf`) and the rows come by id. `memories/Turn.tsx` is
+  the explorer's own turn view in this frame. The explorer and the shelves stay behind them as hosted tabs
+  (`?v=context`, `?v=books`). Its pure half is `memories/find.ts` (the addresses, the matching, the chain of a topic),
+  tested by `test/simple-memories.test.ts`; every address it writes stays under `/memories` except a session's.
+  `/session/:id`, `/session/:id/turn/:turn` and `/session/:id/unlabel/:flag` are routes of the simple frame
+  (`memories/Session.tsx` hosts the Ship's `SessionDeck`, `TurnInspect` and `Unlabel` whole, with a way back to Ops and
+  to what the turn was shown; `test/simple-session.test.ts` pins that no Ship route matches them too). Nothing here
+  writes the ontology: people and topics are changed on the Configuration page.
+
 - `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) beside
   every built file but the fonts; theseusd embeds only those, one copy, and sends it by `Accept-Encoding` (theseus-rwpbg.5).
 
