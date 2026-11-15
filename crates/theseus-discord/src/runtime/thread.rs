@@ -311,37 +311,7 @@ impl Shared {
                 self.thread_unbind(discord, who, channel).await
             }
             Some(("merge", args)) => self.thread_merge_said(&args, who, discord).await,
-            Some(("seal", args)) => {
-                let slug = args
-                    .iter()
-                    .find(|(n, _)| *n == "slug")
-                    .map(|(_, v)| v.trim().to_string())
-                    .unwrap_or_default();
-                let p = ThreadSealParams {
-                    slug: slug.clone(),
-                    reason: Some("sealed by the owner with /thread seal".into()),
-                    author: Some(who.to_string()),
-                    discord,
-                    ..Default::default()
-                };
-                match self
-                    .rpc
-                    .call::<_, ThreadSealResult>(method::THREAD_SEAL, p)
-                    .await
-                {
-                    Ok(r) => {
-                        let mut said = format!(
-                            "🔒 Sealed `{slug}`: its notes never come into another thread, and \
-                             another thread reading it asks you first."
-                        );
-                        for w in theseus_protocol::threads::crossed_words(&r.crossed) {
-                            said.push_str(&format!(" {w}."));
-                        }
-                        said
-                    }
-                    Err(e) => format!("⚠️ Nothing was sealed: {}", e.message),
-                }
-            }
+            Some(("seal", args)) => self.thread_seal_said(&args, who, discord).await,
             Some((sub @ ("link" | "unlink"), args)) => {
                 self.thread_link_said(sub == "link", &args, who, discord)
                     .await
@@ -371,6 +341,45 @@ impl Shared {
 }
 
 impl Shared {
+    /// `/thread seal slug:`: the call as the presser, which the core judges as
+    /// every thread act, and what it said.
+    async fn thread_seal_said(
+        &self,
+        args: &[(&str, String)],
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> String {
+        let slug = args
+            .iter()
+            .find(|(n, _)| *n == "slug")
+            .map(|(_, v)| v.trim().to_string())
+            .unwrap_or_default();
+        let p = ThreadSealParams {
+            slug: slug.clone(),
+            reason: Some("sealed by the owner with /thread seal".into()),
+            author: Some(who.to_string()),
+            discord,
+            ..Default::default()
+        };
+        match self
+            .rpc
+            .call::<_, ThreadSealResult>(method::THREAD_SEAL, p)
+            .await
+        {
+            Ok(r) => {
+                let mut said = format!(
+                    "🔒 Sealed `{slug}`: its notes never come into another thread, and \
+                         another thread reading it asks you first."
+                );
+                for w in theseus_protocol::threads::crossed_words(&r.crossed) {
+                    said.push_str(&format!(" {w}."));
+                }
+                said
+            }
+            Err(e) => format!("⚠️ Nothing was sealed: {}", e.message),
+        }
+    }
+
     /// `/thread merge from: into:`: `thread.merge` as the presser, and what it said.
     async fn thread_merge_said(
         &self,
