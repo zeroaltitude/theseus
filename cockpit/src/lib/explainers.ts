@@ -16,10 +16,132 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Say, one line a benchmark, where Theseus stands against the best harness that was measured beside it.',
     'Each row is one benchmark. Theseus\u2019s pass rate is the share of trials it solved; the two numbers in brackets are the range the true rate is likely in, given how many trials ran. Beside it is the best other harness on the same benchmark. It says ahead or behind outright only when the two ranges do not overlap; when they overlap it says which way the rates lean and that the run does not settle it. \u201cA different model\u201d means that harness ran another model, so the row compares more than the harness.',
     'It is the honest short answer to \u201chow good is it\u201d. A row that reads behind is where the next release should look; a row that is not settled needs more trials before anyone claims a lead or a loss.'),
+  // ---- the simple pages (src/simple): Telemetry and Configuration
+  'simple.telemetry.running': e(
+    'Say what Theseus is doing at this moment, and what is holding it back.',
+    'Each figure is a count taken now from Theseus itself: conversations and tasks working, tool calls started and not yet finished, approvals waiting for you, turns held back because Theseus runs only so many at once, and wakes due. The line under a figure says what makes up the rest. The table view lists the same figures.',
+    'A figure that is not what you expect is the place to look first. Approvals waiting means something is stopped until you answer; turns held means Theseus is at its limit and new work queues.'),
+  'simple.telemetry.failures': e(
+    'Show what has gone wrong in the window chosen above, so a problem is seen before someone reports it.',
+    'The number is how many failures Theseus wrote down in that window: a tool that failed, a turn that failed, a request refused, a model error. Under it are the kinds, the most frequent first, with how long ago each last happened. The table view lists the newest failures one by one with what each said.',
+    'A kind that repeats is a fault, not bad luck. Open the Ledger tab to read the rows around it, or the Safety tab when the kind is a refusal.'),
+  'simple.telemetry.latency': e(
+    'Show how long each model takes to answer, so a slow model is noticed.',
+    'One block is one model. Typical is the middle call of the window; slow is the one in twenty that took longest. The first word is how long until anything came back; in all is until the answer was complete. The bar compares the models by their typical whole answer. The table view has every figure.',
+    'A model that is slow to its first word makes every conversation feel stuck. When the slow figure is many times the typical one, the provider is struggling, not the question.'),
+  'simple.telemetry.headroom': e(
+    'Show how much of each provider\u2019s allowance is left, before a limit stops the work.',
+    'One block is one provider, from the limits it reported on its newest answer: requests and tokens left of what it allows in a window. A full bar is plenty, amber is running low (under half), red is nearly out (15 per cent or less). The table view gives the numbers and when they were reported.',
+    'When a provider runs out, its calls wait or fail. Seeing it run low early is the time to slow the work or move it to another model.'),
+  'simple.telemetry.spend': e(
+    'Show what Theseus has cost, today and in the window chosen above, and where it went.',
+    'The three figures are the spend since midnight, in the last hour and in the chosen window, in US dollars. Under them each model has a bar for its share of the window\u2019s spend. The line below says the total since Theseus began and the sum at which a single conversation stops to ask you. The table view gives each model\u2019s calls, tokens and cost.',
+    'Spend is the one measure that only grows. A model that is most of the bar is where a cheaper choice would save the most; the Spend and Budgets tabs have the full breakdown.'),
+  'simple.telemetry.machine': e(
+    'Show whether the computer Theseus runs on is in good shape.',
+    'Each line is one fact Theseus reports about itself: how long it has run, whether it is taking new work, disk room, memory, whether the store has refused anything, whether its secrets resolved, and the state of its configuration. A line in amber is worth a look; red is wrong. The table view says the same in words.',
+    'Theseus stops writing when the disk is nearly full, and a refused record or an unresolved secret means something it needs is missing. These are the quiet causes behind a failure shown elsewhere.'),
+  'simple.config.live': e(
+    'List every setting of Theseus that can be changed while it runs, and say where.',
+    'One row is one thing you can change now, in plain words. The button on the right goes to the page that holds its control: a tab of this page, or another page of Theseus. Those controls are the same ones the Ship uses, and each asks you first where the Ship does.',
+    'Nothing here needs a restart. If a setting you want is not in this list, it is in the next one, set in the configuration file.'),
+  'simple.config.fixed': e(
+    'List the settings that cannot be changed while Theseus runs, and say where they are changed.',
+    'One row is a group of settings, with the sections of the configuration file they live in written in square brackets. Where Theseus reports what it is running on, that is shown under the words. The mark at the top says whether the configuration it started from was confirmed.',
+    'Theseus reads this file only when it starts, so a change needs the file edited and Theseus restarted. Knowing which group a setting is in saves hunting through a long file.'),
+  'simple.config.projects': e(
+    'Say which project folders Theseus trusts, and let you change that or start a project.',
+    'Each row of the list is a repository whose AGENTS.md and CLAUDE.md files Theseus reads as instructions, with who trusted it and when. Stop trusting takes two presses. Trust this folder asks first and says what will change. Start a project takes a title and what done looks like, one line each, and asks first, saying that it also sets up the project’s weekly review, which costs money.',
+    'Those files tell Theseus how to behave in a repository, so trusting a folder is trusting its author. Check the list now and then, and stop trusting a folder you no longer want to guide it.'),
+  'simple.config.standing': e(
+    'Let you add a standing rule and answer what Theseus noticed about rules.',
+    'The first part adds a rule that every conversation carries until you revoke it. The second lists rules proposed from a persona’s notes, each to keep or dismiss. The third lists questions Theseus asked because it was unsure whether to keep a rule, and why it asked; answer with two presses. Revoking a rule is on the Standing rules tab.',
+    'A standing rule changes what Theseus does from its next turn, everywhere it applies. Keeping the list short and true is what keeps its behaviour predictable.'),
+  'simple.config.personas': e(
+    'Let you change a persona’s short fields, and bring an agent over as a persona.',
+    'Pick a persona to edit its name, emoji, voice and how much it speaks first; Save is on only when something changed. To bring an agent over, give the place its files are in and a name, and press Preview: it lists the files that would come in and changes nothing. Import asks first and works only after a preview.',
+    'A persona is who Theseus is in a place. Previewing first shows exactly what an import would copy before anything is written. Adding, retiring and writing a persona’s character are on the Personality tab.'),
+  'simple.config.kinds': e(
+    'Let you retire a kind of thing, and answer Theseus’s proposed topics one at a time.',
+    'Only a kind that someone added is listed, because the kinds Theseus was built with are never taken away. Retire asks first and works only for a kind nothing uses: otherwise Theseus refuses and says what still holds it. Each proposed topic shows the conversation it is for and how sure Theseus is; Accept takes two presses, and a new topic with no name needs one typed. Reject is one press.',
+    'Kinds and topics are how Theseus files what it remembers. Answering a proposal here is the same as on the Ontology tab, one proposal at a time, for when a bulk answer would be too blunt.'),
+  'simple.config.judging': e(
+    'Let you run, check and fill in the small judging model’s learning.',
+    'Pick which part of the judging model to work on. Learn now runs its learning loop at once instead of tonight, which costs money and may put the new version in place, and asks first. Judge past events again goes back to a day you give and judges what the model missed; it spends money, asks first, and Theseus refuses unless its configuration file says you agree. Read the proof says whether the canary version beat the one in use, and changes nothing.',
+    'The judging model decides small things all through Theseus. Learning keeps it good, and the proof says whether a newer version has earned a bigger share. Moving a version up or back by hand is on the Judging tab.'),
+  'simple.config.initiative': e(
+    'Show how welcome it is when Theseus speaks first, and let you say so.',
+    'The numbers are the last seven days: how often Theseus spoke first, how many you welcomed and how many not, and how many promised follow-ups it kept. The two buttons mark the latest message Theseus sent first as welcome or not. Each is one press.',
+    'Your answers are what Theseus counts when it decides how often to speak up. A run of thumbs down is a reason to set a persona to speak first less, in this tab’s personas panel.'),
+  'simple.config.selfpause': e(
+    'Let you pause Theseus’s self-improvement builds, and resume it after a halt.',
+    'The line says whether the loop is halted. Pause new builds holds back builds that have not started; those running finish, and a restart of Theseus clears the pause. Let builds start again takes two presses. Resume after the halt appears only while halted, and asks first, because it lets every self step run again.',
+    'A pause is the light way to say not now, and anyone can set it. A halt is the kill switch, and only you can resume from one. A halt and its resume are written to the record with who did it; a pause is held only while Theseus runs.'),
+  'simple.config.servers': e(
+    'Show each tool server Theseus started and let you restart one that has stopped working.',
+    'One row is one server, with its state, how many tools it offers, and how many calls, errors and crashes it has had. Restart asks first: a call to it that is running right now is cut off, and its tools come back when it is up again.',
+    'A tool server that has crashed or stopped answering takes its tools with it. Restarting is the first thing to try before changing its configuration.'),
+  'simple.config.index': e(
+    'Show whether the search index is healthy and let you rebuild it.',
+    'The sentence says the index’s state and how it answers. Rebuild asks first and says what happens: the index is thrown away and built again from the record, so search is slower and less complete until it is done.',
+    'The index is how Theseus finds what it remembers. If search answers look wrong or stay stale, a rebuild from the record is the repair; nothing it remembers is lost by one.'),
+  'simple.config.pins': e(
+    'Show which models are fixed in place and let you let go of them.',
+    'The sentence names the live model and how many conversations and tasks are fixed to a model of their own. Release the live model goes back to the model the configuration file names, and asks first. Unpin every model releases the live model too and lets each of the conversations and tasks you fixed go back to the model it ran on before, and asks first.',
+    'A fixed model keeps a conversation on it even after you change the live one. If a model is retired or too expensive, unpinning is how the rest of Theseus moves off it.'),
+  'simple.config.imports': e(
+    'List what was imported and let you erase one import completely.',
+    'One row is one import, with how many of its conversations are still held. Erase… asks in words that give those counts and wants the import’s name typed before it will go, because it cannot be undone from here.',
+    'Erasing is for an import that was wrong, private, or no longer wanted. The originals you imported from are not touched, so the import can be run again.'),
+  'simple.config.google': e(
+    'Say where Google sign-in and its access are managed, since a page cannot do it.',
+    'The text names three commands for the computer Theseus runs on: one to sign in, one to see what it may do, and one to take the access back. Theseus refuses all of them from any page.',
+    'This is a safeguard, not a missing button: a page open in a browser can never grant or remove access to your Google account.'),
+  'simple.config.cli': e(
+    'Say which settings can be changed while Theseus runs but only at its command line, and give the command.',
+    'One row is a setting Theseus will change on request, from the command line on the computer it runs on and nowhere else. The command is on the right. Theseus itself refuses the same request from a page.',
+    'It keeps the list of what can be changed complete, and says why a page has no button for one of them: the refusal is a safeguard, not a gap.'),
   'simple.bench.unranked': e(
     'Say which benchmark families the table does not rank, and why, so none looks missing.',
     'The sentence above the table counts the reports this build holds and the families they fall in. Each family is on the page once: a row in the table, or a line here with the one reason it is not ranked (it measures speed or memory rather than a pass rate, Theseus was only measured against itself, the run was too small, or a later run replaced it) and a link to its newest report. A family has several reports when it was run again.',
     'It keeps the table from reading as the whole of what was measured. Open a family\u2019s report before quoting it: the reason here is a summary, not the measurement.'),
+  // ---- the simple pages (src/simple): Memories
+  'simple.memories.search': e(
+    'Find something Theseus remembers: a person, a topic, or a few words from a conversation.',
+    'Type the words and press Search. Theseus puts them to its people and topics, to the notes it would bring to a conversation, and to the history that was imported, and shows what each found in its own card below.',
+    'It is the quickest way to learn whether Theseus knows something, and where it learned it, before you rely on it.'),
+  'simple.memories.holdings': e(
+    'Say how much Theseus holds, so you know how wide a search is.',
+    'The conversations Theseus has had with you, the conversations imported from elsewhere, the people and topics it has filed, and the notes in its index, which is what a search of its memory reads.',
+    'A number far from what you expect, such as no imported conversations when you imported some, means a search cannot find what you are looking for.'),
+  'simple.memories.kinds': e(
+    'List the people and topics that match the words you searched.',
+    'Each row is one person or topic, with a line under it: how a person is reached, or where a topic sits and how many conversations are filed under it. Choose one to open its page.',
+    'A name is often the better way in: its page gathers every conversation that person or topic is part of.'),
+  'simple.memories.recalled': e(
+    'Show the notes Theseus would bring to a conversation if you asked about these words.',
+    'Each row is one remembered passage, with where it came from and when. A note from a personal or partner-confidential conversation shows its label and keeps its words back until you open it. Searching writes nothing and asks no model.',
+    'If the passage you were after is missing here, Theseus would not have had it in front of it either, and that is worth knowing before you ask it something.'),
+  'simple.memories.episodes': e(
+    'List the imported conversations whose title, place or topics hold your words.',
+    'Each row is one conversation from the history that was imported, with its date, where it happened and how long it was. It matches on its title, its place and its topics, not on every word said in it.',
+    'It finds a whole conversation by what it was about. Use the notes above when you are after one particular thing that was said.'),
+  'simple.memories.list': e(
+    'List everyone, or every topic, that Theseus has on file.',
+    'One row each, with a line under it. Type in the box to narrow the list; the row you choose opens its page on the right.',
+    'It is where to browse when you do not have words to search for yet.'),
+  'simple.memories.page': e(
+    'Show what Theseus has on file for one person or one topic.',
+    'For a person: how Theseus reaches them, the role it has written for them, and how many conversations they are in. For a topic: where it sits among the others, what it is, and what Theseus has been told to do in conversations under it.',
+    'Theseus acts on this. A wrong role, a missing handle or a guidance that no longer fits changes how it behaves, so this page is where to check it. Changes are made on the Configuration page.'),
+  'simple.memories.conversations': e(
+    'List the conversations filed under this person or topic, the newest first.',
+    'Conversations with Theseus come first, then imported history. Each row opens the conversation; a personal or partner-confidential one shows only its label until you open it.',
+    'It shows what the page is built from. A conversation that does not belong here is one Theseus will wrongly count under this name.'),
+  'simple.memories.below': e(
+    'List the topics filed directly beneath this one.',
+    'One row each, with how many conversations it holds. Choose one to open its page.',
+    'A topic is easier to judge with its parts in view: a branch that is too large or empty shows up here.'),
   // ---- the simple pages (src/simple): Ops
   'simple.ops.now': e(
     'Say in five numbers where everything stands at this moment.',
@@ -27,11 +149,11 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A number that is not what you expect is the reason to look further. Needs you above zero means something is stopped until you answer it.'),
   'simple.ops.needs': e(
     'List everything that is waiting for you, the longest waiting first.',
-    'One row is one thing to answer: an approval, a budget question, a choice, a failure, a seal, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. Click a row to open it on the right, with its answers.',
+    'One row is one thing to answer: an approval, a budget question, a choice, a failure, a seal, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. The number at the top counts pieces of work, so it is the same as the number above; when one piece of work holds two questions the rows are one more, and the heading says how many there are to answer. Click a row to open it on the right, with its answers.',
     'Work behind one of these does not move until you answer. Clearing this list is the most useful thing you can do on this page.'),
   'simple.ops.flight': e(
     'Show what Theseus is working on right now.',
-    'One row is one task, conversation or job that is running. Under its title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
+    'One row is one task or conversation that is running; a job it started is shown inside it, under Details, unless nothing running carries it, and then it has a row of its own. Under the title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
     'If a row has not changed for a long time, or is doing something you did not expect, open it and steer it before it spends more.'),
   'simple.ops.planned': e(
     'Show the work that is planned and has not started: what comes after the things running now.',
@@ -47,8 +169,14 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A task that failed or was cancelled is here as well as the ones that worked. Read the report before you rely on the result.'),
   'simple.ops.session': e(
     'Open one piece of work whole, to watch it and to guide it.',
-    'Talk is its conversation, live, with a box to write to it: a message sent while it works steers the running turn. Anything it has asked you is answered at the top. Details holds its facts (state, model, place, spend), its controls (pause, stop, cancel, change the model or the mode) and its record. With nothing chosen, the first thing waiting on you is shown.',
+    'Talk is its conversation, live, with a box to write to it: a message sent while it works steers the running turn. Anything it has asked you is answered at the top. Details holds its facts, its controls (pause, stop, cancel, change the model or the mode) and its record. With nothing chosen, the first thing waiting on you is shown. Keys work here: j and k move, tab goes to the next thing that waits on you, y and n answer it; ? lists them all.',
     'This is where you act. Answering, steering, pausing and stopping here are the same acts as everywhere else in Theseus, and each is written to the ledger.'),
+
+  // ---- the simple pages (src/simple): Ops, a long-horizon task (also drawn on the Ship's Operations page)
+  'simple.ops.horizon': e(
+    'Show a long-horizon task whole: what Theseus plans for it, what comes next, and what it is waiting on, and let you change the list of steps.',
+    'The count is steps or milestones done of the total. Plan holds the dated milestones. Doing now and Next steps are the steps under the project that are being worked and that no one has begun. Waiting on names each thing that is stopped and why: it waits for a person, another step, a change you have not answered, or a date that has passed.',
+    'Long work only moves if the next step is right and nothing is stuck. Add a step to say what should come next; press Done on one that is finished. Both are written to the ledger.'),
 
   // ---- the Ship
   'ship.watch': e(

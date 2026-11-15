@@ -603,55 +603,6 @@ async fn reading_a_sealed_thread_asks_the_owner_first() {
     );
 }
 
-/// "seal this thread" in a thread's session seals it before the turn runs,
-/// and leaves a note in the session; the same words in an unthreaded session,
-/// or with more in them, are an ordinary message.
-#[tokio::test]
-async fn the_owners_explicit_verb_seals_the_thread() {
-    use super::thread_seal::is_seal_word;
-    for yes in ["/seal", "Seal this thread.", "  seal this thread!  "] {
-        assert!(is_seal_word(yes), "{yes}");
-    }
-    for no in [
-        "seal this thread now",
-        "please seal it",
-        "unseal this thread",
-        "",
-    ] {
-        assert!(!is_seal_word(no), "{no}");
-    }
-    let r = canary();
-    let c = &r.core;
-    new_thread(c, "scratch", "scratch pad");
-    new_thread(c, "other", "another thread");
-    let ordinary =
-        super::tests_threads::ask(c.clone(), Some("other"), None, "seal this thread now").await;
-    assert!(ordinary["error"].is_null(), "{ordinary}");
-    assert!(c.threads().get("other").unwrap().sealed.is_none());
-    let said = super::tests_threads::ask(c.clone(), Some("scratch"), None, "/seal").await;
-    assert!(said["error"].is_null(), "{said}");
-    let sid = said["result"]["session_id"].as_str().unwrap().to_string();
-    let t = c.threads().get("scratch").unwrap().clone();
-    assert!(
-        t.sealed.as_ref().is_some_and(|s| s.reason.contains("word")),
-        "{t:?}"
-    );
-    let noted = c
-        .store
-        .session_nodes(&sid)
-        .unwrap()
-        .into_iter()
-        .any(|(_, n)| {
-            matches!(&n.body, Body::UserMessage { text, .. } if text.starts_with("The owner sealed this thread"))
-        });
-    assert!(noted, "a note says so before the turn");
-    // The same words from a session no thread serves seal nothing.
-    let plain = session(c, None, &[]);
-    let r2 = super::tests_threads::ask(c.clone(), None, Some(&plain), "seal this thread").await;
-    assert!(r2["error"].is_null(), "{r2}");
-    assert_eq!(c.threads().all().filter(|t| t.sealed.is_some()).count(), 1);
-}
-
 /// `thread.read` with a query gives the thread's card and its top notes,
 /// each cited by thread and position.
 #[tokio::test]

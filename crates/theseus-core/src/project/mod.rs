@@ -16,6 +16,8 @@
 //! - **The review** (`review.rs`): the routine made with the project, whose
 //!   brief reads the project and proposes next week's steps.
 //! - **Create** (`create.rs`): the project and its milestones in one frame.
+//! - **Items** (`items.rs`): the project's own list, add, close and list: the
+//!   steps, under their own names, from a command and from chat.
 //!
 //! The goal is the owner's layer (39a, layer 1) when the owner sets it: a
 //! project made by `project.create` is the owner's, and an agent's edit of
@@ -24,6 +26,7 @@
 
 pub mod create;
 pub mod info;
+pub mod items;
 pub mod progress;
 pub mod remind;
 pub mod review;

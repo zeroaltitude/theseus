@@ -1321,6 +1321,84 @@ fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
     assert_eq!(r.ledger("sandbox.egress").len(), 1);
 }
 
+/// A rig whose `[sandbox]` sets `limits` (`output_mb`, `scratch_mb`).
+fn limits_rig(limits: &[(&str, i64)]) -> Rig {
+    Rig::start(|t| {
+        let mut s = toml::Table::new();
+        for (k, v) in limits {
+            s.insert((*k).into(), (*v).into());
+        }
+        t.insert("sandbox".into(), toml::Value::Table(s));
+    })
+}
+
+/// One L1 call that writes 3 MB into the workspace (a scratch write), and its result's text.
+fn big_write(r: &Rig, prompt: &str) -> String {
+    let work = r.path("projects").display().to_string();
+    let call = json!({"argv": ["sh", "-c", "exec head -c 3000000 /dev/zero > \"$1/big\"", "w", work],
+        "sandbox": true});
+    r.turn(prompt, vec![("proc_run", call)]).remove(0)
+}
+
+/// A job that writes past `output_mb` is killed by the kernel (`SIGXFSZ`), and
+/// that is a row and a line of its result (theseus-zupk; the metric is counted
+/// beside them and asserted in the core's telemetry tests); one under the limit
+/// leaves none.
+#[test]
+fn a_job_that_writes_past_output_mb_leaves_a_limit_hit_row() {
+    let r = limits_rig(&[("output_mb", 1)]);
+    let text = big_write(&r, "past the file size");
+    assert!(
+        text.contains("past its size limit ([sandbox] output_mb)"),
+        "{text}"
+    );
+    let rows = r.ledger("sandbox.limit_hit");
+    assert_eq!(rows.len(), 1, "{rows:?}\n{text}");
+    assert_eq!(
+        (&rows[0]["limit"], &rows[0]["max_mb"]),
+        (&json!("output_mb"), &json!(1))
+    );
+    assert_eq!(rows[0]["tool"], "proc.run");
+    let small = json!({"argv": ["sh", "-c", "head -c 1000 /dev/zero > \"$1/small\"", "w",
+        r.path("projects").display().to_string()], "sandbox": true});
+    r.turn("under the limit", vec![("proc_run", small)]);
+    assert_eq!(
+        r.ledger("sandbox.limit_hit").len(),
+        1,
+        "a job under its limits adds none"
+    );
+}
+
+/// A job whose scratch fills (`scratch_mb`) fails its write, and says so in the
+/// same two places. A sparse file far past the limit occupies nothing on the
+/// tmpfs, so it is no hit: the limit is the tmpfs's, not the file's size.
+#[test]
+fn a_job_that_fills_scratch_leaves_a_limit_hit_row() {
+    let r = limits_rig(&[("scratch_mb", 1)]);
+    let text = big_write(&r, "past the scratch");
+    assert!(
+        text.contains("reached its limit ([sandbox] scratch_mb)"),
+        "{text}"
+    );
+    let rows = r.ledger("sandbox.limit_hit");
+    assert_eq!(rows.len(), 1, "{rows:?}\n{text}");
+    assert_eq!(
+        (&rows[0]["limit"], &rows[0]["max_mb"]),
+        (&json!("scratch_mb"), &json!(1))
+    );
+    let sparse = json!({"argv": ["sh", "-c", "truncate -s 10M \"$1/sparse\"", "w",
+        r.path("projects").display().to_string()], "sandbox": true});
+    let said = r
+        .turn("a sparse file", vec![("proc_run", sparse)])
+        .remove(0);
+    assert!(!said.contains("[sandbox] scratch_mb"), "{said}");
+    assert_eq!(
+        r.ledger("sandbox.limit_hit").len(),
+        1,
+        "a sparse file is no limit hit"
+    );
+}
+
 /// The account the `aws` grant's test binds: AWS's documentation's example id.
 const ACCOUNT: &str = "111122223333";
 

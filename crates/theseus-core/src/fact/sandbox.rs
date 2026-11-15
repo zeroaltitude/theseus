@@ -87,6 +87,42 @@ impl Fact for SandboxEgress<'_> {
     }
 }
 
+/// A limit an L1 job reached (`sandbox.limit_hit`, theseus-zupk): the limit's
+/// key in `[sandbox]` and its value in MB, one row per limit per job. It rides
+/// in the frame that writes the job's result, beside its egress rows. Only
+/// what a job's end shows is here: `output_mb` and `scratch_mb`; the process
+/// limit leaves nothing to read (L1 has no cgroup).
+pub struct SandboxLimitHit<'a> {
+    pub correlation_id: &'a str,
+    pub tool: &'a str,
+    pub limit: &'a str,
+    pub max_mb: u64,
+}
+
+impl Fact for SandboxLimitHit<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SandboxLimitHit);
+
+    fn row(&self) -> Value {
+        json!({"correlation_id": self.correlation_id, "tool": self.tool, "limit": self.limit,
+            "max_mb": self.max_mb})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "Job {} reached its {} limit of {} MB, in the sandbox.",
+                narrative::short(self.correlation_id),
+                match self.limit {
+                    "output_mb" => "file size",
+                    _ => "scratch",
+                },
+                self.max_mb
+            ),
+        );
+    }
+}
+
 /// The `CONNECT`s an L1 job's proxy refused for one reason at one host
 /// (`sandbox.egress_refused`, M4 18c): the host, the port, the reason, and
 /// how many times.

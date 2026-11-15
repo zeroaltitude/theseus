@@ -288,6 +288,20 @@ const CANCELS: Instrument = Instrument {
     kind: Kind::IntSum,
 };
 
+const JOB_START: Instrument = Instrument {
+    name: "theseus.job.start_ms",
+    description: "A job's start, from its spawn to its command's exec (theseus-zupk), by class; only L1 measures it",
+    unit: "ms",
+    kind: Kind::Histogram,
+};
+
+const SANDBOX_LIMIT_HITS: Instrument = Instrument {
+    name: "theseus.sandbox.limit_hits",
+    description: "L1 jobs that reached a limit (theseus-zupk), by the limit's key in [sandbox]: output_mb, scratch_mb. The process limit cannot be observed (L1 has no cgroup)",
+    unit: "",
+    kind: Kind::IntSum,
+};
+
 const TOOLS_EVENTS: Instrument = Instrument {
     name: "theseus.tools.events",
     description: "Tool families' use per turn (theseus-7m7w.2), by place kind and family: used, searched for, missed (a call to a tool the request did not load), and loaded but unused by its conversation",
@@ -355,7 +369,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 50] = [
+const INSTRUMENTS: [&Instrument; 52] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -396,6 +410,8 @@ const INSTRUMENTS: [&Instrument; 50] = [
     &AWS_CALLS,
     &AWS_DURATION,
     &CANCELS,
+    &JOB_START,
+    &SANDBOX_LIMIT_HITS,
     &INDEX_LAG_BYTES,
     &INDEX_LAG_MS,
     &INDEX_DOCUMENTS,
@@ -791,6 +807,18 @@ impl Metrics {
             ("theseus.cancel.state", Attr::S(state.to_string())),
         ];
         self.add(&CANCELS, attrs, 1);
+    }
+
+    /// An L1 job's start (theseus-zupk).
+    pub(super) fn job_start(&mut self, class: &str, ms: f64) {
+        let attrs = vec![("theseus.job.class", Attr::S(class.to_string()))];
+        self.record(&JOB_START, attrs, ms);
+    }
+
+    /// An L1 job that reached `limit` (theseus-zupk).
+    pub(super) fn sandbox_limit(&mut self, limit: &str) {
+        let attrs = vec![("theseus.sandbox.limit", Attr::S(limit.to_string()))];
+        self.add(&SANDBOX_LIMIT_HITS, attrs, 1);
     }
 
     /// A tool family's use in a turn (theseus-7m7w.2): `event` is used,

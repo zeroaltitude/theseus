@@ -245,39 +245,6 @@ pub fn address(a: &Addressing<'_>, threads: &[&ThreadInfo]) -> Option<Address> {
         })
 }
 
-/// "That was for the security fix": the owner's words that the last message
-/// was placed wrong. The live thread they name (its slug), or `home`; none for
-/// any other message. Narrow on purpose: the whole message is the correction.
-pub fn moved_words(text: &str, threads: &[&ThreadInfo]) -> Option<String> {
-    let t = text.trim().trim_end_matches(['.', '!']).to_lowercase();
-    let mut t = t.as_str();
-    for lead in [
-        "no, ", "no ", "oops, ", "oops ", "sorry, ", "sorry ", "wait, ", "wait ",
-    ] {
-        if let Some(rest) = t.strip_prefix(lead) {
-            t = rest.trim_start();
-        }
-    }
-    const SAYS: [&str; 9] = [
-        "that was for ",
-        "this was for ",
-        "that was about ",
-        "that was meant for ",
-        "that belongs in ",
-        "that goes in ",
-        "that goes to ",
-        "that should have gone to ",
-        "that should go to ",
-    ];
-    let rest = SAYS.iter().find_map(|p| t.strip_prefix(p))?;
-    let rest = rest.strip_prefix("the ").unwrap_or(rest);
-    let rest = rest.strip_suffix(" thread").unwrap_or(rest).trim();
-    if rest == "home" || rest == "home conversation" {
-        return Some("home".into());
-    }
-    named(rest, threads).map(|th| th.slug.clone())
-}
-
 // ---------------------------------------------------------------- entities
 
 /// Words too generic to name a thread's work.

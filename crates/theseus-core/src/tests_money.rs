@@ -65,7 +65,11 @@ impl Provider for Holds {
     }
 }
 
-/// A call that diffs, billed as `usage`.
+/// A call that diffs, billed as `usage`. Each loop's diff differs, as a model
+/// that diffs for ever asks for different things: the repeat cap ends a model
+/// that asks for the identical call again and again with nothing run (this
+/// rig's place refuses the call, so nothing does), and these tests are about
+/// the money's stop, which comes after.
 fn diffing(n: usize, usage: Usage) -> Scripted {
     Scripted::Billed {
         usage,
@@ -74,7 +78,7 @@ fn diffing(n: usize, usage: Usage) -> Scripted {
             &[(
                 &format!("t{n}"),
                 "text_diff",
-                json!({"a": "x\n", "b": "y\n"}),
+                json!({"a": format!("x{n}\n"), "b": "y\n"}),
             )],
         )),
     }

@@ -1631,6 +1631,8 @@ mod pause_turn;
 mod question_ends;
 /// A question that waits past its life is noticed, not declined (theseus-v2dnc).
 mod question_waits;
+/// `self.file` through a turn: the item is on the backlog (issue 6).
+mod self_file_turn;
 /// A `/stop` before a turn's admission, and a question's expiry (theseus-hmwv,
 /// theseus-830).
 mod stops_and_expiry;

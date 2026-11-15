@@ -41,6 +41,33 @@ build.
   - Daylight is the default look since these pages (`lib/daylight.ts`'s `choiceOf`, `public/mode.js`); the Ship
     stays a night sea.
 
+- **Memories and a session's own pages** (`src/simple/Memories.tsx`, `src/simple/memories/`; GitHub issue 17). Memories
+  opens on `memories/Search.tsx`: one box whose words go to the people and topics that carry them (`ontology.list`),
+  to what recall would bring (`memory.search`, which writes nothing) and to the imported episodes' titles, places and
+  topics (`import.sessions`), each its own card; with no words it counts what Theseus holds. `memories/Kinds.tsx` is
+  People and Topics: a list (`?f=` its words) and the chosen one's page (`?sel=`); a page's conversations are
+  `ontology.list`'s memberships read once (`find.ts`'s `holdersOf`) and the rows come by id. `memories/Turn.tsx` is
+  the explorer's own turn view in this frame. The explorer and the shelves stay behind them as hosted tabs
+  (`?v=context`, `?v=books`). Its pure half is `memories/find.ts` (the addresses, the matching, the chain of a topic),
+  tested by `test/simple-memories.test.ts`; every address it writes stays under `/memories` except a session's.
+  `/session/:id`, `/session/:id/turn/:turn` and `/session/:id/unlabel/:flag` are routes of the simple frame
+  (`memories/Session.tsx` hosts the Ship's `SessionDeck`, `TurnInspect` and `Unlabel` whole, with a way back to Ops and
+  to what the turn was shown; `test/simple-session.test.ts` pins that no Ship route matches them too). Nothing here
+  writes the ontology: people and topics are changed on the Configuration page.
+
+- **Telemetry board and Configuration map** (issue 17, step 5; `simple/telemetry/`, `simple/config/`). Telemetry's first tab is
+  `Board.tsx`: six `ChartPanel`s (running, failures, latency, headroom, spend, the machine), each with its "?" and its table view,
+  whose numbers are `board.ts`'s reading of `health`, the lists and the ledger's provider calls (tested in
+  `test/simple-telemetry.test.ts`); the Ship's pages stay behind it as tabs. Configuration's first tab is `Settings.tsx`, over
+  the inventory `settings.ts`: LIVE (a control a tab or link away), FIXED (the configuration file's sections, read only at
+  start) and CLI_ONLY (changeable live, but the daemon answers only its own command line: Google's four methods).
+  `test/simple-config.test.ts` holds it to the protocol crate's method names, to what `src/` calls, and to the example file's
+  sections: a new section or a new control fails it until the map says so. A control added here calls what the Ship's page
+  calls, behind its confirmation. The "More controls" tab (`config/Controls.tsx`, panels in `config/controls/`) holds the
+  daemon-level acts no other page had: each is an `ActButton` over a row of `config/verbs.ts`, whose posture (do, arm, ask) it
+  must take, pinned by `test/simple-config-controls.test.ts` (every act that destroys or interrupts asks, in words that name the
+  effect; the erase of an import wants its name typed). Their answers are kept as notes (`config/notes.ts`), held at the top.
+
 - `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) beside
   every built file but the fonts; theseusd embeds only those, one copy, and sends it by `Accept-Encoding` (theseus-rwpbg.5).
 
@@ -489,3 +516,15 @@ build.
   the shader file, not the cause.
 - **Never add a `/ws` proxy** (theseus-88im): it relays other pages and users to the daemon from your socket.
 - The first load after adding a dependency can fail while Vite re-optimizes ("Outdated Optimize Dep"). Load it again.
+
+## The simple Ops page: one work set, one key table (issue 17)
+
+`simple/ops/workset.ts` is the page's whole work set, the Operations page's own steps run once (`queueOf`, `boardRows`,
+`columnsOf`, `allCounters`, `spendToday`): never call them in `simple/Ops.tsx`. `test/simple-ops-parity.test.ts` runs the
+Ship's pipeline and this one over `test/simple-ops-fixtures.ts` and holds every number equal, each list as long as its
+counter (In flight lists the counted cards; a job is inside its card). Keys: `simple/ops/keys.ts` names which entries of
+`ops/keys.ts` work here (`SIMPLE_VERBS`) and resolves them by the Ship's rules; `useOpsKeys.ts` is the handler and the
+Keys dialog is `helpHere()`, the same table's overlay. A new entry in `ops/keys.ts` needs a verdict here: the keys test
+fails until it is in `SIMPLE_VERBS` with a handler, or left out on purpose. A project's plan, next steps and what it waits on
+(`simple/ops/Horizon.tsx` over `horizon.ts`, `project.show` and issue 13's `project.item.add` and `.close`) is a section of the
+Inspector, so both Operations pages draw the one component.

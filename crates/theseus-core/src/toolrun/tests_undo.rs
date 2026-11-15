@@ -356,13 +356,26 @@ async fn a_model_that_keeps_re_planning_the_same_held_call_ends_the_turn() {
         RESHAPEABLE,
         0.96,
         false,
-        |_| {},
+        |c| c.narrative = true,
         script_replanning_the_same_call,
     );
     let sid = r.session();
     let res = r.turn(&sid).await;
 
     assert_eq!(res.stop_reason, repeat_step::REPEATING, "{res:?}");
+    // What the person reads of each hold, once per loop: the call does not run
+    // and the model is asked to re-plan it (the hold's narrative line).
+    let said = r
+        .core
+        .narrator
+        .tail()
+        .into_iter()
+        .filter(|l| {
+            l.text
+                .ends_with("so it does not run and the model is asked to re-plan it.")
+        })
+        .count();
+    assert_eq!(said as u32, repeat_step::MAX_REPEATS, "one line a hold");
     assert_eq!(res.loops, repeat_step::MAX_REPEATS, "{res:?}");
     assert!(
         res.loops < 10 && (REPLANS as u32) > res.loops + 2,
