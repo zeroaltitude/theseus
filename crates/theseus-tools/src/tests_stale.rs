@@ -88,6 +88,22 @@ fn edit_two(c: &ToolCtx) -> Result<String, String> {
     .map_err(|e| e.message)
 }
 
+/// The stale guard's refusal is the tool's own answer, marked so: the self loop files no fault
+/// for a model that wrote over a file it had not read again.
+#[test]
+fn an_edit_of_a_file_that_moved_under_the_read_is_a_marked_refusal() {
+    let (d, c) = guarded();
+    read_it(&c);
+    changed_underneath(&d);
+    let refused = Edit
+        .run(
+            &json!({"path": "a.txt", "old_string": "two", "new_string": "TWO"}),
+            &c,
+        )
+        .unwrap_err();
+    assert_eq!(refused.meta["refusal"], json!(true), "{refused:?}");
+}
+
 #[test]
 fn an_edit_of_a_file_that_moved_under_the_read_is_refused_in_words_that_name_the_recovery() {
     let (d, c) = guarded();
