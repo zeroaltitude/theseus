@@ -152,7 +152,7 @@ struct Built {
     at_ms: u64,
 }
 
-/// A verdict written before: its branch, head, reviewer model and verdict.
+/// A verdict written before: its branch, head, the model that answered, the one asked, and verdict.
 struct Prior {
     branch: String,
     head: String,
