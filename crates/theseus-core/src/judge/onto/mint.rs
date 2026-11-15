@@ -97,7 +97,8 @@ pub struct Minted {
     pub precedence: u32,
     pub records: Vec<Record>,
     pub sessions: usize,
-    /// Named by Jev's pick (else by the most shared name).
+    /// Named by Jev's pick; since issue 9 the class names every kind the
+    /// sweep makes, so this is false.
     pub named: bool,
 }
 
@@ -310,7 +311,8 @@ pub fn leads<'a>(o: &Ontology, names: &Folds<'a>, same: &[(String, String)]) -> 
     found
 }
 
-/// What `said` mints against `o`: `write(n)` is the id of the nth write
+/// What `said` mints against `o` with no class call: nothing, since issue 9
+/// (see [`plan_with`]). `write(n)` is the id of the nth write
 /// (`sweep-<ms>-<n>-kind`), which the kind's and category's `added_by` carry.
 pub fn plan(o: &Ontology, said: &[Said], now_ms: u64, write: impl Fn(usize) -> String) -> Plan {
     plan_with(o, said, now_ms, write, &Hints::default())

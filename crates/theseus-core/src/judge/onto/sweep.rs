@@ -51,8 +51,8 @@ pub struct Swept {
     /// write of the sweep's (`judged.rs`), and what its questions cost.
     pub judged_merges: u64,
     pub splits: u64,
-    /// The categories Jev renamed, and the kinds it named (the rest of the
-    /// kinds took the most shared name).
+    /// The categories Jev renamed, and the kinds it named (none since issue
+    /// 9: the class names every kind the sweep makes).
     pub renamed: u64,
     pub named_kinds: u64,
     /// The entries the one-time cleanup retired (`tidy.rs`).
