@@ -161,6 +161,11 @@ pub fn sweep(kernel: &Kernel, store: &Store, spool: &Spool, now: SystemTime) -> 
             };
         if gone {
             crate::toolrun::job::beside::forget(id);
+            // A stopped job's report is still owed to its result while the cancel's answer is unwritten
+            // (an ended execution may be the daemon's death between the two), so only these go.
+            if matches!(fate, Fate::Absorbed | Fate::Unknown) {
+                spool.remove_detail(id);
+            }
             out.removed += 1;
             out.removed_bytes += meta.len();
             *out.removed_by.entry(fate.as_str().into()).or_default() += 1;
