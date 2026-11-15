@@ -274,8 +274,9 @@ pub fn classify(paths: &[String], diff: &str) -> Vec<Hit> {
 /// guard. A guard that cannot run is a finding: the keel never passes by
 /// default.
 ///
-/// `base` is where the branch left main (`git::merge_base`), never main's
-/// tip. The guard reads two trees, and against main's tip everything main
+/// `base` is where the branch left main (`git::merge_base`): main's tip only
+/// for a branch that holds all of main. The guard reads two trees, and against
+/// a main that has moved on since the cut, everything main
 /// gained after the branch was cut comes back reversed: a test main added
 /// since reads as a test the branch removed. On 2026-11-15 a fix that landed
 /// on main while a branch built added four tests, and that branch, accepted
