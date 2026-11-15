@@ -56,7 +56,7 @@ that is the one the gate reads (F2b). Either route clears the same label through
 
 | command | what it does |
 |---|---|
-| `/thread new\|list\|bind\|unbind\|merge` | Threads: lines of work, each with a session of its own |
+| `/thread new\|list\|bind\|unbind\|merge\|seal` | Threads: lines of work, each with a session of its own |
 | `/move` | Move my last message to another thread, and answer it there |
 
 A thread Theseus should stop routing to is taken out of the router's candidate set with
@@ -74,6 +74,7 @@ These the core judges as the owner's, from a private place.
 | command | what it does |
 |---|---|
 | `/project trust\|untrust\|trusted` | A repository's own instruction files: trust them, take the trust back, or list them |
+| `/project item add\|close\|list` | A project's own list of items: add one, close one, or list the open ones |
 | `/orders` | Your standing orders, preferences and facts, kept in every prompt of their scope, with Revoke |
 | `/extensions` | The loaded extensions: each one's digest, tools, and who acked it, with Revoke |
 | `/publish` | Publish a node, a file, or a message into a place (only you, from a private place) |
