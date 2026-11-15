@@ -89,8 +89,10 @@ impl ToolRuntime {
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // What has been kept about the owner, asked for (theseus-6f8t0).
                 crate::card::tool::FAMILY => self.card_observed.run(tc, &input),
-                crate::rsi::backlog::tool::FAMILY => self.self_file.run(tc, &input),
-                // By name: its family is `self`, which `self.file` shares.
+                // By name: their family is `self`, which both share.
+                _ if tool.name() == crate::rsi::backlog::tool::FILE => {
+                    self.self_file.run(tc, &input)
+                }
                 _ if tool.name() == crate::rsi::pause_tool::PAUSE => {
                     self.self_pause.run(tc, &input)
                 }
