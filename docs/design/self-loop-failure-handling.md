@@ -36,6 +36,20 @@ so a planted revert can prove it).
   retry fails the item, and the stop's row says so. Where the working copy cannot be made (the item has a tree open, or git says no) the
   old path stands: the tree is closed and the next build cuts a fresh branch from the new main.
 
+**A failure that is not the change's fault** (issue 20; `rsi/rerun.rs`, `rsi/reach.rs`, `tree::rerun_tests`, `infra::judge`). **An aborted check**
+  (the gate's exit 75, "THE TREE MOVED", which it calls no verdict on the code) is run again at once, `rerun::ABORT_RERUNS` (2) more times; past
+  that the build ends saying the check kept aborting, and `infra::judge` reads exit 75 as infrastructure, so `gate:unjudged` takes the try
+  back (and the kill switch's streak counts it, as for any gate that never judged). **A red suite's failures, once more**, when the gate
+  failed in its suite and nowhere else, the log reads whole (one summary, a distinct `FAIL` line per failed test and that many in the
+  summary, no timeout, signal or leak), every failed test's package is **outside what the change reaches**, and those tests alone, run again
+  (`tree::rerun_tests`: L1, nice 19, the tree's own build folder), all pass: then the build is green, and the report and the row's
+  `numbers.reran` name the tests. Anything else is red as before, the first time. **Outside** is read from the workspace's own manifests
+  (`reach::read`, never `cargo metadata`, which reads the branch's `.cargo/config.toml` and would run its compiler setting at L0): a package
+  is inside when the diff edits it or when it depends on one the diff edits, through any chain, in the normal, dev and build tables
+  (`[target.*]` included), and any path in no package (`Cargo.lock`, the root manifest, `scripts/`, `docs/`, the nextest config) reaches every
+  package; a package it cannot place is inside. What it does not judge: the phases after a failed suite did not run, so the join's gate on
+  the merge is what finally judges them, and a test that reads another package's files at run time (a source-scanning test) is not in the graph.
+
 ## What this does NOT do
 
 - A self-join's own gate is not read by the main-is-red hold: its row lands in the sandbox's tmpfs `HOME` and is lost,

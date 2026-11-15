@@ -64,7 +64,12 @@ fn judge(gate: &str, exit: Option<i64>, secs: Option<u64>, unrunnable: bool) -> 
         "green" => Some(Outcome::Green),
         "keel" => Some(Outcome::Red),
         "failed" => Some(Outcome::Infrastructure),
-        "red" if unrunnable || exit == Some(i64::from(NOT_FOUND)) || secs.unwrap_or(0) == 0 => {
+        "red"
+            if unrunnable
+                || exit == Some(i64::from(NOT_FOUND))
+                || exit == Some(i64::from(super::tree::GATE_ABORTED))
+                || secs.unwrap_or(0) == 0 =>
+        {
             Some(Outcome::Infrastructure)
         }
         "red" => Some(Outcome::Red),

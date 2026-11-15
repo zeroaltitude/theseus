@@ -205,6 +205,14 @@ pub struct GateRun {
     pub unrunnable: bool,
 }
 
+impl GateRun {
+    /// The gate stopped because its tree moved while it ran: no verdict on the code
+    /// ([`GATE_ABORTED`]).
+    pub fn aborted(&self) -> bool {
+        self.exit == Some(GATE_ABORTED)
+    }
+}
+
 /// How long a gate run may print nothing before it is stopped (theseus-x1zz8):
 /// a cold build of the whole workspace at nice 19 beside busy neighbours took
 /// about 22 minutes, and one that still prints is let run on, to 24 times
@@ -224,6 +232,10 @@ const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
 /// one that runs `git fetch` does print - hold the loop open for 24 times
 /// this, and delay a stop aimed at the build by the same factor.
 const RULE_LIMIT: Duration = Duration::from_secs(120);
+/// The exit status of a gate that aborted because its tree moved while it ran: no verdict on the
+/// code, pass or fail (gate.sh's `tree_moved_status`; scripts/AGENTS.md, "A tree that moved
+/// ABORTS the gate").
+pub const GATE_ABORTED: i32 = 75;
 /// How the gate says the keel stopped it (gate.sh's `phase` names).
 const KEEL_FAILED: &[&str] = &["gate: FAILED in keel", "gate: FAILED in door"];
 /// How the gate says a tool it needs is missing, so that a phase could not run
@@ -736,6 +748,53 @@ pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<Gated> {
     gate_with(p, tree, true).await
 }
 
+/// The tests `expr` names, alone, in the tree: what a red suite's failures get once more
+/// (`rerun`). The gate's own way of running them (L1 in a daemon, nice 19, the tree's own build
+/// folder, which the gate's run left built), without its other phases. Its exit and its log,
+/// kept beside the gate's. The tree stays for as long as it runs (`tree_lease`).
+pub async fn rerun_tests(p: &Place, tree: &Tree, expr: &str) -> Result<(Option<i32>, PathBuf)> {
+    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
+    std::fs::create_dir_all(p.gates())?;
+    let log = p
+        .gates()
+        .join(format!("{}-rerun.log", tree.branch.replace('/', "-")));
+    let command: Vec<OsString> = [
+        "cargo",
+        "nextest",
+        "run",
+        "--workspace",
+        "--no-fail-fast",
+        "-E",
+        expr,
+    ]
+    .map(OsString::from)
+    .to_vec();
+    let status = match p.jail()? {
+        Some(j) => {
+            let mut argv: Vec<OsString> = vec!["nice".into(), "-n".into(), "19".into()];
+            if on_path("ionice") {
+                argv.extend(["ionice".into(), "-c".into(), "3".into()]);
+            }
+            argv.extend(command);
+            let job = Job {
+                tree,
+                ro: vec![],
+                argv,
+                env: vec![],
+                log: &log,
+                limit: GATE_SILENCE,
+            };
+            j.run(p, job).await.map_err(|e| {
+                e.context("the tests did not run in L1, and a self build never runs at L0")
+            })?
+        }
+        None => {
+            run_niced_command(p, tree, &command, &log, Bound::Silence(GATE_SILENCE), true).await?
+        }
+    };
+    Ok((status, log))
+}
+
 async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
     // The tree stays for as long as the gate runs in it (`tree_lease`).
     let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
@@ -1004,6 +1063,19 @@ pub(super) async fn run_niced(
     bound: Bound,
     benches: bool,
 ) -> Result<Option<i32>> {
+    let command = ["bash".into(), script.as_os_str().to_owned()];
+    run_niced_command(p, tree, &command, log, bound, benches).await
+}
+
+/// `command` in the tree, as [`run_niced`] runs a script.
+async fn run_niced_command(
+    p: &Place,
+    tree: &Tree,
+    command: &[OsString],
+    log: &Path,
+    bound: Bound,
+    benches: bool,
+) -> Result<Option<i32>> {
     let limit = bound.limit();
     let out = std::fs::File::create(log)?;
     let err = out.try_clone()?;
@@ -1011,7 +1083,7 @@ pub(super) async fn run_niced(
     if on_path("ionice") {
         argv.extend(["ionice".into(), "-c".into(), "3".into()]);
     }
-    argv.extend(["bash".into(), script.as_os_str().to_owned()]);
+    argv.extend(command.iter().cloned());
     let mut c = tokio::process::Command::new(&argv[0]);
     c.args(&argv[1..])
         .current_dir(&tree.dir)

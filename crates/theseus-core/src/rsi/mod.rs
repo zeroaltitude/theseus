@@ -60,6 +60,8 @@ pub mod pause;
 pub mod pause_tool;
 pub mod pipeline;
 pub mod pr;
+pub mod reach;
+pub mod rerun;
 pub mod revert;
 pub mod sealed;
 mod switch;
@@ -79,6 +81,10 @@ mod tests_lease;
 mod tests_narrow;
 #[cfg(test)]
 mod tests_pr;
+#[cfg(test)]
+mod tests_reach;
+#[cfg(test)]
+mod tests_rerun;
 #[cfg(test)]
 pub(crate) mod tests_tree;
 pub mod tree;

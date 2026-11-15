@@ -573,6 +573,7 @@ mod told {
     }
 
     mod capped;
+    mod second_look;
 
     fn thread_posts(r: &Rig, kind: &str) -> Vec<Value> {
         r.core
