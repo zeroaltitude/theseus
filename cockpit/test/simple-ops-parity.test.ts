@@ -12,6 +12,7 @@ import { answerOf, queueOf } from '../src/ops/queue.ts'
 import { composerStep } from '../src/ops/composer.ts'
 import { workSetOf, type WorkSetInput } from '../src/simple/ops/workset.ts'
 import { store } from './simple-ops-fixtures.ts'
+import { view } from './ops-fixtures.ts'
 
 const src = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')
 
@@ -67,10 +68,25 @@ test('a job is working on the Ship’s Board and is inside its card on the simpl
   assert.equal(s.cols.working.length - jobs.length, w.flight.length + s.cols.working.filter((r) => r.kind !== 'job' && !r.counted).length)
 })
 
+test('a running job whose conversation is at rest is listed on its own: the counter is the Ship’s, and nothing the Board shows under Working is out of reach', () => {
+  const i = store()
+  const bg: WorkSetInput = { ...i, views: [...i.views, view('act_bg', 'job', 'running', { session_id: 'ses_rest', title: 'a long build' })] }
+  const s = ship(bg)
+  const w = workSetOf(bg)
+  assert.deepEqual(w.counts, s.counts, 'the job is no second count')
+  assert.ok(s.cols.working.some((r) => r.id === 'act_bg'), 'the Ship’s Board shows it under Working')
+  assert.deepEqual(w.loose.map((r) => r.id), ['act_bg'], 'only the job whose card is not in flight')
+  assert.ok(w.order.includes('act_bg'), 'j and k reach it, and Details can stop it')
+  assert.ok(!w.flight.some((r) => r.id === 'act_bg'), 'the counted list is still the counter')
+  assert.ok(w.loose.every((r) => !r.counted), 'what is loose is what no counter counts')
+  // The same job under a conversation in flight stays inside its card.
+  assert.ok(!workSetOf(i).loose.some((r) => r.id === 'act_j2'), 'a job under running work is one click inside it')
+})
+
 test('the order j and k walk is every entry of every list once, top to bottom', () => {
   const w = workSetOf(store())
   assert.equal(new Set(w.order).size, w.order.length, 'no entry twice')
-  const shown = [...w.queue.map((q) => q.key), ...w.waiting.map((r) => r.id), ...w.flight.map((r) => r.id), ...w.next.map((r) => r.id), ...w.cols.scheduled.map((r) => r.id), ...w.cols.paused.map((r) => r.id), ...w.resting.map((x) => x.session_id), ...w.cols.done.map((r) => r.id)]
+  const shown = [...w.queue.map((q) => q.key), ...w.waiting.map((r) => r.id), ...w.flight.map((r) => r.id), ...w.loose.map((r) => r.id), ...w.next.map((r) => r.id), ...w.cols.scheduled.map((r) => r.id), ...w.cols.paused.map((r) => r.id), ...w.resting.map((x) => x.session_id), ...w.cols.done.map((r) => r.id)]
   assert.deepEqual(w.order, shown)
   assert.ok(w.resting.some((x) => x.session_id === 'ses_rest'), 'a conversation at rest is listed')
 })

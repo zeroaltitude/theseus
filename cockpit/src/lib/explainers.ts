@@ -31,7 +31,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Work behind one of these does not move until you answer. Clearing this list is the most useful thing you can do on this page.'),
   'simple.ops.flight': e(
     'Show what Theseus is working on right now.',
-    'One row is one task or conversation that is running; a job it started is shown inside it, under Details. Under the title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
+    'One row is one task or conversation that is running; a job it started is shown inside it, under Details, unless nothing running carries it, and then it has a row of its own. Under the title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
     'If a row has not changed for a long time, or is doing something you did not expect, open it and steer it before it spends more.'),
   'simple.ops.planned': e(
     'Show the work that is planned and has not started: what comes after the things running now.',

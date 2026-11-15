@@ -124,9 +124,9 @@ export default function SimpleOps() {
             </Panel>
           </div>
           <div id="ops-flight" className="shrink-0 scroll-mt-2">
-            <Panel help="simple.ops.flight" icon={<Loader size={14} />} bodyClassName="p-1.5" title={counted('In flight', work.flight.length)}>
+            <Panel help="simple.ops.flight" icon={<Loader size={14} />} bodyClassName="p-1.5" title={counted('In flight', work.flight.length, false, work.loose.length ? `+ ${work.loose.length} background ${work.loose.length === 1 ? 'job' : 'jobs'}` : undefined)}>
               <Rows empty={ready ? 'Nothing is running.' : 'Reading the board…'}>
-                {work.flight.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={pick} />)}
+                {[...work.flight, ...work.loose].map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={pick} />)}
               </Rows>
             </Panel>
           </div>
