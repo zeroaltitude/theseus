@@ -19,8 +19,8 @@ import { ago, cn, short, usd } from '@/lib/format'
 import { stateOf } from '@/lib/sessionState'
 import { Panel, Empty } from '@/components/ui'
 import { ConfirmCard } from '@/components/ConfirmCard'
-import { allCounters, boardRows, columnsOf, spendToday, unaskedCards, type OpsRow } from '@/ops/board'
-import { queueOf, type QueueItem } from '@/ops/queue'
+import type { OpsRow } from '@/ops/board'
+import type { QueueItem } from '@/ops/queue'
 import { cardFacts, itemFacts, ITEM_LOOK, waitingFacts } from '@/ops/facts'
 import { rowFor } from '@/ops/sections'
 import { useRouterAsks } from '@/ops/asks'
@@ -31,6 +31,7 @@ import { ModeMenu, ModelMenu } from '@/ops/ModelMenu'
 import { NewTask } from '@/ops/NewTask'
 import { Toast } from '@/ops/Toast'
 import { Page, Stat } from './kit'
+import { workSetOf, defaultSel, selectedOf } from './ops/workset'
 
 /** One empty list for every absent read, so a memo over it holds. */
 const NONE: never[] = []
@@ -71,38 +72,16 @@ export default function SimpleOps() {
   const records = tl?.records ?? NONE
   const sessions = sl?.sessions ?? NONE
   const confirms = cl?.confirms ?? NONE
-  const titleOf = useCallback((sid: string) => { const s = sessions.find((x) => x.session_id === sid); return s?.title || s?.label || sid.slice(-6) }, [sessions])
 
-  const queue = useMemo(() => queueOf({ confirms, views, records, groups, asks, past: false, titleOf }), [confirms, views, records, groups, asks, titleOf])
-  const rows = useMemo(() => boardRows({ views, tasks, sessions, records, queue, now, past: false }), [views, tasks, sessions, records, queue, now])
-  const cols = useMemo(() => columnsOf(rows, now), [rows, now])
-  const spend = useMemo(() => spendToday(history.rows, now), [history.rows, now])
-  const counts = useMemo(() => allCounters(rows, now, spend.usd), [rows, now, spend.usd])
-  const waiting = useMemo(() => unaskedCards(rows), [rows])
-  // Planned and not yet started: the steps no one has begun, those whose plan is in flight first (the nodes that
-  // come after the running ones in the graph), then the rest, newest first.
-  const next = useMemo(() => {
-    const inFlight = new Set(cols.working.map((r) => r.id))
-    const todo = rows.filter((r) => r.bucket === 'todo')
-    const after = (r: OpsRow) => (r.carrier && inFlight.has(r.carrier)) || (r.parent && inFlight.has(rowFor(rows, r.parent)?.id ?? '')) ? 0 : 1
-    return todo.sort((a, b) => after(a) - after(b) || b.activityMs - a.activityMs || (a.id < b.id ? -1 : 1))
-  }, [rows, cols.working])
-
-  // The conversations at rest, the most recently active first: nothing runs in them, and any can be talked to. The
-  // board holds only work, so these are `session.list`'s, less the ones a list above already shows.
-  const resting = useMemo(() => {
-    const listed = new Set(rows.filter((r) => r.column != null && r.column !== 'done').map((r) => r.sessionId ?? r.id))
-    return sessions.filter((x) => x.kind === 'conversation' && stateOf(x) !== 'retired' && !listed.has(x.session_id))
-      .sort((a, b) => b.last_active_ms - a.last_active_ms || (a.session_id < b.session_id ? -1 : 1))
-  }, [rows, sessions])
+  // The one work set (`./ops/workset.ts`): the Operations page's steps, so a number here is the number there.
+  const work = useMemo(() => workSetOf({ views, tasks, sessions, records, confirms, groups, asks, history: history.rows, now }), [views, tasks, sessions, records, confirms, groups, asks, history.rows, now])
+  const { queue, rows, cols, counts, waiting, next, resting, planned } = work
+  const spend = { usd: work.spendUsd }
 
   // What is open beside the lists: the address's choice, else the first thing that waits, else the newest work in
   // flight, else the conversation last spoken in.
-  const sel = asked ?? queue[0]?.key ?? waiting[0]?.id ?? cols.working[0]?.id ?? resting[0]?.session_id ?? null
-  const item: QueueItem | undefined = sel ? queue.find((i) => i.key === sel) : undefined
-  const row: OpsRow | undefined = item ? undefined : rowFor(rows, sel)
-  // A conversation at rest is no row of the board: it is its session.
-  const session: SessionInfo | undefined = item || row ? undefined : sessions.find((x) => x.session_id === sel)
+  const sel = asked ?? defaultSel(work)
+  const { item, row, session } = selectedOf(work, sessions, sel)
   const pick = (id: string | null) => set({ sel: id })
 
   const [note, setNote] = useState<{ key: string; text: string } | null>(null)
@@ -111,7 +90,6 @@ export default function SimpleOps() {
   const menuSession = menu ? sessions.find((x) => x.session_id === menu.sid) : undefined
   const onMenu = (kind: 'model' | 'mode', sid: string) => setMenu({ kind, sid })
 
-  const planned = next.length + cols.scheduled.length + cols.paused.length
   const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
@@ -121,7 +99,7 @@ export default function SimpleOps() {
         <Stat n={counts.needs} label={counts.needs === 1 ? 'needs you' : 'need you'} tone={counts.needs > 0 ? 'wait' : undefined} onClick={() => jump('ops-needs')} title="pieces of work that wait on you" />
         <Stat n={counts.working} label="in flight" tone={counts.working > 0 ? 'live' : undefined} onClick={() => jump('ops-flight')} title="tasks and conversations working now" />
         <Stat n={planned} label="planned" onClick={() => jump('ops-planned')} title="steps not yet started, scheduled work, and paused work" />
-        <Stat n={cols.done.length} label="done today" onClick={() => jump('ops-done')} title="work that ended since midnight" />
+        <Stat n={counts.done} label="done today" onClick={() => jump('ops-done')} title="work that ended since midnight" />
         <Stat n={usd(spend.usd)} label="spent today" tone="money" title="what today's model calls cost, from the ledger" />
       </Panel>
       {!linked && <div role="status" className="shrink-0 rounded-lg bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">Not connected to Theseus. What is shown is what was last read; the page reconnects by itself.</div>}
@@ -129,7 +107,7 @@ export default function SimpleOps() {
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(340px,460px)_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pb-2 pr-1">
           <div id="ops-needs" className="shrink-0 scroll-mt-2">
-            <Panel help="simple.ops.needs" icon={<Inbox size={14} />} bodyClassName="p-1.5" title={counted('Needs you', queue.length + waiting.length, queue.length + waiting.length > 0)}>
+            <Panel help="simple.ops.needs" icon={<Inbox size={14} />} bodyClassName="p-1.5" title={counted('Needs you', counts.needs, counts.needs > 0, queue.length + waiting.length !== counts.needs ? `${queue.length + waiting.length} to answer` : undefined)}>
               <Rows empty={ready ? 'Nothing waits for you.' : 'Reading the board…'}>
                 {queue.map((i) => <ItemRow key={i.key} i={i} now={now} current={sel === i.key} onPick={pick} />)}
                 {waiting.map((r) => { const w = waitingFacts(r, now); return <RowButton key={r.id} current={sel === r.id} onPick={() => pick(r.id)} Icon={CircleAlert} tone="wait" title={w.title} sub={`${w.why} · ${w.age}`} /> })}
@@ -137,9 +115,9 @@ export default function SimpleOps() {
             </Panel>
           </div>
           <div id="ops-flight" className="shrink-0 scroll-mt-2">
-            <Panel help="simple.ops.flight" icon={<Loader size={14} />} bodyClassName="p-1.5" title={counted('In flight', cols.working.length)}>
+            <Panel help="simple.ops.flight" icon={<Loader size={14} />} bodyClassName="p-1.5" title={counted('In flight', work.flight.length)}>
               <Rows empty={ready ? 'Nothing is running.' : 'Reading the board…'}>
-                {cols.working.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={pick} />)}
+                {work.flight.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={pick} />)}
               </Rows>
             </Panel>
           </div>
@@ -155,7 +133,7 @@ export default function SimpleOps() {
             </Panel>
           </div>
           <div id="ops-done" className="shrink-0 scroll-mt-2">
-            <Panel help="simple.ops.done" icon={<CircleCheck size={14} />} bodyClassName="p-1.5" title={counted('Done today', cols.done.length)}>
+            <Panel help="simple.ops.done" icon={<CircleCheck size={14} />} bodyClassName="p-1.5" title={counted('Done today', counts.done)}>
               <Rows empty="Nothing has finished today." short>
                 {cols.done.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={pick} />)}
               </Rows>
@@ -173,9 +151,10 @@ export default function SimpleOps() {
   )
 }
 
-/** A list's name with how many it holds; amber when that many wait on the owner. */
-const counted = (title: string, n: number, glow = false) => (
-  <span className="flex items-center gap-2">{title}<span className={cn('num rounded-full px-1.5 text-[11.5px] font-medium', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{n}</span></span>
+/** A list's name with how many it holds (the counter's number); amber when that many wait on the owner. */
+const counted = (title: string, n: number, glow = false, more?: string) => (
+  <span className="flex items-center gap-2">{title}<span className={cn('num rounded-full px-1.5 text-[11.5px] font-medium', glow ? 'bg-wait/15 text-wait' : 'text-ink-faint')}>{n}</span>
+    {more && <span className="text-[11.5px] font-normal normal-case tracking-normal text-ink-faint" title="one piece of work can hold more than one question">{more}</span>}</span>
 )
 
 /** A list's rows (the first few, then all on request), or what an empty one means. */
