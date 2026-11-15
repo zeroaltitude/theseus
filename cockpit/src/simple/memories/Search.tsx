@@ -112,7 +112,8 @@ function Recalled({ q }: { q: string }) {
   const hits = data?.admitted.filter((i) => i.text) ?? []
   const imported = [...new Set(hits.map((i) => i.session_id).filter((s) => s.startsWith('ses_ep')))]
   const { data: rows } = useRpc<ImportSessionsResult>('import.sessions', namedParams(imported), 0, { enabled: imported.length > 0 })
-  const { data: ses } = useRpc<SessionListResult>('session.list', { n: 200 }, 0, { enabled: hits.some((i) => !i.session_id.startsWith('ses_ep')) })
+  const own = [...new Set(hits.map((i) => i.session_id).filter((s) => !s.startsWith('ses_ep')))].sort()
+  const { data: ses } = useRpc<SessionListResult>('session.list', { ids: own }, 0, { enabled: own.length > 0 })
   return (
     <Panel help="simple.memories.recalled" title={data ? `What Theseus would remember · ${hits.length}` : 'What Theseus would remember'}>
       {error ? <div className="p-4 text-[12.5px] text-fault">Theseus could not look this up: {(error as Error).message}</div>
@@ -121,14 +122,14 @@ function Recalled({ q }: { q: string }) {
         : !hits.length ? <Empty>Nothing in Theseus’s memory answers these words.</Empty>
         : (
           <ul className="flex flex-col gap-0.5 p-2" aria-label="remembered notes">
-            {hits.map((i) => <Note key={`${i.node_id}:${i.chunk}`} i={i} episode={rows?.episodes.find((e) => e.session_id === i.session_id)} title={ses?.sessions.find((s) => s.session_id === i.session_id)?.title} />)}
+            {hits.map((i) => <Note key={`${i.node_id}:${i.chunk}`} i={i} read={rows !== undefined} episode={rows?.episodes.find((e) => e.session_id === i.session_id)} title={ses?.sessions.find((s) => s.session_id === i.session_id)?.title} />)}
           </ul>
         )}
     </Panel>
   )
 }
 
-function Note({ i, episode, title }: { i: RecallItem; episode?: ImportSessionsResult['episodes'][number]; title?: string }) {
+function Note({ i, read, episode, title }: { i: RecallItem; read: boolean; episode?: ImportSessionsResult['episodes'][number]; title?: string }) {
   const isEp = i.session_id.startsWith('ses_ep')
   // An imported note whose labels are not read yet is held back the way a personal one is: its words never show before its label does.
   const hidden = isEp && (!episode || veiled(episode, true, NONE))
@@ -140,7 +141,7 @@ function Note({ i, episode, title }: { i: RecallItem; episode?: ImportSessionsRe
         {episode?.end_ms ? <span className="num">{when(episode.end_ms).slice(0, 10)}</span> : null}
         {s && <Pill tone={s.tone}>{s.word}</Pill>}
       </div>
-      {hidden ? <p className="mt-1 text-[12.5px] italic text-ink-faint">{s ? `${s.word} · its words wait until you open it` : 'reading its label…'}</p>
+      {hidden ? <p className="mt-1 text-[12.5px] italic text-ink-faint">{s ? `${s.word} · its words wait until you open it` : read ? 'its words are held back: Theseus holds no label for this conversation' : 'reading its label…'}</p>
         : <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">{excerpt(i.text ?? '')}</p>}
       <div className="mt-1 flex gap-3 text-[12px]">
         {isEp ? <Link to={episodeHere(i.session_id)} className="text-live hover:underline">Open the conversation</Link>

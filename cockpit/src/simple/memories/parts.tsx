@@ -51,7 +51,7 @@ export function Conversations({ imported, native, total }: { imported: string[];
   const shownImported = imported.slice(0, SHOWN)
   const shownNative = native.slice(0, SHOWN)
   const { data: eps, error } = useRpc<ImportSessionsResult>('import.sessions', namedParams(shownImported), 0, { enabled: shownImported.length > 0 })
-  const { data: ses } = useRpc<SessionListResult>('session.list', { n: 200 }, 0, { enabled: shownNative.length > 0 })
+  const { data: ses } = useRpc<SessionListResult>('session.list', { ids: [...shownNative].sort() }, 0, { enabled: shownNative.length > 0 })
   const byId = useMemo(() => new Map((eps?.episodes ?? []).map((e) => [e.session_id, e])), [eps])
   const own = useMemo(() => new Map((ses?.sessions ?? []).map((s) => [s.session_id, s])), [ses])
   if (!total) return <Empty>No conversation is filed here yet.</Empty>
@@ -61,7 +61,7 @@ export function Conversations({ imported, native, total }: { imported: string[];
       {shownNative.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-1">Conversations with Theseus</div>}
       {shownNative.map((id) => {
         const s = own.get(id)
-        return <LinkRow key={id} to={sessionHref(id)} title={s?.title ?? s?.label ?? `session ${short(id)}`} sub={s ? `${s.turns} ${s.turns === 1 ? 'turn' : 'turns'}` : 'an older session'} />
+        return <LinkRow key={id} to={sessionHref(id)} title={s?.title ?? s?.label ?? `session ${short(id)}`} sub={s ? `${s.turns} ${s.turns === 1 ? 'turn' : 'turns'}` : 'a session'} />
       })}
       {shownImported.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-2">From imported history</div>}
       {error ? <div className="px-3 py-2 text-[12px] text-fault">Theseus could not read these: {(error as Error).message}</div>
