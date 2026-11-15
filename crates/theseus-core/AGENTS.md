@@ -620,9 +620,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **What the owner says in chat is acted on by a TOOL** (chat-acts-are-tools, S43-1; `chat_acts.rs`, whose header
   carries the depth; was theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`,
   both gone; the owner, 2026-11-13 23:32, Discord message `1571050236367995101`). **No chat ACT -- answering,
-  allowing, syncing, sealing, moving -- is reached by matching his words any more**; thread
-  ROUTING still reads them (`thread_route::address`): its own question. Issue 13 added `chat.seal_thread`
-  and `chat.move_to_thread` (`chat_acts/threads.rs`). Three tools first:
+  allowing, syncing, sealing, moving, a project's items -- is reached by matching his words any more**; thread
+  ROUTING still reads them (`thread_route::address`): its own question. Issue 13 added `chat.seal_thread`,
+  `chat.move_to_thread` and `project.item_add|close|list` (`chat_acts/threads.rs`, `items.rs`). Three tools first:
   `chat.answer_question` (`Core::confirm_action_with`), `chat.allow_held_call` (`Core::undo_allow`),
   `chat.import_sync` (`import.sync.request`, its `judge_act(Act::Import)` kept). The buttons, slash commands and
   CLI are untouched: a fourth way in; nothing these acts MEAN is widened. None is in a place's kept catalog

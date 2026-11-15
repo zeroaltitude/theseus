@@ -24,7 +24,7 @@
 //! thread, and `moved_by_words`, a prefix matcher that MOVED the last placed
 //! message. Both are tools now ([`SEAL`], [`MOVE`], in `threads.rs`) and, for
 //! the owner at a prompt, `/thread seal`, `/move` and the CLI. **No chat ACT
-//! (answering, allowing, syncing, sealing, moving) is
+//! (answering, allowing, syncing, sealing, moving, a project's items) is
 //! reached by matching his words.**
 //!
 //! ⛔ That is the claim, and it is narrower than "no code path reads his
@@ -37,8 +37,8 @@
 //! to Jev rather than acting. The read of the whole turn path for issue 13
 //! found no other place acting on a match of a message's text.
 //!
-//! What replaces the three routes is three tools (and since issue 13 two more:
-//! seal and move):
+//! What replaces the three routes is three tools (and since issue 13 five more:
+//! seal, move, and a project's item add, close and list):
 //!
 //! - [`ANSWER`] answers the question waiting here, with one of its answers.
 //! - [`ALLOW`] lets the held call run as it was first proposed.
@@ -121,6 +121,7 @@ use theseus_tools::Tool as _;
 use crate::approval::Answerer;
 use crate::Core;
 
+mod items;
 pub mod judged;
 mod run;
 mod threads;
@@ -146,9 +147,15 @@ pub const SYNC: &str = "chat.import_sync";
 pub const SEAL: &str = "chat.seal_thread";
 /// The tool that moves the message the router placed wrongly.
 pub const MOVE: &str = "chat.move_to_thread";
+/// The tools that add, close and list an item of the conversation's project.
+pub const ITEM_ADD: &str = "project.item_add";
+pub const ITEM_CLOSE: &str = "project.item_close";
+pub const ITEM_LIST: &str = "project.item_list";
 
-/// The five, as `[policy.tools]` names them.
-pub const NAMES: [&str; 5] = [ANSWER, ALLOW, SYNC, SEAL, MOVE];
+/// The eight, as `[policy.tools]` names them.
+pub const NAMES: [&str; 8] = [
+    ANSWER, ALLOW, SYNC, SEAL, MOVE, ITEM_ADD, ITEM_CLOSE, ITEM_LIST,
+];
 
 /// Whether `name` is a chat act: **never in a place's kept catalog**, and put
 /// into a turn's request only by [`Board::offers`], which knows what is
@@ -260,6 +267,9 @@ pub(crate) struct Offered {
     /// the model was shown.
     pub sealable: Option<threads::Sealable>,
     pub movable: Option<threads::Movable>,
+    /// The project the conversation is attached to, with its open items
+    /// (`items.rs`).
+    pub project: Option<items::ProjectOffer>,
 }
 
 /// What the chat acts reach: the core, given once it is built
@@ -389,6 +399,30 @@ impl Board {
                 threads::MoveToThread.input_schema(),
             ));
         }
+        // The project's own list, where the conversation serves a project.
+        let project = match said.owner_input {
+            true => Self::project_offer(&core, session),
+            false => None,
+        };
+        if let Some(p) = &project {
+            defs.push(definition(
+                ITEM_ADD,
+                &items::add_description(p),
+                items::ItemAdd.input_schema(),
+            ));
+            defs.push(definition(
+                ITEM_LIST,
+                &items::list_description(p),
+                items::ItemList.input_schema(),
+            ));
+            if !p.open.is_empty() {
+                defs.push(definition(
+                    ITEM_CLOSE,
+                    &items::close_description(p),
+                    items::ItemClose.input_schema(),
+                ));
+            }
+        }
         self.offered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -401,6 +435,7 @@ impl Board {
                     held,
                     sealable,
                     movable,
+                    project,
                 },
             );
         defs.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
@@ -438,4 +473,7 @@ pub(crate) fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
     }));
     r.register(Arc::new(threads::SealThread));
     r.register(Arc::new(threads::MoveToThread));
+    r.register(Arc::new(items::ItemAdd));
+    r.register(Arc::new(items::ItemClose));
+    r.register(Arc::new(items::ItemList));
 }

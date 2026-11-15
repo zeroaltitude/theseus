@@ -33,7 +33,8 @@ use std::sync::Arc;
 
 use theseus_protocol::method;
 use theseus_protocol::projects::{
-    ProjectGrant, ProjectTrustParams, ProjectTrustedParams, ProjectTrustedResult,
+    ProjectGrant, ProjectItemAddParams, ProjectItemCloseParams, ProjectItemListParams,
+    ProjectItemsResult, ProjectTrustParams, ProjectTrustedParams, ProjectTrustedResult,
 };
 use theseus_protocol::{DiscordOrigin, LedgerKind};
 use twilight_model::application::command::{Command, CommandType};
@@ -45,7 +46,9 @@ use twilight_model::channel::message::{AllowedMentions, MessageFlags};
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
-use twilight_util::builder::command::{CommandBuilder, StringBuilder, SubCommandBuilder};
+use twilight_util::builder::command::{
+    CommandBuilder, StringBuilder, SubCommandBuilder, SubCommandGroupBuilder,
+};
 
 use super::Shared;
 
@@ -84,7 +87,38 @@ pub(super) fn command() -> Command {
         "trusted",
         "The repositories you have trusted, with who granted each and by what route",
     ))
+    .option(
+        SubCommandGroupBuilder::new("item", "A project's own list of items").subcommands([
+            SubCommandBuilder::new("add", "Add an item to a project")
+                .option(
+                    StringBuilder::new(
+                        "project",
+                        "The project: its id, an end of it, or its title",
+                    )
+                    .required(true),
+                )
+                .option(StringBuilder::new("title", "The item: one line").required(true)),
+            SubCommandBuilder::new("close", "Close an item").option(
+                StringBuilder::new("item", "The item's id, or an end of it").required(true),
+            ),
+            SubCommandBuilder::new("list", "A project's open items").option(
+                StringBuilder::new("project", "The project: its id, an end of it, or its title")
+                    .required(true),
+            ),
+        ]),
+    )
     .build()
+}
+
+/// `/project item add|close|list`: the subcommand inside the group and its
+/// string options.
+fn parsed_item(options: &[CommandDataOption]) -> Option<(&str, Vec<(&str, String)>)> {
+    let group = options.first()?;
+    let CommandOptionValue::SubCommandGroup(inner) = &group.value else {
+        return None;
+    };
+    (group.name == "item").then_some(())?;
+    parsed(inner)
 }
 
 /// A subcommand and its string options, as `/thread`'s `parsed` reads them.
@@ -188,6 +222,11 @@ impl Shared {
             None,
             serde_json::json!({"command": c.name, "by": who}),
         );
+        if let Some((sub, args)) = parsed_item(&c.options) {
+            let said = self.project_item_said(sub, &args, who, discord).await;
+            self.project_respond(i, said).await;
+            return true;
+        }
         let said = match parsed(&c.options) {
             Some((sub @ ("trust" | "untrust"), args)) => match path_of(&args) {
                 None => NO_PATH.to_string(),
@@ -197,8 +236,15 @@ impl Shared {
                 }
             },
             Some(("trusted", _)) => self.project_trusted_said(discord).await,
-            _ => "⚠️ `/project trust path:`, `untrust path:` or `trusted`.".to_string(),
+            _ => "⚠️ `/project trust path:`, `untrust path:`, `trusted` or `item add|close|list`."
+                .to_string(),
         };
+        self.project_respond(i, said).await;
+        true
+    }
+
+    /// The command's answer: ephemeral, so the command adds no noise to the place.
+    async fn project_respond(self: &Arc<Self>, i: &Interaction, said: String) {
         let resp = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,
             data: Some(InteractionResponseData {
@@ -216,7 +262,76 @@ impl Shared {
         {
             self.board.error("project response", None, e);
         }
-        true
+    }
+
+    /// `/project item add|close|list`: the call as the presser, which the core
+    /// judges as it does the CLI's, and what it said, in the CLI's own words.
+    async fn project_item_said(
+        &self,
+        sub: &str,
+        args: &[(&str, String)],
+        who: &str,
+        discord: Option<DiscordOrigin>,
+    ) -> String {
+        let get = |k: &str| {
+            args.iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.trim().to_string())
+                .unwrap_or_default()
+        };
+        let author = Some(who.to_string());
+        let r = match sub {
+            "add" => {
+                let p = ProjectItemAddParams {
+                    project: get("project"),
+                    title: get("title"),
+                    author,
+                    discord,
+                };
+                self.rpc
+                    .call::<_, ProjectItemsResult>(method::PROJECT_ITEM_ADD, p)
+                    .await
+            }
+            "close" => {
+                let p = ProjectItemCloseParams {
+                    item: get("item"),
+                    author,
+                    discord,
+                };
+                self.rpc
+                    .call::<_, ProjectItemsResult>(method::PROJECT_ITEM_CLOSE, p)
+                    .await
+            }
+            _ => {
+                let p = ProjectItemListParams {
+                    project: get("project"),
+                    all: false,
+                };
+                self.rpc
+                    .call::<_, ProjectItemsResult>(method::PROJECT_ITEM_LIST, p)
+                    .await
+            }
+        };
+        match (sub, r) {
+            ("add", Ok(r)) => {
+                let item = r.changed.map(|t| t.title).unwrap_or_default();
+                format!(
+                    "✅ {}",
+                    theseus_protocol::projects::item_added(&r.title, &item)
+                )
+            }
+            ("close", Ok(r)) => {
+                let item = r.changed.map(|t| t.title).unwrap_or_default();
+                format!("✅ {}", theseus_protocol::projects::item_closed(&item))
+            }
+            (_, Ok(r)) => theseus_protocol::projects::item_list(&r.title, &r.items),
+            (_, Err(e)) if e.code == theseus_protocol::error_code::REFUSED => {
+                "🔐 That did not count: Projects are the owner's, from a private place. Nothing \
+                 changed."
+                    .to_string()
+            }
+            (_, Err(e)) => format!("⚠️ Nothing changed: {}.", e.message),
+        }
     }
 
     /// `/project trust` or `untrust`: the call as the presser, which the core
@@ -272,7 +387,7 @@ mod tests {
         let c = command();
         assert_eq!(c.name, "project");
         let subs: Vec<&str> = c.options.iter().map(|o| o.name.as_str()).collect();
-        assert_eq!(subs, ["trust", "untrust", "trusted"]);
+        assert_eq!(subs, ["trust", "untrust", "trusted", "item"]);
         for name in ["trust", "untrust"] {
             let o = c.options.iter().find(|o| o.name == name).unwrap();
             let opts = o.options.as_ref().expect("the path option");
@@ -285,6 +400,39 @@ mod tests {
             read.options.as_ref().is_none_or(Vec::is_empty),
             "a read takes nothing"
         );
+    }
+
+    /// `/project item` is a group of three, each with the one thing it needs:
+    /// add takes the project and the title, close the item, list the project.
+    #[test]
+    fn the_item_group_has_add_close_and_list() {
+        let c = command();
+        let g = c.options.iter().find(|o| o.name == "item").unwrap();
+        let subs = g.options.as_ref().expect("the group's subcommands");
+        let shape: Vec<(String, Vec<String>)> = subs
+            .iter()
+            .map(|o| {
+                (
+                    o.name.clone(),
+                    o.options
+                        .as_ref()
+                        .map(|v| v.iter().map(|x| x.name.clone()).collect())
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                (
+                    "add".to_string(),
+                    vec!["project".to_string(), "title".to_string()]
+                ),
+                ("close".to_string(), vec!["item".to_string()]),
+                ("list".to_string(), vec!["project".to_string()]),
+            ]
+        );
+        assert!(parsed_item(&[]).is_none());
     }
 
     /// `~/` is the daemon's home, an absolute path is itself, and a path that

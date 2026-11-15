@@ -1295,3 +1295,91 @@ async fn the_seal_tool_seals_the_conversations_thread_and_the_old_phrases_seal_n
     // A sealed thread is not offered the tool again.
     assert!(!offered_in(&r, &scratch, "turn_c").contains(&"chat_seal_thread".to_string()));
 }
+
+/// **The project's items are tools the model calls, offered only in a
+/// conversation attached to a project** (issue 13): add and list always, close
+/// once there is an open item, with the project and the items named in what
+/// the model reads. Called, they act through `project.item.*`, as the owner who
+/// spoke, and say what the command says.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_item_tools_are_offered_in_a_projects_conversation_and_act_through_its_verbs() {
+    let jev = jev_says(REVERSIBLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let plain = session(&r.core);
+    assert!(
+        !offered_in(&r, &plain, "turn_a")
+            .iter()
+            .any(|n| n.starts_with("project_item")),
+        "no project, no item tool"
+    );
+
+    // A project, and a conversation attached to it.
+    let made = crate::tests_m3::rpc_as(
+        &r.core,
+        owner_cli(),
+        method::PROJECT_CREATE,
+        json!({"title": "Harbour survey", "review": "none"}),
+    )
+    .await
+    .expect("project.create");
+    let pid = made["project"]["id"].as_str().unwrap().to_string();
+    let sid = session(&r.core);
+    crate::tests_m3::rpc_as(
+        &r.core,
+        owner_cli(),
+        method::PROJECT_ATTACH,
+        json!({"session": sid, "project": pid}),
+    )
+    .await
+    .expect("project.attach");
+    let names = offered_in(&r, &sid, "turn_b");
+    assert!(
+        names.contains(&"project_item_add".to_string())
+            && names.contains(&"project_item_list".to_string())
+            && !names.contains(&"project_item_close".to_string()),
+        "close waits for an open item: {names:?}"
+    );
+
+    // Words alone add nothing; the model's call does.
+    say(&r, &sid, "add an item: order the sounding line").await;
+    assert!(acted(&r, &sid, crate::chat_acts::ITEM_ADD).is_empty());
+    r.calls(&[(
+        "project_item_add",
+        json!({"title": "Order the sounding line"}),
+    )]);
+    say(&r, &sid, "add an item: order the sounding line").await;
+    let out = acted(&r, &sid, crate::chat_acts::ITEM_ADD);
+    assert_eq!(out.last().unwrap().0, "Ok", "{out:?}");
+    assert_eq!(
+        out.last().unwrap().1,
+        "Added to *Harbour survey*: Order the sounding line"
+    );
+    assert!(offered_in(&r, &sid, "turn_c").contains(&"project_item_close".to_string()));
+
+    r.calls(&[("project_item_list", json!({}))]);
+    say(&r, &sid, "what is on the list?").await;
+    let listed = acted(&r, &sid, crate::chat_acts::ITEM_LIST);
+    assert!(
+        listed.last().unwrap().1.contains("Order the sounding line"),
+        "{listed:?}"
+    );
+
+    let item = r
+        .tasks()
+        .into_iter()
+        .find(|t| t.kind == theseus_protocol::tasks::TaskKind::Item)
+        .unwrap();
+    let short = crate::task::short(&item.id);
+    r.calls(&[("project_item_close", json!({"item": short}))]);
+    say(&r, &sid, "that one is done").await;
+    let closed = acted(&r, &sid, crate::chat_acts::ITEM_CLOSE);
+    assert_eq!(
+        closed.last().unwrap().1,
+        "Closed: Order the sounding line",
+        "{closed:?}"
+    );
+    assert_eq!(
+        r.task(&item.id).state,
+        theseus_protocol::tasks::TaskState::Done
+    );
+}

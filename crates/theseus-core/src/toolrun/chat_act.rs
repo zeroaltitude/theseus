@@ -38,6 +38,9 @@ impl ToolRuntime {
             crate::chat_acts::SYNC => acts.sync(tc, &call.input),
             crate::chat_acts::SEAL => acts.seal_thread(tc, &call.input),
             crate::chat_acts::MOVE => acts.move_to_thread(tc, &call.input),
+            crate::chat_acts::ITEM_ADD => acts.item_add(tc, &call.input),
+            crate::chat_acts::ITEM_CLOSE => acts.item_close(tc, &call.input),
+            crate::chat_acts::ITEM_LIST => acts.item_list(tc, &call.input),
             other => Err(format!("{other} is not a chat act")),
         };
         let none = crate::task_graph::tools::Done::default();

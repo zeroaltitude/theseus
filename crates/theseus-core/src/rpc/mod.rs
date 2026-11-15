@@ -79,6 +79,7 @@ mod persona_write;
 mod policy;
 mod prefix;
 mod profile_pins;
+mod project_items;
 mod project_trust;
 mod projects;
 mod proposal_groups;

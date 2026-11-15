@@ -204,6 +204,92 @@ pub struct ProjectAttachResult {
     pub project: Option<String>,
 }
 
+/// `project.item.add`: a step on the project's own list. An item is a task
+/// record of kind `item` under the project, the same thing the slice's "next
+/// steps" and the progress counts read, so nothing is a second list.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectItemAddParams {
+    /// The project, by id, an end of it, or its title.
+    pub project: String,
+    /// One line, at most 200 characters.
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// `project.item.close`: an item done, by its id or an end of it.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectItemCloseParams {
+    pub item: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// `project.item.list`: the project's open items, or all with `all`.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectItemListParams {
+    pub project: String,
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// What the three answer: the project's title and id, the items (the list's,
+/// or after an add or a close, the whole list as it now stands), and the one
+/// that changed.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectItemsResult {
+    pub project: String,
+    pub title: String,
+    pub items: Vec<TaskRecord>,
+    /// The item an add made or a close ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub changed: Option<TaskRecord>,
+}
+
+/// What an item's add, close and list say, in one place so the CLI, a slash
+/// command and a chat tool say the same words (issue 13).
+pub fn item_added(project: &str, item: &str) -> String {
+    format!("Added to *{project}*: {item}")
+}
+
+/// What a close says.
+pub fn item_closed(item: &str) -> String {
+    format!("Closed: {item}")
+}
+
+/// What a list says, a line an item with its short id; "No open items" when
+/// there are none.
+pub fn item_list(project: &str, items: &[TaskRecord]) -> String {
+    if items.is_empty() {
+        return format!("No open items in *{project}*");
+    }
+    let mut out = format!("Items in *{project}*:");
+    for t in items {
+        let mark = match t.state {
+            crate::tasks::TaskState::Done => "✓",
+            crate::tasks::TaskState::Abandoned => "✗",
+            _ => "•",
+        };
+        let n = t.id.chars().count();
+        let short: String = t.id.chars().skip(n.saturating_sub(6)).collect();
+        out.push_str(&format!("\n{mark} {} ({short})", t.title));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
