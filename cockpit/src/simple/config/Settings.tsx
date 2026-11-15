@@ -1,22 +1,22 @@
 // Configuration, the map: every setting of Theseus that was found, in plain words, and where it is changed. What can be
 // changed while Theseus runs has its control one click away (a tab of this page, which is the Ship's own component with
 // its own confirmation, or a page that already holds it); what is set in the configuration file says so, with what
-// Theseus is running with now; and what could change live but has no page yet is said outright. The inventory is
+// Theseus is running with now; and what can change live but only at the command line says the command. The inventory is
 // `settings.ts`, held by tests to the daemon's method names and to what the cockpit actually calls.
 import { Link } from 'react-router'
 import { ArrowRight, FileCog, SlidersHorizontal, Wrench } from 'lucide-react'
 import type { Health } from '@protocol'
 import { Panel, Pill } from '@/components/ui'
 import { useRpc } from '@/lib/rpc'
-import { FIXED, LIVE, NO_PAGE, type ConfigTab, type LiveSetting } from './settings'
+import { CLI_ONLY, FIXED, LIVE, type ConfigTab, type LiveSetting } from './settings'
 
 /** The tab names as the page's tabs say them (`Config.tsx` has the same words). */
 const TAB_WORDS: Record<ConfigTab, string> = {
   settings: 'All settings', personality: 'Personality', ontology: 'Ontology and people', standing: 'Standing rules', policy: 'Policy',
-  approvals: 'Tools and approvals', packs: 'Judging', system: 'Models and system',
+  approvals: 'Tools and approvals', packs: 'Judging', controls: 'More controls', system: 'Models and system',
 }
 
-const addressOf = (s: LiveSetting) => ('tab' in s.at ? (s.at.tab === 'settings' ? '/config' : `/config?v=${s.at.tab}`) : s.at.path)
+const addressOf = (s: LiveSetting) => ('tab' in s.at ? `${s.at.tab === 'settings' ? '/config' : `/config?v=${s.at.tab}`}${s.at.section ? `#${s.at.section}` : ''}` : s.at.path)
 const wordsOf = (s: LiveSetting) => ('tab' in s.at ? `${TAB_WORDS[s.at.tab]} tab` : s.at.label)
 
 export default function Settings() {
@@ -54,11 +54,12 @@ export default function Settings() {
         })}
       </Panel>
 
-      <Panel help="simple.config.nopage" title={<>Could change now, but no page does it yet · {NO_PAGE.length}</>} icon={<Wrench size={13} />} bodyClassName="divide-y divide-line">
-        {NO_PAGE.map((s) => (
+      <Panel help="simple.config.cli" title={<>Only at the command line · {CLI_ONLY.length}</>} icon={<Wrench size={13} />} bodyClassName="divide-y divide-line">
+        {CLI_ONLY.map((s) => (
           <div key={s.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-2.5" title={s.methods.join(' · ')}>
             <div className="w-[260px] shrink-0 text-[13.5px] font-semibold text-ink">{s.name}</div>
             <p className="min-w-[280px] flex-1 text-[13px] leading-snug text-ink-dim">{s.words}</p>
+            <code className="num w-[260px] shrink-0 text-[12px] text-ink-faint">{s.command}</code>
           </div>
         ))}
       </Panel>

@@ -13,13 +13,13 @@
 import type { Health } from '@protocol'
 
 /** The tabs of the Configuration page, in order (the page's `TABS` has the same ids). */
-export const CONFIG_TABS = ['settings', 'personality', 'ontology', 'standing', 'policy', 'approvals', 'packs', 'system'] as const
+export const CONFIG_TABS = ['settings', 'personality', 'ontology', 'standing', 'policy', 'approvals', 'packs', 'controls', 'system'] as const
 export type ConfigTab = (typeof CONFIG_TABS)[number]
 
 export interface LiveSetting {
   id: string; name: string; words: string
   /** Where the control is: a tab of this page, or a path (a section of the simple pages, or the Ship). */
-  at: { tab: ConfigTab } | { path: string; label: string }
+  at: { tab: ConfigTab; /** the panel of that tab, `#id` in the address */ section?: string } | { path: string; label: string }
   methods: string[]
 }
 
@@ -38,6 +38,17 @@ export const LIVE: LiveSetting[] = [
   { id: 'budgets', name: 'A budget that has been reached', words: 'When a conversation reaches its spend limit it stops and asks. The answer lets it go on.', at: { tab: 'approvals' }, methods: ['work.answer'] },
   { id: 'timeline', name: 'Wakes, routines and watches', words: 'Snooze, pause, resume, cancel or run a wake, a routine or a watch.', at: { path: '/ops?lens=timeline', label: 'the Ship’s Operations timeline' }, methods: ['wake.snooze', 'wake.pause', 'wake.resume', 'wake.cancel', 'routine.pause', 'routine.resume', 'routine.skip', 'routine.run_now', 'routine.delete'] },
   { id: 'project', name: 'Which project a conversation or task belongs to', words: 'Attach a conversation or a task to a project: drag it onto the project.', at: { path: '/ops', label: 'the Ship’s Operations page' }, methods: ['project.attach'] },
+  { id: 'projects', name: 'Which project folders Theseus trusts, and starting a project', words: 'Trust a repository’s folder so its AGENTS.md and CLAUDE.md guide Theseus, stop trusting one, and start a project with what done looks like.', at: { tab: 'controls', section: 'projects' }, methods: ['project.trust', 'project.untrust', 'project.create'] },
+  { id: 'standing-add', name: 'Adding standing rules, and answering what Theseus noticed', words: 'Add a standing rule, keep or dismiss one proposed from a persona’s notes, and answer Theseus’s question about a rule it was unsure of.', at: { tab: 'controls', section: 'standing' }, methods: ['standing.add', 'standing.keep', 'standing.dismiss', 'standing.answer'] },
+  { id: 'persona-set', name: 'A persona’s name, emoji, voice and how much it speaks first', words: 'Change a persona’s short fields, and bring an agent over as a persona, previewed first.', at: { tab: 'controls', section: 'personas' }, methods: ['persona.set', 'persona.import'] },
+  { id: 'kinds', name: 'Retiring a kind, and answering proposals one at a time', words: 'Retire a kind of thing nothing uses, and accept or reject Theseus’s proposed topics one by one.', at: { tab: 'controls', section: 'kinds' }, methods: ['ontology.kind.retire', 'ontology.proposal.accept', 'ontology.proposal.reject'] },
+  { id: 'judge', name: 'Teaching and proving the judging model', words: 'Run its learning now, read the proof of its canary, and judge past events it missed, which costs money.', at: { tab: 'controls', section: 'judging' }, methods: ['judge.learn', 'judge.prove', 'judge.backfill'] },
+  { id: 'initiative-rate', name: 'Rating what Theseus did on its own', words: 'Say whether the last thing Theseus said first was welcome, beside the week’s numbers.', at: { tab: 'controls', section: 'initiative' }, methods: ['initiative.rate'] },
+  { id: 'self-pause', name: 'Pausing and resuming its self-improvement', words: 'Pause new builds (they start again when you say, or when Theseus restarts), and resume after a halt.', at: { tab: 'controls', section: 'selfpause' }, methods: ['self.pause', 'self.resume'] },
+  { id: 'servers', name: 'Restarting a tool server', words: 'Restart one of the tool servers Theseus started.', at: { tab: 'controls', section: 'servers' }, methods: ['mcp.restart'] },
+  { id: 'index', name: 'Rebuilding the search index', words: 'Build the memory’s search index again from the record.', at: { tab: 'controls', section: 'index' }, methods: ['index.rebuild'] },
+  { id: 'pins', name: 'Letting go of a pinned model', words: 'Release the live model, or unpin the models fixed to conversations and tasks.', at: { tab: 'controls', section: 'pins' }, methods: ['profile.release', 'profile.unpin'] },
+  { id: 'import', name: 'Erasing what was imported', words: 'Erase every conversation that one import brought in. This cannot be undone.', at: { tab: 'controls', section: 'imports' }, methods: ['import.erase'] },
 ]
 
 export interface FixedSetting {
@@ -68,21 +79,10 @@ export const FIXED: FixedSetting[] = [
   { id: 'telemetry', name: 'What it reports about itself', words: 'Whether and where Theseus sends its own telemetry.', tables: ['telemetry'] },
 ]
 
-export interface NoPageSetting { id: string; name: string; words: string; methods: string[] }
+export interface CliOnlySetting { id: string; name: string; words: string; methods: string[]; command: string }
 
-export const NO_PAGE: NoPageSetting[] = [
-  { id: 'trust', name: 'Which project folders Theseus trusts', words: 'Trust or stop trusting a project’s folder, and start a project.', methods: ['project.trust', 'project.untrust', 'project.create'] },
-  { id: 'standing-add', name: 'Adding and answering standing rules', words: 'Add a standing rule, keep or dismiss one Theseus noticed, and answer its question about one. Only taking one back has a page.', methods: ['standing.add', 'standing.keep', 'standing.dismiss', 'standing.answer'] },
-  { id: 'google', name: 'Signing in to Google', words: 'Begin and finish the sign-in, and take the access back.', methods: ['google.auth.begin', 'google.auth.finish', 'google.revoke'] },
-  { id: 'servers', name: 'Restarting a tool server', words: 'Restart one of the tool servers Theseus started.', methods: ['mcp.restart'] },
-  { id: 'index', name: 'Rebuilding the search index', words: 'Build the memory’s search index again from the record.', methods: ['index.rebuild'] },
-  { id: 'import', name: 'Erasing what was imported', words: 'Erase every conversation that one import brought in.', methods: ['import.erase'] },
-  { id: 'judge', name: 'Teaching and proving the judging model', words: 'Start its learning, prove a version, and fill in the labels it missed.', methods: ['judge.learn', 'judge.prove', 'judge.backfill'] },
-  { id: 'pins', name: 'Letting go of a pinned model', words: 'Release the live model, or unpin a conversation’s.', methods: ['profile.release', 'profile.unpin'] },
-  { id: 'persona-set', name: 'Importing a persona and setting its fields', words: 'Bring a persona in from elsewhere, or change a persona’s settings.', methods: ['persona.import', 'persona.set'] },
-  { id: 'kinds', name: 'Retiring a kind, and answering one proposal at a time', words: 'Retire a kind of thing, accept or reject one proposal, not all.', methods: ['ontology.kind.retire', 'ontology.proposal.accept', 'ontology.proposal.reject'] },
-  { id: 'self-pause', name: 'Pausing and resuming its work on itself', words: 'Pause new builds of its own changes, or resume after a halt. Resuming is the owner’s alone, from the command line.', methods: ['self.pause', 'self.resume'] },
-  { id: 'initiative-rate', name: 'Rating what Theseus did on its own', words: 'Say whether something Theseus did unprompted was welcome.', methods: ['initiative.rate'] },
+export const CLI_ONLY: CliOnlySetting[] = [
+  { id: 'google', name: 'Signing in to Google, and taking its access back', words: 'Theseus refuses these from anywhere but its own command line on the computer it runs on, so that a page in a browser can never grant or take away access to your Google account.', methods: ['google.auth.begin', 'google.auth.finish', 'google.revoke', 'google.status'], command: 'theseus google auth · status · revoke' },
 ]
 
 /** Every table the file's example names that a group of FIXED does not (the test reads the example and lists what is
