@@ -858,6 +858,16 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
             std::fs::remove_dir_all(&target)?;
             gone.push(target.display().to_string());
         }
+        // The builder's build folder: `tree::close` took it with the tree, so this is one a
+        // closed tree left (a command that made it as the tree went).
+        let slug = tree::slug(&e.item);
+        if super::builder_dir::remove(&place.state, &slug)?.is_some() {
+            gone.push(
+                super::builder_dir::dir_in(&place.state, &slug)
+                    .display()
+                    .to_string(),
+            );
+        }
         Ok(gone)
     })?;
     if gone.is_empty() {

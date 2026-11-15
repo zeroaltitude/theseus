@@ -496,3 +496,90 @@ fn a_missing_crate_is_a_supply_chain_failure_and_a_type_error_is_not() {
     }
     assert!(crate::sandbox::supply_chain("error[E0308]: mismatched types").is_none());
 }
+
+/// The builder's build folder (`rsi::builder_dir`) and the gate's build tree are two directories,
+/// and the gate's view binds neither the folder nor anything that holds it: what a model
+/// compiled there is not in the view a verdict is reached in, whatever a branch's code does. The
+/// gate builds in its own target (`CARGO_TARGET_DIR`).
+#[test]
+fn the_gates_view_never_binds_what_the_builder_compiled() {
+    let sb = sandbox();
+    let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
+    let ro = [gate];
+    let b = build(&ro, Path::new("/home/op"));
+    let view = sb.self_build_view(&b);
+    let folder = crate::rsi::builder_dir::dir_in(Path::new("/state"), "t");
+    assert_eq!(folder, PathBuf::from("/state/self/builder/t"));
+    assert_ne!(folder, b.target);
+    for bound in view.rw.iter().chain(&view.ro_paths).chain(&view.workspace) {
+        assert!(
+            !bound.starts_with(&folder) && !folder.starts_with(bound),
+            "{} binds the builder's folder or its parent",
+            bound.display()
+        );
+    }
+    let env = crate::sandbox::self_build_env(b.home, b.target);
+    let target = env.iter().find(|(k, _)| k == "CARGO_TARGET_DIR");
+    assert_eq!(
+        target.map(|(_, v)| v.as_str()),
+        Some("/state/self/target/t")
+    );
+}
+
+/// The builder's view is an ordinary job's with the one directory added, and that directory is
+/// not masked over when a hidden entry names a directory that holds it. The facilities a self
+/// build's gate is given are not the builder's.
+#[test]
+fn the_builders_view_is_an_ordinary_jobs_with_one_directory_added() {
+    let cfg = crate::sandbox::SandboxConfig::default();
+    let sb = Sandbox::new(
+        &cfg,
+        &[PathBuf::from("/work")],
+        &[
+            PathBuf::from("/state/store"),
+            PathBuf::from("/state"),
+            PathBuf::from("/sealed"),
+        ],
+    );
+    let folder = PathBuf::from("/state/self/builder/t");
+    let view = sb.builder_view(&folder);
+    assert_eq!(view.rw, std::slice::from_ref(&folder));
+    let mut ordinary = sb.job_view();
+    assert!(
+        ordinary.rw.is_empty(),
+        "an ordinary job's view is as it was"
+    );
+    assert_eq!(ordinary.facilities, theseus_sandbox::Facilities::NONE);
+    assert_eq!(view.facilities, theseus_sandbox::Facilities::NONE);
+    // One limit is the view's own, for a linker's output; no configured cap is changed.
+    assert_eq!(
+        view.limits.output_mb,
+        crate::sandbox::BUILDER_OUTPUT_MB.max(ordinary.limits.output_mb)
+    );
+    assert_eq!(
+        theseus_sandbox::Limits {
+            output_mb: ordinary.limits.output_mb,
+            ..view.limits
+        },
+        ordinary.limits,
+        "every other limit is an ordinary job's"
+    );
+    assert_eq!(
+        ordinary.limits.output_mb, cfg.output_mb,
+        "the configured cap stands"
+    );
+    assert!(view.egress.is_empty(), "no network");
+    // Only a mask over what holds the folder is lifted; the rest of the floor stays hidden.
+    ordinary.hidden.retain(|h| h != Path::new("/state"));
+    assert_eq!(view.hidden, ordinary.hidden);
+    for kept in ["/state/store", "/sealed"] {
+        assert!(view.hidden.contains(&PathBuf::from(kept)), "{kept}");
+    }
+    assert_eq!(view.workspace, sb.job_view().workspace);
+    assert_eq!(view.ro_paths, sb.job_view().ro_paths);
+    let (k, v) = crate::sandbox::builder_env(&folder);
+    assert_eq!(
+        (k.as_str(), v.as_str()),
+        ("CARGO_TARGET_DIR", "/state/self/builder/t")
+    );
+}

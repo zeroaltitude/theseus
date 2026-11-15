@@ -381,6 +381,76 @@ impl Core {
         stopped.len()
     }
 
+    /// Watch a self builder's build folder while its commands run
+    /// (`rsi::builder_dir`). A command is refused at its start when the folder
+    /// has reached its bound, and one already running can still write past it,
+    /// so a running command whose folder has reached the bound is stopped, with
+    /// its reason: its result reads "stopped by the build folder's limit (...)",
+    /// and its execution is woken so the builder reads it and empties the
+    /// folder. The heartbeat's timer calls it. It reads the spool's pid files
+    /// first, so with no job running it costs one directory read, and only a
+    /// self builder's jobs have a folder to measure. Returns how many it stopped.
+    pub async fn stop_jobs_over_builder_bound(&self) -> usize {
+        let running = self.spool.running();
+        if running.is_empty() {
+            return 0;
+        }
+        let over = theseus_store::blocking(|| {
+            let mut over = Vec::new();
+            let mut seen: Vec<(std::path::PathBuf, Option<crate::rsi::builder_dir::Full>)> =
+                Vec::new();
+            for (id, _) in &running {
+                let Ok(Some(a)) = self.kernel.action(id) else {
+                    continue;
+                };
+                if a.state != theseus_kernel::ActionState::Dispatched {
+                    continue;
+                }
+                let Some(dir) = crate::rsi::own_tree::builder_path(&self.tools, &a.session_id)
+                else {
+                    continue;
+                };
+                // One walk for every job of one item.
+                let full = match seen.iter().find(|(d, _)| *d == dir) {
+                    Some((_, f)) => f.clone(),
+                    None => {
+                        let f = crate::rsi::builder_dir::Full::of(&dir);
+                        seen.push((dir, f.clone()));
+                        f
+                    }
+                };
+                if let Some(f) = full {
+                    over.push((id.clone(), f));
+                }
+            }
+            over
+        });
+        let mut stopped = Vec::new();
+        for (id, full) in &over {
+            match self.kernel.stop_call(id, &full.stopped_by()) {
+                Ok(Some(a)) => stopped.push(a),
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(job = %id, error = %format!("{e:#}"), "a job in a full build folder was not stopped");
+                }
+            }
+        }
+        if stopped.is_empty() {
+            return 0;
+        }
+        tracing::warn!(
+            jobs = stopped.len(),
+            "a self builder's build folder reached its limit: its running commands are stopped"
+        );
+        let to_kill: Vec<String> = stopped.iter().map(|a| a.correlation_id.clone()).collect();
+        self.terminate_all(&to_kill).await;
+        for a in &stopped {
+            let _ = self.kernel.wake(&a.execution_id, "disk");
+        }
+        self.admission.notify_waiters();
+        stopped.len()
+    }
+
     /// `/stop` (W1, theseus-lji): halt a conversation's work and keep the
     /// conversation. The kernel tells its running jobs and calls to stop and
     /// declines what waits on the operator (`Kernel::stop_execution`); here

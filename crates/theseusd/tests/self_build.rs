@@ -11,7 +11,11 @@
 //!   while a control file beside them is readable;
 //! - a tree whose `Cargo.toml` names a crate the cache lacks fails, saying
 //!   it was refused and not fetched;
-//! - a tiny crate's gate (`cargo test` of a two-file crate) passes.
+//! - a tiny crate's gate (`cargo test` of a two-file crate) passes;
+//! - a self builder's own command (`Sandbox::builder_view`) keeps one
+//!   directory, its item's build folder, and a second `cargo test` there
+//!   reuses the first's build; nothing else it writes persists, and the
+//!   gate's view neither sees that folder nor builds in it.
 //!
 //! Every job here runs in a real L1 sandbox, unprivileged. L1 refuses a root
 //! daemon's jobs (theseus-pv6i), so as root each test only checks that
@@ -24,6 +28,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+use theseus_core::rsi::builder_dir;
 use theseus_core::rsi::jail::{Jail, Job};
 use theseus_core::rsi::tree::{Place, Tree};
 use theseus_kernel::job::{self, WrapperArgs};
@@ -33,6 +38,7 @@ fn root() -> bool {
 }
 
 struct Rig {
+    sandbox: Arc<theseus_core::sandbox::Sandbox>,
     dir: tempfile::TempDir,
     place: Place,
     tree: Tree,
@@ -60,6 +66,18 @@ impl Rig {
     /// hiding left, and the token file and the config copy are its two slots
     /// a test can point anywhere.
     fn hiding(checkout: Option<&Path>, hidden: &[&str]) -> Self {
+        Self::made(checkout, hidden, false)
+    }
+
+    /// A rig as the daemon has it while `[self]` builds: the state dir is
+    /// outside the repo, the self trees under it are a workspace root, and the
+    /// tree and its build tree are where `tree::open` puts them, with the
+    /// builder's folder beside them.
+    fn builder() -> Self {
+        Self::made(None, &[], true)
+    }
+
+    fn made(checkout: Option<&Path>, hidden: &[&str], building: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let p = |s: &str| dir.path().join(s);
         let repo = p("repo");
@@ -74,6 +92,14 @@ impl Rig {
         for d in ["tree", "target", "spool"] {
             std::fs::create_dir_all(p(d)).unwrap();
         }
+        let (tree_dir, target) = if building {
+            let (t, g) = (p("state/self/trees/t"), p("state/self/target/t"));
+            std::fs::create_dir_all(&t).unwrap();
+            std::fs::create_dir_all(&g).unwrap();
+            (t.canonicalize().unwrap(), g.canonicalize().unwrap())
+        } else {
+            (p("tree"), p("target"))
+        };
         let mut cfg = theseus_core::Config::example();
         // The rig's state dir, on the config, which is now the only way to
         // say it: `sandbox_for` takes no directory (theseus-0h9f3, the
@@ -82,8 +108,18 @@ impl Rig {
         // floor this rig built was over the rig's `repo/state` and the
         // config's state dir at once -- exactly the drift the parameter made
         // possible.
-        cfg.server.state_dir = repo.join("state").to_string_lossy().into_owned();
+        cfg.server.state_dir = if building {
+            p("state")
+        } else {
+            repo.join("state")
+        }
+        .to_string_lossy()
+        .into_owned();
         cfg.self_improve.sealed.dir = Some(p("repo/sealed").to_string_lossy().into_owned());
+        if building {
+            cfg.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
+            cfg.self_improve.repo = Some(repo.to_string_lossy().into_owned());
+        }
         // Made before the sandbox, so the floor's canonical path and the bind
         // the test passes are the same path under a temp directory.
         assert!(hidden.len() <= 2, "the floor has two slots a test can set");
@@ -96,8 +132,8 @@ impl Rig {
         let tree = Tree {
             slug: "t".into(),
             branch: "self/t".into(),
-            dir: checkout.map_or_else(|| p("tree"), Path::to_path_buf),
-            target: p("target"),
+            dir: checkout.map_or(tree_dir, Path::to_path_buf),
+            target,
         };
         let place = Place {
             repo,
@@ -107,9 +143,11 @@ impl Rig {
             notify: None,
             stop: None,
         };
+        let sandbox = Arc::new(sandbox);
         Self {
             spool: theseus_kernel::Spool::open(&p("spool")).unwrap(),
-            jail: Jail::new(Arc::new(sandbox)),
+            jail: Jail::new(sandbox.clone()),
+            sandbox,
             tree,
             place,
             dir,
@@ -170,6 +208,51 @@ impl Rig {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    /// `argv` as a self builder's own `proc.run` runs it: the builder's view
+    /// over this item's build folder, cargo pointed at it, by the real wrapper.
+    /// `id` names the job (one completion each). The job's completion.
+    fn run_as_builder(&self, id: &str, argv: &[&str]) -> Value {
+        let state = self.place.state.clone();
+        let folder = builder_dir::ensure(&state, &self.tree.slug).unwrap();
+        let home = PathBuf::from(std::env::var("HOME").unwrap());
+        let mut env = theseus_core::sandbox::self_build_env(&home, &folder);
+        let (k, v) = theseus_core::sandbox::builder_env(&folder);
+        env.retain(|(ek, _)| *ek != k);
+        env.push((k, v));
+        let args = WrapperArgs {
+            spool_dir: self.spool.dir().to_path_buf(),
+            correlation_id: id.into(),
+            deadline_ms: 600_000,
+            notify_socket: None,
+            argv: argv.iter().map(|s| (*s).to_string()).collect(),
+            cwd: Some(self.tree.dir.clone()),
+            env,
+            umask: None,
+            redact: vec![],
+            output_max_bytes: job::DEFAULT_OUTPUT_MAX_BYTES,
+            sandbox: Some(self.sandbox.builder_view(&folder)),
+            cgroup: None,
+        };
+        let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+        job::spawn_detached(&theseusd, &[job::WRAPPER_MODE], &self.spool, &args).unwrap();
+        let t0 = Instant::now();
+        loop {
+            if let Some(c) = self.spool.read_completion(id).unwrap() {
+                return c.detail.unwrap_or_default();
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(600),
+                "no completion for {argv:?}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// The folder `run_as_builder` builds in.
+    fn folder(&self) -> PathBuf {
+        builder_dir::dir_in(&self.place.state, &self.tree.slug)
     }
 
     fn read(&self, rel: &str) -> String {
@@ -483,4 +566,204 @@ fn a_real_checkouts_command_runs_in_the_view() {
         tail.into_iter().rev().collect::<Vec<_>>().join("\n")
     );
     assert_eq!(d["exit_code"], 0, "{d}");
+}
+
+/// The live check of issue 20 on a real checkout (ignored: it builds the core's tests). Clones the
+/// git checkout named by `THESEUS_SELF_BUILD_TREE` into the builder rig's tree, runs
+/// `THESEUS_SELF_BUILD_CMD` (default `cargo test -p theseus-core --no-run`) twice as a builder
+/// does, and prints each run's seconds, what it compiled, and what the item's build folder holds
+/// after. `cargo nextest run -p theseusd --test self_build --run-ignored only --no-capture`, as
+/// an ordinary user.
+#[test]
+#[ignore = "builds a real workspace"]
+fn a_builders_core_test_build_completes_in_its_folder_and_is_reused() {
+    if refused_as_root() {
+        return;
+    }
+    let src = std::env::var("THESEUS_SELF_BUILD_TREE").expect("THESEUS_SELF_BUILD_TREE");
+    let cmd = std::env::var("THESEUS_SELF_BUILD_CMD")
+        .unwrap_or_else(|_| "cargo test -p theseus-core --no-run".into());
+    let r = Rig::builder();
+    let cloned = std::process::Command::new("git")
+        .args(["clone", "-q", &src])
+        .arg(&r.tree.dir)
+        .status()
+        .unwrap();
+    assert!(cloned.success(), "cloning {src}");
+    let f = r.folder();
+    // The build twice, then a run of tests from it (no network, no store, no sealed set).
+    let run = std::env::var("THESEUS_SELF_BUILD_RUN")
+        .unwrap_or_else(|_| "cargo test -p theseus-core --lib rsi::capacity".into());
+    let mut compiled = Vec::new();
+    for (id, log, cmd) in [
+        ("one", "one.log", cmd.clone()),
+        ("two", "two.log", cmd),
+        ("three", "three.log", run),
+    ] {
+        let t0 = Instant::now();
+        let d = r.run_as_builder(
+            id,
+            &["sh", "-c", &format!("{cmd} > {}/{log} 2>&1", f.display())],
+        );
+        let said = std::fs::read_to_string(f.join(log)).unwrap_or_default();
+        let tail: Vec<&str> = said.lines().rev().take(12).collect();
+        let n = said.lines().filter(|l| l.contains("Compiling")).count();
+        eprintln!(
+            "{id}: {cmd}: exit {} in {:.0}s, {n} crates compiled, the folder holds {:.2} GB\n{}",
+            d["exit_code"],
+            t0.elapsed().as_secs_f64(),
+            builder_dir::size(&f) as f64 / f64::from(1u32 << 30),
+            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+        );
+        if d["exit_code"] != 0 {
+            let why: Vec<&str> = said
+                .lines()
+                .filter(|l| {
+                    ["error", "signal", "No space", "limit"]
+                        .iter()
+                        .any(|w| l.contains(w))
+                })
+                .take(12)
+                .collect();
+            // A long line is read from its end: that is where rustc says how it died.
+            let ends: Vec<String> = why
+                .iter()
+                .map(|l| {
+                    l.chars()
+                        .rev()
+                        .take(160)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect()
+                })
+                .collect();
+            eprintln!("{d}\nwhat it said:\n{}", ends.join("\n"));
+        }
+        assert_eq!(d["exit_code"], 0, "{id} failed");
+        compiled.push(n);
+    }
+    assert!(
+        compiled[0] > 0 && compiled[1] == 0,
+        "the second run reuses the first: {compiled:?}"
+    );
+    let ran = std::fs::read_to_string(f.join("three.log")).unwrap_or_default();
+    assert!(ran.contains("test result: ok"), "the tests ran: {ran}");
+}
+
+/// The tiny crate of `a_tiny_crates_gate_passes_in_the_self_build_view`, in the rig's tree.
+fn tiny_crate(r: &Rig) {
+    let t = &r.tree.dir;
+    std::fs::create_dir_all(t.join("src")).unwrap();
+    std::fs::write(
+        t.join("Cargo.toml"),
+        "[package]\nname = \"tiny\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        t.join("src/lib.rs"),
+        "pub fn add(a: u32, b: u32) -> u32 { a + b }\n#[cfg(test)]\nmod tests;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        t.join("src/tests.rs"),
+        "#[test]\nfn adds() { assert_eq!(super::add(2, 3), 5); }\n",
+    )
+    .unwrap();
+}
+
+/// KEY (issue 20): a builder's `cargo test` builds inside its sandbox, into the item's build
+/// folder, and a second run there reuses what the first built: the first compiles the crate, the
+/// second does not. Its commands cannot write the tree, so the logs go in the folder as well.
+#[test]
+fn a_builders_tests_build_in_its_folder_and_a_second_run_reuses_the_build() {
+    if refused_as_root() {
+        return;
+    }
+    let r = Rig::builder();
+    tiny_crate(&r);
+    let f = r.folder();
+    for (id, log) in [("first", "first.log"), ("second", "second.log")] {
+        let script = format!("cargo test > {}/{log} 2>&1", f.display());
+        let d = r.run_as_builder(id, &["sh", "-c", &script]);
+        let said = r.read(&format!("state/self/builder/t/{log}"));
+        assert_eq!(d["exit_code"], 0, "{d}\n{said}");
+        assert!(said.contains("test result: ok. 1 passed"), "{said}");
+    }
+    let (first, second) = (
+        r.read("state/self/builder/t/first.log"),
+        r.read("state/self/builder/t/second.log"),
+    );
+    assert!(first.contains("Compiling tiny"), "{first}");
+    assert!(!second.contains("Compiling tiny"), "reused: {second}");
+    assert!(
+        f.join("debug").is_dir(),
+        "the build is on the host, in the folder"
+    );
+    assert!(builder_dir::size(&f) > 0);
+    assert!(!r.tree.dir.join("target").exists(), "none in the tree");
+}
+
+/// What persists is the folder and nothing else: a builder's writes to its tree (a workspace
+/// root, an overlay), HOME and `/tmp` are gone when the command ends, and its build tree for the
+/// gate is not writable from its view at all.
+#[test]
+fn only_the_builders_folder_persists() {
+    if refused_as_root() {
+        return;
+    }
+    let r = Rig::builder();
+    let (t, g, f) = (r.tree.dir.clone(), r.tree.target.clone(), r.folder());
+    let script = format!(
+        "w() {{ if echo x > \"$1\" 2>/dev/null; then echo \"$1 ok\"; else echo \"$1 no\"; fi; }}\n\
+         {{ w {f}/kept; w {t}/lost; w {g}/gates; w $HOME/lost; w /tmp/lost; }} > {f}/results",
+        f = f.display(),
+        t = t.display(),
+        g = g.display(),
+    );
+    let d = r.run_as_builder("writes", &["sh", "-c", &script]);
+    assert_eq!(d["exit_code"], 0, "{d}");
+    let results = r.read("state/self/builder/t/results");
+    assert!(
+        results.contains(&format!("{}/kept ok", f.display())),
+        "{results}"
+    );
+    assert!(
+        results.contains(&format!("{}/gates no", g.display())),
+        "the gate's build tree: {results}"
+    );
+    assert_eq!(r.read("state/self/builder/t/kept"), "x\n");
+    assert!(!t.join("lost").exists(), "the tree is an overlay");
+    assert!(
+        !g.join("gates").exists(),
+        "the gate's build tree is not written"
+    );
+}
+
+/// The gate never reads what the builder compiled: a marker the builder leaves in its folder is
+/// not there in the view the gate runs in (it binds the tree and its own build tree and neither
+/// holds the folder), and the gate's build tree is untouched.
+#[test]
+fn the_gates_view_cannot_see_what_the_builder_left() {
+    if refused_as_root() {
+        return;
+    }
+    let r = Rig::builder();
+    let f = r.folder();
+    let script = format!("echo built-by-a-model > {}/artifact.rlib", f.display());
+    let d = r.run_as_builder("compiles", &["sh", "-c", &script]);
+    assert_eq!(d["exit_code"], 0, "{d}");
+    assert!(f.join("artifact.rlib").is_file());
+    let probe = format!(
+        "if [ -e {a} ] || [ -e {f} ]; then echo seen > seen; else echo absent > seen; fi",
+        a = f.join("artifact.rlib").display(),
+        f = f.display()
+    );
+    let d = r.run(&["sh", "-c", &probe]);
+    assert_eq!(d["exit_code"], 0, "{d}");
+    assert_eq!(r.read("state/self/trees/t/seen"), "absent\n");
+    assert!(
+        std::fs::read_dir(&r.tree.target).unwrap().next().is_none(),
+        "the gate's build tree holds nothing the builder made"
+    );
 }

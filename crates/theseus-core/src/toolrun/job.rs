@@ -461,6 +461,24 @@ impl ToolRuntime {
             .find(|(k, _)| k == "PATH")
             .map(|(_, v)| v.clone());
         let set: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
+        // A self builder's L1 command keeps one directory, its item's build
+        // folder, and cargo builds in it (`rsi::builder_dir`).
+        let build = match class.l1().then(|| {
+            theseus_store::blocking(|| crate::rsi::own_tree::builder_folder(self, tc.session_id))
+        }) {
+            Some(Ok(Some(dir))) => {
+                let (k, v) = sandbox::builder_env(&dir);
+                env.retain(|(ek, _)| *ek != k);
+                env.push((k, v));
+                Some(dir)
+            }
+            Some(Err(why)) => {
+                return self
+                    .settle_job_failure(tc, correlation_id, tool.name(), call, &why)
+                    .map(Err);
+            }
+            _ => None,
+        };
         let (brokered, sandbox) = sandbox::for_job(
             self,
             class,
@@ -471,6 +489,13 @@ impl ToolRuntime {
             correlation_id,
         )
         .await;
+        // The view a self builder's command runs in keeps one more directory (`builder_view`).
+        let sandbox = match (&build, sandbox) {
+            (Some(dir), Some(view)) => {
+                Some(crate::sandbox::Sandbox::with_builder_folder(view, dir))
+            }
+            (_, view) => view,
+        };
         for (k, v) in &brokered.env {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.expose().to_string()));

@@ -29,7 +29,8 @@
 //!   when main has one; a hit stops the push. It uses the credential git
 //!   already has for that remote; this code reads none.
 //! - [`close`] removes the worktree and its build tree (build caches are
-//!   regenerable); the branch stays in the repo.
+//!   regenerable), and the builder's own build folder
+//!   ([`super::builder_dir`]); the branch stays in the repo.
 //!
 //! Every git call is a child through `children::spawn`, blocking: callers on
 //! the runtime run them on the blocking pool. The gate is a tokio child.
@@ -261,6 +262,11 @@ impl Place {
     }
     pub fn targets(&self) -> PathBuf {
         self.root().join("target")
+    }
+    /// Where each item's builder keeps its build output ([`super::builder_dir`]): beside the
+    /// trees, never under them, since a directory there is a slot in use.
+    pub fn builders(&self) -> PathBuf {
+        super::builder_dir::root_in(&self.state)
     }
     pub fn gates(&self) -> PathBuf {
         self.root().join("gates")
@@ -578,6 +584,9 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     }
     let dir = trees.join(&slug);
     let d = dir.to_string_lossy().to_string();
+    // An item starts with an empty build folder: what an earlier item of this name left in one is
+    // never its own.
+    super::builder_dir::remove(&p.state, &slug)?;
     p.git_ok(
         &repo,
         &[
@@ -1248,6 +1257,8 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         std::fs::remove_dir_all(&tree.target)?;
     }
+    // The builder's own build folder goes with its tree, whichever way the tree is closed.
+    super::builder_dir::remove(&p.state, &tree.slug)?;
     Ok(())
 }
 

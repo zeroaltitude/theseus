@@ -87,6 +87,17 @@ fn rig_with(mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)
 
 /// [`rig_with`] over a fixture the test made (a gate of its own).
 fn rig_on(f: Fixture, mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)) -> Rig {
+    rig_launching(f, mode, remote, edit, None)
+}
+
+/// [`rig_on`], with the jobs a call starts handed to `launcher` when there is one.
+fn rig_launching(
+    f: Fixture,
+    mode: SelfMode,
+    remote: Option<&str>,
+    edit: impl FnOnce(&mut Config),
+    launcher: Option<Arc<dyn crate::toolrun::JobLauncher>>,
+) -> Rig {
     let work = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = f.place.state.to_string_lossy().into_owned();
@@ -99,7 +110,11 @@ fn rig_on(f: Fixture, mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&m
     edit(&mut cfg);
     let store = Store::open(&f.place.state.join("store")).unwrap();
     let model = Arc::new(Model::default());
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    if let Some(l) = launcher {
+        parts.launcher = l;
+    }
+    let core = Core::build(parts).unwrap();
     core.tools.self_pr.set_env(hermetic());
     let cli = Answerer::from("the CLI");
     core.self_resume(&SelfResumeParams::default(), &cli)
@@ -871,6 +886,7 @@ mod own_tree {
     use super::*;
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
+    mod builder_folder;
     mod proc_in_tree;
 
     fn held(edit: impl FnOnce(&mut Config)) -> Rig {
