@@ -94,13 +94,13 @@ conversation ranks higher in recall. As you talk, each private conversation is f
 a new entry is started when nothing fits, with a notice and an undo. An import's topics are filed with one command.
 A nightly sweep merges duplicates, lets a machine-made membership lapse after 30 days unless it is renewed, renames
 what has drifted, and creates and names a new kind when the same unlisted answer keeps coming up. A person is one
-record with many handles, holding what they do and own. Imported history is sorted into seven books (diary,
+record with many handles, holding what they do and own. Imported history is sorted onto seven shelves (diary,
 encyclopedia, cookbook, procedures, casebook, register, dictionary), read from the memory index. The map routes
 context and never grants access.
 
 **Rough edges.** The notice that announces a new entry is hard to read, and a message Theseus wrote to itself has
-been filed as if a person wrote it. The books are the import's labels, browsed; books compiled from the whole graph
-are the next step.
+been filed as if a person wrote it. The shelves are the import's labels, browsed; a book is what Theseus will write
+from a shelf, and none is written yet (planned for 3.0.0).
 
 **More:** [the ontology's design](m4-boundaries.md#28-the-ontologys-first-slice).
 

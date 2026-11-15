@@ -16,10 +16,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Say, one line a benchmark, where Theseus stands against the best harness that was measured beside it.',
     'Each row is one benchmark. Theseus\u2019s pass rate is the share of trials it solved; the two numbers in brackets are the range the true rate is likely in, given how many trials ran. Beside it is the best other harness on the same benchmark. It says ahead or behind outright only when the two ranges do not overlap; when they overlap it says which way the rates lean and that the run does not settle it. \u201cA different model\u201d means that harness ran another model, so the row compares more than the harness.',
     'It is the honest short answer to \u201chow good is it\u201d. A row that reads behind is where the next release should look; a row that is not settled needs more trials before anyone claims a lead or a loss.'),
-  'simple.bench.findings': e(
-    'Say in a sentence what every other published run found, where a pass rate would mislead.',
-    'Each row is a benchmark whose newest run does not support a headline pass rate: it measured something else (time, memory, recall), ran too few trials, or did not include Theseus as an arm. The words are the run\u2019s own finding, from its report, cut to three lines. When a pass rate exists but is not led with, the reason is given under it.',
-    'These runs still decide things: start-up time, recall, what survives a crash. Open a report before quoting it; the sentence here is a summary, not the measurement.'),
+  'simple.bench.unranked': e(
+    'Say which benchmark families the table does not rank, and why, so none looks missing.',
+    'The sentence above the table counts the reports this build holds and the families they fall in. Each family is on the page once: a row in the table, or a line here with the one reason it is not ranked (it measures speed or memory rather than a pass rate, Theseus was only measured against itself, the run was too small, or a later run replaced it) and a link to its newest report. A family has several reports when it was run again.',
+    'It keeps the table from reading as the whole of what was measured. Open a family\u2019s report before quoting it: the reason here is a summary, not the measurement.'),
   // ---- the simple pages (src/simple): Memories
   'simple.memories.search': e(
     'Find something Theseus remembers: a person, a topic, or a few words from a conversation.',
@@ -584,7 +584,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- Context and Books
   'context.filters': e(
     'Narrow the imported episodes to the ones you mean.',
-    'Search text, then groups to pick from: source, place, sensitivity, book hint and import, each value with how many episodes it holds; the month and topic you pick show as well. “Clear all” resets.',
+    'Search text, then groups to pick from: source, place, sensitivity, shelf and import, each value with how many episodes it holds; the month and topic you pick show as well. “Clear all” resets.',
     'The import can hold many thousands of episodes. Filters, kept in the address, let you share the exact view you are looking at.'),
   'context.episodes': e(
     'List the imported episodes, so you can read what Theseus can recall from the past.',
@@ -611,13 +611,13 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Each proposal is one question: a short fact or preference, how many of the imported episodes it rests on, and Keep, Edit or Not this. Keep writes a standing record; Not this is remembered, so those sources are never proposed again; an unanswered one becomes Not this after a while. At most a few dozen wait at once, and the job that makes them has a daily spend line.',
     'Nothing is added without an answer, so the card holds what the owner chose; what they decline is a label for the next proposals.'),
   'context.books': e(
-    'Say honestly what the books are today and what they are not yet.',
-    'A note in two parts. Today: the imported conversations are sorted onto seven shelves (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) by the import\u2019s guess, and the count says how many have a shelf. Not yet: the books Theseus would write itself from those conversations.',
-    'It keeps anyone from reading the Books view as finished books. Until Theseus writes them, recall reads the imported conversations directly, not a distilled book.'),
+    'Say plainly what exists today (shelves) and what does not yet (books).',
+    'A note in two parts. Shelves, today: the imported conversations are sorted onto seven shelves (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) by the import\u2019s guess, and the count says how many have a shelf. Written books, not yet: a book is what Theseus will write from a shelf; none exists, and they are planned for Theseus 3.0.0.',
+    'It keeps anyone from reading the shelves as finished books. Until Theseus writes books, recall reads the imported conversations directly, not a written book.'),
   'context.hints': e(
-    'Show how many episodes the import hinted at each book.',
-    'One bar per book, its width the number of episodes; the table says what each book holds. Click a bar to list its episodes.',
-    'The hint is the import’s guess, not a compiled book. A large “unsorted” share means the import could not place them.'),
+    'Show how many episodes the import put on each shelf.',
+    'One bar per shelf, its width the number of episodes; the table says what each shelf holds. Click a bar to list its episodes.',
+    'The shelf is the import’s guess, not a written book. A large “unsorted” share means the import could not place them.'),
   'context.pick': e(
     'Pick a session whose turn you want to look into.',
     'A list of sessions; choosing one opens its turns.',
@@ -643,17 +643,17 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Type a query; the answer lists the notes the index returns for it, with their scores.',
     'It lets you test what Theseus would remember before it matters.'),
   'books.chart': e(
-    'Show the imported books and how many episodes each holds.',
-    'One bar per book, its width the share of episodes, with the first-to-last span of each; the table has the same rows. Click a book to list its episodes.',
-    'It shows which book is large and which is thin, and how far back each reaches.'),
+    'Show the shelves of imported conversations and how many episodes each holds.',
+    'One bar per shelf, its width the share of episodes, with the first-to-last span of each; the table has the same rows. Click a shelf to list its episodes. These are shelves; written books are planned for Theseus 3.0.0 and are not built.',
+    'It shows which shelf is large and which is thin, and how far back each reaches.'),
   'books.book': e(
-    'List one book’s episodes, newest first.',
-    'One row per episode; filter by topic, source and place from the book’s own facets; a page at a time.',
-    'It lets you read a book from its newest end, and find an episode by where it came from.'),
+    'List one shelf’s episodes, newest first.',
+    'One row per episode; filter by topic, source and place from the shelf’s own facets; a page at a time.',
+    'It lets you read a shelf from its newest end, and find an episode by where it came from.'),
   'books.episode': e(
-    'Read one imported episode in its book.',
+    'Read one imported episode on its shelf.',
     'Its summary, labels and messages.',
-    'It is the source for what the book says, so you can check a fact against what was said.'),
+    'It is the original conversation, so you can check a fact against what was said.'),
 
   // ---- the session deck
   'deck.transcript': e(
