@@ -1549,8 +1549,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **The self-join** (theseus-pw1q.9; `rsi/join.rs` and `rsi/join/`, `fact/rsi_join.rs`): `Core::self_join_pass(&Seams)`,
   from its tender (`join/tender.rs`, only with `[self] mode = "act"`: a pass 10 minutes after serving, then every 15),
   asks `rsi::gate` before every phase and writes `self.join.stopped { phase }` on a refusal. Each green
-  `self.branch.built` row is reviewed once per head: the reviewer's model (`[self] reviewer_profile`, `"fable"`) must
-  differ from the builder's session's last target (else `refused`); the planted revert (`join/planted.rs`, code, not
+  `self.branch.built` row is reviewed once per head: the reviewer's model (`[self] reviewer_profile`, `"fable"`, a
+  pin) must differ from the builder's session's last target, and so must the model that answered, the row's `model`
+  (else `refused`); the planted revert (`join/planted.rs`, code, not
   the reviewer: the branch's new and changed tests pass at its head, then fail with every non-test path put back as
   the merge-base has it) runs before any reviewer is paid; the reviewer is a check turn in a new `"self"` session
   (`join/review.rs`, the claim through `check::render`: the diff, the frozen report, the item's evidence, never the

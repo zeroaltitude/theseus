@@ -14,10 +14,15 @@ pub struct SelfReviewVerdict {
     pub item: String,
     pub branch: String,
     pub head: String,
-    /// The reviewer's profile and model, `fable (claude-fable-5-2)`.
+    /// The profile and model that answered, `fable (claude-fable-5-2)`; for a refusal before any
+    /// turn, the one the review would have run on.
     pub reviewer: String,
-    /// The reviewer's model alone: a refusal is asked again on another.
+    /// The model that answered, from the turn's own result; for a refusal before any turn, the one
+    /// the review would have run on.
     pub model: String,
+    /// The model the review was asked to run on: a refusal is asked again on another. Differs from
+    /// `model` when the turn ended up elsewhere. A row from before this field has none.
+    pub asked: String,
     /// `accept`, `reject`, or `refused` (no independent review could run).
     pub verdict: String,
     /// The planted revert's result: `failed` (proved), `passed` (unproved),
@@ -32,7 +37,8 @@ impl Fact for SelfReviewVerdict {
 
     fn row(&self) -> Value {
         json!({"item": self.item, "branch": self.branch, "head": self.head,
-               "reviewer": self.reviewer, "model": self.model, "verdict": self.verdict,
+               "reviewer": self.reviewer, "model": self.model, "asked": self.asked,
+               "verdict": self.verdict,
                "planted_revert": self.planted_revert, "reasons": self.reasons,
                "what": format!("self branch {} reviewed: {} by {}", self.branch,
                    self.verdict, self.reviewer),
