@@ -736,3 +736,40 @@ fn a_listings_result_says_its_scope_and_what_it_left_out() {
         format!("[10 entries under {base} to depth 6]")
     );
 }
+
+/// An edit the file cannot take (the text is not there, or is there twice)
+/// is the tool's own refusal, marked so, and not a fault of ours: the
+/// ledger row for it must not file a cause (`action.failed:inproc:fs.edit`).
+/// A failure of the tool itself (an unreadable path) is not marked.
+#[test]
+fn an_edit_the_file_cannot_take_is_a_marked_refusal() {
+    let d = tempfile::tempdir().unwrap();
+    let c = ctx(&d);
+    WriteFile
+        .run(&json!({"path": "r.txt", "content": "x x"}), &c)
+        .unwrap();
+    let marked = |f: &crate::ToolFailure| f.meta["refusal"] == json!(true);
+    let missing = Edit
+        .run(
+            &json!({"path": "r.txt", "old_string": "nope", "new_string": "y"}),
+            &c,
+        )
+        .unwrap_err();
+    assert!(missing.message.contains("was not found"), "{missing:?}");
+    assert!(marked(&missing), "{missing:?}");
+    let twice = Edit
+        .run(
+            &json!({"path": "r.txt", "old_string": "x", "new_string": "y"}),
+            &c,
+        )
+        .unwrap_err();
+    assert!(twice.message.contains("occurs 2 times"), "{twice:?}");
+    assert!(marked(&twice), "{twice:?}");
+    let gone = Edit
+        .run(
+            &json!({"path": "absent.txt", "old_string": "x", "new_string": "y"}),
+            &c,
+        )
+        .unwrap_err();
+    assert!(!marked(&gone), "{gone:?}");
+}

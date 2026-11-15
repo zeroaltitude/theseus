@@ -655,7 +655,7 @@ impl Tool for Edit {
             None => before.matches(a.old_string.as_str()).count(),
         };
         if n == 0 {
-            return Err(ToolFailure::new(format!(
+            return Err(ToolFailure::refusal(format!(
                 "old_string was not found in {}. Read the file again and copy the exact text, including whitespace and indentation.",
                 path.display()
             )));
@@ -670,7 +670,7 @@ impl Tool for Edit {
             });
         }
         if n > 1 && !a.replace_all {
-            return Err(ToolFailure::new(format!(
+            return Err(ToolFailure::refusal(format!(
                 "old_string occurs {n} times in {}. Add surrounding lines to make it unique, or set replace_all.",
                 path.display()
             )));
@@ -854,7 +854,7 @@ impl Tool for Patch {
             } else {
                 original.clone()
             };
-            let applied = diffy::apply(&basis, &p).map_err(|e| ToolFailure::new(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
+            let applied = diffy::apply(&basis, &p).map_err(|e| ToolFailure::refusal(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
             let applied = if crlf { to_crlf(&applied) } else { applied };
             // A deletion carries the whole file, so the call records what it
             // removed and stays reversible.
