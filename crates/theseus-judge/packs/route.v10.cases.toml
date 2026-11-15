@@ -1,3 +1,15 @@
+# VERSION 5 (2026-11-14, the owner's "A", chat message 1571407588887629876). FIVE LABELS MOVED TO SONNET, and nothing else.
+# VERSION 4 made the state of 53 cases follow the vendor's price and moved no label; its measurement showed the pack then stayed
+# on Sonnet in every run for five cases whose label named a cheaper model that is no longer cheaper. The owner, asked whether to
+# move them (2026-11-14 21:18, "Why not just relabel them? seems OK to me"; then "A" to these five by name):
+#   - L1, L6 and W2 (haiku -> sonnet) and W28 (deepseek_flash -> sonnet): warm on Sonnet at 100,000 tokens or less, `about_the_same`.
+#   - W12 (deepseek_flash -> sonnet): `cheaper_to_stay`, the same rule that moved W13 in VERSION 2.
+# NOT MOVED, and worth saying why. W11 (`cheaper_to_stay`, labelled deepseek_flash, a `must`): the same rule would move it, the pack
+# still answers Flash there, and the owner chose not to move it now; it is a question for the benchmark review. The other cases
+# labelled haiku under `about_the_same` keep their label: the pack answers Haiku there, and where the cost is the same either
+# answer is sound, which a label cannot say; whether such a case should accept both is the benchmark review's too.
+# Each moved case keeps its effort label, and says in its `why` what it was. Model counts: haiku 16, sonnet 29, opus 12, fable 4,
+# deepseek_flash 1 (they were 19, 24, 12, 4, 3).
 # VERSION 4 (2026-11-14, the owner's "A", chat message 1571308847040168028). NO LABEL MOVED. Sonnet 5.5's cache read is the
 # vendor's page's $0.10 (it was $0.20), which no candidate undercuts by the 20% band: warm on Sonnet, a prefix of 100,000 tokens or
 # less is `about_the_same` (Haiku's $0.10 input is the same price) and a longer one `cheaper_to_stay` (Flash's $0.15 off-peak),
@@ -85,9 +97,9 @@ switch_cost = "about_the_same"
 id = "L1"
 message = "Run bash ~/projects/walkthrough/slow.sh drift 5."
 place = "channel"
-model = "haiku"
+model = "sonnet"
 effort = "low"
-why = "item 1 run_tool: a tool-call turn on Haiku; the owner, 07:19: \"effort low is correct\""
+why = "item 1 run_tool: a tool-call turn on Haiku; the owner, 07:19: \"effort low is correct\" Relabelled from haiku to sonnet by the owner, 2026-11-14 (VERSION 5): the state is `about_the_same`, so the cheaper model is not cheaper for this message and Sonnet stays."
 
 [[case]]
 id = "L2"
@@ -121,9 +133,9 @@ why = "item 5 trivial: a greeting"
 id = "L6"
 message = "also print the word harbor at the end"
 place = "channel"
-model = "haiku"
+model = "sonnet"
 effort = "low"
-why = "item 6 routine_coding low: a one-line known edit (the session is a task's)"
+why = "item 6 routine_coding low: a one-line known edit (the session is a task's) Relabelled from haiku to sonnet by the owner, 2026-11-14 (VERSION 5): the state is `about_the_same`, so the cheaper model is not cheaper for this message and Sonnet stays."
 
 [[case]]
 id = "L7"
@@ -244,9 +256,9 @@ why = "greeting on a big session: at 200K off-peak every other model costs more 
 [[case]]
 id = "W2"
 message = "ok got it"
-model = "haiku"
+model = "sonnet"
 effort = "low"
-why = "trivial"
+why = "trivial Relabelled from haiku to sonnet by the owner, 2026-11-14 (VERSION 5): the state is `about_the_same`, so the cheaper model is not cheaper for this message and Sonnet stays."
 
 [[case]]
 id = "W3"
@@ -321,9 +333,9 @@ id = "W12"
 message = "add unit tests for `routing::carries` covering late, detour and unreachable"
 est_tokens = 120000
 switch_cost = "cheaper_to_stay"
-model = "deepseek_flash"
+model = "sonnet"
 effort = "medium"
-why = "Flash: writing tests for code that works (repo open-source)"
+why = "Flash: writing tests for code that works (repo open-source) Relabelled from deepseek_flash to sonnet by the owner, 2026-11-14 (VERSION 5): the state is `cheaper_to_stay`, so the cheaper model is not cheaper for this message and Sonnet stays."
 
 [[case]]
 id = "W13"
@@ -452,9 +464,9 @@ id = "W28"
 message = "Task brief: Port the 14 remaining `#[test]`s in tests_route_effort.rs to the v10 rig, same assertions"
 place_kind = "task_brief"
 est_tokens = 90000
-model = "deepseek_flash"
+model = "sonnet"
 effort = "medium"
-why = "a brief that fits Flash's sentence (repo open-source)"
+why = "a brief that fits Flash's sentence (repo open-source) Relabelled from deepseek_flash to sonnet by the owner, 2026-11-14 (VERSION 5): the state is `about_the_same`, so the cheaper model is not cheaper for this message and Sonnet stays."
 
 [[case]]
 id = "W29"
