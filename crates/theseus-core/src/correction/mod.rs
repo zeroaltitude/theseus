@@ -487,12 +487,12 @@ mod tests {
     #[test]
     fn a_protocol_word_names_a_profile_or_a_direction() {
         let n = words::Names {
-            profiles: vec![("fable".into(), "claude-fable-5-1".into())],
+            profiles: vec![("fable".into(), "claude-fable-5-2".into())],
             personas: vec![("birch".into(), "Birch".into())],
         };
         assert_eq!(to_of("Fable", &n), Some(To::Profile("fable".into())));
         assert_eq!(
-            to_of("claude-fable-5-1", &n),
+            to_of("claude-fable-5-2", &n),
             Some(To::Profile("fable".into()))
         );
         assert_eq!(to_of("deep_coding", &n), None, "a mode is no name");

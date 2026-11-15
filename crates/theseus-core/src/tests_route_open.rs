@@ -248,7 +248,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
 /// half of every run's effort answers take this path).
 ///
 /// The five differ in what the level rides on, which is why one model proves nothing about the
-/// other four: Sonnet 5.5 and Fable 5.1 take per-message effort, so theirs rides as an
+/// other four: Sonnet 5.5 and Fable 5.2 take per-message effort, so theirs rides as an
 /// effort-only system message; Haiku 5.5, Opus 5.5 and Flash carry a top-level `output_config`.
 /// [`crate::compiler::effort::effective`] reads either. The haiku profile sets `effort = "low"`,
 /// and the other four profiles set none, so in every case `high` can only have come from the
@@ -262,7 +262,7 @@ async fn an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model() {
         ("haiku", "claude-haiku-5-5"),
         ("sonnet", "claude-sonnet-5-5"),
         ("opus", "claude-opus-5-5"),
-        ("fable", "claude-fable-5-1"),
+        ("fable", "claude-fable-5-2"),
         ("deepseek_flash", "deepseek-flash"),
     ] {
         let jev = FakeJev::start().unwrap();
@@ -383,7 +383,7 @@ async fn a_pick_no_profile_runs_is_a_fallback_that_says_why() {
     assert_eq!(res.route.unwrap().reason, "fallback");
     assert_eq!(
         decided(&o.r.core.store)[0]["detail"],
-        "no profile runs claude-fable-5-1"
+        "no profile runs claude-fable-5-2"
     );
 }
 
@@ -489,7 +489,7 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
         Some("fable"),
     )
     .await;
-    assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-1");
+    assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-2");
     assert_eq!(res.route.unwrap().reason, "pinned");
     crate::tests_route::until_calls(&jev, 2).await;
     let asked = asked(&jev);
@@ -562,7 +562,7 @@ async fn a_pinned_turn_still_warns_on_a_personal_answer() {
     // A pin does not wait for its verdict; the test has it wait, so the verdict has come.
     o.r.core.runner.judge.pins_wait_for_verdicts();
     let res = turn(&o.r.core, None, ASK_PERSONAL, Some("fable")).await;
-    assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-1");
+    assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-2");
     assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
     let rows = warned_rows(&o);
     assert_eq!(rows.len(), 1, "the personal answer acted: {rows:?}");
@@ -686,7 +686,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     let lines = why(&o, &res.session_id);
     let l = routing_line(&lines);
     assert!(
-        l.contains("model=claude-fable-5-1") && l.contains("reason=pinned (-P fable)"),
+        l.contains("model=claude-fable-5-2") && l.contains("reason=pinned (-P fable)"),
         "{l}"
     );
     // The cache hold.
@@ -707,7 +707,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     let lines = why(&o, &res.session_id);
     let l = routing_line(&lines);
     assert!(
-        l.contains("reason=fallback (no profile runs claude-fable-5-1)"),
+        l.contains("reason=fallback (no profile runs claude-fable-5-2)"),
         "{l}"
     );
 }

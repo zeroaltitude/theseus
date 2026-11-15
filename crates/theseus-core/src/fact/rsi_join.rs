@@ -14,7 +14,7 @@ pub struct SelfReviewVerdict {
     pub item: String,
     pub branch: String,
     pub head: String,
-    /// The reviewer's profile and model, `fable (claude-fable-5-1)`.
+    /// The reviewer's profile and model, `fable (claude-fable-5-2)`.
     pub reviewer: String,
     /// The reviewer's model alone: a refusal is asked again on another.
     pub model: String,

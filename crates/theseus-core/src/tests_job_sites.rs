@@ -127,7 +127,7 @@ site!(
         unset: |c| c.card.profile = None,
         call: |r| async { r.core.card_model(5).await.unwrap().0.model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-1"),
+        pick: ("fable", "claude-fable-5-2"),
         says: "5 clusters",
     }
 );
@@ -139,7 +139,7 @@ site!(
         unset: |c| c.people.extract_profile = None,
         call: |r| async { r.core.people_extractor(12).await.unwrap().0.model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-1"),
+        pick: ("fable", "claude-fable-5-2"),
         says: "12 lines",
     }
 );
@@ -151,7 +151,7 @@ site!(
         unset: |c| c.threads.import_profile = None,
         call: |r| async { r.core.import_model(3).await.unwrap().model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-1"),
+        pick: ("fable", "claude-fable-5-2"),
         says: "3 episodes",
     }
 );
@@ -163,7 +163,7 @@ site!(
         unset: |c| c.ontology.name_profile = None,
         call: |r| async { r.core.onto_model("project").await.unwrap().0.model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-1"),
+        pick: ("fable", "claude-fable-5-2"),
         says: "project",
     }
 );
@@ -185,7 +185,7 @@ site!(
             }
             .boxed()
         },
-        pin: ("fable", "claude-fable-5-1"),
+        pin: ("fable", "claude-fable-5-2"),
         pick: ("haiku", "claude-haiku-5-5"),
         says: "classify.v4",
     }
@@ -207,7 +207,7 @@ site!(
             .boxed()
         },
         pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-1"),
+        pick: ("fable", "claude-fable-5-2"),
         // Unset was the live profile.
         says: "the morning note",
     }
@@ -222,7 +222,7 @@ async fn the_card_observation_asks_about_lines_not_clusters() {
     pick(&jev, "fable", 0.95);
     let r = rig_job(&jev, |c| c.card.profile = None);
     let (t, _, _) = r.core.observe_model(11).await.unwrap();
-    assert_eq!(t.model, "claude-fable-5-1");
+    assert_eq!(t.model, "claude-fable-5-2");
     let state = jev.seen()[0].body["state"].to_string();
     assert!(state.contains("11 lines"), "{state}");
     assert!(!state.contains("clusters"), "{state}");
@@ -250,7 +250,7 @@ async fn consolidation_asks_jev_when_synth_profile_is_unset() {
     let r = rig_job(&jev, |_| {});
     assert!(r.core.synth_asks_jev());
     let t = r.core.synth_target(&[], "").await.unwrap();
-    assert_eq!(t.model, "claude-fable-5-1");
+    assert_eq!(t.model, "claude-fable-5-2");
     assert_eq!(jev.connections(), 1);
     let state = jev.seen()[0].body["state"].to_string();
     assert!(state.contains("synthesis"), "{state}");
@@ -320,7 +320,7 @@ async fn the_self_builder_asks_jev_and_runs_on_its_pick() {
         .mint_writer_target(&writer_session(&r), &pending(true))
         .await
         .unwrap();
-    assert_eq!(t.model, "claude-fable-5-1");
+    assert_eq!(t.model, "claude-fable-5-2");
     assert_eq!(jev.connections(), 1);
     let state = jev.seen()[0].body["state"].to_string();
     assert!(

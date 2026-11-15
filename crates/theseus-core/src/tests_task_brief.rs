@@ -125,7 +125,7 @@ async fn a_brief_is_never_cache_held_whatever_the_cold_line() {
 async fn a_task_runs_on_its_parents_model_with_jev_off() {
     let r = rig_from(None, "fable", |c| c.judge.enabled = false);
     let (_, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-fable-5-1");
+    assert_eq!(ran_on(&r), "claude-fable-5-2");
     assert_eq!(rec.last_target.unwrap().profile, "fable");
     assert!(decided(&r.core.store).is_empty());
 }
@@ -137,7 +137,7 @@ async fn a_verdict_under_its_bar_leaves_the_parents_model() {
     mode(&jev, "routine_coding", 0.1);
     let r = rig_from(Some(&jev), "fable", |_| {});
     let (_, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-fable-5-1");
+    assert_eq!(ran_on(&r), "claude-fable-5-2");
     assert_eq!(rec.last_target.unwrap().profile, "fable");
     assert_eq!(decided(&r.core.store)[0]["reason"], "unsure");
 }
@@ -154,7 +154,7 @@ async fn a_late_verdict_sets_no_base() {
         c.judge.total_secs = 30;
     });
     let (started, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-fable-5-1");
+    assert_eq!(ran_on(&r), "claude-fable-5-2");
     assert_eq!(rec.last_target.unwrap().profile, "fable");
     assert_eq!(decided(&r.core.store)[0]["reason"], "late");
     jev.release();

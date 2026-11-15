@@ -326,7 +326,7 @@ mod tests {
             profiles: [
                 ("sonnet", "claude-sonnet-5-5"),
                 ("opus", "claude-opus-5-5"),
-                ("fable", "claude-fable-5-1"),
+                ("fable", "claude-fable-5-2"),
                 ("haiku", "claude-haiku-5-5"),
                 ("glm53", "glm-5.3"),
             ]
@@ -358,7 +358,7 @@ mod tests {
             "use fable for that",
             "use fable for this one",
             "Use fable, please",
-            "that should have been on claude-fable-5-1",
+            "that should have been on claude-fable-5-2",
             "that should’ve been on fable next time",
         ] {
             assert_eq!(to(t), fable, "{t}");

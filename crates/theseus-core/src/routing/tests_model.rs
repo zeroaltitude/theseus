@@ -27,7 +27,7 @@ fn five_options() -> Profiles {
         ("haiku", "anthropic", "claude-haiku-5-5", false),
         ("sonnet", "anthropic", "claude-sonnet-5-5", false),
         ("opus", "anthropic", "claude-opus-5-5", false),
-        ("fable", "anthropic", "claude-fable-5-1", false),
+        ("fable", "anthropic", "claude-fable-5-2", false),
         ("dsflash", "deepseek", "deepseek-flash", true),
     ]
     .into_iter()
@@ -90,7 +90,7 @@ fn an_option_names_a_catalog_model_and_the_profile_that_runs_it() {
         ("haiku", "claude-haiku-5-5"),
         ("sonnet", "claude-sonnet-5-5"),
         ("opus", "claude-opus-5-5"),
-        ("fable", "claude-fable-5-1"),
+        ("fable", "claude-fable-5-2"),
         ("deepseek_flash", "deepseek-flash"),
     ] {
         assert_eq!(model::model_of(option), Some(model), "{option}");

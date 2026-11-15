@@ -414,12 +414,12 @@ async fn a_green_branch_is_reviewed_joined_signed_and_noticed_once() {
     );
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["planted_revert"], "failed");
-    assert_eq!(v["reviewer"], "fable (claude-fable-5-1)");
+    assert_eq!(v["reviewer"], "fable (claude-fable-5-2)");
     // The reviewer saw the claim (the report and the diff), on fable, in a
     // self session, and nothing of the builder's working.
     let reqs = r.says.requests.lock().unwrap().clone();
     assert_eq!(reqs.len(), 1);
-    assert_eq!(reqs[0].model, "claude-fable-5-1");
+    assert_eq!(reqs[0].model, "claude-fable-5-2");
     let sent = serde_json::to_string(&reqs[0].messages).unwrap();
     assert!(
         sent.contains("Check: you check task") && sent.contains("+test -f fix.txt"),
@@ -539,7 +539,7 @@ async fn a_join_with_an_install_leaves_no_tree_open() {
 #[tokio::test]
 async fn the_same_model_for_builder_and_reviewer_is_refused() {
     let r = rig(SelfMode::Act);
-    let (branch, _) = r.seed("trim-the-sails", PROVED, "claude-fable-5-1");
+    let (branch, _) = r.seed("trim-the-sails", PROVED, "claude-fable-5-2");
     let main = r.upstream_main();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
@@ -1055,7 +1055,7 @@ async fn a_slow_jev_does_not_hold_the_review() {
     jev.set_mode(theseus_judge::fake::FakeMode::Held);
     let r = rig_jev(&jev, None);
     // Built on Fable: the live profile (Sonnet) is another model, so it reviews.
-    r.seed("trim-the-sails", PROVED, "claude-fable-5-1");
+    r.seed("trim-the-sails", PROVED, "claude-fable-5-2");
     let t0 = std::time::Instant::now();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
@@ -1092,7 +1092,7 @@ async fn the_reviewer_is_never_a_china_origin_model() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     crate::tests_job_ask::pick(&jev, "deepseek_flash", 0.97);
     let r = rig_jev(&jev, None);
-    r.seed("trim-the-sails", PROVED, "claude-fable-5-1");
+    r.seed("trim-the-sails", PROVED, "claude-fable-5-2");
     r.core.self_join_pass(&r.seams()).await.unwrap();
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], SONNET, "{v}");

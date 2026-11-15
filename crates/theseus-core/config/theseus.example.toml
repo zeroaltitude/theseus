@@ -133,7 +133,7 @@ max_loops = 40
 refusal_fallbacks = true
 
 # The profiles that run the models Jev chooses among (route.v10): Haiku 5.5, Sonnet 5.5,
-# Opus 5.5, Fable 5.1 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
+# Opus 5.5, Fable 5.2 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
 # a place's profile, or a key such as [memory] summary_profile.
 [profiles.opus]
 provider = "anthropic"
@@ -143,18 +143,26 @@ max_loops = 40
 
 [profiles.fable]
 provider = "anthropic"
-model = "claude-fable-5-1"
+model = "claude-fable-5-2"
 thinking_display = "summarized"
 max_loops = 40
 
-# Fable 5.2 (2026-11-09), for a pin: Fable 5.1's window, output cap and always-on
-# thinking at 0.8 of its prices ($8 in, $40 out a million). Jev is not offered it --
-# the `fable` option above is still Fable 5.1 -- so it is reached by pin only.
+# A second name for Fable 5.2, which a pin or a config written before 1.0.7 (when 5.2 was a pin-only
+# profile of this name) may still say: `fable` above runs the same model, at 0.8 of Fable 5.1's price.
+# Jev's `fable` choice runs the profile that names Fable 5.2, so a profile that still says Fable 5.1
+# under the name `fable` is never chosen: change its model to claude-fable-5-2.
 [profiles.fable52]
 provider = "anthropic"
 model = "claude-fable-5-2"
 thinking_display = "summarized"
 max_loops = 40
+
+# Fable 5.1, for a pin only:
+# [profiles.fable51]
+# provider = "anthropic"
+# model = "claude-fable-5-1"
+# thinking_display = "summarized"
+# max_loops = 40
 
 # GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial): a pin only.
 [profiles.glm53]
