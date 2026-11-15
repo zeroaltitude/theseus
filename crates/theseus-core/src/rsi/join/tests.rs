@@ -1304,3 +1304,123 @@ async fn the_reviewer_profile_is_a_pin_the_router_does_not_move() {
     assert_eq!(v["model"], "claude-fable-5-2", "{v}");
     assert_eq!(v["asked"], "claude-fable-5-2", "{v}");
 }
+
+// A verdict row with no `asked` is from before the row said what answered (`unproven_accept`). The
+// ledger's rows are read by key, and a key that is not there reads as empty, so a row written here
+// with `asked` empty is the row the old code wrote.
+
+/// A verdict row as the code before the model that answered wrote it: the setting's model, no `asked`.
+fn legacy_row(r: &Rig, branch: &str, head: &str, verdict: &str) {
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfReviewVerdict {
+            item: "trim-the-sails".into(),
+            branch: branch.into(),
+            head: head.into(),
+            reviewer: "fable (claude-fable-5-2)".into(),
+            model: "claude-fable-5-2".into(),
+            asked: String::new(),
+            verdict: verdict.into(),
+            planted_revert: "failed".into(),
+            reasons: vec!["from before".into()],
+            cost_usd: 0.25,
+        });
+}
+
+/// KEY: a head whose only review is an old accept (the setting said Fable and the turn could have run
+/// anywhere) is reviewed again, and joins on the new review's accept.
+#[tokio::test]
+async fn a_head_with_only_a_legacy_accept_is_reviewed_again_and_joins_on_the_new_accept() {
+    let r = rig(SelfMode::Act);
+    let (branch, head) = r.seed("trim-the-sails", PROVED, SONNET);
+    legacy_row(&r, &branch, &head, "accept");
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(
+        r.stand.asks.lock().unwrap().len(),
+        1,
+        "the old accept did not stand for a review"
+    );
+    assert_eq!(pass.reviewed, [(branch.clone(), "accept".to_string())]);
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    let rows = r.rows("self.review.verdict");
+    assert_eq!(rows.len(), 2, "the old row, and the new review's");
+    assert_eq!(rows[1]["asked"], "claude-fable-5-2", "{rows:?}");
+}
+
+/// KEY: where the new review does not accept, the old accept joins nothing. Here it ran on the
+/// builder's model: refused, main unmoved, and asked once, not again every pass.
+#[tokio::test]
+async fn a_legacy_accept_does_not_join_a_head_the_new_review_refuses() {
+    let r = rig(SelfMode::Act);
+    let (branch, head) = r.seed("trim-the-sails", PROVED, SONNET);
+    legacy_row(&r, &branch, &head, "accept");
+    let main = r.upstream_main();
+    let stray = Strays::on(SONNET);
+    let seams = Seams {
+        reviewer: stray.clone(),
+        ..r.seams()
+    };
+    for _ in 0..3 {
+        let pass = r.core.self_join_pass(&seams).await.unwrap();
+        assert!(pass.joined.is_empty(), "{pass:?}");
+    }
+    assert_eq!(r.upstream_main(), main, "main did not move");
+    assert_eq!(stray.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        r.rows("self.review.verdict").len(),
+        2,
+        "old, and one refusal"
+    );
+}
+
+/// An old reject or an old refusal is still seen: it is not asked again, and joins nothing.
+#[tokio::test]
+async fn a_legacy_reject_or_refusal_is_still_seen() {
+    for verdict in ["reject", "refused"] {
+        let r = rig(SelfMode::Act);
+        let (branch, head) = r.seed("trim-the-sails", PROVED, SONNET);
+        legacy_row(&r, &branch, &head, verdict);
+        let main = r.upstream_main();
+        for _ in 0..2 {
+            let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+            assert!(
+                pass.reviewed.is_empty() && pass.joined.is_empty(),
+                "{verdict}: {pass:?}"
+            );
+        }
+        assert!(
+            r.stand.asks.lock().unwrap().is_empty(),
+            "{verdict}: asked again"
+        );
+        assert_eq!(
+            r.rows("self.review.verdict").len(),
+            1,
+            "{verdict}: a row was added"
+        );
+        assert_eq!(r.upstream_main(), main);
+    }
+}
+
+/// An accept from the new code carries `asked` and is trusted as before: not reviewed again.
+#[tokio::test]
+async fn an_accept_that_says_what_was_asked_is_trusted() {
+    let r = rig(SelfMode::Act);
+    let (branch, head) = r.seed("trim-the-sails", PROVED, SONNET);
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfReviewVerdict {
+            item: "trim-the-sails".into(),
+            branch,
+            head,
+            reviewer: "fable (claude-fable-5-2)".into(),
+            model: "claude-fable-5-2".into(),
+            asked: "claude-fable-5-2".into(),
+            verdict: "accept".into(),
+            planted_revert: "failed".into(),
+            reasons: vec![],
+            cost_usd: 0.25,
+        });
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert!(r.stand.asks.lock().unwrap().is_empty(), "{pass:?}");
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+}

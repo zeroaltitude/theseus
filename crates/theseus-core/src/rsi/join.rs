@@ -152,6 +152,17 @@ struct Built {
     at_ms: u64,
 }
 
+/// An `accept` row with no `asked` is from before the review recorded the model that answered: it
+/// was written from the setting while the turn could run elsewhere (the three reviews of 2026-11-14
+/// and 15 said Fable and ran on Opus), so it is no proof its head was reviewed by another model than
+/// the builder's. Such a row is not seen, and its head is reviewed again under the rule that checks
+/// the model that answered. A row that is not an accept is as it was: a reject or a refusal keeps
+/// its head from being asked again, and it never joined anything. Every accept written since says
+/// what it was asked, because it can only be written for a review that had a target.
+pub(crate) fn unproven_accept(verdict: &str, asked: &str) -> bool {
+    verdict == "accept" && asked.is_empty()
+}
+
 /// A verdict written before: its branch, head, the model that answered, the one asked, and verdict.
 struct Prior {
     branch: String,
@@ -412,12 +423,17 @@ impl Core {
                 continue;
             }
             let theirs = |v: &&Prior| v.branch == b.branch && v.head == b.head;
-            let mine = seen.verdicts.iter().filter(theirs).find(|v| {
-                v.model == model
-                    || v.asked == model
-                    || v.verdict == "accept"
-                    || v.verdict == "reject"
-            });
+            let mine = seen
+                .verdicts
+                .iter()
+                .filter(theirs)
+                .filter(|v| !unproven_accept(&v.verdict, &v.asked))
+                .find(|v| {
+                    v.model == model
+                        || v.asked == model
+                        || v.verdict == "accept"
+                        || v.verdict == "reject"
+                });
             let mut run = Run {
                 core: self,
                 seams,

@@ -454,6 +454,47 @@ async fn a_conflicted_head_is_in_no_queue_and_no_join_is_due() {
     assert!(!v.held.iter().any(|e| e.item == item), "{:?}", v.held);
 }
 
+/// A head with only an old accept (a row with no `asked`) waits for its review again: it is in the
+/// reviewing queue and a join pass is due, not in the joining queue as an accepted head is.
+#[tokio::test]
+async fn a_head_with_only_a_legacy_accept_waits_to_be_reviewed_again() {
+    let r = rig_with(1, 30.0);
+    r.tick().await;
+    let item = r.fake.starts.lock().unwrap()[0].0.clone();
+    let (b, h) = r.built(&item, 1);
+    let accept = |asked: &str| crate::fact::rsi_join::SelfReviewVerdict {
+        item: item.clone(),
+        branch: b.clone(),
+        head: h.clone(),
+        reviewer: "fable (claude-fable-5-2)".into(),
+        model: "claude-fable-5-2".into(),
+        asked: asked.into(),
+        verdict: "accept".into(),
+        planted_revert: "failed".into(),
+        reasons: vec![],
+        cost_usd: 0.5,
+    };
+    r.core.rec(None).record(&accept(""));
+    let t = r.tick().await;
+    assert!(t.join_due, "{t:?}");
+    let v = r.view();
+    assert!(
+        v.reviewing.iter().any(|e| e.item == item),
+        "{:?}",
+        v.reviewing
+    );
+    assert!(!v.joining.iter().any(|e| e.item == item), "{:?}", v.joining);
+    // The new review's accept, which says what it was asked, puts it in the joining queue.
+    r.core.rec(None).record(&accept("claude-fable-5-2"));
+    let v = r.view();
+    assert!(v.joining.iter().any(|e| e.item == item), "{:?}", v.joining);
+    assert!(
+        !v.reviewing.iter().any(|e| e.item == item),
+        "{:?}",
+        v.reviewing
+    );
+}
+
 /// The notice for an item two reviews rejected carries both findings, each bounded: a reviewer's
 /// note is up to 1,000 characters, and two whole would pass Discord's 2,000-character message.
 #[test]
