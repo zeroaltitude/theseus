@@ -31,7 +31,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A model that is slow to its first word makes every conversation feel stuck. When the slow figure is many times the typical one, the provider is struggling, not the question.'),
   'simple.telemetry.headroom': e(
     'Show how much of each provider\u2019s allowance is left, before a limit stops the work.',
-    'One block is one provider, from the limits it reported on its newest answer: requests and tokens left of what it allows in a window. A full bar is plenty, amber is running low (under half), red is nearly out (under a sixth). The table view gives the numbers and when they were reported.',
+    'One block is one provider, from the limits it reported on its newest answer: requests and tokens left of what it allows in a window. A full bar is plenty, amber is running low (under half), red is nearly out (15 per cent or less). The table view gives the numbers and when they were reported.',
     'When a provider runs out, its calls wait or fail. Seeing it run low early is the time to slow the work or move it to another model.'),
   'simple.telemetry.spend': e(
     'Show what Theseus has cost, today and in the window chosen above, and where it went.',

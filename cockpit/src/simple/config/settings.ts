@@ -29,14 +29,15 @@ export const LIVE: LiveSetting[] = [
   { id: 'personas', name: 'Who Theseus is, place by place', words: 'The personas: add one, write its character, choose which is the default, retire one.', at: { tab: 'personality' }, methods: ['persona.add', 'persona.default', 'persona.retire', 'persona.soul'] },
   { id: 'ontology', name: 'What Theseus keeps track of', words: 'The kinds of thing and their categories, the guidance it reads for each, and the people: merge two, accept or turn down what Theseus proposes, and undo what it filed itself.', at: { tab: 'ontology' }, methods: ['ontology.kind.add', 'ontology.category.add', 'ontology.guidance.set', 'ontology.person.merge', 'ontology.proposal.accept_all', 'ontology.proposal.reject_all', 'ontology.proposal.never', 'ontology.never.undo', 'ontology.undo'] },
   { id: 'standing', name: 'The standing rules', words: 'The instructions Theseus carries into every turn. You can take one back.', at: { tab: 'standing' }, methods: ['standing.revoke'] },
-  { id: 'tightenings', name: 'What Theseus must now ask about', words: 'Make a tool ask first when it did not, and undo that. These tightenings add to the policy in the configuration file and never loosen it.', at: { tab: 'policy' }, methods: ['policy.tighten', 'policy.untighten'] },
+  { id: 'tightenings', name: 'What Theseus must now ask about', words: 'Make a tool ask first when it did not, and undo that. These tightenings add to the policy in the configuration file and never loosen it.', at: { tab: 'approvals' }, methods: ['policy.tighten', 'policy.untighten'] },
   { id: 'families', name: 'Which tools each place loads', words: 'Each kind of place loads some families of tools and keeps others out of sight until they are needed. Change which.', at: { tab: 'approvals' }, methods: ['tool.defer'] },
-  { id: 'approvals', name: 'Answering what waits for you', words: 'An approval, a question or a budget limit waits until you answer it, from here or anywhere else.', at: { tab: 'approvals' }, methods: ['card.answer'] },
+  { id: 'approvals', name: 'Answering what waits for you', words: 'An approval, a question or a budget limit waits until you answer it, from here or anywhere else.', at: { tab: 'approvals' }, methods: ['work.answer'] },
   { id: 'extensions', name: 'Extensions', words: 'Take back the access an extension was given.', at: { tab: 'system' }, methods: ['extension.revoke'] },
+  { id: 'self-halt', name: 'Stopping its work on itself', words: 'Halt everything Theseus is doing to improve itself, before its next step. Only the owner resumes it.', at: { tab: 'system' }, methods: ['self.halt'] },
   { id: 'packs', name: 'How its small judging model is tuned', words: 'Promote a newer version of a judging pack or roll one back, step by step along its ladder.', at: { tab: 'packs' }, methods: ['pack.promote', 'pack.rollback'] },
-  { id: 'budgets', name: 'A budget that has been reached', words: 'When a conversation reaches its spend limit it stops and asks. The answer lets it go on.', at: { path: '/telemetry?v=budgets', label: 'Telemetry, Budgets' }, methods: ['card.answer'] },
+  { id: 'budgets', name: 'A budget that has been reached', words: 'When a conversation reaches its spend limit it stops and asks. The answer lets it go on.', at: { tab: 'approvals' }, methods: ['work.answer'] },
   { id: 'timeline', name: 'Wakes, routines and watches', words: 'Snooze, pause, resume, cancel or run a wake, a routine or a watch.', at: { path: '/ops?lens=timeline', label: 'the Ship’s Operations timeline' }, methods: ['wake.snooze', 'wake.pause', 'wake.resume', 'wake.cancel', 'routine.pause', 'routine.resume', 'routine.skip', 'routine.run_now', 'routine.delete'] },
-  { id: 'project', name: 'Which project a conversation or task belongs to', words: 'Attach a conversation or a task to a project.', at: { path: '/', label: 'Ops' }, methods: ['project.attach'] },
+  { id: 'project', name: 'Which project a conversation or task belongs to', words: 'Attach a conversation or a task to a project: drag it onto the project.', at: { path: '/ops', label: 'the Ship’s Operations page' }, methods: ['project.attach'] },
 ]
 
 export interface FixedSetting {
@@ -80,6 +81,7 @@ export const NO_PAGE: NoPageSetting[] = [
   { id: 'pins', name: 'Letting go of a pinned model', words: 'Release the live model, or unpin a conversation’s.', methods: ['profile.release', 'profile.unpin'] },
   { id: 'persona-set', name: 'Importing a persona and setting its fields', words: 'Bring a persona in from elsewhere, or change a persona’s settings.', methods: ['persona.import', 'persona.set'] },
   { id: 'kinds', name: 'Retiring a kind, and answering one proposal at a time', words: 'Retire a kind of thing, accept or reject one proposal, not all.', methods: ['ontology.kind.retire', 'ontology.proposal.accept', 'ontology.proposal.reject'] },
+  { id: 'self-pause', name: 'Pausing and resuming its work on itself', words: 'Pause new builds of its own changes, or resume after a halt. Resuming is the owner’s alone, from the command line.', methods: ['self.pause', 'self.resume'] },
   { id: 'initiative-rate', name: 'Rating what Theseus did on its own', words: 'Say whether something Theseus did unprompted was welcome.', methods: ['initiative.rate'] },
 ]
 
