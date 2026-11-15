@@ -28,14 +28,20 @@ pub(crate) fn hanging_git(base: Vec<(OsString, OsString)>, limit: Duration) -> H
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let pids = dir.path().join("pids");
+    // The real git is found, and run, on the process's own `PATH`, never on one that begins with this stand-in: where
+    // the first `git` on `PATH` is a wrapper that strips its own directory and runs the next `git`, the stand-in
+    // would otherwise find itself, and the two would call each other (issue 14, `fetch_retry.rs`).
+    let path_var = std::env::var("PATH").unwrap();
     let real = std::process::Command::new("sh")
         .args(["-c", "command -v git"])
+        .env("PATH", &path_var)
         .output()
         .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
     let script = format!(
-        "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$a\" = fetch ]; then\n    echo $$ >> {p}\n    sleep 600 &\n    echo $! >> {p}\n    wait\n    exit 0\n  fi\ndone\nexec {real} \"$@\"\n",
-        p = pids.display()
+        "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$a\" = fetch ]; then\n    echo $$ >> {p}\n    sleep 600 &\n    echo $! >> {p}\n    wait\n    exit 0\n  fi\ndone\nPATH='{path_var}' exec {real} \"$@\"\n",
+        p = pids.display(),
+        path_var = path_var.replace('\'', "'\\''")
     );
     let path = bin.join("git");
     std::fs::write(&path, script).unwrap();
@@ -45,7 +51,7 @@ pub(crate) fn hanging_git(base: Vec<(OsString, OsString)>, limit: Duration) -> H
     let mut env = base;
     env.push((
         "PATH".into(),
-        format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()).into(),
+        format!("{}:{path_var}", bin.display()).into(),
     ));
     env.push((
         "THESEUS_SELF_FETCH_LIMIT_MS".into(),

@@ -148,11 +148,14 @@ def main(argv=None):
             for n in cases:
                 print(f"{label} {n}")
     elif a.markdown:
-        print(f"**{total} tests fail on this VM for reasons that are not yours, in "
+        print(f"**{total} tests are the set that this VM's cause takes with it, in "
               f"{len(found)} places, from one cause.** The cause: this VM runs as root and `RLIMIT_NPROC` "
-              "behaves differently here, so the sandbox refuses to build the view it asserts about. Derived "
-              "from the tree by `python3 scripts/env-fail-set.py`, so it is this tree's set and not an "
-              "older wave's; re-run it rather than editing the number.\n")
+              "behaves differently here, so the sandbox refuses to build the view it asserts about; every case "
+              "in these places is therefore EXPECTED to fail there. The set is counted from the sources by "
+              "`python3 scripts/env-fail-set.py` and not measured on the VM (issue 14: its names equal nextest's "
+              "own list for the three places), so it is this tree's set and not an older wave's; re-run it "
+              "rather than editing the number. A case that passes on the VM is not an environmental failure "
+              "just because it is listed.\n")
         for label, path, cases, ignored in found:
             print(f"- **`{label}` — {len(cases)} cases** (`{path}`)")
             for n in cases:
@@ -164,7 +167,8 @@ def main(argv=None):
               "why it is or is not yours.")
     else:
         print("env-fail-set: the 4-core cloud routine VM, running as root. NOT a fleet box: a fleet gate's "
-              "clause_01 to clause_12 are green and its reds are empty.")
+              "clause_01 to clause_12 are green and its reds are empty. What follows is COUNTED FROM THE SOURCES "
+              "(the cases that cause would take with it), not measured on that VM.")
         for label, path, cases, ignored in found:
             print(f"\n{label}  {len(cases)} cases  ({path})")
             for n in cases:

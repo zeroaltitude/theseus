@@ -749,6 +749,31 @@ class GateTree(unittest.TestCase):
             self.assertLess(order.index("shape"), order.index(warn), f"`{warn}` after `shape`: {order}")
             self.assertLess(order.index(warn), order.index("clippy"), f"`{warn}` before `clippy`: {order}")
 
+    def script_test(self, name, body):
+        self.put(self.root / "scripts" / "tests" / name, "import unittest\n\nclass T(unittest.TestCase):\n"
+                 f"    def test_it(self):\n        {body}\n")
+
+    def test_a_failed_helper_script_test_is_named_in_the_verdict_and_the_history_says_warned(self):
+        # Issue 14: `script tests: FAILED (...)` printed above a plain `gate: ok`, and the history row said `ok`. The
+        # phase stays non-fatal (the owner's decision), and the verdict now says what it found.
+        self.script_test("test_bad.py", "self.fail('a helper lies')")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, "non-fatal by the owner's decision: " + out)
+        self.assertIn("script tests: FAILED (scripts/tests/test_bad.py)", out)
+        self.assertIn("(WARNED: script tests failed: scripts/tests/test_bad.py)", self.verdict(out))
+        self.assertIn("gate: what this run WARNED of (not fatal by decision): script tests failed: scripts/tests/test_bad.py",
+                      out)
+        csv = (self.home / ".cache" / "theseus" / "gate-times.csv").read_text()
+        self.assertRegex(csv, r"script_tests_warned,\d+,warned\n")
+        self.assertNotRegex(csv, r"script_tests_warned,\d+,ok\n")
+
+    def test_a_passing_helper_script_test_leaves_the_verdict_unwarned(self):
+        self.script_test("test_good.py", "self.assertTrue(True)")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("WARNED", out)
+        self.assertNotRegex((self.home / ".cache" / "theseus" / "gate-times.csv").read_text(), r",warned\n")
+
     def test_the_context_ceiling_phase_is_wired_beside_the_other_file_ceiling(self):
         """Deleting `phase "context ceiling"` from gate.sh left every other test in this file green
         (theseus-4vsrz, the ceiling review's §5.2), because the phase's own 24 cases test the script and
@@ -852,6 +877,41 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("some of the suite (a default-filter)", self.verdict(out))
 
+    def test_the_gate_says_which_set_of_tests_it_ran_under_the_table(self):
+        # Issue 14: a landing's verdict is a run of the FULL set on the exact tree that lands. One host's default-filter
+        # had left a test out of a gate that said `ok`, so the gate names the set beside the table, where the tail is.
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        under = out.split("gate: phase times, in seconds", 1)[1]
+        self.assertIn("gate: suite set: FULL, no filter and no test left out (9 tests run: 9 passed, 0 skipped)", under)
+        self.assertNotIn("PARTIAL", out)
+
+    def test_a_filtered_suite_says_it_is_not_the_full_set(self):
+        self.stale_filter()
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        under = out.split("gate: phase times, in seconds", 1)[1]
+        self.assertIn("gate: suite set: PARTIAL, run under a default-filter (9 tests run:", under)
+        self.assertIn("not a landing's verdict", under)
+        self.assertNotIn("suite set: FULL", out)
+
+    def test_a_withheld_set_says_the_suite_was_partial(self):
+        rc, out, _ = self.gate(THESEUS_VIEW_WITHHELD=self.VIEW_SET)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("suite set: PARTIAL, run under a withheld set (", out.split("gate: phase times, in seconds", 1)[1])
+
+    def test_the_verdict_names_the_commit_the_gate_judged_and_the_state_of_its_tree(self):
+        # Issue 14: nothing recorded whether the commit gated is the commit pushed, so the gate says which commit it
+        # judged, under its table, and scripts/gate-judged.sh compares that with the push.
+        head = self.git("rev-parse", "HEAD").strip()
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"gate: judged commit {head}, tree clean", out.split("gate: phase times, in seconds", 1)[1])
+        (self.root / "notes.txt").write_text("an edit beyond HEAD\n")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, rf"gate: judged commit {head}, tree edited beyond it \([0-9a-f]{{16}}\)\n")
+
     def test_a_gate_that_could_not_take_the_lock_says_the_suite_did_not_run(self):
         # NOT A SKIP FLAG, AND THE WORST CASE OF THE CLASS (2026-11-10 15:44, the furthest any self build has
         # reached). `flock` execs this script again as the locked part, and the frozen copy it was given had no
@@ -938,6 +998,86 @@ class GateTree(unittest.TestCase):
         self.assertIn("suite filters: ACTIVE", out, "the label is live at the moment the gate dies")
         self.assertEqual("gate: FAILED in suite", self.verdict(out),
                          "the phase is `suite`; `suite filtered` is how a PASSING one is labelled in the table")
+
+
+class GateJudged(unittest.TestCase):
+    """scripts/gate-judged.sh: is the commit a gate judged the commit that is pushed (issue 14)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        tmp = Path(self.tmp.name)
+        self.env = {**os.environ, "HOME": str(tmp / "home"), "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+        self.remote = tmp / "remote.git"
+        self.work = tmp / "work"
+        self.git(tmp, "init", "-q", "--bare", "-b", "main", str(self.remote))
+        self.git(tmp, "clone", "-q", str(self.remote), str(self.work))
+        (self.work / "a.txt").write_text("one\n")
+        self.git(self.work, "add", "-A")
+        self.git(self.work, "commit", "-q", "-m", "one")
+        self.git(self.work, "push", "-q", "origin", "HEAD:main")
+        self.log = tmp / "gate.log"
+
+    def git(self, cwd, *args):
+        p = subprocess.run(["git", *args], cwd=cwd, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.strip()
+
+    def judge(self, line):
+        self.log.write_text(("gate: ok\n" if line is None else f"gate: judged {line}\ngate: ok\n"))
+        p = subprocess.run(["bash", str(HERE / "gate-judged.sh"), str(self.log), "origin", "main"], cwd=self.work,
+                           env=self.env, capture_output=True, text=True)
+        return p.returncode, p.stdout
+
+    def test_the_commit_that_is_pushed_is_the_commit_judged(self):
+        head = self.git(self.work, "rev-parse", "HEAD")
+        rc, out = self.judge(f"commit {head}, tree clean")
+        self.assertEqual((rc, out.split(":")[1].strip()), (0, "SAME"), out)
+
+    def test_another_commit_pushed_is_not_the_one_judged(self):
+        judged = self.git(self.work, "rev-parse", "HEAD")
+        (self.work / "a.txt").write_text("two\n")
+        self.git(self.work, "commit", "-q", "-am", "two")
+        self.git(self.work, "push", "-q", "origin", "HEAD:main")
+        rc, out = self.judge(f"commit {judged}, tree clean")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("DIFFERENT", out)
+
+    def test_a_judged_tree_with_edits_is_not_the_pushed_commit_even_at_the_same_sha(self):
+        head = self.git(self.work, "rev-parse", "HEAD")
+        rc, out = self.judge(f"commit {head}, tree edited beyond it (0123456789abcdef)")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("edits beyond it", out)
+
+    def test_a_log_that_names_no_commit_shows_nothing_either_way(self):
+        rc, out = self.judge(None)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("UNKNOWN", out)
+
+    def test_a_remote_that_does_not_answer_shows_nothing_either_way(self):
+        head = self.git(self.work, "rev-parse", "HEAD")
+        self.log.write_text(f"gate: judged commit {head}, tree clean\n")
+        p = subprocess.run(["bash", str(HERE / "gate-judged.sh"), str(self.log), "origin", "no-such-branch"],
+                           cwd=self.work, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 2, p.stdout)
+
+
+class DefaultSet(unittest.TestCase):
+    """The default set is the full set (issue 14): the owner-journey test, which one host's filter once left out of a
+    gate that said `ok` while `main` was red on it, runs everywhere the repository's own configuration is used."""
+
+    def test_the_owner_journey_runs_in_the_default_set(self):
+        src = (REPO / "crates/theseusd/tests/acceptance_journey.rs").read_text()
+        head = src.split("fn the_owner_starts_asks_answers_joins_pauses_ends_and_finds_two_tasks()", 1)[0]
+        attrs = head.rstrip().split("\n")[-3:]
+        self.assertIn("#[test]", attrs)
+        self.assertFalse([a for a in attrs if a.startswith("#[ignore")], f"the journey is ignored: {attrs}")
+
+    def test_the_repositorys_nextest_config_filters_nothing_out_of_the_default_set(self):
+        cfg = (REPO / ".config/nextest.toml").read_text()
+        self.assertNotRegex(cfg, r"(?m)^\s*default-filter\s*=")
 
 
 class SkipRegistry(unittest.TestCase):
@@ -1129,7 +1269,7 @@ class SkipRegistry(unittest.TestCase):
             "keel_tests": 1,          # the guard and its suite are the base's
             "lifecycle_bench": 1,     # THESEUS_GATE_NO_BENCH=1
             "ran_or_skipped": 1,      # whatever the wrapped script said of itself
-            "script_tests": 1,        # scripts/tests matched no test at all
+            "script_tests": 1,        # scripts/tests matched no test at all (a failure there is a `warn`, not a stand-down)
             "scrub_added": 3,         # the flag; no scrubber on the host; nothing added to scan
             "suite_applied": 1,       # nextest says it applied a default-filter
             "suite_filters": 1,       # the banner says one is active
