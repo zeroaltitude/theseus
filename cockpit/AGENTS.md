@@ -28,6 +28,14 @@ build.
   - `Hosted.tsx` shows the Ship's own views inside the simple frame, as tabs kept in `?v=`; `Bench.tsx`,
     `Telemetry.tsx`, `Config.tsx` and `Memories.tsx` only name which views, in what order. A hosted view is the same
     component as on the Ship, so its panes, reads and controls cannot drift; its own query keys must not be `v`.
+  - `BenchBoard.tsx` (Benchmarks, At a glance) says how much it shows: one sentence counts the reports the build embeds and
+    the benchmark families they fall in, and how many of those the table ranks (`lib/benchfamilies.ts`'s `summaryWords`,
+    all counted from the build's own files). A family is one card of `cardsOf`; `familiesOf` places every report in exactly
+    one (the manifest's benchmark and tier where a row cites it, else the README's suite, else the oldest measured family
+    of its suite). Each family is on the page once: a ranked row (`standing()`'s rule is unchanged), or a line under
+    "Measured against itself, or too small to rank" with one reason (`whyNotRanked`: a smoke or an earlier run says so from
+    the card; a suite known only from its reports has a row in `UNRANKED_WHY`) and its newest report.
+    `test/benchfamilies.test.ts` fails a report no family takes and a suite with no reason.
   - `kit.tsx`: the page heading, the tabs, a stat. Cards are `Panel`, so every pane has its "?" and the
     explainers test holds the simple pages too (the help id is a literal at each `Panel`).
   - Daylight is the default look since these pages (`lib/daylight.ts`'s `choiceOf`, `public/mode.js`); the Ship

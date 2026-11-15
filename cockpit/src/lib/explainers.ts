@@ -16,10 +16,10 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Say, one line a benchmark, where Theseus stands against the best harness that was measured beside it.',
     'Each row is one benchmark. Theseus\u2019s pass rate is the share of trials it solved; the two numbers in brackets are the range the true rate is likely in, given how many trials ran. Beside it is the best other harness on the same benchmark. It says ahead or behind outright only when the two ranges do not overlap; when they overlap it says which way the rates lean and that the run does not settle it. \u201cA different model\u201d means that harness ran another model, so the row compares more than the harness.',
     'It is the honest short answer to \u201chow good is it\u201d. A row that reads behind is where the next release should look; a row that is not settled needs more trials before anyone claims a lead or a loss.'),
-  'simple.bench.findings': e(
-    'Say in a sentence what every other published run found, where a pass rate would mislead.',
-    'Each row is a benchmark whose newest run does not support a headline pass rate: it measured something else (time, memory, recall), ran too few trials, or did not include Theseus as an arm. The words are the run\u2019s own finding, from its report, cut to three lines. When a pass rate exists but is not led with, the reason is given under it.',
-    'These runs still decide things: start-up time, recall, what survives a crash. Open a report before quoting it; the sentence here is a summary, not the measurement.'),
+  'simple.bench.unranked': e(
+    'Say which benchmark families the table does not rank, and why, so none looks missing.',
+    'The sentence above the table counts the reports this build holds and the families they fall in. Each family is on the page once: a row in the table, or a line here with the one reason it is not ranked (it measures speed or memory rather than a pass rate, Theseus was only measured against itself, the run was too small, or a later run replaced it) and a link to its newest report. A family has several reports when it was run again.',
+    'It keeps the table from reading as the whole of what was measured. Open a family\u2019s report before quoting it: the reason here is a summary, not the measurement.'),
   // ---- the simple pages (src/simple): Ops
   'simple.ops.now': e(
     'Say in five numbers where everything stands at this moment.',
