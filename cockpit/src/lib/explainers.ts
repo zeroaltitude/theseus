@@ -16,6 +16,43 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Say, one line a benchmark, where Theseus stands against the best harness that was measured beside it.',
     'Each row is one benchmark. Theseus\u2019s pass rate is the share of trials it solved; the two numbers in brackets are the range the true rate is likely in, given how many trials ran. Beside it is the best other harness on the same benchmark. It says ahead or behind outright only when the two ranges do not overlap; when they overlap it says which way the rates lean and that the run does not settle it. \u201cA different model\u201d means that harness ran another model, so the row compares more than the harness.',
     'It is the honest short answer to \u201chow good is it\u201d. A row that reads behind is where the next release should look; a row that is not settled needs more trials before anyone claims a lead or a loss.'),
+  // ---- the simple pages (src/simple): Telemetry and Configuration
+  'simple.telemetry.running': e(
+    'Say what Theseus is doing at this moment, and what is holding it back.',
+    'Each figure is a count taken now from Theseus itself: conversations and tasks working, tool calls started and not yet finished, approvals waiting for you, turns held back because Theseus runs only so many at once, and wakes due. The line under a figure says what makes up the rest. The table view lists the same figures.',
+    'A figure that is not what you expect is the place to look first. Approvals waiting means something is stopped until you answer; turns held means Theseus is at its limit and new work queues.'),
+  'simple.telemetry.failures': e(
+    'Show what has gone wrong in the window chosen above, so a problem is seen before someone reports it.',
+    'The number is how many failures Theseus wrote down in that window: a tool that failed, a turn that failed, a request refused, a model error. Under it are the kinds, the most frequent first, with how long ago each last happened. The table view lists the newest failures one by one with what each said.',
+    'A kind that repeats is a fault, not bad luck. Open the Ledger tab to read the rows around it, or the Safety tab when the kind is a refusal.'),
+  'simple.telemetry.latency': e(
+    'Show how long each model takes to answer, so a slow model is noticed.',
+    'One block is one model. Typical is the middle call of the window; slow is the one in twenty that took longest. The first word is how long until anything came back; in all is until the answer was complete. The bar compares the models by their typical whole answer. The table view has every figure.',
+    'A model that is slow to its first word makes every conversation feel stuck. When the slow figure is many times the typical one, the provider is struggling, not the question.'),
+  'simple.telemetry.headroom': e(
+    'Show how much of each provider\u2019s allowance is left, before a limit stops the work.',
+    'One block is one provider, from the limits it reported on its newest answer: requests and tokens left of what it allows in a window. A full bar is plenty, amber is running low (under half), red is nearly out (15 per cent or less). The table view gives the numbers and when they were reported.',
+    'When a provider runs out, its calls wait or fail. Seeing it run low early is the time to slow the work or move it to another model.'),
+  'simple.telemetry.spend': e(
+    'Show what Theseus has cost, today and in the window chosen above, and where it went.',
+    'The three figures are the spend since midnight, in the last hour and in the chosen window, in US dollars. Under them each model has a bar for its share of the window\u2019s spend. The line below says the total since Theseus began and the sum at which a single conversation stops to ask you. The table view gives each model\u2019s calls, tokens and cost.',
+    'Spend is the one measure that only grows. A model that is most of the bar is where a cheaper choice would save the most; the Spend and Budgets tabs have the full breakdown.'),
+  'simple.telemetry.machine': e(
+    'Show whether the computer Theseus runs on is in good shape.',
+    'Each line is one fact Theseus reports about itself: how long it has run, whether it is taking new work, disk room, memory, whether the store has refused anything, whether its secrets resolved, and the state of its configuration. A line in amber is worth a look; red is wrong. The table view says the same in words.',
+    'Theseus stops writing when the disk is nearly full, and a refused record or an unresolved secret means something it needs is missing. These are the quiet causes behind a failure shown elsewhere.'),
+  'simple.config.live': e(
+    'List every setting of Theseus that can be changed while it runs, and say where.',
+    'One row is one thing you can change now, in plain words. The button on the right goes to the page that holds its control: a tab of this page, or another page of Theseus. Those controls are the same ones the Ship uses, and each asks you first where the Ship does.',
+    'Nothing here needs a restart. If a setting you want is not in this list, it is in the next one, set in the configuration file.'),
+  'simple.config.fixed': e(
+    'List the settings that cannot be changed while Theseus runs, and say where they are changed.',
+    'One row is a group of settings, with the sections of the configuration file they live in written in square brackets. Where Theseus reports what it is running on, that is shown under the words. The mark at the top says whether the configuration it started from was confirmed.',
+    'Theseus reads this file only when it starts, so a change needs the file edited and Theseus restarted. Knowing which group a setting is in saves hunting through a long file.'),
+  'simple.config.nopage': e(
+    'Say plainly which settings could be changed while Theseus runs but have no control on any page yet.',
+    'One row is a change Theseus is able to make now when asked, for which no page has a button. Hover a row to see the name of the call behind it. Asking Theseus in a conversation, or the command line, is how these are done today.',
+    'It keeps the gap in view instead of hiding it. When a page grows a control for one of these, the row moves up to the list of what can be changed now.'),
   'simple.bench.unranked': e(
     'Say which benchmark families the table does not rank, and why, so none looks missing.',
     'The sentence above the table counts the reports this build holds and the families they fall in. Each family is on the page once: a row in the table, or a line here with the one reason it is not ranked (it measures speed or memory rather than a pass rate, Theseus was only measured against itself, the run was too small, or a later run replaced it) and a link to its newest report. A family has several reports when it was run again.',
