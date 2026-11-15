@@ -31,6 +31,10 @@ pub fn classify(detail: Option<&Value>) -> Option<&'static str> {
     } else if d.pointer("/sandbox/error").is_some() {
         // An L1 sandbox that did not start: the command never ran.
         Some("spawn")
+    } else if d.pointer("/meta/refusal").and_then(Value::as_bool) == Some(true) {
+        // An in-process tool's own "no" (`ToolFailure::refusal`): the answer
+        // the model reads and changes its call by, as an exit is a job's.
+        Some("refused")
     } else {
         None
     }

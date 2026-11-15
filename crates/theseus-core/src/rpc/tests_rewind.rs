@@ -130,6 +130,30 @@ async fn call(core: &Arc<Core>, client: Client, method: &str, params: Value) -> 
     out
 }
 
+/// KEY (the self loop's refused edits): an edit the file cannot take is the tool's own answer,
+/// and its ledger row says so. The model asks to replace text that is not in the file; the
+/// call's `action.failed` row is marked `refused`, the mark the nightly read files no cause
+/// for (`rsi::backlog::tests_refused`).
+/// The in-process path used to drop what the tool said of its own failure, so the row carried
+/// no mark at all and every refused edit was filed as a fault of ours.
+#[tokio::test]
+async fn a_refused_edits_row_is_marked_refused_and_is_no_cause() {
+    let r = rig(|root| {
+        std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
+        vec![
+            edit("tu_1", &root.join("a.txt"), "not in the file", "three"),
+            Scripted::text("That text is not in the file."),
+        ]
+    });
+    say(&r, "change it").await;
+    assert_eq!(read(&r, "a.txt").as_deref(), Some("one\ntwo\n"));
+    let failed = crate::test_support::ledger_rows_2k(&r.core, "action.failed");
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    let row = &failed[0];
+    assert_eq!(row.data["producer"], "inproc:fs.edit", "{row:?}");
+    assert_eq!(row.data["failure"], "refused", "{row:?}");
+}
+
 fn cli() -> Client {
     Client::new("sock#1", Surface::Cli)
 }
