@@ -50,6 +50,8 @@ mod tests_owner_note;
 #[cfg(test)]
 mod tests_process;
 #[cfg(test)]
+mod tests_project_items;
+#[cfg(test)]
 mod tests_show;
 #[cfg(test)]
 mod tests_silent;
