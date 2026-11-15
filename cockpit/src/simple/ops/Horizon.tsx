@@ -50,9 +50,8 @@ export function Horizon({ project, now, onPick }: { project: string; now: number
   const close = (s: HorizonStep) => void change(s.id, closeItemCall(s.id), 'project_item_close', `Closed: ${s.title}`)
 
   return (
-    <Section title="Horizon" hint={<><span>{h.total > 0 ? `${h.done} of ${h.total} done` : 'nothing counted yet'}</span><HelpButton id="simple.ops.horizon" title="Horizon" /></>}>
+    <Section title="Horizon" hint={<span className="inline-flex items-center gap-2"><span>{h.total > 0 ? `${h.done} of ${h.total} done` : 'nothing counted yet'}</span><HelpButton id="simple.ops.horizon" title="Horizon" /></span>}>
       <div className="flex flex-col gap-3" data-testid="horizon">
-        {h.objective && <p className="text-[12px] text-ink"><span className="text-ink-faint">for </span>{h.objective}</p>}
         <Group title="Plan" empty="No milestones are set. The plan is the steps below." steps={h.plan} now={now} onPick={onPick} />
         <Group title="Doing now" empty="Nothing is being worked." steps={h.doing} now={now} onPick={onPick} close={close} busy={busy} on={on} />
         <Group title="Next steps" empty="No step is waiting to start." steps={h.next} now={now} onPick={onPick} close={close} busy={busy} on={on} />
