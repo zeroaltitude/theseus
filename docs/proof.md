@@ -70,7 +70,7 @@ More: [memory across sessions](features/memory-across-sessions.md).
 
 ## A self-guided, expanding ontology
 
-**Not measured yet.** The ontology's composition, its nightly sweep and the books are held by tests and are in
+**Not measured yet.** The ontology's composition, its nightly sweep and the shelves are held by tests and are in
 daily use. Nothing has yet measured how well the map it grows matches the owner's own.
 
 ## It gets better while you sleep

@@ -1,13 +1,15 @@
-// Benchmarks at a glance: one line a benchmark, saying where Theseus stands against the best harness measured beside
-// it, and under it what every other run found in a sentence. It is the Ship's benchmark cards read plainly
-// (`lib/benchcards.ts`'s `cardsOf`, nothing of its own), so a number here is the number on the card, with the card's
-// own rules: a pass rate is printed only where the run supports one, and a run it does not speak for says what it
-// found instead. The reports are the build's own files; nothing here is live.
+// Benchmarks at a glance: one sentence saying how much the build holds and how much the table can rank, one line a
+// benchmark family the table ranks (where Theseus stands against the best harness measured beside it), and under it
+// each family it does not rank, once, with the one reason and its newest report. It is the Ship's benchmark cards read
+// plainly (`lib/benchcards.ts`'s `cardsOf`; `lib/benchfamilies.ts` places every report in one of them), so a number
+// here is the number on the card, with the card's own rules: a pass rate is printed only where the run supports one.
+// The reports are the build's own files, and the counts are taken from them; nothing here is live or typed in.
 import { useMemo } from 'react'
 import { Link } from 'react-router'
-import { FileText, Trophy } from 'lucide-react'
+import { ListX, Trophy } from 'lucide-react'
 import { readIndex, runs } from '@/lib/bench'
 import { cardsOf, type ArmLine, type Card } from '@/lib/benchcards'
+import { familiesOf, summaryWords, type Family } from '@/lib/benchfamilies'
 import { LEAD } from '@/lib/benchindex'
 import { REPORTS, useBenchFile, useBenchManifest, useBenchSets } from '@/lib/benchfiles'
 import { cn } from '@/lib/format'
@@ -34,15 +36,15 @@ export default function BenchBoard() {
   const { loading, manifest } = useBenchManifest()
   const { sets } = useBenchSets()
   const cards = useMemo(() => cardsOf(manifest, list, REPORTS, LEAD, sets), [manifest, list, sets])
-  // A card speaks in numbers when the run supports a pass rate and Theseus is one of its arms.
-  const speaks = (c: Card) => !c.weak && !c.legacy && c.lines.some((l) => l.theseus)
-  const measured = cards.filter(speaks)
-  const rest = cards.filter((c) => !speaks(c))
+  // A family is a card; it is ranked when the run supports a pass rate and Theseus is one of its arms.
+  const families = useMemo(() => familiesOf(cards, list, REPORTS, manifest), [cards, list, manifest])
+  const { ranked, rest } = families
   if (loading) return <div className="p-6 text-[13px] text-ink-faint">Loading…</div>
   return (
     <div className="flex flex-col gap-4">
+      <p className="px-1 text-[13.5px] leading-snug text-ink-dim">{summaryWords(families)}</p>
       <Panel help="simple.bench.standing" title="Where Theseus stands" icon={<Trophy size={14} />}>
-        {measured.length === 0 ? <Empty>No run in this build supports a pass rate for Theseus.</Empty> : (
+        {ranked.length === 0 ? <Empty>No run in this build supports a pass rate for Theseus.</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[880px] border-collapse text-left text-[13px]">
               <thead>
@@ -55,31 +57,37 @@ export default function BenchBoard() {
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
-              <tbody>{measured.map((c) => <Standing key={c.id} c={c} />)}</tbody>
+              <tbody>{ranked.map((f) => <Standing key={f.card.id} f={f} />)}</tbody>
             </table>
           </div>
         )}
       </Panel>
-      <Panel help="simple.bench.findings" title="What every other run found" icon={<FileText size={14} />} bodyClassName="divide-y divide-line">
-        {rest.length === 0 ? <Empty>Every run in this build is in the table above.</Empty> : rest.map((c) => (
-          <div key={c.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-2.5">
-            <div className="w-[230px] shrink-0">
-              <div className="text-[13.5px] font-semibold text-ink">{c.title}{c.tier ? <span className="font-normal text-ink-dim">, {c.tier} tier</span> : null}</div>
-              <div className="text-[12px] text-ink-faint">{c.asOf ? `as of ${c.asOf}` : 'undated'}{c.legacy ? ' · an earlier run, kept as history' : ''}</div>
-            </div>
-            <div className="min-w-[280px] flex-1">
-              <p className="line-clamp-3 text-[13px] leading-snug text-ink-dim" title={c.finding ?? undefined}>{c.finding ?? c.noMetric ?? c.headline ?? ''}</p>
-              {c.weak && <p className="mt-0.5 text-[12px] text-ink-faint">No pass rate is led with: {c.weak}.</p>}
-            </div>
-            <Open c={c} />
-          </div>
-        ))}
+      <Panel help="simple.bench.unranked" title="Measured against itself, or too small to rank" icon={<ListX size={14} />} bodyClassName="divide-y divide-line">
+        {rest.length === 0 ? <Empty>Every family in this build is in the table above.</Empty> : rest.map((f) => <Unranked key={f.card.id} f={f} />)}
       </Panel>
     </div>
   )
 }
 
-function Standing({ c }: { c: Card }) {
+function Unranked({ f }: { f: Family }) {
+  const c = f.card
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-2.5">
+      <div className="w-[230px] shrink-0">
+        <div className="text-[13.5px] font-semibold text-ink">{c.title}{c.tier ? <span className="font-normal text-ink-dim">, {c.tier} tier</span> : null}</div>
+        <div className="text-[12px] text-ink-faint">{reportsWords(f)}</div>
+      </div>
+      <p className="min-w-[280px] flex-1 text-[13px] leading-snug text-ink-dim">{f.why}</p>
+      <Newest f={f} />
+    </div>
+  )
+}
+
+/** A family's size and age: how many reports, and the newest one's date. */
+const reportsWords = (f: Family) => `${f.reports.length} ${f.reports.length === 1 ? 'report' : 'reports'}${f.card.asOf ? ` · as of ${f.card.asOf}` : ''}`
+
+function Standing({ f }: { f: Family }) {
+  const c = f.card
   const mine = c.lines.find((l) => l.theseus)!
   // The best arm that is not Theseus: the lines are best first.
   const other = c.lines.find((l) => !l.theseus)
@@ -88,7 +96,7 @@ function Standing({ c }: { c: Card }) {
     <tr className="border-b border-line/60 align-top last:border-b-0">
       <td className="px-4 py-3">
         <div className="text-[13.5px] font-semibold text-ink">{c.title}{c.tier ? <span className="font-normal text-ink-dim">, {c.tier} tier</span> : null}</div>
-        <div className="text-[12px] text-ink-faint">{c.arms !== null ? `${c.arms} ${c.arms === 1 ? 'arm' : 'arms'} measured` : ''}</div>
+        <div className="text-[12px] text-ink-faint">{c.arms !== null ? `${c.arms} ${c.arms === 1 ? 'arm' : 'arms'} measured · ` : ''}{f.reports.length} {f.reports.length === 1 ? 'report' : 'reports'}</div>
       </td>
       <td className="px-3 py-3"><Rate l={mine} strong /></td>
       <td className="px-3 py-3">{other ? <Rate l={other} named /> : <span className="text-ink-faint">nothing else was measured</span>}</td>
@@ -111,6 +119,11 @@ function Rate({ l, strong, named }: { l: ArmLine; strong?: boolean; named?: bool
       <div className="text-[12px] text-ink-faint">{r.trials} trials{r.tasks !== null ? ` on ${r.tasks} tasks` : ''}{l.chip ? ` · ${l.chip}` : ''}{strong && l.framing === 'T' ? ' · all models, its own choice' : ''}</div>
     </div>
   )
+}
+
+/** The link to a family's newest report, which for the omnibus is the page itself. */
+function Newest({ f }: { f: Family }) {
+  return <Link to={`/benchmarks/${f.newest}`} className="shrink-0 whitespace-nowrap text-[12.5px] text-live hover:underline">its newest report →</Link>
 }
 
 function Open({ c }: { c: Card }) {
