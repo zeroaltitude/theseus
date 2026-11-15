@@ -120,6 +120,20 @@ impl ToolFailure {
             meta: Value::Null,
         }
     }
+
+    /// A refusal: the tool ran, looked at what it was given and said no, in
+    /// words the model answers by changing its call (`old_string` not found,
+    /// a file changed since it was read). It is the tool's own answer, as a
+    /// command's non-zero exit is a job's, and no fault of ours: the ledger
+    /// row for it is marked `refused` and the nightly read files no cause
+    /// for it. A failure of the tool itself (an I/O error, a panic, a
+    /// timeout) is not one: use [`ToolFailure::new`].
+    pub fn refusal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            meta: serde_json::json!({"refusal": true}),
+        }
+    }
 }
 
 impl<E: std::fmt::Display> From<E> for ToolFailure {

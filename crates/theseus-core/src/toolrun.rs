@@ -1862,6 +1862,7 @@ impl ToolRuntime {
                 }
                 Ok(Ok((Err(f), took, kept))) => {
                     pre_images = kept;
+                    failed = f.meta;
                     (Err(f.message), took)
                 }
                 Ok(Err(join)) => (Err(format!("the tool panicked: {join}")), t0.elapsed()),

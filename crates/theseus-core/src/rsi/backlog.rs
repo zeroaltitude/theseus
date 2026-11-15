@@ -62,6 +62,9 @@ mod tender;
 pub(crate) mod tool;
 mod word;
 
+#[cfg(test)]
+mod tests_refused;
+
 pub use read::{from_ledger, of_motif, Obs};
 pub(crate) use start::{NoTree, Settled};
 pub use word::BadItem;
