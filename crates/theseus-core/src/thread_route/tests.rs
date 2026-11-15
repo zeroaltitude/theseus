@@ -197,30 +197,6 @@ fn addressing_goes_place_then_explicit_then_reply() {
     assert_eq!(by_place(Some("discord:channel:7"), &refs(&both)), None);
 }
 
-/// The owner's "that was for ..." names a live thread or home, and only
-/// that: any other message is a message.
-#[test]
-fn the_owners_words_that_a_message_was_placed_wrong_are_read_narrowly() {
-    let all = [pr_round(), security_fix()];
-    let t = refs(&all);
-    for (said, want) in [
-        ("that was for the security fix", Some("security-fix")),
-        (
-            "No, that was for the security fix thread.",
-            Some("security-fix"),
-        ),
-        ("Oops, that was for pr-round!", Some("pr-round")),
-        ("that was about the PR round", Some("pr-round")),
-        ("that should have gone to home", Some("home")),
-        ("that was for the garden", None),
-        ("that was for the security fix, and rotate the key", None),
-        ("was that for the security fix?", None),
-        ("rotate the key", None),
-    ] {
-        assert_eq!(moved_words(said, &t).as_deref(), want, "{said:?}");
-    }
-}
-
 // ---- entities
 
 #[test]

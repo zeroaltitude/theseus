@@ -1288,13 +1288,42 @@ async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follow
         .contains("already ran in security-fix"));
 }
 
-/// The owner's words "that was for the security fix" are a move, whose answer
-/// is the turn that ran the message again; before any message was placed they
-/// are a message like another.
+/// **The owner's words "that was for the security fix" move nothing on their
+/// own; a model that chooses to call `chat.move_to_thread` moves the message
+/// the router placed, once, and the same `thread.moved` row is written**
+/// (issue 13; the owner's ruling of 2026-11-14 11:37). The successor of
+/// `words_that_a_message_was_for_another_thread_move_it`, which asserted that
+/// the words moved the message before any turn ran.
+///
+/// The model's script: a reply to each message, and, to the correcting one, a
+/// call of the tool and a line saying it is moving. The move runs when that
+/// turn ends: the note in the wrong thread, the one `thread.moved` row, the
+/// message run again once in the right thread, and the correcting message left
+/// where it was routed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn words_that_a_message_was_for_another_thread_move_it() {
+async fn a_model_that_calls_the_move_tool_moves_the_placed_message_and_the_bare_words_move_nothing()
+{
     let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 8);
+    let script = vec![
+        Scripted::text("Done: the words."),
+        Scripted::text("Done: the keys."),
+        Scripted::tools(
+            "",
+            &[("mv1", "chat_move_to_thread", json!({"to": "security-fix"}))],
+        ),
+        Scripted::text("Moving it to the security fix."),
+        Scripted::text("Done: rotated."),
+        Scripted::text("Done: the other words."),
+        Scripted::text("Done: spare."),
+    ];
+    let r = rig_on(script, Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.places.owner = Some(vec![
+            format!("discord:{OWNER}"),
+            format!("discord:{OWNER2}"),
+        ]);
+    });
     let c = &r.core;
     two_threads(c);
     let dm = home(c, None);
@@ -1307,18 +1336,37 @@ async fn words_that_a_message_was_for_another_thread_move_it() {
     thread_answer(&jev, "pr-round", 0.75);
     let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
     assert_eq!(wrong.session_id, session_of(c, "pr-round"));
-    let moved = submit(c, &dm, "No, that was for the security fix.").await;
-    assert_eq!(moved.session_id, session_of(c, "security-fix"));
-    let t = tag(&moved);
+
+    // The correcting message: the model chooses to call the tool.
+    let said = submit(c, &dm, "No, that was for the security fix.").await;
+    assert_eq!(said.session_id, session_of(c, "pr-round"), "{said:?}");
+    let moved = rows(c, "thread.moved");
+    assert_eq!(moved.len(), 1, "{moved:?}");
     assert_eq!(
-        (t.how, t.slug.as_deref()),
-        (RouteHow::Moved, Some("security-fix"))
+        (moved[0].data["from"].as_str(), moved[0].data["to"].as_str()),
+        (Some("pr-round"), Some("security-fix")),
+        "{:?}",
+        moved[0].data
     );
     assert_eq!(
-        texts_of(c, &moved.session_id),
-        ["rotate the signing keys on the gateway"]
+        moved[0].data["redirected"], true,
+        "the wrong thread was told"
     );
-    assert_eq!(rows(c, "thread.moved").len(), 1);
+    assert_eq!(
+        texts_of(c, &session_of(c, "security-fix")),
+        ["rotate the signing keys on the gateway"],
+        "the placed message ran again, once, in the right thread, and the words did not"
+    );
+
+    // The words alone, with a message placed before them: the model calls
+    // nothing, so nothing moves.
+    let before = rows(c, "thread.moved").len();
+    submit(c, &dm, "that was for the security fix").await;
+    assert_eq!(
+        rows(c, "thread.moved").len(),
+        before,
+        "bare words move nothing"
+    );
 }
 
 // ---------------------------------------------------- 40 messages, four threads

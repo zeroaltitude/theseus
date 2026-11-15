@@ -620,8 +620,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **What the owner says in chat is acted on by a TOOL** (chat-acts-are-tools, S43-1; `chat_acts.rs`, whose header
   carries the depth; was theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`,
   both gone; the owner, 2026-11-13 23:32, Discord message `1571050236367995101`). **No chat ACT -- answering,
-  allowing, syncing -- is reached by matching his words any more**; thread ROUTING still reads them
-  (`moved_by_words`, `thread_route::address`, `seal_by_word`): its own question. Three tools:
+  allowing, syncing, sealing, moving -- is reached by matching his words any more**; thread
+  ROUTING still reads them (`thread_route::address`): its own question. Issue 13 added `chat.seal_thread`
+  and `chat.move_to_thread` (`chat_acts/threads.rs`). Three tools first:
   `chat.answer_question` (`Core::confirm_action_with`), `chat.allow_held_call` (`Core::undo_allow`),
   `chat.import_sync` (`import.sync.request`, its `judge_act(Act::Import)` kept). The buttons, slash commands and
   CLI are untouched: a fourth way in; nothing these acts MEAN is widened. None is in a place's kept catalog
@@ -634,9 +635,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   allow tool alone has `allow_said.v1` (`chat_acts/judged.rs`): guidance first, then one Noul, and **it FAILS
   OPEN** -- no answer leaves the call standing, row `judged: false`; fail-closed would let a network fault
   remove S17-D6. All three are `ToolClass::Read`, load-bearing for the allow tool: as a `Write`, `undo.v1`'s
-  `reshapeable` would hold the RELEASE of a hold. **A named gap:** no scripted model calls
-  `chat_answer_question`, so `Board::answer`'s body is run by no test (an `owner_ask` parks its session;
-  `bind_place` gives a place to ONE session). It fails closed. Tests: `tests_chat_acts.rs`,
+  `reshapeable` would hold the RELEASE of a hold. The answer tool's own body is driven by no test (the header
+  says why). Tests: `tests_chat_acts.rs`,
   `chat_acts::tests`, `chat_acts::judged::tests`, `builders::allow_said::tests`.
 - **The task offer** (theseus-bh3t.5; no store change: a field on the reply's outbox post): `classify.v3` is `classify.v2` word for
   word and one question, `offer_task` ("work to be done later, in more than one step, that the person has not asked to start
@@ -1137,13 +1137,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when the job reached a host beyond `[sandbox] egress`, so T1 holds the session (`via: egress`) and the node is
   untrusted, the owner's. A job that reached only listed hosts holds nothing (theseus-gyin). Its tests:
   `tests_egress.rs`, and the daemon's `tests/sandbox.rs` through a real proxy.
-  **Limits** (theseus-zupk): beside those rows, a `sandbox.limit_hit` row for each limit an L1 job's end shows it
-  reached (`detail.sandbox.limit_hits`, written by `job_l1.rs`'s `limit_hits`): `output_mb` (killed by `SIGXFSZ`) and
-  `scratch_mb` (what it wrote to scratch is within a page of the limit). The process limit cannot be observed (no
-  cgroup), and the doc says so. Counted as `theseus.sandbox.limit_hits{limit}`, and a job's start as
-  `theseus.job.start_ms{class}` (L1 only: L0's start is not measured). **A known gap, measured:** an L1 job a cancel
-  stops mid-tunnel has no `sandbox.egress` row, because the cancel writes its result before the wrapper's completion
-  is in the store (the node's `detail` is null); the row belongs where that completion is ingested.
 - **Cancellation** (M4 18a): `cancel.rs`, the one stop every path that stops running calls goes through
   (`ToolRuntime::terminate_all`: a cancel, a task's cancel, `/stop`, the disk's floor, a stop at a job's launch).
   A job's wrapper is asked to stop its tree; an async tool's task is aborted (`Stops::track`) and verified once its

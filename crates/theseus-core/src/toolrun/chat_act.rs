@@ -36,6 +36,8 @@ impl ToolRuntime {
             crate::chat_acts::ANSWER => acts.answer(tc, &call.input),
             crate::chat_acts::ALLOW => acts.allow(tc, &call.input).await,
             crate::chat_acts::SYNC => acts.sync(tc, &call.input),
+            crate::chat_acts::SEAL => acts.seal_thread(tc, &call.input),
+            crate::chat_acts::MOVE => acts.move_to_thread(tc, &call.input),
             other => Err(format!("{other} is not a chat act")),
         };
         let none = crate::task_graph::tools::Done::default();

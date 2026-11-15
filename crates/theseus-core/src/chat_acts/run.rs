@@ -62,7 +62,10 @@ impl Board {
     /// model reads. **The structural rule lives here**: a call made in a turn
     /// no message of the owner's started — a wake, a task's report, a model
     /// naming a tool it was never offered — gets nothing.
-    fn standing(&self, tc: &TurnCtx<'_>) -> Result<(std::sync::Arc<Core>, super::Offered), String> {
+    pub(super) fn standing(
+        &self,
+        tc: &TurnCtx<'_>,
+    ) -> Result<(std::sync::Arc<Core>, super::Offered), String> {
         let core = self
             .core()
             .ok_or("this tool is not ready: the core is not built")?;

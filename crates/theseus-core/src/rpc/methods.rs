@@ -940,13 +940,6 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
-        // "That was for the security fix": the owner moves the last message the
-        // router placed, and what comes back is the turn it ran again as.
-        if route {
-            if let Some(moved) = self.moved_by_words(&p, conn).await? {
-                return Ok(moved);
-            }
-        }
         // A message that names no thread finds its own, in a place with threads
         // (theseus-rha2); nothing else changes for a place without.
         let routing = match route {
@@ -960,8 +953,6 @@ impl Core {
         crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
         // The owner's words, read as a correction for the turn (theseus-q31l).
         self.expect_correction(&p, conn, &session.session_id);
-        // The owner's explicit "seal this thread" (theseus-f2g0).
-        self.seal_by_word(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
         // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
         // **Nothing is read out of its WORDS here.** What is staged is who
@@ -1044,6 +1035,7 @@ impl Core {
             ),
         ));
         let voice = p.surface.as_deref() == Some("voice");
+        let this_session = session.session_id.clone();
         // The thread it runs in grows from what it did (theseus-98bz.5).
         let grow = self.grow_for(routing.as_ref(), &session, &p.input);
         let result = self
@@ -1068,6 +1060,13 @@ impl Core {
             .await;
         if let Some(routing) = &routing {
             self.thread_routed_turn(routing, result.as_ref().ok());
+        }
+        // A move the model asked for in this turn (`chat.move_to_thread`)
+        // runs now that the turn is over, as the matcher it replaced did.
+        if result.is_ok() {
+            if let Some(m) = self.tools.chat_acts.take_move(&this_session) {
+                Box::pin(self.carry_out_move(m, conn)).await;
+            }
         }
         if let (Some(g), Ok(r)) = (&grow, &result) {
             self.thread_grow(g, &r.turn_id);
