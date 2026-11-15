@@ -10,7 +10,7 @@
 //! **The manifests are read, never `cargo metadata`.** Cargo's metadata reads the tree's own
 //! `.cargo/config.toml`, which can name the compiler it runs, and the tree is the branch's: that
 //! would run its code at L0, outside the sandbox every other line of a self build runs in. A
-//! manifest is only parsed here, from regular files inside the tree.
+//! manifest is only parsed here, and only one that is itself a regular file.
 //!
 //! **A path in no package** (`Cargo.lock`, the root manifest, `scripts/`, `docs/`, the nextest
 //! config) reaches everything: tests read the docs and the scripts, and the lock decides what

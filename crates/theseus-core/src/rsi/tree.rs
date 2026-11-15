@@ -232,6 +232,16 @@ const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
 /// one that runs `git fetch` does print - hold the loop open for 24 times
 /// this, and delay a stop aimed at the build by the same factor.
 const RULE_LIMIT: Duration = Duration::from_secs(120);
+/// What the gate exports for its whole run (`scripts/gate.sh`: "flipping it half way changes cargo's
+/// unit hashes and builds a second complete set of artifacts"), so a second look at the suite
+/// (`rerun_tests`) must carry it too, or it rebuilds every workspace crate beside the gate's build.
+pub(super) const CARGO_INCREMENTAL: (&str, &str) = ("CARGO_INCREMENTAL", "0");
+
+/// The variables a second look's job has beyond `sandbox::self_build_env`'s.
+pub(super) fn rerun_env() -> Vec<(String, String)> {
+    vec![(CARGO_INCREMENTAL.0.into(), CARGO_INCREMENTAL.1.into())]
+}
+
 /// The exit status of a gate that aborted because its tree moved while it ran: no verdict on the
 /// code, pass or fail (gate.sh's `tree_moved_status`; scripts/AGENTS.md, "A tree that moved
 /// ABORTS the gate").
@@ -780,7 +790,7 @@ pub async fn rerun_tests(p: &Place, tree: &Tree, expr: &str) -> Result<(Option<i
                 tree,
                 ro: vec![],
                 argv,
-                env: vec![],
+                env: rerun_env(),
                 log: &log,
                 limit: GATE_SILENCE,
             };
@@ -1100,6 +1110,7 @@ async fn run_niced_command(
     if !benches {
         c.env("THESEUS_GATE_NO_BENCH", "1");
     }
+    c.env(CARGO_INCREMENTAL.0, CARGO_INCREMENTAL.1);
     c.env("THESEUS_GATE_ROOT", &tree.dir)
         .env("CARGO_TARGET_DIR", &tree.target)
         .env("RUSTC_WRAPPER", "")

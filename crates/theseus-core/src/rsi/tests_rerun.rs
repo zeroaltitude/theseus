@@ -143,3 +143,19 @@ fn a_second_run_clears_only_when_every_test_ran_and_passed_and_nothing_else() {
         assert!(!all_passed(&log, &tests), "{what}:\n{log}");
     }
 }
+
+/// The second look builds under the gate's own cargo settings: with incremental compilation on,
+/// cargo hashes every workspace crate afresh and rebuilds all of them beside the gate's build.
+#[test]
+fn the_second_look_builds_as_the_gate_does() {
+    let env = super::tree::rerun_env();
+    assert!(
+        env.contains(&("CARGO_INCREMENTAL".to_string(), "0".to_string())),
+        "{env:?}"
+    );
+    let gate = include_str!("../../../../scripts/gate.sh");
+    assert!(
+        gate.contains("export CARGO_INCREMENTAL=\"${CARGO_INCREMENTAL:-0}\""),
+        "the gate's own setting is what this one follows"
+    );
+}
