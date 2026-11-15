@@ -8,7 +8,7 @@
 //!   private place (refused inside a job's process). A record is never
 //!   edited: a revoke is a new record naming the one it ends, and so is a
 //!   replacement.
-//! - **Capture** (theseus-slvl.5): `directive.v1` reads the owner's own words
+//! - **Capture** (theseus-slvl.5): `directive.v2` reads the owner's own words
 //!   at the inbound point. What it is sure of is kept as a record with a
 //!   notice, and the owner's undo is `standing.revoke`; what it is unsure of
 //!   waits as an ask, which **`standing.answer`** keeps or drops. `standing.list`
@@ -145,12 +145,12 @@ pub struct StandingInfo {
     #[cfg_attr(test, ts(type = "number"))]
     pub missing: u64,
     /// Times in the last seven days the owner said it again (a message
-    /// `directive.v1` matched to this record): a non-zero week means the
+    /// `directive.v2` matched to this record): a non-zero week means the
     /// record's wording or its delivery failed.
     #[serde(default)]
     #[cfg_attr(test, ts(type = "number"))]
     pub repeats: u64,
-    /// How it came to be: `capture` when `directive.v1` kept it from the
+    /// How it came to be: `capture` when `directive.v2` kept it from the
     /// owner's words (then `source` names the node), else empty.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub captured_by: String,
@@ -189,7 +189,7 @@ pub struct StandingListResult {
     pub compiles: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub missing: u64,
-    /// The asks still open: things `directive.v1` heard and was not sure
+    /// The asks still open: things `directive.v2` heard and was not sure
     /// enough of to keep (or an order, which it never keeps unasked).
     #[serde(default)]
     pub asks: Vec<StandingAsk>,

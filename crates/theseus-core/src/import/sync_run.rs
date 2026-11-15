@@ -291,6 +291,18 @@ pub async fn run() -> Ran {
             }
         }
     };
+    run_command(&mut cmd, std::time::Duration::from_millis(DEADLINE_MS)).await
+}
+
+/// The spawn, the deadline and the kill of one run: [`run`]'s whole path after the command is
+/// built, and nothing before it. It is a function of its own so that an integration test reaches
+/// the real spawn, the real wait and the real kill with a command and a deadline of its own
+/// (issue 6: that path had only ever run behind a swapped runner); [`run`] passes the one
+/// command and [`DEADLINE_MS`].
+pub(crate) async fn run_command(
+    cmd: &mut tokio::process::Command,
+    deadline: std::time::Duration,
+) -> Ran {
     // Registered, so the children census still holds: `Kind::Owned` is the
     // kind whose spawner waits for it, which is what happens below.
     let mut child = match theseus_kernel::children::spawn(
@@ -307,7 +319,6 @@ pub async fn run() -> Ran {
         }
     };
     let pid = child.id().unwrap_or(0);
-    let deadline = std::time::Duration::from_millis(DEADLINE_MS);
     match tokio::time::timeout(deadline, child.wait()).await {
         Ok(Ok(st)) => Ran {
             pid,

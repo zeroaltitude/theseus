@@ -287,7 +287,7 @@ fn a_kind_jev_named_says_so_in_its_line() {
             confidence: 0.9,
         })
         .collect();
-    for (pick, tail) in [(Some("Ledger Works"), ", named by Jev"), (None, "")] {
+    for (pick, tail) in [(Some("Ledger Works"), ", named by Theseus"), (None, "")] {
         let r = rig(|_| {});
         let o = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
         let mut hints = Hints {

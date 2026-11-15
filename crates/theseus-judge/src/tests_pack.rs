@@ -777,6 +777,15 @@ fn the_six_packs_ask_what_the_design_says() {
             ],
         ),
         (
+            "directive.v2",
+            &[
+                "Inbound Inbound None Capture",
+                "kind Choice decides [none order preference fact correction]",
+                "scope Choice [session place everywhere unsure]",
+                "rollback [labels_per_day]",
+            ],
+        ),
+        (
             "continue.v1",
             &[
                 "Compile Continue Append None",
@@ -888,7 +897,7 @@ fn the_six_packs_ask_what_the_design_says() {
         // Conservative, but for `directive.v1`, whose bands the owner set:
         // keep at 0.80, ask from 0.50 (2026-10-13, killer OD5).
         let bands = match *name {
-            "directive.v1" => (0.80, 0.50),
+            "directive.v1" | "directive.v2" => (0.80, 0.50),
             _ => (0.90, 0.60),
         };
         for q in &p.questions {
@@ -979,6 +988,11 @@ fn the_six_packs_ask_what_the_design_says() {
         "classify.v4 keeps v2's rules"
     );
     assert_eq!(
+        rules("directive.v2"),
+        rules("directive.v1"),
+        "directive.v2 keeps v1's rules"
+    );
+    assert_eq!(
         rules("directive.v1"),
         vec![RollbackRule::LabelsPerDay {
             label: "wrong capture".into(),
@@ -1003,9 +1017,9 @@ fn the_loaders_rules_hold_on_all_the_packs() {
     let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
     assert_eq!(
         six.len(),
-        41,
+        42,
         "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, effort.v1, work.v1, \
-         citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
+         citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1 and v2, \
          onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
          content.v1 to v4, split.v1, undo.v1, delay.v1, precedence.v1 and allow_said.v1"
     );

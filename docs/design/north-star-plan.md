@@ -335,7 +335,7 @@ so a 25 ms harness share is 1% to 3% of a turn; the leads a person feels are the
 
 **And one cost the owner pays today** (theseus-ezeg): the owner's DM session holds about 626K tokens (about 428K of
 them one 213-page PDF attached on Oct 7), and **the `fable`, `opus` and `haiku` profiles cache for 5 minutes**: only
-`[model]`, `sonnet` and `haikuhi` carry `cache_ttl = "1h"`, and a profile doesn't take `[model]`'s value. So a message
+`[model]`, `sonnet` and the owner's Haiku 5.5 at high effort carry `cache_ttl = "1h"`, and a profile doesn't take `[model]`'s value. So a message
 after more than 5 idle minutes rewrites the whole prompt, about $7.85 on Fable 5.1 (the ledger matches the 5-minute
 write price to the cent). At the $200 daily ceiling that is about 25 such messages. Section 4 lists the fix.
 

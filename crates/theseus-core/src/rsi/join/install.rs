@@ -152,8 +152,41 @@ pub fn built_tree(p: &Place, merge: &str, build: &Build) -> Result<std::path::Pa
             "self-install: the tree was not closed"
         );
     }
+    if built.is_err() {
+        // A build that failed leaves nothing the unit will read, and gigabytes of build
+        // output: finished with its tree, so reaped now (issue 6, the install's reap).
+        reap_target(p, merge);
+    }
     built?;
     Ok(t.target)
+}
+
+/// The build tree of the install of `merge`, where the unit reads `release/` from.
+pub fn target_of(p: &Place, merge: &str) -> std::path::PathBuf {
+    let short = &merge[..merge.len().min(12)];
+    p.targets().join(git::slug_of("install", short))
+}
+
+/// Remove the install's build tree (about 2 GB). Called only where the install is provably
+/// finished with it: its build failed, or the new daemon has written `self.installed`, which
+/// it writes after the unit copied the binaries in and restarted. Regenerable, so deleted
+/// outright. Whether one was removed.
+pub fn reap_target(p: &Place, merge: &str) -> bool {
+    let target = target_of(p, merge);
+    if !target.exists() {
+        return false;
+    }
+    match std::fs::remove_dir_all(&target) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!(
+                tree = %target.display(),
+                error = %format!("{e:#}"),
+                "self-install: the build tree was not reaped"
+            );
+            false
+        }
+    }
 }
 
 /// The machine's own: a tree at the merge, the script, and its unit.
@@ -193,6 +226,8 @@ impl Core {
     /// Once serving: the notice for the join this build installs, if it has
     /// none yet (the module's doc). Nothing with the mode off.
     pub fn self_installed_after_serving(&self) -> Result<Option<String>> {
+        // An install that finished in an earlier run left its build tree: clear it.
+        self.reap_installed_targets();
         match crate::build().commit {
             Some(c) => self.self_installed_as(&c),
             None => Ok(None),
@@ -243,7 +278,26 @@ impl Core {
         self.store.append(&frame)?;
         self.outbox.posted(&post);
         rec.announce(&fact);
+        self.reap_installed_targets();
         Ok(Some(commit.into()))
+    }
+
+    /// Reap the build tree of every install whose `self.installed` row is written: the new
+    /// daemon wrote it after the unit copied the binaries in, so nothing reads that tree
+    /// again. Run when the daemon serves and as each notice is written, so an install that
+    /// finished earlier and left its tree is cleared too. How many were removed.
+    pub fn reap_installed_targets(&self) -> usize {
+        let Some(repo) = self.cfg.self_improve.repo.clone() else {
+            return 0;
+        };
+        let place = self.tools.self_pr.place(&repo);
+        let Ok(Some(rows)) = super::rows_of(&self.store, &["self.installed"]) else {
+            return 0;
+        };
+        rows.iter()
+            .filter_map(|r| r.data["merge"].as_str())
+            .filter(|merge| reap_target(&place, merge))
+            .count()
     }
 }
 

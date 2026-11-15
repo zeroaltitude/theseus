@@ -321,8 +321,11 @@ fn profile(
         no(
             "profile",
             format!(
-                "Not started: no profile is named `{name}`; configured: {}",
-                profiles.keys().cloned().collect::<Vec<_>>().join(", ")
+                "Not started: {}",
+                crate::config::renamed::or_unknown(name, || format!(
+                    "no profile is named `{name}`; configured: {}",
+                    profiles.keys().cloned().collect::<Vec<_>>().join(", ")
+                ))
             ),
         )
     })
@@ -664,6 +667,26 @@ mod tests {
 
     const WORKING: &str = "The harbour master's log says: the north pier holds forty two \
         herring gulls at low tide, counted from the lamp gallery at dawn.";
+
+    /// A check that names one of the three profiles retired in 1.0.7, with no profile of
+    /// that name in the config, is told where the name went; another unknown name is only
+    /// unknown.
+    #[test]
+    fn a_checks_old_profile_name_is_told_it_was_renamed() {
+        let profiles = std::collections::BTreeMap::new();
+        let no = |_: &'static str, why: String| why;
+        // The name comes from the table of what was renamed: a test that wrote it out would be
+        // a file that names it (`config::renamed`'s tree-walking test).
+        let (old, new) = crate::config::renamed::RENAMED_PROFILES[2];
+        let said = profile(&profiles, old, &no).unwrap_err();
+        assert!(
+            said.starts_with(&format!("Not started: the profile {old:?} was renamed"))
+                && said.contains(&format!("Use the profile {new:?}")),
+            "{said}"
+        );
+        let other = profile(&profiles, "nowhere", &no).unwrap_err();
+        assert!(other.contains("no profile is named `nowhere`"), "{other}");
+    }
 
     fn flags(source: &str) -> Vec<CheckOverlap> {
         overlaps(

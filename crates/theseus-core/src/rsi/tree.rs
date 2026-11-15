@@ -724,6 +724,8 @@ pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<Gated> {
 }
 
 async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
+    // The tree stays for as long as the gate runs in it (`tree_lease`).
+    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
     let (pc, t) = (p.clone(), tree.clone());
     let (script, may) = tokio::task::spawn_blocking(move || -> Result<_> {
         let script = pc
@@ -1220,6 +1222,12 @@ pub fn close_keeping_target(p: &Place, tree: &Tree) -> Result<()> {
 }
 
 fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
+    if let Some(busy) = super::tree_lease::held(&[&tree.dir, &tree.target]) {
+        bail!(
+            "a gate is still running in {}, so its tree stays until the gate ends",
+            busy.display()
+        );
+    }
     let _one = REPO
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

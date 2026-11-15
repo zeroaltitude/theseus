@@ -82,3 +82,6 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   append) or waits for it, the status answers the last counts and their time (`counted_ms`). Past
   `MAX_CONNECTIONS`, up to `STATUS_LANE` connections more are served for `index.status` alone, and refuse anything
   else with why. Tests: `tests_status.rs`.
+- **A frame that checks but is wrong is skipped** (issue 6 of 1.0.7). The tender follows with `skipping_wrong`, counts each in
+  `index.status` (`frames_skipped`, `last_frame_skipped`: segment, offset and why) and indexes what follows, as the core serves on past
+  it; it used to stall for good with the same error at every step. Tests: `tests_skip.rs`.

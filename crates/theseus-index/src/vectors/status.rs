@@ -71,6 +71,22 @@ impl Vectors {
         last.clone()
     }
 
+    /// The share of the index's chunks that a vector answers for, 0 to 1
+    /// (1 when no chunk has been counted: only on a fresh daemon whose table
+    /// has not been read once yet, a window of one batch's append, and one
+    /// where there is nothing yet to bury), so a query weighs the vector
+    /// source by what it can see of the index (theseus-pv7m). The counts are
+    /// the status's own: read now when the table's lock is free, else the
+    /// last read. A lock is held mostly while a backfill appends, which is
+    /// when the share is low, so a busy table is never read as covered.
+    pub fn coverage(&self) -> f64 {
+        let c = self.counts();
+        match c.chunks {
+            0 => 1.0,
+            n => c.vectors as f64 / n as f64,
+        }
+    }
+
     pub fn status(&self) -> VectorStatus {
         let st = self.state.lock().unwrap();
         let model = st.model.name().to_string();

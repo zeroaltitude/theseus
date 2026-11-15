@@ -1,6 +1,6 @@
 //! The words a captured directive keeps, and how two of them compare.
 //!
-//! `directive.v1` answers choices and probabilities, not text, so the words
+//! `directive.v2` answers choices and probabilities, not text, so the words
 //! kept are the owner's own, normalised to one line and cut at a size no
 //! standing line should pass. Two lines are the same directive when their
 //! content words overlap (words of three letters or more, less a few

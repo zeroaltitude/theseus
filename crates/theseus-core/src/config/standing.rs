@@ -1,13 +1,13 @@
 //! `[standing]` (theseus-slvl.5): what the owner's words become.
 //!
-//! - `capture`: `directive.v1` reads the owner's own messages in a private
+//! - `capture`: `directive.v2` reads the owner's own messages in a private
 //!   place (the CLI, the web UI, an owner's DM) at the inbound point, in the
 //!   request the other inbound packs ride, and keeps a standing preference,
 //!   fact or correction it is sure of (with a notice and an undo), asks about
 //!   one it is not (and about every order), and counts a message that says a
 //!   live record again (true). False: the pack is not asked, nothing is kept
 //!   or asked, and the records the owner added by hand stand as before.
-//!   `theseus packs rollback directive.v1` puts the pack in shadow instead,
+//!   `theseus packs rollback directive.v2` puts the pack in shadow instead,
 //!   where it still judges and records and acts on nothing.
 //! - `yes_fact`: a turn in which `chat.answer_question` answered a waiting
 //!   question carries a harness fact naming what was answered and what was NOT

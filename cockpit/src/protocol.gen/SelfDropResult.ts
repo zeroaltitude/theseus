@@ -11,4 +11,8 @@ cause: string,
 /**
  * False when the item had left the backlog already.
  */
-changed: boolean, };
+changed: boolean, 
+/**
+ * The item was set aside, not dropped: its cause is not forbidden.
+ */
+set_aside: boolean, };

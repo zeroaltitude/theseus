@@ -69,14 +69,18 @@ impl TurnRunner {
     /// A `/stop` cut the model's call (theseus-yey): the stream is dropped, the
     /// turn acts on nothing it said, and no answer node is written. The call
     /// is settled as failed at an estimate of what it used, its reservation
-    /// released and nothing held unknown: the input estimate its reservation
+    /// released and nothing held unknown: the provider's own usage events when
+    /// the stream had sent one (theseus-k48c), else the input estimate its reservation
     /// used, split as its request was sent (`cut_step`: the previous call's
     /// cache at the read price, theseus-3p36), and its output from the
     /// characters streamed (`CHARS_PER_TOKEN` to a token), at the model's
     /// prices, never more than it reserved. A stop
-    /// before anything was sent used nothing. The `provider.cut` row says it is
-    /// an estimate; the provider's own usage events, which a dropped stream
-    /// loses, would make it exact.
+    /// before anything was sent used nothing. The `provider.cut` row says
+    /// whether it is an estimate (`estimated`) and how its input was split
+    /// (`split`, `provider_events` for the provider's own count). The output
+    /// the provider had not yet reported stays an estimate from the characters
+    /// streamed, so a call cut early is booked a floor, never more than it
+    /// reserved.
     pub(super) fn settle_cut(
         t: &mut Turn<'_>,
         action: &Action,
@@ -87,13 +91,33 @@ impl TurnRunner {
         i: u32,
     ) -> Called {
         let target = t.target;
-        let (usage, split) = match cut.sent {
-            true => cut.prefix.split(cut.est_input),
-            false => (Usage::default(), cut_step::SPLIT_UNCACHED),
-        };
-        let usage = Usage {
-            output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN) * u64::from(cut.sent),
-            ..usage
+        let streamed = cut.out_chars.div_ceil(CHARS_PER_TOKEN) * u64::from(cut.sent);
+        // The provider's own usage events, when the stream had sent one, beat the
+        // estimate: its prompt as it counted it, and the larger of the output it
+        // had reported and the characters streamed (theseus-k48c).
+        let (usage, split, estimated) = match (&cut.seen, cut.sent) {
+            // The prompt is the provider's, always; the booking is wholly its own only when what it
+            // had reported of the output was not less than the characters streamed say.
+            (Some(seen), _) => (
+                Usage {
+                    output_tokens: seen.output_tokens.max(streamed),
+                    ..seen.clone()
+                },
+                cut_step::SPLIT_PROVIDER,
+                streamed > seen.output_tokens,
+            ),
+            (None, true) => {
+                let (usage, split) = cut.prefix.split(cut.est_input);
+                (
+                    Usage {
+                        output_tokens: streamed,
+                        ..usage
+                    },
+                    split,
+                    true,
+                )
+            }
+            (None, false) => (Usage::default(), cut_step::SPLIT_UNCACHED, true),
         };
         let cost = price
             .cost_micros_at(&usage, started_ms)
@@ -113,11 +137,13 @@ impl TurnRunner {
             producer: format!("provider:{}", target.provider),
             signature: None,
             cost_micros: Some(cost),
-            detail: Some(json!({"class": "stopped", "by": cut.by, "estimated": true,
+            detail: Some(
+                json!({"class": "stopped", "by": cut.by, "estimated": estimated,
                 "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
                 "cache_read_input_tokens": usage.cache_read_input_tokens,
                 "cache_creation_input_tokens": usage.cache_creation_input_tokens,
-                "split": split, "output_chars": cut.out_chars})),
+                "split": split, "output_chars": cut.out_chars}),
+            ),
         });
         t.cost = t.cost.map(|c| c + micros_to_usd(cost));
         add_usage(&mut t.usage, &usage);
@@ -129,6 +155,7 @@ impl TurnRunner {
             sent: cut.sent,
             usage: &usage,
             split,
+            estimated,
             output_chars: cut.out_chars,
             cost,
             reserved_micros: action.reserved_micros,

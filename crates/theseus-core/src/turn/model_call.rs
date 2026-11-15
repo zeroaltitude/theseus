@@ -129,6 +129,10 @@ impl TurnRunner {
         // output): what a call a stop cuts is estimated from (theseus-yey).
         let streamed = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let counted = streamed.clone();
+        // What the provider's own usage events have said so far: a stop that
+        // cuts the stream books the call from it (theseus-k48c).
+        let seen: Arc<Mutex<Option<Usage>>> = Arc::default();
+        let said = seen.clone();
         let mut on_delta = move |d: Delta<'_>| match d {
             // A quiet loop's text is still counted (the cut estimate reads
             // the count, not the stream) and still written as a node.
@@ -152,6 +156,7 @@ impl TurnRunner {
                 })
             }
             Delta::ToolUseStart { .. } => {}
+            Delta::Usage(u) => *said.lock().unwrap() = Some(u.clone()),
         };
         let call_started = Instant::now();
         t.record(&fact::turn::ModelCalling {
@@ -203,6 +208,7 @@ impl TurnRunner {
                         out_chars: streamed.load(Ordering::Relaxed),
                         est_input: compiled.est_tokens,
                         prefix: cut_step::Prefix::of(t.last.as_ref(), compiled),
+                        seen: seen.lock().unwrap().clone(),
                     });
                 }
                 if let Some(e) = self.not_sent_for_the_stop().filter(|_| !sent) {

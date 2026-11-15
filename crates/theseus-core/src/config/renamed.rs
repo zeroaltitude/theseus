@@ -49,6 +49,33 @@ pub const RETIRED: &[(&str, &str)] = &[
     ),
 ];
 
+/// The profile names Theseus once shipped that fixed an effort, each with the profile that replaces it. Effort is
+/// chosen for each message now, so none is shipped; a config that still names one without defining it is told so by
+/// the lookup (`Config::profile`), for one release. A profile the config defines under such a name is its own and is
+/// never touched.
+pub const RENAMED_PROFILES: &[(&str, &str)] = &[
+    ("sonnethi", "sonnet"),
+    ("opushi", "opus"),
+    ("haikuhi", "haiku"),
+];
+
+/// The words of a refusal of the profile `name`: the renamed message when `name` is one Theseus once
+/// shipped, else the site's own (`own`). Every place a person names a profile that no profile answers to
+/// says it through this, so the three old names are told where they went wherever they are typed.
+pub fn or_unknown(name: &str, own: impl FnOnce() -> String) -> String {
+    renamed_profile(name).unwrap_or_else(own)
+}
+
+/// What a lookup of the profile `name` says when it names none and was once shipped, or none.
+pub fn renamed_profile(name: &str) -> Option<String> {
+    let (old, new) = RENAMED_PROFILES.iter().find(|(old, _)| *old == name)?;
+    Some(format!(
+        "the profile {old:?} was renamed: Theseus no longer ships a profile that fixes the effort, because it \
+         chooses how much effort each message needs by itself. Use the profile {new:?}, or add a profile of your \
+         own with effort = \"high\" under [profiles.<name>] to fix it yourself"
+    ))
+}
+
 /// The message for the first old key `text` has, or none (also for text that is not TOML: its own error stands).
 pub fn explain(text: &str) -> Option<String> {
     let doc: Table = text.parse().ok()?;
@@ -182,6 +209,110 @@ mod tests {
         for (text, message) in CASES {
             let err = Config::parse(text).expect_err(message);
             assert!(format!("{err:#}").contains(message), "{message}: {err:#}");
+        }
+    }
+
+    /// An old profile name that no profile of the config has is met with where it went, for each of the three;
+    /// a profile the config defines under the name is its own and resolves; any other missing name is only unknown.
+    #[test]
+    fn an_old_high_effort_profile_name_is_told_it_was_renamed() {
+        let c = Config::example();
+        for (old, new) in RENAMED_PROFILES {
+            let said = format!("{:#}", c.profile(old).expect_err(old));
+            assert!(said.contains(&format!("{old:?} was renamed")), "{said}");
+            assert!(said.contains(&format!("Use the profile {new:?}")), "{said}");
+            assert!(!said.contains("unknown profile"), "{said}");
+            assert!(
+                c.profile(new).is_ok(),
+                "the profile it points at ships: {new}"
+            );
+        }
+        let own = format!(
+            "{}\n[profiles.sonnethi]\nprovider = \"anthropic\"\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\n",
+            Config::EXAMPLE_TOML
+        );
+        let (c, _) = Config::parse(&own).unwrap();
+        assert!(
+            c.profile("sonnethi").is_ok(),
+            "the config's own profile stands"
+        );
+        let said = format!("{:#}", Config::example().profile("sonnetlow").unwrap_err());
+        assert!(said.starts_with("unknown profile"), "{said}");
+    }
+
+    /// A result file of `docs/benchmarks`: a dated run's report or data, and the two summaries built from the
+    /// runs (`omnibus`, `index.json`). They record what ran, under the names it ran with.
+    fn is_result(name: &str) -> bool {
+        name.starts_with(|c: char| c.is_ascii_digit())
+            || name.starts_with("omnibus.")
+            || name == "index.json"
+    }
+
+    /// The files under `dir` (a path relative to the workspace root) that hold `word` as a whole word, skipping
+    /// what is built or fetched (`target`, `node_modules`, `.git` and the cockpit's build) and the benchmark
+    /// result files (`is_result`), nothing else.
+    fn naming(root: &std::path::Path, dir: &str, word: &str, found: &mut Vec<String>) {
+        let built = ["target", "node_modules", ".git"];
+        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let at = if dir.is_empty() {
+                name.clone()
+            } else {
+                format!("{dir}/{name}")
+            };
+            let cockpit_build = ["cockpit/dist", "crates/theseusd/cockpit/dist"];
+            if built.contains(&name.as_str())
+                || cockpit_build.contains(&at.as_str())
+                || (dir == "docs/benchmarks" && is_result(&name))
+            {
+                continue;
+            }
+            if e.path().is_dir() {
+                naming(root, &at, word, found);
+            } else if let Ok(text) = std::fs::read_to_string(e.path()) {
+                let whole = |i: usize| {
+                    let before = text[..i].chars().next_back();
+                    let after = text[i + word.len()..].chars().next();
+                    !before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                        && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                };
+                if text.match_indices(word).any(|(i, _)| whole(i)) {
+                    found.push(at);
+                }
+            }
+        }
+    }
+
+    /// A config whose `[model] live` names one of the three, with no table of that name, does
+    /// not load, and says where the name went (the operator who follows the new template and
+    /// deletes the tables is the one this release's message is for).
+    #[test]
+    fn a_live_profile_that_is_an_old_name_with_no_table_is_told_it_was_renamed() {
+        let text = Config::EXAMPLE_TOML.replace("live = \"sonnet\"\n", "live = \"opushi\"\n");
+        let said = format!("{:#}", Config::parse(&text).unwrap_err());
+        assert!(
+            said.contains("\"opushi\" was renamed") && said.contains("Use the profile \"opus\""),
+            "{said}"
+        );
+        let other = Config::EXAMPLE_TOML.replace("live = \"sonnet\"\n", "live = \"nowhere\"\n");
+        let said = format!("{:#}", Config::parse(&other).unwrap_err());
+        assert!(said.contains("model.live = \"nowhere\" is not"), "{said}");
+    }
+
+    /// No file of the tree names a profile that once fixed an effort, bar this one (the table of what was
+    /// renamed and its tests) and the benchmark result files of `docs/benchmarks` (`is_result`), which are
+    /// records of what ran then.
+    #[test]
+    fn no_shipped_file_names_a_retired_high_effort_profile() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for (old, _) in RENAMED_PROFILES {
+            let mut found = Vec::new();
+            naming(&root, "", old, &mut found);
+            found.retain(|f| f != "crates/theseus-core/src/config/renamed.rs");
+            assert!(found.is_empty(), "{old:?} is still named by: {found:?}");
         }
     }
 

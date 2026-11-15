@@ -465,7 +465,7 @@ def main() -> int:
     # is `claude-sonnet-5` appearing in the bill -- NOT the absence of
     # `claude-sonnet-5-5`. Those are different things and conflating them
     # reports correct behaviour as a defect: on the routed arm Jev picks
-    # `haikuhi` for routine coding, so a trial billed only claude-haiku-5-5 is
+    # `haiku_high` for routine coding, so a trial billed only claude-haiku-5-5 is
     # the arm working as designed, not a fallback.
     if setup_failed:
         print(f"\n  {len(setup_failed)} trial(s) never started an agent and are charged to the arm as\n"

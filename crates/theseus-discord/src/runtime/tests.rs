@@ -464,11 +464,32 @@ pub(super) fn core_edited(
     let fake: Arc<dyn theseus_core::provider::Provider> =
         Arc::new(theseus_core::provider::FakeProvider::scripted(script));
     let providers = [(cfg.model.provider.clone(), fake)].into_iter().collect();
-    Core::build(theseus_core::rpc::Parts {
+    // A judge the edit switched on has its key, as the gateway rig gives it.
+    let judged = cfg.judge.enabled;
+    let secrets = match judged {
+        true => {
+            let key = cfg.judge.key_secret.clone();
+            let board =
+                theseus_core::secrets::SecretBoard::new([key.clone()], std::time::Instant::now());
+            board.publish(
+                [(
+                    key,
+                    Ok(theseus_core::secrets::Secret::new(
+                        "jev-test-key-0123456789".into(),
+                    )),
+                )]
+                .into(),
+                "test",
+            );
+            board
+        }
+        false => theseus_core::secrets::SecretBoard::empty(),
+    };
+    let core = Core::build(theseus_core::rpc::Parts {
         cfg,
         providers,
         store,
-        secrets: theseus_core::secrets::SecretBoard::empty(),
+        secrets,
         startup_log: Arc::default(),
         telemetry: Some(theseus_core::telemetry::Telemetry::disabled()),
         scrubber: Arc::new(theseus_core::scrub::Scrubber::default()),
@@ -477,7 +498,11 @@ pub(super) fn core_edited(
         toollets: vec![],
         cpu_cores: None,
     })
-    .unwrap()
+    .unwrap();
+    if judged {
+        core.runner.judge.read_ladder();
+    }
+    core
 }
 
 /// A DM place on `core`'s session `sid`, driven directly: the gateway is

@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { composerHint, composerStep, submitOf, type ComposerState } from '../src/ops/composer.ts'
-import { attachRefusal, attachmentOf, base64, MAX_ATTACH_BYTES, overCap } from '../src/ops/attach.ts'
+import { attachRefusal, attachmentOf, base64, MAX_ATTACH_BYTES, overCap, withoutSent } from '../src/ops/attach.ts'
 
 const idle: ComposerState = { kind: 'idle' }
 const running: ComposerState = { kind: 'running' }
@@ -107,4 +107,19 @@ test('the pane reads the file off the page and refuses before it sends', () => {
   assert.match(pane, /arrayBuffer\(\)/, 'the bytes come from the browser’s own file read')
   const send = pane.slice(pane.indexOf('const send ='), pane.indexOf('const step ='))
   assert.ok(send.indexOf('attachRefusal(') < send.indexOf("post('join'"), 'a file that was not read is refused before any call')
+})
+
+// A send that was refused or failed keeps the files the person chose, as it keeps the draft's text.
+test('the files a send carried leave the composer when it resolves, and a file added meanwhile stays', () => {
+  const a = attachmentOf({ name: 'a.txt', size: 1 }, new TextEncoder().encode('a'))
+  const b = attachmentOf({ name: 'b.txt', size: 1 }, new TextEncoder().encode('b'))
+  const c = attachmentOf({ name: 'c.txt', size: 1 }, new TextEncoder().encode('c'))
+  assert.deepEqual(withoutSent([a, b, c], [a, b]), [c], 'only what the send carried goes')
+  assert.deepEqual(withoutSent([a], []), [a], 'a send with no file clears none')
+  const pane = readFileSync(new URL('../src/ops/JoinPane.tsx', import.meta.url), 'utf8')
+  const send = pane.slice(pane.indexOf('const send = ('), pane.indexOf('const step = ('))
+  assert.ok(!/^\s*setFiles\(\[\]\)/m.test(send), 'the files are not cleared before the send resolves')
+  const resolved = send.slice(send.indexOf('.then('), send.indexOf('.catch('))
+  assert.match(resolved, /setFiles\(\(was\) => withoutSent\(was, sent\)\)/, 'they go in the resolved branch')
+  assert.ok(!/setFiles/.test(send.slice(send.indexOf('.catch('))), 'a failed send keeps them')
 })

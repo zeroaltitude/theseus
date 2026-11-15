@@ -190,6 +190,29 @@ pub(crate) async fn try_turn_attached(
     chosen: Option<&str>,
     attachments: Vec<theseus_protocol::Attachment>,
 ) -> anyhow::Result<TurnSubmitResult> {
+    try_turn_by(core, session, input, chosen, attachments, "test").await
+}
+
+/// [`turn`] written by `author` (`self:backlog`: Theseus's own pipeline).
+pub(crate) async fn turn_by(
+    core: &Arc<Core>,
+    session: Option<&str>,
+    input: &str,
+    author: &str,
+) -> TurnSubmitResult {
+    try_turn_by(core, session, input, None, Vec::new(), author)
+        .await
+        .unwrap()
+}
+
+async fn try_turn_by(
+    core: &Arc<Core>,
+    session: Option<&str>,
+    input: &str,
+    chosen: Option<&str>,
+    attachments: Vec<theseus_protocol::Attachment>,
+    author: &str,
+) -> anyhow::Result<TurnSubmitResult> {
     let rec = match session {
         Some(id) => core
             .store
@@ -217,7 +240,7 @@ pub(crate) async fn try_turn_attached(
             input: Some(input.into()),
             target,
             sink,
-            author: "test".into(),
+            author: author.into(),
             recompile: None,
             attachments,
             arrived: None,

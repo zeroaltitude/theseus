@@ -16,6 +16,7 @@ fn facts(r: RestrictedModels) -> RouteFacts {
         current_model: None,
         switch_cost: None,
         cheaper_model: None,
+        previous_turn: None,
     }
 }
 

@@ -756,6 +756,15 @@ impl Outbox {
         Ok(())
     }
 
+    /// Where a session speaks: its place's target, else the place its wakes
+    /// and reports answer in (a session no place runs on any more).
+    pub fn speaks_at(&self, session_id: &str) -> Result<Option<String>> {
+        match self.try_target(session_id)? {
+            Some(t) => Ok(Some(t)),
+            None => self.try_wake_target(session_id),
+        }
+    }
+
     /// Every thread session with the place it answers at (`show_at`): a
     /// binding watches their tasks for that place (theseus-h68q6).
     pub fn shown(&self) -> Result<Vec<(String, String)>> {

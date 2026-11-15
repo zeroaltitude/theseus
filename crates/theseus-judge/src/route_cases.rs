@@ -490,14 +490,19 @@ pub fn input(case: &Case) -> crate::builders::InboundInput {
                 _ => PricePeriod::OffPeak,
             },
             restricted_models: RestrictedModels::allowed_if(s.restricted_models == "allowed"),
-            last_reply_model: Some(s.last_reply_model.clone()).filter(|m| !m.is_empty()),
+            last_reply_model: Some(s.last_reply_model.as_str())
+                .filter(|m| !m.is_empty())
+                .map(Box::from),
             task_models: s.task_models.clone(),
             est_tokens: Some(s.est_tokens),
-            current_model: Some(s.current_model.clone()).filter(|m| !m.is_empty()),
+            current_model: Some(s.current_model.as_str())
+                .filter(|m| !m.is_empty())
+                .map(Box::from),
             switch_cost: SwitchCost::parse(&s.switch_cost),
             cheaper_model: Some(s.cheaper_model.as_str())
                 .filter(|m| !m.is_empty())
                 .map(Box::from),
+            previous_turn: None,
         },
     );
     input.live_tasks = s.live_tasks.clone();

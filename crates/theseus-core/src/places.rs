@@ -344,6 +344,28 @@ impl PlaceRule {
         }
     }
 
+    /// `place`, for a turn that runs in a thread: the thread has no place of
+    /// its own, so its class and its ceiling are those of `target` (a thread's
+    /// is private always, `class_alone`), and what the place tells the model
+    /// (the chat route, the voice channel) is the underlying place's when the
+    /// message came from one: a private Discord place of the owner's. A message
+    /// that came from nowhere (the CLI, the web UI), or from a place that is
+    /// not a private Discord one, adds nothing.
+    pub fn place_under(
+        &self,
+        cfg: &crate::Config,
+        target: Option<&str>,
+        under: Option<&str>,
+    ) -> PlaceView {
+        let mut view = self.place(cfg, target);
+        if let Some(u) = under {
+            let there = self.place(cfg, Some(u));
+            view.chat |= there.chat;
+            view.voice |= there.voice;
+        }
+        view
+    }
+
     fn class_alone(&self, cfg: &crate::Config, target: Option<&str>) -> PlaceClass {
         let Some(t) = target else {
             return PlaceClass::Private;

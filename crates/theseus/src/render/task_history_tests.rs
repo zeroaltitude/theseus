@@ -243,18 +243,18 @@ fn a_tasks_model_lines_are_its_brief_and_each_move() {
     let rows = [
         route_row(
             30,
-            json!({"source": "task checkpoint", "switch": true, "profile": "haikuhi",
+            json!({"source": "task checkpoint", "switch": true, "profile": "haiku_high",
             "from": "sonnet", "reason": "step_down", "trigger": "quiet", "loop": 14}),
         ),
         route_row(
             10,
-            json!({"source": "task brief", "switch": true, "profile": "haikuhi",
+            json!({"source": "task brief", "switch": true, "profile": "haiku_high",
             "from": "fable", "reason": "verdict"}),
         ),
         route_row(
             20,
             json!({"source": "task checkpoint", "switch": true, "profile": "sonnet",
-            "from": "haikuhi", "reason": "verdict", "trigger": "failing", "loop": 6}),
+            "from": "haiku_high", "reason": "verdict", "trigger": "failing", "loop": 6}),
         ),
         route_row(
             25,
@@ -269,9 +269,9 @@ fn a_tasks_model_lines_are_its_brief_and_each_move() {
     assert_eq!(
         model_lines(&rows),
         [
-            "haikuhi (task brief)",
-            "sonnet (from haikuhi, loop 7: failing)",
-            "haikuhi (from sonnet, loop 15: step down)"
+            "haiku_high (task brief)",
+            "sonnet (from haiku_high, loop 7: failing)",
+            "haiku_high (from sonnet, loop 15: step down)"
         ]
     );
     let s = text(&one("running", 0, false, None));
@@ -288,10 +288,10 @@ fn a_tasks_model_lines_are_its_brief_and_each_move() {
         .iter()
         .position(|l| l.starts_with("  model     "))
         .expect("a model line");
-    assert_eq!(with[at], "  model     haikuhi (task brief)");
+    assert_eq!(with[at], "  model     haiku_high (task brief)");
     assert_eq!(
         with[at + 1],
-        "            sonnet (from haikuhi, loop 7: failing)"
+        "            sonnet (from haiku_high, loop 7: failing)"
     );
     // A task no checkpoint moved prints what it did before.
     let without: Vec<String> = with

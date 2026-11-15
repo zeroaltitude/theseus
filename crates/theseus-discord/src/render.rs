@@ -40,6 +40,7 @@ pub(crate) mod history;
 pub(crate) mod horizon;
 mod preview;
 pub(crate) mod process;
+mod refold;
 mod reply;
 pub(crate) mod snapshot;
 mod step;
@@ -252,6 +253,109 @@ struct ToolLine {
     /// its line away (theseus-8wm): that line is the only place the late
     /// end has to land.
     late: bool,
+    /// The result nodes whose ends it has taken (`end`): a turn read back from
+    /// its nodes (`refold.rs`) takes the end that asked for the rebuild from the
+    /// store, and the live event for the same node then comes, so an end is
+    /// taken once per node.
+    ended_by: Vec<String>,
+}
+
+impl ToolState {
+    /// The state a call is in once its end says `status` (`ms` long): the one
+    /// mapping the live `tool.ended` and a turn read back from its nodes
+    /// (`refold.rs`) both use. `stopped_by` names who a `/stop` ended it for.
+    fn ended(prior: &ToolState, status: &str, ms: u64, stopped_by: Option<String>) -> ToolState {
+        match (status, stopped_by) {
+            (_, Some(by)) => ToolState::Stopped { by },
+            // A stop that declined it while it waited said so already
+            // (`confirm.resolved`); its not-run result keeps that.
+            ("cancelled", None) if matches!(prior, ToolState::Stopped { .. }) => prior.clone(),
+            ("background", _) => ToolState::Background,
+            // A decline keeps saying who declined. A daemon from before
+            // theseus-8az says `denied`.
+            ("declined" | "denied", _) => match prior {
+                ToolState::Answered {
+                    approved: false, ..
+                } => prior.clone(),
+                _ => ToolState::NotRun,
+            },
+            _ => ToolState::Done {
+                status: status.to_string(),
+                ms,
+            },
+        }
+    }
+}
+
+impl ToolLine {
+    /// The call's end, as `tool.ended` says it: its state, and what an L1 job
+    /// wrote to scratch and reached, added to the summary. The one place the
+    /// live event and a turn read back from its nodes (`refold.rs`) both take
+    /// an end from, so a stopped call, a background one and a declined one are
+    /// the same line in either.
+    fn end(&mut self, t: &theseus_protocol::ToolEnded) {
+        // Once per result node: a node's end is not told twice, whichever of
+        // the rebuild and the event reaches it second.
+        if !t.node_id.is_empty() {
+            if self.ended_by.contains(&t.node_id) {
+                return;
+            }
+            self.ended_by.push(t.node_id.clone());
+        }
+        let status = t.status.as_str();
+        // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
+        let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
+        let verified = theseus_protocol::cancel::note(t.verified.as_deref());
+        self.summary.extend(
+            t.scratch
+                .iter()
+                .chain(&t.reached)
+                .map(|s| format!(" · {s}")),
+        );
+        self.state = ToolState::ended(
+            &self.state,
+            status,
+            t.duration_ms.unwrap_or(0),
+            stopped.map(|by| format!("{by}{verified}")),
+        );
+        // Its end will come back in a turn of its own, so the step's message
+        // keeps its line from here on.
+        self.late |= matches!(self.state, ToolState::Background);
+    }
+
+    /// The line of a call the gate has just judged (`gate`): its summary, the
+    /// notice setting, what the broker gave it, and where it runs. An AWS
+    /// call's line names its operation, region, and account, from its plan
+    /// (row 29, C1). A turn read back from its nodes builds the same line
+    /// (`refold.rs`).
+    fn proposed(
+        tool_use_id: &str,
+        tool: &str,
+        input: &Value,
+        gate: &theseus_protocol::GateRecord,
+    ) -> Self {
+        let decision = gate.decision.as_ref();
+        let aws = gate.plan.as_ref().and_then(|pl| pl.aws.as_ref());
+        Self {
+            tool_use_id: tool_use_id.to_string(),
+            tool: tool.to_string(),
+            summary: aws.map_or_else(|| summarize(tool, input), aws_summary),
+            correlation_id: None,
+            state: ToolState::Proposed,
+            notice: decision
+                .and_then(|d| d.notify.as_ref())
+                .map(|n| n.setting.clone()),
+            granted: decision.and_then(|d| d.granted.clone()),
+            l1: (decision.and_then(|d| d.class.as_deref()) == Some("l1")).then(|| {
+                theseus_protocol::sandbox::reach(&theseus_protocol::sandbox::egress_in(
+                    &gate.proposal.policy_context,
+                ))
+            }),
+            risk: None,
+            late: false,
+            ended_by: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -302,6 +406,9 @@ pub struct Renderer {
     /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
     /// tool line alone carries the notice.
     notice_embeds: bool,
+    /// The held turns were read back from the session's nodes once, as an
+    /// event for a turn this renderer never saw start asked (`refold.rs`).
+    rebuilt: bool,
 }
 
 /// Where else an approval can be answered: the owner's own surfaces, the web
@@ -405,28 +512,7 @@ impl Renderer {
                 self.tick()
             }
             Event::ToolProposed(p) => {
-                let decision = p.gate.decision.as_ref();
-                // An AWS call's line names its operation, region, and
-                // account, from its plan (row 29, C1).
-                let aws = p.gate.plan.as_ref().and_then(|pl| pl.aws.as_ref());
-                let line = ToolLine {
-                    tool_use_id: p.tool_use_id.clone(),
-                    tool: p.tool.clone(),
-                    summary: aws.map_or_else(|| summarize(&p.tool, &p.input), aws_summary),
-                    correlation_id: None,
-                    state: ToolState::Proposed,
-                    notice: decision
-                        .and_then(|d| d.notify.as_ref())
-                        .map(|n| n.setting.clone()),
-                    granted: decision.and_then(|d| d.granted.clone()),
-                    l1: (decision.and_then(|d| d.class.as_deref()) == Some("l1")).then(|| {
-                        theseus_protocol::sandbox::reach(&theseus_protocol::sandbox::egress_in(
-                            &p.gate.proposal.policy_context,
-                        ))
-                    }),
-                    risk: None,
-                    late: false,
-                };
+                let line = ToolLine::proposed(&p.tool_use_id, &p.tool, &p.input, &p.gate);
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
                     t.loops.entry(li).or_default().tools.push(line);
@@ -482,37 +568,7 @@ impl Renderer {
                         card: card.clone(),
                     });
                 }
-                let ended: Vec<String> = t.scratch.iter().chain(&t.reached).cloned().collect();
-                self.update_tool(turn_id, use_id, |l| {
-                    l.summary.extend(ended.iter().map(|s| format!(" · {s}")));
-                    l.state = match (status, &stopped) {
-                        (_, Some(by)) => ToolState::Stopped {
-                            by: format!("{by}{verified}"),
-                        },
-                        // A stop that declined it while it waited said so
-                        // already (`confirm.resolved`); its not-run result
-                        // keeps that.
-                        ("cancelled", None) if matches!(l.state, ToolState::Stopped { .. }) => {
-                            l.state.clone()
-                        }
-                        ("background", _) => ToolState::Background,
-                        // A decline keeps saying who declined. A daemon from
-                        // before theseus-8az says `denied`.
-                        ("declined" | "denied", _) => match &l.state {
-                            ToolState::Answered {
-                                approved: false, ..
-                            } => l.state.clone(),
-                            _ => ToolState::NotRun,
-                        },
-                        _ => ToolState::Done {
-                            status: status.to_string(),
-                            ms,
-                        },
-                    };
-                    // Its end will come back in a turn of its own, so the
-                    // step's message keeps its line from here on.
-                    l.late |= matches!(l.state, ToolState::Background);
-                });
+                self.update_tool(turn_id, use_id, |l| l.end(t));
                 ops
             }
             // A notified call's score (M5 step 24): its tool line gains it,

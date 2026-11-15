@@ -1,4 +1,4 @@
-//! The cards of capture (theseus-slvl.5): what `directive.v1` kept from the
+//! The cards of capture (theseus-slvl.5): what `directive.v2` kept from the
 //! owner's words, and what it asks about. The core's `standing_card` post goes
 //! to the owner's DM alone (as the seal card does), a kept record with
 //! **Undo** and a question with **Keep**, **Keep everywhere** (when it would

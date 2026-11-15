@@ -428,7 +428,7 @@ impl Core {
             who: &who_s,
             via: &via,
         });
-        // An undo of a record `directive.v1` kept is a wrong label on it.
+        // An undo of a record `directive.v2` kept is a wrong label on it.
         if let Some(ended) = &record.ends {
             self.capture_undone(ended, &who);
         }

@@ -81,8 +81,8 @@ impl Shared {
             )
             .await;
         let text = match r {
-            Ok(_) => "↩️ Undone: the earlier filing is back, and Jev counts that one wrong. It \
-                      applies at the session's next recompile."
+            Ok(_) => "↩️ Undone: Theseus has put back what it had before, and counts that one as a mistake. \
+                      It applies the next time the conversation is prepared."
                 .to_string(),
             Err(e) if e.code == theseus_protocol::error_code::REFUSED => format!(
                 "🔐 Your undo did not count: {}.",
