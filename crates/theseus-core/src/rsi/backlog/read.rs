@@ -414,7 +414,9 @@ fn action_why(d: &Value) -> String {
 }
 
 /// A failed action's observation. A job's own non-zero exit is its command's
-/// answer, not a fault of ours, so it is none. Timeouts, signals, stops and
+/// answer, not a fault of ours, and neither is an in-process tool's own
+/// refusal (`refused`: the edit text is not in the file); the model reads
+/// it and changes its call. Timeouts, signals, stops and
 /// jobs that never started are faults, and each is its own cause; a row from
 /// before the ledger named the failure keeps the old key. The pid in a
 /// producer (`wrapper:<pid>`) never splits a cause: `producer` stops at `:`
@@ -430,7 +432,7 @@ fn of_action_failed(mut o: Obs, d: &Value) -> Option<Obs> {
         action_why(d)
     );
     if let Some(f) = d["failure"].as_str() {
-        if f == "exit" {
+        if f == "exit" || f == "refused" {
             return None;
         }
         let f = word(&d["failure"]);

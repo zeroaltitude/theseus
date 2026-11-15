@@ -45,7 +45,7 @@ pub fn fresh(ctx: &ToolCtx, path: &Path) -> Result<(), ToolFailure> {
         return Ok(());
     };
     match Mark::at(path) {
-        Some(now) if now != was => Err(ToolFailure::new(stale_words(path))),
+        Some(now) if now != was => Err(ToolFailure::refusal(stale_words(path))),
         _ => Ok(()),
     }
 }

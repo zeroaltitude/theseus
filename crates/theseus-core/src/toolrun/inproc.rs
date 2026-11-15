@@ -153,6 +153,10 @@ impl ToolRuntime {
                 }
                 Ok(Ok((Err(f), took, kept))) => {
                     pre_images = kept;
+                    // What the tool said of its own failure (a refusal's mark) rides to the
+                    // completion's detail, as an async tool's does above: dropped here, a
+                    // refused edit reached the ledger as a plain failure and was filed as a fault.
+                    failed = f.meta;
                     (Err(f.message), took)
                 }
                 Ok(Err(join)) => (Err(format!("the tool panicked: {join}")), t0.elapsed()),
