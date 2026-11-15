@@ -62,12 +62,15 @@ impl Reviewer for Litter {
             git(&t.dir, &["checkout", "-q", "--detach"]);
         }
         *self.seen.lock().unwrap() = Some((ask.scratch.clone(), review::prompt(ask)));
+        let (profile, model) = (ask.target.profile.clone(), ask.target.model.clone());
         Box::pin(async {
             Ok(Review {
                 accept: false,
                 reasons: vec!["its test passes without the fix".into()],
                 cost_usd: 0.1,
                 session: None,
+                profile,
+                model,
             })
         })
     }

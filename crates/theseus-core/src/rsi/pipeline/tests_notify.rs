@@ -432,6 +432,7 @@ async fn a_conflicted_head_is_in_no_queue_and_no_join_is_due() {
             head: h.clone(),
             reviewer: "fable (claude-fable-5-2)".into(),
             model: "claude-fable-5-2".into(),
+            asked: "claude-fable-5-2".into(),
             verdict: "accept".into(),
             planted_revert: "failed".into(),
             reasons: vec![],

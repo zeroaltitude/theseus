@@ -157,6 +157,7 @@ struct Prior {
     branch: String,
     head: String,
     model: String,
+    asked: String,
     verdict: String,
 }
 
@@ -242,6 +243,7 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
                 branch: s(d, "branch"),
                 head: s(d, "head"),
                 model: s(d, "model"),
+                asked: s(d, "asked"),
                 verdict: s(d, "verdict"),
             }),
             "self.joined" => out.joined.push(s(d, "branch")),
@@ -293,7 +295,10 @@ pub(crate) async fn blocking<T: Send + 'static>(
 /// A verdict, as its row says it.
 struct Said {
     reviewer: String,
+    /// The model that answered; for a refusal before any turn, the one it would have run on.
     model: String,
+    /// The model the review was asked to run on.
+    asked: String,
     verdict: &'static str,
     planted: &'static str,
     reasons: Vec<String>,
@@ -407,11 +412,12 @@ impl Core {
                 continue;
             }
             let theirs = |v: &&Prior| v.branch == b.branch && v.head == b.head;
-            let mine = seen
-                .verdicts
-                .iter()
-                .filter(theirs)
-                .find(|v| v.model == model || v.verdict == "accept" || v.verdict == "reject");
+            let mine = seen.verdicts.iter().filter(theirs).find(|v| {
+                v.model == model
+                    || v.asked == model
+                    || v.verdict == "accept"
+                    || v.verdict == "reject"
+            });
             let mut run = Run {
                 core: self,
                 seams,

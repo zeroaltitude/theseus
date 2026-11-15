@@ -1,5 +1,11 @@
 //! The review's phases of one branch (theseus-pw1q.9): the independence
 //! check, the planted revert, the reviewer, and the verdict's row.
+//!
+//! Independence is checked twice. Before the turn, on the model the review asks for, so a review that
+//! could not be independent is not paid for. After it, on the model that answered (the turn's own
+//! result): a turn is moved by routing, or by a refusal's fallback, and the model it asked for is
+//! only a request. The verdict records the model that answered. A review that ran on the model that
+//! built the branch, or did not say what ran, is `refused`: it never accepts a branch.
 
 use anyhow::Result;
 use serde_json::Value;
@@ -10,6 +16,7 @@ use super::planted::{self, Outcome};
 use super::review::Ask;
 use super::{blocking, git, remote_of, scratch, Run, Said};
 use crate::fact::rsi_join::SelfReviewVerdict;
+use crate::job_model::How;
 use crate::turn::Target;
 
 /// Who would review, and whether that review would be independent.
@@ -17,8 +24,38 @@ struct Reviewer {
     target: Option<Target>,
     /// `fable (claude-fable-5-2)`.
     name: String,
+    /// The model it asks to run on; empty when none resolved.
     model: String,
+    /// The builder's model, which the model that answers must not be.
+    builder: Option<String>,
     refusal: Option<String>,
+}
+
+/// A pin is held where it names: the turn is the owner's choice, so routing never moves it
+/// (`Target::chosen`, as a message sent with `-P` is). Jev's pick is not held.
+fn held(mut t: Target, how: How) -> Target {
+    if matches!(how, How::Pinned) {
+        t.chosen = Some(format!("profile {}", t.profile));
+    }
+    t
+}
+
+/// Why a review that ran on `ran` does not count against a branch built on `builder`; none when it
+/// is another model. A model that is not known cannot be shown to differ.
+fn not_independent(builder: &str, ran: &str) -> Option<String> {
+    if ran.is_empty() {
+        return Some(
+            "the review did not say which model answered, so it cannot be shown independent of \
+             the model that built the branch"
+                .into(),
+        );
+    }
+    crate::catalog::same_model(builder, ran).then(|| {
+        format!(
+            "the review ran on {ran}, the model that built the branch: it does not count, and an \
+             independent review is on another model, so set [self] reviewer_profile to one"
+        )
+    })
 }
 
 impl Run<'_> {
@@ -54,7 +91,11 @@ impl Run<'_> {
             },
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
-        let target = core.runner.job_target(&live, site).await.map(|(t, _)| t);
+        let target = core
+            .runner
+            .job_target(&live, site)
+            .await
+            .map(|(t, how)| held(t, how));
         let profile = match &target {
             Ok(t) => t.profile.clone(),
             Err(e) => e.profile.clone(),
@@ -65,7 +106,7 @@ impl Run<'_> {
                 "the builder's model is not known, so no review can be shown independent of it"
                     .into(),
             ),
-            (Ok(t), Some(m)) if t.model == *m => Some(format!(
+            (Ok(t), Some(m)) if crate::catalog::same_model(m, &t.model) => Some(format!(
                 "the reviewer would run on {m}, the model that built the branch: an independent \
                  review is on another model, so set [self] reviewer_profile to one"
             )),
@@ -77,6 +118,7 @@ impl Run<'_> {
                 .as_ref()
                 .map_or_else(|| profile.clone(), |t| format!("{profile} ({})", t.model)),
             model: target.as_ref().map(|t| t.model.clone()).unwrap_or_default(),
+            builder,
             target,
             refusal,
         }
@@ -88,6 +130,7 @@ impl Run<'_> {
         let said = |verdict, planted, reasons, cost_usd| Said {
             reviewer: who.name.clone(),
             model: who.model.clone(),
+            asked: who.model.clone(),
             verdict,
             planted,
             reasons,
@@ -145,8 +188,38 @@ impl Run<'_> {
                 return Ok(None);
             }
         };
+        // What the turn says answered, not what it was asked for.
+        let ran = Said {
+            reviewer: match r.profile.as_str() {
+                "" => r.model.clone(),
+                p => format!("{p} ({})", r.model),
+            },
+            model: r.model.clone(),
+            ..said("", planted.name(), vec![], r.cost_usd)
+        };
+        if !r.model.is_empty() && r.model != who.model {
+            tracing::warn!(
+                branch = %self.b.branch,
+                asked = %who.model,
+                ran = %r.model,
+                "self-review: the review ran on another model than it asked for"
+            );
+        }
+        let builder = who.builder.as_deref().unwrap_or_default();
+        if let Some(why) = not_independent(builder, &r.model) {
+            self.verdict(Said {
+                verdict: "refused",
+                reasons: vec![why],
+                ..ran
+            })?;
+            return Ok(Some("refused".into()));
+        }
         let v = if r.accept { "accept" } else { "reject" };
-        self.verdict(said(v, planted.name(), r.reasons, r.cost_usd))?;
+        self.verdict(Said {
+            verdict: v,
+            reasons: r.reasons,
+            ..ran
+        })?;
         Ok(Some(v.into()))
     }
 
@@ -250,6 +323,7 @@ impl Run<'_> {
             head: self.b.head.clone(),
             reviewer: v.reviewer.clone(),
             model: v.model,
+            asked: v.asked,
             verdict: v.verdict.into(),
             planted_revert: v.planted.into(),
             reasons: v.reasons,
@@ -272,5 +346,23 @@ impl Run<'_> {
             .reviewed
             .push((self.b.branch.clone(), v.verdict.into()));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::not_independent;
+
+    #[test]
+    fn a_review_is_independent_only_of_another_model() {
+        let builder = "claude-sonnet-5-5";
+        assert_eq!(not_independent(builder, "claude-opus-5-5"), None);
+        assert_eq!(not_independent(builder, "claude-sonnet-5-50"), None);
+        assert!(not_independent(builder, builder).is_some());
+        assert!(not_independent(builder, "claude-sonnet-5-5-20261101").is_some());
+        assert!(
+            not_independent(builder, "").is_some(),
+            "unknown is not independent"
+        );
     }
 }

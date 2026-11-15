@@ -103,12 +103,16 @@ struct Stand {
 impl Reviewer for Stand {
     fn review<'a>(&'a self, _core: &'a Arc<Core>, ask: &'a Ask) -> Fut<'a> {
         self.asks.lock().unwrap().push(ask.clone());
+        // It ran where it was asked to.
+        let (profile, model) = (ask.target.profile.clone(), ask.target.model.clone());
         Box::pin(async {
             Ok(Review {
                 accept: true,
                 reasons: vec!["the stand-in accepts".into()],
                 cost_usd: 0.25,
                 session: None,
+                profile,
+                model,
             })
         })
     }
@@ -174,8 +178,9 @@ impl Slow {
 }
 
 impl Reviewer for Slow {
-    fn review<'a>(&'a self, _core: &'a Arc<Core>, _ask: &'a Ask) -> Fut<'a> {
+    fn review<'a>(&'a self, _core: &'a Arc<Core>, ask: &'a Ask) -> Fut<'a> {
         use std::sync::atomic::Ordering::SeqCst;
+        let (profile, model) = (ask.target.profile.clone(), ask.target.model.clone());
         self.asks.fetch_add(1, SeqCst);
         let now = self.now.fetch_add(1, SeqCst) + 1;
         self.most.fetch_max(now, SeqCst);
@@ -187,6 +192,8 @@ impl Reviewer for Slow {
                 reasons: vec!["the slow stand-in accepts".into()],
                 cost_usd: 0.25,
                 session: None,
+                profile,
+                model,
             })
         })
     }
@@ -1152,4 +1159,148 @@ async fn the_reviewer_is_never_a_china_origin_model() {
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], SONNET, "{v}");
     assert!(reviewer_asks(&jev)[0].contains("not_allowed"));
+}
+
+// The model that answered (theseus-107, issue 20): the verdict records it, the independence rule is
+// checked against it, and `[self] reviewer_profile` is a pin that routing does not move.
+
+/// A reviewer whose turn ended up on `ran`, whatever it was asked for: the case a routed turn or a
+/// refusal's fallback makes. It accepts, so a test can see whether the accept stood.
+struct Strays {
+    ran: &'static str,
+    asks: std::sync::atomic::AtomicUsize,
+}
+
+impl Strays {
+    fn on(ran: &'static str) -> Arc<Self> {
+        Arc::new(Self {
+            ran,
+            asks: Default::default(),
+        })
+    }
+}
+
+impl Reviewer for Strays {
+    fn review<'a>(&'a self, _core: &'a Arc<Core>, _ask: &'a Ask) -> Fut<'a> {
+        self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async {
+            Ok(Review {
+                accept: true,
+                reasons: vec!["the stray accepts".into()],
+                cost_usd: 0.25,
+                session: None,
+                profile: "stray".into(),
+                model: self.ran.into(),
+            })
+        })
+    }
+}
+
+/// The row says what ran, not what was asked for: asked for Fable, the turn ended on Opus.
+#[tokio::test]
+async fn the_verdict_records_the_model_that_answered() {
+    let r = rig(SelfMode::Act);
+    let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
+    let stray = Strays::on("claude-opus-5-5");
+    let seams = Seams {
+        reviewer: stray.clone(),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.reviewed, [(branch, "accept".to_string())], "{pass:?}");
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-opus-5-5", "{v}");
+    assert_eq!(v["reviewer"], "stray (claude-opus-5-5)", "{v}");
+    assert_eq!(v["asked"], "claude-fable-5-2", "{v}");
+}
+
+/// A review that ran on the builder's model is no independent review: it does not accept, and
+/// nothing is joined, however the reviewer answered. The model is the real one, and it is refused
+/// once, not again every pass.
+#[tokio::test]
+async fn a_review_that_ran_on_the_builders_model_does_not_accept() {
+    let r = rig(SelfMode::Act);
+    let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
+    let main = r.upstream_main();
+    let stray = Strays::on(SONNET);
+    let seams = Seams {
+        reviewer: stray.clone(),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.reviewed, [(branch, "refused".to_string())], "{pass:?}");
+    assert!(pass.joined.is_empty(), "{pass:?}");
+    assert_eq!(r.upstream_main(), main, "main did not move");
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["verdict"], "refused", "{v}");
+    assert_eq!(v["model"], SONNET, "{v}");
+    assert_eq!(v["planted_revert"], "failed", "it ran: {v}");
+    let why = v["reasons"][0].as_str().unwrap();
+    assert!(
+        why.contains("the model that built the branch") && why.contains("does not count"),
+        "{why}"
+    );
+    r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(r.rows("self.review.verdict").len(), 1, "refused once");
+    assert_eq!(stray.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+/// A dated snapshot of the builder's model is the builder's model.
+#[tokio::test]
+async fn a_dated_snapshot_of_the_builders_model_does_not_accept_either() {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let seams = Seams {
+        reviewer: Strays::on("claude-sonnet-5-5-20261101"),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
+    assert!(pass.joined.is_empty(), "{pass:?}");
+}
+
+/// A turn that does not say which model answered cannot be shown to differ from the builder's.
+#[tokio::test]
+async fn a_review_that_does_not_say_what_ran_does_not_accept() {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let seams = Seams {
+        reviewer: Strays::on(""),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
+    assert!(pass.joined.is_empty(), "{pass:?}");
+    let v = &r.rows("self.review.verdict")[0];
+    assert!(
+        v["reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("did not say which model answered"),
+        "{v}"
+    );
+}
+
+/// KEY: `[self] reviewer_profile` is a pin. With the router asked to put every message on Opus, the
+/// review turn still runs on Fable, the profile the owner set: the request that reaches the
+/// provider, and the row, say so. (Before it was held, the turn went where the router sent it, and
+/// the row still said Fable: the three reviews of 2026-11-14 and 15 ran on Opus.)
+#[tokio::test]
+async fn the_reviewer_profile_is_a_pin_the_router_does_not_move() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.99);
+    let r = rig_jev(&jev, Some("fable"));
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let seams = Seams {
+        reviewer: Arc::new(super::review::CheckTurn),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.reviewed[0].1, "accept", "{pass:?}");
+    let reqs = r.says.requests.lock().unwrap().clone();
+    let models: Vec<&str> = reqs.iter().map(|q| q.model.as_str()).collect();
+    assert_eq!(models, ["claude-fable-5-2"], "every call of the review");
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-fable-5-2", "{v}");
+    assert_eq!(v["asked"], "claude-fable-5-2", "{v}");
 }
