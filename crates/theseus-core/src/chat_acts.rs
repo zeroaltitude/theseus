@@ -198,6 +198,9 @@ struct Pending {
 #[derive(Default)]
 pub struct Heard {
     by_session: Mutex<HashMap<String, Pending>>,
+    /// For a session a message was routed into: the place's own session the
+    /// message arrived in, for the move tool (`threads.rs`).
+    homes: Mutex<HashMap<String, String>>,
 }
 
 impl Heard {
@@ -212,6 +215,23 @@ impl Heard {
     pub(crate) fn stage(&self, session: &str, said: Said) {
         self.lock()
             .insert(session.to_string(), Pending { said, turn: None });
+    }
+
+    /// The place's own session `session`'s message arrived in.
+    pub(crate) fn stage_home(&self, session: &str, home: &str) {
+        self.homes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session.to_string(), home.to_string());
+    }
+
+    /// The place session the message `session` is running was routed from.
+    pub(crate) fn home_of(&self, session: &str) -> Option<String> {
+        self.homes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session)
+            .cloned()
     }
 
     /// Bind the staged message to `turn`, and return it. The first turn to ask
@@ -382,7 +402,14 @@ impl Board {
         let (sealable, movable) = match said.owner_input {
             true => (
                 Self::seal_offer(&core, session),
-                Self::move_offer(&core, session, turn),
+                Self::move_offer(
+                    &core,
+                    &self
+                        .heard
+                        .home_of(session)
+                        .unwrap_or_else(|| session.to_string()),
+                    turn,
+                ),
             ),
             false => (None, None),
         };

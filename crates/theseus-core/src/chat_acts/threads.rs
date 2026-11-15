@@ -234,22 +234,19 @@ impl Board {
         })
     }
 
-    /// The message the router placed before `turn`, with where it could go;
+    /// The message the router placed before `turn` in the place whose own
+    /// session is `home`, with where it could go;
     /// none when threads are off, nothing was placed, or there is nowhere
     /// else to put it.
-    pub(crate) fn move_offer(core: &Core, session: &str, turn: &str) -> Option<Movable> {
+    pub(crate) fn move_offer(core: &Core, home: &str, turn: &str) -> Option<Movable> {
         if !core.cfg.threads.enabled {
             return None;
         }
-        let routed = core
-            .runner
-            .threads
-            .route
-            .find_routed_before(session, turn)?;
+        let routed = core.runner.threads.route.find_routed_before(home, turn)?;
         let from = routed.to.clone().unwrap_or_else(|| "home".into());
         let board = core.threads();
         let mut targets: Vec<(String, String)> = board
-            .live(core.runner.class_of(session))
+            .live(core.runner.class_of(home))
             .into_iter()
             .map(|t| (t.slug.clone(), t.title.clone()))
             .collect();

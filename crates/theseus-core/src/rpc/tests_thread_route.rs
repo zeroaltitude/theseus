@@ -1370,6 +1370,106 @@ async fn a_model_that_calls_the_move_tool_moves_the_placed_message_and_the_bare_
     );
 }
 
+/// A rig of the inbound batch with the owner's DMs private and a scripted model.
+fn move_rig(jev: &FakeJev, script: Vec<Scripted>) -> Rig {
+    rig_on(script, Some(jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.places.owner = Some(vec![
+            format!("discord:{OWNER}"),
+            format!("discord:{OWNER2}"),
+        ]);
+    })
+}
+
+/// **A correction the router puts into the thread it names still moves the
+/// placed message** (round 2 of issue 13, B2). "No, that was for the security
+/// fix" names that thread's title, which is evidence for it, so the correction
+/// can run in the very thread the message should go to; the tool finds the
+/// placed message by the place's own session, not by where the correction ran.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_correction_routed_into_the_thread_it_names_still_moves_the_placed_message() {
+    let jev = FakeJev::start().unwrap();
+    let r = move_rig(
+        &jev,
+        vec![
+            Scripted::text("Done: the keys."),
+            Scripted::tools(
+                "",
+                &[("mv1", "chat_move_to_thread", json!({"to": "security-fix"}))],
+            ),
+            Scripted::text("Moving it to the security fix."),
+            Scripted::text("Done: rotated."),
+            Scripted::text("Done: spare."),
+        ],
+    );
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    thread_answer(&jev, "pr-round", 0.75);
+    let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
+    assert_eq!(wrong.session_id, session_of(c, "pr-round"));
+
+    thread_answer(&jev, "security-fix", 0.75);
+    let said = submit(c, &dm, "No, that was for the security fix.").await;
+    assert_eq!(said.session_id, session_of(c, "security-fix"), "{said:?}");
+    let moved = rows(c, "thread.moved");
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert_eq!(moved[0].data["from"], "pr-round", "{:?}", moved[0].data);
+    assert!(
+        texts_of(c, &session_of(c, "security-fix"))
+            .iter()
+            .any(|t| t == "rotate the signing keys on the gateway"),
+        "the placed message ran again in the right thread"
+    );
+}
+
+/// **A move staged in a turn that fails is not kept for a later one** (round 2
+/// of issue 13, B1): the model calls the tool, its next model call fails, the
+/// turn ends in an error; the owner's next message, which ends well, carries
+/// nothing out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_move_staged_in_a_turn_that_failed_is_not_carried_out_by_the_next_turn() {
+    let jev = FakeJev::start().unwrap();
+    let r = move_rig(
+        &jev,
+        vec![
+            Scripted::text("Done: the keys."),
+            Scripted::tools(
+                "",
+                &[("mv1", "chat_move_to_thread", json!({"to": "security-fix"}))],
+            ),
+            Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+                status: 400,
+                message: "refused".into(),
+            }),
+            Scripted::text("Done: the next message."),
+            Scripted::text("Done: spare."),
+        ],
+    );
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    thread_answer(&jev, "pr-round", 0.75);
+    submit(c, &dm, "rotate the signing keys on the gateway").await;
+
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(&dm, "No, that was for the security fix.", None),
+        )
+        .await;
+    let failed = w.response(id).await;
+    assert!(failed["error"].is_object(), "the turn failed: {failed}");
+
+    submit(c, &dm, "and another thing").await;
+    assert!(
+        rows(c, "thread.moved").is_empty(),
+        "a move from a failed turn was carried out later"
+    );
+}
+
 // ---------------------------------------------------- 40 messages, four threads
 
 /// The fixture's threads, each with its working set.

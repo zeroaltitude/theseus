@@ -58,6 +58,9 @@ const MAX_TEXT: usize = 1800;
 /// What a place that is not private is told instead of the list.
 const PRIVATE: &str = "The trusted repositories are private.";
 
+/// What a place that is not private is told instead of a project's items.
+const PRIVATE_ITEMS: &str = "A project's items are private.";
+
 /// The one word for a repository whose path says nothing absolute.
 const NO_PATH: &str = "⚠️ Name the repository: `/project trust path:~/projects/tide-gauges`.";
 
@@ -279,6 +282,16 @@ impl Shared {
                 .map(|(_, v)| v.trim().to_string())
                 .unwrap_or_default()
         };
+        // The list is a read the core does not judge, and it names the owner's
+        // work: a private place's alone, as `/project trusted` is.
+        if sub == "list"
+            && !discord
+                .as_ref()
+                .map(typed_in)
+                .is_some_and(|t| self.is_private(&t))
+        {
+            return PRIVATE_ITEMS.into();
+        }
         let author = Some(who.to_string());
         let r = match sub {
             "add" => {
