@@ -3,12 +3,13 @@
 // is where it sits in the tree, what Theseus is told to do under it, what is filed beneath it, and its conversations.
 // The chosen one is `?sel=`, the list's words `?f=`, so any page is a link. Both read the ontology; neither writes it:
 // adding, merging and guidance stay on the Configuration page and the Ship's Ontology page.
+import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ListTree, Search as SearchIcon, UserRound } from 'lucide-react'
 import type { OntologyCategory, OntologyListResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { count } from '@/lib/explorer'
-import { Empty, Field, Panel } from '@/components/ui'
+import { Empty, Panel } from '@/components/ui'
 import { handlesLine, peopleOf } from '@/lib/people'
 import { childrenOf, exploreTopic, holdersOf, labelOf, lineOf, listHref, pathOf, searchHref, topicHref, topicsOf } from './find'
 import { Conversations, LinkRow, useCategories } from './parts'
@@ -42,13 +43,14 @@ function Kinds({ kind }: { kind: 'person' | 'topic' }) {
   const filter = (t: string) => setParams((p) => { if (t) p.set('f', t); else p.delete('f'); return p }, { replace: true })
   return (
     <div className="grid grid-cols-1 gap-4 pb-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <Panel help="simple.memories.list" title={`${w.many} · ${data ? count(all.length) : '…'}`} icon={kind === 'person' ? <UserRound size={13} /> : <ListTree size={13} />} className="lg:max-h-[calc(100vh-190px)]">
+      <Panel help="simple.memories.list" title={`${w.many} · ${data ? count(all.length) : '…'}`} icon={kind === 'person' ? <UserRound size={13} /> : <ListTree size={13} />}
+        className="lg:max-h-[calc(100vh-190px)]" bodyClassName="flex flex-col">
         <label className="flex items-center gap-2 border-b border-line px-3 py-2 text-ink-faint">
           <SearchIcon size={13} aria-hidden />
           <input defaultValue={f} key={f} onChange={(e) => filter(e.target.value)} placeholder={w.filter} aria-label={w.filter}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint" />
         </label>
-        <div className="max-h-full overflow-auto p-2" role="list" aria-label={w.many.toLowerCase()}>
+        <div className="min-h-0 flex-1 overflow-auto p-2" role="list" aria-label={w.many.toLowerCase()}>
           {!data ? <Empty>reading…</Empty>
             : !all.length ? <Empty>{w.none}</Empty>
             : !list.length ? <Empty>Nobody matches those words.</Empty>
@@ -85,16 +87,26 @@ function HeldConversations({ c }: { c: OntologyCategory }) {
   )
 }
 
+/** One fact of a page: its name over its value, which may run to several lines. */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="simple-eyebrow mb-0.5">{label}</div>
+      <div className="break-words text-[13px] text-ink">{children}</div>
+    </div>
+  )
+}
+
 function PersonPage({ c }: { c: OntologyCategory }) {
   const handles = handlesLine(c)
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <Panel help="simple.memories.page" title={c.name} icon={<UserRound size={13} />}>
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-4 text-[13px] sm:grid-cols-2">
-          <Field label="How Theseus reaches them">{handles || 'No handle on file'}</Field>
-          <Field label="Filed by">{c.added_by}</Field>
-          <Field label="Their role, as Theseus has it">{c.description || 'None written'}</Field>
-          <Field label="Conversations">{count(c.members)}</Field>
+          <Fact label="How Theseus reaches them">{handles || 'No handle on file'}</Fact>
+          <Fact label="Filed by">{c.added_by}</Fact>
+          <Fact label="Their role, as Theseus has it">{c.description || 'None written'}</Fact>
+          <Fact label="Conversations">{count(c.members)}</Fact>
         </div>
         <div className="flex gap-4 border-t border-line px-4 py-2.5 text-[12.5px]">
           <Link to={searchHref(c.name)} className="text-live hover:underline">Search for “{c.name}”</Link>
@@ -118,11 +130,11 @@ function TopicPage({ c, cats }: { c: OntologyCategory; cats: OntologyCategory[] 
               <span className="text-ink">{c.name}</span>
             </nav>
           )}
-          <Field label="What it is">{c.description || 'No description written'}</Field>
+          <Fact label="What it is">{c.description || 'No description written'}</Fact>
           {c.guidance && c.guidance.text && (
-            <Field label={`What Theseus is told under it (version ${c.guidance.version})`}><span className="whitespace-pre-wrap">{c.guidance.text}</span></Field>
+            <Fact label={`What Theseus is told under it (version ${c.guidance.version})`}><span className="whitespace-pre-wrap">{c.guidance.text}</span></Fact>
           )}
-          <Field label="Conversations">{count(c.members)}</Field>
+          <Fact label="Conversations">{count(c.members)}</Fact>
         </div>
         <div className="flex flex-wrap gap-4 border-t border-line px-4 py-2.5 text-[12.5px]">
           <Link to={searchHref(c.name)} className="text-live hover:underline">Search for “{c.name}”</Link>

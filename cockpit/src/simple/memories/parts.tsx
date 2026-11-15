@@ -61,7 +61,7 @@ export function Conversations({ imported, native, total }: { imported: string[];
       {shownNative.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-1">Conversations with Theseus</div>}
       {shownNative.map((id) => {
         const s = own.get(id)
-        return <LinkRow key={id} to={sessionHref(id)} title={s?.title ?? s?.label ?? `session ${short(id)}`} sub={s ? `${s.turns} ${s.turns === 1 ? 'turn' : 'turns'}` : 'not among the newest sessions'} />
+        return <LinkRow key={id} to={sessionHref(id)} title={s?.title ?? s?.label ?? `session ${short(id)}`} sub={s ? `${s.turns} ${s.turns === 1 ? 'turn' : 'turns'}` : 'an older session'} />
       })}
       {shownImported.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-2">From imported history</div>}
       {error ? <div className="px-3 py-2 text-[12px] text-fault">Theseus could not read these: {(error as Error).message}</div>

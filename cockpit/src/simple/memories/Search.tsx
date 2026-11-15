@@ -85,13 +85,13 @@ function Kinds({ q }: { q: string }) {
   return (
     <Panel help="simple.memories.kinds" title="People and topics">
       {!data ? <Empty>reading…</Empty> : (
-        <div className="grid grid-cols-1 gap-x-4 p-2 md:grid-cols-2">
-          <div>
+        <div className={`grid grid-cols-1 gap-x-4 p-2 ${f.people.length && f.topics.length ? 'md:grid-cols-2' : ''}`}>
+          <div className={f.people.length ? '' : 'hidden'}>
             {f.people.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-1">People</div>}
             {f.people.map((c) => <LinkRow key={c.id} to={personHref(c.id)} title={c.name} sub={lineOf(cats, c)} />)}
             {f.morePeople > 0 && <More n={f.morePeople} to={listAll('person', q)} what="people" />}
           </div>
-          <div>
+          <div className={f.topics.length ? '' : 'hidden'}>
             {f.topics.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-1">Topics</div>}
             {f.topics.map((c) => <LinkRow key={c.id} to={pageHref(c)} title={c.name} sub={lineOf(cats, c)} />)}
             {f.moreTopics > 0 && <More n={f.moreTopics} to={listAll('topic', q)} what="topics" />}
