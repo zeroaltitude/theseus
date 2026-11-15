@@ -7,6 +7,17 @@ use theseus_protocol::LedgerKind;
 
 use super::*;
 
+/// An in-process call's completion detail: its duration and meta, and for a
+/// call that did not succeed its words as `error`, which the kernel keeps in
+/// the `action.failed` row (`theseus_kernel::failure`).
+pub(super) fn failed_detail(status: ResultStatus, text: &str, dur: u64, meta: &Value) -> Value {
+    let mut d = json!({"duration_ms": dur, "meta": meta});
+    if status != ResultStatus::Ok && !text.trim().is_empty() {
+        d["error"] = json!(text);
+    }
+    d
+}
+
 impl ToolRuntime {
     /// An in-process tool: its result node rides in its completion's frame.
     /// A toollet computes on a core; an async tool (DD5) waits as a task on
@@ -188,6 +199,9 @@ impl ToolRuntime {
         // An image or a PDF's pages the tool read go to the blobs once; the
         // node holds the reference (theseus-9g2, theseus-c9l6).
         let image = img.and_then(|m| Self::keep_media(tc, tool.name(), m, &mut text));
+        // A failed call's words ride in its completion, and so in its ledger
+        // row, so the backlog can say why it failed.
+        let detail = failed_detail(status, &text, dur, &meta);
         let node = self.result_node(
             tc,
             ResultNode {
@@ -218,7 +232,7 @@ impl ToolRuntime {
             producer: format!("{}:{}", tool.backend().as_str(), tool.name()),
             signature: None,
             cost_micros: None,
-            detail: Some(json!({"duration_ms": dur, "meta": meta})),
+            detail: Some(detail),
         };
         for secret in bound
             .iter()
