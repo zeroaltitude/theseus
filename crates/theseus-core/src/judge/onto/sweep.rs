@@ -143,7 +143,7 @@ impl Core {
         self.onto_sweep_with(now_ms, &Hints::default())
     }
 
-    fn onto_sweep_with(&self, now_ms: u64, hints: &Hints) -> anyhow::Result<Swept> {
+    pub(crate) fn onto_sweep_with(&self, now_ms: u64, hints: &Hints) -> anyhow::Result<Swept> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         let mut out = Swept::default();
         let steps = o.sweep_plan(now_ms);

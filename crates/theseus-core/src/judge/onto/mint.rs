@@ -14,10 +14,11 @@
 //!   plan, a pair of mined names no session shares is asked `same_kind.v1`
 //!   (`renamed.rs`); a yes at the act band joins the two names' sessions into
 //!   one cluster ([`Hints::same`]), each name an example of the kind.
-//! - **The kind's name** is its class (`class.rs`, issue 9) when the sweep's
-//!   model part is on; with it off, the most shared name, as before. Jev's
-//!   `name_it.v1` pick ([`Hints::named`]) is still asked and kept, but names
-//!   nothing now.
+//! - **The kind's name** is its class (`class.rs`, issue 9), which only the
+//!   sweep's model part can give: with it off no kind is made, and what would
+//!   have been filed waits for a night when it is on (the `other` answers stay
+//!   in the ledger for [`WINDOW_MS`]). Jev's `name_it.v1` pick ([`Hints::named`])
+//!   is still asked and kept, but names nothing now.
 //! - **Undo** retires the kind with its category and drops the memberships
 //!   (`Ontology::undo`). A name a kind of the table already lists in
 //!   `examples` is not clustered again, an undone kind's included, so a
@@ -138,7 +139,7 @@ pub struct Hints {
     /// Whether the class call was part of this run. When it was, a cluster
     /// with no class makes no kind that night (a kind is a class of things,
     /// and the thing that prompted it is an entry of it); when it was not
-    /// (the sweep's model part is off), the kind is named as it always was.
+    /// (the sweep's model part is off), no kind is made at all.
     pub class_asked: bool,
     /// What the questions cost.
     pub spent: theseus_judge::price::Micros,
@@ -323,6 +324,14 @@ pub fn plan_with(
     write: impl Fn(usize) -> String,
     hints: &Hints,
 ) -> Plan {
+    // No class call, no kind (the owner's answer, 2026-11-14): with the sweep's
+    // model part off there is nothing to name the class, and a kind named
+    // after the thing is the fault this line exists for. What would have been
+    // filed waits: the `other` answers stay in the ledger, and a night when
+    // the model part is on makes the kind then.
+    if !hints.class_asked {
+        return Plan::default();
+    }
     let names = folds(said);
     let mut listed = listed_in(o);
     let all = clusters(&names, &live_same(&listed, &hints.same));
