@@ -1,8 +1,9 @@
-// The books, first cut (theseus-civ0): the imported episodes organized by the book the import hinted, read only. The seven
-// books and the unsorted with their counts and spans (a chart with its table view); a book's episodes newest first, a
-// page at a time, filtered by topic, source, and place from the book's facets; and an episode opened to its summary, its
+// The shelves, first cut (theseus-civ0; the route and the identifiers keep the word "books"): the imported episodes sorted
+// onto the shelf the import hinted, read only. A shelf is a sorted set of conversations; a book is what Theseus will write
+// from one (planned, not built). The seven shelves and the unsorted with their counts and spans (a chart with its table
+// view); a shelf's episodes newest first, a page at a time, filtered by topic, source, and place from its facets; and an episode opened to its summary, its
 // labels, and its messages (`session.history` of its imported session). It reads the present (`books.list`,
-// `books.page`); the time machine keeps no past of the import, so while it shows a moment the view says so. The book,
+// `books.page`); the time machine keeps no past of the import, so while it shows a moment the view says so. The shelf,
 // the filters, and the open episode are in the address (`?book=&topic=&source=&place=&episode=`). Nothing here moves
 // but a bar easing to a new count, and that not in calm mode or under reduced motion.
 import { useMemo } from 'react'
@@ -15,7 +16,7 @@ import { cn } from '@/lib/format'
 import { useCalm } from '@/lib/calm'
 import { useAsOf } from '@/lib/timemachine'
 import {
-  BOOK_WORDS, FIRST_CUT, bookTitle, episodeWhen, facetOptions, filtersOf, filterWords, guarded, joined, labelWords,
+  BOOK_WORDS, FIRST_CUT, bookTitle, episodeWhen, shelfTitle, facetOptions, filtersOf, filterWords, guarded, joined, labelWords,
   ordered, pageParams, shares, spanWords, type Filters,
 } from '@/lib/books'
 import { ChartPanel, TipArea, TipBody, TipTarget, type TableSpec } from '@/components/ChartPanel'
@@ -45,8 +46,8 @@ export default function Books() {
         <BookOpen size={14} className="mt-0.5 shrink-0 text-think" />
         <span>{FIRST_CUT}</span>
       </div>
-      {past && <div className="num px-1 text-[11.5px] text-wait">the ship’s log shows a past moment; the books keep no past, so this is the present</div>}
-      {list && !list.indexed && <div className="num px-1 text-[11.5px] text-wait">the daemon is still indexing the books after an upgrade: this answer read every imported session, and is slow until the index is whole</div>}
+      {past && <div className="num px-1 text-[11.5px] text-wait">the ship’s log shows a past moment; the shelves keep no past, so this is the present</div>}
+      {list && !list.indexed && <div className="num px-1 text-[11.5px] text-wait">the daemon is still indexing the shelves after an upgrade: this answer read every imported session, and is slow until the index is whole</div>}
       <Shelf list={list} error={error as Error | null} book={f.book} onPick={pick} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <BookPages f={f} q={q} episodes={episodes} selected={episode} onFilter={(k, v) => set({ [k]: v, episode: null })} onOpen={(sid) => set({ episode: sid })} />
@@ -58,7 +59,7 @@ export default function Books() {
 
 interface ShelfRow { book: string; episodes: number; span: string; share: number }
 
-/** The books as bars of their counts, each a button that opens it; its table view is the same rows. */
+/** The shelves as bars of their counts, each a button that opens it; its table view is the same rows. */
 function Shelf({ list, error, book, onPick }: { list?: BooksListResult; error: Error | null; book: string; onPick: (b: string) => void }) {
   const calm = useCalm((s) => s.calm)
   const rows: ShelfRow[] = useMemo(() => {
@@ -67,22 +68,22 @@ function Shelf({ list, error, book, onPick }: { list?: BooksListResult; error: E
     return books.map((b, i) => ({ book: b.book, episodes: b.episodes, span: spanWords(b), share: s[i] }))
   }, [list])
   const table: TableSpec<ShelfRow> = {
-    caption: 'each book’s imported episodes and their span',
+    caption: 'each shelf’s imported episodes and their span',
     rowKey: (r) => r.book,
     rows,
     columns: [
-      { key: 'book', label: 'book', cell: (r) => bookTitle(r.book) },
+      { key: 'book', label: 'shelf', cell: (r) => bookTitle(r.book) },
       { key: 'episodes', label: 'episodes', num: true, cell: (r) => fmt(r.episodes) },
       { key: 'span', label: 'first to last start', cell: (r) => r.span },
       { key: 'what', label: 'what it holds', cell: (r) => BOOK_WORDS[r.book] ?? '' },
     ],
   }
-  const empty = error ? `the daemon refused the read: ${error.message}` : !list ? 'reading the books…'
+  const empty = error ? `the daemon refused the read: ${error.message}` : !list ? 'reading the shelves…'
     : list.episodes === 0 ? 'no imported episodes yet: `theseus import openclaw <file>` brings them in' : undefined
   return (
-    <ChartPanel id="books" help="books.chart" title={<>the books · {fmt(list?.episodes ?? 0)} episodes</>} icon={<Library size={13} />} table={table} empty={empty}>
+    <ChartPanel id="books" help="books.chart" title={<>the shelves · {fmt(list?.episodes ?? 0)} episodes</>} icon={<Library size={13} />} table={table} empty={empty}>
       <TipArea>
-        <ul className="flex flex-col gap-1 p-1" aria-label="the books">
+        <ul className="flex flex-col gap-1 p-1" aria-label="the shelves">
           {rows.map((r) => (
             <li key={r.book}>
               <TipTarget label={`${bookTitle(r.book)}: ${fmt(r.episodes)} episodes`} onClick={() => onPick(r.book)}
@@ -104,7 +105,7 @@ function Shelf({ list, error, book, onPick }: { list?: BooksListResult; error: E
   )
 }
 
-/** A book's pages under `f`, newest first, each read once and kept: `books.page` with the last page's cursor. */
+/** A shelf's pages under `f`, newest first, each read once and kept: `books.page` with the last page's cursor. */
 function useBookPages(f: Filters) {
   const open = useConn((s) => s.status === 'open')
   return useInfiniteQuery({
@@ -117,7 +118,7 @@ function useBookPages(f: Filters) {
   })
 }
 
-/** A book's episodes, newest first, a page at a time, with its filters. */
+/** A shelf's episodes, newest first, a page at a time, with its filters. */
 function BookPages({ f, q, episodes, selected, onFilter, onOpen }: {
   f: Filters; q: ReturnType<typeof useBookPages>; episodes: BookEpisode[]; selected: string | null
   onFilter: (k: 'topic' | 'source' | 'place', v: string | null) => void; onOpen: (sid: string) => void
@@ -127,7 +128,7 @@ function BookPages({ f, q, episodes, selected, onFilter, onOpen }: {
   const facets = first?.facets
   const last = pages[pages.length - 1]
   return (
-    <Panel help="books.book" title={<>{bookTitle(f.book)} · {first ? fmt(first.total) : '…'} episodes</>} icon={<ScrollText size={13} />}
+    <Panel help="books.book" title={<>{shelfTitle(f.book)} · {first ? fmt(first.total) : '…'} episodes</>} icon={<ScrollText size={13} />}
       actions={<span className="num text-[10.5px] normal-case tracking-normal text-ink-faint">{BOOK_WORDS[f.book]}</span>}>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 text-[12px]">
         <Filter size={12} className="text-ink-faint" />
@@ -137,10 +138,10 @@ function BookPages({ f, q, episodes, selected, onFilter, onOpen }: {
         <span className="num ml-auto text-[11px] text-ink-faint">{filterWords(f)}{facets?.cut ? ' · facets cut to the 100 largest' : ''}</span>
       </div>
       {q.error ? <Empty>the daemon refused the read: {(q.error as Error).message}</Empty>
-        : !first ? <Empty>reading the book…</Empty>
-        : episodes.length === 0 ? <Empty>{first.next ? 'none among the episodes looked at so far' : `no episode in the ${bookTitle(f.book)} matches ${filterWords(f)}`}</Empty>
+        : !first ? <Empty>reading the shelf…</Empty>
+        : episodes.length === 0 ? <Empty>{first.next ? 'none among the episodes looked at so far' : `no episode on ${shelfTitle(f.book)} matches ${filterWords(f)}`}</Empty>
         : (
-          <ol className="flex flex-col" aria-label={`the ${bookTitle(f.book)}'s episodes, newest first`}>
+          <ol className="flex flex-col" aria-label={`${shelfTitle(f.book)}: episodes, newest first`}>
             {episodes.map((e) => <EpisodeRow key={e.session_id} e={e} on={e.session_id === selected} onOpen={() => onOpen(e.session_id)} />)}
           </ol>
         )}
@@ -201,7 +202,7 @@ function EpisodePanel({ sessionId, e, onClose }: { sessionId: string | null; e?:
           <>
             <p className="text-[13px] leading-relaxed text-ink">{e.summary ?? e.withheld ?? '(no summary)'}</p>
             <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11.5px]">
-              <dt className="text-ink-faint">book</dt><dd className="text-ink-dim">{bookTitle(e.book)}</dd>
+              <dt className="text-ink-faint">shelf</dt><dd className="text-ink-dim">{bookTitle(e.book)}</dd>
               <dt className="text-ink-faint">labels</dt><dd className="text-ink-dim">{labelWords(e).join(' · ')}</dd>
               <dt className="text-ink-faint">topics</dt><dd className="text-ink-dim">{e.topics?.join(', ') || '—'}</dd>
               <dt className="text-ink-faint">import</dt><dd className="num text-ink-dim">{e.tag} · {e.episode_id.slice(0, 15)}…</dd>
