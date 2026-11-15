@@ -74,6 +74,11 @@ pub fn open(p: &Place, branch: &str) -> Scratch {
         dir: dir(p, branch),
         before: trees_named(&p.trees()),
     };
+    // One an earlier review of this branch could not remove: emptied, so this review starts
+    // with nothing in its way.
+    if s.dir.exists() {
+        let _ = std::fs::remove_dir_all(&s.dir);
+    }
     let made = std::fs::create_dir_all(&s.dir)
         .and_then(|()| std::fs::write(mark(&s.dir), s.before.join("\n")));
     if let Err(e) = made {
