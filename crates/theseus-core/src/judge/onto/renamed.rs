@@ -16,9 +16,9 @@
 //!   that together would make a cluster are asked, at most [`KIND_PAIRS_MAX`]
 //!   a run, largest union first. A yes joins the two names' sessions.
 //! - **The kind's name** (`name_it.v1`, same method): a cluster that will mint
-//!   and has two names or more is asked which of them names the kind. Jev's pick
-//!   names it; `none`, a pick below the band, or no answer leaves the most
-//!   shared name, as before. A kept pick names only a cluster that still
+//!   and has two names or more is asked which of them names the kind. Since
+//!   issue 9 the class names it (`class.rs`) and this pick names nothing; it is
+//!   still asked and kept. A kept pick belongs to a cluster that still
 //!   holds it: one the cluster no longer holds is dropped with its ask, and the
 //!   cluster is asked again. So is a kept ask with no pick, once the cluster's
 //!   names differ from those it offered.

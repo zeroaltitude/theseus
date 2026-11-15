@@ -638,6 +638,31 @@ class NonFindings(Case):
         self.assertClean({"crates/demo/src/lib.rs": sub(sub(LIB, "fn adding_two_numbers_sums_them", "fn two_sums"),
                                                         "let n = add(2, 3);", "let n = add(2, 3) + add(0, 0);")})
 
+    def test_the_report_counts_matched_tests_by_how_they_were_matched(self):
+        # A match by name is a move; one by likeness is a guess. The count says which, and says it is no proof, so
+        # it cannot be read as one.
+        moved = ("#[tokio::test]\nasync fn a_zero_changes_nothing() {\n"
+                 "    assert_eq!(demo::add(7, 0), 7);\n}\n")
+        lib = sub(LIB, "    #[tokio::test]\n    async fn a_zero_changes_nothing() {\n"
+                       "        assert_eq!(add(7, 0), 7);\n    }\n\n", "")
+        lib = sub(sub(lib, "fn adding_two_numbers_sums_them", "fn two_sums"),
+                  "let n = add(2, 3);", "let n = add(2, 3) + add(0, 0);")
+        self.head({"crates/demo/src/lib.rs": lib, "crates/demo/tests/zero.rs": moved})
+        code, out = self.findings()
+        self.assertEqual(code, 0, out)
+        self.assertIn("(matched by name)", out)
+        self.assertIn("(matched by likeness)", out)
+        self.assertIn("2 removed tests were matched to a test at the head (1 by name, 0 by body, 1 by likeness, "
+                      "which is a guess)", out)
+        self.assertIn("not a proof", out)
+        self.assertNotIn("the same test", out)
+
+    def test_nothing_matched_prints_no_count(self):
+        self.head({"crates/demo/src/lib.rs": sub(LIB, "let n = add(2, 3);", "let n = add(3, 2);")})
+        code, out = self.findings()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("were matched", out)
+
     def test_an_assertion_rewritten(self):
         self.assertClean({"crates/demo/src/lib.rs": sub(LIB, '        assert!(n > 4, "a sum is no smaller than a part");',
                                                         "        assert_ne!(n, 4);")})

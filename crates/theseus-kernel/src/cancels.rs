@@ -62,6 +62,46 @@ impl Kernel {
         )
     }
 
+    /// A job a stop reached before its pid was written settled `unsupported`, the stop finding
+    /// nothing to signal; its launch then stopped it, and that stop has a verdict (theseus-vn4d). The
+    /// action takes it: `termination_verified` or `outcome_uncertain`, and a verified one's
+    /// held reservation is released, since nothing ran that costs. Any other action is left as it
+    /// is, so a second look writes nothing.
+    pub fn cancel_corrected(&self, correlation_id: &str, how: &Verdict) -> Result<Action> {
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
+        if a.state != ActionState::Cancelled || a.cancel != Some(CancelState::Unsupported) {
+            return Ok(a);
+        }
+        let st = if how.verified() {
+            CancelState::TerminationVerified
+        } else {
+            CancelState::OutcomeUncertain
+        };
+        a.cancel = Some(st);
+        a.verdict = Some(how.clone());
+        let mut frame = Vec::new();
+        if st == CancelState::TerminationVerified && a.reservation_id.is_some() {
+            if let Some(mut e) = self.execution(&a.execution_id)? {
+                // The unsupported settle held it as unknown spend: it is none now.
+                e.budget.held_unknown_micros = e
+                    .budget
+                    .held_unknown_micros
+                    .saturating_sub(a.reserved_micros);
+                e.updated_at_ms = self.now_ms();
+                frame.push(exec_record(&e)?);
+            }
+        }
+        frame.push(action_record(&a)?);
+        frame.push(self.ledger(
+            LedgerKind::ActionCancel,
+            Some(&a.session_id),
+            json!({"correlation_id": a.correlation_id, "cancel": st, "settled": true,
+                   "corrects": "unsupported"}),
+        )?);
+        self.commit(&frame)?;
+        Ok(a)
+    }
+
     /// One step of a cancel's lifecycle; `verdict`, its last step's.
     fn cancel_step(
         &self,

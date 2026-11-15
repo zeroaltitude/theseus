@@ -66,6 +66,7 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod memory;
 pub mod modes;
+pub mod money;
 mod names;
 pub mod narrative_watch;
 mod nodes;

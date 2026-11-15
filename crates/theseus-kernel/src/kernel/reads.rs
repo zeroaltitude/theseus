@@ -39,6 +39,36 @@ impl Kernel {
             .collect()
     }
 
+    /// Every execution that decodes, and how many records did not (theseus-q6nt): for a listing,
+    /// which one bad record must not fail. The count is the caller's to say.
+    pub fn executions_readable(&self) -> Result<(Vec<Execution>, u64)> {
+        let recs = self.store.latest_of_kind(kinds::EXECUTION)?;
+        Ok(
+            self.decode_executions_skipping(
+                recs.iter().map(|r| (r.position, r.payload.as_slice())),
+            ),
+        )
+    }
+
+    /// `records` (a position and a payload each) decoded as `executions` decodes them, leaving
+    /// out, and counting, each that does not.
+    pub fn decode_executions_skipping<'a>(
+        &self,
+        records: impl IntoIterator<Item = (u64, &'a [u8])>,
+    ) -> (Vec<Execution>, u64) {
+        let (mut out, mut skipped) = (Vec::new(), 0u64);
+        for (position, payload) in records {
+            match self.decode_execution(payload) {
+                Ok(e) => out.push(e),
+                Err(e) => {
+                    skipped += 1;
+                    tracing::warn!(position, error = %format!("{e:#}"), "an execution record did not decode; it is left out of the listing");
+                }
+            }
+        }
+        (out, skipped)
+    }
+
     pub fn actions(&self) -> Result<Vec<Action>> {
         decode_all(&self.store.latest_of_kind(kinds::ACTION)?)
     }

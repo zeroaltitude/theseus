@@ -136,6 +136,7 @@ class Totals(unittest.TestCase):
         # 2 + 2 + 2 cases, and the three ignored ones (one per place at most) are out.
         self.assertIn("6 cases in 3 places", out)
         self.assertIn("(not in the set) only_when_asked", out)
+        self.assertIn("COUNTED FROM THE SOURCES", out, "the report says it counts and does not measure")
 
     def test_expect_fails_on_drift_and_says_to_regenerate_rather_than_trust_the_number(self):
         root = self.whole()
@@ -161,7 +162,8 @@ class Totals(unittest.TestCase):
     def test_markdown_names_the_count_the_places_and_every_case(self):
         rc, out, _ = self.run_main("--root", self.whole(), "--markdown")
         self.assertEqual(rc, 0, out)
-        self.assertIn("**6 tests fail on this VM", out)
+        self.assertIn("**6 tests are the set that this VM's cause takes with it", out)
+        self.assertIn("not measured on the VM", out)
         self.assertIn("`clause_01_namespaces`", out)
         self.assertIn("scripts/env-fail-set.py", out, "the block says how it was made, so it is regenerated")
 

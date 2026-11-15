@@ -34,6 +34,14 @@ lines are free; a multi-line string's lines count whole). Where it can disagree 
     contiguous attribute and doc-comment block directly above the `fn` is read, never a neighbour's;
   - `#[cfg(test)]` code is included (the gate runs clippy with `--all-targets`).
 The calibration against clippy's own numbers is in scripts/tests/test_line_pressure.py's header.
+
+What it was measured to agree on, and what it does not claim (issue 14, base b8b403b7): with clippy's threshold lowered to
+40 in a scratch copy, clippy judged 4,012 functions in the workspace and this script agreed on the count of 4,004. The
+other eight were a function hidden by an array return type (fixed), two `#[tokio::main]` functions and one
+`#[async_trait]` method counted 2 high (fixed), and four that are the same file reached by a second path. In the other
+direction the script lists about 215 functions that clippy printed nothing for at that threshold (among them the
+feature-gated probe.rs, and tests written inside a macro such as `proptest!`, which clippy does not judge): a line here
+is pressure on a function this script can see, and clippy may never act on it. It prints more than clippy holds, never less.
 """
 import argparse
 import os
@@ -84,7 +92,7 @@ def tokens(src):
             m = IDENT.match(src, i)
             yield ("id", m.start(), m.end())
             i = m.end()
-        elif c in "{};()":
+        elif c in "{};()[]":
             yield (c, i, i + 1)
             i += 1
         else:
@@ -98,13 +106,16 @@ def functions(src):
         if kind != "id" or src[s:e] != "fn" or k + 1 >= len(toks) or toks[k + 1][0] != "id":
             continue
         name = src[toks[k + 1][1]:toks[k + 1][2]]
-        depth = 0  # paren depth, so a `{` in a where-clause type can't be taken before the body
+        # paren AND bracket depth: a `{` in a where-clause type can't be taken before the body, and the `;` of an array
+        # type (`-> [Fault<'a>; 12]`) is not the `;` of a declaration with no body. That `;` made the function
+        # vanish from the scan (75 by clippy, absent here; issue 14).
+        depth = 0
         j = k + 2
         while j < len(toks):
             tk = toks[j][0]
-            if tk == "(":
+            if tk in ("(", "["):
                 depth += 1
-            elif tk == ")":
+            elif tk in (")", "]"):
                 depth -= 1
             elif tk == ";" and depth == 0:
                 j = -1  # a declaration with no body
@@ -171,17 +182,37 @@ def attribute_block(src, line):
     return list(reversed(out))
 
 
+def enclosing_attrs(src, line):
+    """The attribute block of the `impl` or `trait` an indented `fn` sits in, found by indentation: the nearest
+    line above with less indentation, when it opens an `impl` or `trait`. `#[async_trait]` goes there."""
+    lines = src.split("\n")
+    indent = len(lines[line - 1]) - len(lines[line - 1].lstrip())
+    if indent == 0:
+        return []
+    for n in range(line - 2, max(-1, line - 400), -1):
+        t = lines[n]
+        if t.strip() and len(t) - len(t.lstrip()) < indent:
+            if re.match(r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?(?:impl|trait)\b", t):
+                return attribute_block(src, n + 1)
+            return []
+    return []
+
+
+# An attribute that rewrites an `async fn` into a plain one that returns a future, so clippy counts its body exactly:
+# the path ends in `test` (`#[test]`, `#[tokio::test(..)]`) or `main` (`#[tokio::main]`), or it is `async_trait`
+# (on the fn, or on the `impl` or `trait` that holds it). A `#[cfg(test)]` gates the item and leaves it `async`.
+REWRITES_ASYNC = re.compile(r"#\[(?:\w+::)*(?:test|main|async_trait)\b")
+
+
 def clippy_extra(src, line):
-    """2 for a plain `async fn` (see the header), else 0: `async` on the `fn`'s own line, and no `test`
-    attribute (`#[test]`, `#[tokio::test]`, ...) in its attribute block."""
+    """2 for a plain `async fn` (see the header), else 0: `async` on the `fn`'s own line, and no attribute that
+    rewrites it (`#[test]`, `#[tokio::test]`, `#[tokio::main]`, `#[async_trait]`) on it or on its `impl`."""
     head = src.split("\n")[line - 1]
     m = re.search(r"\bfn\b", head)
     head = head[:m.start()] if m else head
     if not re.search(r"\basync\b", head):
         return 0
-    # The attribute's own path ends in `test`: `#[test]`, `#[tokio::test(..)]`. A `#[cfg(test)]` or
-    # `#[cfg(not(test))]` gates the item and leaves it `async`.
-    if re.search(r"#\[(?:\w+::)*test\b", "\n".join(attribute_block(src, line))):
+    if REWRITES_ASYNC.search("\n".join(attribute_block(src, line) + enclosing_attrs(src, line))):
         return 0
     return 2
 

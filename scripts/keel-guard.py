@@ -722,15 +722,16 @@ def tests_rule(tree, paths, out):
         b = base_tests[k]
         cands = [c for c in by_name.get(b["name"], []) if c not in claimed]
         same_body = [c for c in cands if head_tests[c]["norm"] == b["norm"]]
-        match = (same_body or cands or [c for c in by_body.get(b["norm"], []) if c not in claimed] or [None])[0]
-        how = "moved" if match is not None else ""
+        by_body_c = [c for c in by_body.get(b["norm"], []) if c not in claimed]
+        match = (same_body or cands or by_body_c or [None])[0]
+        how = "by name" if (same_body or cands) and match is not None else "by body" if match is not None else ""
         if match is None:
             match = rewritten(b, k[0], [c for c in added if c not in claimed], head_tests)
-            how = "renamed and rewritten"
+            how = "by likeness"
             if match is not None and match[0] != k[0]:
                 guessed_elsewhere.add((k, match))
         if match is not None:
-            MATCHED.append(f"{k[0]}::{k[1]} -> {match[0]}::{match[1]} ({how})")
+            MATCHED.append((how, f"{k[0]}::{k[1]} -> {match[0]}::{match[1]} (matched {how})"))
         if match is None:
             out.append(Finding("test-removed", k[0], b["line"], b["head"], "(gone)"))
         else:
@@ -765,7 +766,7 @@ def tests_rule(tree, paths, out):
     allow_rule(base_marks, head_marks, out)
 
 
-MATCHED = []  # the tests that went and came back, said in the report
+MATCHED = []  # (how, line): the tests that went and a test at the head was matched to, said in the report
 
 
 def rewritten(b, path, cands, head_tests):
@@ -1940,6 +1941,15 @@ def acked(f, ack_list):
     return any(rule == f.rule and any(fnmatch.fnmatchcase(f.path, p) for p in paths) for rule, paths, _ in ack_list)
 
 
+def matched_summary(matched):
+    """What the pairing found, counted by how it found it. A pairing by name or body is a move; one by likeness is a
+    guess, so it is counted apart and the reader is told to read each line, not to take the count as a proof."""
+    n = {how: sum(1 for h, _ in matched if h == how) for how in ("by name", "by body", "by likeness")}
+    return (f"{len(matched)} removed tests were matched to a test at the head ({n['by name']} by name, "
+            f"{n['by body']} by body, {n['by likeness']} by likeness, which is a guess): "
+            "the match is not a proof that the test kept its meaning, so read each line above")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="The keel guard: erosions of tests, budgets and ceilings in a range.")
     ap.add_argument("--repo", default=".")
@@ -1966,8 +1976,10 @@ def main(argv=None):
     passed = [f for f in findings if acked(f, ack_list)]
     took = time.monotonic() - began
     if not args.quiet:
-        for m in MATCHED:
-            print(f"keel: the same test: {m}")
+        for _, m in MATCHED:
+            print(f"keel: matched, not proven the same: {m}")
+        if MATCHED:
+            print(f"keel: {matched_summary(MATCHED)}")
     for f in passed:
         print(f"keel: acked: {f}")
     for sha, line, why in refused:

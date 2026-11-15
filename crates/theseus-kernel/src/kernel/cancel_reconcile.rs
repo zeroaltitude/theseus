@@ -147,6 +147,23 @@ impl Kernel {
         Ok(ended)
     }
 
+    /// Settle a call a cancel had stopped, from the verdict its wrapper wrote: acknowledged, then
+    /// verified or uncertain, in one frame, as the cancel's own last step does.
+    fn settle_from_stop(&self, correlation_id: &str, v: &Verdict) -> Result<Action> {
+        let execution_id = self
+            .action(correlation_id)?
+            .ok_or_else(|| KernelError::UnknownAction(correlation_id.into()))?
+            .execution_id;
+        self.frame(&[&execution_id], |k| {
+            k.cancel_acknowledged(correlation_id)?;
+            if v.verified() {
+                k.cancel_verified(correlation_id, Some(v))
+            } else {
+                k.cancel_uncertain(correlation_id, v)
+            }
+        })
+    }
+
     /// The heartbeat reconciler (§3.3, §3.16): due wakes fire; dispatched
     /// actions past their deadline are checked against evidence and settled
     /// or marked unknown; unknowns are re-probed. Cost scales with the work
@@ -189,6 +206,19 @@ impl Kernel {
         for a in actions {
             match a.state {
                 ActionState::Dispatched => {
+                    // A cancel had stopped it before the earlier process died (theseus-1og8,
+                    // theseus-fvxh): the verdict its wrapper left settles it, as the cancel
+                    // would have, and the execution's transcript is answered once serving.
+                    if !due && a.cancel.is_some() {
+                        self.earlier_noted().cancelled.push(a.execution_id.clone());
+                        if let Some(v) = evidence.stopped(&a) {
+                            if self.settle_from_stop(&a.correlation_id, &v).is_ok() {
+                                evidence.stop_taken(&a);
+                                rep.settled_from_stop.push(a.correlation_id);
+                                continue;
+                            }
+                        }
+                    }
                     if a.deadline_at_ms > now && a.cancel.is_none() {
                         if !due {
                             self.note_earlier(&a, evidence);
@@ -229,6 +259,7 @@ impl Kernel {
         }
         rep.elapsed_us = t0.elapsed().as_micros() as u64;
         if !(rep.woke_due.is_empty()
+            && rep.settled_from_stop.is_empty()
             && rep.settled_from_evidence.is_empty()
             && rep.marked_unknown.is_empty()
             && rep.resolved_unknown.is_empty())

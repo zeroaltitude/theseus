@@ -44,10 +44,12 @@ async fn rig() -> Rig {
 /// The DM's session, once the owner has spoken in it.
 async fn dm_session(r: &Rig) -> String {
     r.say((ANA, "ana"), None, "hello");
-    r.until("the reply", || {
+    // The reply's LATEST content: the binding streams a reply and edits it to its end, so the content the message
+    // was created with can be a part of it, and waiting for the whole text there can never come true.
+    r.until_on(&[ANA_DM], "the reply", || {
         r.posted(ANA_DM)
             .iter()
-            .any(|m| m.versions[0].contains("Hello."))
+            .any(|m| m.content.contains("Hello."))
     })
     .await;
     r.core

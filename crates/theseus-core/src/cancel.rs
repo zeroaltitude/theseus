@@ -141,8 +141,8 @@ impl Stops {
 /// How one call a stop reached ended: its action after the cancel's last
 /// step, its backend, and the verdict. `written`: this stop's last step wrote
 /// it. A job a stop at its launch ended, whose action an earlier stop had
-/// settled, is stopped all the same and has its verdict, but its action
-/// keeps the earlier step (theseus-36to).
+/// settled `unsupported`, is stopped all the same, and its action takes the
+/// launch stop's verdict (theseus-36to, theseus-vn4d).
 pub struct Ended {
     pub action: Action,
     pub backend: &'static str,
@@ -254,6 +254,10 @@ impl Stopped {
                 continue;
             };
             if a.state.is_settled() {
+                // A job a stop reached before its pid was written settled `unsupported`; its
+                // launch's stop has a verdict, which the action takes (theseus-vn4d). Any other
+                // settled action is left as it is.
+                let a = k.cancel_corrected(corr, v).unwrap_or(a);
                 ended.extend(Ended::of(a, Some(v.clone()), backend, false));
                 continue;
             }

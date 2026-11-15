@@ -57,6 +57,7 @@ pub mod mint;
 pub mod narrow;
 pub(crate) mod own_tree;
 pub mod pause;
+pub mod pause_tool;
 pub mod pipeline;
 pub mod pr;
 pub mod revert;

@@ -13,7 +13,8 @@ use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult, SelfFileParams,
-    SelfFileResult, SelfMoveParams, SelfMoveResult, SelfRetryParams, SelfRetryResult,
+    SelfFileResult, SelfMoveParams, SelfMoveResult, SelfPauseParams, SelfPauseResult,
+    SelfRetryParams, SelfRetryResult,
 };
 
 use crate::cmd::output;
@@ -98,6 +99,36 @@ pub(crate) fn aside_words(r: &SelfDropResult) -> Result<String> {
         ),
         false => format!("{} ({}) was set aside already.", r.item, r.title),
     })
+}
+
+/// `theseus self pause [WHY]` and `unpause`: new self builds held or let go. A pause is the running
+/// daemon's, so the words say that a restart clears it.
+pub async fn pause(conn: &mut Conn, json: bool, clear: bool, why: Vec<String>) -> Result<()> {
+    let why = why.join(" ");
+    let p = SelfPauseParams {
+        clear,
+        why: (!why.trim().is_empty()).then_some(why),
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_PAUSE, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfPauseResult| {
+        println!("{}", pause_words(&r, clear));
+        Ok(())
+    })
+}
+
+/// What a pause's answer says in words.
+pub(crate) fn pause_words(r: &SelfPauseResult, cleared: bool) -> String {
+    match (cleared, r.changed, &r.words) {
+        (false, true, Some(w)) => format!("New self builds are {w}."),
+        (false, false, Some(w)) => format!("Already {w}."),
+        (true, true, _) => "Unpaused: new self builds may start again.".to_string(),
+        (true, false, _) => "Nothing was paused.".to_string(),
+        (false, _, None) => "The pause was not set.".to_string(),
+    }
 }
 
 pub async fn move_item(conn: &mut Conn, json: bool, item: String, rank: u32) -> Result<()> {

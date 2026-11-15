@@ -19,6 +19,8 @@ use crate::cmd::output;
 mod backlog;
 #[cfg(test)]
 mod tests_aside;
+#[cfg(test)]
+mod tests_pause;
 
 mod branches;
 
@@ -52,6 +54,14 @@ pub enum SelfCmd {
     },
     /// Release the kill switch: the owner's, from their own shell.
     Resume,
+    /// Pause new self builds, short of the kill switch (anyone's): nothing new starts until
+    /// `unpause`, or until the daemon restarts. Builds under way finish.
+    Pause {
+        /// Why, in a few words.
+        why: Vec<String>,
+    },
+    /// Clear the pause: the owner's, from their own shell.
+    Unpause,
     /// The week's digest: what Theseus changed about itself this week.
     Digest,
     /// Theseus's own backlog, ranked, with each item's evidence.
@@ -191,6 +201,8 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
                 Ok(())
             })
         }
+        SelfCmd::Pause { why } => backlog::pause(conn, json, false, why).await,
+        SelfCmd::Unpause => backlog::pause(conn, json, true, Vec::new()).await,
         SelfCmd::Resume => {
             let p = SelfResumeParams {
                 from_job: theseus_client::client::job_session(),

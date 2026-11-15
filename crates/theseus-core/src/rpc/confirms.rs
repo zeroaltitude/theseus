@@ -712,7 +712,7 @@ impl Core {
                 ..
             } => Err(format!(
                 "it came from a Theseus job's shell (THESEUS_SESSION={job}), and only the owner \
-                 reorders, drops or retries the self backlog, from their own shell, the web UI, or their \
+                 reorders, drops, retries or unpauses the self backlog, from their own shell, the web UI, or their \
                  own account on a bound transport"
             )),
             Act::SelfBacklog { from_job: None, .. } => {
