@@ -269,10 +269,18 @@ pub fn classify(paths: &[String], diff: &str) -> Vec<Hit> {
     hits
 }
 
-/// Main's keel guard over `base..head` in `dir` (a tree at the head): its
-/// findings, none when it passes or main has no guard. A guard that cannot
-/// run is a finding: the keel never passes by default.
-pub fn keel_guard(p: &Place, dir: &Path, base: &str, head: &str) -> Result<Vec<Hit>> {
+/// Main's keel guard (the script as `main` has it) over `base..head` in `dir`
+/// (a tree at the head): its findings, none when it passes or main has no
+/// guard. A guard that cannot run is a finding: the keel never passes by
+/// default.
+///
+/// `base` is where the branch left main (`git::merge_base`), never main's
+/// tip. The guard reads two trees, and against main's tip everything main
+/// gained after the branch was cut comes back reversed: a test main added
+/// since reads as a test the branch removed. On 2026-11-15 a fix that landed
+/// on main while a branch built added four tests, and that branch, accepted
+/// by its review, stopped at the owner's card for removing them.
+pub fn keel_guard(p: &Place, dir: &Path, main: &str, base: &str, head: &str) -> Result<Vec<Hit>> {
     let Some(blob) = p
         .git_ok(
             &p.repo,
@@ -280,7 +288,7 @@ pub fn keel_guard(p: &Place, dir: &Path, base: &str, head: &str) -> Result<Vec<H
                 "rev-parse",
                 "-q",
                 "--verify",
-                &format!("{base}:scripts/keel-guard.py"),
+                &format!("{main}:scripts/keel-guard.py"),
             ],
         )
         .ok()

@@ -56,6 +56,11 @@ pub fn main_of(p: &Place, remote: &str) -> Result<String> {
     )
 }
 
+/// Where `head` left `main`: the commit both hold.
+pub fn merge_base(p: &Place, main: &str, head: &str) -> Result<String> {
+    p.git_ok(&p.repo, &["merge-base", main, head])
+}
+
 /// The longest one fetch may take (theseus-6vlr4). Git has no total or
 /// connect bound of its own: `http.lowSpeedTime` counts only once a transfer
 /// has begun, and an ssh remote's `ConnectTimeout` is the user's config, so a

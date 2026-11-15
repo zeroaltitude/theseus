@@ -80,18 +80,21 @@ impl Run<'_> {
         );
         let (hits, stat) = blocking(move || {
             git::fetch(&p, &r)?;
-            let base = git::main_of(&p, &r)?;
-            let paths: Vec<String> = git::paths(&p, &base, &h)?
+            let main = git::main_of(&p, &r)?;
+            // Every reading here is of what the branch itself changed, from where it left
+            // main: the paths and the diff by git's own three dots, the guard by that commit.
+            let from = git::merge_base(&p, &main, &h)?;
+            let paths: Vec<String> = git::paths(&p, &main, &h)?
                 .into_iter()
                 .map(|(_, p)| p)
                 .collect();
-            let diff = git::diff(&p, &base, &h, 0)?;
+            let diff = git::diff(&p, &main, &h, 0)?;
             let mut hits = keel::classify(&paths, &diff);
             let t = git::detached(&p, "keel", &b, &h)?;
-            let guard = keel::keel_guard(&p, &t.dir, &base, &h);
+            let guard = keel::keel_guard(&p, &t.dir, &main, &from, &h);
             let _ = tree::close(&p, &t);
             hits.extend(guard?);
-            let stat = p.git_ok(&p.repo, &["diff", "--stat", &format!("{base}...{h}")])?;
+            let stat = p.git_ok(&p.repo, &["diff", "--stat", &format!("{main}...{h}")])?;
             Ok((hits, stat))
         })
         .await?;

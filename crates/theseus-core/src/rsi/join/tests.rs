@@ -683,6 +683,61 @@ async fn a_keel_class_stops_at_the_owners_card_and_waits() {
     assert_eq!(r.posts().len(), 2, "never retried at that head");
 }
 
+/// KEY: what main gained after a branch was cut is not what the branch removed. Main's
+/// guard reads two trees; given main's tip it read a test added to main since as a test the
+/// branch took away, and an accepted branch stopped at the owner's card (2026-11-15). Given
+/// where the branch left main, it finds nothing, and the branch joins.
+#[tokio::test]
+async fn a_test_main_gained_since_the_cut_is_not_one_the_branch_removed() {
+    let r = rig(SelfMode::Act);
+    // A guard that reads its range as the real one does: the two trees it is given.
+    let guard = concat!(
+        "import subprocess, sys\n",
+        "a = sys.argv\n",
+        "repo, base, head = (a[a.index(k) + 1] for k in ('--repo', '--base', '--head'))\n",
+        "out = subprocess.run(['git', '-C', repo, 'diff', '--no-renames', '--name-status', base, head],\n",
+        "                     capture_output=True, text=True).stdout\n",
+        "gone = [l.split()[1] for l in out.splitlines() if l.startswith('D') and l.split()[1].startswith('tests/')]\n",
+        "for g in gone:\n",
+        "    print(g + ':1: test-removed: (there) -> (gone)')\n",
+        "sys.exit(1 if gone else 0)\n",
+    );
+    let root = r.f.place.state.parent().unwrap().to_path_buf();
+    let other = root.join("guard");
+    git(
+        &root,
+        &[
+            "clone",
+            "-q",
+            r.f.upstream.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    std::fs::write(other.join("scripts/keel-guard.py"), guard).unwrap();
+    git(&other, &["add", "-A"]);
+    git(&other, &["commit", "-q", "-m", "the guard"]);
+    git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    git(&r.f.place.repo, &["fetch", "-q", "origin"]);
+    // The branch is cut here, and then main gains a test the branch never had.
+    let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
+    std::fs::create_dir_all(other.join("tests")).unwrap();
+    std::fs::write(other.join("tests/later.sh"), "true\n").unwrap();
+    git(&other, &["add", "-A"]);
+    git(&other, &["commit", "-q", "-m", "a test main gains later"]);
+    git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert!(pass.stopped.is_empty(), "{pass:?}: {:?}", r.posts());
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    assert_eq!(pass.joined[0].0, branch);
+    // Main holds both: the branch's fix and the test it gained meanwhile.
+    let main = r.upstream_main();
+    let tree = git(&r.f.upstream, &["ls-tree", "-r", "--name-only", &main]);
+    assert!(
+        tree.contains("fix.txt") && tree.contains("tests/later.sh"),
+        "{tree}"
+    );
+}
+
 /// The data rule's files stop at the owner's card too (theseus-ozplq): one
 /// plant per file the finding named, each a self branch whose only extra
 /// change is that file. Before this row they were in the keel guard's
