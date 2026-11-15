@@ -20,6 +20,43 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Say in a sentence what every other published run found, where a pass rate would mislead.',
     'Each row is a benchmark whose newest run does not support a headline pass rate: it measured something else (time, memory, recall), ran too few trials, or did not include Theseus as an arm. The words are the run\u2019s own finding, from its report, cut to three lines. When a pass rate exists but is not led with, the reason is given under it.',
     'These runs still decide things: start-up time, recall, what survives a crash. Open a report before quoting it; the sentence here is a summary, not the measurement.'),
+  // ---- the simple pages (src/simple): Memories
+  'simple.memories.search': e(
+    'Find something Theseus remembers: a person, a topic, or a few words from a conversation.',
+    'Type the words and press Search. Theseus puts them to its people and topics, to the notes it would bring to a conversation, and to the history that was imported, and shows what each found in its own card below.',
+    'It is the quickest way to learn whether Theseus knows something, and where it learned it, before you rely on it.'),
+  'simple.memories.holdings': e(
+    'Say how much Theseus holds, so you know how wide a search is.',
+    'The conversations Theseus has had with you, the conversations imported from elsewhere, the people and topics it has filed, and the notes in its index, which is what a search of its memory reads.',
+    'A number far from what you expect, such as no imported conversations when you imported some, means a search cannot find what you are looking for.'),
+  'simple.memories.kinds': e(
+    'List the people and topics that match the words you searched.',
+    'Each row is one person or topic, with a line under it: how a person is reached, or where a topic sits and how many conversations are filed under it. Choose one to open its page.',
+    'A name is often the better way in: its page gathers every conversation that person or topic is part of.'),
+  'simple.memories.recalled': e(
+    'Show the notes Theseus would bring to a conversation if you asked about these words.',
+    'Each row is one remembered passage, with where it came from and when. A note from a personal or partner-confidential conversation shows its label and keeps its words back until you open it. Searching writes nothing and asks no model.',
+    'If the passage you were after is missing here, Theseus would not have had it in front of it either, and that is worth knowing before you ask it something.'),
+  'simple.memories.episodes': e(
+    'List the imported conversations whose title, place or topics hold your words.',
+    'Each row is one conversation from the history that was imported, with its date, where it happened and how long it was. It matches on its title, its place and its topics, not on every word said in it.',
+    'It finds a whole conversation by what it was about. Use the notes above when you are after one particular thing that was said.'),
+  'simple.memories.list': e(
+    'List everyone, or every topic, that Theseus has on file.',
+    'One row each, with a line under it. Type in the box to narrow the list; the row you choose opens its page on the right.',
+    'It is where to browse when you do not have words to search for yet.'),
+  'simple.memories.page': e(
+    'Show what Theseus has on file for one person or one topic.',
+    'For a person: how Theseus reaches them, the role it has written for them, and how many conversations they are in. For a topic: where it sits among the others, what it is, and what Theseus has been told to do in conversations under it.',
+    'Theseus acts on this. A wrong role, a missing handle or a guidance that no longer fits changes how it behaves, so this page is where to check it. Changes are made on the Configuration page.'),
+  'simple.memories.conversations': e(
+    'List the conversations filed under this person or topic, the newest first.',
+    'Conversations with Theseus come first, then imported history. Each row opens the conversation; a personal or partner-confidential one shows only its label until you open it.',
+    'It shows what the page is built from. A conversation that does not belong here is one Theseus will wrongly count under this name.'),
+  'simple.memories.below': e(
+    'List the topics filed directly beneath this one.',
+    'One row each, with how many conversations it holds. Choose one to open its page.',
+    'A topic is easier to judge with its parts in view: a branch that is too large or empty shows up here.'),
   // ---- the simple pages (src/simple): Ops
   'simple.ops.now': e(
     'Say in five numbers where everything stands at this moment.',
