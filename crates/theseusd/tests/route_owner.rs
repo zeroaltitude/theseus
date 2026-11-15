@@ -188,7 +188,7 @@ fn w39_a_pinned_fable_on_a_thank_you_is_honored() {
         "a pin is not a switch Jev made: {:?}",
         rows[0]
     );
-    assert_eq!(models_sent(&model), ["claude-fable-5-1"]);
+    assert_eq!(models_sent(&model), ["claude-fable-5-2"]);
 }
 
 /// W40 (`must`): a pinned Haiku beats a Fable-shaped design question: the operator's named model

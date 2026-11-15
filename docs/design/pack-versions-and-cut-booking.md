@@ -19,7 +19,7 @@ description. The labelled cases are written for v10 and read for v11 without a w
 the router's option and the catalog row, so the pack and the router cannot name two models again.
 
 **What does not carry over from v10.** A pack's standing on the ladder, a rollback, a `[judge.packs."route.v10"]` key and any
-learned rewrite stand on a version's own name. On a live daemon, check `theseus packs` (v11 `live`; v10 may show a row of its own, which acts on nothing) and the config
+learned rewrite stand on a version's own name. On a live daemon, check `theseus packs` (it lists the wired packs and learned ones: v11 `live`, and v10 no longer) and the config
 file for a `[judge.packs."route.v10"]` table, which now does nothing: rename it to `route.v11`. Rows the ledger holds under
 `route.v10` stay readable under that name.
 

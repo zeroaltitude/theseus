@@ -19,8 +19,9 @@ tokens say what it would have cost on any other table.
 - `compare` refuses a ratio across two digests, says which it saw, and prints one
   only on one basis, or on a table both arms were repriced onto.
 
-Only the cache-read entry moved; input, output and cache-write are identical on
-both tables.
+Only the cache-read entry moved between those two; input, output and cache-write are identical on both. A third
+table, `list-2026-11-14`, only adds the Fable 5.2 row (issue 5 of 1.0.7) and moves no price; it claims a record only when
+the table before it cannot price it (`ADDS_ONLY`), so what was recorded keeps its basis.
 """
 
 from __future__ import annotations
