@@ -189,6 +189,14 @@ impl ScanFile {
             }
         }
         let map = Map::random(&file).map_err(|e| format!("not mapped: {e}"))?;
+        // Every slot of the entry table is empty or an entry the file has: a lookup trusts it.
+        let b = map.bytes();
+        if (0..slots).any(|i| {
+            let e = u32_at(b, table as usize + 4 * i);
+            e != EMPTY && e as usize >= n
+        }) {
+            return Err("an entry table with an entry the file does not have".into());
+        }
         Ok(ScanFile {
             map,
             _file: file,

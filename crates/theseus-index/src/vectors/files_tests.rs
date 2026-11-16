@@ -530,3 +530,56 @@ fn a_compaction_keeps_the_scan_file_in_step() {
     let c = Cache::open_scanned(tmp.path(), &stamp()).unwrap();
     assert_eq!((c.len(), c.scale.len()), (records - dead, 0));
 }
+
+/// A forget compacts every stamp's file, another space's too (opened plain, not scanned): the
+/// records it drops are in no scan file beside it afterwards.
+#[test]
+fn a_forgotten_record_is_in_no_scan_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_file(tmp.path(), &nodes(200), 17);
+    let key = stamp_key(&stamp());
+    let (vec, scan) = (
+        tmp.path().join(format!("{key}.vec")),
+        tmp.path().join(format!("{key}.scan")),
+    );
+    drop(Cache::open_scanned(tmp.path(), &stamp()).unwrap());
+    let plain = Cache::open(tmp.path(), &stamp()).unwrap();
+    let gone = plain.hash_of(7).to_le_bytes();
+    let has = |path: &Path| {
+        fs::read(path)
+            .map(|b| b.windows(16).any(|w| w == gone))
+            .unwrap_or(false)
+    };
+    assert!(has(&vec) && has(&scan), "both files hold it to begin with");
+    let mut c = Cache::open(tmp.path(), &stamp()).unwrap();
+    let r = c.compact(&|h| h.to_le_bytes() != gone).unwrap();
+    assert_eq!(r.dropped, 1);
+    assert!(!has(&vec), "dropped from the vector file");
+    assert!(!has(&scan), "and from the scan file beside it");
+    // Opened scanned again, the scan file is made from what is left.
+    let c = Cache::open_scanned(tmp.path(), &stamp()).unwrap();
+    assert!(c.scan.is_some() && c.len() == 199);
+    assert!(!has(&scan));
+}
+
+/// A scan file whose entry table names an entry the file does not have is made again, not trusted.
+#[test]
+fn a_scan_file_with_a_bad_entry_table_is_made_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_file(tmp.path(), &nodes(200), 18);
+    let key = stamp_key(&stamp());
+    let scan = tmp.path().join(format!("{key}.scan"));
+    drop(Cache::open_scanned(tmp.path(), &stamp()).unwrap());
+    let mut bytes = fs::read(&scan).unwrap();
+    // The entry table is the file's last section; its last slot gets an entry past the file's.
+    let end = bytes.len();
+    bytes[end - 4..].copy_from_slice(&1_000_000u32.to_le_bytes());
+    fs::write(&scan, &bytes).unwrap();
+    let c = Cache::open_scanned(tmp.path(), &stamp()).unwrap();
+    assert!(c.scan.is_some() && c.scale.is_empty());
+    let plain = Cache::open(tmp.path(), &stamp()).unwrap();
+    for e in 0..plain.len() as u32 {
+        assert_eq!(c.get(plain.hash_of(e)), plain.get(plain.hash_of(e)));
+    }
+    assert_ne!(fs::read(&scan).unwrap(), bytes, "made again");
+}

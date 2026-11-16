@@ -584,6 +584,16 @@ impl Cache {
                 }
             }
         }
+        // The records this file dropped must not stay in a scan file beside it: one that was never
+        // opened here (another space's stamp compacted for a forget) or whose rewrite just failed. It
+        // is made again from the records when the stamp is next opened scanned.
+        match fs::remove_file(self.scan_path()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "index: the old scan file was not removed after a compaction");
+            }
+        }
         let mut by_hash = Entries::with_capacity(kept.len());
         let mut hashes = Vec::with_capacity(kept.len());
         let mut q = Vec::with_capacity(kept.len() * self.cut);
