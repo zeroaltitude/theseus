@@ -1107,7 +1107,7 @@ weights_dir = "~/.cache/theseus/models"   # the embedding model's files; nothing
 threads = 1                               # the embedding model's threads
 query_threads = 0                         # a recall query's embedding's own pool, ahead of the backfill; 0: four (never more than the cores), and one thread, one query at a time, while the machine is busy
 idle_unload_mins = 10.0                   # the model unloads after this long unused (about 500 MB), and loads again on the next use
-resident_mb = 128                         # the index's memory at rest, the model unloaded, however large the store grows: what a turn's recall searches first (recent, used, important) is chosen to fit what is left of it after the index's own parts (about 40 MiB), the rest is read in groups of similar material; at least 56
+resident_mb = 128                         # the index's memory at rest, the model unloaded, however large the store grows: what a turn's recall searches first (recent, used, important) is chosen to fit what is left of it after the index's own parts (about 52 MiB), the rest is read in groups of similar material; at least 68
 
 # ---------------------------------------------------------------- memory
 # Recall (M6 step 30a): on a turn's first loop, ask the index what past nodes

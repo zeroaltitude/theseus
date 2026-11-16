@@ -15,7 +15,7 @@ stuff always at hand, and … indexes for things that can be very fast lookups".
 
 | Part | Where | What it does |
 |---|---|---|
-| the budget | `[index] resident_mb` (128), `layout.rs` | the index's resident memory at rest, the model unloaded, whatever the store's size; what is left after the index's own parts (40 MiB, measured: the table's bits and pointers, the signals, the pages of the rows a search touches, freed heap, the word index) is the hot region (a cut, a scale and an entry number: 264 bytes a record); refused below 56 |
+| the budget | `[index] resident_mb` (128), `layout.rs` | the index's resident memory at rest, the model unloaded, whatever the store's size; what is left after the index's own parts (52 MiB, measured: the table's bits and pointers, the signals, the pages of the rows a search touches, freed heap, the word index) is the hot region (a cut, a scale and an entry number: 264 bytes a record); refused below 68 |
 | the score | `heat.rs` | recency by the node's **own** time (an import of old sessions is old; the half-life is 30 days), use (`memory.used`), importance (the gate's durability), the operator's labels (useful and should-have are hot, wrong and stale never) |
 | the signals | `heat.rs`, the tender | read off the log's ledger rows as the tender follows it, kept in `heat.log` beside the vectors; a signal only changes what is read first, never an answer |
 | the layout | `tier.rs`, `<stamp key>.tier` | copies of the int8 cuts in region order: the hot region, then groups of similar records, each group together |
@@ -97,3 +97,21 @@ results in the cold part, and both searches' times. It writes the layout into th
 The measure on a synthetic store (`vectors/measure.rs`: vectors drawn round a few hundred centres, since random vectors have no
 similar groups) is in the issue's runner report; the real check is `theseus-index replay` on a copy of the real store and the
 last 30 days of recalls.
+
+## The layout pass at five times the store, and what the budget holds (measured, synthetic)
+
+A layout is a pass over every record: it scores them, trains the groups' centres on a sample (30,000 records, 8 rounds),
+puts every cold record in its nearest group in one pass in file order, writes the tier file and checks it. It runs on the
+embedding thread's own pool (so it has no more threads than that thread is given) and holds no query: a search while one
+runs is as fast as an idle one. On a store of 1,995,572 records (five times today's), a budget of 128 and 32 cores it takes
+about 20 s; on four threads with the files' pages dropped first, about 26 s. Its cost is records times groups times 256 (a
+dot product of int8 cuts for each pair), which is why `dot_i8` takes sixteen products a step where the machine has AVX2.
+`a_layout_of_five_times_the_store_finishes_in_time` (ignored; the test's own comment says how to run it) fails over two minutes.
+
+What the budget counts at rest and after searches, vector side only (the word index's 10 to 22 MiB is added by hand):
+290,730 records (today's size; all of it hot): 10.3 MiB anonymous + 92.3 file-backed; 1,995,572 records at 128 MiB (349,525
+hot at a fixed part of 40, since changed to 52): 19.7 + 100.9. The pass gives back what it used (the heap is trimmed after it:
+81 MiB of anonymous memory remained at five times the store before, 18 after). The table's own anonymous memory grows with
+the store (about 8 bytes a chunk text), so "whatever the store's size" is bounded by that: at five times today's it is about
+20 MiB, and the fixed part is sized for the largest of each part measured, not for a store of any size.
+

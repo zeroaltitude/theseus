@@ -5,8 +5,8 @@
 //! model unloaded, anonymous and file-backed together, at rest and after a run of ordinary
 //! recalls, whatever the store's size. [`FIXED_MB`] of it is the fixed part (the word index, the
 //! groups' centres, the table's bookkeeping, the pages of the rows a search touches); the rest is
-//! the **hot region**, at a cut, a scale and an entry number a record. At today's size and the default budget every record fits,
-//! so nothing is laid out, nothing is read differently, and a search is the exact scan it always
+//! the **hot region**, at a cut, a scale and an entry number a record. At today's size and the
+//! default budget every record fits, so nothing is laid out, nothing is read differently, and a search is the exact scan it always
 //! was. Past it the highest scores ([`super::heat`]) are hot and the rest is cold.
 //!
 //! **What a search reads** under a layout: the whole hot region, then every record the layout
@@ -38,11 +38,13 @@ pub const DEFAULT_RESIDENT_MB: u64 = 128;
 /// (16 MiB).
 pub const MIN_RESIDENT_MB: u64 = FIXED_MB + 16;
 
-/// What the budget keeps for what is not the hot region: measured on a synthetic store of today's
-/// size, the vector side's own memory (the table's bits and pointers, the signals, freed heap the
-/// allocator keeps, the pages of the rows the search touches) was 17 to 20 MiB resident beside the
-/// hot region, and the word index adds 10 to 20 MiB.
-pub const FIXED_MB: u64 = 40;
+/// What the budget keeps for what is not the hot region, measured on synthetic stores of today's
+/// size and five times it: the vector side's own memory (the table's bits and pointers, the
+/// signals) was 10 to 20 MiB anonymous, the pages of the rows a search touches 9 to 16 MiB
+/// beside the hot region, and the word index adds 10 to 22 MiB: 52 holds the largest of each at
+/// once with the hot region full (it was 40, which left the tender at 123 to 143 MiB at a full
+/// hot region, over the setting).
+pub const FIXED_MB: u64 = 52;
 
 /// A value of `[index] resident_mb` the index can keep, or why not.
 pub fn check_resident_mb(mb: u64) -> Result<(), String> {
@@ -976,7 +978,7 @@ mod tests {
 
     #[test]
     fn the_budget_holds_what_it_should() {
-        // 128 MiB less the fixed part at 264 bytes a record is about 350,000 records, more than
+        // 128 MiB less the fixed part at 264 bytes a record is about 300,000 records, more than
         // the 291,000 the owner's store holds today.
         assert!(hot_cap(128, 256) > 291_000);
         assert!(hot_cap(128, 256) < 400_000);
