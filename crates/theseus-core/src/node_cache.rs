@@ -15,6 +15,11 @@
 //!   nodes idle past its threshold, coldest first) go first, the one place
 //!   the science touches tiering; then the coldest by last touch, then by
 //!   count, then by order of touch.
+//! - **A pass that reads each node once does not fill it** (issue 21):
+//!   [`NodeCache::node_once`] serves a kept node and decodes any other
+//!   without keeping it. The import's people step, an append's check, an
+//!   erase and the identity-file read read this way;
+//!   `docs/design/import-rest.md` says what filling it cost.
 //! - **The store's read path**, not memory's: it serves with `[memory]`
 //!   off too, and nothing on the start path fills it (it fills as reads
 //!   happen).
@@ -149,6 +154,19 @@ impl NodeCache {
         let n = Arc::new(self.decode(payload)?);
         self.keep(position, n.clone(), payload.len() as u64);
         Ok(n)
+    }
+
+    /// The node at `position` for a reader that will not come back to it: the
+    /// kept node when the cache holds one (left untouched, so this read does
+    /// not make it look hot), else the payload decoded and NOT kept. A pass
+    /// over every node of every session it was given reads each once, and
+    /// [`NodeCache::node`] would fill the cache with them (issue 21: the
+    /// nightly import's people step left 44 MiB of nodes no turn reads).
+    pub fn node_once(&self, position: u64, payload: &[u8]) -> anyhow::Result<Arc<Node>> {
+        match self.peek(position) {
+            Some(n) => Ok(n),
+            None => Ok(Arc::new(self.decode(payload)?)),
+        }
     }
 
     /// A decode the cache counts, of a node it was asked for and lacks.

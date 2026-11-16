@@ -137,7 +137,7 @@ fn read(
                 }
             }
         }
-        for (_, n) in store.session_nodes(&rec.session_id)? {
+        for (_, n) in store.session_nodes_once(&rec.session_id)? {
             if !matches!(n.body, Body::Imported { .. }) {
                 continue;
             }
