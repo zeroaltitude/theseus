@@ -194,3 +194,25 @@ async fn only_identical_stops_in_a_row_count() {
     assert!(held(&r).is_empty());
     assert!(r.posts().is_empty());
 }
+
+/// The day's self budget spent is a reason that clears at midnight, whatever the turn calls it:
+/// never held, however many passes it stops, and tried again after a wait.
+#[tokio::test]
+async fn a_spent_day_line_is_never_held() {
+    let _clock = crate::test_support::pin_mid_period();
+    let (r, _id, reviewer, seams) = rig_with_failing(crate::turn::SELF_BUDGET_CLASS, false);
+    for _ in 0..5 {
+        r.core.self_join_pass(&seams).await.unwrap();
+        theseus_protocol::time::move_clock_to(theseus_protocol::now_unix_ms() + 5 * 3_600_000);
+    }
+    assert_eq!(
+        reviewer.asked(),
+        5,
+        "asked again each time the wait was over"
+    );
+    assert!(held(&r).is_empty());
+    assert!(
+        r.posts().is_empty(),
+        "no card for a day line that turns over"
+    );
+}

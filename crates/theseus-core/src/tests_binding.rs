@@ -106,7 +106,7 @@ async fn say(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSub
 /// `earlier` sent: the system, the tools, and every message of it, block for
 /// block (a cache mark moves by design and is not content). Names the first
 /// place they differ.
-fn assert_same_prefix(earlier: &ProviderRequest, later: &ProviderRequest) {
+pub(crate) fn assert_same_prefix(earlier: &ProviderRequest, later: &ProviderRequest) {
     let (a, b) = (
         unmarked(&json!(earlier.system)),
         unmarked(&json!(later.system)),

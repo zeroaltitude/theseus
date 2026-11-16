@@ -37,7 +37,6 @@ const SESSIONS: usize = 256;
 #[derive(Debug, Clone)]
 struct Sent {
     turn: String,
-    at: usize,
     anchor: String,
     blocks: Vec<Value>,
 }
@@ -56,7 +55,6 @@ pub struct SentTails(Mutex<Held>);
 /// tails of earlier requests put back.
 pub(super) struct Begun {
     turn: String,
-    at: usize,
     blocks: usize,
     anchor: String,
     kept: Vec<Sent>,
@@ -107,24 +105,29 @@ impl SentTails {
         let held = {
             let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
             h.recent.retain(|s| s != session);
-            h.by_session.remove(session).unwrap_or_default()
+            h.recent.push_back(session.to_string());
+            h.by_session.get(session).cloned().unwrap_or_default()
         };
         let mut kept = Vec::new();
+        // The kept tails are in message order, and routing may have moved a message (an effort
+        // message placed before the turn's own): each is found by what its message rendered
+        // as, from where the one before it was.
+        let anchors: Vec<String> = match held.is_empty() || stripped {
+            true => Vec::new(),
+            false => compiled.request.messages[..last]
+                .iter()
+                .map(anchor)
+                .collect(),
+        };
+        let mut from = 0;
         for s in held.into_iter().filter(|_| !stripped) {
-            let Some(m) = compiled
-                .request
-                .messages
-                .get_mut(s.at)
-                .filter(|_| s.at < last)
-            else {
+            let Some(i) = (from..anchors.len()).find(|&i| anchors[i] == s.anchor) else {
                 continue;
             };
-            if anchor(m) != s.anchor {
-                continue;
-            }
-            if let Some(b) = blocks_of(m) {
+            if let Some(b) = blocks_of(&mut compiled.request.messages[i]) {
                 b.extend(s.blocks.iter().cloned());
                 counted(compiled, bytes(&s.blocks));
+                from = i + 1;
                 kept.push(s);
             }
         }
@@ -133,7 +136,6 @@ impl SentTails {
         let blocks = blocks_of(m).map_or(0, |b| b.len());
         Some(Begun {
             turn: turn.to_string(),
-            at: last,
             blocks,
             anchor,
             kept,
@@ -145,7 +147,6 @@ impl SentTails {
     pub(super) fn finish(&self, session: &str, compiled: &mut Compiled, begun: Option<Begun>) {
         let Some(Begun {
             turn,
-            at,
             blocks,
             anchor,
             mut kept,
@@ -153,6 +154,8 @@ impl SentTails {
         else {
             return;
         };
+        // The tail is on the request's last message, wherever routing has since put it.
+        let at = compiled.request.messages.len().saturating_sub(1);
         if let Some(b) = compiled
             .request
             .messages
@@ -178,13 +181,13 @@ impl SentTails {
             if !fresh.is_empty() {
                 kept.push(Sent {
                     turn,
-                    at,
                     anchor,
                     blocks: fresh,
                 });
             }
         }
         let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        h.recent.retain(|s| s != session);
         h.recent.push_back(session.to_string());
         h.by_session.insert(session.to_string(), kept);
         while h.recent.len() > SESSIONS {

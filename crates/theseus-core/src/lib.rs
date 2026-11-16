@@ -275,6 +275,8 @@ mod tests_bg_gate;
 #[cfg(test)]
 mod tests_binding;
 #[cfg(test)]
+mod tests_binding_routed;
+#[cfg(test)]
 mod tests_books;
 #[cfg(test)]
 mod tests_budget_loop;

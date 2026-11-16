@@ -198,7 +198,7 @@ impl TurnRunner {
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
-        let begun = self.tails.begin(sid, t.tc.turn_id, &mut compiled);
+        t.tail = self.tails.begin(sid, t.tc.turn_id, &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)
@@ -212,7 +212,6 @@ impl TurnRunner {
         self.defer_noted(t, spec, &compiled);
         self.env_tail(t, &mut compiled).await;
         let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
-        self.tails.finish(sid, &mut compiled, begun);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));
         }

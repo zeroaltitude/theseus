@@ -55,7 +55,7 @@ impl Cause {
             .find_map(|c| c.downcast_ref::<TurnError>())
             .map(|t| Cause {
                 class: t.class.clone(),
-                transient: t.transient,
+                transient: t.transient || clears(&t.class),
             })
     }
 
@@ -63,6 +63,13 @@ impl Cause {
     pub fn numbers(&self, repeats: usize) -> Value {
         json!({"class": self.class, "transient": self.transient, "repeats": repeats})
     }
+}
+
+/// Failures a turn calls final that pass without anyone's hand, and so are no reason to hold a
+/// change: the self budget's day line, spent until the day turns (a refused reservation costs
+/// nothing), and a turn the queue could not admit while the load held (`admission_stuck`).
+fn clears(class: &str) -> bool {
+    matches!(class, crate::turn::SELF_BUDGET_CLASS | "admission_stuck")
 }
 
 /// A stop's row, as a [`Stop`].
