@@ -727,6 +727,11 @@ pub struct IndexTierStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub kept: Option<f64>,
+    /// What that check used: `queries` (real recall queries the tender served) or `records` (cold
+    /// records' own vectors, while too few queries have been served; its bar is higher).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub checked_on: Option<String>,
     /// Layouts made, and the last one's time and when it finished (unix ms).
     pub layouts: u64,
     pub last_layout_ms: f64,

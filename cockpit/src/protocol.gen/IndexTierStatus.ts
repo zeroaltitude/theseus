@@ -33,6 +33,11 @@ promoted: number,
  */
 kept?: number, 
 /**
+ * What that check used: `queries` (real recall queries the tender served) or `records` (cold
+ * records' own vectors, while too few queries have been served; its bar is higher).
+ */
+checked_on?: string, 
+/**
  * Layouts made, and the last one's time and when it finished (unix ms).
  */
 layouts: number, last_layout_ms: number, last_layout_at_ms: number, 

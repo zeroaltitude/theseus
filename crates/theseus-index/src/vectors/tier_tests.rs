@@ -26,6 +26,10 @@ fn settled(dir: &Path, all: &[NodeChunks], seed: u64) -> Table {
 fn lay_out(t: &mut Table, cap: usize) -> (usize, usize) {
     let plan = t.plan_layout(NOW).expect("a plan");
     let (tier, hot, cold) = build_layout(&plan, cap).unwrap();
+    if tier.is_some() {
+        // Checked, as the tender's pass does after its check: the candidate gets its name.
+        fs::rename(plan.cand_path(), &plan.tier_path).unwrap();
+    }
     t.install_tier(tier.map(Arc::new));
     (hot, cold)
 }
@@ -479,14 +483,14 @@ fn a_layout_that_keeps_too_little_is_not_put_in_place() {
         .unwrap()
         .failed
         .expect("it failed its check");
-    assert!(failed.share < layout::KEEP_BAR, "{}", failed.share);
+    assert!(failed.share < failed.bar, "{}", failed.share);
     assert!(!tmp
         .path()
         .join(format!("{}.tier", stamp_key(&stamp())))
         .exists());
     let s = v.tier_status().expect("a status");
     assert_eq!(s.mode, "exact");
-    assert!(s.why_exact.unwrap().contains("must keep 95%"));
+    assert!(s.why_exact.unwrap().contains("must keep 97%"));
     assert_eq!(v.layout_due(), None, "not again until the store has grown");
     // Exact still answers.
     let q = &queries(1)[0];
@@ -509,7 +513,7 @@ fn a_layout_that_passes_its_check_is_put_in_place() {
     assert_eq!(s.mode, "tiered", "{s:?}");
     assert_eq!(s.hot, 300);
     assert!(
-        s.kept.unwrap() >= f64::from(layout::KEEP_BAR),
+        s.kept.unwrap() >= f64::from(layout::KEEP_BAR_RECORDS),
         "{:?}",
         s.kept
     );
@@ -546,4 +550,60 @@ fn signals_are_kept_across_a_restart_and_a_forgotten_node_leaves_them() {
     let (left, _) = heat::Signals::load(&file).unwrap();
     assert_eq!((left.len(), left.get("nd_a").used), (1, 0));
     assert!(v.table.read().unwrap().signals.get("nd_b").wants_hot());
+}
+
+/// A layout is written under another name until it has passed its check, so a kill during the
+/// check leaves no layout that was never checked; checked, it gets its name.
+#[test]
+fn a_layout_has_its_name_only_once_it_is_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp.path(), 1500, 35);
+    let plan = t.plan_layout(NOW).expect("a plan");
+    let (tier, _, _) = build_layout(&plan, 300).unwrap();
+    assert!(tier.is_some());
+    assert!(plan.cand_path().exists() && !plan.tier_path.exists());
+    let v = in_a_tender(tmp.path(), t, 300);
+    fs::remove_file(plan.cand_path()).unwrap();
+    v.layout_now("test");
+    assert!(plan.tier_path.exists() && !plan.cand_path().exists());
+    assert_eq!(v.tier_status().unwrap().mode, "tiered");
+}
+
+/// Enough real queries served, and a layout is checked on them (and the status says so).
+#[test]
+fn a_layout_is_checked_on_real_queries_once_there_are_enough() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp.path(), 1500, 36);
+    let queries: Vec<Vec<f32>> = (0..40)
+        .map(|k| {
+            let row = (k * 41 % t.row_count()) as u32;
+            embedder::l2_normalize(&t.full_of(row as usize).unwrap().expect("a vector"))
+        })
+        .collect();
+    let v = in_a_tender(tmp.path(), t, 300);
+    for q in &queries {
+        v.remember_query(q);
+    }
+    v.layout_now("test");
+    let s = v.tier_status().expect("a status");
+    assert_eq!(s.checked_on.as_deref(), Some("queries"), "{s:?}");
+    assert_eq!(s.mode, "tiered");
+}
+
+/// A promoted record the layout makes hot is read once: a promotion made against an older layout
+/// never doubles a row in a newer one.
+#[test]
+fn a_promoted_record_that_is_hot_in_this_layout_is_read_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = planted_table(tmp.path(), 1500, 37);
+    lay_out(&mut t, 300);
+    let tier = t.tier.clone().unwrap();
+    let q = &queries(1)[0];
+    let before = ask(&t, q, &filters()[0], Reach::Fast);
+    t.promoted.insert(tier.entry(0));
+    t.promoted.insert(tier.entry(1));
+    let after = ask(&t, q, &filters()[0], Reach::Fast);
+    assert_eq!(before, after);
+    let rows: HashSet<u32> = after.iter().map(|x| x.0).collect();
+    assert_eq!(rows.len(), after.len(), "a row came back twice");
 }

@@ -180,7 +180,7 @@ impl TurnRunner {
         // (theseus-w9qv): read here, in microseconds, with no call.
         let now = theseus_protocol::now_unix_ms();
         let when = crate::recall::when::of_turn(&nodes, t.tc.turn_id, now);
-        let mut begun = self.memory.begin_within(
+        let mut begun = self.memory.begin_turn(
             query,
             Some(as_of),
             crate::recall::K,

@@ -137,6 +137,7 @@ impl Cache {
             path.with_extension("vec.tmp"),
             path.with_extension("scan.tmp"),
             path.with_extension("tier.tmp"),
+            path.with_extension("tier.cand"),
         ] {
             match fs::remove_file(&stale) {
                 Ok(()) => tracing::warn!(
@@ -578,12 +579,13 @@ impl Cache {
         out.sync_all()?;
         drop(out);
         at(Step::Copied)?;
+        // The records are about to renumber, so a layout of the old numbers will mean other
+        // records: it goes first, so that no crash can leave it beside the renamed file (and a
+        // forgotten record's cut stays in no copy of the cuts).
+        self.drop_tier();
         fs::rename(&tmp, &path).with_context(|| format!("renaming over {}", path.display()))?;
         at(Step::Renamed)?;
         sync_dir(&self.dir)?;
-        // The records renumber, so a layout of the old numbers means other records now: it goes
-        // with what was dropped (a forgotten record's cut must not stay in a copy of the cuts).
-        self.drop_tier();
         // The new file, and in memory or in a new scan file its records as the
         // copy wrote them.
         let file = OpenOptions::new()

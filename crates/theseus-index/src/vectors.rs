@@ -965,6 +965,8 @@ pub struct Vectors {
     counts: Mutex<status::Counts>,
     /// The layout pass: when it may be tried again, and what it last did (`layout.rs`).
     layouts: Mutex<layout::LayoutState>,
+    /// The vectors of the last recall queries served, which a layout is checked on.
+    recent: Mutex<std::collections::VecDeque<Vec<f32>>>,
 }
 
 /// The compactions so far, and when a failed one may be tried again.
@@ -1055,6 +1057,7 @@ impl Vectors {
             ahead: Ahead::default(),
             counts: Mutex::default(),
             layouts: Mutex::default(),
+            recent: Mutex::default(),
             cfg,
         }
     }
@@ -1875,6 +1878,9 @@ impl Vectors {
         drop(turn);
         let embed_ms = t0.elapsed().as_secs_f64() * 1e3;
         let t1 = Instant::now();
+        if reach == Reach::Fast {
+            self.remember_query(&v.full);
+        }
         let t = self.table.read().unwrap();
         let f = t.filter(as_of, exclude, filters);
         let hits = t

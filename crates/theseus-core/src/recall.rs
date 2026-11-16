@@ -454,6 +454,42 @@ impl Memory {
         when: Option<when::When>,
         sessions: Vec<String>,
     ) -> Begun {
+        self.begin_reach(query, as_of, k, arm, deadline, when, sessions, false)
+    }
+
+    /// [`Memory::begin_within`] for a turn's own recall, whose vector search may read the hot set
+    /// and the nearest groups of the cold rest and not every record (issue 21 of 1.0.7). A search
+    /// somebody asks for by name (`memory.search`, `memory.lookup`, the memory tools, a thread's
+    /// notes) goes through `begin` and `begin_within`, and is exact.
+    #[expect(clippy::too_many_arguments, reason = "begin's, and the two filters")]
+    pub fn begin_turn(
+        &self,
+        query: impl Into<RecallQuery>,
+        as_of: Option<u64>,
+        k: usize,
+        arm: MemoryArm,
+        deadline: Duration,
+        when: Option<when::When>,
+        sessions: Vec<String>,
+    ) -> Begun {
+        self.begin_reach(query, as_of, k, arm, deadline, when, sessions, true)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "begin's, the two filters, and the reach"
+    )]
+    fn begin_reach(
+        &self,
+        query: impl Into<RecallQuery>,
+        as_of: Option<u64>,
+        k: usize,
+        arm: MemoryArm,
+        deadline: Duration,
+        when: Option<when::When>,
+        sessions: Vec<String>,
+        fast: bool,
+    ) -> Begun {
         let sources = arm.sources();
         let exclude: Vec<String> = match arm {
             MemoryArm::Synthesis => Vec::new(),
@@ -489,7 +525,7 @@ impl Memory {
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
         // A turn's own recall reads the hot set and the nearest groups, not every record.
-        p.fast = true;
+        p.fast = fast;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
         // The vector source may wait for a model load (`loading`).
         if sources.contains(&"vector") {
