@@ -199,8 +199,8 @@ impl TurnRunner {
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
         let restricted = self.restricted_profile(&t.target.profile);
-        // What a tail says is said to a place, a surface and a message: it is put back on a
-        // request for the same.
+        // What a tail says is said to a place, a surface, and where the session and the turn's
+        // reply speak: it is put back on a request for the same.
         let key = format!(
             "{:?}|{:?}|{:?}|{:?}",
             t.tc.place().class,

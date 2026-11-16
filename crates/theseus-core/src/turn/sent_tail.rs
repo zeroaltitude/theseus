@@ -39,8 +39,8 @@ const PER_SESSION: usize = 2048;
 #[derive(Debug, Clone)]
 struct Sent {
     turn: String,
-    /// Where it was sent: the place, the surface, what the turn answers (`compile_step`). A tail
-    /// is put back only on a request for the same.
+    /// Where it was sent: the place, the surface, where the session and the turn's reply speak
+    /// (`compile_step`). A tail is put back only on a request for the same.
     key: String,
     anchor: String,
     blocks: Vec<Value>,
