@@ -544,6 +544,7 @@ fn a_forgotten_record_is_in_no_scan_file() {
     );
     drop(Cache::open_scanned(tmp.path(), &stamp()).unwrap());
     let plain = Cache::open(tmp.path(), &stamp()).unwrap();
+    let records = plain.len();
     let gone = plain.hash_of(7).to_le_bytes();
     let has = |path: &Path| {
         fs::read(path)
@@ -558,7 +559,8 @@ fn a_forgotten_record_is_in_no_scan_file() {
     assert!(!has(&scan), "and from the scan file beside it");
     // Opened scanned again, the scan file is made from what is left.
     let c = Cache::open_scanned(tmp.path(), &stamp()).unwrap();
-    assert!(c.scan.is_some() && c.len() == 199);
+    assert!(c.scan.is_some());
+    assert_eq!(c.len(), records - 1);
     assert!(!has(&scan));
 }
 
