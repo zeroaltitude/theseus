@@ -595,6 +595,8 @@ mod tests_rerank_links;
 #[cfg(test)]
 mod tests_rerank_live;
 #[cfg(test)]
+mod tests_resident_peak;
+#[cfg(test)]
 mod tests_retention;
 #[cfg(test)]
 mod tests_retract;

@@ -435,6 +435,10 @@ impl MemoryPass {
     /// and its recalls' items attributed.
     async fn session(&self, job: &Job) -> Vec<Unit> {
         let sid = job.session_id.as_str();
+        let _ran = crate::resident::activity::ran(
+            crate::resident::activity::Kind::Job,
+            "memory_pass.session",
+        );
         self.load_done(sid);
         let nodes = match theseus_store::blocking(|| self.store.transcript(sid)) {
             Ok(n) => n,

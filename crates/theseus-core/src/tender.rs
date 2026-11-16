@@ -836,6 +836,10 @@ pub async fn call<T: DeserializeOwned>(
 ) -> Result<T, CallError> {
     let no = |e: String| CallError::NoAnswer(e);
     let ask = async {
+        // The size of the answer is what the daemon holds while it parses it
+        // (issue 21's record).
+        let mut ran =
+            crate::resident::activity::ran(crate::resident::activity::Kind::Index, method);
         let s = tokio::net::UnixStream::connect(socket)
             .await
             .map_err(|e| no(format!("connecting to {}: {e}", socket.display())))?;
@@ -849,6 +853,7 @@ pub async fn call<T: DeserializeOwned>(
         if read.map_err(|e| no(e.to_string()))? == 0 {
             return Err(no("the tender closed the connection".into()));
         }
+        ran.bytes(answer.len() as u64);
         let resp: Response = serde_json::from_str(&answer).map_err(|e| no(e.to_string()))?;
         if let Some(e) = resp.error {
             return Err(CallError::Answered {

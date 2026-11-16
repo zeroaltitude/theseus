@@ -81,6 +81,7 @@ pub mod privacy;
 pub mod progress;
 pub mod project;
 pub mod recall;
+pub mod resident;
 pub mod retract;
 pub mod retry;
 pub mod route;
@@ -311,6 +312,7 @@ facts![
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
     recall::RecallWithheld<'static>,
+    resident::PeakNamed<'static>,
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
     retract::Retracted<'static>,
