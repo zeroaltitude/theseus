@@ -4,6 +4,7 @@ import type { IndexEmbedStats } from "./IndexEmbedStats";
 import type { IndexQueryGate } from "./IndexQueryGate";
 import type { IndexReembed } from "./IndexReembed";
 import type { IndexStamp } from "./IndexStamp";
+import type { IndexTierStatus } from "./IndexTierStatus";
 
 /**
  * The tender's vector side: `IndexStatus`'s `vectors`.
@@ -55,4 +56,9 @@ threads: string,
  * The load gate a recall's query passes before it embeds (theseus-d7fy).
  * Absent from a tender of an older build.
  */
-gate?: IndexQueryGate, last_error?: string, last_error_ms: number, };
+gate?: IndexQueryGate, last_error?: string, last_error_ms: number, 
+/**
+ * How the vector scan reads (issue 21 of 1.0.7): every record, or the hot set and the nearest
+ * groups of the rest.
+ */
+tier?: IndexTierStatus, };

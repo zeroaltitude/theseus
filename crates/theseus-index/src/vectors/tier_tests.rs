@@ -26,7 +26,7 @@ fn settled(dir: &Path, all: &[NodeChunks], seed: u64) -> Table {
 fn lay_out(t: &mut Table, cap: usize) -> (usize, usize) {
     let plan = t.plan_layout(NOW).expect("a plan");
     let (tier, hot, cold) = build_layout(&plan, cap).unwrap();
-    t.tier = tier.map(Arc::new);
+    t.install_tier(tier.map(Arc::new));
     (hot, cold)
 }
 
@@ -401,4 +401,149 @@ fn a_forgotten_node_is_not_returned_from_a_cold_group() {
         let after = ask(&t, &q, &filters()[0], reach);
         assert!(!node_of(&t, &after).contains(&node), "{reach:?}");
     }
+}
+
+/// A node of the table whose first record is cold and in a group, and that row.
+fn a_cold_node(t: &Table) -> (String, u32) {
+    let tier = t.tier.clone().expect("a layout");
+    (0..t.row_count() as u32)
+        .find_map(|i| {
+            let (_, e) = t.row_vec(i)?;
+            (tier.places(e) && !tier.is_hot(e)).then(|| (t.row_node(i).to_string(), i))
+        })
+        .expect("a cold record")
+}
+
+/// A cold record a turn used is searched with the hot set from then on (and no row answers
+/// twice for it), and the next layout makes it hot, which ends the promotion; a restart finds
+/// the promotions again from the signals.
+#[test]
+fn a_used_cold_record_is_promoted_until_a_layout_makes_it_hot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = planted_table(tmp.path(), 1500, 33);
+    lay_out(&mut t, 300);
+    let (node, _) = a_cold_node(&t);
+    t.signals.apply(&heat::Signal::Used {
+        node: node.clone(),
+        at_ms: 1_700_000_000_000,
+    });
+    t.promote_node(&node);
+    let held = t.rows_of(&node).len();
+    assert!(!t.promoted.is_empty() && t.promoted.len() <= held);
+    for k in 0..20 {
+        let row = (k * 53 % t.row_count()) as u32;
+        let q = embedder::l2_normalize(&t.full_of(row as usize).unwrap().expect("a vector"));
+        let hits = ask(&t, &q, &filters()[0], Reach::Fast);
+        let rows: HashSet<u32> = hits.iter().map(|h| h.0).collect();
+        assert_eq!(rows.len(), hits.len(), "a row came back twice");
+    }
+    // A restart: the layout is read back and the promotions follow from the signals.
+    let before = t.promoted.clone();
+    let again = layout::open_tier(&t.caches[0]).expect("the file opens");
+    t.install_tier(Some(Arc::new(again)));
+    assert_eq!(t.promoted, before);
+    // The next layout: the node is hot, and there is nothing left to promote.
+    lay_out(&mut t, 300);
+    let tier = t.tier.clone().unwrap();
+    for i in t.rows_of(&node) {
+        if let Some((_, e)) = t.row_vec(i) {
+            assert!(tier.is_hot(e), "a used node is hot after the layout");
+        }
+    }
+    assert!(t.promoted.is_empty());
+}
+
+/// A tender's table with a hot region of `hot` records, for the passes that live in `Vectors`.
+fn in_a_tender(dir: &Path, t: Table, hot: usize) -> Vectors {
+    let mut cfg = VectorConfig::new(Some(dir.join("weights")));
+    cfg.hot_records = Some(hot);
+    let mut v = Vectors::new(cfg, dir);
+    v.table = RwLock::new(t);
+    v
+}
+
+/// A layout of records with no structure to group by keeps little of the exact best ten: it is
+/// not put in place, no file is left, the search stays exact, the status and the log say so, and
+/// nothing asks again until the store has grown.
+#[test]
+fn a_layout_that_keeps_too_little_is_not_put_in_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = settled(tmp.path(), &nodes(1500), 41);
+    let v = in_a_tender(tmp.path(), t, 200);
+    assert_eq!(v.layout_due(), Some("over the budget"));
+    v.layout_now("test");
+    assert!(v.table.read().unwrap().tier.is_none());
+    let failed = v
+        .layouts
+        .lock()
+        .unwrap()
+        .failed
+        .expect("it failed its check");
+    assert!(failed.share < layout::KEEP_BAR, "{}", failed.share);
+    assert!(!tmp
+        .path()
+        .join(format!("{}.tier", stamp_key(&stamp())))
+        .exists());
+    let s = v.tier_status().expect("a status");
+    assert_eq!(s.mode, "exact");
+    assert!(s.why_exact.unwrap().contains("must keep 95%"));
+    assert_eq!(v.layout_due(), None, "not again until the store has grown");
+    // Exact still answers.
+    let q = &queries(1)[0];
+    let t = v.table.read().unwrap();
+    assert_eq!(
+        ask(&t, q, &filters()[0], Reach::Fast),
+        ask(&t, q, &filters()[0], Reach::Exact)
+    );
+}
+
+/// Records that group well pass their own check and are put in place; the check's share is
+/// recorded and the status says the vector side is tiered.
+#[test]
+fn a_layout_that_passes_its_check_is_put_in_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp.path(), 1500, 34);
+    let v = in_a_tender(tmp.path(), t, 300);
+    v.layout_now("test");
+    let s = v.tier_status().expect("a status");
+    assert_eq!(s.mode, "tiered", "{s:?}");
+    assert_eq!(s.hot, 300);
+    assert!(
+        s.kept.unwrap() >= f64::from(layout::KEEP_BAR),
+        "{:?}",
+        s.kept
+    );
+    assert!(s.groups > 30 && s.layouts == 1);
+    assert_eq!(v.layout_due(), None);
+    // A full promotion list asks for a layout; one that fits the budget again takes the tier off.
+    v.table
+        .write()
+        .unwrap()
+        .promoted
+        .extend(1_000_000..1_002_048u32);
+    assert_eq!(v.layout_due(), Some("promoted"));
+}
+
+/// The signals the tender reads are kept beside the vectors, and a forgotten node leaves them.
+#[test]
+fn signals_are_kept_across_a_restart_and_a_forgotten_node_leaves_them() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(tmp.path().join("vectors")).unwrap();
+    let v = Vectors::new(
+        VectorConfig::new(Some(tmp.path().join("weights"))),
+        tmp.path(),
+    );
+    v.on_signals(&[
+        heat::Signal::Used {
+            node: "nd_a".into(),
+            at_ms: 9_000,
+        },
+        useful("nd_b"),
+    ]);
+    let file = tmp.path().join("vectors").join("heat.log");
+    assert_eq!(heat::Signals::load(&file).unwrap().0.len(), 2);
+    v.forget_signals(&["nd_a".to_string()]);
+    let (left, _) = heat::Signals::load(&file).unwrap();
+    assert_eq!((left.len(), left.get("nd_a").used), (1, 0));
+    assert!(v.table.read().unwrap().signals.get("nd_b").wants_hot());
 }

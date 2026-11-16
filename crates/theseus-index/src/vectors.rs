@@ -92,6 +92,9 @@ pub struct VectorConfig {
     /// The index's resident memory the hot set is sized to (`[index] resident_mb`), in MiB
     /// (`layout.rs`).
     pub resident_mb: u64,
+    /// For tests and the replay tool: the hot region's size in records, over what `resident_mb`
+    /// gives.
+    pub hot_records: Option<usize>,
 }
 
 impl VectorConfig {
@@ -105,6 +108,7 @@ impl VectorConfig {
             yield_bound: theseus_store::pressure::PATIENT,
             query_step: Duration::ZERO,
             resident_mb: DEFAULT_RESIDENT_MB,
+            hot_records: None,
         }
     }
 
@@ -475,6 +479,9 @@ pub struct Table {
     /// How the current stamp's records are laid out in regions, when a layout is made and good
     /// (`tier.rs`, `layout.rs`).
     tier: Option<Arc<tier::TierFile>>,
+    /// Cold records a signal has vouched for since the layout: searched with the hot set until a
+    /// layout makes them hot (`layout.rs`).
+    promoted: HashSet<u32>,
     /// The signals the hot set is chosen by, by node (`heat.rs`).
     signals: heat::Signals,
 }
@@ -1214,7 +1221,7 @@ impl Vectors {
         }
         if done.dropped > 0 {
             // The records renumbered: a layout of the old numbers is of other records now.
-            t.tier = None;
+            t.install_tier(None);
         }
         t.resolve_all();
         match failed {
@@ -1390,6 +1397,7 @@ impl Vectors {
         Self::on_settled(&mut t);
         drop(t);
         self.load_signals();
+        self.table.write().unwrap().rederive_promotions();
         Ok(())
     }
 
@@ -1578,6 +1586,10 @@ impl Vectors {
                 st.model = Model::Loading;
                 drop(st);
                 self.load(&dir);
+                // A query is coming: the hot region is asked of the kernel now, in one run.
+                if let Some(t) = &self.table.read().unwrap().tier {
+                    t.prefetch_hot();
+                }
                 Work::Did
             }
             Next::Embed(emb) => {

@@ -223,7 +223,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         index::IndexEmbedResult, index::IndexEntitiesParams, index::IndexEntitiesResult,
         index::IndexForgetParams, index::IndexChunkRef,
         index::IndexForgetResult, index::IndexWarmResult, index::IndexBackfill, index::IndexStatus,
-        index::IndexVectorStatus, index::IndexCompactions, index::IndexReembed, index::IndexQueryGate,
+        index::IndexVectorStatus, index::IndexTierStatus, index::IndexCompactions, index::IndexReembed, index::IndexQueryGate,
         index::IndexEmbedStats, index::IndexRebuildResult, index::IndexHealth, index::IndexPriority,
         memory::MemorySearchParams, memory::MemoryLookupParams, memory::MemoryLookupResult, memory::MemoryHit, memory::MemoryCitation, memory::MemoryRecallsParams, memory::MemoryRecallsResult,
         memory::RecallManifest, memory::RecallRerank, memory::RecallActivation, memory::MemoryHealth, memory::RecallOutcomes, memory::AdjacencyHealth, memory::RecallItem, memory::RecallRelevance, memory::RecallDrop, memory::RecallTimings, memory::RecallWhen, resident::ResidentHealth, warm::WarmHealth, warm::WarmStamp, warm::SessionTypingParams, warm::SessionTypingResult, resident::HeapHealth, resident::TrimHealth, resident::CacheHealth, cite::Citation, cite::DiscordSource, cite::MemoryCitesParams, cite::MemoryCitesResult,

@@ -171,6 +171,7 @@ impl VRig {
             yield_bound: Duration::ZERO,
             query_step: Duration::ZERO,
             resident_mb: crate::vectors::DEFAULT_RESIDENT_MB,
+            hot_records: None,
         };
         c
     }

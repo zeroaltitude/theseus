@@ -76,6 +76,8 @@ pub(super) struct TierFile {
     cscale: usize,
     /// The entries the file places: a bit each.
     placed: Bits,
+    /// Those of them in the hot region.
+    hot: Bits,
     made_from: u64,
     /// One past the greatest entry placed: records at or after it are newer than the layout.
     covers: usize,
@@ -154,6 +156,11 @@ impl TierFile {
     /// Whether entry `e` is placed in a region.
     pub fn places(&self, e: u32) -> bool {
         self.placed.get(e as usize)
+    }
+
+    /// Whether entry `e` is in the hot region.
+    pub fn is_hot(&self, e: u32) -> bool {
+        self.hot.get(e as usize)
     }
 
     /// The entry at region position `p`.
@@ -258,6 +265,17 @@ impl TierFile {
         }
         let placed = placed_bits(&b[order..order + 4 * assigned], max_entry)?;
         check_starts(b, starts, groups, hot_n, assigned)?;
+        let mut hot = Bits::filled(
+            if assigned > 0 {
+                max_entry as usize + 1
+            } else {
+                0
+            },
+            false,
+        );
+        for p in 0..hot_n {
+            hot.set(u32_at(b, order + 4 * p) as usize, true);
+        }
         Ok(TierFile {
             map,
             _file: file,
@@ -272,6 +290,7 @@ impl TierFile {
             centres,
             cscale,
             placed,
+            hot,
             made_from: u64_at(&head, 120),
             covers: if assigned > 0 {
                 max_entry as usize + 1

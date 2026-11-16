@@ -20,6 +20,7 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -55,6 +56,22 @@ pub fn hot_cap(resident_mb: u64, cut: usize) -> usize {
     let bytes = resident_mb.saturating_mul(1 << 20) / 4 * 3;
     usize::try_from(bytes / (cut as u64 + 8)).unwrap_or(usize::MAX)
 }
+
+/// Promoted records held at once; past this a layout makes them hot.
+pub(super) const PROMOTED_MAX: usize = 2048;
+
+/// A layout is put in place only if, on the check it makes of itself, a search by it keeps at
+/// least this share of the exact search's best ten.
+pub(super) const KEEP_BAR: f32 = 0.95;
+
+/// Cold records whose own vectors a layout is checked with.
+const CHECK_QUERIES: usize = 64;
+
+/// A failed layout is tried again after this long, or when the store has grown a tenth.
+const RETRY_AFTER: Duration = Duration::from_secs(24 * 3600);
+
+/// Rows scored under one hold of the table's lock.
+const SLICE: usize = 32_768;
 
 /// A search by meaning reads the nearest group of every this many (an eighth), after the hot region.
 pub const PROBE_DIVISOR: usize = 8;
@@ -119,18 +136,31 @@ impl Table {
         }
     }
 
-    /// The layout pass's reading of the table: every record of the current stamp's scan file with
-    /// its best row's score. `None` where a layout cannot be made now (no scan file, a stamp
-    /// being re-embedded, the rows not every chunk yet).
-    pub(super) fn plan_layout(&self, now_s: u32) -> Option<Plan> {
+    /// The start of the layout pass's reading of the table: the current stamp's scan file and the
+    /// numbers a layout made from it must still find. `None` where a layout cannot be made now
+    /// (no scan file, a stamp being re-embedded, the rows not every chunk yet). Its scores are
+    /// empty until [`Table::score_rows`] fills them.
+    pub(super) fn plan_head(&self) -> Option<Plan> {
         if !self.settled() || self.caches.len() != 1 {
             return None;
         }
         let c = &self.caches[0];
         let scan = c.scan.clone()?;
         let n = scan.len();
-        let mut scores = vec![f32::NEG_INFINITY; n];
-        for i in 0..self.row_count() as u32 {
+        Some(Plan {
+            generation: self.generation,
+            epoch: c.epoch,
+            tier_path: c.tier_path(),
+            cut: c.cut,
+            scan,
+            n,
+            scores: vec![f32::NEG_INFINITY; n],
+        })
+    }
+
+    /// Fold the scores of rows `rows` into `scores`: each record keeps its best row's.
+    pub(super) fn score_rows(&self, rows: Range<u32>, now_s: u32, scores: &mut [f32]) {
+        for i in rows {
             if !self.is_alive(i) {
                 continue;
             }
@@ -145,15 +175,48 @@ impl Table {
                 *slot = s;
             }
         }
-        Some(Plan {
-            generation: self.generation,
-            epoch: c.epoch,
-            tier_path: c.tier_path(),
-            cut: c.cut,
-            scan,
-            n,
-            scores,
-        })
+    }
+
+    /// The whole plan at once, under one hold of the table (the tender's own pass reads it in
+    /// slices, [`Vectors::plan`]).
+    #[cfg(test)]
+    pub(super) fn plan_layout(&self, now_s: u32) -> Option<Plan> {
+        let mut plan = self.plan_head()?;
+        self.score_rows(0..self.row_count() as u32, now_s, &mut plan.scores);
+        Some(plan)
+    }
+
+    /// Put a layout in place (or none), with the promotions it makes needless gone and those the
+    /// signals still call for found again.
+    pub(super) fn install_tier(&mut self, tier: Option<Arc<TierFile>>) {
+        self.tier = tier;
+        self.rederive_promotions();
+    }
+
+    /// The cold records of node `node` are searched with the hot set from now until a layout:
+    /// the operator vouched for it or a turn used it. At most [`PROMOTED_MAX`] are held.
+    pub(super) fn promote_node(&mut self, node: &str) {
+        let Some(tier) = self.tier.clone() else {
+            return;
+        };
+        for i in self.rows_of(node) {
+            if self.promoted.len() >= PROMOTED_MAX {
+                break;
+            }
+            if let Some((0, e)) = self.row_vec(i) {
+                if tier.places(e) && !tier.is_hot(e) {
+                    self.promoted.insert(e);
+                }
+            }
+        }
+    }
+
+    /// The promotions again, from the signals: after a layout is put in place or opened.
+    pub(super) fn rederive_promotions(&mut self) {
+        self.promoted.clear();
+        for node in self.signals.hot_nodes() {
+            self.promote_node(&node);
+        }
     }
 
     /// The tier a search of this reach reads, if one is good and the table is in one stamp.
@@ -219,6 +282,11 @@ impl Table {
                 consider(e, dot_i8(c0.q(e), q) as f32 * c0.scale_of(e));
             }
         }
+        // Cold records a signal has promoted since the layout, searched with the hot ones (and
+        // so left out of their group's pass below: a record is scanned once).
+        for &e in &self.promoted {
+            consider(e, dot_i8(c0.q(e), q) as f32 * c0.scale_of(e));
+        }
         // The nearest groups of the cold part, by their centres.
         let mut near: Vec<(f32, usize)> = (0..tier.groups())
             .map(|g| {
@@ -229,7 +297,10 @@ impl Table {
         near.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
         for &(_, g) in near.iter().take(probe_count(near.len())) {
             for p in tier.group(g) {
-                consider(tier.entry(p), dot_i8(tier.q(p), q) as f32 * tier.scale(p));
+                let e = tier.entry(p);
+                if !self.promoted.contains(&e) {
+                    consider(e, dot_i8(tier.q(p), q) as f32 * tier.scale(p));
+                }
             }
         }
         let mut out: Vec<Scored> = heap.into_iter().map(|r| r.0).collect();
@@ -252,21 +323,35 @@ impl Table {
     }
 }
 
-/// What a layout pass decided about the store.
+/// What the layout passes did.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct Layouts {
     pub count: u64,
     pub last_ms: f64,
     pub last_hot: u64,
     pub last_cold: u64,
+    pub last_groups: u64,
     pub last_at_ms: u64,
+    /// What the last layout kept of the exact search's best ten, on its own check.
+    pub last_share: Option<f32>,
 }
 
-/// A layout's state beside the table: when it may be tried again, and what it last did.
+/// A layout that did not pass its check: searches stay exact until one does.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Failed {
+    pub share: f32,
+    pub at: Instant,
+    /// Records with an alive row, then.
+    pub alive: usize,
+}
+
+/// A layout's state beside the table: when it may be tried again, what it last did, and whether
+/// the last one failed its check.
 #[derive(Debug, Default)]
 pub(super) struct LayoutState {
     pub retry_at: Option<Instant>,
     pub stats: Layouts,
+    pub failed: Option<Failed>,
 }
 
 /// Which of `scores`' records are hot under `cap`, the highest scores first, never one a doubted
@@ -295,21 +380,24 @@ pub(super) fn choose_hot(scores: &[f32], cap: usize) -> Option<Vec<u32>> {
 impl Vectors {
     /// The hot region's room under this tender's budget.
     fn cap(&self, cut: usize) -> usize {
-        hot_cap(self.cfg.resident_mb, cut)
+        self.cfg
+            .hot_records
+            .unwrap_or_else(|| hot_cap(self.cfg.resident_mb, cut))
     }
 
-    /// Why a layout is due now, if it is: the store does not fit the budget and has no layout,
-    /// or the layout is of a store that has grown past it. Never while the rows are not every
-    /// chunk, a stamp is being re-embedded, or a query is embedding.
+    /// Why a layout is due now, if it is: the store does not fit the budget and has no layout (and
+    /// none failed its check, or not lately), or the layout is of a store that has grown, drifted
+    /// or filled its promotions, or the store is back under the budget. Never while the rows are
+    /// not every chunk, a stamp is being re-embedded, or a query is embedding.
     pub(super) fn layout_due(&self) -> Option<&'static str> {
-        if self
-            .layouts
-            .lock()
-            .unwrap()
-            .retry_at
-            .is_some_and(|at| Instant::now() < at)
-            || !self.ahead.may_backfill()
-        {
+        if !self.ahead.may_backfill() {
+            return None;
+        }
+        let (retry_at, failed) = {
+            let l = self.layouts.lock().unwrap();
+            (l.retry_at, l.failed)
+        };
+        if retry_at.is_some_and(|at| Instant::now() < at) {
             return None;
         }
         let t = self.table.read().unwrap();
@@ -322,12 +410,18 @@ impl Vectors {
         let fits = alive <= self.cap(c.cut);
         match (&t.tier, fits) {
             (None, true) => None,
-            (None, false) => Some("over the budget"),
+            (None, false) => match failed {
+                Some(f) if f.at.elapsed() < RETRY_AFTER && alive * 10 < f.alive * 11 => None,
+                _ => Some("over the budget"),
+            },
             (Some(_), true) => Some("back under the budget"),
             (Some(tier), false) => {
                 let grown = c.len().saturating_sub(tier.covers());
                 if grown >= super::scan::FOLD.max(tier.covers() / 20) {
                     return Some("grown");
+                }
+                if t.promoted.len() >= PROMOTED_MAX {
+                    return Some("promoted");
                 }
                 // The cold part has moved a fifth from what the groups' centres were made of.
                 let (cold, was) = (
@@ -339,48 +433,206 @@ impl Vectors {
         }
     }
 
-    /// Make the layout: score the records, choose the hot set, write the tier file, and put it
-    /// in place. The table is read once for the scores and written once to swap the file in; the
-    /// work between does not hold its lock, so no query waits for it.
+    /// The layout pass's reading of the table: every record of the current stamp's scan file with
+    /// its best row's score, read a slice of rows at a time so no query or commit waits long for
+    /// the lock.
+    fn plan(&self, now_s: u32) -> Option<Plan> {
+        let mut plan = self.table.read().unwrap().plan_head()?;
+        let mut at = 0u32;
+        loop {
+            let t = self.table.read().unwrap();
+            if t.generation != plan.generation
+                || t.caches.first().is_none_or(|c| c.epoch != plan.epoch)
+            {
+                return None;
+            }
+            let end = (at as usize + SLICE).min(t.row_count()) as u32;
+            t.score_rows(at..end, now_s, &mut plan.scores);
+            at = end;
+            if at as usize >= t.row_count() {
+                return Some(plan);
+            }
+        }
+    }
+
+    /// Make the layout: score the records, choose the hot set, group the rest, write the tier
+    /// file, check it against the exact search, and put it in place if it keeps enough. The table
+    /// is read in short slices for the scores and written once to swap the file in; the work
+    /// between does not hold its lock, so no query waits for it.
     pub(super) fn layout_now(&self, why: &'static str) {
         let t0 = Instant::now();
         let now_s = u32::try_from(now_unix_ms() / 1000).unwrap_or(u32::MAX);
-        let plan = self.table.read().unwrap().plan_layout(now_s);
-        let Some(plan) = plan else {
+        let Some(plan) = self.plan(now_s) else {
             return;
         };
-        let r = build_layout(&plan, self.cap(plan.cut));
-        let ms = t0.elapsed().as_secs_f64() * 1e3;
-        match r {
+        match build_layout(&plan, self.cap(plan.cut)) {
             Ok((tier, hot, cold)) => {
-                let mut t = self.table.write().unwrap();
-                let same = t.generation == plan.generation
-                    && t.caches.first().is_some_and(|c| c.epoch == plan.epoch);
-                if !same {
-                    // A forget or a rebuild renumbered the records while this was made: its
-                    // numbers mean other records now, and the file with them is dropped.
-                    drop(t);
-                    let _ = fs::remove_file(&plan.tier_path);
-                    return;
-                }
-                t.tier = tier.map(Arc::new);
-                drop(t);
-                let mut s = self.layouts.lock().unwrap();
-                s.retry_at = None;
-                s.stats = Layouts {
-                    count: s.stats.count + 1,
-                    last_ms: ms,
-                    last_hot: hot as u64,
-                    last_cold: cold as u64,
-                    last_at_ms: now_unix_ms(),
-                };
-                tracing::info!(why, hot, cold, ms, "index: the vector records laid out");
+                self.settle_layout(why, t0, &plan, tier.map(Arc::new), (hot, cold))
             }
             Err(e) => {
                 self.layouts.lock().unwrap().retry_at = Some(Instant::now() + BACKSTOP);
                 self.error(format!("laying out the vector records: {e:#}"));
             }
         }
+    }
+
+    /// A layout is made: check it, and put it in place, or leave the search exact and say why.
+    fn settle_layout(
+        &self,
+        why: &'static str,
+        t0: Instant,
+        plan: &Plan,
+        cand: Option<Arc<TierFile>>,
+        (hot, cold): (usize, usize),
+    ) {
+        let share = cand.as_ref().and_then(|c| self.self_check(c, plan));
+        let kept = share.is_none_or(|s| s >= KEEP_BAR);
+        let mut t = self.table.write().unwrap();
+        if t.generation != plan.generation || t.caches.first().is_none_or(|c| c.epoch != plan.epoch)
+        {
+            // A forget or a rebuild renumbered the records while this was made: its numbers
+            // mean other records now, and the file with them is dropped.
+            drop(t);
+            let _ = fs::remove_file(&plan.tier_path);
+            return;
+        }
+        let groups = cand.as_ref().map_or(0, |c| c.groups());
+        t.install_tier(if kept { cand } else { None });
+        drop(t);
+        let ms = t0.elapsed().as_secs_f64() * 1e3;
+        let mut l = self.layouts.lock().unwrap();
+        l.retry_at = None;
+        if kept {
+            l.failed = None;
+            l.stats = Layouts {
+                count: l.stats.count + 1,
+                last_ms: ms,
+                last_hot: hot as u64,
+                last_cold: cold as u64,
+                last_groups: groups as u64,
+                last_at_ms: now_unix_ms(),
+                last_share: share,
+            };
+            tracing::info!(
+                why,
+                hot,
+                cold,
+                groups,
+                ?share,
+                ms,
+                "index: the vector records laid out"
+            );
+            return;
+        }
+        let share = share.unwrap_or_default();
+        l.failed = Some(Failed {
+            share,
+            at: Instant::now(),
+            alive: hot + cold,
+        });
+        drop(l);
+        let _ = fs::remove_file(&plan.tier_path);
+        tracing::warn!(
+            kept = share,
+            needs = KEEP_BAR,
+            ms,
+            "index: a layout of the vector records kept too little of the exact search's best ten: searches stay exact until a rebuild passes"
+        );
+    }
+
+    /// What a search by the candidate layout keeps of the exact search's best ten, on the
+    /// vectors of cold records themselves (each leaves its own node out, so a record cannot
+    /// find itself): the mean share over up to [`CHECK_QUERIES`] of them, spread through the
+    /// groups. `None` where nothing is cold, or the table moved on while it ran.
+    fn self_check(&self, cand: &Arc<TierFile>, plan: &Plan) -> Option<f32> {
+        let cold = cand.assigned() - cand.hot_n();
+        if cold == 0 {
+            return None;
+        }
+        let stride = (cold / CHECK_QUERIES).max(1);
+        let (mut sum, mut n) = (0f32, 0usize);
+        for p in (cand.hot_n()..cand.assigned())
+            .step_by(stride)
+            .take(CHECK_QUERIES)
+        {
+            let e = cand.entry(p);
+            let t = self.table.read().unwrap();
+            if t.generation != plan.generation
+                || t.caches.len() != 1
+                || t.caches[0].epoch != plan.epoch
+                || e as usize >= t.caches[0].len()
+            {
+                return None;
+            }
+            let c0 = &t.caches[0];
+            let Some(row) = t
+                .holders(c0.hash_of(e))
+                .into_iter()
+                .find(|&i| t.row_vec(i) == Some((0, e)))
+            else {
+                continue;
+            };
+            let Ok(Some(full)) = t.full_of(row as usize) else {
+                continue;
+            };
+            let mut f = t.filter(None, &[], &Filters::default());
+            f.skip_node = Some(t.row_node(row));
+            let (Ok(want), Ok(got)) = (
+                t.search_with(&full, c0.cut, &f, 10, None),
+                t.search_with(&full, c0.cut, &f, 10, Some(cand.clone())),
+            ) else {
+                continue;
+            };
+            if want.is_empty() {
+                continue;
+            }
+            let want: HashSet<usize> = want.iter().map(|x| x.0).collect();
+            sum += got.iter().filter(|x| want.contains(&x.0)).count() as f32 / want.len() as f32;
+            n += 1;
+        }
+        (n > 0).then(|| sum / n as f32)
+    }
+
+    /// How the vector side reads now, for the status.
+    pub(super) fn tier_status(&self) -> Option<theseus_protocol::index::IndexTierStatus> {
+        if !self.enabled() {
+            return None;
+        }
+        let t = self.table.try_read().ok()?;
+        let c = t.caches.first()?;
+        let alive = c.len().saturating_sub(c.dead()) as u64;
+        let cap = self.cap(c.cut) as u64;
+        let l = self.layouts.lock().unwrap();
+        let (mode, why_exact) = match (&t.tier, &l.failed) {
+            (Some(_), _) => ("tiered", None),
+            (None, Some(f)) => (
+                "exact",
+                Some(format!(
+                    "the last layout of the records kept {:.0}% of the exact search's best ten on its own check, and it must keep {:.0}%",
+                    f.share * 100.0,
+                    KEEP_BAR * 100.0
+                )),
+            ),
+            (None, None) if alive <= cap => ("all_hot", None),
+            (None, None) => (
+                "exact",
+                Some("the store is over the budget and its first layout is made when the machine is quiet".to_string()),
+            ),
+        };
+        let hot = t.tier.as_ref().map_or(alive, |x| x.hot_n() as u64);
+        Some(theseus_protocol::index::IndexTierStatus {
+            mode: mode.into(),
+            resident_mb: self.cfg.resident_mb,
+            hot,
+            cold: alive.saturating_sub(hot),
+            groups: t.tier.as_ref().map_or(0, |x| x.groups() as u64),
+            promoted: t.promoted.len() as u64,
+            kept: l.stats.last_share.map(f64::from),
+            layouts: l.stats.count,
+            last_layout_ms: l.stats.last_ms,
+            last_layout_at_ms: l.stats.last_at_ms,
+            why_exact,
+        })
     }
 
     /// Take the signals the tender read off the log: the hot set follows them at the next
@@ -395,6 +647,11 @@ impl Vectors {
             for s in signals {
                 if t.signals.apply(s) {
                     changed.push(s.clone());
+                    // A cold record a turn used, or the operator vouched for, is searched with
+                    // the hot ones from now, and made hot by the next layout.
+                    if t.signals.get(s.node()).wants_hot() {
+                        t.promote_node(s.node());
+                    }
                 }
             }
         }

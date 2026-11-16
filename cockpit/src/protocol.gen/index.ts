@@ -281,6 +281,7 @@ export type * from './IndexReembed';
 export type * from './IndexSourceRank';
 export type * from './IndexStamp';
 export type * from './IndexStatus';
+export type * from './IndexTierStatus';
 export type * from './IndexTimings';
 export type * from './IndexVectorStatus';
 export type * from './IndexWarmResult';

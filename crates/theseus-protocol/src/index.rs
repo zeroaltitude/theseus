@@ -697,6 +697,44 @@ pub struct IndexVectorStatus {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_ms: u64,
+    /// How the vector scan reads (issue 21 of 1.0.7): every record, or the hot set and the nearest
+    /// groups of the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub tier: Option<IndexTierStatus>,
+}
+
+/// How the vector side reads under its memory budget (`[index] resident_mb`): a turn's recall
+/// reads the hot set (what is recent, used, important or vouched for) and the nearest eighth of
+/// the groups of the rest, and a search asked for by name reads everything.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct IndexTierStatus {
+    /// `all_hot` (the store fits the budget: every record is read), `tiered`, or `exact` (the
+    /// store is over the budget but a search reads every record: no layout yet, or the last one
+    /// failed its check).
+    pub mode: String,
+    /// The setting, in MiB.
+    pub resident_mb: u64,
+    /// Records in the hot set, and the cold rest.
+    pub hot: u64,
+    pub cold: u64,
+    /// Groups the cold rest is in.
+    pub groups: u64,
+    /// Cold records a signal has vouched for since the layout, searched with the hot set.
+    pub promoted: u64,
+    /// What the last layout kept of the exact search's best ten on its own check (0 to 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub kept: Option<f64>,
+    /// Layouts made, and the last one's time and when it finished (unix ms).
+    pub layouts: u64,
+    pub last_layout_ms: f64,
+    pub last_layout_at_ms: u64,
+    /// Why a search is exact though the store is over its budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why_exact: Option<String>,
 }
 
 /// A recall's query's load gate (theseus-d7fy): the full pool while the

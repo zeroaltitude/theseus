@@ -138,6 +138,7 @@ impl Vectors {
         s.last_error_ms = stats.2;
         drop(stats);
         s.compactions = self.compactions.lock().unwrap().stats.clone();
+        s.tier = self.tier_status();
         s
     }
 }

@@ -65,6 +65,12 @@ impl Sig {
     fn is_default(&self) -> bool {
         *self == Sig::default()
     }
+
+    /// Whether a cold record of this node is searched with the hot set at once: the operator
+    /// vouched for it, or a turn used it (and no label doubts it).
+    pub fn wants_hot(&self) -> bool {
+        self.label == Label::Vouched || (self.used > 0 && self.label != Label::Doubted)
+    }
 }
 
 /// A signal read off the log.
@@ -140,6 +146,15 @@ impl Signals {
 
     pub fn get(&self, node: &str) -> Sig {
         self.by_node.get(node).copied().unwrap_or_default()
+    }
+
+    /// The nodes whose records want to be hot.
+    pub fn hot_nodes(&self) -> Vec<String> {
+        self.by_node
+            .iter()
+            .filter(|(_, s)| s.wants_hot())
+            .map(|(n, _)| n.to_string())
+            .collect()
     }
 
     /// Take one signal in. Returns whether anything changed.
