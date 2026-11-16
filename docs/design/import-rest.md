@@ -53,7 +53,13 @@ people step still decodes every node, and a once-read serves a kept node and kee
 | heap in use after: 64.1 MiB | 16.4 MiB |
 
 With messages of median 6,000 bytes: main grew 66.1 MiB, the change 17.3 MiB (live data 2.5 MiB more, redb's index pages;
-the rest is allocator slack and the run-to-run spread of the starting rest, 15 to 26 MiB).
+the rest is allocator slack and the run-to-run spread of the starting rest, 15 to 26 MiB). That is inside the guard's 20 MiB
+but not by much: a night of larger messages than the owner's would be close to it.
+
+A turn's time is unchanged. A turn reads its transcript through the stub path and `session_nodes`, which this does not
+touch; only the import's four readers changed. Measured with `bench/memory/rss_rest.py` (60 turns, each in a session
+just given topics) on the same box and store: a turn's p50 was 20.5 ms on main in two runs, and 19.7 and 11.9 ms with the
+change in two runs (the box's spread between runs is as large as that; no run was slower than main's).
 
 ## What it does not do
 
