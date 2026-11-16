@@ -184,3 +184,29 @@ fn a_windowed_check_refuses_a_length_past_the_segments_end() {
         );
     }
 }
+
+/// The window the check really uses, not one a test sets: over a segment of
+/// 10 MiB the check holds 4 MiB at most (a planted revert to reading the
+/// whole segment fails this one).
+#[test]
+fn the_check_holds_a_window_of_a_big_segment_not_the_segment() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = WalConfig {
+        segment_bytes: 12 << 20,
+        ..Default::default()
+    };
+    let s = WalStore::open(dir.path(), cfg.clone())
+        .unwrap()
+        .with_checkpoint_every(0);
+    for i in 0..150u32 {
+        s.append(&[NewRecord::json(kinds::LEDGER, None, &vec![i as u8; 20_000]).unwrap()])
+            .unwrap();
+    }
+    s.checkpoint().unwrap();
+    drop(s);
+    let s = WalStore::open(dir.path(), cfg).unwrap();
+    let h = s.history_check().run(|_| {}).unwrap();
+    assert_eq!(h.records, 150);
+    assert!(h.bytes > 8 << 20, "a segment of {} bytes", h.bytes);
+    assert!(h.peak_bytes <= 4 << 20, "held {} bytes", h.peak_bytes);
+}

@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use theseus_ontology::{keys, MemberList, MemberSource, Record};
@@ -24,6 +25,10 @@ pub const KEPT: usize = 2048;
 pub struct StoreMembers {
     store: Store,
     kept: Mutex<Kept>,
+    /// Counts the writes: a read keeps what it read only if no write came
+    /// between its start and its keeping, since it may have read the lists
+    /// the write replaced.
+    writes: AtomicU64,
 }
 
 #[derive(Default)]
@@ -44,6 +49,7 @@ impl StoreMembers {
         Self {
             store: store.clone(),
             kept: Mutex::default(),
+            writes: AtomicU64::new(0),
         }
     }
 
@@ -70,6 +76,28 @@ impl StoreMembers {
             .collect()
     }
 
+    /// Keep `lists` for `session`, read after `seen` writes, unless a write
+    /// has come since: they may be the lists it replaced.
+    fn keep(&self, seen: u64, session: &str, lists: &[MemberList]) -> bool {
+        let mut kept = self.kept.lock().unwrap();
+        if self.writes.load(Ordering::Acquire) != seen {
+            return false;
+        }
+        if kept
+            .lists
+            .insert(session.to_string(), lists.to_vec())
+            .is_none()
+        {
+            kept.order.push_back(session.to_string());
+            while kept.order.len() > KEPT {
+                if let Some(old) = kept.order.pop_front() {
+                    kept.lists.remove(&old);
+                }
+            }
+        }
+        true
+    }
+
     /// The sessions kept now.
     #[cfg(test)]
     pub(crate) fn kept(&self) -> usize {
@@ -88,22 +116,11 @@ impl MemberSource for StoreMembers {
         if let Some(lists) = self.kept.lock().unwrap().lists.get(session) {
             return lists.clone();
         }
+        let seen = self.writes.load(Ordering::Acquire);
         // The id holds no `:`, so this prefix is this session's alone.
         let mut lists = self.read(&format!("{}{session}:", keys::MEMBERS));
         lists.sort_by(|a, b| a.kind.cmp(&b.kind));
-        let mut kept = self.kept.lock().unwrap();
-        if kept
-            .lists
-            .insert(session.to_string(), lists.clone())
-            .is_none()
-        {
-            kept.order.push_back(session.to_string());
-            while kept.order.len() > KEPT {
-                if let Some(old) = kept.order.pop_front() {
-                    kept.lists.remove(&old);
-                }
-            }
-        }
+        self.keep(seen, session, &lists);
         lists
     }
 
@@ -113,6 +130,7 @@ impl MemberSource for StoreMembers {
 
     fn written(&self, keys: &[(String, String)]) {
         let mut kept = self.kept.lock().unwrap();
+        self.writes.fetch_add(1, Ordering::AcqRel);
         for (session, _) in keys {
             if kept.lists.remove(session).is_some() {
                 kept.order.retain(|s| s != session);
@@ -194,5 +212,28 @@ mod tests {
             "the store's, not the one kept"
         );
         assert_eq!(after.member_counts().get(&id("topic:b")), Some(&1));
+    }
+
+    /// A read that began before a write must not keep what it read: it may
+    /// be the lists the write replaced, and a later read would serve them.
+    #[test]
+    fn a_read_that_overlapped_a_write_keeps_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let source = StoreMembers::new(&store);
+        let old = vec![MemberList {
+            session: "s1".into(),
+            kind: "topic".into(),
+            members: Vec::new(),
+        }];
+        // The read starts, a write lands, then the read would keep its lists.
+        let seen = source.writes.load(Ordering::Acquire);
+        source.written(&[("s1".to_string(), "topic".to_string())]);
+        assert!(!source.keep(seen, "s1", &old));
+        assert_eq!(source.kept(), 0);
+        // With no write in between it keeps them.
+        let seen = source.writes.load(Ordering::Acquire);
+        assert!(source.keep(seen, "s1", &old));
+        assert_eq!(source.kept(), 1);
     }
 }

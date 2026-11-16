@@ -366,14 +366,9 @@ pub(crate) fn ignored_with_onto(p: &JudgeReplayParams) -> Option<String> {
 /// the session's) is offered.
 pub(crate) fn as_at_first(o: &theseus_ontology::Ontology, sid: &str, input: &mut OntoInput) {
     let own: BTreeSet<String> = o
-        .lists()
-        .filter(|l| l.session == sid)
-        .flat_map(|l| {
-            l.members
-                .iter()
-                .map(|m| m.category.to_string())
-                .collect::<Vec<_>>()
-        })
+        .memberships(sid)
+        .into_iter()
+        .map(|m| m.category.to_string())
         .collect();
     let mut used: BTreeMap<String, u64> = BTreeMap::new();
     for l in o.lists().filter(|l| l.session != sid) {

@@ -8,8 +8,8 @@
 //!
 //! - **Held** (no source): every list is in memory. What a test, a trial
 //!   copy and a caller with no store have.
-//! - **Lean** (a source): the categories' counts and the newest membership of
-//!   each are in memory, and a list is read when asked. Only what the store
+//! - **Lean** (a source): the categories' counts and the times of their
+//!   memberships are in memory, and a list is read when asked. Only what the store
 //!   does not say is held: the lists [`load`](crate::Ontology::load) trimmed
 //!   (`held`) or dropped (`hidden`), and the lists a write has put but the
 //!   store has not yet been given (`staged`, until `settle`).
@@ -38,14 +38,13 @@ pub trait MemberSource: Send + Sync + fmt::Debug {
 type Key = (String, String);
 
 /// What a category's memberships come to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Tally {
     /// The sessions that hold it: a list holds a category once.
     sessions: u64,
-    /// The newest `as_of_ms` of its memberships, when `exact`; otherwise
-    /// this or a later one (a membership that held the newest was dropped).
-    newest_ms: u64,
-    exact: bool,
+    /// How many memberships there are at each `as_of_ms`: the newest is the
+    /// last, and stays right when the newest is dropped.
+    times: BTreeMap<u64, u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -235,23 +234,19 @@ impl Members {
 
     /// When each category was last held: its newest membership's `as_of_ms`.
     pub(crate) fn newest(&self) -> BTreeMap<CategoryId, u64> {
-        match &self.lean {
-            Some(lean) if lean.tally.values().all(|t| t.exact) => lean
+        if let Some(lean) = &self.lean {
+            return lean
                 .tally
                 .iter()
-                .map(|(c, t)| (c.clone(), t.newest_ms))
-                .collect(),
-            _ => {
-                let mut out: BTreeMap<CategoryId, u64> = BTreeMap::new();
-                for l in self.all() {
-                    for m in &l.members {
-                        let at = out.entry(m.category.clone()).or_default();
-                        *at = (*at).max(m.as_of_ms);
-                    }
-                }
-                out
-            }
+                .filter_map(|(c, t)| Some((c.clone(), *t.times.keys().next_back()?)))
+                .collect();
         }
+        let mut out: BTreeMap<CategoryId, u64> = BTreeMap::new();
+        for m in self.held.values().flat_map(|l| &l.members) {
+            let at = out.entry(m.category.clone()).or_default();
+            *at = (*at).max(m.as_of_ms);
+        }
+        out
     }
 
     /// The lists of `kind` that hold at least one membership.
@@ -264,17 +259,9 @@ impl Members {
 
 impl Lean {
     fn tally_add(&mut self, m: &Membership) {
-        let t = self.tally.entry(m.category.clone()).or_insert(Tally {
-            sessions: 0,
-            newest_ms: 0,
-            exact: true,
-        });
+        let t = self.tally.entry(m.category.clone()).or_default();
         t.sessions += 1;
-        if m.as_of_ms >= t.newest_ms {
-            // Nothing held is newer than this one.
-            t.newest_ms = m.as_of_ms;
-            t.exact = true;
-        }
+        *t.times.entry(m.as_of_ms).or_default() += 1;
     }
 
     fn tally_remove(&mut self, m: &Membership) {
@@ -282,10 +269,14 @@ impl Lean {
             return;
         };
         t.sessions = t.sessions.saturating_sub(1);
+        if let Some(n) = t.times.get_mut(&m.as_of_ms) {
+            *n -= 1;
+            if *n == 0 {
+                t.times.remove(&m.as_of_ms);
+            }
+        }
         if t.sessions == 0 {
             self.tally.remove(&m.category);
-        } else if m.as_of_ms >= t.newest_ms {
-            t.exact = false;
         }
     }
 }

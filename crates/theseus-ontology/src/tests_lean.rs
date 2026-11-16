@@ -33,7 +33,10 @@ fn list(session: &str, kind: &str, members: Vec<Membership>) -> MemberList {
 
 /// A store of lists in memory, as the core's is on disk.
 #[derive(Debug, Default)]
-struct Mem(Mutex<BTreeMap<(String, String), MemberList>>);
+struct Mem(
+    Mutex<BTreeMap<(String, String), MemberList>>,
+    std::sync::atomic::AtomicUsize,
+);
 
 impl Mem {
     fn set(&self, l: &MemberList) {
@@ -55,6 +58,7 @@ impl MemberSource for Mem {
             .collect()
     }
     fn all(&self) -> Vec<MemberList> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.0.lock().unwrap().values().cloned().collect()
     }
 }
@@ -223,4 +227,28 @@ fn a_write_sees_what_the_writes_before_it_put() {
     }
     assert_eq!(lean.member_list("s3", "topic").as_deref(), Some(&second));
     assert_eq!(held.member_counts(), lean.member_counts());
+}
+
+/// When each category was last held is answered from memory, also after the
+/// newest membership of a category is dropped: no scan of the store.
+#[test]
+fn when_a_category_was_last_held_never_scans_the_store() {
+    let (mut held, mut lean, mem) = both(&to_lists());
+    let scans = || mem.1.load(std::sync::atomic::Ordering::SeqCst);
+    let before = scans();
+    // topic:b is held by s1 (30) and s3 (5): drop the newest, then the other.
+    for l in [
+        list("s1", "topic", vec![entry("topic:a", OP, 10)]),
+        list("s3", "topic", vec![]),
+    ] {
+        held.put(Record::Members(l.clone()), OP).unwrap();
+        lean.put(Record::Members(l.clone()), OP).unwrap();
+        mem.set(&l);
+        lean.settle();
+        assert_eq!(lean.last_held(), held.last_held());
+    }
+    assert_eq!(scans(), before, "the store's lists were not read");
+    assert!(!lean.last_held().contains_key(&id("topic:b")));
+    // topic:a keeps its newest, a membership of s2.
+    assert_eq!(lean.last_held().get(&id("topic:a")), Some(&20));
 }

@@ -18,7 +18,7 @@ trial copies and callers with no store use it, and it answers the same.
 |---|---|---|
 | a turn's walk, recall's category scene, the judges' per-session reads | one session's lists, `memberships(session)` | one range read of the store's index; the last `KEPT` (2,048) sessions read are kept, and a write to a session forgets it |
 | a category's use: refusing to retire or merge one something holds, the split candidates, `ontology.list`'s counts | the counts | none: in memory |
-| when each category was last held (the judge's prompt) | the newest times | none: in memory (a scan of every list only after a removal of the newest membership of a category) |
+| when each category was last held (the judge's prompt) | the newest times | none: in memory (each category's membership times, so a dropped newest one is answered too) |
 | a sweep, a merge, `held_by`, `ontology.list` with every membership, the lists of one kind | every list | one scan of the store's `onto:member:` records, as the load makes |
 
 ## What is the same, and what moved
