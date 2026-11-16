@@ -10,7 +10,7 @@ small change. Generally, this sandbox is too stringent, so, I will tend to favor
 here to allow for maximum self improvement power".
 
 The code is `crates/theseus-core/src/rsi/own_removals.rs`, called from `ToolRuntime::judge_reversibility` right
-after 0d (`toolrun/reversible.rs`), and `rsi/builder_net.rs`. Its tests are `toolrun/tests_undo/self_own.rs` (through
+after 0d (`toolrun/reversible.rs`), with the network list from `rsi/deps/hosts.rs`. Its tests are `toolrun/tests_undo/self_own.rs` (through
 a whole core) and `rsi/own_removals/tests.rs` (the `rm` grammar).
 
 ## What it does, and what it cannot do
@@ -75,17 +75,28 @@ second review found that the first fix had opened it).
 
 A self session's sandboxed command used to carry the operator's `[sandbox] egress` (on the owner's machine,
 `*.amazonaws.com:443`), like any session's. **It no longer does.** The gate gives a self session's L1 call the self
-builder's network instead, `rsi::builder_net::self_builder_network()`: one closed, fetch-only list, **empty today**
-(`HOSTS`), and the one place a package registry for the builder is added later. The reason is the rule above: a call
-with a network is one the rule leaves to the model, because a job with a network and a credential could remove
-something that is not on this disk, so with the operator's list on every call, no sandboxed command of the builder
-(`rm -rf target/x && cargo build` is its ordinary way of working) could be lowered, and "removals should be possible"
-would have been true only on a daemon with no `[sandbox] egress`. A self build holds no secret and uses none of that
-reach, and the gate of a self branch runs in a view of its own that has no network at all, so what is lost is reach a
-builder session had and did not need. What is not changed: a person's, a task's and a job's L1 calls keep the
-operator's list; a self call that **names a host of its own** (`sandbox: { egress: [...] }`) still gets it, with the
-notice any call that names a host beyond the list gets, and is not lowered (`sandbox_keeps_nothing` reads the same
-list the gate gave).
+builder's network instead: `rsi::deps::hosts::egress()`, the package registries (`index.crates.io`,
+`static.crates.io` and `registry.npmjs.org`, port 443) and nothing else. That one list in code is also what the
+dependencies change appends for a builder and what `builder::operator_list` returns (it is now a replacement, not an
+addition to the operator's own entries); a registry added later is added to `HOSTS` there and nowhere else, and the
+gate, the view, the outside-text marker and this rule all follow. The reason is the rule above: a call with a network
+is one the rule leaves to the model, because a job with a network and a credential could remove something that is not
+on this disk, so with the operator's list on every call no sandboxed command of the builder (`rm -rf target/x &&
+cargo build` is its ordinary way of working) could be lowered, and "removals should be possible" would have been true
+only on a daemon with no `[sandbox] egress`. A self build holds no secret and uses none of that reach, and the gate of
+a self branch runs in a view of its own that has no network at all, so what is lost is reach a builder session had and
+did not need. What is not changed: a person's, a task's and a job's L1 calls keep the operator's list; a self call
+that **names a host of its own** (`sandbox: { egress: [...] }`) still gets it, with the notice any call that names a
+host beyond the list gets, and is not lowered (`sandbox_keeps_nothing` reads the list the gate gave and wants every
+entry to be one of the registries).
+
+**What the registries' list does and does not restrict.** The egress proxy serves `CONNECT` only: it matches the
+tunnel's `host:port` against the list (a glob on the host, the exact port), refuses any name that resolves to a
+non-public address, and copies bytes. It never reads what a tunnel carries, so it cannot limit what is done over an
+allowed tunnel: it restricts WHERE a command may connect, not which HTTP method it uses or what it sends. The list is
+therefore "the package registries", not "fetch-only". What stands between a self command and a write to a registry is
+that the command holds no credential for one (a self build has no secret), and that these registries refuse an
+unauthenticated write.
 
 ## What a self session still cannot remove without a hold
 

@@ -406,9 +406,9 @@ fn a_builder_gains_the_registries_and_two_variables_and_nothing_else() {
             ),
         ]
     );
-    // A job that reached only the registries has reached nothing beyond the list.
-    let list = builder::operator_list(&["pypi.org:443".to_string()]);
-    assert_eq!(list.len(), 4);
+    // A job that reached only the registries has reached nothing beyond the list, and the list is
+    // the registries and not the operator's.
+    assert_eq!(builder::operator_list(), hosts::egress());
 }
 
 #[test]

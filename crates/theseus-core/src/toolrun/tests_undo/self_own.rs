@@ -655,7 +655,7 @@ fn sandboxed(t: &Path) -> Value {
 }
 
 fn operator_egress(c: &mut Config) {
-    c.sandbox.egress = vec!["index.crates.io:443".into()];
+    c.sandbox.egress = vec!["*.amazonaws.com:443".into()];
 }
 
 /// KEY: a sandboxed removal is not held for a self session, which writes only to what its view binds
@@ -712,8 +712,8 @@ async fn a_self_sessions_sandboxed_command_is_not_given_the_operators_network() 
     let jobs = jobs_of(&sid);
     assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
     let given = &jobs[0].sandbox.as_ref().expect("an L1 job").egress;
-    assert_eq!(*given, crate::rsi::builder_net::self_builder_network());
-    assert!(!given.iter().any(|h| h.contains("crates.io")), "{given:?}");
+    assert_eq!(*given, crate::rsi::deps::hosts::egress());
+    assert!(!given.iter().any(|h| h.contains("amazonaws")), "{given:?}");
     // An operator's session, whose call Jev calls reversible so that it runs, is given the operator's.
     let (r, sid) = drive_says(
         REVERSIBLE,
@@ -727,7 +727,7 @@ async fn a_self_sessions_sandboxed_command_is_not_given_the_operators_network() 
     assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
     assert_eq!(
         jobs[0].sandbox.as_ref().unwrap().egress,
-        ["index.crates.io:443"]
+        ["*.amazonaws.com:443"]
     );
 }
 

@@ -4,8 +4,9 @@
 //!
 //! Two readers, never one for the other:
 //!
-//! - the **builder's** commands (`builder`): their egress list gains these hosts
-//!   and no others, so cargo and npm can download what the builder wants to try;
+//! - the **builder's** commands (`builder`): their egress list is these hosts and no
+//!   others (the operator's own `[sandbox] egress` is not given to a self session,
+//!   `Sandbox::egress_for`), so cargo and npm can download what the builder wants to try;
 //! - the **pipeline's** fetch (`fetch`): downloads exactly what a branch's lock
 //!   files name, for its gate to read. [`Endpoints::registries`] are the two URLs
 //!   it asks, and a test holds both to this list.
@@ -19,7 +20,7 @@ pub struct Host {
     pub why: &'static str,
 }
 
-/// Every host a self builder's commands may reach beyond the operator's own
+/// Every host a self builder's sandboxed commands may reach, in place of the operator's own
 /// `[sandbox] egress`. The registries this repository already uses, and no
 /// others: no `crates.io` itself (its pages and API are not needed to fetch),
 /// no GitHub (a git dependency is refused, `policy`), no other npm host.

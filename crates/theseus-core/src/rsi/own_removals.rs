@@ -13,9 +13,10 @@
 //! reaches the owner, and it runs after `refusals` (the sealed set, the place rule, plan mode, the
 //! injection freeze), so none of those moved. What it covers, and why each is certain:
 //!
-//! - **A program call in L1 with no host beyond the self builder's network** (`builder_net`, empty
-//!   today; a self session's sandboxed command does NOT carry the operator's `[sandbox] egress`, the
-//!   gate gives it the self builder's list instead, so on any daemon its call is one with no network).
+//! - **A program call in L1 with no host beyond the self builder's network** (`rsi::deps::hosts`:
+//!   the package registries; a self session's sandboxed command does NOT carry the operator's
+//!   `[sandbox] egress`, the gate gives it that list instead, so on any daemon its call reaches the
+//!   registries and nothing of the operator's).
 //!   Writes persist only to what the view binds read-write. The view a `proc.run` is given binds
 //!   none ([`sandbox_keeps_nothing`] reads the base view, so a bind added to it turns this off), and
 //!   a self builder's command is then given one more, its own item's build folder and no one else's
@@ -253,7 +254,7 @@ fn why(
 }
 
 /// Whether a program call runs in L1 with no host beyond the self builder's network
-/// (`rsi::builder_net`: empty or fetch-only), over a view whose one persisting place is the
+/// (`rsi::deps::hosts`: the package registries, or none), over a view whose one persisting place is the
 /// session's own: what such a call removes is its overlay, or its own build folder. The L1 test is
 /// `undo_check`'s (`Sandbox::l1_for`), and the list is the one the gate gave the call
 /// (`Sandbox::egress_for`), so a call that names a host beyond it is not read.
@@ -267,7 +268,7 @@ fn sandbox_keeps_nothing(
     // The list the gate gives this call, which must be the self builder's own and nothing wider: the
     // rule does not trust that the gate stripped the operator's list, it reads the result.
     // Both written as the proxy shows an entry, so the comparison is of hosts and not of spelling.
-    let (theirs, _) = crate::egress::list(&crate::rsi::builder_net::self_builder_network(), &[]);
+    let (theirs, _) = crate::egress::list(&crate::rsi::deps::hosts::egress(), &[]);
     let (given, beyond) = crate::egress::list(
         &rt.sandbox.egress_for(rt, Some(session)),
         &crate::egress::asked(input),
