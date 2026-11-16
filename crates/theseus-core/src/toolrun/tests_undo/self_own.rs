@@ -287,7 +287,7 @@ async fn a_self_session_removes_a_file_of_its_tree_and_one_in_the_temporary_dire
 /// of the last four would run but for its shape.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_removal_aimed_outside_its_own_places_is_held() {
-    let aims: [(&str, fn(&Path) -> Value); 12] = [
+    let aims: [(&str, fn(&Path) -> Value); 13] = [
         (
             "the workspace",
             |t| json!({"argv": ["rm", "-rf", t.parent().unwrap()]}),
@@ -307,6 +307,10 @@ async fn a_removal_aimed_outside_its_own_places_is_held() {
         (
             "the self repo",
             |t| json!({"argv": ["rm", "-rf", base(t).join("repo")]}),
+        ),
+        (
+            "the sealed set",
+            |t| json!({"argv": ["rm", "-rf", base(t).join("sealed")]}),
         ),
         (
             "the base, which holds them all",
@@ -346,7 +350,9 @@ async fn a_removal_aimed_outside_its_own_places_is_held() {
         r.turn(&sid).await;
         assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
         assert!(
-            r.target.exists() && built_in_scratch(&r.target).exists(),
+            r.target.exists()
+                && built_in_scratch(&r.target).exists()
+                && base(&r.target).join("sealed").exists(),
             "{what}: nothing went"
         );
     }

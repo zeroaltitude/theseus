@@ -55,8 +55,9 @@ struct Own {
     /// The system temporary directory: what is strictly inside it.
     tmp: PathBuf,
     /// Never its own through the temporary directory, whatever that holds: where the daemon keeps
-    /// its state, the repository the loop clones from, the sealed set and the workspace roots. A
-    /// target that holds one of them is kept too, so a sweep over a parent cannot reach it.
+    /// its state, what it hides from every sandboxed job (its store, spool, credentials, and the sealed
+    /// sets), the repository the loop clones from and the workspace roots. A target that holds one of
+    /// them is kept too, so a sweep over a parent cannot reach it.
     kept: Vec<PathBuf>,
 }
 
@@ -75,22 +76,29 @@ impl Own {
             .review_scratch(session)
             .map(|s| paths::canonical_best_effort(&s))
             .filter(|s| s != &review && s.starts_with(&review));
+        // What the daemon hides from every sandboxed job (its store, spool, bindings, credentials
+        // and the sealed sets), the state dir, and what the config names as the owner's work.
         let mut kept = vec![state];
+        kept.extend(rt.sandbox.job_view().hidden);
         if let Some(core) = rt.self_pr.core() {
             let cfg = &core.cfg;
             let named = [
                 cfg.self_improve.repo.as_deref(),
-                cfg.self_improve.sealed.dir.as_deref(),
                 cfg.tools.projects_dir.as_deref(),
             ];
+            let roots = cfg.tools.roots.iter().map(String::as_str);
             kept.extend(
                 named
                     .into_iter()
                     .flatten()
-                    .chain(cfg.tools.roots.iter().map(String::as_str))
-                    .map(|p| paths::canonical_best_effort(Path::new(p))),
+                    .chain(roots)
+                    .map(crate::config::expand),
             );
         }
+        let kept = kept
+            .iter()
+            .map(|p| paths::canonical_best_effort(p))
+            .collect();
         Some(Self {
             tree: own_tree::of(rt, session),
             scratch,
