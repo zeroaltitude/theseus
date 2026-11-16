@@ -60,10 +60,29 @@ kernel keeps them.
 
 ## What it costs
 
-Resident memory counts file pages a search has touched, and those are the kernel's: reclaimable, and dropped
-first when the machine needs memory. The index's **own** (anonymous) memory is what no longer grows. A search that
-finds the files not in the kernel's cache reads them back: one prefetch of each file (`Map::will_need`) turns the first
-search's many small faults into one sequential read. The figures, synthetic and on a real store, are in the issue.
+Resident memory counts file pages a search has touched, and those are the kernel's: reclaimable, and dropped first when
+the machine needs memory. The index's **own** (anonymous) memory is what no longer grows like the store.
+
+Measured on a synthetic store of the owner's shape and on twice that (a box with a volume that reads 333 MB/s
+sequentially; a real store on a laptop's disk will differ, and the figures are repeated on a copy of the real store):
+
+| | 398,583 chunks | 796,584 chunks |
+|---|---|---|
+| own memory at rest, main's table | 221 MiB | 439 MiB |
+| own memory at rest, mapped files | 14.1 MiB | 23.5 MiB |
+| the same with `MALLOC_ARENA_MAX=1` | 7.6 MiB | 11.0 MiB |
+| the index with no vector side at all | 9.3 MiB | 8.1 MiB |
+| what the table says it holds | 3.2 MiB | 6.4 MiB |
+| start, main's table / mapped files | 1.24 s / 0.85 s | 2.48 s / 1.71 s |
+| search, warm, median of 60 mixed queries, main's / mapped | 58 / 62 ms | 135 / 146 ms |
+| first search after the kernel dropped the files, main's / mapped | 0.16 s / 1.45 s | 0.28 s / 2.5 s |
+
+What the growth is: the table's own bytes (a bit and four bytes a row, and the sessions' names) are 8 bytes a chunk.
+The rest of the rise in own memory is freed memory that glibc's per-thread pool keeps; it goes away under
+`MALLOC_ARENA_MAX=1`, and is the same kind of memory the index's third line of this issue was about. A warm search
+costs a few percent more than a search over a table in the heap (the same scan, reached through the map). The first search
+after the kernel dropped the files has to read them back (about 134 MB at the smaller size) and does so well below the
+volume's sequential speed; main's table, in the heap, did not have this cost because the start had paid it.
 
 ## Where a later step has room
 
@@ -80,6 +99,10 @@ search's many small faults into one sequential read. The figures, synthetic and 
   the rows by group writes a new rows file in that order (a fold already writes every alive row into a new file in
   node-id order and renumbers; each keeps its vector); only the table's lookups by row number, which all go through
   `Table::row` and its field readers, see the numbering.
+- **A fold is written under the table's write lock**, so searches and commits wait while it runs: the scan file's whole
+  records (about 220 MB at 800,000 records) or the rows file's whole rows and their sort. It happens once in 16,384 new
+  records or rows; not timed here. A step that makes folds more frequent or larger should write the new file outside the
+  lock and swap it in under it, which the write-new-and-rename shape already allows.
 - **The tail's size and the fold's trigger are constants** (`FOLD_ROWS`, `FOLD`), one place each.
 - **What it does not do:** it does not bound the kernel's cached pages (a search touches every code, so they all become
   resident while it runs, and are reclaimable); it does not change the search, which is still exact. The hot set and the
