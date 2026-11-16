@@ -890,7 +890,8 @@ async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
 /// A command of a session that is not a review is not given a `TMPDIR` of its own: the machine's.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_that_is_no_reviews_keeps_the_temporary_directory_it_had() {
-    let (r, sid) = drive(
+    let (r, sid) = drive_says(
+        REVERSIBLE,
         "self",
         "proc_run",
         |t| json!({"argv": ["true"], "cwd": tree(t, "sails")}),
@@ -898,7 +899,7 @@ async fn a_command_that_is_no_reviews_keeps_the_temporary_directory_it_had() {
     );
     r.turn(&sid).await;
     let jobs = jobs_of(&sid);
-    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
     let tmp = jobs[0]
         .env
         .iter()
