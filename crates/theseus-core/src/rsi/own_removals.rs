@@ -264,15 +264,21 @@ fn sandbox_keeps_nothing(
     plan: &Plan,
     input: &Value,
 ) -> bool {
-    let ours = rt.sandbox.egress_for(rt, Some(session));
+    // The list the gate gives this call, which must be the self builder's own and nothing wider: the
+    // rule does not trust that the gate stripped the operator's list, it reads the result.
+    // Both written as the proxy shows an entry, so the comparison is of hosts and not of spelling.
+    let (theirs, _) = crate::egress::list(&crate::rsi::builder_net::self_builder_network(), &[]);
+    let (given, beyond) = crate::egress::list(
+        &rt.sandbox.egress_for(rt, Some(session)),
+        &crate::egress::asked(input),
+    );
     tool.backend() == Backend::Job
         && rt
             .sandbox
             .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
             .is_some()
-        && crate::egress::list(&ours, &crate::egress::asked(input))
-            .1
-            .is_empty()
+        && beyond.is_empty()
+        && given.iter().all(|h| theirs.contains(h))
         && rt.sandbox.job_view().rw.is_empty()
 }
 
