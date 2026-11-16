@@ -1319,6 +1319,7 @@ impl Core {
                             "records": h.records,
                             "bytes": h.bytes,
                             "busy_ms": (h.busy_ms * 10.0).round() / 10.0,
+                            "peak_bytes": h.peak_bytes,
                             "yielded_ms": yielded.as_millis() as u64,
                             "checked_at_open": h.checked_at_open,
                             "from_position": h.from_position,
