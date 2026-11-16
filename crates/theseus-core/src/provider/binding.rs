@@ -176,12 +176,15 @@ pub fn sign(req: &ProviderRequest, blocks: &mut [Value]) {
     }
 }
 
-/// What the stand-in makes of `req` under `mode`: the request its answer is
-/// bound to, and the `input_transformations` to report; or the refusal.
-pub fn check(
-    mode: Binding,
+/// What the stand-in makes of `req` under `mode` (none: it binds nothing): the request its answer
+/// is bound to, and the `input_transformations` to report; or the refusal.
+pub fn apply(
+    mode: Option<Binding>,
     req: &ProviderRequest,
-) -> Result<(ProviderRequest, Option<Value>), ProviderError> {
+) -> anyhow::Result<(ProviderRequest, Option<Value>)> {
+    let Some(mode) = mode else {
+        return Ok((req.clone(), None));
+    };
     let drift = drifted(req);
     if drift.is_empty() {
         return Ok((req.clone(), None));
@@ -200,7 +203,14 @@ pub fn check(
             without(req, &drift),
             Some(reported("thinking_dropped", &drift)),
         )),
-        (Binding::Refuse, false) => Err(refusal(&drift)),
+        (Binding::Refuse, false) => Err(refusal(&drift).into()),
+    }
+}
+
+/// Stamp the answer's thinking blocks under `mode`: none binds nothing.
+pub fn stamp(mode: Option<Binding>, req: &ProviderRequest, blocks: &mut [Value]) {
+    if mode.is_some() {
+        sign(req, blocks);
     }
 }
 

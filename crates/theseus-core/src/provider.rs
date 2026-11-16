@@ -1653,10 +1653,7 @@ impl Provider for FakeProvider {
                 return Err(e.clone().into());
             }
             // What the provider's binding makes of the blocks it replays.
-            let (bound_to, transformed) = match self.binding {
-                Some(mode) => binding::check(mode, req).map_err(anyhow::Error::from)?,
-                None => (req.clone(), None),
-            };
+            let (bound_to, transformed) = binding::apply(self.binding, req)?;
             let mut next = self.next_answer(req);
             let mut billed = None;
             match next {
@@ -1718,9 +1715,7 @@ impl Provider for FakeProvider {
                 }
             }
             let (mut blocks, invalid_tool_inputs) = unparsed_inputs(blocks);
-            if self.binding.is_some() {
-                binding::sign(&bound_to, &mut blocks);
-            }
+            binding::stamp(self.binding, &bound_to, &mut blocks);
             let text = text_of(&blocks);
             Ok(ModelResponse {
                 input_transformations: transformed,
