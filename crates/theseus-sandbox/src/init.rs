@@ -21,10 +21,10 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::report::{Exited, Report, Scratch, Started};
+use crate::report::{Exited, Lowered, Report, Scratch, Started};
 use crate::seccomp;
 use crate::spawn::{EGRESS_FD, REPORT_FD, SPEC_FD};
-use crate::spec::Spec;
+use crate::spec::{Limits, Spec};
 use crate::sys::{self, cvt, Failure, Stage};
 use crate::view;
 
@@ -120,6 +120,7 @@ fn run(report: &mut File, t0: Instant) -> Result<i32, Failure> {
         sys: view.sys,
         residue: view.residue.clone(),
         lo,
+        lowered: command.lowered.clone(),
     })
     .write_to(report)
     .stage("reporting the start")?;
@@ -222,6 +223,8 @@ struct Command {
     last_cap: u32,
     output_bytes: u64,
     pids: u64,
+    /// Each limit set lower than the spec asked (`grant`), for `Started`.
+    lowered: Vec<Lowered>,
     filter: Vec<libc::sock_filter>,
     shown: String,
 }
@@ -251,6 +254,11 @@ impl Command {
         filter: &[libc::sock_filter],
     ) -> Result<Self, Failure> {
         let cs = |s: &str| sys::cbytes(s.as_bytes());
+        let (output_bytes, pids, lowered) = grant(
+            &spec.limits,
+            hard_limit(libc::RLIMIT_FSIZE as i32),
+            hard_limit(libc::RLIMIT_NPROC as i32),
+        );
         let path = find(&spec.argv[0], spec).stage(format!("finding {}", spec.argv[0]))?;
         Ok(Self {
             path: sys::cpath(&path).stage("the command's path")?,
@@ -270,8 +278,9 @@ impl Command {
             uid_map: format!("{uid} 0 1\n"),
             gid_map: format!("{gid} 0 1\n"),
             last_cap,
-            output_bytes: spec.limits.output_mb.saturating_mul(1 << 20),
-            pids: spec.limits.pids,
+            output_bytes,
+            pids,
+            lowered,
             filter: filter.to_vec(),
             shown: path.display().to_string(),
         })
@@ -345,6 +354,47 @@ impl Command {
         sys::close_range(3, u32::MAX, true).map_err(at(11))?;
         Ok(())
     }
+}
+
+/// This process's own hard limit on `resource`: the most it may set the
+/// limit to without a privilege no job has. A process may lower its hard
+/// limit and never raise it, so a job started from inside another sandbox
+/// (the self build's gate runs the suite in one) may not be given a larger
+/// limit than that sandbox has. Unlimited when it cannot be read, so the
+/// call that sets it says why it failed, as it always did.
+fn hard_limit(resource: i32) -> u64 {
+    let mut lim: libc::rlimit = unsafe { std::mem::zeroed() };
+    match unsafe { libc::getrlimit(resource as _, &mut lim) } {
+        0 => lim.rlim_max as u64,
+        _ => u64::MAX,
+    }
+}
+
+/// The file-size limit in bytes and the process limit the command is set to,
+/// and each of the two that is lower than `limits` asked: the smaller of what
+/// was asked and `hard_fsize`, `hard_nproc` (this process's own hard limits).
+/// Never higher than asked, never unset, and never a reason a job cannot
+/// start. The soft limit is set to the same value, as it always was.
+fn grant(limits: &Limits, hard_fsize: u64, hard_nproc: u64) -> (u64, u64, Vec<Lowered>) {
+    let asked_bytes = limits.output_mb.saturating_mul(1 << 20);
+    let bytes = asked_bytes.min(hard_fsize);
+    let pids = limits.pids.min(hard_nproc);
+    let mut lowered = Vec::new();
+    if bytes < asked_bytes {
+        lowered.push(Lowered {
+            limit: "output_mb".into(),
+            asked: limits.output_mb,
+            got: bytes >> 20,
+        });
+    }
+    if pids < limits.pids {
+        lowered.push(Lowered {
+            limit: "pids".into(),
+            asked: limits.pids,
+            got: pids,
+        });
+    }
+    (bytes, pids, lowered)
 }
 
 /// Every signal to its default action, by the raw system call: the C
@@ -579,5 +629,88 @@ fn walk(dir: &Path, shown: &Path, s: &mut Scratch, budget: &mut u32) {
                 s.paths.push(shown_path.display().to_string());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn asked(output_mb: u64, pids: u64) -> Limits {
+        Limits {
+            output_mb,
+            pids,
+            ..Limits::default()
+        }
+    }
+
+    fn lowered(limit: &str, asked: u64, got: u64) -> Lowered {
+        Lowered {
+            limit: limit.into(),
+            asked,
+            got,
+        }
+    }
+
+    /// A process whose hard limits allow what was asked is given exactly that, and nothing is
+    /// said: the configured caps stand, as they did before a limit could be lowered.
+    #[test]
+    fn limits_the_process_may_set_are_set_as_asked() {
+        let mib = 1u64 << 20;
+        assert_eq!(
+            grant(&asked(16384, 32768), u64::MAX, u64::MAX),
+            (16384 * mib, 32768, vec![])
+        );
+        // A hard limit exactly at what was asked is not a lowering.
+        assert_eq!(
+            grant(&asked(64, 512), 64 * mib, 512),
+            (64 * mib, 512, vec![])
+        );
+        // And one far above never raises it: the limit is never higher than asked.
+        assert_eq!(
+            grant(&asked(64, 512), 1 << 60, 1 << 40),
+            (64 * mib, 512, vec![])
+        );
+    }
+
+    /// A limit above the process's own hard limit is set to that hard limit, never refused and
+    /// never left unset, and each one lowered is named with what was asked and what it got.
+    #[test]
+    fn a_limit_above_the_processs_own_is_set_as_high_as_it_may_be() {
+        let mib = 1u64 << 20;
+        assert_eq!(
+            grant(&asked(16384, 32768), u64::MAX, 8192),
+            (16384 * mib, 8192, vec![lowered("pids", 32768, 8192)])
+        );
+        assert_eq!(
+            grant(&asked(16384, 512), 4096 * mib, u64::MAX),
+            (4096 * mib, 512, vec![lowered("output_mb", 16384, 4096)])
+        );
+        assert_eq!(
+            grant(&asked(16384, 32768), 4096 * mib, 8192),
+            (
+                4096 * mib,
+                8192,
+                vec![
+                    lowered("output_mb", 16384, 4096),
+                    lowered("pids", 32768, 8192)
+                ]
+            )
+        );
+        // The bytes are the hard limit's own; the record rounds the megabytes down.
+        let (bytes, _, said) = grant(&asked(16384, 1), 100 * mib + 123, u64::MAX);
+        assert_eq!(
+            (bytes, said),
+            (100 * mib + 123, vec![lowered("output_mb", 16384, 100)])
+        );
+    }
+
+    /// What the record says is what the command ran under: `Limits::lowered_by` is the inverse.
+    #[test]
+    fn the_record_of_a_lowered_limit_reads_back_as_the_limit_the_job_had() {
+        let (_, _, said) = grant(&asked(16384, 32768), 4096 << 20, 8192);
+        let had = asked(16384, 32768).lowered_by(&said);
+        assert_eq!((had.output_mb, had.pids), (4096, 8192));
+        assert_eq!(asked(64, 512).lowered_by(&[]), asked(64, 512));
     }
 }

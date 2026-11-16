@@ -33,7 +33,7 @@ mod sys;
 mod view;
 
 pub use init::init_main;
-pub use report::{Exit, Scratch, Started};
+pub use report::{Exit, Lowered, Scratch, Started};
 pub use residue::{Residue, Stopped, LOOKS, SLICE};
 pub use spawn::{refusal, refused_here, spawn, SandboxChild, SpawnError, Stdio, ROOT_REFUSED};
 pub use spec::{Facilities, Init, Limits, Spec, HOSTNAME, INIT_ROLE};

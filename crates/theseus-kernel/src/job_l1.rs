@@ -157,6 +157,14 @@ pub(crate) fn run(
     // statement is part of the behaviour, by the owner's word.
     sandbox["residue"] = json!(started.residue.say());
     sandbox["lo"] = json!(started.lo);
+    // A limit the init could not set as configured (the process it runs in may not raise
+    // its own hard limit) was set as high as it may be: what was asked and what it got, so a
+    // job that ran with less than its caps can be seen, and its limit hits are read against
+    // the limit it had.
+    if !started.lowered.is_empty() {
+        sandbox["lowered"] = json!(started.lowered);
+    }
+    let limits = l1.limits.lowered_by(&started.lowered);
     let proxy = egress::start(&mut child, l1, &allow, detail);
     let (exit, end) = wait(&mut child, reap, patience);
     // The job has ended, its whole tree with it (a stop included).
@@ -175,7 +183,7 @@ pub(crate) fn run(
             detail["stopped"] = json!(true);
             (Outcome::Failed, format!("stopped: {}", v.words()))
         }
-        (Ok(e), end) => ended(&e, end, patience, &l1.limits, &mut sandbox, detail),
+        (Ok(e), end) => ended(&e, end, patience, &limits, &mut sandbox, detail),
         (Err(e), End::TimedOut(v, cut)) => (
             Outcome::Failed,
             patience.words(cut, &format!("{}: {e}", v.words())),

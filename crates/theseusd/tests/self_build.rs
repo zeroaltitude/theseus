@@ -15,7 +15,12 @@
 //! - a self builder's own command (`Sandbox::builder_view`) keeps one
 //!   directory, its item's build folder, and a second `cargo test` there
 //!   reuses the first's build; nothing else it writes persists, and the
-//!   gate's view neither sees that folder nor builds in it.
+//!   gate's view neither sees that folder nor builds in it;
+//! - a limit above what the process that starts the job may give (its own hard
+//!   limit, as when the whole suite runs inside a self build's view) is set as
+//!   high as it may be, the job starts, and its record says what it got;
+//! - the guard: this file's other tests, run again from inside a self build's
+//!   view as the join runs the suite, must pass there too (`the_tests_of_this_file_pass_inside_a_self_builds_view`).
 //!
 //! Every job here runs in a real L1 sandbox, unprivileged. L1 refuses a root
 //! daemon's jobs (theseus-pv6i), so as root each test only checks that
@@ -23,6 +28,7 @@
 //! --map-user=1000 --map-group=1000 <test binary>`).
 
 use std::ffi::OsString;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -804,5 +810,149 @@ fn a_builders_temp_files_land_on_disk_in_its_folder() {
         r.read("state/self/builder/t/tmpdir").trim(),
         "tmpfs",
         "the folder's tmp is disk"
+    );
+}
+
+/// Set on the re-run of the test below, whose own hard limits are lowered.
+const LOWERED_RUN: &str = "THESEUS_TEST_LIMITS_LOWERED";
+const LOWERED_TEST: &str = "a_limit_above_the_processs_own_is_set_as_high_as_it_may_be_and_said";
+
+/// Lowers this process's hard limit on `resource` to at most `to`, its soft limit with it. Only
+/// system calls, as a child between its fork and its exec may make.
+fn lower_hard(resource: i32, to: u64) -> std::io::Result<()> {
+    let mut r: libc::rlimit = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrlimit(resource as _, &mut r) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    r.rlim_max = r.rlim_max.min(to as libc::rlim_t);
+    r.rlim_cur = r.rlim_cur.min(r.rlim_max);
+    match unsafe { libc::setrlimit(resource as _, &r) } {
+        0 => Ok(()),
+        _ => Err(std::io::Error::last_os_error()),
+    }
+}
+
+/// This process's hard limit on `resource`.
+fn hard(resource: i32) -> u64 {
+    let mut r: libc::rlimit = unsafe { std::mem::zeroed() };
+    assert_eq!(unsafe { libc::getrlimit(resource as _, &mut r) }, 0);
+    r.rlim_max as u64
+}
+
+/// KEY (issue 20): the builder's view asks for 32,768 processes and a 16 GiB file, and a process
+/// may not raise a hard limit above its own, so a job started from a process with less (the whole
+/// suite, run inside a self build's view, has 8,192 processes) could not start at all. It starts,
+/// with each limit set as high as the process may set it, and its record says what it was asked
+/// and what it got. Needs no special view: the test runs itself again as a child whose own hard
+/// limits it has lowered first, so nothing leaks into any other test.
+#[test]
+fn a_limit_above_the_processs_own_is_set_as_high_as_it_may_be_and_said() {
+    if refused_as_root() {
+        return;
+    }
+    if std::env::var_os(LOWERED_RUN).is_none() {
+        let mut inner = std::process::Command::new(std::env::current_exe().unwrap());
+        inner
+            .args(["--exact", LOWERED_TEST, "--nocapture"])
+            .env(LOWERED_RUN, "1");
+        // SAFETY: the closure makes system calls only (`lower_hard`).
+        unsafe {
+            inner.pre_exec(|| {
+                lower_hard(libc::RLIMIT_NPROC as i32, 16 * 1024)?;
+                lower_hard(libc::RLIMIT_FSIZE as i32, 4 << 30)
+            })
+        };
+        let out = inner.output().unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success() && said.contains("1 passed"),
+            "{said}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    let r = Rig::builder();
+    let f = r.folder();
+    let wanted = r.sandbox.builder_view(&f).limits;
+    let (pids, fsize) = (
+        hard(libc::RLIMIT_NPROC as i32),
+        hard(libc::RLIMIT_FSIZE as i32),
+    );
+    assert!(
+        pids < wanted.pids,
+        "the view asks for more processes than this run has"
+    );
+    assert!(fsize < wanted.output_mb << 20, "and for a larger file");
+    let script = format!("cat /proc/self/limits > {}/limits", f.display());
+    let d = r.run_as_builder("lowered", &["sh", "-c", &script]);
+    assert_eq!(d["exit_code"], 0, "{d}");
+    // The record: each limit lowered, with what was asked and what it got.
+    assert_eq!(
+        d["sandbox"]["lowered"],
+        serde_json::json!([
+            {"limit": "output_mb", "asked": wanted.output_mb, "got": fsize >> 20},
+            {"limit": "pids", "asked": wanted.pids, "got": pids},
+        ]),
+        "{d}"
+    );
+    // And what the job had: both the soft and the hard limit are what the record says.
+    let limits = r.read("state/self/builder/t/limits");
+    let row = |name: &str| -> Vec<u64> {
+        let line = limits
+            .lines()
+            .find(|l| l.starts_with(name))
+            .unwrap_or_default();
+        line[name.len()..]
+            .split_whitespace()
+            .take(2)
+            .map(|v| v.parse().unwrap())
+            .collect()
+    };
+    assert_eq!(row("Max processes"), [pids, pids], "{limits}");
+    assert_eq!(row("Max file size"), [fsize, fsize], "{limits}");
+}
+
+/// GUARD (issue 20): the join runs main's whole suite inside a self build's view, and a test that
+/// passes unjailed can fail there (four of this file's did, on a limit the view's own process could
+/// not raise, and no change could join). So this file's other tests are run once more from inside
+/// that view, the one `Jail::prepare` gives the gate, by this very test binary (bound read-only,
+/// with the daemon's binary the tests start their jobs with), and every one must pass there. It
+/// covers THIS file's tests alone: the other test binaries that start jobs are not run in the
+/// view by it, and the whole of the join's run is still the join's own. It skips itself inside a
+/// view (the suite runs these tests there already) and as root (L1 refuses root).
+#[test]
+fn the_tests_of_this_file_pass_inside_a_self_builds_view() {
+    if refused_as_root() {
+        return;
+    }
+    if std::env::var_os("THESEUS_VIEW_GRANTS").is_some() {
+        eprintln!("skipped: already inside a self build's view, where the suite runs these tests");
+        return;
+    }
+    let me = "the_tests_of_this_file_pass_inside_a_self_builds_view";
+    let exe = std::env::current_exe().unwrap();
+    let listed = std::process::Command::new(&exe)
+        .args(["--list", "--format", "terse"])
+        .output()
+        .unwrap();
+    let tests = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter(|l| l.ends_with(": test"))
+        .count();
+    assert!(tests > 1, "this file's tests were not listed: {listed:?}");
+    let r = Rig::new();
+    let script = format!(
+        "{} --skip {me} --test-threads 4 > {}/guard.out 2>&1",
+        exe.display(),
+        r.tree.dir.display()
+    );
+    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
+    let d = r.run_ro(&["sh", "-c", &script], vec![exe, theseusd]);
+    let said = r.read("tree/guard.out");
+    let tail = &said[said.len().saturating_sub(6000)..];
+    assert_eq!(d["exit_code"], 0, "{d}\n{tail}");
+    assert!(
+        said.contains(&format!("{} passed; 0 failed", tests - 1)),
+        "every other test passed in the view: {tail}"
     );
 }

@@ -40,6 +40,22 @@ pub struct Started {
     pub residue: crate::residue::Residue,
     /// `lo` is up in the job's network namespace.
     pub lo: bool,
+    /// The limits the command got lower than its spec asked, because this
+    /// process may not raise its own hard limit above what it has (a job
+    /// started from inside another sandbox). Empty when every limit was set
+    /// as asked. `#[serde(default)]`, as `residue` is.
+    #[serde(default)]
+    pub lowered: Vec<Lowered>,
+}
+
+/// One limit set lower than asked: the `Limits` field it is, what the spec
+/// asked, and what the command got, both in that field's own unit
+/// (`output_mb` in MiB, rounded down; `pids` a count).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Lowered {
+    pub limit: String,
+    pub asked: u64,
+    pub got: u64,
 }
 
 /// What the job wrote to scratch, discarded with it.
