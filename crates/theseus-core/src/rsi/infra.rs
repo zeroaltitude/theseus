@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(of_attempt("halted", None), None);
         // A check that kept aborting is a red of its item at any seconds; one that also could not
         // run a phase for want of a tool is the machine's, as before.
-        let aborted = Some(i32::from(crate::rsi::tree::GATE_ABORTED));
+        let aborted = Some(crate::rsi::tree::GATE_ABORTED);
         assert_eq!(
             of_attempt("red", Some(&run(aborted, 0))),
             Some(Outcome::Red)
