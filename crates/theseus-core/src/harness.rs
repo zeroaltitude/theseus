@@ -59,6 +59,8 @@ pub async fn run(core: Arc<Core>) {
                 // The disk's floor holds for a job that already runs, as it
                 // does for the next one (theseus-ht82).
                 core.stop_jobs_below_floor().await;
+                // So does a self builder's build folder, at its own bound.
+                core.stop_jobs_over_builder_bound().await;
             }
             accepted = async {
                 match &listener {
