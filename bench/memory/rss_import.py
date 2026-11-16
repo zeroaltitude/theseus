@@ -34,13 +34,19 @@ _V = random.Random(3)
 WORDS = ["".join(_V.choice("bdfgklmnprstvz") + _V.choice("aeiou") for _ in range(1 + i % 4)) + str(i) for i in range(4000)]
 
 
+NAMES = ["Quill Marsh", "Juno Pike", "Wren Ash", "Tamsin Dray", "Corin Veil", "Ines Holt", "Pell Orme", "Sable Ode"]
+
+
 def text(rng, n):
-    """About n bytes of invented words, a Zipf-like draw."""
+    """About n bytes of invented words, a Zipf-like draw; one text in eight
+    names a person, as the people pass reads for."""
     out, size = [], 0
     while size < n:
         w = WORDS[int(len(WORDS) * rng.random() ** 3)]
         out.append(w)
         size += len(w) + 1
+    if rng.random() < 0.125:
+        out.insert(len(out) // 2, f"Ask {rng.choice(NAMES)} about it.")
     return " ".join(out)
 
 
