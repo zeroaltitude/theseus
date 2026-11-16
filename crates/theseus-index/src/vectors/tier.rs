@@ -22,8 +22,9 @@
 //! so its hash no longer matches; one that drops only later records changes nothing the file says.
 //! Every entry is placed once at most (checked at open), so no record is in two regions.
 //!
-//! **Entries the file does not place** (the records embedded since, and in the first layouts the
-//! cold records) are searched exactly on every query: a new text is hot until a layout places it.
+//! **Entries the file does not place** (the records embedded since, and those no alive row held
+//! when it was made) are searched exactly on every query: a new text is hot until a layout places
+//! it.
 //!
 //! Layout (little-endian, each column on a 16-byte boundary): a 192-byte header; `order`, the
 //! entry numbers in region order; `scale`, their scales; `q`, their cuts; `starts`, where each
