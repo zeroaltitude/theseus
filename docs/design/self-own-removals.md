@@ -76,7 +76,8 @@ second review found that the first fix had opened it).
 A self session's sandboxed command used to carry the operator's `[sandbox] egress` (on the owner's machine,
 `*.amazonaws.com:443`), like any session's. **It no longer does.** The gate gives a self session's L1 call the self
 builder's network instead: `rsi::deps::hosts::egress()`, the package registries (`index.crates.io`,
-`static.crates.io` and `registry.npmjs.org`, port 443) and nothing else. That one list in code is also what the
+`static.crates.io` and `registry.npmjs.org`, port 443) and nothing else; a self session that is not a builder (its
+item's tree is not open, a review for one) is given no network at all. That one list in code is also what the
 dependencies change appends for a builder and what `builder::operator_list` returns (it is now a replacement, not an
 addition to the operator's own entries); a registry added later is added to `HOSTS` there and nowhere else, and the
 gate, the view, the outside-text marker and this rule all follow. The reason is the rule above: a call with a network
