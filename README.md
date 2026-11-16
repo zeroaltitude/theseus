@@ -33,7 +33,7 @@
 
 ## What Theseus is
 
-Theseus is a personal AI agent that lives on your own Linux machine as one small daemon. You talk to it in Discord,
+Theseus is a personal AI agent that lives on your own Linux machine as one small service. You talk to it in Discord,
 in a terminal, in your browser or out loud in a voice call, and it does real work with real tools: it edits code,
 runs commands, reads the web, drives AWS and Google Workspace, and keeps long jobs running in the background. It
 calls Anthropic's Claude models directly, and any model served through the same API.
@@ -46,8 +46,8 @@ The claims on this page are measured wherever they can be, with their dates and 
 loses. Proof points are collected in **[Proof points](docs/proof.md)**, and the raw runs are in [the
 benchmarks](docs/benchmarks/omnibus.md).
 
-It is one daemon (`theseusd`), a thin command line (`theseus`), a terminal UI, and a web cockpit the daemon serves
-itself. Linux only, by design: it is built on cgroups, namespaces, seccomp and pidfds, with no portability layer.
+It is one daemon (`theseusd`), the memory index it starts and looks after as a second process (`theseus-index`), a
+thin command line (`theseus`), a terminal UI, and a web cockpit the daemon serves itself. Linux only, by design: it is built on cgroups, namespaces, seccomp and pidfds, with no portability layer.
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
