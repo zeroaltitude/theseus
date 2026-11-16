@@ -52,7 +52,12 @@ CALIBRATION = [
     # the stale-row case the header describes and not a counting bug: the script reads 88 at 7fd80132^ and 89
     # at 7fd80132, tracking that one line exactly. Re-measured by that boundary rather than by a fresh clippy
     # run, so if clippy ever disagrees about a bare statement line, this is the row that will say so.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 89),
+    # 89 until the turn's closing-notes fix (issue 20, "what a request sent stays sent") added eleven counted lines to
+    # it: the script reads 100 at 7259e882, exactly the ceiling clippy holds (`too-many-lines-threshold = 100`, and
+    # clippy passed on that commit), so the row follows the function by the same rule as above. Re-pinned, not made to
+    # read the source: a row that took its number from the function it measures could never disagree with the script,
+    # which is what the table is for. clippy's own figure was not re-measured; it cannot be above 100.
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 100),
 ]
 
 
