@@ -10,10 +10,10 @@
 //! was. Past it the highest scores ([`super::heat`]) are hot and the rest is cold.
 //!
 //! **What a search reads** under a layout: the whole hot region, then every record the layout
-//! does not place (those embedded since; and, until the groups exist, the cold part), then
-//! (step three) the nearest groups. A record's rows are found by its text and each is filtered as
-//! the exact scan filters it, so a forgotten, dead or filtered-out row is never returned from any
-//! region: a record is a name for rows, and only alive rows answer.
+//! does not place (those embedded since, and those no alive row held when it was made), then the
+//! promoted records, then the nearest eighth of the groups. A record's rows are found by its text
+//! and each is filtered as the exact scan filters it, so a forgotten, dead or filtered-out row is
+//! never returned from any region: a record is a name for rows, and only alive rows answer.
 //!
 //! **Explicit searches are exact** ([`Reach::Exact`]): the memory search tool, the neighbours
 //! lookup and anything that does not ask for [`Reach::Fast`] scan everything, hot and cold.
@@ -241,8 +241,9 @@ impl Table {
     }
 
     /// The best `n` rows of the tier's regions: the hot region, every record it does not place,
-    /// by their int8 cuts, each record's alive rows filtered by `keep`. The same candidates, with
-    /// the same scores and the same ties, as the exact scan gives over those records.
+    /// the promoted records and the nearest groups, by their int8 cuts, each record's alive rows
+    /// filtered by `keep`. The same candidates, with the same scores and the same ties, as the
+    /// exact scan gives over those records.
     pub(super) fn top_tiered(
         &self,
         tier: &TierFile,

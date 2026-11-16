@@ -515,7 +515,7 @@ fn a_layout_that_passes_its_check_is_put_in_place() {
     );
     assert!(s.groups > 30 && s.layouts == 1);
     assert_eq!(v.layout_due(), None);
-    // A full promotion list asks for a layout; one that fits the budget again takes the tier off.
+    // A full promotion list asks for a layout.
     v.table
         .write()
         .unwrap()
