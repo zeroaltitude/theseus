@@ -198,14 +198,14 @@ impl Core {
     pub(crate) fn onto_cases(&self, limit: usize) -> anyhow::Result<Cases> {
         let o = self.runner.ontology.snapshot(&self.store)?;
         // Per session, the import's memberships by kind.
-        let mut labels: BTreeMap<&str, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
+        let mut labels: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
         for l in o.lists() {
             if !ONTO_KINDS.contains(&l.kind.as_str()) {
                 continue;
             }
             for m in l.members.iter().filter(|m| m.origin == Origin::Import) {
                 labels
-                    .entry(&l.session)
+                    .entry(l.session.clone())
                     .or_default()
                     .entry(l.kind.clone())
                     .or_default()
@@ -220,7 +220,7 @@ impl Core {
                     self.runner.place_of(s),
                     theseus_memory::recall::Place::Private
                 );
-                (private && rec.task.is_none()).then_some((rec.last_active_ms, *s))
+                (private && rec.task.is_none()).then_some((rec.last_active_ms, s.as_str()))
             })
             .collect();
         sessions.sort_by(|a, b| b.cmp(a));
@@ -368,7 +368,12 @@ pub(crate) fn as_at_first(o: &theseus_ontology::Ontology, sid: &str, input: &mut
     let own: BTreeSet<String> = o
         .lists()
         .filter(|l| l.session == sid)
-        .flat_map(|l| l.members.iter().map(|m| m.category.to_string()))
+        .flat_map(|l| {
+            l.members
+                .iter()
+                .map(|m| m.category.to_string())
+                .collect::<Vec<_>>()
+        })
         .collect();
     let mut used: BTreeMap<String, u64> = BTreeMap::new();
     for l in o.lists().filter(|l| l.session != sid) {

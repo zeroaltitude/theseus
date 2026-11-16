@@ -443,7 +443,10 @@ async fn a_membership_appended_after_the_run_is_kept_in_its_place() {
         persona: None,
     };
     operator_write(c, Record::Category(pier.clone()));
-    let mut l = snapshot(c).member_list(&sid(0), "topic").unwrap().clone();
+    let mut l = snapshot(c)
+        .member_list(&sid(0), "topic")
+        .unwrap()
+        .into_owned();
     l.members.push(Membership::operator(pier.id.clone(), 2));
     operator_write(c, Record::Members(l));
     let last = c.store.inner().last_position();

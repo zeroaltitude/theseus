@@ -69,7 +69,7 @@ fn snapshot(core: &Core) -> Arc<theseus_ontology::Ontology> {
 
 fn list_bytes(core: &Core, session: &str) -> Vec<u8> {
     let o = snapshot(core);
-    let l = o.member_list(session, "topic").unwrap().clone();
+    let l = o.member_list(session, "topic").unwrap().into_owned();
     serde_json::to_vec(&Record::Members(l).to_value()).unwrap()
 }
 
@@ -177,13 +177,8 @@ fn decay_drops_an_old_machine_membership_and_keeps_an_owners() {
     let swept = core.onto_sweep(NOW).unwrap();
     assert_eq!((swept.decayed, swept.merged, swept.failed), (1, 0, 0));
     let o = snapshot(&core);
-    let kept: Vec<&str> = o
-        .member_list("s1", "topic")
-        .unwrap()
-        .members
-        .iter()
-        .map(|m| m.category.as_str())
-        .collect();
+    let list = o.member_list("s1", "topic").unwrap();
+    let kept: Vec<&str> = list.members.iter().map(|m| m.category.as_str()).collect();
     assert_eq!(kept, ["topic:web", "topic:sec"]);
 
     core.ontology_undo(&swept.writes[0], "the CLI", "cli")

@@ -119,7 +119,7 @@ impl Ontology {
                 }
             }
             sessions.push(l.session.clone());
-            lists_before.push(l.clone());
+            lists_before.push(MemberList::clone(&l));
             records.push(Record::Members(MemberList {
                 session: l.session.clone(),
                 kind: l.kind.clone(),
