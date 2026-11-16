@@ -567,11 +567,17 @@ mod tests_recall_current;
 #[cfg(test)]
 mod tests_recall_deadline;
 #[cfg(test)]
+mod tests_recall_loading;
+#[cfg(test)]
 mod tests_recall_neighbour;
 #[cfg(test)]
 mod tests_recall_node;
 #[cfg(test)]
 mod tests_recall_precision;
+#[cfg(test)]
+mod tests_recall_share;
+#[cfg(test)]
+mod tests_recall_standin;
 #[cfg(test)]
 mod tests_recall_time;
 #[cfg(test)]

@@ -975,6 +975,9 @@ impl TurnRunner {
             .is_some_and(|i| !crate::judge::inbound::slash_command(i))
         {
             self.judge.warm_on_message();
+            // And the index's embedding model, loading beside the admission
+            // so that this turn's recall finds it (issue 21 of 1.0.7).
+            self.memory.warm_on_message();
         }
         // Running until this returns, after the turn's last frame: the memory
         // pass writes only between turns (theseus-ms5m).

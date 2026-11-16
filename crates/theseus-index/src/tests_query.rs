@@ -237,6 +237,38 @@ fn a_recall_s_two_queries_on_one_connection_both_answer() {
     }
 }
 
+/// A query that may wait is answered with vectors from a model the idle
+/// unload took away (issue 21 of 1.0.7): the embedding thread loads it for
+/// the query, and the query waits for the load, up to its `wait_ms`. The
+/// recall's `LOAD_BOUND` rides on this.
+#[test]
+fn a_query_that_may_wait_is_answered_with_vectors_after_the_idle_unload() {
+    let v = VRig::new();
+    let nodes: Vec<_> = TEXTS.iter().map(|t| user("ses_1", t)).collect();
+    v.rig.put(&nodes);
+    let mut cfg = v.cfg("test-engine-1");
+    cfg.vectors.idle_unload = Duration::from_millis(50);
+    let mut t = Tender::open(cfg).unwrap();
+    settle_all(&mut t);
+    let shared = t.shared();
+    std::thread::sleep(Duration::from_millis(60));
+    shared.vectors.work_once(&shared.engine);
+    assert_eq!(crate::vtests::status(&shared).model, "unloaded");
+    let s2 = shared.clone();
+    let embedding = std::thread::spawn(move || s2.vectors.run(&s2.engine));
+
+    let mut p = QueryParams::new("tides follow the moon");
+    p.sources = vec!["vector".into()];
+    p.k = 3;
+    p.wait_ms = 10_000;
+    let r = shared.query(&p).unwrap();
+    assert!(r.skipped.is_empty(), "{:?}", r.skipped);
+    assert!(r.hits.iter().any(|h| h.sources.contains_key("vector")));
+    assert!(crate::vtests::status(&shared).loads >= 2);
+    shared.vectors.request_stop();
+    embedding.join().unwrap();
+}
+
 /// The real model (review of theseus-zo1y): a query within the cut embeds,
 /// to the bit, as the uncut path did; a long one is one window of 32 pieces.
 /// The live check runs it.
