@@ -69,10 +69,15 @@ everything, hot and cold. After a search under a layout the pages it touched out
 
 ## The proof, and the fallback
 
-Before a layout is put in place it is replayed on up to 64 of **its own cold records' vectors**, spread through the groups,
-each leaving its own node out so that a record cannot find itself, against the exact scan. Under 95% of the exact best ten it
-is not put in place: its file is removed, searches stay exact, and `index.status`'s `vectors.tier` and the log say so (and why).
-It is tried again after 24 hours or when the store has grown by a tenth. A bad grouping costs time, never results.
+Before a layout is put in place it is replayed against the exact scan on up to 64 **real recall queries**: the index
+remembers the vectors of the last 256 fast queries it served. Until it has served 32, it is replayed instead on up to 64 of
+its own cold records' vectors, spread through the groups, each leaving its own node out so that a record cannot find itself;
+that is a kinder test than a turn's words, so its bar is 97% and not 95%. The layout is written as `<key>.tier.cand` and gets
+its name only once it has passed. Under the bar of the exact best ten it is not put in place: searches stay exact, and
+`index.status`'s `vectors.tier` (with `checked_on`) and the log say so (and why). A layout nothing could check is not put in
+place either, and is tried again a minute later.
+A layout that failed is tried again after 24 hours or when the store has grown by a tenth. A bad grouping costs time, never
+results.
 
 `theseus-index replay --index <a private copy> --queries <file>` puts a file of query vectors (one a line: 768 numbers, a JSON
 array, or `{"vector": [...], "as_of": N, "exclude_sessions": [...]}`) to the exact scan and the tiered search over a copy of an
