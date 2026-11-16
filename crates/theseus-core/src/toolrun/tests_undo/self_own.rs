@@ -62,6 +62,8 @@ fn lay(b: &Path) {
     std::fs::write(scratch(&t).join("tree/built.txt"), WAS).unwrap();
     std::fs::write(b.join("state/notes.txt"), WAS).unwrap();
     std::fs::write(b.join("repo/README"), WAS).unwrap();
+    // Beside the workspace, in the temporary directory and under none of the places kept.
+    std::fs::write(b.join("victim.txt"), WAS).unwrap();
 }
 
 /// A core whose one scripted call is `name` with `input`, from a session of `principal` (the task
@@ -290,7 +292,7 @@ async fn a_self_session_removes_a_file_of_its_tree_and_one_in_the_temporary_dire
 /// of the last four would run but for its shape.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_removal_aimed_outside_its_own_places_is_held() {
-    let aims: [(&str, Aim<Value>); 13] = [
+    let aims: [(&str, Aim<Value>); 12] = [
         (
             "the workspace",
             |t| json!({"argv": ["rm", "-rf", t.parent().unwrap()]}),
@@ -310,10 +312,6 @@ async fn a_removal_aimed_outside_its_own_places_is_held() {
         (
             "the self repo",
             |t| json!({"argv": ["rm", "-rf", base(t).join("repo")]}),
-        ),
-        (
-            "the sealed set",
-            |t| json!({"argv": ["rm", "-rf", base(t).join("sealed")]}),
         ),
         (
             "the base, which holds them all",
@@ -361,20 +359,84 @@ async fn a_removal_aimed_outside_its_own_places_is_held() {
     }
 }
 
-/// A path that starts in the scratch and leaves it, by `..` or by a link, is judged where it lands.
+/// One case of a removal that gets out of its own places: what the call is, and what must still be
+/// there when it has been held.
+struct Escape {
+    what: &'static str,
+    input: Aim<Value>,
+    survivor: Aim<PathBuf>,
+}
+
+fn link(at: PathBuf, to: &Path) -> PathBuf {
+    std::os::unix::fs::symlink(to, &at).unwrap();
+    at
+}
+
+fn rm_argv(flags: &str, p: PathBuf) -> Value {
+    json!({"argv": ["rm", flags, p.to_string_lossy()]})
+}
+
+/// A path that starts in an own place and leaves it is judged as `rm` will act. A `..` is not read.
+/// A link followed by a `..` is the case a resolver that drops the `..` first gets wrong (the
+/// review's finding): `out/../victim.txt` is `<base>/victim.txt` to the kernel, and the resolver's
+/// `<scratch>/tree/victim.txt` is its own. And a link outside that points into its own places is
+/// removed as a link, which is not its own.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_path_that_leaves_the_scratch_is_judged_where_it_lands() {
-    let by_dots = |t: &Path| {
-        let up = built_in_scratch(t).join("../../../../../work");
-        json!({"argv": ["rm", "-rf", up.to_string_lossy()]})
-    };
-    let by_link = |t: &Path| {
-        let link = built_in_scratch(t).join("out");
-        std::os::unix::fs::symlink(t.parent().unwrap(), &link).unwrap();
-        json!({"argv": ["rm", "-rf", link.join("notes.txt").to_string_lossy()]})
-    };
-    let aims: [(&str, Aim<Value>); 2] = [("`..`", by_dots), ("a link", by_link)];
-    for (what, input) in aims {
+async fn a_path_that_leaves_its_own_places_is_judged_as_rm_acts() {
+    let cases = [
+        Escape {
+            what: "a `..`",
+            input: |t| rm_argv("-rf", built_in_scratch(t).join("../../../../../work")),
+            survivor: |t| t.to_path_buf(),
+        },
+        Escape {
+            what: "a link out",
+            input: |t| {
+                rm_argv(
+                    "-rf",
+                    link(built_in_scratch(t).join("out"), t.parent().unwrap()).join("notes.txt"),
+                )
+            },
+            survivor: |t| t.to_path_buf(),
+        },
+        Escape {
+            what: "a link, then a `..`",
+            input: |t| {
+                rm_argv(
+                    "-f",
+                    link(built_in_scratch(t).join("out"), t.parent().unwrap())
+                        .join("../victim.txt"),
+                )
+            },
+            survivor: |t| base(t).join("victim.txt"),
+        },
+        Escape {
+            what: "a link out of its tree, then a `..`",
+            input: |t| {
+                rm_argv(
+                    "-f",
+                    link(tree(t, "sails").join("out"), t.parent().unwrap()).join("../victim.txt"),
+                )
+            },
+            survivor: |t| base(t).join("victim.txt"),
+        },
+        Escape {
+            what: "a link of the workspace that points into its tree",
+            input: |t| {
+                rm_argv(
+                    "-f",
+                    link(t.parent().unwrap().join("pointer"), &tree(t, "sails")),
+                )
+            },
+            survivor: |t| t.parent().unwrap().join("pointer"),
+        },
+    ];
+    for Escape {
+        what,
+        input,
+        survivor,
+    } in cases
+    {
         let (r, sid) = drive("self", "proc_run", input, nothing);
         r.core
             .tools
@@ -382,8 +444,56 @@ async fn a_path_that_leaves_the_scratch_is_judged_where_it_lands() {
             .review_opened(&sid, &scratch(&r.target));
         r.turn(&sid).await;
         assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
-        assert!(r.target.exists(), "{what}: the workspace file is there");
+        assert!(
+            survivor(&r.target).symlink_metadata().is_ok(),
+            "{what}: it is still there"
+        );
     }
+}
+
+/// And what stays its own when `rm` reaches it by a link that does not leave: a link inside its tree
+/// is removed as a link, whatever it points at.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_link_inside_its_tree_is_removed_as_a_link_and_not_followed() {
+    let own_link = |t: &Path| {
+        rm_argv(
+            "-f",
+            link(tree(t, "sails").join("pointer"), t.parent().unwrap()),
+        )
+    };
+    let (r, sid) = drive("self", "proc_run", own_link, nothing);
+    r.turn(&sid).await;
+    assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
+    assert!(
+        tree(&r.target, "sails")
+            .join("pointer")
+            .symlink_metadata()
+            .is_err(),
+        "the link went"
+    );
+    assert!(r.target.exists(), "what it pointed at did not");
+}
+
+/// The sealed set is out of reach of every tool and job: a refusal, before any model is asked, for a
+/// self session as for anyone. It is not a hold, and the rule never reads it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_sealed_set_is_still_refused_before_anything_is_asked() {
+    let (r, sid) = drive(
+        "self",
+        "proc_run",
+        |t| rm_argv("-rf", base(t).join("sealed")),
+        nothing,
+    );
+    r.turn(&sid).await;
+    let results = r.results(&sid);
+    assert!(
+        results
+            .iter()
+            .any(|(s, text, _)| s == "Declined" && text.contains("sealed")),
+        "{results:?}"
+    );
+    assert!(r.jev.seen().is_empty(), "no model was asked");
+    assert!(base(&r.target).join("sealed").exists());
 }
 
 /// A scratch is the session's that registered it. A self session with none, a session that is not a

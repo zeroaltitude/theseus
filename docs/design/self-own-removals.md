@@ -38,8 +38,10 @@ Three kinds of call are covered, each because the code can say what it removes:
 2. **`fs.write`, `fs.edit` and `fs.patch`**, the floor's own closed table of tools whose whole effect is the paths
    their plan names, when every path they write is the session's own.
 3. **`rm` as a `proc.run` `argv`**, with no `env`, flags from `-r -R -f -v -d` and their long forms, and every
-   operand its own. An `argv` has no shell, so an operand is the literal path; a call that sets `env` could make `rm`
-   a program of its own, so it is not read. A shell line (`bash -c`), a batch of `steps`, `git worktree remove`, `mv`,
+   operand its own. An `argv` has no shell, so an operand is the literal path. The program must be the system's
+   `rm`: `/bin/rm`, `/usr/bin/rm`, or a bare `rm` that is the first on the daemon's own `PATH` and resolves to one of
+   them (the `PATH` starts in the owner's own directories on some hosts, and a call that sets `env` could make `rm`
+   a program of its own, so it is not read). A shell line (`bash -c`), a batch of `steps`, `git worktree remove`, `mv`,
    `git clean` and every other program are held exactly as before: the code cannot say what they remove.
 
 **Its own** is: strictly inside its working copy (`<state>/self/trees/<its task>`, never the copy itself, which the
@@ -47,13 +49,35 @@ pipeline holds); its review scratch (`<state>/self/review/<slug>`, the directory
 session that runs the review by `CheckTurn` and removed from the registry when the review answers; a call can never
 name it, and an entry outside `<state>/self/review` is ignored); or strictly inside the system temporary directory,
 except the state dir, the self repo, the sealed set, the workspace and the roots, and anything that holds one of them
-(a sweep over a parent). Every path is resolved before it is compared (`..` and links are judged where they land).
+(a sweep over a parent).
+
+**How a path is judged.** The file tools act on the path as `paths::canonical_best_effort` resolves it (links
+followed, `..` applied lexically), so the judgment and the act agree and a link or a `..` that leaves is judged
+where it lands. **`rm` is judged as the kernel acts, which differs**: the kernel follows a link and then applies a
+`..` that comes after it, where the resolver drops the `..` first, so `<link>/../x` would be judged beside the
+resolver's own place and removed beside the link's target. The first review of this change found it. So an `rm`
+operand with a `..` in it is not read (held as before), and an operand is judged as its parent resolved plus its last
+part as written, because `rm` removes a link and not what it points at.
 
 ## What a self session still cannot remove without a hold
 
 Anything outside those places: the owner's checkouts and home, the store and the rest of the state dir, another
 item's working copy, the self repo, the trees root and the reviews' root. And, anywhere, a removal written as a shell
 line, a batch, or a program other than `rm`; and a sandboxed call with a network list.
+
+## What is wider than "its own", and what is not done
+
+- **The temporary directory is the owner's own scope for this change, and it is wide.** The daemon runs as the owner's
+  user over a `/tmp` that every agent and shell on the machine shares, which holds files that are nobody's scratch
+  (a shell's history, other lanes' worktrees with uncommitted work). The rule keeps out the state dir, what the
+  sandbox hides, the self repo and the workspace roots, and nothing else there. It only matters when a self session
+  names a path it did not make. A narrower rule would give the self loop a temporary directory of its own (a
+  per-session `TMPDIR` under one directory, removed when the item ends) and take the clause out of `Own::holds_resolved`.
+- **The L1 rule never fires where `[sandbox] egress` names a host**, because every L1 call then carries a list.
+  That is conservative, and a daemon so configured gets the file-tool and `rm` rules only.
+- **A model is not told that the `argv` form of `rm` runs**, and the hold's text for a shell line is unchanged.
+- **The gate resolves at one moment and `rm` acts a moment later.** Two coordinated calls of one response could swap
+  a directory for a link between them.
 
 ## Not yet: the builder's build folder
 

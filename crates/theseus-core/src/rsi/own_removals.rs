@@ -19,17 +19,22 @@
 //!   remote either. Whatever the call removes is the overlay it was given.
 //! - **A plain file tool (`fs.write`, `fs.edit`, `fs.patch`) whose every write target is its own**,
 //!   which the tool's plan names exactly.
-//! - **`rm` with an `argv` and no `env`, whose flags are from a closed set and whose operands are
-//!   all its own.** An `argv` has no shell, so an operand is the literal path. A shell line, a batch
-//!   of steps and every other program (`git worktree remove` among them) are held as today: the code
-//!   cannot say what they remove.
+//! - **The system's `rm` with an `argv` and no `env`, whose flags are from a closed set and whose
+//!   operands are all its own.** An `argv` has no shell, so an operand is the literal path. A shell
+//!   line, a batch of steps and every other program (`git worktree remove` among them) are held as
+//!   today: the code cannot say what they remove.
 //!
 //! "Its own" is [`Own`]: strictly inside its working copy, its review scratch (registered by the
 //! review that made it, never named by a call), or strictly inside the system temporary directory
-//! apart from the places [`Own::kept`] names. Every path is resolved first, so a link or a `..` that
-//! leaves is judged where it lands. `docs/design/self-own-removals.md` has the rest.
+//! apart from the places [`Own::kept`] names. A path is resolved before it is judged, and the file
+//! tools act on the path as resolved, so for them a link or a `..` that leaves is judged where it
+//! lands. **`rm` is judged as the kernel acts**, which is not the same: the kernel follows a link
+//! and then applies a `..` after it, where [`paths::canonical_best_effort`] drops the `..` first. So
+//! an operand with a `..` in it is not read at all ([`Own::named`]), and an operand's last part is
+//! not followed, because `rm` removes a link and not what it points at.
+//! `docs/design/self-own-removals.md` has the rest.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::PoisonError;
 
 use serde_json::Value;
@@ -45,6 +50,9 @@ use crate::toolrun::ToolRuntime;
 /// `--no-preserve-root`, an unknown flag) is a call this module does not read.
 const RM_LONG: [&str; 4] = ["--recursive", "--force", "--verbose", "--dir"];
 const RM_SHORT: &str = "rRfvd";
+/// Where the system's `rm` is: the two names a program may be given by, and what a bare `rm` must
+/// resolve to.
+const SYSTEM_RM: [&str; 2] = ["/bin/rm", "/usr/bin/rm"];
 
 /// A self session's own places, each resolved.
 struct Own {
@@ -107,9 +115,31 @@ impl Own {
         })
     }
 
-    /// Whether everything the path names, once resolved, is the session's own.
+    /// Whether everything the path names, once resolved, is the session's own: for the file tools,
+    /// which act on the path as [`paths::canonical_best_effort`] resolves it.
     fn holds(&self, p: &Path) -> bool {
-        let p = paths::canonical_best_effort(p);
+        self.holds_resolved(paths::canonical_best_effort(p))
+    }
+
+    /// Whether what `rm` removes for this operand is the session's own: the operand with every part
+    /// but the last resolved, and the last kept as it is, since `rm` removes a link and not its
+    /// target. An operand with a `..` is not read: a link before it would be followed first.
+    fn named(&self, operand: &Path) -> bool {
+        if operand
+            .components()
+            .any(|c| matches!(c, Component::ParentDir))
+        {
+            return false;
+        }
+        match (operand.parent(), operand.file_name()) {
+            (Some(parent), Some(name)) => {
+                self.holds_resolved(paths::canonical_best_effort(parent).join(name))
+            }
+            _ => false,
+        }
+    }
+
+    fn holds_resolved(&self, p: PathBuf) -> bool {
         let strictly = |root: &Path| p != root && p.starts_with(root);
         if self.tree.as_deref().is_some_and(strictly) {
             return true;
@@ -212,7 +242,7 @@ fn why(
         .find(|r| r.access == Access::Exec)
         .map(|r| r.path.as_path())?;
     let operands = rm_operands(tool, plan, input)?;
-    let own_all = operands.iter().all(|o| own.holds(&cwd.join(o)));
+    let own_all = operands.iter().all(|o| own.named(&cwd.join(o)));
     own_all.then_some("every path rm names is its own")
 }
 
@@ -254,7 +284,8 @@ fn rm_operands<'a>(tool: &dyn Tool, plan: &'a Plan, input: &Value) -> Option<Vec
         return None;
     }
     let (program, args) = plan.argv.as_deref()?.split_first()?;
-    if !["rm", "/bin/rm", "/usr/bin/rm"].contains(&program.as_str()) {
+    let system = SYSTEM_RM.iter().any(|p| Path::new(p) == Path::new(program));
+    if !system && !(program == "rm" && plain_rm_is_the_systems()) {
         return None;
     }
     let (mut flags, mut operands) = (true, Vec::new());
@@ -270,6 +301,18 @@ fn rm_operands<'a>(tool: &dyn Tool, plan: &'a Plan, input: &Value) -> Option<Vec
         }
     }
     (!operands.is_empty() && operands.iter().all(|o| !o.is_empty())).then_some(operands)
+}
+
+/// Whether a bare `rm` is the system's: the first `rm` on the daemon's own `PATH`, which a job
+/// inherits, resolves to one of [`SYSTEM_RM`]. The `PATH` starts in the owner's own directories on
+/// some hosts, so a program put there would otherwise be run unheld by every later call.
+fn plain_rm_is_the_systems() -> bool {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .map(|d| d.join("rm"))
+        .find(|c| c.is_file())
+        .and_then(|c| c.canonicalize().ok())
+        .is_some_and(|c| SYSTEM_RM.iter().any(|p| c == Path::new(p)))
 }
 
 #[cfg(test)]
