@@ -18,6 +18,7 @@ fn node(i: u64, salt: u128) -> NodeChunks {
     NodeChunks {
         node_id: id(i),
         position: i,
+        time_ms: i * 1_000,
         session: format!("ses_{}", i % 50),
         kind: "user_message".into(),
         external: false,

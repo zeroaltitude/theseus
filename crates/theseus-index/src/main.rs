@@ -66,6 +66,11 @@ enum Cmd {
         /// theseus-d7fy).
         #[arg(long, default_value_t = 0)]
         query_threads: usize,
+        /// The index's resident memory the hot set is sized to, in MiB (`[index] resident_mb`):
+        /// the records a search reads first are chosen to fit it, and the rest are read in groups
+        /// (`vectors/layout.rs`). Refused below the least that holds the index's own parts.
+        #[arg(long, default_value_t = theseus_index::vectors::DEFAULT_RESIDENT_MB)]
+        resident_mb: u64,
         /// The fusion's default weights, over the built-in ones
         /// (`bm25=1,entity=1,vector=2`; `[index] fusion` at the wire-in).
         #[arg(long)]
@@ -129,6 +134,25 @@ enum Cmd {
     Status {
         #[arg(long)]
         socket: PathBuf,
+    },
+    /// Put a file of query vectors to the exact scan and to the tiered search over a PRIVATE COPY
+    /// of an index, and print what the tiered search kept of the exact search's best 6 and best
+    /// 10 (issue 21 of 1.0.7). It writes the layout's files into the copy: never point it at the
+    /// index of a running tender.
+    Replay {
+        /// A copy of an index directory (`<state>/index`).
+        #[arg(long)]
+        index: PathBuf,
+        /// One query a line: 768 numbers (spaces or commas), a JSON array, or a JSON object
+        /// {"vector": [...], "as_of": N, "exclude_sessions": [...]}.
+        #[arg(long)]
+        queries: PathBuf,
+        /// The budget the layout is made under (`[index] resident_mb`).
+        #[arg(long, default_value_t = theseus_index::vectors::DEFAULT_RESIDENT_MB)]
+        resident_mb: u64,
+        /// Or the hot region's size in records, over the budget.
+        #[arg(long)]
+        hot_records: Option<usize>,
     },
     /// Drop the index and build it again from the WAL.
     Rebuild {
@@ -220,9 +244,12 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             idle_unload_mins,
             threads,
             query_threads,
+            resident_mb,
             weights,
             parent,
         } => {
+            theseus_index::vectors::check_resident_mb(resident_mb)
+                .map_err(|e| anyhow::anyhow!("--resident-mb: {e}"))?;
             // Before any thread starts: candle reads these at every matmul,
             // and rayon's pool at its first use. Every core when unset. A
             // matmul is split as RAYON_NUM_THREADS says in the pool it runs
@@ -261,6 +288,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
                     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/theseus/models"))
                 });
                 cfg.vectors = VectorConfig::new(dir);
+                cfg.vectors.resident_mb = resident_mb;
                 cfg.vectors.idle_unload = Duration::from_secs_f64(idle_unload_mins.max(0.0) * 60.0);
             }
             match theseus_index::serve(cfg, nice) {
@@ -387,6 +415,24 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             let s: IndexStatus =
                 Client::connect(&socket, CALL_TIMEOUT)?.call(method::STATUS, ())?;
             println!("{}", serde_json::to_string_pretty(&s)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Replay {
+            index,
+            queries,
+            resident_mb,
+            hot_records,
+        } => {
+            theseus_index::vectors::check_resident_mb(resident_mb)
+                .map_err(|e| anyhow::anyhow!("--resident-mb: {e}"))?;
+            let report =
+                theseus_index::vectors::replay::run(&theseus_index::vectors::replay::Options {
+                    index,
+                    queries,
+                    resident_mb,
+                    hot_records,
+                })?;
+            print!("{report}");
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Rebuild { socket } => {

@@ -42,6 +42,7 @@ fn table(dir: &Path, n: usize, seed: u64) -> Table {
         t.add_node(&NodeChunks {
             node_id: format!("nd_{i}"),
             position: r % 1000,
+            time_ms: 0,
             session: format!("ses_{}", r % 5),
             kind: ["user_message", "tool_result"][(r >> 8) as usize % 2].into(),
             external: (r >> 16).is_multiple_of(3),
@@ -255,6 +256,7 @@ fn bench_the_flat_scan_over_100k_chunks() {
         t.add_node(&NodeChunks {
             node_id: format!("nd_{i}"),
             position: i as u64,
+            time_ms: 0,
             session: format!("ses_{}", i % 50),
             kind: "tool_result".into(),
             external: false,
@@ -440,6 +442,7 @@ fn a_record_is_dead_once_no_row_holds_its_text() {
     t.add_node(&NodeChunks {
         node_id: "nd_again".into(),
         position: 1,
+        time_ms: 0,
         session: "ses_1".into(),
         kind: "user_message".into(),
         external: false,

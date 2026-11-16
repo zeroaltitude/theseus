@@ -89,6 +89,12 @@ pub struct VectorConfig {
     /// A pause before each layer of a query's pass: zero, but for a test's
     /// stand-in for a slow model (`Embedder::slowed`, theseus-zo1y).
     pub query_step: Duration,
+    /// The index's resident memory the hot set is sized to (`[index] resident_mb`), in MiB
+    /// (`layout.rs`).
+    pub resident_mb: u64,
+    /// For tests and the replay tool: the hot region's size in records, over what `resident_mb`
+    /// gives.
+    pub hot_records: Option<usize>,
 }
 
 impl VectorConfig {
@@ -101,6 +107,8 @@ impl VectorConfig {
             engine: embedder::engine_tag(),
             yield_bound: theseus_store::pressure::PATIENT,
             query_step: Duration::ZERO,
+            resident_mb: DEFAULT_RESIDENT_MB,
+            hot_records: None,
         }
     }
 
@@ -131,6 +139,9 @@ pub struct ChunkKey {
 pub struct NodeChunks {
     pub node_id: String,
     pub position: u64,
+    /// The node's own time, in ms: when its content was said, never when it was stored (an
+    /// import of old sessions is old). What the hot set's recency is measured from.
+    pub time_ms: u64,
     pub session: String,
     pub kind: String,
     pub external: bool,
@@ -162,18 +173,29 @@ pub trait Texts {
 mod entries;
 #[cfg(test)]
 mod files_tests;
+mod groups;
 mod heap;
+mod heat;
 mod held;
+mod layout;
+#[cfg(test)]
+mod measure;
 #[cfg(test)]
 mod probe;
 #[cfg(test)]
 mod reconcile;
+pub mod replay;
 mod rows;
 mod scan;
 mod status;
 mod store;
+mod tier;
+#[cfg(test)]
+mod tier_tests;
 
+pub use heat::{from_ledger as signal_of, Signal};
 pub use held::Held;
+pub use layout::{check_resident_mb, hot_cap, Reach, DEFAULT_RESIDENT_MB, MIN_RESIDENT_MB};
 
 mod cache;
 #[cfg(test)]
@@ -191,11 +213,16 @@ struct Row {
     node: Arc<str>,
     chunk: u32,
     position: u64,
+    /// The node's own time, in whole seconds (see [`NodeChunks::time_ms`]).
+    time: u32,
     session: u32,
     kind: u16,
     external: bool,
     hash: u128,
-    tokens: u32,
+    /// The chunker's estimate, saturating at 65,535: past the batching's own bound
+    /// ([`BATCH_MAX_TOKENS`]) it only picks a bucket, and the node's own time took the two
+    /// bytes this row had over 64.
+    tokens: u16,
     alive: bool,
     /// The file among [`Table::caches`] whose entry `entry` is the vector
     /// this row answers with. Two fields and not an `Option<(u8, u32)>`,
@@ -205,6 +232,11 @@ struct Row {
     cache: u8,
     /// [`NO_VEC`] where this row has no vector of any stamp yet.
     entry: u32,
+}
+
+/// A node's own time in whole seconds, as a row keeps it (good until 2106).
+pub(super) fn time_secs(ms: u64) -> u32 {
+    u32::try_from(ms / 1000).unwrap_or(u32::MAX)
 }
 
 /// A row with no vector: no file can hold `u32::MAX` entries (a record is
@@ -447,6 +479,14 @@ pub struct Table {
     /// index, which a reconcile that read the index first must not add.
     forgot_nodes: HashSet<String>,
     forgot_chunks: HashSet<(String, u32)>,
+    /// How the current stamp's records are laid out in regions, when a layout is made and good
+    /// (`tier.rs`, `layout.rs`).
+    tier: Option<Arc<tier::TierFile>>,
+    /// Cold records a signal has vouched for since the layout: searched with the hot set until a
+    /// layout makes them hot (`layout.rs`).
+    promoted: HashSet<u32>,
+    /// The signals the hot set is chosen by, by node (`heat.rs`).
+    signals: heat::Signals,
 }
 
 impl Table {
@@ -586,11 +626,12 @@ impl Table {
                 node: node.clone(),
                 chunk: c.chunk,
                 position: n.position,
+                time: time_secs(n.time_ms),
                 session,
                 kind,
                 external: n.external,
                 hash: c.hash,
-                tokens: c.tokens,
+                tokens: u16::try_from(c.tokens).unwrap_or(u16::MAX),
                 alive: true,
                 cache: 0,
                 entry: NO_VEC,
@@ -614,6 +655,7 @@ impl Table {
                 Some(k) => {
                     let r = &mut self.rows[k];
                     r.position = n.position;
+                    r.time = time_secs(n.time_ms);
                     r.session = session;
                     r.kind = kind as u16;
                     r.external = n.external;
@@ -790,15 +832,36 @@ impl Table {
         f: &RowFilter,
         fetch: usize,
     ) -> io::Result<Vec<(usize, f64)>> {
+        self.search_with(full, cut, f, fetch, None)
+    }
+
+    /// [`Table::search`], over `tier`'s regions where one is given (`layout.rs`), else exact.
+    fn search_with(
+        &self,
+        full: &[f32],
+        cut: usize,
+        f: &RowFilter,
+        fetch: usize,
+        tier: Option<Arc<tier::TierFile>>,
+    ) -> io::Result<Vec<(usize, f64)>> {
         let short = embedder::l2_normalize(&full[..cut]);
         let (q, _) = quantize(&short);
         // After the pages were let go (an idle model's unload), the first scan
         // asks for the files in whole: one sequential read where the kernel
-        // had dropped them. Not every search: the call walks every page.
+        // had dropped them. Not every search: the call walks every page. Under
+        // a layout it asks for the hot region alone, which is what is read.
         if self.cold.swap(false, Ordering::Relaxed) {
-            self.prefetch();
+            match &tier {
+                Some(t) => t.prefetch_hot(),
+                None => self.prefetch(),
+            }
         }
-        let cands = Flat(self).top(&q, fetch.max(RESCORE), &|i| self.admits(f, i));
+        let want = fetch.max(RESCORE);
+        let keep = |i: usize| self.admits(f, i);
+        let cands = match &tier {
+            Some(t) => self.top_tiered(t, &q, want, &keep),
+            None => Flat(self).top(&q, want, &keep),
+        };
         let mut scored = Vec::with_capacity(cands.len());
         for (i, _) in cands {
             if let Some(v) = self.full_of(i)? {
@@ -814,6 +877,12 @@ impl Table {
                 .then(a.0.cmp(&b.0))
         });
         scored.truncate(fetch);
+        // Under a layout the cold pages a search touched go from the process at once, so the
+        // index's resident memory stays what the hot region and the fixed part are
+        // (`layout.rs`).
+        if self.tier.is_some() {
+            self.release_cold_pages();
+        }
         Ok(scored)
     }
 }
@@ -897,6 +966,17 @@ pub struct Vectors {
     pub(crate) ahead: Ahead,
     /// The table's counts as the status last read them (`status`).
     counts: Mutex<status::Counts>,
+    /// The layout pass: when it may be tried again, and what it last did (`layout.rs`).
+    layouts: Mutex<layout::LayoutState>,
+    /// The vectors of the last recall queries served, which a layout is checked on.
+    recent: Mutex<std::collections::VecDeque<layout::Recent>>,
+    /// The last turn of the embedding thread ran a compaction or a layout: the next turn goes
+    /// to the embedding step first, whatever either says is due, so no rule of theirs, however
+    /// it counts, can keep new text from being embedded.
+    maintained: AtomicBool,
+    /// A test's hook: a layout is always due.
+    #[cfg(test)]
+    pub(crate) force_layout_due: AtomicBool,
 }
 
 /// The compactions so far, and when a failed one may be tried again.
@@ -986,6 +1066,11 @@ impl Vectors {
             opening: Mutex::new(()),
             ahead: Ahead::default(),
             counts: Mutex::default(),
+            layouts: Mutex::default(),
+            recent: Mutex::default(),
+            maintained: AtomicBool::new(false),
+            #[cfg(test)]
+            force_layout_due: AtomicBool::new(false),
             cfg,
         }
     }
@@ -1063,6 +1148,7 @@ impl Vectors {
             t.remove_node(n);
         }
         drop(t);
+        self.forget_signals(nodes);
         self.wake();
     }
 
@@ -1148,6 +1234,10 @@ impl Vectors {
                     failed.get_or_insert(e);
                 }
             }
+        }
+        if done.dropped > 0 {
+            // The records renumbered: a layout of the old numbers is of other records now.
+            t.install_tier(None);
         }
         t.resolve_all();
         match failed {
@@ -1238,6 +1328,10 @@ impl Vectors {
             t.forgot_nodes.extend(nodes.iter().cloned());
             t.forgot_chunks.extend(chunks.iter().cloned());
         }
+        let signals_left = nodes
+            .iter()
+            .map(|n| t.signals.forget(n))
+            .fold(false, |a, b| a | b);
         let mut held: Vec<(String, u32)> = asked
             .iter()
             .flat_map(|h| t.holders(*h))
@@ -1252,6 +1346,9 @@ impl Vectors {
             t.compact_asked = None;
         }
         drop(t);
+        if signals_left {
+            self.save_signals();
+        }
         self.compacted("forget", t0, &r);
         Ok(Forgot {
             held,
@@ -1307,9 +1404,16 @@ impl Vectors {
             .chain(older.into_iter().map(|x| x.1))
             .collect();
         t.others = others;
+        t.tier = match t.caches.as_slice() {
+            [only] => layout::open_tier(only).map(Arc::new),
+            _ => None,
+        };
         t.opened = true;
         t.resolve_all();
         Self::on_settled(&mut t);
+        drop(t);
+        self.load_signals();
+        self.table.write().unwrap().rederive_promotions();
         Ok(())
     }
 
@@ -1446,9 +1550,19 @@ impl Vectors {
         let Some(dir) = self.cfg.weights_dir.clone() else {
             return Work::Idle(BACKSTOP);
         };
-        if let Some(why) = self.compaction_due() {
-            self.compact_now(why);
-            return Work::Did;
+        // Housekeeping (a compaction, a layout) never takes two turns running: the turn after
+        // one goes to the embedding step, so a rule that stays due cannot starve it.
+        if !self.maintained.swap(false, Ordering::SeqCst) {
+            if let Some(why) = self.compaction_due() {
+                self.compact_now(why);
+                self.maintained.store(true, Ordering::SeqCst);
+                return Work::Did;
+            }
+            if let Some(why) = self.layout_due() {
+                self.layout_now(why);
+                self.maintained.store(true, Ordering::SeqCst);
+                return Work::Did;
+            }
         }
         let (opened, pending) = {
             let t = self.table.read().unwrap();
@@ -1494,6 +1608,10 @@ impl Vectors {
                 st.model = Model::Loading;
                 drop(st);
                 self.load(&dir);
+                // A query is coming: the hot region is asked of the kernel now, in one run.
+                if let Some(t) = &self.table.read().unwrap().tier {
+                    t.prefetch_hot();
+                }
                 Work::Did
             }
             Next::Embed(emb) => {
@@ -1757,6 +1875,7 @@ impl Vectors {
         filters: &Filters,
         fetch: usize,
         wait: Duration,
+        reach: Reach,
         gone: &(dyn Fn() -> bool + Sync),
     ) -> Result<(Vec<VectorHit>, f64, f64), String> {
         let emb = self.model(wait)?;
@@ -1778,10 +1897,13 @@ impl Vectors {
         drop(turn);
         let embed_ms = t0.elapsed().as_secs_f64() * 1e3;
         let t1 = Instant::now();
+        if reach == Reach::Fast {
+            self.remember_query(&v.full, as_of, exclude);
+        }
         let t = self.table.read().unwrap();
         let f = t.filter(as_of, exclude, filters);
         let hits = t
-            .search(&v.full, emb.spec().cut, &f, fetch)
+            .search_reach(&v.full, emb.spec().cut, &f, fetch, reach)
             .map_err(|e| format!("reading vectors: {e}"))?
             .into_iter()
             .map(|(i, score)| {

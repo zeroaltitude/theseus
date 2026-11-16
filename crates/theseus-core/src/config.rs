@@ -1771,6 +1771,7 @@ impl Config {
         self.persona_import.validate()?;
         self.context.validate()?;
         self.cockpit.validate()?;
+        self.index.validate()?;
         self.routines.validate()?;
         self.watch_for.validate()?;
         self.initiative.validate()?;

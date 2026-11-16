@@ -31,7 +31,10 @@ pub struct Cache {
     /// entries after them (`n_base` and on), numbered from 0 in the `Vec`s; a
     /// cache opened without a scan file holds every entry in them, as it
     /// always did.
-    pub(super) scan: Option<ScanFile>,
+    pub(super) scan: Option<Arc<ScanFile>>,
+    /// Bumped each time records are dropped and the rest renumbered: a layout made before it is
+    /// of numbers that no longer mean the same records.
+    pub(super) epoch: u64,
     /// Whether a scan file is kept for this cache (a table's own caches).
     scanned: bool,
     /// The dead flags of the entries in `scan`.
@@ -133,6 +136,8 @@ impl Cache {
         for stale in [
             path.with_extension("vec.tmp"),
             path.with_extension("scan.tmp"),
+            path.with_extension("tier.tmp"),
+            path.with_extension("tier.cand"),
         ] {
             match fs::remove_file(&stale) {
                 Ok(()) => tracing::warn!(
@@ -166,6 +171,7 @@ impl Cache {
             dead: Vec::new(),
             dead_count: 0,
             scan: None,
+            epoch: 0,
             scanned,
             base_dead: Bits::default(),
         };
@@ -224,6 +230,23 @@ impl Cache {
         self.dir.join(format!("{}.scan", self.key))
     }
 
+    pub(super) fn tier_path(&self) -> PathBuf {
+        super::tier::path(&self.dir, &self.key)
+    }
+
+    /// The records were renumbered: the tier file of the old numbers goes (a layout of them is of
+    /// other records now), and a layout made before this is not to be installed.
+    fn drop_tier(&mut self) {
+        self.epoch += 1;
+        match fs::remove_file(self.tier_path()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "index: the old tier file was not removed after a compaction");
+            }
+        }
+    }
+
     /// Use the scan file if it is the file these records made, else make it.
     /// A cache that cannot (a disk that refuses) reads them into memory.
     pub(super) fn take_scan(&mut self, records: usize) {
@@ -233,7 +256,7 @@ impl Cache {
         ) {
             Ok(s) => {
                 self.base_dead = Bits::filled(s.len(), false);
-                self.scan = Some(s);
+                self.scan = Some(Arc::new(s));
                 return;
             }
             Err(why) => tracing::info!(
@@ -260,7 +283,7 @@ impl Cache {
         let checks = self.checks(n)?;
         let s = w.finish(&checks)?;
         self.base_dead = Bits::filled(s.len(), false);
-        self.scan = Some(s);
+        self.scan = Some(Arc::new(s));
         Ok(())
     }
 
@@ -297,9 +320,25 @@ impl Cache {
         }
     }
 
+    /// The alive records of the scan file: what a layout is made of (it reads the scan file, not
+    /// the entries embedded since the last fold, which wait in memory until [`scan::FOLD`] have
+    /// gathered). The count `layout_due` and the status compare with the budget, so that it and
+    /// the layout pass are one count.
+    pub(super) fn scanned_alive(&self) -> usize {
+        let tail_dead = self.dead.iter().filter(|d| **d).count();
+        self.n_base()
+            .saturating_sub(self.dead_count.saturating_sub(tail_dead))
+    }
+
+    /// As a fold the disk refused leaves the cache: no more folds until a restart.
+    #[cfg(test)]
+    pub(super) fn refuse_folds(&mut self) {
+        self.scanned = false;
+    }
+
     /// Entries in the scan file.
     pub(super) fn n_base(&self) -> usize {
-        self.scan.as_ref().map_or(0, ScanFile::len)
+        self.scan.as_ref().map_or(0, |s| s.len())
     }
 
     /// Write every entry into a new scan file, the appended ones too.
@@ -327,7 +366,7 @@ impl Cache {
         for (n, &e) in kept.iter().enumerate() {
             dead.set(n, self.is_dead(e));
         }
-        self.scan = Some(s);
+        self.scan = Some(Arc::new(s));
         self.base_dead = dead;
         self.by_hash = Entries::default();
         self.hashes = Vec::new();
@@ -556,6 +595,10 @@ impl Cache {
         out.sync_all()?;
         drop(out);
         at(Step::Copied)?;
+        // The records are about to renumber, so a layout of the old numbers will mean other
+        // records: it goes first, so that no crash can leave it beside the renamed file (and a
+        // forgotten record's cut stays in no copy of the cuts).
+        self.drop_tier();
         fs::rename(&tmp, &path).with_context(|| format!("renaming over {}", path.display()))?;
         at(Step::Renamed)?;
         sync_dir(&self.dir)?;
@@ -623,6 +666,7 @@ impl Cache {
     pub(super) fn remove(self) {
         let (vec, json) = self.paths();
         let _ = fs::remove_file(self.scan_path());
+        let _ = fs::remove_file(self.tier_path());
         let _ = fs::remove_file(vec);
         let _ = fs::remove_file(json);
     }

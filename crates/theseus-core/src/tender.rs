@@ -370,6 +370,11 @@ impl IndexTender {
             a.push("--query-threads".into());
             a.push(self.cfg.query_threads.to_string().into());
         }
+        // The default is the tender's own: left off, so a kept tender's command line is unchanged.
+        if self.cfg.resident_mb != IndexConfig::default().resident_mb {
+            a.push("--resident-mb".into());
+            a.push(self.cfg.resident_mb.to_string().into());
+        }
         a
     }
 

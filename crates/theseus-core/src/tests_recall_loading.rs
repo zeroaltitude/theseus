@@ -176,3 +176,45 @@ async fn a_message_on_an_arm_with_no_vector_source_warms_nothing() {
     assert_eq!(model.warms.load(Ordering::SeqCst), 0);
     assert_eq!(model.loads.load(Ordering::SeqCst), 0);
 }
+
+/// A turn's own recall asks the index for the hot set and the nearest groups (`fast`), and a
+/// search somebody asks for by name does not: it is exact, hot and cold (issue 21 of 1.0.7).
+#[tokio::test]
+async fn a_turns_recall_is_fast_and_a_search_by_name_is_exact() {
+    use std::sync::{Arc, Mutex};
+    use theseus_protocol::index::IndexQueryParams;
+
+    let model = Model::new(State::Loaded, Duration::from_millis(5));
+    let (r, now, seen, _dir) = rig(&model, true, 250, MemoryMode::Live);
+    recalled(&r, &now).await;
+    let asked = seen.lock().unwrap().clone();
+    assert!(!asked.is_empty());
+    assert!(
+        asked.iter().all(|p| p.fast),
+        "a turn's recall is fast: {asked:?}"
+    );
+    let named: Arc<Mutex<Vec<IndexQueryParams>>> = Arc::default();
+    let into = named.clone();
+    r.core
+        .runner
+        .memory
+        .set_ask(Arc::new(move |p: IndexQueryParams| {
+            into.lock().unwrap().push(p);
+            Box::pin(async { Err("a stand-in that only listens".to_string()) })
+        }));
+    let begun = r.core.runner.memory.begin(
+        "Where do the otters den?".to_string(),
+        None,
+        5,
+        MemoryArm::Baseline,
+        Duration::from_millis(300),
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    drop(begun);
+    let asked = named.lock().unwrap().clone();
+    assert!(!asked.is_empty(), "the search asked the index");
+    assert!(
+        asked.iter().all(|p| !p.fast),
+        "a search by name is exact: {asked:?}"
+    );
+}

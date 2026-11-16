@@ -170,6 +170,8 @@ impl VRig {
             engine: engine.into(),
             yield_bound: Duration::ZERO,
             query_step: Duration::ZERO,
+            resident_mb: crate::vectors::DEFAULT_RESIDENT_MB,
+            hot_records: None,
         };
         c
     }
@@ -1058,4 +1060,33 @@ fn a_query_holds_the_backfill_while_it_embeds() {
         shared.vectors.work_once(&shared.engine);
     }
     assert!(status(&shared).pending < 6, "the backfill went on");
+}
+
+/// Whatever the layout pass says is due, and however often, the embedding thread's every second
+/// turn goes to the embedding step: housekeeping never takes two turns running (round 5's class
+/// of finding: a rule of `layout_due` that stayed due starved embedding for good).
+#[test]
+fn a_layout_that_is_always_due_cannot_starve_the_embedding_step() {
+    let v = VRig::new();
+    let nodes: Vec<_> = TEXTS[..6].iter().map(|t| user("ses_1", t)).collect();
+    v.rig.put(&nodes);
+    let mut t = v.open();
+    settle_all(&mut t);
+    let shared = t.shared();
+    let more: Vec<_> = TEXTS[6..].iter().map(|t| user("ses_1", t)).collect();
+    v.rig.put(&more);
+    settle(&mut t);
+    assert_eq!(status(&shared).pending, 6);
+    shared
+        .vectors
+        .force_layout_due
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    // The model loads and a batch embeds within four turns, though a layout is due at each.
+    for _ in 0..4 {
+        shared.vectors.work_once(&shared.engine);
+    }
+    assert!(
+        status(&shared).pending < 6,
+        "a layout that is always due kept the embedding step from running"
+    );
 }

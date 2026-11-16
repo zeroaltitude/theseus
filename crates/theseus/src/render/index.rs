@@ -115,6 +115,35 @@ fn gate_words(g: &theseus_protocol::index::IndexQueryGate) -> String {
     )
 }
 
+/// How the vector side reads under its memory budget (issue 21 of 1.0.7), in words for someone
+/// who is not a search expert.
+fn tier_words(t: &theseus_protocol::index::IndexTierStatus) -> String {
+    match t.mode.as_str() {
+        "all_hot" => format!(
+            "memory: every record is read on every search ({} records, under the {} MiB budget)",
+            t.hot, t.resident_mb
+        ),
+        "tiered" => {
+            let kept = t.kept.map_or(String::new(), |k| {
+                format!(
+                    ", and on its own check it kept {:.0}% of the exact search's best ten",
+                    k * 100.0
+                )
+            });
+            format!(
+                "memory: a turn's recall reads {} hot records and the nearest of {} groups holding the other {} (budget {} MiB){kept}; {} promoted since",
+                t.hot, t.groups, t.cold, t.resident_mb, t.promoted
+            )
+        }
+        _ => format!(
+            "memory: every record is read ({} over a {} MiB budget): {}",
+            t.hot + t.cold,
+            t.resident_mb,
+            t.why_exact.as_deref().unwrap_or("no layout yet")
+        ),
+    }
+}
+
 /// `theseus memory index status` (roadmap row 51): the index, its tender, its
 /// cursor and counts, and its vectors.
 pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line> {
@@ -199,6 +228,14 @@ pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line>
             line.push_str(&format!(" · re-embedding {} of {}", r.done, r.total));
         }
         push(o, Tag::Plain, &line);
+        if let Some(t) = &v.tier {
+            let tag = if t.mode == "exact" && t.kept.is_some() {
+                Tag::Warn
+            } else {
+                Tag::Plain
+            };
+            push(o, tag, &tier_words(t));
+        }
         if let Some(e) = &v.last_error {
             push(o, Tag::Bad, &format!("vectors' last error: {e}"));
         }
@@ -491,6 +528,40 @@ mod tests {
         assert_eq!(
             gate_words(&g(true)),
             " · query gate shut (1 thread, one at a time), 7 waited, 2 expired"
+        );
+    }
+
+    /// The status says in words how the vector side reads under its budget, and says so when a
+    /// layout failed its check and every search is exact.
+    #[test]
+    fn the_status_says_how_the_vector_side_reads() {
+        use theseus_protocol::index::IndexTierStatus;
+        let t = |mode: &str| IndexTierStatus {
+            mode: mode.into(),
+            resident_mb: 128,
+            hot: 300_000,
+            cold: 500_000,
+            groups: 700,
+            promoted: 12,
+            kept: Some(0.97),
+            ..IndexTierStatus::default()
+        };
+        assert_eq!(
+            tier_words(&t("all_hot")),
+            "memory: every record is read on every search (300000 records, under the 128 MiB budget)"
+        );
+        let tiered = tier_words(&t("tiered"));
+        assert!(
+            tiered.contains("300000 hot records") && tiered.contains("97%"),
+            "{tiered}"
+        );
+        let exact = tier_words(&IndexTierStatus {
+            why_exact: Some("the last layout kept 91%".into()),
+            ..t("exact")
+        });
+        assert!(
+            exact.contains("800000 over a 128 MiB budget") && exact.contains("kept 91%"),
+            "{exact}"
         );
     }
 }

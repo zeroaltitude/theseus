@@ -506,12 +506,55 @@ pub fn quantize(x: &[f32]) -> (Vec<i8>, f32) {
 }
 
 /// The dot product of two int8 vectors, in i32 (256 products of at most
-/// 127² each cannot overflow it).
+/// 127² each cannot overflow it). Integers, so the answer is the same on
+/// every path: the scan and the layout pass call this more than anything
+/// else, and where the machine has AVX2 it takes sixteen products a step.
 pub fn dot_i8(a: &[i8], b: &[i8]) -> i32 {
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx2") {
+        // SAFETY: AVX2 is present, checked just above.
+        return unsafe { dot_i8_avx2(a, b) };
+    }
+    dot_i8_plain(a, b)
+}
+
+fn dot_i8_plain(a: &[i8], b: &[i8]) -> i32 {
     a.iter()
         .zip(b)
         .map(|(&x, &y)| i32::from(x) * i32::from(y))
         .sum()
+}
+
+/// Sixteen products a step (widened to i16, multiplied and added in pairs), the tail the plain way.
+///
+/// # Safety
+/// The CPU must have AVX2.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_i8_avx2(a: &[i8], b: &[i8]) -> i32 {
+    use std::arch::x86_64::{
+        __m128i, _mm256_add_epi32, _mm256_cvtepi8_epi16, _mm256_madd_epi16, _mm256_setzero_si256,
+        _mm256_storeu_si256, _mm_loadu_si128,
+    };
+    let n = a.len().min(b.len()) / 16 * 16;
+    let mut acc = _mm256_setzero_si256();
+    for i in (0..n).step_by(16) {
+        // SAFETY: `i + 16 <= n <= a.len(), b.len()`; the loads are unaligned.
+        let (x, y) = unsafe {
+            (
+                _mm_loadu_si128(a.as_ptr().add(i).cast::<__m128i>()),
+                _mm_loadu_si128(b.as_ptr().add(i).cast::<__m128i>()),
+            )
+        };
+        acc = _mm256_add_epi32(
+            acc,
+            _mm256_madd_epi16(_mm256_cvtepi8_epi16(x), _mm256_cvtepi8_epi16(y)),
+        );
+    }
+    let mut lanes = [0i32; 8];
+    // SAFETY: eight i32 are 32 bytes; the store is unaligned.
+    unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast(), acc) };
+    lanes.iter().sum::<i32>() + dot_i8_plain(&a[n..], &b[n..])
 }
 
 #[cfg(test)]
@@ -544,6 +587,31 @@ mod tests {
             0.127_022_43,
         ],
     ];
+
+    /// The fast path and the plain one agree on every length, the extremes of the range included.
+    #[test]
+    fn the_dot_product_is_the_same_on_every_path() {
+        let mut s = 99u64;
+        let mut next = |extreme: bool| {
+            s = s
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            if extreme {
+                [i8::MIN, i8::MAX][(s >> 63) as usize]
+            } else {
+                (s >> 56) as i8
+            }
+        };
+        for len in (0..70).chain([255, 256, 257, 768]) {
+            for extreme in [false, true] {
+                let a: Vec<i8> = (0..len).map(|_| next(extreme)).collect();
+                let b: Vec<i8> = (0..len).map(|_| next(extreme)).collect();
+                assert_eq!(dot_i8(&a, &b), dot_i8_plain(&a, &b), "length {len}");
+                assert_eq!(dot_i8(&a, &b[..len / 2]), dot_i8_plain(&a, &b[..len / 2]));
+            }
+        }
+        assert_eq!(dot_i8(&[i8::MIN; 256], &[i8::MIN; 256]), 256 * 16384);
+    }
 
     #[test]
     fn the_tiny_seeded_model_gives_fixed_vectors() {
