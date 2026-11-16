@@ -120,7 +120,7 @@ fn run(report: &mut File, t0: Instant) -> Result<i32, Failure> {
         sys: view.sys,
         residue: view.residue.clone(),
         lo,
-        lowered: command.lowered.clone(),
+        lowered: command.lowered,
     })
     .write_to(report)
     .stage("reporting the start")?;
