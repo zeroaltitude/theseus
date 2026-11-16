@@ -491,7 +491,9 @@ impl Vectors {
         }
         let c = &t.caches[0];
         c.scan.as_ref()?;
-        let alive = c.len() - c.dead();
+        // What the pass can place: the scan file's records. Those embedded since the last fold wait
+        // in the cache's tail and are the "grown" rule's, until a fold puts them in the file.
+        let alive = c.scanned_alive();
         let fits = alive <= self.cap(c.cut, alive);
         match (&t.tier, fits) {
             (None, true) => None,
@@ -568,7 +570,7 @@ impl Vectors {
     }
 
     /// A layout is made: check it, and put it in place, or leave the search exact and say why.
-    fn settle_layout(
+    pub(super) fn settle_layout(
         &self,
         why: &'static str,
         t0: Instant,
@@ -576,6 +578,7 @@ impl Vectors {
         cand: Option<Arc<TierFile>>,
         (hot, cold): (usize, usize),
     ) {
+        let nothing_made = cand.is_none();
         let checked = cand.as_ref().map(|c| self.self_check(c, plan));
         let drop_cand = || {
             let _ = fs::remove_file(plan.cand_path());
@@ -623,6 +626,10 @@ impl Vectors {
             share,
             (hot, cold, groups),
         );
+        if nothing_made && why != "back under the budget" {
+            // A pass that laid nothing out where one was due is not asked for again at once.
+            self.layouts.lock().unwrap().retry_at = Some(Instant::now() + BACKSTOP);
+        }
     }
 
     /// What a layout pass did, for the status and the log.
@@ -780,7 +787,7 @@ impl Vectors {
         }
         let t = self.table.try_read().ok()?;
         let c = t.caches.first()?;
-        let alive = c.len().saturating_sub(c.dead()) as u64;
+        let alive = c.scanned_alive() as u64;
         let cap = self.cap(c.cut, alive as usize) as u64;
         let l = self.layouts.lock().unwrap();
         let (mode, why_exact) = match (&t.tier, &l.failed) {

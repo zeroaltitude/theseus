@@ -320,6 +320,16 @@ impl Cache {
         }
     }
 
+    /// The alive records of the scan file: what a layout is made of (it reads the scan file, not
+    /// the entries embedded since the last fold, which wait in memory until [`scan::FOLD`] have
+    /// gathered). The count `layout_due` and the status compare with the budget, so that it and
+    /// the layout pass are one count.
+    pub(super) fn scanned_alive(&self) -> usize {
+        let tail_dead = self.dead.iter().filter(|d| **d).count();
+        self.n_base()
+            .saturating_sub(self.dead_count.saturating_sub(tail_dead))
+    }
+
     /// Entries in the scan file.
     pub(super) fn n_base(&self) -> usize {
         self.scan.as_ref().map_or(0, |s| s.len())

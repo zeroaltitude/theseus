@@ -719,3 +719,75 @@ fn the_check_replays_each_remembered_query_as_it_was_asked() {
         "the check did not replay the queries as asked ({dropped} if it dropped the filters)"
     );
 }
+
+/// Embed `k` records the way the tender does (they wait in the cache's tail until a fold).
+fn embed_since(v: &Vectors, k: u64, tag: u128) {
+    let mut t = v.table.write().unwrap();
+    let mut rng = SplitMix(78);
+    for i in 0..k {
+        let vec = vector(&mut rng);
+        let hash = tag << 64 | u128::from(i);
+        t.caches[0].append(&[(hash, &vec)]).unwrap();
+        t.add_node(&NodeChunks {
+            node_id: format!("nd_since_{tag}_{i}"),
+            position: 999,
+            time_ms: 0,
+            session: "ses_1".into(),
+            kind: "user_message".into(),
+            external: false,
+            chunks: vec![ChunkKey {
+                chunk: 0,
+                hash,
+                tokens: 10,
+            }],
+        });
+    }
+}
+
+/// Round 4's B4. Records embedded since the last fold wait in the cache's tail, where a layout
+/// cannot see them: the count that says a layout is due must be the count the layout is made
+/// from, or at the crossing of the budget the tender lays out again and again, makes nothing and
+/// never embeds. A store at its cap with records in the tail is not due; one over its cap is laid
+/// out once, and then not due; and after a layout the tail does not read as drift.
+#[test]
+fn records_waiting_in_the_tail_do_not_make_a_layout_due_that_makes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = settled(tmp.path(), &nodes(1500), 41);
+    let alive = t.plan_layout(NOW).expect("a plan").alive();
+    assert_eq!(t.caches[0].scanned_alive(), alive);
+    let v = in_a_tender(tmp.path(), t, alive);
+    assert_eq!(v.layout_due(), None, "at the cap: everything fits");
+    embed_since(&v, 10, 0xBEEF);
+    assert_eq!(v.table.read().unwrap().caches[0].scale.len(), 10);
+    assert_eq!(
+        v.layout_due(),
+        None,
+        "ten records in the tail are not over a budget the scan file's records fit"
+    );
+    assert_eq!(v.tier_status().unwrap().mode, "all_hot");
+    // Over the cap by what the scan file holds: laid out once, and then not due, tail or not.
+    let tmp2 = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp2.path(), 1500, 34);
+    let v = in_a_tender(tmp2.path(), t, 300);
+    embed_since(&v, 700, 0xCAFE);
+    assert_eq!(v.layout_due(), Some("over the budget"));
+    v.layout_now("over the budget");
+    assert!(v.table.read().unwrap().tier.is_some(), "a layout was made");
+    assert_eq!(v.layout_due(), None, "and it is not due again");
+    // The tail (a fifth of the cold part and more) is not drift of what the layout was made of.
+    embed_since(&v, 700, 0xF00D);
+    assert_eq!(v.layout_due(), None);
+}
+
+/// A pass that laid nothing out where one was due waits before it is asked for again, whatever the
+/// reason it laid nothing out.
+#[test]
+fn a_pass_that_makes_nothing_where_one_was_due_waits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp.path(), 1500, 34);
+    let v = in_a_tender(tmp.path(), t, 300);
+    let plan = v.table.read().unwrap().plan_layout(NOW).expect("a plan");
+    v.settle_layout("over the budget", Instant::now(), &plan, None, (0, 0));
+    assert!(v.layouts.lock().unwrap().retry_at.is_some());
+    assert_eq!(v.layout_due(), None, "waiting");
+}
