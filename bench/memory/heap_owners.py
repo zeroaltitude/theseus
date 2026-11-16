@@ -79,6 +79,7 @@ def main():
     ap.add_argument("other", nargs="?")
     ap.add_argument("--exe", required=True)
     ap.add_argument("--top", type=int, default=25)
+    ap.add_argument("--stacks", type=int, default=0, help="also print the N biggest stacks in full")
     a = ap.parse_args()
     one = load(a.profile)
     two = load(a.other) if a.other else None
@@ -95,6 +96,20 @@ def main():
     print("-- by the first Theseus function on the stack (MiB):")
     for k, v in fn.most_common(a.top):
         print(f"{v / 1048576:8.2f}  {k}")
+    if a.stacks:
+        live1, live2 = collections.Counter(), collections.Counter()
+        for live, _, _, fr in one:
+            live1[tuple(fr)] += live
+        for live, _, _, fr in two or []:
+            live2[tuple(fr)] += live
+        delta = {k: live2.get(k, 0) - live1.get(k, 0) for k in set(live1) | set(live2)} if two else live1
+        for k, v in sorted(delta.items(), key=lambda kv: -kv[1])[: a.stacks]:
+            print(f"-- stack, {v / 1048576:.2f} MiB:")
+            chain = []
+            for f in k:
+                chain.extend(names.get(f, [f.rsplit("/", 1)[-1]]))
+            for c in chain[:26]:
+                print("     " + c[:150])
     print("-- by the allocated type, as the allocator's own frame names it (MiB):")
     for k, v in ty.most_common(a.top):
         print(f"{v / 1048576:8.2f}  {k}")
