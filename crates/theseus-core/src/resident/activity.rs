@@ -22,8 +22,11 @@
 //!
 //! The feeders: `Core::handle` (every RPC method, with the answer's size),
 //! `learning::tender::tend` (each nightly pass, named by its closure's path),
-//! the heartbeat and the driver's tick (`harness`), and the index tender's
-//! one request function (`tender::call`, with the answer's size).
+//! the heartbeat and the driver's tick (`harness`), the push's seed and its
+//! frames, the memory pass's sessions, the keep-warm's rounds, the self
+//! pipeline's tick, the index tender's one request function (`tender::call`,
+//! with the answer's size), and the AWS cross-check (with its ledger tail's
+//! weight by kind, `aws::crosscheck::note_tail`).
 //! `docs/design/memory-peak-record.md` says how to read a row.
 
 use std::collections::HashMap;
@@ -126,7 +129,7 @@ pub struct Window {
     pub left_out: u64,
 }
 
-/// The window's entries, as `Core::record_peak` writes them.
+/// The record every entry point of work feeds, until a trim's turn drains it.
 #[derive(Default)]
 pub struct Activity {
     inner: Mutex<Inner>,
