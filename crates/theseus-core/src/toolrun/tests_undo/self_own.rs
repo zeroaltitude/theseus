@@ -920,3 +920,59 @@ async fn a_command_that_is_no_reviews_keeps_the_temporary_directory_it_had() {
         .map(|(_, v)| v.as_str());
     assert!(tmp.is_none_or(|t| !t.contains("self/review")), "{tmp:?}");
 }
+
+/// A link where the item's build folder goes (or at the builders' root) does not make what it points
+/// at the session's own: the folder is a place only while it is its own resolved path, so `rm`, a
+/// file write and a sandboxed shell line through it are all held and the target's file stays
+/// (the round-4 review's B3).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_link_where_the_build_folder_goes_is_not_the_sessions_own() {
+    let swap = |t: &Path, root: bool| {
+        let f = builder(t);
+        let at = if root {
+            f.parent().unwrap().to_path_buf()
+        } else {
+            f
+        };
+        std::fs::remove_dir_all(&at).unwrap();
+        std::os::unix::fs::symlink(t.parent().unwrap(), &at).unwrap();
+    };
+    for root in [false, true] {
+        let name = if root {
+            "the builders' root"
+        } else {
+            "the folder"
+        };
+        let through = |t: &Path| {
+            swap(t, root);
+            json!({"argv": ["rm", "-f", builder(t).join("notes.txt").to_string_lossy()]})
+        };
+        let (r, sid) = drive("self", "proc_run", through, nothing);
+        r.turn(&sid).await;
+        assert!(r.was_held(&sid), "{name}, rm: {:?}", r.results(&sid));
+        assert!(r.target.exists(), "{name}, rm: the workspace file is there");
+        let write = |t: &Path| {
+            swap(t, root);
+            json!({"path": builder(t).join("notes.txt").to_string_lossy(), "content": "x\n"})
+        };
+        let (r, sid) = drive("self", "fs_write", write, nothing);
+        r.turn(&sid).await;
+        assert!(r.was_held(&sid), "{name}, write: {:?}", r.results(&sid));
+        assert_eq!(read(r.target.clone()), WAS, "{name}, write");
+        let line = |t: &Path| {
+            swap(t, root);
+            json!({"command": "rm -f notes.txt", "sandbox": true, "cwd": t.parent().unwrap()})
+        };
+        let (r, sid) = drive("self", "proc_run", line, nothing);
+        r.turn(&sid).await;
+        assert!(
+            r.was_held(&sid),
+            "{name}, shell line: {:?}",
+            r.results(&sid)
+        );
+        assert!(
+            jobs_of(&sid).is_empty(),
+            "{name}: a held call starts no job"
+        );
+    }
+}

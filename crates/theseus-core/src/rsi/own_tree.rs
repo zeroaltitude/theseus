@@ -166,7 +166,10 @@ pub(crate) fn builder_path(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
     let slug = tree::slug(&root_of(rt, &core.store, session)?);
     trees.join(&slug).join(".git").exists().then_some(())?;
     let state = paths::canonical_best_effort(&rt.self_pr.state);
-    Some(builder_dir::dir_in(&state, &slug))
+    let dir = builder_dir::dir_in(&state, &slug);
+    // Only a folder that is its own resolved path: a link at the folder or at the builders' root
+    // would send the read-write bind, and every removal judged "its own", to the link's target.
+    (paths::canonical_best_effort(&dir) == dir).then_some(dir)
 }
 
 /// The build folder for `session`'s self task, made if it was not there, or none (no self

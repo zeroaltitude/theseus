@@ -60,12 +60,12 @@ use crate::toolrun::ToolRuntime;
 /// (`CheckTurn`), and is checked to be a directory strictly under the reviews' own, so a registry
 /// entry can never name anything else.
 fn review_scratch(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
+    // The registry first: almost every session has none, and the state dir is not resolved for it.
+    let registered = rt.self_pr.review_scratch(session)?;
     let state = paths::canonical_best_effort(&rt.self_pr.state);
     let review = state.join("self").join("review");
-    rt.self_pr
-        .review_scratch(session)
-        .map(|s| paths::canonical_best_effort(&s))
-        .filter(|s| s != &review && s.starts_with(&review))
+    let s = paths::canonical_best_effort(&registered);
+    (s != review && s.starts_with(&review)).then_some(s)
 }
 
 /// The temporary directory of a review's own commands: `<its scratch>/tmp`, made if it was not
@@ -85,8 +85,8 @@ pub(crate) fn what_runs(rt: &ToolRuntime, session: &str) -> Option<&'static str>
     own_tree::is_self(rt, session).then_some(
         "For this session these run: `rm` given as an argv (`{\"argv\": [\"rm\", \"-rf\", \"<path>\"]}`, \
          not a shell line) on paths inside its own working copy, build folder or review scratch; the \
-         file tools on those paths; and any command run in the sandbox (`sandbox: true`), which has no \
-         network and keeps nothing outside its own build folder. A review's scratch is removed for it \
+         file tools on those paths; and any command run in the sandbox (`sandbox: true`), which reaches \
+         at most the package registries and keeps nothing outside its own build folder. A review's scratch is removed for it \
          when it has answered, so it needs no clean-up.",
     )
 }
