@@ -35,6 +35,7 @@ pub mod cite;
 pub mod current;
 pub mod evidence;
 pub mod labels;
+pub mod loading;
 pub mod neighbour;
 pub mod outcomes;
 pub mod relevance;
@@ -52,6 +53,7 @@ mod tests_time;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
@@ -133,6 +135,11 @@ pub struct Memory {
     /// The tender's two queries on one connection; none for a stand-in,
     /// whose two are asked apart.
     two: RwLock<Option<AskTwo>>,
+    /// `index.warm`: sent at a person's message, and asked once when a
+    /// recall's deadline passes (`loading`).
+    warm: RwLock<Option<loading::Warm>>,
+    /// A message's `index.warm` is out (`loading`).
+    warming: Arc<AtomicBool>,
     /// The nodes the operator labeled wrong or stale, once read (`labels`).
     labels: RwLock<Option<BTreeSet<String>>>,
     /// The correction notes a retraction left for sessions' next turns (theseus-2ced).
@@ -168,6 +175,7 @@ impl Memory {
         let two = tender.clone().map(|t| -> AskTwo {
             Arc::new(move |a: IndexQueryParams, b: IndexQueryParams| t.query_two(&a, &b))
         });
+        let warm = tender.clone().map(loading::warm_of);
         let ask = tender.map(|t| -> Ask {
             Arc::new(move |p: IndexQueryParams| -> AskFuture {
                 let t = t.clone();
@@ -181,6 +189,8 @@ impl Memory {
             adjacency: Arc::new(activation::Adjacent::default()),
             ask: RwLock::new(ask),
             two: RwLock::new(two),
+            warm: RwLock::new(warm),
+            warming: Arc::default(),
             labels: RwLock::new(None),
             corrections: crate::retract::Notes::default(),
             armed: Mutex::new(BTreeSet::new()),
@@ -463,6 +473,7 @@ impl Memory {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        let warm = self.warm_ask();
         let RecallQuery {
             words: query,
             vector,
@@ -478,6 +489,10 @@ impl Memory {
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
+        // The vector source may wait for a model load (`loading`).
+        if sources.contains(&"vector") {
+            p.wait_ms = loading::LOAD_BOUND.as_millis() as u64;
+        }
         p.exclude_sessions = exclude;
         if let Some(w) = &when {
             (p.filters.from_ms, p.filters.to_ms) = (w.from_ms, w.to_ms);
@@ -487,7 +502,7 @@ impl Memory {
         let task = tokio::spawn(async move {
             let (answer, words_only) = match ask {
                 None => (Answer::Unavailable("no index is configured".into()), None),
-                Some(ask) => race(&ask, two.as_ref(), p, deadline).await,
+                Some(ask) => race(&ask, two.as_ref(), warm.as_ref(), p, deadline).await,
             };
             (answer, started.elapsed(), words_only)
         });
@@ -514,9 +529,13 @@ impl Memory {
 /// words' answer is used, with the vector source named in its `skipped` and
 /// why (the second value); with neither, `Deadline`. With `two` (the
 /// tender), both go on one connection, the words' first (theseus-zo1y).
+/// When the deadline passes with the whole answer out and the words' in, and
+/// the tender says its model is loading (`warm`), the wait goes on to
+/// [`loading::LOAD_BOUND`] from the start, once (`loading`).
 async fn race(
     ask: &Ask,
     two: Option<&AskTwo>,
+    warm: Option<&loading::Warm>,
     p: IndexQueryParams,
     deadline: Duration,
 ) -> (Answer, Option<String>) {
@@ -537,6 +556,7 @@ async fn race(
     let mut w = p.clone();
     w.sources = words;
     w.vector_text = None;
+    w.wait_ms = 0;
     let (mut whole, mut word) = match two {
         Some(two) => {
             let (word, whole) = two(w, p);
@@ -544,8 +564,10 @@ async fn race(
         }
         None => (ask(p), ask(w)),
     };
+    let started = tokio::time::Instant::now();
     let late = tokio::time::sleep(deadline);
     tokio::pin!(late);
+    let mut loading_waited = false;
     let mut words_answer: Option<Result<IndexQueryResult, String>> = None;
     let mut failed: Option<String> = None;
     loop {
@@ -565,18 +587,33 @@ async fn race(
                     break;
                 }
             }
-            () = &mut late => break,
+            () = &mut late => {
+                let more = loading::LOAD_BOUND.saturating_sub(deadline);
+                if loading_waited
+                    || more.is_zero()
+                    || failed.is_some()
+                    || words_answer.is_none()
+                    || !loading::covered(warm).await
+                {
+                    break;
+                }
+                loading_waited = true;
+                late.as_mut().reset(started + loading::LOAD_BOUND);
+            }
         }
     }
     match (words_answer, failed) {
         (Some(Ok(mut r)), failed) => {
-            let why = match failed {
-                Some(e) => format!("the vector search failed ({e}); the words alone ranked"),
-                None => format!(
+            let why =
+                match failed {
+                    Some(e) => format!("the vector search failed ({e}); the words alone ranked"),
+                    None => {
+                        format!(
                     "the vector search had not answered within {} ms; the words alone ranked",
-                    deadline.as_millis()
-                ),
-            };
+                    if loading_waited { loading::LOAD_BOUND } else { deadline }.as_millis()
+                )
+                    }
+                };
             r.skipped.insert("vector".into(), why.clone());
             (Answer::Hits(r), Some(why))
         }
