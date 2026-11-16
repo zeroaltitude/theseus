@@ -12,7 +12,8 @@
 //! files can be compared with `cmp`: the same index must answer the same, bit
 //! for bit. The neighbours of a few nodes are written too.
 //!
-//! The times go to stderr. The vector files are read through first, so the warm
+//! The times go to stderr, with the process's anonymous memory before and after the table
+//! is built and what the table says it holds. The vector files are read through first, so the warm
 //! search is a tender that has been running's: each filter's median, the scan
 //! alone against the re-score of its hundred, and the page faults. The cold
 //! search is the first one after the process's own copy of the table's pages was
@@ -72,6 +73,17 @@ fn drop_file_cache(dir: &Path) -> usize {
         }
     }
     n
+}
+
+/// This process's anonymous memory now, in MiB (`smaps_rollup`).
+fn anon_mib() -> f64 {
+    let rollup = fs::read_to_string("/proc/self/smaps_rollup").unwrap_or_default();
+    rollup
+        .lines()
+        .find_map(|l| l.strip_prefix("Anonymous:"))
+        .and_then(|v| v.trim().strip_suffix("kB"))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map_or(0.0, |kb| kb / 1024.0)
 }
 
 /// This process's (minor, major) page faults so far.
@@ -229,10 +241,16 @@ fn probe_the_search() {
     let (index, fields) = open_or_create(&crate::state::Paths::new(&dir).bm25()).unwrap();
     let engine = Engine::new(index, fields).unwrap();
     let v = Vectors::new(VectorConfig::new(Some(dir.join("no-weights"))), &dir);
+    let before = anon_mib();
     let t0 = Instant::now();
     v.open_files().unwrap();
     v.reconcile(&engine).unwrap();
     eprintln!("the table built in {:.0} ms", ms(t0));
+    eprintln!(
+        "anonymous memory: {before:.1} MiB before the table, {:.1} after it",
+        anon_mib()
+    );
+    eprint!("{}", v.table.read().unwrap().held());
     warm_file_cache(&dir.join("vectors"));
     let (cut, full) = (v.cfg.spec.cut, v.cfg.spec.config.hidden);
     let (mut text, mut by_filter) = {
