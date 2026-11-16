@@ -15,7 +15,7 @@ stuff always at hand, and … indexes for things that can be very fast lookups".
 
 | Part | Where | What it does |
 |---|---|---|
-| the budget | `[index] resident_mb` (128), `layout.rs` | the index's resident memory at rest, the model unloaded, whatever the store's size; three quarters is the hot region (a cut, a scale and an entry number: 264 bytes a record), the rest the word index, the groups' centres and the table's bookkeeping; refused below 48 |
+| the budget | `[index] resident_mb` (128), `layout.rs` | the index's resident memory at rest, the model unloaded, whatever the store's size; what is left after the index's own parts (40 MiB, measured: the table's bits and pointers, the signals, the pages of the rows a search touches, freed heap, the word index) is the hot region (a cut, a scale and an entry number: 264 bytes a record); refused below 56 |
 | the score | `heat.rs` | recency by the node's **own** time (an import of old sessions is old; the half-life is 30 days), use (`memory.used`), importance (the gate's durability), the operator's labels (useful and should-have are hot, wrong and stale never) |
 | the signals | `heat.rs`, the tender | read off the log's ledger rows as the tender follows it, kept in `heat.log` beside the vectors; a signal only changes what is read first, never an answer |
 | the layout | `tier.rs`, `<stamp key>.tier` | copies of the int8 cuts in region order: the hot region, then groups of similar records, each group together |

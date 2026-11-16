@@ -3,9 +3,9 @@
 //!
 //! **The budget** is `[index] resident_mb` (128 by default): the index's resident memory, the
 //! model unloaded, anonymous and file-backed together, at rest and after a run of ordinary
-//! recalls, whatever the store's size. A quarter of it is the fixed part (the word index, the
-//! groups' centres, the table's bookkeeping); three quarters is the **hot region**, at a cut, a
-//! scale and an entry number a record. At today's size and the default budget every record fits,
+//! recalls, whatever the store's size. [`FIXED_MB`] of it is the fixed part (the word index, the
+//! groups' centres, the table's bookkeeping, the pages of the rows a search touches); the rest is
+//! the **hot region**, at a cut, a scale and an entry number a record. At today's size and the default budget every record fits,
 //! so nothing is laid out, nothing is read differently, and a search is the exact scan it always
 //! was. Past it the highest scores ([`super::heat`]) are hot and the rest is cold.
 //!
@@ -34,26 +34,32 @@ use super::*;
 pub const DEFAULT_RESIDENT_MB: u64 = 128;
 
 /// The least `[index] resident_mb` that holds the parts that do not shrink: the word index, the
-/// groups' centres and the table's bookkeeping (about 32 MiB at the size the budget is for), and a
-/// hot region worth having (16 MiB).
-pub const MIN_RESIDENT_MB: u64 = 48;
+/// groups' centres and the table's bookkeeping, [`FIXED_MB`], and a hot region worth having
+/// (16 MiB).
+pub const MIN_RESIDENT_MB: u64 = FIXED_MB + 16;
+
+/// What the budget keeps for what is not the hot region: measured on a synthetic store of today's
+/// size, the vector side's own memory (the table's bits and pointers, the signals, freed heap the
+/// allocator keeps, the pages of the rows the search touches) was 17 to 20 MiB resident beside the
+/// hot region, and the word index adds 10 to 20 MiB.
+pub const FIXED_MB: u64 = 40;
 
 /// A value of `[index] resident_mb` the index can keep, or why not.
 pub fn check_resident_mb(mb: u64) -> Result<(), String> {
     if mb < MIN_RESIDENT_MB {
         return Err(format!(
             "[index] resident_mb = {mb} is too small: the word index, the groups' centres and the \
-             table's own bookkeeping need about 32 MiB, and the hot set at least 16 MiB more; \
-             the least that holds them is {MIN_RESIDENT_MB}"
+             table's own bookkeeping need about {FIXED_MB} MiB, and the hot set at least 16 MiB \
+             more; the least that holds them is {MIN_RESIDENT_MB}"
         ));
     }
     Ok(())
 }
 
-/// How many records the hot region may hold under `resident_mb`: three quarters of it, at a cut,
-/// a scale and an entry number a record.
+/// How many records the hot region may hold under `resident_mb`: what is left of it after
+/// [`FIXED_MB`], at a cut, a scale and an entry number a record.
 pub fn hot_cap(resident_mb: u64, cut: usize) -> usize {
-    let bytes = resident_mb.saturating_mul(1 << 20) / 4 * 3;
+    let bytes = resident_mb.saturating_sub(FIXED_MB).saturating_mul(1 << 20);
     usize::try_from(bytes / (cut as u64 + 8)).unwrap_or(usize::MAX)
 }
 
@@ -356,6 +362,14 @@ pub(super) struct Layouts {
     pub last_checked: Option<Checked>,
 }
 
+/// A query a turn's recall served, as it asked it.
+#[derive(Debug, Clone)]
+pub(super) struct Recent {
+    pub full: Vec<f32>,
+    pub as_of: Option<u64>,
+    pub exclude: Vec<String>,
+}
+
 /// What a layout is checked on.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Checked {
@@ -568,6 +582,9 @@ impl Vectors {
         if !placed {
             drop_cand();
         }
+        // The pass read the whole scan file and every row's key: those pages go from the process
+        // now, so the index's resident memory at rest is the hot region's and the fixed part's.
+        self.table.read().unwrap().release_cold_pages();
         self.note_layout(
             why,
             t0.elapsed().as_secs_f64() * 1e3,
@@ -628,13 +645,19 @@ impl Vectors {
         );
     }
 
-    /// Remember the vector of a query a turn's recall served: layouts are checked on these.
-    pub(super) fn remember_query(&self, full: &[f32]) {
+    /// Remember a query a turn's recall served, with the position and the sessions it left out:
+    /// layouts are checked on these, as the recall asked them (a query asked as of a position
+    /// never sees what was stored after it, which is its own message and what follows).
+    pub(super) fn remember_query(&self, full: &[f32], as_of: Option<u64>, exclude: &[String]) {
         let mut r = self.recent.lock().unwrap();
         if r.len() == RECENT {
             r.pop_front();
         }
-        r.push_back(full.to_vec());
+        r.push_back(Recent {
+            full: full.to_vec(),
+            as_of,
+            exclude: exclude.to_vec(),
+        });
     }
 
     /// What a search by the candidate layout keeps of the exact search's best ten. On real
@@ -643,7 +666,7 @@ impl Vectors {
     /// own node out, so a record cannot find itself), spread through the groups, against the
     /// higher bar. `None` where nothing could be checked, or the table moved on while it ran.
     pub(super) fn self_check(&self, cand: &Arc<TierFile>, plan: &Plan) -> Option<(f32, Checked)> {
-        let real: Vec<Vec<f32>> = {
+        let real: Vec<Recent> = {
             let r = self.recent.lock().unwrap();
             let stride = (r.len() / CHECK_QUERIES).max(1);
             r.iter()
@@ -674,12 +697,16 @@ impl Vectors {
             n += 1;
         };
         if real.len() >= REAL_MIN {
-            for full in &real {
+            for q in &real {
                 let t = self.table.read().unwrap();
                 if !live(&t) {
                     return None;
                 }
-                share(&t, full, &t.filter(None, &[], &Filters::default()));
+                share(
+                    &t,
+                    &q.full,
+                    &t.filter(q.as_of, &q.exclude, &Filters::default()),
+                );
             }
             return (n > 0).then(|| (sum / n as f32, Checked::Queries));
         }
@@ -943,12 +970,15 @@ mod tests {
 
     #[test]
     fn the_budget_holds_what_it_should() {
-        // 128 MiB: three quarters at 264 bytes a record is about 380,000 records, more than the
-        // 291,000 the owner's store holds today.
+        // 128 MiB less the fixed part at 264 bytes a record is about 350,000 records, more than
+        // the 291,000 the owner's store holds today.
         assert!(hot_cap(128, 256) > 291_000);
         assert!(hot_cap(128, 256) < 400_000);
         assert!(check_resident_mb(128).is_ok());
-        assert!(check_resident_mb(47).unwrap_err().contains("too small"));
+        assert!(check_resident_mb(MIN_RESIDENT_MB).is_ok());
+        assert!(check_resident_mb(MIN_RESIDENT_MB - 1)
+            .unwrap_err()
+            .contains("too small"));
     }
 
     #[test]

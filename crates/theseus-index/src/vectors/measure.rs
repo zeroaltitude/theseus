@@ -24,7 +24,6 @@
 
 use super::*;
 use crate::weights::SplitMix;
-use std::fmt::Write as _;
 use std::os::fd::AsRawFd;
 
 fn var<T: std::str::FromStr>(k: &str, default: T) -> T {
@@ -82,6 +81,17 @@ fn anon_file_mib() -> (f64, f64) {
     };
     let (rss, anon) = (kb("Rss:"), kb("Anonymous:"));
     (anon, rss - anon)
+}
+
+/// A line of the report, on stderr as it is made (a run cut short still says what it found) and
+/// kept in `out`.
+macro_rules! emit {
+    ($out:expr, $($arg:tt)*) => {{
+        let line = format!($($arg)*);
+        eprintln!("{line}");
+        $out.push_str(&line);
+        $out.push('\n');
+    }};
 }
 
 /// A stage reached, on stderr, so a long run says where it is.
@@ -161,7 +171,7 @@ fn start(dir: &Path, n: u64, now_ms: u64) -> Vectors {
     v.open_files().unwrap();
     {
         let mut t = v.table.write().unwrap();
-        t.start_rows(n as usize, (n * 3 / 2) as usize, true);
+        t.start_rows(n as usize, (2 * n) as usize, true);
         let mut batch = Vec::new();
         for i in 0..n {
             batch.push(node(i, n, now_ms));
@@ -232,13 +242,13 @@ fn search_lines(v: &Vectors, dir: &Path, out: &mut String) -> Vec<Vec<f32>> {
         shares.put(&t, &tier, q, cut, &f).unwrap();
     }
     let (anon, file) = anon_file_mib();
-    let _ = write!(
+    emit!(
         out,
         "{} queries near stored records\n{}",
         queries.len(),
         shares.describe()
     );
-    let _ = writeln!(
+    emit!(
         out,
         "after the searches: anonymous {anon:.1} MiB, file-backed {file:.1} MiB, total {:.1} MiB; setting {} MiB",
         anon + file,
@@ -257,7 +267,7 @@ fn search_lines(v: &Vectors, dir: &Path, out: &mut String) -> Vec<Vec<f32>> {
     drop_cache(&dir.join("vectors"));
     let t5 = Instant::now();
     t.search_with(&queries[0], cut, &f, 10, None).unwrap();
-    let _ = writeln!(
+    emit!(
         out,
         "first search after the files' pages were dropped: tiered {first_fast:.0} ms, exact {:.0} ms",
         ms(t5)
@@ -288,18 +298,18 @@ fn measure_the_hot_set() {
     stage("table built");
     let (anon1, file1) = anon_file_mib();
     let mut out = String::new();
-    let _ = writeln!(out, "nodes {n}, centres {centres}, noise {noise}: start {:.1} s; anonymous {anon0:.1} -> {anon1:.1} MiB, file-backed {file0:.1} -> {file1:.1} MiB", t0.elapsed().as_secs_f64());
+    emit!(out, "nodes {n}, centres {centres}, noise {noise}: start {:.1} s; anonymous {anon0:.1} -> {anon1:.1} MiB, file-backed {file0:.1} -> {file1:.1} MiB", t0.elapsed().as_secs_f64());
     let t1 = Instant::now();
     v.layout_now("measure");
     stage("layout made");
-    let _ = writeln!(
+    emit!(
         out,
         "layout in {:.0} ms: {:?}",
         ms(t1),
         v.tier_status().unwrap()
     );
     let (anon2, file2) = anon_file_mib();
-    let _ = writeln!(
+    emit!(
         out,
         "at rest after the layout: anonymous {anon2:.1} MiB, file-backed {file2:.1} MiB, total {:.1} MiB; setting {} MiB",
         anon2 + file2,
@@ -313,7 +323,7 @@ fn measure_the_hot_set() {
         node: "nd_000000001".into(),
         label: "useful".into(),
     }]);
-    let _ = writeln!(
+    emit!(
         out,
         "a label's promotion: {:.3} ms under the table's write lock",
         ms(t6)
@@ -324,11 +334,12 @@ fn measure_the_hot_set() {
         .unwrap()
         .filter(None, &[], &Filters::default());
     let (held_ms, quiet_ms) = held_by_a_layout(&v, &queries, v.cfg.spec.cut, &f);
-    let _ = writeln!(
+    emit!(
         out,
         "a search while a layout runs: median {held_ms:.1} ms (idle {quiet_ms:.1} ms)"
     );
-    println!("{out}");
+    stage("done");
+    drop(out);
 }
 
 /// Searches run while another thread lays the store out again: the time each takes against the
@@ -356,7 +367,8 @@ fn held_by_a_layout(v: &Vectors, queries: &[Vec<f32>], cut: usize, f: &RowFilter
             v.layout_now("measure again");
         });
         let mut k = 0;
-        while !done.load(Ordering::SeqCst) {
+        let began = Instant::now();
+        while !done.load(Ordering::SeqCst) && began.elapsed().as_secs() < 90 {
             during.push(one(&queries[k % queries.len()]));
             k += 1;
         }

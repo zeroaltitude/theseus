@@ -582,7 +582,7 @@ fn a_layout_is_checked_on_real_queries_once_there_are_enough() {
         .collect();
     let v = in_a_tender(tmp.path(), t, 300);
     for q in &queries {
-        v.remember_query(q);
+        v.remember_query(q, None, &[]);
     }
     v.layout_now("test");
     let s = v.tier_status().expect("a status");
@@ -606,4 +606,41 @@ fn a_promoted_record_that_is_hot_in_this_layout_is_read_once() {
     assert_eq!(before, after);
     let rows: HashSet<u32> = after.iter().map(|x| x.0).collect();
     assert_eq!(rows.len(), after.len(), "a row came back twice");
+}
+
+/// A remembered query is checked as the recall asked it: as of its own position, so what was
+/// stored after it (its own message, and what followed) is never among the exact best ten the
+/// check compares with.
+#[test]
+fn a_remembered_query_does_not_see_what_was_stored_after_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp.path(), 600, 38);
+    let v = in_a_tender(tmp.path(), t, 300);
+    let (row, own) = {
+        let t = v.table.read().unwrap();
+        // A row whose text no other row holds: its own vector is then its best answer.
+        let row = (t.row_count() as u32 / 2..)
+            .find(|&i| t.holders(t.row_hash(i)).len() == 1)
+            .expect("a text of one row");
+        (row, t.full_of(row as usize).unwrap().expect("a vector"))
+    };
+    let q = embedder::l2_normalize(&own);
+    let t = v.table.read().unwrap();
+    let position = t.row_position(row);
+    let node = t.row_node(row);
+    // Asked with no position, its own record is the best answer; asked as of its own position
+    // (the recall that served it asked as of before its message), that record is not seen.
+    v.remember_query(&q, Some(position), &[]);
+    let kept = v.recent.lock().unwrap().back().cloned().unwrap();
+    let blind = t.filter(kept.as_of, &kept.exclude, &Filters::default());
+    let sees = t.filter(None, &[], &Filters::default());
+    let names = |f: &RowFilter| -> Vec<String> {
+        t.search_with(&q, CUT, f, 10, None)
+            .unwrap()
+            .into_iter()
+            .map(|(i, _)| t.row_node(i as u32).to_string())
+            .collect()
+    };
+    assert!(names(&sees).contains(&node.to_string()));
+    assert!(!names(&blind).contains(&node.to_string()));
 }
