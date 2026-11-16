@@ -604,13 +604,18 @@ async fn race(
     }
     match (words_answer, failed) {
         (Some(Ok(mut r)), failed) => {
-            let why =
-                match failed {
-                    Some(e) => format!("the vector search failed ({e}); the words alone ranked"),
-                    None => format!(
-                        "the vector search had not answered within {waited_ms} ms; the words alone ranked"
-                    ),
-                };
+            let waited = if loading_waited {
+                loading::LOAD_BOUND
+            } else {
+                deadline
+            };
+            let waited_ms = waited.as_millis();
+            let why = match failed {
+                Some(e) => format!("the vector search failed ({e}); the words alone ranked"),
+                None => format!(
+                    "the vector search had not answered within {waited_ms} ms; the words alone ranked"
+                ),
+            };
             r.skipped.insert("vector".into(), why.clone());
             (Answer::Hits(r), Some(why))
         }
