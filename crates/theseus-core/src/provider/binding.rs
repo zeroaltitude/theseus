@@ -18,7 +18,7 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::{DeltaSink, ModelResponse, Provider, ProviderError, ProviderRequest};
+use super::{ProviderError, ProviderRequest};
 
 /// What the stand-in does with a replayed block whose prefix changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,33 +214,19 @@ pub fn stamp(mode: Option<Binding>, req: &ProviderRequest, blocks: &mut [Value])
     }
 }
 
-/// One call, with the net under it: when the provider refuses the request for
-/// a thinking block whose prefix changed, and for no other reason, the call is
-/// made once more with the remedy the provider names (`drop_block`), and the
-/// answer says so (`prefix_repeated`). Never sent on a first call, so a model
-/// that reports a drift and goes on keeps its thinking, and the canary keeps
-/// counting. The request itself is left as the compiler rendered it, so
-/// what is recorded and replayed is not changed.
-pub async fn stream_with_net(
-    provider: &dyn Provider,
-    req: &ProviderRequest,
-    on_delta: DeltaSink<'_>,
-) -> anyhow::Result<ModelResponse> {
-    let refused = match provider.stream_message(req, &mut *on_delta).await {
-        Err(e) if is_prefix_refusal(&e) => e,
-        other => return other,
-    };
-    let Some(thinking) = req.thinking.as_ref() else {
-        return Err(refused);
-    };
+/// The one repeat the net makes: a copy of `req` with the remedy the provider names
+/// (`drop_block`), when `e` is the provider's refusal of a drifted prefix and no other error, and
+/// the request thinks at all; none otherwise. The request the compiler rendered is left as it
+/// is, so what is recorded and replayed is what it was. Never made on a first call: where a
+/// mismatch is allowed the model keeps its thinking and the canary keeps reporting.
+pub fn repeat_for(req: &ProviderRequest, e: &anyhow::Error) -> Option<ProviderRequest> {
+    let thinking = req.thinking.as_ref().filter(|_| is_prefix_refusal(e))?;
     tracing::warn!(
         model = %req.model,
-        error = %refused,
+        error = %e,
         "the provider refused a thinking block for a changed prefix; the call is made again with the block dropped"
     );
     let mut again = req.clone();
     again.thinking = Some(with_remedy(thinking));
-    let mut resp = provider.stream_message(&again, on_delta).await?;
-    resp.prefix_repeated = true;
-    Ok(resp)
+    Some(again)
 }

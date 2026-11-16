@@ -41,7 +41,7 @@ pub const API_VERSION: &str = "2023-06-01";
 /// sent on a first call: with the header alone a drifting block is reported
 /// and, on the older models, still handed to the model. `claude-fable-5-2`
 /// refuses it with a 400 instead, and that refusal alone is answered by one
-/// repeat that names `drop_block` (`binding::stream_with_net`). A count above
+/// repeat that names `drop_block` (`binding::repeat_for`). A count above
 /// zero in the `provider.call` row is a bug to file
 /// (`docs/design/thinking-binding.md`).
 pub const BETA_THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
@@ -538,7 +538,7 @@ pub struct ModelResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_transformations: Option<Value>,
     /// The call was refused for a thinking block whose prefix had changed and
-    /// was made again with the provider's remedy (`binding::stream_with_net`).
+    /// was made again with the provider's remedy (`binding::repeat_for`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prefix_repeated: bool,
     /// tool_use ids whose streamed input did not parse as JSON, with the raw text.

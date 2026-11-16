@@ -44,7 +44,7 @@ the net below once.
 ## The net
 
 When the provider refuses a request with that 400 and no other, the call is made once more with the remedy
-(`provider::binding::stream_with_net`), the turn goes on, and the answer is marked `prefix_repeated`. The next compile
+(`provider::binding::repeat_for`), the turn goes on, and the answer is marked `prefix_repeated`. The next compile
 of the session strips the old thinking (a transcript recompile), so the step after is not made twice. The remedy is
 never sent on a first call: where a mismatch is allowed the model keeps its thinking and the canary keeps reporting.
 The request the compiler rendered is not changed, so what is recorded and replayed is what it was.
