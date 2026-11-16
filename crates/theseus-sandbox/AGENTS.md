@@ -46,7 +46,7 @@ server in L1, M7 43a).
   namespace 1 maps the job back to the operator, so a root operator's job would have no process limit: `spawn`
   refuses it before it makes anything, with the stage "checking the job's process limit" (theseus-pv6i).
 - **A limit the process may not raise is set as high as it may be, and said.** `RLIMIT_FSIZE` and `RLIMIT_NPROC` are set
-  from inside the init's process, and a hard limit can be lowered but not raised without a privilege no job has, so a
+  in the command, forked from the init with the init's own limits, and a hard limit can be lowered but not raised without a privilege no job has, so a
   job started from inside another sandbox (the self build's gate runs the whole suite in one: 8,192 processes) asking
   for more was refused with "setting the limits: Operation not permitted" and never ran. `init.rs`'s `grant` sets the
   smaller of what the spec asked and the init's own hard limit (soft limit with it), and `Started.lowered` names each
