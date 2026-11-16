@@ -272,6 +272,41 @@ fn octal(f: &[u8]) -> Option<u64> {
     u64::from_str_radix(t, 8).ok()
 }
 
+/// A gzipped tar written out under `into`, whose members all lie below the one
+/// directory `top` (a crate's tarball holds only `<name>-<version>/`): the bytes
+/// written, or why not. Nothing is run and nothing is trusted: a member whose path
+/// is absolute, climbs, or is not under `top` refuses the whole archive; only
+/// regular files and directories are written (a link is skipped, so no later member
+/// can be written through one); a file is never written over one already there; and
+/// what is written stops at `max_bytes`. `into` is the caller's, a directory it
+/// made for this.
+pub fn unpack_tar_gz(bytes: &[u8], into: &Path, top: &str, max_bytes: u64) -> Result<u64, String> {
+    let mut written = 0u64;
+    walk_tar(flate2::read::GzDecoder::new(bytes), &mut |m, data| {
+        let rel = safe_path(&m.path)
+            .filter(|p| p.starts_with(top))
+            .ok_or_else(|| format!("its member `{}` is not inside `{top}/`", m.path))?;
+        let at = into.join(rel);
+        let io = |e: std::io::Error| format!("`{}` could not be written ({e})", m.path);
+        if m.dir {
+            std::fs::create_dir_all(&at).map_err(io)?;
+            return Ok(Walk::Skip);
+        }
+        if written.saturating_add(m.size) > max_bytes {
+            return Err(format!(
+                "it unpacks to more than the {max_bytes} bytes allowed"
+            ));
+        }
+        if let Some(parent) = at.parent() {
+            std::fs::create_dir_all(parent).map_err(io)?;
+        }
+        let mut f = std::fs::File::create_new(&at).map_err(io)?;
+        written += std::io::copy(&mut data.take(m.size), &mut f).map_err(io)?;
+        Ok(Walk::Skip)
+    })?;
+    Ok(written)
+}
+
 /// A tar of `files` for tests: each a regular member with its bytes.
 pub fn sample_tar(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -291,6 +326,13 @@ pub fn sample_tar(files: &[(&str, &[u8])]) -> Vec<u8> {
     }
     out.resize(out.len() + 1024, 0);
     out
+}
+
+/// [`sample_tar`], gzipped: a `.crate` or an npm tarball for tests.
+pub fn sample_tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    std::io::Write::write_all(&mut gz, &sample_tar(files)).expect("a Vec takes writes");
+    gz.finish().expect("a Vec takes writes")
 }
 
 #[cfg(test)]
@@ -340,6 +382,39 @@ mod tests {
             extract(&tgz, Kind::TarGz, "logs/tide.log", 100).unwrap(),
             b"high 06:12\n"
         );
+    }
+
+    #[test]
+    fn a_tarball_is_unpacked_below_its_one_directory_and_nowhere_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let tgz = sample_tar_gz(&[
+            ("tide-1.0.0/Cargo.toml", b"[package]"),
+            ("tide-1.0.0/src/lib.rs", b"pub fn high() {}"),
+        ]);
+        let n = unpack_tar_gz(&tgz, dir.path(), "tide-1.0.0", 1000).unwrap();
+        assert_eq!(n, 25);
+        assert_eq!(
+            std::fs::read(dir.path().join("tide-1.0.0/src/lib.rs")).unwrap(),
+            b"pub fn high() {}"
+        );
+        for (bad, why) in [
+            ("../escape", "is not inside"),
+            ("/abs/file", "is not inside"),
+            ("other-1.0.0/file", "is not inside"),
+        ] {
+            let fresh = tempfile::tempdir().unwrap();
+            let tgz = sample_tar_gz(&[(bad, b"x")]);
+            let e = unpack_tar_gz(&tgz, fresh.path(), "tide-1.0.0", 1000).unwrap_err();
+            assert!(e.contains(why), "{bad}: {e}");
+            assert_eq!(std::fs::read_dir(fresh.path()).unwrap().count(), 0, "{bad}");
+        }
+        let fresh = tempfile::tempdir().unwrap();
+        let e = unpack_tar_gz(&tgz_of_size(30), fresh.path(), "tide-1.0.0", 20).unwrap_err();
+        assert!(e.contains("more than the 20 bytes"), "{e}");
+    }
+
+    fn tgz_of_size(n: usize) -> Vec<u8> {
+        sample_tar_gz(&[("tide-1.0.0/big", &vec![b'a'; n])])
     }
 
     #[test]

@@ -23,7 +23,9 @@ role).
   (` | `), its trailing empty cells and rows dropped, at most 5,000 rows; a slide has its title and notes. Bounds: a
   zip member unpacks to 64 MiB at most, the text to 8 MiB. `sample_zip` builds test files. `src/xml.rs` is the small
   XML scanner it reads with (no dependency); `src/archive.rs` lists zips, tars, and gzipped tars as streams, and reads
-  one member out only by a relative path that climbs nowhere (`safe_path`). Dependencies: `zip` (already in the
+  one member out only by a relative path that climbs nowhere (`safe_path`). `archive::unpack_tar_gz` writes a gzipped tar out under a directory, for the self loop's fetch of a crate
+  (`theseus-core/src/rsi/deps/fetch.rs`): regular files and directories only, every member under one named top
+  directory, never over an existing file, capped in bytes; nothing is run. Dependencies: `zip` (already in the
   lock; `deflate-flate2` only) and `flate2` (lopdf's too): no crate new to the workspace but lopdf's.
 - `src/render.rs`: a PDF page drawn as a picture (theseus-w68l), for a model that reads no PDFs: a scan has no text
   to extract, so those pages reached such a model as nothing. `render::page(bytes, page)` runs poppler's
