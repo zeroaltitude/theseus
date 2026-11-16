@@ -57,7 +57,11 @@ where it lands. **`rm` is judged as the kernel acts, which differs**: the kernel
 `..` that comes after it, where the resolver drops the `..` first, so `<link>/../x` would be judged beside the
 resolver's own place and removed beside the link's target. The first review of this change found it. So an `rm`
 operand with a `..` in it is not read (held as before), and an operand is judged as its parent resolved plus its last
-part as written, because `rm` removes a link and not what it points at.
+part as written, because `rm` removes a link and not what it points at. The exception is an operand that ends in a
+`/`: `rm -r` follows a link written that way and empties its target, so such an operand is not read either (the
+second review found that the first fix had opened it). A bare `rm` is accepted only when the first `rm` on the
+`PATH` a job is given (`job_base_env`) resolves to the system's, and a `PATH` with an empty or relative entry fails
+closed.
 
 ## What a self session still cannot remove without a hold
 

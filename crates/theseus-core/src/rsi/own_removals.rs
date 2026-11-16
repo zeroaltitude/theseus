@@ -30,10 +30,12 @@
 //! tools act on the path as resolved, so for them a link or a `..` that leaves is judged where it
 //! lands. **`rm` is judged as the kernel acts**, which is not the same: the kernel follows a link
 //! and then applies a `..` after it, where [`paths::canonical_best_effort`] drops the `..` first. So
-//! an operand with a `..` in it is not read at all ([`Own::named`]), and an operand's last part is
+//! an operand with a `..` in it, or ending in a `/` (which `rm -r` follows through a link), is not
+//! read at all ([`Own::named`]), and an operand's last part is
 //! not followed, because `rm` removes a link and not what it points at.
 //! `docs/design/self-own-removals.md` has the rest.
 
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::PoisonError;
 
@@ -123,11 +125,14 @@ impl Own {
 
     /// Whether what `rm` removes for this operand is the session's own: the operand with every part
     /// but the last resolved, and the last kept as it is, since `rm` removes a link and not its
-    /// target. An operand with a `..` is not read: a link before it would be followed first.
+    /// target. An operand with a `..` is not read: a link before it would be followed first. Nor is
+    /// one that ends in a `/`: `rm -r` follows a link written that way and empties what it points
+    /// at, where `Path` drops the slash and would judge the link itself.
     fn named(&self, operand: &Path) -> bool {
-        if operand
-            .components()
-            .any(|c| matches!(c, Component::ParentDir))
+        if operand.as_os_str().as_bytes().ends_with(b"/")
+            || operand
+                .components()
+                .any(|c| matches!(c, Component::ParentDir))
         {
             return false;
         }
@@ -241,7 +246,7 @@ fn why(
         .iter()
         .find(|r| r.access == Access::Exec)
         .map(|r| r.path.as_path())?;
-    let operands = rm_operands(tool, plan, input)?;
+    let operands = rm_operands(|| plain_rm_is_the_systems(rt), tool, plan, input)?;
     let own_all = operands.iter().all(|o| own.named(&cwd.join(o)));
     own_all.then_some("every path rm names is its own")
 }
@@ -275,7 +280,12 @@ fn plain_file_call(tool: &dyn Tool, plan: &Plan) -> bool {
 /// plain or its usual absolute name, the call sets no `env` (a `PATH` of its own would make `rm`
 /// something else), the flags are all in [`RM_SHORT`] and [`RM_LONG`], and there is an operand. A
 /// shell line is `bash -c`, so it is never read here.
-fn rm_operands<'a>(tool: &dyn Tool, plan: &'a Plan, input: &Value) -> Option<Vec<&'a str>> {
+fn rm_operands<'a>(
+    bare_is_the_systems: impl FnOnce() -> bool,
+    tool: &dyn Tool,
+    plan: &'a Plan,
+    input: &Value,
+) -> Option<Vec<&'a str>> {
     if tool.name() != "proc.run"
         || input
             .get("env")
@@ -285,7 +295,7 @@ fn rm_operands<'a>(tool: &dyn Tool, plan: &'a Plan, input: &Value) -> Option<Vec
     }
     let (program, args) = plan.argv.as_deref()?.split_first()?;
     let system = SYSTEM_RM.iter().any(|p| Path::new(p) == Path::new(program));
-    if !system && !(program == "rm" && plain_rm_is_the_systems()) {
+    if !system && !(program == "rm" && bare_is_the_systems()) {
         return None;
     }
     let (mut flags, mut operands) = (true, Vec::new());
@@ -303,12 +313,21 @@ fn rm_operands<'a>(tool: &dyn Tool, plan: &'a Plan, input: &Value) -> Option<Vec
     (!operands.is_empty() && operands.iter().all(|o| !o.is_empty())).then_some(operands)
 }
 
-/// Whether a bare `rm` is the system's: the first `rm` on the daemon's own `PATH`, which a job
-/// inherits, resolves to one of [`SYSTEM_RM`]. The `PATH` starts in the owner's own directories on
-/// some hosts, so a program put there would otherwise be run unheld by every later call.
-fn plain_rm_is_the_systems() -> bool {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path)
+/// Whether a bare `rm` is the system's: the first `rm` on the `PATH` a job is given
+/// (`ToolRuntime::job_base_env`) resolves to one of [`SYSTEM_RM`]. The `PATH` starts in the owner's
+/// own directories on some hosts, so a program put there would otherwise be run unheld by every
+/// later call. An empty or relative entry is read against the job's directory and not this one, so
+/// it fails closed.
+fn plain_rm_is_the_systems(rt: &ToolRuntime) -> bool {
+    let env = rt.job_base_env();
+    let Some((_, path)) = env.iter().find(|(k, _)| k == "PATH") else {
+        return false;
+    };
+    let dirs: Vec<PathBuf> = std::env::split_paths(path).collect();
+    if dirs.iter().any(|d| !d.is_absolute()) {
+        return false;
+    }
+    dirs.iter()
         .map(|d| d.join("rm"))
         .find(|c| c.is_file())
         .and_then(|c| c.canonicalize().ok())

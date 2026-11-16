@@ -421,6 +421,25 @@ async fn a_path_that_leaves_its_own_places_is_judged_as_rm_acts() {
             survivor: |t| base(t).join("victim.txt"),
         },
         Escape {
+            what: "a link out of its tree, written with a trailing slash",
+            input: |t| {
+                let out = base(t).join("outside");
+                std::fs::create_dir_all(&out).unwrap();
+                std::fs::write(out.join("victim.txt"), WAS).unwrap();
+                let l = link(tree(t, "sails").join("out"), &out);
+                rm_argv("-rf", PathBuf::from(format!("{}/", l.display())))
+            },
+            survivor: |t| base(t).join("outside/victim.txt"),
+        },
+        Escape {
+            what: "a link of the temporary directory to the state dir, with two slashes",
+            input: |t| {
+                let l = link(base(t).join("stateful"), &base(t).join("state"));
+                rm_argv("-rf", PathBuf::from(format!("{}//", l.display())))
+            },
+            survivor: |t| base(t).join("state/notes.txt"),
+        },
+        Escape {
             what: "a link of the workspace that points into its tree",
             input: |t| {
                 rm_argv(
