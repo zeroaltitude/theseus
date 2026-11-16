@@ -31,12 +31,17 @@ use crate::provider::binding::unmarked;
 
 /// How many sessions keep their tails; the least recently used goes first.
 const SESSIONS: usize = 256;
+/// How many tails a session keeps.
+const PER_SESSION: usize = 2048;
 
 /// One request's tail: the message it rode, what that message rendered as
 /// without it, and its blocks.
 #[derive(Debug, Clone)]
 struct Sent {
     turn: String,
+    /// Where it was sent: the place, the surface, what the turn answers (`compile_step`). A tail
+    /// is put back only on a request for the same.
+    key: String,
     anchor: String,
     blocks: Vec<Value>,
 }
@@ -55,6 +60,9 @@ pub struct SentTails(Mutex<Held>);
 /// tails of earlier requests put back.
 pub(super) struct Begun {
     turn: String,
+    key: String,
+    /// The latest tail put back on this request, in `kept`.
+    here: Option<usize>,
     blocks: usize,
     anchor: String,
     kept: Vec<Sent>,
@@ -97,7 +105,7 @@ impl SentTails {
     pub(super) fn begin(
         &self,
         session: &str,
-        turn: &str,
+        (turn, key): (&str, &str),
         restricted: bool,
         compiled: &mut Compiled,
     ) -> Option<Begun> {
@@ -127,7 +135,14 @@ impl SentTails {
                 .collect(),
         };
         let mut from = 0;
+        let mut here = None;
         for s in held.into_iter().filter(|_| !stripped) {
+            // What was said to another place or surface is not said here: it stays as it was
+            // sent, for a request that comes back to where it was sent.
+            if s.key != key {
+                kept.push(s);
+                continue;
+            }
             let Some(i) = (from..anchors.len()).find(|&i| anchors[i] == s.anchor) else {
                 continue;
             };
@@ -136,6 +151,7 @@ impl SentTails {
                 counted(compiled, bytes(&s.blocks));
                 from = i + 1;
                 kept.push(s);
+                here = Some(kept.len() - 1);
             }
         }
         let m = &mut compiled.request.messages[last];
@@ -143,6 +159,8 @@ impl SentTails {
         let blocks = blocks_of(m).map_or(0, |b| b.len());
         Some(Begun {
             turn: turn.to_string(),
+            key: key.to_string(),
+            here,
             blocks,
             anchor,
             kept,
@@ -154,6 +172,8 @@ impl SentTails {
     pub(super) fn finish(&self, session: &str, compiled: &mut Compiled, begun: Option<Begun>) {
         let Some(Begun {
             turn,
+            key,
+            here,
             blocks,
             anchor,
             mut kept,
@@ -170,8 +190,8 @@ impl SentTails {
             .and_then(|m| blocks_of(m))
         {
             // What the same turn's latest tail said: the model has it, and is not told again.
-            let said: Vec<Value> = kept
-                .last()
+            let said: Vec<Value> = here
+                .and_then(|i| kept.get(i))
                 .filter(|s| s.turn == turn)
                 .map_or(vec![], |s| s.blocks.clone());
             let tail: Vec<Value> = b.split_off(blocks.min(b.len()));
@@ -188,11 +208,15 @@ impl SentTails {
             if !fresh.is_empty() {
                 kept.push(Sent {
                     turn,
+                    key,
                     anchor,
                     blocks: fresh,
                 });
             }
         }
+        // A session that moves between places keeps the tails of each, but not without end.
+        let over = kept.len().saturating_sub(PER_SESSION);
+        kept.drain(..over);
         let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
         h.recent.retain(|s| s != session);
         h.recent.push_back(session.to_string());

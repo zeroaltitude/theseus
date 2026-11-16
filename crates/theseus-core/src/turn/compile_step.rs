@@ -199,9 +199,18 @@ impl TurnRunner {
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
         let restricted = self.restricted_profile(&t.target.profile);
+        // What a tail says is said to a place, a surface and a message: it is put back on a
+        // request for the same.
+        let key = format!(
+            "{:?}|{:?}|{:?}|{:?}",
+            t.tc.place().class,
+            t.standing.surface,
+            self.outbox.speaks_at(sid).ok().flatten(),
+            t.answer_at
+        );
         t.tail = self
             .tails
-            .begin(sid, t.tc.turn_id, restricted, &mut compiled);
+            .begin(sid, (t.tc.turn_id, &key), restricted, &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)
