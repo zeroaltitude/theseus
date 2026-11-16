@@ -237,11 +237,21 @@ pub(crate) enum Held {
     Yes { branch: String, head: String },
 }
 
+/// Whether `g` is the change `t` holds now: the item is in progress, and the green row is of its
+/// current build (written at or after its last `session:`, as the building queue reads it). A
+/// head an item was sent back from (the sealed hold returns the item to its builder, and the
+/// conflict path does) is the change of a build that is over: the item's new build is what a
+/// join waits for, and that old head is never measured again.
+fn is_its_change(t: &TaskRecord, g: &Green) -> bool {
+    t.state == TaskState::InProgress && started(t).is_none_or(|(_, at)| g.at_ms >= at)
+}
+
 /// The change of `t` that a join stopped and holds for the owner, read from the rows exactly as
-/// the queues read them: the item's newest green branch, if it has not joined, was not sent back
-/// for a conflict with main, and its head has a held stop that no retry has lifted. Only an item
-/// still in progress holds one: a failed or dropped item's old branch is not its change, and an
-/// older branch of an item that has built again is not either.
+/// the queues read them: the item's newest green branch, if it is the item's change now
+/// ([`is_its_change`]), has not joined, was not sent back for a conflict with main, and its head
+/// has a held stop that no retry has lifted. A failed or dropped item's old branch is not its
+/// change, an older branch of an item that has built again is not either, and neither is the head
+/// of a sealed hold while its item is rebuilt.
 pub(crate) fn join_held(store: &crate::store::Store, t: &TaskRecord) -> Result<Held> {
     if t.state != TaskState::InProgress {
         return Ok(Held::No);
@@ -253,7 +263,8 @@ pub(crate) fn join_held(store: &crate::store::Store, t: &TaskRecord) -> Result<H
         return Ok(Held::No);
     };
     let key = (g.branch.clone(), g.head.clone());
-    let held = !seen.joined.contains(&g.branch)
+    let held = is_its_change(t, g)
+        && !seen.joined.contains(&g.branch)
         && !seen.conflicted.contains(&key)
         && seen.stopped.contains_key(&key);
     Ok(match held {
@@ -301,7 +312,7 @@ fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
             let mut e = e;
             // The command comes first: the owner's view cuts a long line from its end.
             e.why = Some(match by_id.get(g.item.as_str()) {
-                Some(t) if t.state == TaskState::InProgress => format!(
+                Some(t) if is_its_change(t, g) => format!(
                     "To have Theseus check it again from the first check, run `{}`. It was held: {why}",
                     theseus_protocol::rsi::retry_command(&g.item)
                 ),

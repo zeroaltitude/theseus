@@ -80,11 +80,23 @@ fn item(r: &Rig) -> String {
     t.state = TaskState::InProgress;
     t.session = Some("ses_builder".into());
     t.version += 1;
+    t.evidence.push(session_row("ses_builder", 1));
     r.core
         .store
         .append(&[crate::task_graph::record(&t).unwrap()])
         .unwrap();
     filed.item
+}
+
+/// The evidence a build's start leaves, at `at_ms`.
+fn session_row(session: &str, at_ms: u64) -> theseus_protocol::tasks::TaskEvidence {
+    theseus_protocol::tasks::TaskEvidence {
+        node: None,
+        identity: format!("session:{session}"),
+        note: None,
+        by: "self-backlog".into(),
+        at_ms,
+    }
 }
 
 fn task(r: &Rig, id: &str) -> TaskRecord {
@@ -428,4 +440,60 @@ async fn an_item_no_join_holds_is_refused_in_words_that_name_the_held_case() {
     retry(&r, &id, &owner(), None).unwrap();
     assert!(retry(&r, &id, &owner(), None).is_err());
     assert_eq!(r.rows("self.join.reopened").len(), 1);
+}
+
+/// A head the item was sent back from is not the item's change: the sealed hold returns the item
+/// to its builder, and once the rebuild has started the old head is not offered, not reopened and
+/// not measured again (the first review's finding). The item is left as it is.
+#[tokio::test]
+async fn a_head_its_item_was_sent_back_from_is_not_reopened_during_the_rebuild() {
+    let r = rig(SelfMode::Act);
+    let id = item(&r);
+    let mut files = PROVED.to_vec();
+    files.push(("scripts/long-files.txt", "crates/x.rs 9999\n"));
+    r.seed(&id, &files, SONNET);
+    let seams = r.seams();
+    r.core.self_join_pass(&seams).await.unwrap();
+    assert!(held(&r)[0]
+        .why
+        .as_deref()
+        .unwrap()
+        .contains("theseus self retry"));
+    // The item goes back to its builder and a new build starts, as after a sealed hold: the
+    // item is in progress again under a new session, and nothing is green since.
+    let mut t = task(&r, &id);
+    t.session = Some("ses_rebuild".into());
+    t.version += 1;
+    t.evidence.push(session_row(
+        "ses_rebuild",
+        theseus_protocol::now_unix_ms() + 1,
+    ));
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+    let before = task(&r, &id);
+    let said = retry(&r, &id, &owner(), None).unwrap_err();
+    assert!(format!("{said}").contains("this one is not held"), "{said}");
+    assert!(r.rows("self.join.reopened").is_empty());
+    let after = task(&r, &id);
+    assert_eq!(
+        (after.version, after.state, after.session.clone()),
+        (
+            before.version,
+            TaskState::InProgress,
+            Some("ses_rebuild".into())
+        )
+    );
+    // And the old head is not offered to the owner as a change to check again.
+    let why = held(&r)
+        .first()
+        .and_then(|i| i.why.clone())
+        .unwrap_or_default();
+    assert!(!why.contains("theseus self retry"), "{why}");
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert!(
+        pass.stopped.is_empty() && pass.joined.is_empty(),
+        "{pass:?}"
+    );
 }

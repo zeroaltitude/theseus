@@ -68,7 +68,7 @@ so a planted revert can prove it).
   not reopened the old stop stands. **Not a try:** the evidence is none of the identities `attempts::tries` counts, and not
   `retried:owner`, which would start the count again, so the item's attempts are as they were. The merge is of the head named in the built
   row, never of the branch's tip now, so a branch moved after its review is not what a retry joins. The pipeline's line for a held item
-  gives the command first (the owner's view cuts a long line at its end), and the three cards that hold a head say it too.
+  gives the command first (the owner's view cuts a long line at its end), and the three cards that hold a head say it too. **What it does not reopen:** the sealed hold, which sends the item back to its builder (a new head is measured afresh, and `join_held` offers only a green row written at or after the item's last `session:`, so the old head is not reopened while its rebuild runs), a conflict with main (the same), a hold that is not a join's (a review's refusal), and an item that is not in progress.
 
 ## What this does NOT do
 
