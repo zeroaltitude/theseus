@@ -41,7 +41,10 @@ answers) and put back only on a request for the same, and a request for a model 
 a place's turn was told is not told to another place, or to a model that carries none of it. A tail is kept once
 routing is done with the request (an effort message, a persona line), and found again by what its message rendered
 as, not by its index. A kept tail whose message no longer renders as it did (a recompile, a ring's cut, a
-compaction) is let go, and all of them are when a recompile strips the thinking. They are kept in memory, 256 sessions
+compaction) is let go, and all of them are when a recompile strips the thinking. The keep-warm read between turns
+(`keep_warm_compile`) puts the tails back through the same function (`SentTails::warm`, for the key the newest tail
+was sent to, and none for a model of restricted origin), so it reads the prefix the next turn sends; the census's
+token count leaves every tail out, this turn's included. They are kept in memory, 256 sessions
 at most: a daemon restart forgets them, and the first request after it, in a conversation with thinking in it, meets
 the net below once.
 
@@ -72,13 +75,17 @@ every kind of turn (`tests_binding.rs`) is where to add its case.
 everything before it, and checks the blocks a request replays against it, reporting, or refusing like the newest model.
 `tests_binding.rs` drives whole turns of two or more steps against it and asserts that each request repeats the one
 before it, block for block: a person's turn in a private place, a second turn that replays the first's thinking, the
-self join's review turn, a task's turn, a recall note that arrives after the first compile, a refusal's fallback, and a
-retry; and the net, once, narrowly, and not at all where a mismatch is allowed.
+self join's review turn, a task's turn, a recall note that arrives after the first compile, a refusal's fallback, a
+retry, and a keep-warm read between two turns; and the net, once, narrowly, and not at all where a mismatch is
+allowed.
 
 ## What it does not do
 
 - It does not cover the bench's replay of a recorded request (`own_bench/replay.rs`), which calls the provider
-  without the net: a recorded request that drifted will meet the newest model's 400 there.
+  without the net: a recorded request that drifted will meet the newest model's 400 there. The bench's rebuild of a
+  request (`own_bench/rebuild.rs`) is from the nodes alone and never had the tails.
+- A keep-warm read has no net either: a read refused with that 400 (after a change of key, or a restart) stops that
+  session's reads until its next message, as any failed read does.
 - A tail now outlives its turn: a turn's date line, task view or standing record stays in the history, where it was
   sent, until a recompile or a ring's cut lets that part of the history go.
 

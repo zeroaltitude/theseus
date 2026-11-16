@@ -10,7 +10,8 @@
 //! **The request** is the session's next compile, made as its next turn
 //! makes it (`TurnRunner::keep_warm_request`: the session's last target, its
 //! place's view and spec, its walk, the transcript and the current
-//! compilation), up to its last message, the model's answer; then a short
+//! compilation, and the tails the turns kept, `turn::sent_tail`), up to its
+//! last message, the model's answer; then a short
 //! user line, since a request may not end on the model's turn, and the
 //! smallest output (`MAX_TOKENS`). Its bytes up to the line are the next
 //! turn's request's first bytes (`tests_keep_warm`), so its read is the
