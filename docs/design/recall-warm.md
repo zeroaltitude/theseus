@@ -48,7 +48,8 @@ unchanged. `LOAD_BOUND` is a constant, not a setting: one blessed number.
 ## What keeps the model loaded, and what does not
 
 The model unloads ten idle minutes after its last use. `index.warm` restarts that clock, so a person's message keeps it
-loaded, as that message's recall would anyway. Nothing but a person's message sends the arrival warm; background passes
+loaded, as that message's recall would anyway. Nothing but a turn's message sends the arrival warm: a person's, or the
+objective a self-improvement run submits as its turn's input, whose recall loads the model in any case. Background passes
 (the memory pass's `index.embed`) already load the model through their own calls and are unchanged. The probe at a
 recall's deadline touches the clock too, inside a recall that is itself using the model.
 

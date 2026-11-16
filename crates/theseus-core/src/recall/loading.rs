@@ -9,9 +9,11 @@
 //!   tender `index.warm`, which starts the load if the model is unloaded. It
 //!   runs in a task of its own beside the turn's other early steps, so the
 //!   load is under way (or done) when recall asks. A first keystroke sends
-//!   the same call earlier (`rpc/typing.rs`). Only a person's turn sends it
-//!   here, and the tender's idle clock restarts on it, so nothing else keeps
-//!   the model loaded.
+//!   the same call earlier (`rpc/typing.rs`). Only a turn that arrives with a
+//!   message sends it here, as for Jev: a person's, or a self-improvement
+//!   run's objective, whose recall asks for the model anyway. The tender's
+//!   idle clock restarts on it, so nothing that does not recall keeps the
+//!   model loaded.
 //! - **Recall's wait covers a load, up to [`LOAD_BOUND`].** A recall's whole
 //!   query carries `wait_ms = LOAD_BOUND`, so the tender holds it for a load
 //!   in progress instead of answering at once without vectors. The recall's
