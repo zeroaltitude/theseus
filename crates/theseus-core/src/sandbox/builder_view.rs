@@ -19,23 +19,32 @@ use super::Sandbox;
 // 1571686049867112519): "since our current mode is one-at-a-time self improvements, it means we can
 // have relatively generous disk allocations and file allocations. so please extend those for
 // flexibility over safety." One item builds at a time, so each is sized for one builder with the
-// machine's build resources to itself. Each is a ceiling and costs nothing until it is written;
-// `/tmp`, `/dev/shm`, HOME and scratch are memory-backed (tmpfs), so what is written there is
-// memory. They are this view's own: the configured `[sandbox]` caps are not changed and no other
-// job's view has them. `max` keeps a configured value that is already larger.
+// machine's build resources to itself. They are this view's own: the configured `[sandbox]` caps
+// are not changed and no other job's view has them. `max` keeps a configured value that is larger.
+//
+// **Generous on disk, bounded in memory.** What is on DISK is generous: one file (`RLIMIT_FSIZE`,
+// a file lands in the build folder, which is on disk), the 48 GiB build folder itself
+// (`rsi::builder_dir::MAX_BYTES`) and processes. What is MEMORY-BACKED is not: `/tmp`, `/dev/shm`,
+// HOME and scratch are all tmpfs mounts (`theseus_sandbox::view`), so what a command writes there
+// is RAM, with no memory limit behind it, on a machine that is also the owner's. Their ceilings are
+// 4 GiB each, four times the default, and the large temporaries are taken out of them by pointing
+// `TMPDIR` at the build folder's own `tmp` directory (`env`), which is disk, under its bound.
 
 /// The largest single file a builder's command may write (`RLIMIT_FSIZE`): 16 GiB, as the gate's view
 /// allows (`self_build::BUILD_OUTPUT_MB`): the link of the core's tests is far past a job's default
-/// 64 MiB (the 2026-11-15 run died on it, `SIGXFSZ`), and a workspace's test binaries are large.
+/// 64 MiB (the 2026-11-15 run died on it, `SIGXFSZ`), and a workspace's test binaries are large. A
+/// file this size can only be made on disk (the build folder; the tmpfs mounts are 4 GiB).
 pub const BUILDER_OUTPUT_MB: u64 = 16 * 1024;
-/// Scratch, the overlays' writes (cargo's registry index and package cache writes land here): 16 GiB,
-/// where the job default is 1 GiB and the first real core test build filled it.
-pub const BUILDER_SCRATCH_MB: u64 = 16 * 1024;
-/// Each of `/tmp`, `/dev/shm` and HOME: 16 GiB, for the compiler's and linker's temporaries and a
-/// test run's fixtures, from the job default of 1 GiB.
-pub const BUILDER_TMP_MB: u64 = 16 * 1024;
+/// Scratch, the overlays' writes (tmpfs, MEMORY): 4 GiB, from the job default of 1 GiB. Cargo's
+/// registry-index and package-cache writes land here; the build output, which filled the 1 GiB on the
+/// first real core test build, no longer does (it is in the build folder).
+pub const BUILDER_SCRATCH_MB: u64 = 4 * 1024;
+/// Each of `/tmp`, `/dev/shm` and HOME (tmpfs, MEMORY): 4 GiB, from the job default of 1 GiB.
+/// Compiler and linker temporaries follow `TMPDIR`, which is on disk, so these hold small files.
+pub const BUILDER_TMP_MB: u64 = 4 * 1024;
 /// Processes: 32,768, for parallel compilers and a test run's own children on a many-core box; the job
-/// default is 512, and the gate's view is 8,192.
+/// default is 512, and the gate's view is 8,192. Only `RLIMIT_NPROC` binds an L1 job: `[tools]
+/// job_pids_max` is a cgroup cap the wrapper applies on the L0 spawn path alone (`job.rs`, `spawn_l0`).
 pub const BUILDER_PIDS: u64 = 32 * 1024;
 
 impl Sandbox {
@@ -65,11 +74,19 @@ impl Sandbox {
     }
 }
 
-/// The environment a builder's command is given for its build folder: cargo's
-/// target directory, which replaces any a call set.
-pub fn env(dir: &Path) -> (String, String) {
-    (
-        crate::rsi::builder_dir::TARGET_VAR.to_string(),
-        dir.display().to_string(),
-    )
+/// The environment a builder's command is given for its build folder `dir`, which replaces any a call
+/// set: cargo's target directory (`dir/target`) and `TMPDIR` (`dir/tmp`), both on disk in the folder.
+pub fn env(dir: &Path) -> Vec<(String, String)> {
+    vec![
+        (
+            crate::rsi::builder_dir::TARGET_VAR.to_string(),
+            crate::rsi::builder_dir::target_in(dir)
+                .display()
+                .to_string(),
+        ),
+        (
+            crate::rsi::builder_dir::TMP_VAR.to_string(),
+            crate::rsi::builder_dir::tmp_in(dir).display().to_string(),
+        ),
+    ]
 }

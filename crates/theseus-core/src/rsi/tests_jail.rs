@@ -556,8 +556,9 @@ fn the_builders_view_is_an_ordinary_jobs_with_one_directory_added() {
     assert_eq!(
         view.limits,
         theseus_sandbox::Limits {
-            scratch_mb: 16 * 1024,
-            tmp_mb: 16 * 1024,
+            // The four tmpfs mounts are memory (4 GiB each); the file limit and processes are not.
+            scratch_mb: 4 * 1024,
+            tmp_mb: 4 * 1024,
             output_mb: 16 * 1024,
             pids: 32 * 1024,
         }
@@ -584,11 +585,23 @@ fn the_builders_view_is_an_ordinary_jobs_with_one_directory_added() {
     }
     assert_eq!(view.workspace, sb.job_view().workspace);
     assert_eq!(view.ro_paths, sb.job_view().ro_paths);
-    let (k, v) = crate::sandbox::builder_env(&folder);
+    // Cargo's target and `TMPDIR` are both inside the folder, on disk: a large temporary file lands
+    // under the folder's bound and not in a memory-backed mount.
+    let env = crate::sandbox::builder_env(&folder);
+    let get = |name: &str| env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
     assert_eq!(
-        (k.as_str(), v.as_str()),
-        ("CARGO_TARGET_DIR", "/state/self/builder/t")
+        get("CARGO_TARGET_DIR"),
+        Some("/state/self/builder/t/target")
     );
+    assert_eq!(get("TMPDIR"), Some("/state/self/builder/t/tmp"));
+    for (_, v) in &env {
+        assert!(Path::new(v).starts_with(&folder), "{v} is in the folder");
+        assert!(view.rw.iter().any(|rw| Path::new(v).starts_with(rw)));
+        // And not under any memory-backed mount's path.
+        assert!(!["/tmp", "/dev/shm"]
+            .iter()
+            .any(|m| Path::new(v).starts_with(m)));
+    }
 }
 
 /// Removal of a tree's folders works though a build made part of them read-only: a plain

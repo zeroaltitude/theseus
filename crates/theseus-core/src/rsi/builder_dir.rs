@@ -8,7 +8,7 @@
 //! (scratch is 1 GB) and, had it fit, every command would have started from
 //! nothing. So while an item is being built its builder's commands get one
 //! read-write directory, `<state>/self/builder/<slug>`, and cargo is pointed
-//! at it (`CARGO_TARGET_DIR`). Design note: `docs/design/self-builder-build-folder.md`.
+//! at it (`CARGO_TARGET_DIR`, and `TMPDIR` for temporary files). Design note: `docs/design/self-builder-build-folder.md`.
 //!
 //! - **Its own, and apart from the gate's.** The gate builds in
 //!   `<state>/self/target/<slug>` ([`super::tree::Tree::target`]); this folder
@@ -67,6 +67,9 @@ pub(crate) fn set_max_for_test(bytes: u64) {
 /// The variable cargo reads for where a build goes.
 pub const TARGET_VAR: &str = "CARGO_TARGET_DIR";
 
+/// The variable the compiler, the linker, cargo and `mktemp` read for temporary files.
+pub const TMP_VAR: &str = "TMPDIR";
+
 /// The directory that holds every item's build folder, under the state
 /// directory `state`.
 pub fn root_in(state: &Path) -> PathBuf {
@@ -78,10 +81,24 @@ pub fn dir_in(state: &Path, slug: &str) -> PathBuf {
     root_in(state).join(slug)
 }
 
-/// The folder for `slug`, made if it was not there.
+/// Where cargo builds inside the folder `dir`: `CARGO_TARGET_DIR`.
+pub fn target_in(dir: &Path) -> PathBuf {
+    dir.join("target")
+}
+
+/// Where a command's temporary files go inside the folder `dir`: `TMPDIR`, which the compiler, the
+/// linker, cargo and `mktemp` follow. It is on disk, under [`MAX_BYTES`], so what is large lands
+/// there and not in the view's memory-backed `/tmp` (`sandbox::builder_view`).
+pub fn tmp_in(dir: &Path) -> PathBuf {
+    dir.join("tmp")
+}
+
+/// The folder for `slug`, made if it was not there, with its `target` and `tmp` directories. Made
+/// again at each command's start: a `cargo clean` empties `target`, and a command may remove either.
 pub fn ensure(state: &Path, slug: &str) -> std::io::Result<PathBuf> {
     let dir = dir_in(state, slug);
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(target_in(&dir))?;
+    std::fs::create_dir_all(tmp_in(&dir))?;
     Ok(dir)
 }
 
@@ -141,12 +158,13 @@ impl Full {
     pub fn refusal(&self) -> String {
         format!(
             "the build folder for this item holds {} GiB and has reached its limit of {} GiB, so no \
-             command starts until it is smaller. It is {} (cargo's CARGO_TARGET_DIR): empty it with \
-             `cargo clean`, or delete what is in it, then run the command again. Nothing else was \
-             wrong with the command.",
+             command starts until it is smaller. Build output is in {} (cargo's CARGO_TARGET_DIR: \
+             `cargo clean` empties it) and temporary files in {} (TMPDIR): delete what is in them, \
+             then run the command again. Nothing else was wrong with the command.",
             gb(self.bytes),
             gb(max()),
-            self.dir.display()
+            target_in(&self.dir).display(),
+            tmp_in(&self.dir).display()
         )
     }
 
@@ -154,7 +172,8 @@ impl Full {
     pub fn stopped_by(&self) -> String {
         format!(
             "the build folder's limit (the item's build folder holds {} GiB, at its limit of {} GiB; \
-             `cargo clean` empties it)",
+             `cargo clean` empties its build output, and its temporary files are in its tmp \
+             directory)",
             gb(self.bytes),
             gb(max())
         )

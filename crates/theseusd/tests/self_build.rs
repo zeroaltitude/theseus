@@ -218,9 +218,10 @@ impl Rig {
         let folder = builder_dir::ensure(&state, &self.tree.slug).unwrap();
         let home = PathBuf::from(std::env::var("HOME").unwrap());
         let mut env = theseus_core::sandbox::self_build_env(&home, &folder);
-        let (k, v) = theseus_core::sandbox::builder_env(&folder);
-        env.retain(|(ek, _)| *ek != k);
-        env.push((k, v));
+        for (k, v) in theseus_core::sandbox::builder_env(&folder) {
+            env.retain(|(ek, _)| *ek != k);
+            env.push((k, v));
+        }
         let args = WrapperArgs {
             spool_dir: self.spool.dir().to_path_buf(),
             correlation_id: id.into(),
@@ -697,7 +698,7 @@ fn a_builders_tests_build_in_its_folder_and_a_second_run_reuses_the_build() {
     assert!(first.contains("Compiling tiny"), "{first}");
     assert!(!second.contains("Compiling tiny"), "reused: {second}");
     assert!(
-        f.join("debug").is_dir(),
+        f.join("target/debug").is_dir(),
         "the build is on the host, in the folder"
     );
     assert!(builder_dir::size(&f) > 0);
@@ -765,5 +766,43 @@ fn the_gates_view_cannot_see_what_the_builder_left() {
     assert!(
         std::fs::read_dir(&r.tree.target).unwrap().next().is_none(),
         "the gate's build tree holds nothing the builder made"
+    );
+}
+
+/// The builder's temporary files land on disk, in its folder (`TMPDIR`), and not in the memory-backed
+/// `/tmp` (tmpfs, 4 GiB): `mktemp` writes under the folder's `tmp`, where the file is kept, and the
+/// view's `/tmp` is a tmpfs of the size the constant says while `tmp` is not on it.
+#[test]
+fn a_builders_temp_files_land_on_disk_in_its_folder() {
+    if refused_as_root() {
+        return;
+    }
+    let r = Rig::builder();
+    let f = r.folder();
+    let script = format!(
+        "t=$(mktemp); echo x > \"$t\"; echo \"$t\" > {f}/name; \
+         stat -f -c '%T %b %S' /tmp > {f}/tmpfs; stat -f -c %T {f}/tmp > {f}/tmpdir",
+        f = f.display()
+    );
+    let d = r.run_as_builder("temp", &["sh", "-c", &script]);
+    assert_eq!(d["exit_code"], 0, "{d}");
+    let name = r.read("state/self/builder/t/name");
+    let tmp = f.join("tmp");
+    assert!(
+        Path::new(name.trim()).starts_with(&tmp),
+        "{name} is under {}",
+        tmp.display()
+    );
+    assert!(Path::new(name.trim()).is_file(), "it is on the host: disk");
+    let tmpfs = r.read("state/self/builder/t/tmpfs");
+    let mut it = tmpfs.split_whitespace();
+    let (kind, blocks, size) = (it.next(), it.next(), it.next());
+    assert_eq!(kind, Some("tmpfs"), "/tmp is the memory-backed mount");
+    let bytes = blocks.unwrap().parse::<u64>().unwrap() * size.unwrap().parse::<u64>().unwrap();
+    assert_eq!(bytes, 4 * 1024 * 1024 * 1024, "4 GiB, the constant");
+    assert_ne!(
+        r.read("state/self/builder/t/tmpdir").trim(),
+        "tmpfs",
+        "the folder's tmp is disk"
     );
 }

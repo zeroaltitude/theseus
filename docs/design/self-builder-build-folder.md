@@ -14,8 +14,10 @@ item ends. That is his yes to that disk use. It is not a yes to raising `[sandbo
 ## What the builder gets
 
 While an item's tree is open, each of its builder's sandboxed commands gets ONE directory that is writable and
-persists between commands: `<state>/self/builder/<slug>` (`rsi/builder_dir.rs`). Cargo is pointed at it
-(`CARGO_TARGET_DIR`, replacing any value the call set), so a second `cargo test` reuses the first one's build.
+persists between commands: `<state>/self/builder/<slug>` (`rsi/builder_dir.rs`), with a `target/` directory for
+cargo (`CARGO_TARGET_DIR`) and a `tmp/` directory for temporary files (`TMPDIR`); each replaces any value the call set,
+and both are made again at each command's start (a `cargo clean` empties `target/`). A second `cargo test` reuses the
+first one's build.
 
 - **Whose.** The folder is named by the session's own task (`rsi/own_tree.rs`, `builder_path`), never by the call's
   input. The view that binds it (`sandbox/builder_view.rs`, `Sandbox::builder_view`) is made only for a self
@@ -59,21 +61,26 @@ here to allow for maximum self improvement power".
 
 Every resource cap that applies to a self builder's sandboxed command, what it was, and what it is. The first four
 are the view's own constants (`sandbox/builder_view.rs`), set with `max` so a configured value that is already
-larger is kept. None is a configured default: `[sandbox]` is unchanged and no other job's view has them. Each is a
-ceiling and costs nothing until written, but `/tmp`, `/dev/shm`, HOME and scratch are memory-backed (tmpfs), so what
-a command writes there is memory.
+larger is kept. None is a configured default: `[sandbox]` is unchanged and no other job's view has them.
 
-| cap | before (builder's view = an ordinary job's) | now | why |
-|---|---|---|---|
-| a single file (`RLIMIT_FSIZE`, `output_mb`) | 64 MiB (4 GiB in the first cut of this branch) | 16 GiB | the link of the core's tests died of `SIGXFSZ` at 64 MiB; equal to the gate's view |
-| scratch, the overlays' writes (`scratch_mb`) | 1 GiB | 16 GiB | cargo's registry and cache writes; the first real core test build filled 1 GiB |
-| each of `/tmp`, `/dev/shm`, HOME (`tmp_mb`) | 1 GiB | 16 GiB | compiler and linker temporaries, a test run's fixtures |
-| processes (`RLIMIT_NPROC`, `pids`) | 512 | 32,768 | parallel compilers and a test run's children on a many-core box (the gate's view: 8,192) |
-| the build folder (`rsi::builder_dir::MAX_BYTES`) | none (did not exist) | 48 GiB | measured worst case 37.9 GiB plus a quarter |
-| `[tools] job_pids_max` (a cgroup `pids.max`, 4,096) | the kernel's doc says it is each L0 job's cgroup; an L1 job "has no cgroup of its own" (`theseus-sandbox` AGENTS.md); not proven either way for the builder's view | unchanged | a configured `[tools]` value for every session; if it does bind L1 jobs it is the one process cap still below `BUILDER_PIDS` |
-| open files (`RLIMIT_NOFILE`) | the daemon's own, none set by L1 | unchanged | L1 sets no limit of its own |
-| memory | none (L1 has no cgroup) | unchanged | no limit to relax |
-| wall time of one call (`[tools] proc_timeout_max_secs`) | 3,600 s | unchanged | a configured `[tools]` value for every session, not a property of this view; a cold whole-workspace build measured 335 s |
+**Generous on disk, bounded in memory** (Tabitha, 2026-11-15 18:35, on this machine's 24 GB). `/tmp`, `/dev/shm`, HOME
+and scratch are all tmpfs mounts (`theseus-sandbox` `view.rs`), so what a command writes there is RAM, and nothing
+puts a memory limit behind it. Each is therefore 4 GiB (four times the default), 16 GiB in all if every one filled,
+and the large temporaries are kept out of them: the builder's `TMPDIR` is the folder's own `tmp/` directory, on disk
+under the 48 GiB bound, and cargo's target is its `target/` directory. What is on disk is generous.
+
+| cap | before (builder's view = an ordinary job's) | after | backing | why |
+|---|---|---|---|---|
+| a single file (`RLIMIT_FSIZE`, `output_mb`) | 64 MiB (4 GiB in the first cut of this branch) | 16 GiB | disk (a file this size can only be made in the build folder) | the link of the core's tests died of `SIGXFSZ` at 64 MiB; equal to the gate's view |
+| scratch, the overlays' writes (`scratch_mb`) | 1 GiB | 4 GiB | **memory** (tmpfs) | cargo's registry and cache writes; the build output that filled 1 GiB is in the folder now |
+| each of `/tmp`, `/dev/shm`, HOME (`tmp_mb`) | 1 GiB | 4 GiB each | **memory** (tmpfs) | small temporaries; the compiler's and linker's follow `TMPDIR`, on disk |
+| `TMPDIR` | `/tmp` (memory) | `<folder>/tmp` | disk, in the folder's bound | large temporaries off the RAM |
+| processes (`RLIMIT_NPROC`, `pids`) | 512 | 32,768 | none | parallel compilers and a test run's children on a many-core box (the gate's view: 8,192) |
+| the build folder (`rsi::builder_dir::MAX_BYTES`) | none (did not exist) | 48 GiB | disk | measured worst case 37.9 GiB plus a quarter |
+| `[tools] job_pids_max` (a cgroup `pids.max`, 4,096) | not applied to an L1 job | unchanged | none | the wrapper applies the cgroup only on its L0 spawn path (`theseus-kernel` `job.rs`, `spawn_l0`); an L1 job is held by `RLIMIT_NPROC` alone, so the builder's 32,768 is its cap |
+| open files | none set by L1 | unchanged | none | L1 sets no limit of its own |
+| memory | none (L1 has no cgroup) | unchanged | none | no memory limit exists for the view, and none is added here |
+| wall time of one call (`[tools] proc_timeout_max_secs`) | 3,600 s | unchanged | none | a configured `[tools]` value for every session, not this view's; a cold whole-workspace build measured 335 s |
 
 Not allocations, and not changed: the network (none beyond the call's own egress list), what is readable, the
 hidden list (secrets, the store, the socket, the sealed sets), the facilities the gate's view alone is given, and the

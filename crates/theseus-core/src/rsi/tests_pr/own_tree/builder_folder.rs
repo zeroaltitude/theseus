@@ -93,7 +93,7 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
     let (sid, t) = item(&r, "sails");
     // The call tries to point cargo elsewhere: its own word does not stand.
     let mut call = built(&t.dir, true);
-    call["env"] = json!({"CARGO_TARGET_DIR": "/tmp/mine"});
+    call["env"] = json!({"CARGO_TARGET_DIR": "/tmp/mine", "TMPDIR": "/tmp/mine"});
     r.turn(&sid, "proc_run", call).await;
     let args = only(&kept);
     let folder = builder_dir::dir_in(&state(&r), "sails");
@@ -104,13 +104,26 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
         "the one writable, kept place"
     );
     assert!(folder.is_dir(), "made for the command");
-    let target: Vec<&str> = args
-        .env
-        .iter()
-        .filter(|(k, _)| k == "CARGO_TARGET_DIR")
-        .map(|(_, v)| v.as_str())
-        .collect();
-    assert_eq!(target, [folder.to_str().unwrap()], "cargo builds in it");
+    // Cargo builds in the folder's `target`, and temporary files go to its `tmp`: both on disk, in
+    // the folder, so large temporaries are not in the view's memory-backed `/tmp`.
+    let var = |name: &str| -> Vec<&str> {
+        args.env
+            .iter()
+            .filter(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+            .collect()
+    };
+    assert_eq!(
+        var("CARGO_TARGET_DIR"),
+        [folder.join("target").to_str().unwrap()],
+        "cargo builds in it"
+    );
+    assert_eq!(
+        var("TMPDIR"),
+        [folder.join("tmp").to_str().unwrap()],
+        "temporary files go to disk in it"
+    );
+    assert!(folder.join("target").is_dir() && folder.join("tmp").is_dir());
     // Nothing else of the view moved: an ordinary job's, less the call's own egress list.
     let mut rest = view;
     rest.rw.clear();
@@ -124,7 +137,7 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
             rest.limits.output_mb,
             rest.limits.pids
         ),
-        (16 * 1024, 16 * 1024, 16 * 1024, 32 * 1024)
+        (4 * 1024, 4 * 1024, 16 * 1024, 32 * 1024)
     );
     rest.limits = ordinary.limits;
     assert_eq!(rest, ordinary);
@@ -181,7 +194,12 @@ async fn a_full_folder_refuses_the_next_command_and_says_how_to_empty_it() {
     std::fs::write(folder.join("debug.bin"), vec![7u8; 2 << 20]).unwrap();
     let said = r.turn(&sid, "proc_run", built(&t.dir, true)).await;
     assert!(kept.args.lock().unwrap().is_empty(), "no job started");
-    for want in ["reached its limit", "cargo clean", "CARGO_TARGET_DIR"] {
+    for want in [
+        "reached its limit",
+        "cargo clean",
+        "CARGO_TARGET_DIR",
+        "TMPDIR",
+    ] {
         assert!(said.contains(want), "{want}: {said}");
     }
     std::fs::remove_file(folder.join("debug.bin")).unwrap();

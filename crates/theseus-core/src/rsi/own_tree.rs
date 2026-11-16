@@ -178,7 +178,8 @@ pub(crate) fn builder_folder(rt: &ToolRuntime, session: &str) -> Result<Option<P
     let Some(dir) = builder_path(rt, session) else {
         return Ok(None);
     };
-    std::fs::create_dir_all(&dir)
+    std::fs::create_dir_all(builder_dir::target_in(&dir))
+        .and_then(|()| std::fs::create_dir_all(builder_dir::tmp_in(&dir)))
         .map_err(|e| format!("the build folder for this item could not be made: {e}"))?;
     match builder_dir::Full::of(&dir) {
         Some(full) => Err(full.refusal()),

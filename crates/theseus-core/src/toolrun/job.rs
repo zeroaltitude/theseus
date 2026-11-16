@@ -467,9 +467,10 @@ impl ToolRuntime {
             theseus_store::blocking(|| crate::rsi::own_tree::builder_folder(self, tc.session_id))
         }) {
             Some(Ok(Some(dir))) => {
-                let (k, v) = sandbox::builder_env(&dir);
-                env.retain(|(ek, _)| *ek != k);
-                env.push((k, v));
+                for (k, v) in sandbox::builder_env(&dir) {
+                    env.retain(|(ek, _)| *ek != k);
+                    env.push((k, v));
+                }
                 Some(dir)
             }
             Some(Err(why)) => {
