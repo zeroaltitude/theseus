@@ -1311,6 +1311,19 @@ impl Store {
         self.reads.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// [`Store::session_nodes`] for a pass that reads each session once (the
+    /// import's people steps, an append's check, an erase): what it decodes
+    /// is not kept in the heat cache, which holds what turns come back to.
+    pub fn session_nodes_once(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
+        self.node_records(session_id)?
+            .into_iter()
+            .map(|r| {
+                let n = self.cache.node_once(r.position, &r.payload)?;
+                Ok((r.position, Arc::unwrap_or_clone(n)))
+            })
+            .collect()
+    }
+
     fn scan_nodes(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
         self.node_records(session_id)?
             .into_iter()

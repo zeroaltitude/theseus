@@ -151,6 +151,19 @@ impl NodeCache {
         Ok(n)
     }
 
+    /// The node at `position` for a reader that will not come back to it: the
+    /// kept node when the cache holds one (left untouched, so this read does
+    /// not make it look hot), else the payload decoded and NOT kept. A pass
+    /// over every node of every session it was given reads each once, and
+    /// [`NodeCache::node`] would fill the cache with them (issue 21: the
+    /// nightly import's people step left 44 MiB of nodes no turn reads).
+    pub fn node_once(&self, position: u64, payload: &[u8]) -> anyhow::Result<Arc<Node>> {
+        match self.peek(position) {
+            Some(n) => Ok(n),
+            None => Ok(Arc::new(self.decode(payload)?)),
+        }
+    }
+
     /// A decode the cache counts, of a node it was asked for and lacks.
     pub fn decode(&self, payload: &[u8]) -> anyhow::Result<Node> {
         self.misses.fetch_add(1, Relaxed);

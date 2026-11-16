@@ -100,7 +100,7 @@ pub(super) fn plan(
     let sid = &rec.session_id;
     // The stored messages in the order they were written: idx and digest.
     let mut stored: Vec<(u32, String)> = Vec::new();
-    for (_, n) in store.session_nodes(sid)? {
+    for (_, n) in store.session_nodes_once(sid)? {
         if let Body::Imported { idx, sha256, .. } = n.body {
             stored.push((idx, sha256));
         }

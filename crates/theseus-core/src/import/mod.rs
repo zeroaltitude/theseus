@@ -58,6 +58,8 @@ mod tests_harness;
 #[cfg(test)]
 mod tests_notes;
 #[cfg(test)]
+mod tests_once;
+#[cfg(test)]
 mod tests_people;
 #[cfg(test)]
 mod tests_sync;

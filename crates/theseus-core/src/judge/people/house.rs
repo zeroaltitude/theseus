@@ -82,7 +82,7 @@ impl Core {
                 names.insert(fold(a));
             }
             if e.place_kind == "file" && e.place_name.as_deref().is_some_and(is_identity) {
-                for (_, n) in self.store.session_nodes(&e.session_id)? {
+                for (_, n) in self.store.session_nodes_once(&e.session_id)? {
                     if let Body::Imported { text, .. } = &n.body {
                         names.extend(identity_names(text).iter().map(|n| fold(n)));
                     }
