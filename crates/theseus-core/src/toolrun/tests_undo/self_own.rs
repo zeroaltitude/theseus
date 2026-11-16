@@ -45,6 +45,9 @@ fn act(c: &mut Config) {
     c.self_improve.repo = Some(repo.to_string_lossy().into_owned());
 }
 
+/// What a case aims a call with, from the rig's target.
+type Aim<T> = fn(&Path) -> T;
+
 fn nothing(_: &mut Config) {}
 
 /// The places in the module's header, holding old bytes, made before the script is built so that a
@@ -64,7 +67,7 @@ fn lay(b: &Path) {
 /// A core whose one scripted call is `name` with `input`, from a session of `principal` (the task
 /// `sails` when that is `self`), with every place above laid out and holding old bytes. `verdict`
 /// is what Jev answers.
-async fn drive_says(
+fn drive_says(
     verdict: &str,
     principal: &str,
     name: &'static str,
@@ -120,13 +123,13 @@ async fn drive_says(
 }
 
 /// [`drive_says`] with the answer that holds.
-async fn drive(
+fn drive(
     principal: &str,
     name: &'static str,
     input: impl FnOnce(&Path) -> Value,
     tweak: impl FnOnce(&mut Config),
 ) -> (Rig, String) {
-    drive_says(RESHAPEABLE, principal, name, input, tweak).await
+    drive_says(RESHAPEABLE, principal, name, input, tweak)
 }
 
 impl Rig {
@@ -169,7 +172,7 @@ fn built_in_scratch(t: &Path) -> PathBuf {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_write_over_a_file_in_its_own_tree_runs_for_a_self_session_only() {
     for (principal, runs) in [("self", true), ("operator", false)] {
-        let (r, sid) = drive(principal, "fs_write", write_to(notes_of_sails), nothing).await;
+        let (r, sid) = drive(principal, "fs_write", write_to(notes_of_sails), nothing);
         r.turn(&sid).await;
         assert_eq!(
             r.was_held(&sid),
@@ -194,7 +197,7 @@ async fn a_patch_that_deletes_a_file_of_its_own_tree_runs_for_a_self_session_onl
         json!({"patch": patch})
     };
     for (principal, runs) in [("self", true), ("operator", false)] {
-        let (r, sid) = drive(principal, "fs_patch", delete, nothing).await;
+        let (r, sid) = drive(principal, "fs_patch", delete, nothing);
         r.turn(&sid).await;
         assert_eq!(
             r.was_held(&sid),
@@ -214,7 +217,7 @@ async fn a_patch_that_deletes_a_file_of_its_own_tree_runs_for_a_self_session_onl
 /// dir, the self repo, another task's tree, and a path that gets to one of them by `..` or a link.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_self_sessions_write_aimed_outside_its_own_places_is_held() {
-    let aims: [(&str, fn(&Path) -> PathBuf); 6] = [
+    let aims: [(&str, Aim<PathBuf>); 6] = [
         ("the workspace", |t| t.to_path_buf()),
         ("the rest of the state dir", |t| {
             base(t).join("state/notes.txt")
@@ -233,7 +236,7 @@ async fn a_self_sessions_write_aimed_outside_its_own_places_is_held() {
         }),
     ];
     for (what, aim) in aims {
-        let (r, sid) = drive("self", "fs_write", write_to(aim), nothing).await;
+        let (r, sid) = drive("self", "fs_write", write_to(aim), nothing);
         r.turn(&sid).await;
         assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
         assert_eq!(read(base(&r.target).join("state/notes.txt")), WAS, "{what}");
@@ -247,7 +250,7 @@ async fn a_self_sessions_write_aimed_outside_its_own_places_is_held() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_self_session_removes_its_reviews_scratch_and_an_operator_cannot() {
     for (principal, runs) in [("self", true), ("operator", false)] {
-        let (r, sid) = drive(principal, "proc_run", rm_of(built_in_scratch), nothing).await;
+        let (r, sid) = drive(principal, "proc_run", rm_of(built_in_scratch), nothing);
         r.core
             .tools
             .self_pr
@@ -271,11 +274,11 @@ async fn a_self_session_removes_a_file_of_its_tree_and_one_in_the_temporary_dire
     let theirs = outside.join("build.o");
     std::fs::write(&theirs, WAS).unwrap();
     let one = |p: PathBuf| json!({"argv": ["rm", "-f", "--", p.to_string_lossy()]});
-    let (r, sid) = drive("self", "proc_run", |t| one(notes_of_sails(t)), nothing).await;
+    let (r, sid) = drive("self", "proc_run", |t| one(notes_of_sails(t)), nothing);
     r.turn(&sid).await;
     assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
     assert!(!notes_of_sails(&r.target).exists(), "its own tree's file");
-    let (r, sid) = drive("self", "proc_run", |_| one(theirs.clone()), nothing).await;
+    let (r, sid) = drive("self", "proc_run", |_| one(theirs.clone()), nothing);
     r.turn(&sid).await;
     assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
     assert!(!theirs.exists(), "removed from the temporary directory");
@@ -287,7 +290,7 @@ async fn a_self_session_removes_a_file_of_its_tree_and_one_in_the_temporary_dire
 /// of the last four would run but for its shape.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_removal_aimed_outside_its_own_places_is_held() {
-    let aims: [(&str, fn(&Path) -> Value); 13] = [
+    let aims: [(&str, Aim<Value>); 13] = [
         (
             "the workspace",
             |t| json!({"argv": ["rm", "-rf", t.parent().unwrap()]}),
@@ -342,7 +345,7 @@ async fn a_removal_aimed_outside_its_own_places_is_held() {
         ),
     ];
     for (what, input) in aims {
-        let (r, sid) = drive("self", "proc_run", input, nothing).await;
+        let (r, sid) = drive("self", "proc_run", input, nothing);
         r.core
             .tools
             .self_pr
@@ -370,9 +373,9 @@ async fn a_path_that_leaves_the_scratch_is_judged_where_it_lands() {
         std::os::unix::fs::symlink(t.parent().unwrap(), &link).unwrap();
         json!({"argv": ["rm", "-rf", link.join("notes.txt").to_string_lossy()]})
     };
-    let aims: [(&str, fn(&Path) -> Value); 2] = [("`..`", by_dots), ("a link", by_link)];
+    let aims: [(&str, Aim<Value>); 2] = [("`..`", by_dots), ("a link", by_link)];
     for (what, input) in aims {
-        let (r, sid) = drive("self", "proc_run", input, nothing).await;
+        let (r, sid) = drive("self", "proc_run", input, nothing);
         r.core
             .tools
             .self_pr
@@ -388,13 +391,13 @@ async fn a_path_that_leaves_the_scratch_is_judged_where_it_lands() {
 /// all hold the same call.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_scratch_belongs_to_the_session_that_registered_it() {
-    let (r, sid) = drive("self", "proc_run", rm_of(built_in_scratch), nothing).await;
+    let (r, sid) = drive("self", "proc_run", rm_of(built_in_scratch), nothing);
     r.turn(&sid).await;
     assert!(
         r.was_held(&sid),
         "no review registered a scratch for this session"
     );
-    let (r, sid) = drive("operator", "proc_run", rm_of(built_in_scratch), nothing).await;
+    let (r, sid) = drive("operator", "proc_run", rm_of(built_in_scratch), nothing);
     r.core
         .tools
         .self_pr
@@ -404,7 +407,7 @@ async fn a_scratch_belongs_to_the_session_that_registered_it() {
         r.was_held(&sid),
         "a registration does not make a self session"
     );
-    let (r, sid) = drive("self", "proc_run", rm_of(built_in_scratch), nothing).await;
+    let (r, sid) = drive("self", "proc_run", rm_of(built_in_scratch), nothing);
     let elsewhere = base(&r.target).join("work");
     r.core.tools.self_pr.review_opened(&sid, &elsewhere);
     r.turn(&sid).await;
@@ -426,20 +429,20 @@ fn sandboxed(t: &Path) -> Value {
 /// reach what is not on this disk.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sandboxed_removal_is_not_held_for_a_self_session_with_no_network() {
-    let (r, sid) = drive("self", "proc_run", sandboxed, nothing).await;
+    let (r, sid) = drive("self", "proc_run", sandboxed, nothing);
     r.turn(&sid).await;
     assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
     assert!(r.target.exists(), "an L1 call's removal does not stay");
-    let (r, sid) = drive("operator", "proc_run", sandboxed, nothing).await;
+    let (r, sid) = drive("operator", "proc_run", sandboxed, nothing);
     r.turn(&sid).await;
     assert!(r.was_held(&sid), "another principal");
     let hosts =
         |t: &Path| json!({"argv": ["rm", "-rf", t], "sandbox": {"egress": ["example.com:443"]}});
-    let (r, sid) = drive("self", "proc_run", hosts, nothing).await;
+    let (r, sid) = drive("self", "proc_run", hosts, nothing);
     r.turn(&sid).await;
     assert!(r.was_held(&sid), "a call that names hosts");
     let listed = |c: &mut Config| c.sandbox.egress = vec!["index.crates.io:443".into()];
-    let (r, sid) = drive("self", "proc_run", sandboxed, listed).await;
+    let (r, sid) = drive("self", "proc_run", sandboxed, listed);
     r.turn(&sid).await;
     assert!(r.was_held(&sid), "[sandbox] egress names a host");
     assert!(r.target.exists());
@@ -449,7 +452,7 @@ async fn a_sandboxed_removal_is_not_held_for_a_self_session_with_no_network() {
 /// read-write, for a self session as for any other, so nothing it writes persists.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_view_a_self_sessions_command_is_given_binds_nothing_read_write() {
-    let (r, _) = drive("self", "proc_run", sandboxed, nothing).await;
+    let (r, _) = drive("self", "proc_run", sandboxed, nothing);
     assert!(r.core.tools.sandbox.job_view().rw.is_empty());
     let bound = crate::sandbox::Bound {
         class: crate::sandbox::Class::L1,
@@ -478,7 +481,7 @@ async fn the_view_a_self_sessions_command_is_given_binds_nothing_read_write() {
 /// lowers a hold and nothing above it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_final_verdict_on_a_self_sessions_own_write_still_asks_the_owner() {
-    let (r, sid) = drive_says(FINAL, "self", "fs_write", write_to(notes_of_sails), nothing).await;
+    let (r, sid) = drive_says(FINAL, "self", "fs_write", write_to(notes_of_sails), nothing);
     r.core.tools.modes.set(&sid, SessionMode::Auto);
     r.turn(&sid).await;
     assert_eq!(r.rows("tool.raised").len(), 1, "the raise stands");
