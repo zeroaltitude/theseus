@@ -124,10 +124,21 @@ pub fn ledgered_of_tail(
     Ok(l)
 }
 
-/// The eight kinds that weigh most, for the memory record.
+/// The eight kinds that weigh most: for the memory record, and in one log
+/// line a day, so what the tail weighs is on record though the read no longer
+/// peaks.
 fn note_weight(by_kind: std::collections::HashMap<String, (u64, u64)>) {
+    let rows: u64 = by_kind.values().map(|v| v.0).sum();
+    let bytes: u64 = by_kind.values().map(|v| v.1).sum();
     let mut kinds: Vec<_> = by_kind.into_iter().collect();
     kinds.sort_by(|a, b| (b.1 .1, &a.0).cmp(&(a.1 .1, &b.0)));
+    let top = kinds
+        .iter()
+        .take(4)
+        .map(|(k, (n, b))| format!("{k} x{n} {}KiB", b >> 10))
+        .collect::<Vec<_>>()
+        .join(", ");
+    tracing::info!(rows, mib = bytes >> 20, top = %top, "aws: the cross-check read the ledger's tail a page at a time");
     for (kind, (n, bytes)) in kinds.into_iter().take(8) {
         crate::resident::activity::counted(
             crate::resident::activity::Kind::Job,
