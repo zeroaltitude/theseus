@@ -244,6 +244,111 @@ async fn a_retry_after_a_transient_failure_sends_the_same_request() {
     assert_same_prefix(&reqs[0], &reqs[2]);
 }
 
+/// An answer whose thinking is bound to a conversation this request is not:
+/// what a drift looks like, planted.
+fn planted_drift(id: &str) -> Scripted {
+    Scripted::Blocks {
+        blocks: vec![
+            json!({"type": "thinking", "thinking": "read it", "signature": "bound:0000"}),
+            json!({"type": "tool_use", "id": id, "name": "fs_read", "input": {"path": "harbor.txt"}}),
+        ],
+        stop_reason: "tool_use".into(),
+    }
+}
+
+fn call_rows(r: &Rig, sid: &str) -> Vec<Value> {
+    crate::test_support::session_rows_1k(&r.core, sid, "provider.call")
+}
+
+/// The net: a drifted block the provider refuses is answered by one repeat
+/// of the call with the remedy it names, the turn goes on, and the call's
+/// row says a block was dropped. The first calls never carry the remedy.
+#[tokio::test]
+async fn a_refused_prefix_is_repeated_once_with_the_providers_remedy() {
+    let r = rig(
+        Binding::Refuse,
+        vec![
+            planted_drift("toolu_a"),
+            thinks_then_reads("toolu_b"),
+            Scripted::text("Four."),
+        ],
+    );
+    let sid = private_session(&r.core);
+    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    assert_eq!(res.output, "Four.", "{res:?}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 4, "the step, its refusal, its repeat, the step after");
+    // The history held the drifted block still, so the next compile let the old thinking go and
+    // the step after it is not made twice.
+    assert!(
+        !serde_json::to_string(&reqs[3].messages).unwrap().contains("\"thinking\""),
+        "{:?}",
+        reqs[3].messages
+    );
+    for q in &reqs[..2] {
+        assert!(q.thinking.as_ref().unwrap().get("block_binding").is_none());
+    }
+    assert_eq!(
+        reqs[2].thinking.as_ref().unwrap()["block_binding"],
+        json!({"prefix_mismatch_behavior": "drop_block"})
+    );
+    assert_eq!(reqs[1].messages, reqs[2].messages, "the repeat sends what it repeats");
+    let rows = call_rows(&r, &sid);
+    assert_eq!(rows.len(), 3, "the refused call is no row: it never answered");
+    assert_eq!(rows[0]["prefix_repeated"], json!(false), "{}", rows[0]);
+    let repeated = &rows[1];
+    assert_eq!(
+        (repeated["thinking_dropped"].as_u64(), repeated["prefix_repeated"].as_bool()),
+        (Some(1), Some(true)),
+        "{repeated}"
+    );
+    assert_eq!(rows[2]["prefix_repeated"], json!(false), "the step after is made once: {}", rows[2]);
+}
+
+/// Where a mismatch is allowed, the model keeps its thinking: nothing is
+/// repeated, nothing is dropped, and the row counts the mismatch.
+#[tokio::test]
+async fn where_a_mismatch_is_allowed_nothing_is_dropped_and_the_row_counts_it() {
+    let r = rig(
+        Binding::Report,
+        vec![planted_drift("toolu_a"), Scripted::text("Four.")],
+    );
+    let sid = private_session(&r.core);
+    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    assert_eq!(res.output, "Four.", "{res:?}");
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 2);
+    assert!(reqs.iter().all(|q| q.thinking.as_ref().unwrap().get("block_binding").is_none()));
+    let rows = call_rows(&r, &sid);
+    let last = rows.last().unwrap();
+    assert_eq!(
+        (last["thinking_mismatch_allowed"].as_u64(), last["thinking_dropped"].as_u64(), last["prefix_repeated"].as_bool()),
+        (Some(1), Some(0), Some(false)),
+        "{last}"
+    );
+}
+
+/// Narrow: another 400 is not answered by a repeat, and the repeat is made
+/// once, not again when it is refused the same way.
+#[tokio::test]
+async fn only_the_prefix_refusal_is_repeated_and_only_once() {
+    use crate::provider::{binding, ProviderError};
+    let other = ProviderError::InvalidRequest {
+        status: 400,
+        message: "messages.0.content.0: text content blocks must be non-empty".into(),
+    };
+    let r = rig(Binding::Refuse, vec![Scripted::Fail(other)]);
+    let sid = private_session(&r.core);
+    assert!(say(&r.core, &sid, "what does the tide table say?").await.is_err());
+    assert_eq!(r.fake.requests().len(), 1, "a different 400 is not repeated");
+
+    let again = binding::refusal(&[(1, 0)]);
+    let r = rig(Binding::Refuse, vec![Scripted::Fail(again.clone()), Scripted::Fail(again)]);
+    let sid = private_session(&r.core);
+    assert!(say(&r.core, &sid, "what does the tide table say?").await.is_err());
+    assert_eq!(r.fake.requests().len(), 2, "one repeat, and no more");
+}
+
 /// A recall that reaches the model after the session's first compile: the
 /// turn's note is written at its first call and is in the transcript at its
 /// second, and the first user message reads the same at both.

@@ -37,9 +37,13 @@ pub const API_VERSION: &str = "2023-06-01";
 /// it out of `ProviderRequest` is what lets a fallback's request stay equal
 /// to the one it repeats and a recorded request replay byte for byte.
 ///
-/// The field that WOULD change behaviour, `thinking.block_binding`, is
-/// deliberately never sent: with the header alone a drifting block is
-/// reported and still handed to the model.
+/// The field that WOULD change behaviour, `thinking.block_binding`, is never
+/// sent on a first call: with the header alone a drifting block is reported
+/// and, on the older models, still handed to the model. `claude-fable-5-2`
+/// refuses it with a 400 instead, and that refusal alone is answered by one
+/// repeat that names `drop_block` (`binding::stream_with_net`). A count above
+/// zero in the `provider.call` row is a bug to file
+/// (`docs/design/thinking-binding.md`).
 pub const BETA_THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
 
 /// Anthropic's own API, the only endpoint that answers our betas. The
@@ -533,6 +537,10 @@ pub struct ModelResponse {
     pub timing: CallTiming,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_transformations: Option<Value>,
+    /// The call was refused for a thinking block whose prefix had changed and
+    /// was made again with the provider's remedy (`binding::stream_with_net`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prefix_repeated: bool,
     /// tool_use ids whose streamed input did not parse as JSON, with the raw text.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub invalid_tool_inputs: BTreeMap<String, String>,

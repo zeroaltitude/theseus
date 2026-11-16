@@ -18,7 +18,7 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::{ProviderError, ProviderRequest};
+use super::{DeltaSink, ModelResponse, Provider, ProviderError, ProviderRequest};
 
 /// What the stand-in does with a replayed block whose prefix changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +38,27 @@ const STAMP: &str = "bound:";
 /// The remedy the provider names for a refused prefix, as it sits in
 /// `thinking`.
 pub const REMEDY: &str = "drop_block";
+
+/// The request's thinking config with the remedy added: what the one repeat
+/// sends in place of the config the compiler rendered.
+pub fn with_remedy(thinking: &Value) -> Value {
+    let mut t = thinking.clone();
+    t["block_binding"] = json!({"prefix_mismatch_behavior": REMEDY});
+    t
+}
+
+/// Whether `e` is the provider's refusal of a drifted prefix, and no other
+/// 400: narrow on purpose, so a different refusal is never answered by a
+/// repeat that cannot help it.
+pub fn is_prefix_refusal(e: &anyhow::Error) -> bool {
+    match e.downcast_ref::<ProviderError>() {
+        Some(ProviderError::InvalidRequest { status: 400, message }) => {
+            message.contains("`signature` in `thinking` block")
+                && message.contains("prefix_mismatch_behavior")
+        }
+        _ => false,
+    }
+}
 
 /// `v` with every `cache_control` mark taken out: where a cache breakpoint
 /// sits is not content, and it moves between a turn's steps by design.
@@ -164,4 +185,35 @@ pub fn check(
         (Binding::Refuse, true) => Ok((without(req, &drift), Some(reported("thinking_dropped", &drift)))),
         (Binding::Refuse, false) => Err(refusal(&drift)),
     }
+}
+
+/// One call, with the net under it: when the provider refuses the request for
+/// a thinking block whose prefix changed, and for no other reason, the call is
+/// made once more with the remedy the provider names (`drop_block`), and the
+/// answer says so (`prefix_repeated`). Never sent on a first call, so a model
+/// that reports a drift and goes on keeps its thinking, and the canary keeps
+/// counting. The request itself is left as the compiler rendered it, so
+/// what is recorded and replayed is not changed.
+pub async fn stream_with_net(
+    provider: &dyn Provider,
+    req: &ProviderRequest,
+    on_delta: DeltaSink<'_>,
+) -> anyhow::Result<ModelResponse> {
+    let refused = match provider.stream_message(req, &mut *on_delta).await {
+        Err(e) if is_prefix_refusal(&e) => e,
+        other => return other,
+    };
+    let Some(thinking) = req.thinking.as_ref() else {
+        return Err(refused);
+    };
+    tracing::warn!(
+        model = %req.model,
+        error = %refused,
+        "the provider refused a thinking block for a changed prefix; the call is made again with the block dropped"
+    );
+    let mut again = req.clone();
+    again.thinking = Some(with_remedy(thinking));
+    let mut resp = provider.stream_message(&again, on_delta).await?;
+    resp.prefix_repeated = true;
+    Ok(resp)
 }

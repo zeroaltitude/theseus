@@ -1830,6 +1830,12 @@ impl TurnRunner {
             let (resp, node) = match called {
                 Called::Answered(called) => {
                     self.note_sent(t, &spec, &compiled.request.model);
+                    // The provider dropped a block whose prefix had changed, and the history
+                    // still holds it: the next compile strips the old thinking, so the call
+                    // after it is not made twice (`provider::binding::stream_with_net`).
+                    if called.0.prefix_repeated {
+                        force = Some(crate::compiler::Recompile::Transcript);
+                    }
                     *called
                 }
                 Called::Failed(failure) => {
