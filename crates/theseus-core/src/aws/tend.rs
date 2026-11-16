@@ -559,7 +559,7 @@ impl crate::Core {
     /// daily: each run one `aws.trail.checked` row, and a warning in the log
     /// for each event of Theseus's that nothing in the ledger accounts for.
     fn crosscheck_daily(self: &Arc<Self>, account: Arc<Account>) {
-        use super::crosscheck::{self, Ledgered};
+        use super::crosscheck;
         let core = Arc::downgrade(self);
         tokio::spawn(async move {
             if !account.settled().await {
@@ -569,43 +569,35 @@ impl crate::Core {
             loop {
                 let Some(c) = core.upgrade() else { return };
                 // The pass that held 1 to 2 GiB an hour after each start
-                // (issue 21): the tail below is its weight.
+                // (issue 21): the ledger's tail, read a page at a time now.
                 let pass = crate::resident::activity::ran(
                     crate::resident::activity::Kind::Job,
                     "aws.crosscheck",
                 );
-                let rows = theseus_store::blocking(|| {
-                    let mut tail = crate::resident::activity::ran(
+                let ledgered = theseus_store::blocking(|| {
+                    let _tail = crate::resident::activity::ran(
                         crate::resident::activity::Kind::Job,
                         "aws.crosscheck.ledger_tail",
                     );
-                    let rows = c.store.ledger_tail::<LedgerRow>(100_000);
-                    if let Ok(rows) = &rows {
-                        tail.bytes(super::crosscheck::note_tail(rows));
-                    }
-                    rows
+                    crosscheck::ledgered_of_tail(
+                        &c.store,
+                        crosscheck::TAIL_ROWS,
+                        crosscheck::PAGE_ROWS,
+                    )
                 });
                 drop(c);
-                let checked = match rows {
+                let checked = match ledgered {
                     Err(e) => Err(format!("the ledger's read failed: {e}")),
-                    Ok(rows) => {
-                        let ledgered =
-                            Ledgered::of(rows.iter().map(|(_, r)| (r.kind.as_str(), &r.data)));
-                        crosscheck::events(&account, theseus_protocol::now_unix_ms())
-                            .await
-                            .map_err(|f| f.to_string())
-                            .map(|events| {
-                                let role = account.cfg.owner_role.clone().unwrap_or_default();
-                                let key = account.identity().map(|(arn, _)| arn);
-                                let (ours, found) = crosscheck::unaccounted(
-                                    &events,
-                                    &ledgered,
-                                    &role,
-                                    key.as_deref(),
-                                );
-                                (events.len(), ours, found)
-                            })
-                    }
+                    Ok(ledgered) => crosscheck::events(&account, theseus_protocol::now_unix_ms())
+                        .await
+                        .map_err(|f| f.to_string())
+                        .map(|events| {
+                            let role = account.cfg.owner_role.clone().unwrap_or_default();
+                            let key = account.identity().map(|(arn, _)| arn);
+                            let (ours, found) =
+                                crosscheck::unaccounted(&events, &ledgered, &role, key.as_deref());
+                            (events.len(), ours, found)
+                        }),
                 };
                 match checked {
                     Err(e) => {
