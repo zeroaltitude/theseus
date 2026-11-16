@@ -71,11 +71,14 @@ where
 }
 
 /// A pass's name for the memory record (issue 21): the function that built
-/// its closure, as `type_name` spells it, without the closures' own
-/// `{{closure}}` segments and the path before it.
+/// its closure, as `type_name` spells it, without the closures' own trailing
+/// `{{closure}}` segments and the path before it. Only the trailing ones: a
+/// function nested in an async block has one before its own name.
 fn pass_name<R>() -> String {
-    let full = std::any::type_name::<R>();
-    let path = full.split("::{{closure}}").next().unwrap_or(full);
+    let mut path = std::any::type_name::<R>();
+    while let Some(outer) = path.strip_suffix("::{{closure}}") {
+        path = outer;
+    }
     path.rsplit("::").next().unwrap_or(path).to_string()
 }
 
