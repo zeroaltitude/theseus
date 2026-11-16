@@ -575,6 +575,10 @@ mod tests_recall_node;
 #[cfg(test)]
 mod tests_recall_precision;
 #[cfg(test)]
+mod tests_recall_share;
+#[cfg(test)]
+mod tests_recall_standin;
+#[cfg(test)]
 mod tests_recall_time;
 #[cfg(test)]
 mod tests_recall_when;
