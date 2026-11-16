@@ -132,12 +132,15 @@ pub(super) fn said(producer: &str, night: Tally, history: Tally) -> String {
 fn obs_of(producer: &str, c: Counted, history: Tally, now_ms: u64, date: &str) -> Vec<Obs> {
     let said = said(producer, c.tally, history);
     let key = format!("{KEY}{producer}");
-    let mut summary = Obs {
+    let summary = Obs {
         key: key.clone(),
         title: said.clone(),
         source: "action.failed".into(),
         id: format!("refusals:{producer}:{date}"),
-        note: said,
+        note: format!(
+            "{said}. Filed at {MIN_REFUSALS} or more refusals in a night and a share of at least \
+             {SPIKE_FACTOR} times the usual (or {NO_HISTORY_SHARE_PCT}% with no usual share)."
+        ),
         at_ms: now_ms,
         usd: 0.0,
         person: false,
@@ -146,11 +149,6 @@ fn obs_of(producer: &str, c: Counted, history: Tally, now_ms: u64, date: &str) -
         graduate: None,
         pattern: None,
     };
-    summary.note = format!(
-        "{}. Filed at {MIN_REFUSALS} or more refusals in a night and a share of at least \
-         {SPIKE_FACTOR} times the usual (or {NO_HISTORY_SHARE_PCT}% with no usual share).",
-        summary.note
-    );
     let mut out = vec![summary];
     for mut s in c.samples {
         s.key = key.clone();
