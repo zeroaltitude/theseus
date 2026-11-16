@@ -120,3 +120,79 @@ impl MemberSource for StoreMembers {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ontology::Board;
+    use theseus_ontology::{Category, CategoryId, Membership, Origin};
+
+    fn id(s: &str) -> CategoryId {
+        CategoryId::parse(s).unwrap()
+    }
+
+    fn list(session: &str, categories: &[&str]) -> Record {
+        Record::Members(MemberList {
+            session: session.into(),
+            kind: "topic".into(),
+            members: categories
+                .iter()
+                .map(|c| Membership::operator(id(c), 10))
+                .collect(),
+        })
+    }
+
+    /// The board holds no list after a write; a session's lists are read from
+    /// the store, kept for at most `KEPT` sessions, and a write to a session
+    /// forgets what was kept of it, so the next read is the store's.
+    #[test]
+    fn a_session_is_read_from_the_store_kept_in_few_and_forgotten_on_a_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let board = Board::default();
+        let mut records: Vec<Record> = ["a", "b"]
+            .iter()
+            .map(|n| Record::Category(Category::new(id(&format!("topic:{n}")), *n, "operator")))
+            .collect();
+        let sessions = KEPT + 50;
+        records.extend((0..sessions).map(|i| list(&format!("s{i}"), &["topic:a"])));
+        let o = board
+            .write(&store, records, Origin::Operator, |_| Ok(Vec::new()))
+            .unwrap();
+        assert_eq!(
+            o.held_lists(),
+            0,
+            "the store has them: the snapshot holds none"
+        );
+        assert_eq!(
+            o.member_counts().get(&id("topic:a")),
+            Some(&(sessions as u64))
+        );
+
+        let source = StoreMembers::new(&store);
+        for i in 0..sessions {
+            assert_eq!(source.of_session(&format!("s{i}")).len(), 1);
+        }
+        assert_eq!(source.kept(), KEPT, "the oldest read were let go");
+
+        // A write to a session the board has read forgets what it kept.
+        let before = board.snapshot(&store).unwrap();
+        assert_eq!(before.memberships("s7").len(), 1);
+        board
+            .write(
+                &store,
+                vec![list("s7", &["topic:a", "topic:b"])],
+                Origin::Operator,
+                |_| Ok(Vec::new()),
+            )
+            .unwrap();
+        let after = board.snapshot(&store).unwrap();
+        assert_eq!(after.held_lists(), 0);
+        assert_eq!(
+            after.memberships("s7").len(),
+            2,
+            "the store's, not the one kept"
+        );
+        assert_eq!(after.member_counts().get(&id("topic:b")), Some(&1));
+    }
+}
