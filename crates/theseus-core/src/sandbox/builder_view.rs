@@ -47,7 +47,7 @@ impl Sandbox {
     }
 
     /// `view`, an L1 job's, with `dir` added as its one read-write directory
-    /// and the builder's file limit. Everything else of `view` (the call's own
+    /// and the builder's four allocations. Everything else of `view` (the call's own
     /// egress list included) is as it was.
     pub fn with_builder_folder(mut view: L1, dir: &Path) -> L1 {
         // A mask over a directory that holds the bind would cover the bind
