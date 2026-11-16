@@ -45,8 +45,8 @@ does not know it. An entry that took no time and has bytes is a part of a pass t
 
 The feeding costs one lock and one hash lookup per piece of work, and an RPC's answer is sized by a counting
 serializer that allocates nothing (about as long as the answer takes to write to its connection). The AWS
-cross-check's tail is sized only when the process is already over the floor, so a pass that is not a peak pays
-nothing for it.
+cross-check's tail is sized on every pass from the stored payloads' lengths, which the read has in hand, so the
+sizing costs nothing (step two, below).
 
 ## What it found
 
