@@ -478,6 +478,10 @@ impl Vectors {
         if !self.ahead.may_backfill() {
             return None;
         }
+        #[cfg(test)]
+        if self.force_layout_due.load(Ordering::SeqCst) {
+            return Some("forced by a test");
+        }
         let (retry_at, failed) = {
             let l = self.layouts.lock().unwrap();
             (l.retry_at, l.failed)
@@ -503,7 +507,9 @@ impl Vectors {
             },
             (Some(_), true) => Some("back under the budget"),
             (Some(tier), false) => {
-                let grown = c.len().saturating_sub(tier.covers());
+                // By the file the pass reads: records in the cache's tail are not in it, and a
+                // refused fold leaves the tail at its size for good.
+                let grown = c.n_base().saturating_sub(tier.covers());
                 if grown >= super::scan::FOLD.max(tier.covers() / 20) {
                     return Some("grown");
                 }

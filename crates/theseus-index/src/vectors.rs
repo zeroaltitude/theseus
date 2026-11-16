@@ -970,6 +970,13 @@ pub struct Vectors {
     layouts: Mutex<layout::LayoutState>,
     /// The vectors of the last recall queries served, which a layout is checked on.
     recent: Mutex<std::collections::VecDeque<layout::Recent>>,
+    /// The last turn of the embedding thread ran a compaction or a layout: the next turn goes
+    /// to the embedding step first, whatever either says is due, so no rule of theirs, however
+    /// it counts, can keep new text from being embedded.
+    maintained: AtomicBool,
+    /// A test's hook: a layout is always due.
+    #[cfg(test)]
+    pub(crate) force_layout_due: AtomicBool,
 }
 
 /// The compactions so far, and when a failed one may be tried again.
@@ -1061,6 +1068,9 @@ impl Vectors {
             counts: Mutex::default(),
             layouts: Mutex::default(),
             recent: Mutex::default(),
+            maintained: AtomicBool::new(false),
+            #[cfg(test)]
+            force_layout_due: AtomicBool::new(false),
             cfg,
         }
     }
@@ -1540,13 +1550,19 @@ impl Vectors {
         let Some(dir) = self.cfg.weights_dir.clone() else {
             return Work::Idle(BACKSTOP);
         };
-        if let Some(why) = self.compaction_due() {
-            self.compact_now(why);
-            return Work::Did;
-        }
-        if let Some(why) = self.layout_due() {
-            self.layout_now(why);
-            return Work::Did;
+        // Housekeeping (a compaction, a layout) never takes two turns running: the turn after
+        // one goes to the embedding step, so a rule that stays due cannot starve it.
+        if !self.maintained.swap(false, Ordering::SeqCst) {
+            if let Some(why) = self.compaction_due() {
+                self.compact_now(why);
+                self.maintained.store(true, Ordering::SeqCst);
+                return Work::Did;
+            }
+            if let Some(why) = self.layout_due() {
+                self.layout_now(why);
+                self.maintained.store(true, Ordering::SeqCst);
+                return Work::Did;
+            }
         }
         let (opened, pending) = {
             let t = self.table.read().unwrap();

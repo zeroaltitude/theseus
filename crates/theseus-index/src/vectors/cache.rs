@@ -330,6 +330,12 @@ impl Cache {
             .saturating_sub(self.dead_count.saturating_sub(tail_dead))
     }
 
+    /// As a fold the disk refused leaves the cache: no more folds until a restart.
+    #[cfg(test)]
+    pub(super) fn refuse_folds(&mut self) {
+        self.scanned = false;
+    }
+
     /// Entries in the scan file.
     pub(super) fn n_base(&self) -> usize {
         self.scan.as_ref().map_or(0, |s| s.len())

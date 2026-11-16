@@ -791,3 +791,24 @@ fn a_pass_that_makes_nothing_where_one_was_due_waits() {
     assert!(v.layouts.lock().unwrap().retry_at.is_some());
     assert_eq!(v.layout_due(), None, "waiting");
 }
+
+/// Round 5's B5. A fold the disk refused stops folds until a restart, so the cache's tail stays at
+/// `FOLD` records and more for good. "Grown" counts by the file a layout reads, and the tail is
+/// not in it: with a layout in place the store is not due again however long the tail.
+#[test]
+fn a_tail_that_a_refused_fold_leaves_does_not_make_a_layout_due() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = planted_table(tmp.path(), 1500, 34);
+    let v = in_a_tender(tmp.path(), t, 300);
+    v.layout_now("test");
+    assert!(v.table.read().unwrap().tier.is_some(), "tiered");
+    assert_eq!(v.layout_due(), None);
+    v.table.write().unwrap().caches[0].refuse_folds();
+    embed_since(&v, super::scan::FOLD as u64, 0xD15C);
+    assert!(v.table.read().unwrap().caches[0].scale.len() >= super::scan::FOLD);
+    assert_eq!(
+        v.layout_due(),
+        None,
+        "records in the tail are not what a layout reads"
+    );
+}
