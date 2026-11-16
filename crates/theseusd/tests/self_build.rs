@@ -943,15 +943,20 @@ fn the_tests_of_this_file_pass_inside_a_self_builds_view() {
     }
     let me = "the_tests_of_this_file_pass_inside_a_self_builds_view";
     let exe = std::env::current_exe().unwrap();
-    let listed = std::process::Command::new(&exe)
-        .args(["--list", "--format", "terse"])
-        .output()
-        .unwrap();
-    let tests = String::from_utf8_lossy(&listed.stdout)
-        .lines()
-        .filter(|l| l.ends_with(": test"))
-        .count();
-    assert!(tests > 1, "this file's tests were not listed: {listed:?}");
+    // The tests this binary has, less the ones `#[ignore]`d and this one: what must pass.
+    let count = |flags: &[&str]| {
+        let listed = std::process::Command::new(&exe)
+            .args(["--list", "--format", "terse"])
+            .args(flags)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .filter(|l| l.ends_with(": test"))
+            .count()
+    };
+    let must_pass = (count(&[]) - count(&["--ignored"])).saturating_sub(1);
+    assert!(must_pass > 0, "this file's tests were not listed");
     let r = Rig::new();
     let script = format!(
         "{} --skip {me} --test-threads 4 > {}/guard.out 2>&1",
@@ -964,7 +969,7 @@ fn the_tests_of_this_file_pass_inside_a_self_builds_view() {
     let tail = &said[said.len().saturating_sub(6000)..];
     assert_eq!(d["exit_code"], 0, "{d}\n{tail}");
     assert!(
-        said.contains(&format!("{} passed; 0 failed", tests - 1)),
+        said.contains(&format!("{must_pass} passed; 0 failed")),
         "every other test passed in the view: {tail}"
     );
 }
