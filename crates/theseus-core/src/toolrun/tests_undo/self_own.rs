@@ -84,7 +84,7 @@ fn drive_says(
     input: impl FnOnce(&Path) -> Value,
     tweak: impl FnOnce(&mut Config),
 ) -> (Rig, String) {
-    let r = rig_scripted(
+    let r = rig_launched(
         verdict,
         0.96,
         false,
@@ -99,6 +99,7 @@ fn drive_says(
                 Scripted::text("Done."),
             ]
         },
+        Some(Arc::new(Recorder)),
     );
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     let authority = Authority {
@@ -153,6 +154,36 @@ impl Rig {
         assert_eq!(self.jev.seen().len(), 1, "the layer asks as it did");
         declined
     }
+}
+
+/// Every job any rig of this process launched, as the wrapper was given it. Each test is a process
+/// of its own, and a job names its session (`THESEUS_SESSION`), so a test reads its own.
+static JOBS: std::sync::Mutex<Vec<theseus_kernel::job::WrapperArgs>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Launches as the inline launcher does, and keeps what each job was given.
+struct Recorder;
+
+impl crate::toolrun::JobLauncher for Recorder {
+    fn launch(
+        &self,
+        spool: &theseus_kernel::spool::Spool,
+        args: &theseus_kernel::job::WrapperArgs,
+        done: crate::toolrun::JobDone,
+    ) -> anyhow::Result<u32> {
+        JOBS.lock().unwrap().push(args.clone());
+        crate::toolrun::InlineLauncher.launch(spool, args, done)
+    }
+}
+
+/// The jobs `session` started, in order.
+fn jobs_of(session: &str) -> Vec<theseus_kernel::job::WrapperArgs> {
+    let mark = theseus_protocol::JOB_SESSION_ENV;
+    let all = JOBS.lock().unwrap();
+    all.iter()
+        .filter(|a| a.env.iter().any(|(k, v)| k == mark && v == session))
+        .cloned()
+        .collect()
 }
 
 fn read(p: PathBuf) -> String {
@@ -318,22 +349,43 @@ async fn a_self_session_removes_its_build_folders_contents_and_nothing_beside_it
     }
 }
 
-/// A file of its working copy, and one in the temporary directory, are its own too.
+/// A file of its working copy is its own. Another lane's directory under the system temporary
+/// directory is nobody's scratch of this session's: it is held, and it is still there.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_self_session_removes_a_file_of_its_tree_and_one_in_the_temporary_directory() {
-    let outside = crate::scratch::dir("self-own-tmp");
-    std::fs::create_dir_all(&outside).unwrap();
-    let theirs = outside.join("build.o");
-    std::fs::write(&theirs, WAS).unwrap();
-    let one = |p: PathBuf| json!({"argv": ["rm", "-f", "--", p.to_string_lossy()]});
+async fn a_self_session_removes_a_file_of_its_tree_and_not_another_lanes_directory_in_the_temp_dir()
+{
+    let lane = crate::scratch::dir("self-own-other-lane");
+    std::fs::create_dir_all(lane.join("worktree")).unwrap();
+    std::fs::write(lane.join("worktree/unpushed.rs"), WAS).unwrap();
+    let one = |p: PathBuf| json!({"argv": ["rm", "-rf", "--", p.to_string_lossy()]});
     let (r, sid) = drive("self", "proc_run", |t| one(notes_of_sails(t)), nothing);
     r.turn(&sid).await;
     assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
     assert!(!notes_of_sails(&r.target).exists(), "its own tree's file");
-    let (r, sid) = drive("self", "proc_run", |_| one(theirs.clone()), nothing);
+    for aim in [
+        lane.join("worktree"),
+        lane.join("worktree/unpushed.rs"),
+        lane.clone(),
+    ] {
+        let held = aim.clone();
+        let (r, sid) = drive("self", "proc_run", move |_| one(held), nothing);
+        r.turn(&sid).await;
+        assert!(r.was_held(&sid), "{}: {:?}", aim.display(), r.results(&sid));
+        assert!(
+            lane.join("worktree/unpushed.rs").exists(),
+            "{}",
+            aim.display()
+        );
+    }
+    let file = |_: &Path| json!({"path": lane.join("worktree/unpushed.rs").to_string_lossy(), "content": "x\n"});
+    let (r, sid) = drive("self", "fs_write", file, nothing);
     r.turn(&sid).await;
-    assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
-    assert!(!theirs.exists(), "removed from the temporary directory");
+    assert!(r.was_held(&sid), "{:?}", r.results(&sid));
+    assert_eq!(
+        read(lane.join("worktree/unpushed.rs")),
+        WAS,
+        "an overwrite is held too"
+    );
 }
 
 /// A removal aimed anywhere else is held: the sweep over a parent, another task's tree, the places
@@ -602,29 +654,109 @@ fn sandboxed(t: &Path) -> Value {
     json!({"argv": ["rm", "-rf", t], "sandbox": true})
 }
 
+fn operator_egress(c: &mut Config) {
+    c.sandbox.egress = vec!["index.crates.io:443".into()];
+}
+
 /// KEY: a sandboxed removal is not held for a self session, which writes only to what its view binds
-/// read-write, and that is nothing: the file is still there. The operator's is held as before, and
-/// so is a call that carries a network list (its own, or `[sandbox] egress`'s): such a job could
-/// reach what is not on this disk.
+/// read-write (its own build folder): and that holds on a daemon whose `[sandbox] egress` names a
+/// host, because a self session's sandboxed command does not carry the operator's list. The same
+/// call from an operator's session is held as before, with the list or without; a self call that
+/// names a host of its own is held.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_sandboxed_removal_is_not_held_for_a_self_session_with_no_network() {
-    let (r, sid) = drive("self", "proc_run", sandboxed, nothing);
-    r.turn(&sid).await;
-    assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
-    assert!(r.target.exists(), "an L1 call's removal does not stay");
-    let (r, sid) = drive("operator", "proc_run", sandboxed, nothing);
-    r.turn(&sid).await;
-    assert!(r.was_held(&sid), "another principal");
+async fn a_sandboxed_removal_is_not_held_for_a_self_session_even_where_the_operator_has_a_network_list(
+) {
+    for (what, tweak) in [
+        ("no list", nothing as fn(&mut Config)),
+        ("the operator's list", operator_egress),
+    ] {
+        let (r, sid) = drive("self", "proc_run", sandboxed, tweak);
+        r.turn(&sid).await;
+        assert!(!r.was_held(&sid), "{what}: {:?}", r.results(&sid));
+        assert!(
+            r.target.exists(),
+            "{what}: an L1 call's removal does not stay"
+        );
+        let (r, sid) = drive("operator", "proc_run", sandboxed, tweak);
+        r.turn(&sid).await;
+        assert!(r.was_held(&sid), "{what}: another principal");
+    }
     let hosts =
         |t: &Path| json!({"argv": ["rm", "-rf", t], "sandbox": {"egress": ["example.com:443"]}});
-    let (r, sid) = drive("self", "proc_run", hosts, nothing);
+    let (r, sid) = drive("self", "proc_run", hosts, operator_egress);
     r.turn(&sid).await;
-    assert!(r.was_held(&sid), "a call that names hosts");
-    let listed = |c: &mut Config| c.sandbox.egress = vec!["index.crates.io:443".into()];
-    let (r, sid) = drive("self", "proc_run", sandboxed, listed);
-    r.turn(&sid).await;
-    assert!(r.was_held(&sid), "[sandbox] egress names a host");
+    assert!(r.was_held(&sid), "a self call that names a host of its own");
     assert!(r.target.exists());
+}
+
+/// The builder's ordinary way of working, a shell line in the sandbox that removes and then builds,
+/// runs for a self session on a daemon that has a network list, and is held for an operator.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sandboxed_shell_line_that_removes_a_file_of_the_working_copy_runs_for_a_self_session() {
+    let line = |t: &Path| json!({"command": format!("rm -rf {} && true", notes_of_sails(t).display()), "sandbox": true});
+    let (r, sid) = drive("self", "proc_run", line, operator_egress);
+    r.turn(&sid).await;
+    assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
+    let (r, sid) = drive("operator", "proc_run", line, operator_egress);
+    r.turn(&sid).await;
+    assert!(r.was_held(&sid), "the same line from an operator's session");
+    assert!(notes_of_sails(&r.target).exists());
+}
+
+/// A self session's sandboxed command cannot reach the operator's egress host: the list its job is
+/// given is the self builder's own, and an operator's session's job is given the operator's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_self_sessions_sandboxed_command_is_not_given_the_operators_network() {
+    let (r, sid) = drive("self", "proc_run", sandboxed, operator_egress);
+    r.turn(&sid).await;
+    let jobs = jobs_of(&sid);
+    assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
+    let given = &jobs[0].sandbox.as_ref().expect("an L1 job").egress;
+    assert_eq!(*given, crate::rsi::builder_net::self_builder_network());
+    assert!(!given.iter().any(|h| h.contains("crates.io")), "{given:?}");
+    // An operator's session, whose call Jev calls reversible so that it runs, is given the operator's.
+    let (r, sid) = drive_says(
+        REVERSIBLE,
+        "operator",
+        "proc_run",
+        |t| json!({"argv": ["true"], "cwd": t.parent().unwrap(), "sandbox": true}),
+        operator_egress,
+    );
+    r.turn(&sid).await;
+    let jobs = jobs_of(&sid);
+    assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
+    assert_eq!(
+        jobs[0].sandbox.as_ref().unwrap().egress,
+        ["index.crates.io:443"]
+    );
+}
+
+/// A self session's call that is still held says what runs, so it does not stop at "move it aside"
+/// and leave litter. An operator's held call is told what it always was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_call_of_a_self_session_says_what_does_run() {
+    let line = |t: &Path| json!({"command": format!("rm -rf {}", built_in_scratch(t).display())});
+    let (r, sid) = drive("self", "proc_run", line, nothing);
+    r.turn(&sid).await;
+    assert!(r.was_held(&sid));
+    let said = r.results(&sid)[0].1.clone();
+    for part in [
+        "these run",
+        "`rm` given as an argv",
+        "the file tools",
+        "sandbox: true",
+        "review's scratch is removed",
+    ] {
+        assert!(said.contains(part), "{part}: {said}");
+    }
+    let (r, sid) = drive("operator", "proc_run", line, nothing);
+    r.turn(&sid).await;
+    assert!(r.was_held(&sid));
+    assert!(
+        !r.results(&sid)[0].1.contains("these run"),
+        "{:?}",
+        r.results(&sid)
+    );
 }
 
 /// The premise of the L1 half, from the code: the view a `proc.run` is given binds nothing
@@ -687,7 +819,7 @@ async fn a_final_verdict_on_a_self_sessions_own_write_still_asks_the_owner() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
     use crate::rsi::join::review::{Ask, CheckTurn, Reviewer};
-    let r = rig_scripted(
+    let r = rig_launched(
         RESHAPEABLE,
         0.96,
         false,
@@ -706,6 +838,7 @@ async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
                 ),
             ]
         },
+        Some(Arc::new(Recorder)),
     );
     let (live, _) = r.core.live_profile();
     let target = r
@@ -741,4 +874,35 @@ async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
         None,
         "and the scratch is no longer its own"
     );
+    // Its command outside the sandbox kept its temporary files under its scratch.
+    let jobs = jobs_of(&session);
+    assert_eq!(jobs.len(), 1, "{jobs:?}");
+    let tmp = jobs[0].env.iter().find(|(k, _)| k == "TMPDIR");
+    let want = scratch(&r.target).join("tmp").display().to_string();
+    assert_eq!(
+        tmp.map(|(_, v)| v.as_str()),
+        Some(want.as_str()),
+        "{:?}",
+        jobs[0].env
+    );
+}
+
+/// A command of a session that is not a review is not given a `TMPDIR` of its own: the machine's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_that_is_no_reviews_keeps_the_temporary_directory_it_had() {
+    let (r, sid) = drive(
+        "self",
+        "proc_run",
+        |t| json!({"argv": ["true"], "cwd": tree(t, "sails")}),
+        nothing,
+    );
+    r.turn(&sid).await;
+    let jobs = jobs_of(&sid);
+    assert_eq!(jobs.len(), 1);
+    let tmp = jobs[0]
+        .env
+        .iter()
+        .find(|(k, _)| k == "TMPDIR")
+        .map(|(_, v)| v.as_str());
+    assert!(tmp.is_none_or(|t| !t.contains("self/review")), "{tmp:?}");
 }

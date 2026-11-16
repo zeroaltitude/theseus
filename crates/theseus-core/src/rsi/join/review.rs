@@ -87,7 +87,7 @@ pub fn prompt(a: &Ask) -> String {
          If you need a checkout or a build to check this, make them under `{scratch}`. That \
          directory is yours for this review and is removed when you have answered, so there is \
          nothing to clean up. Take the checkout from the self repository (`git -C {repo} worktree \
-         add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Add no \
+         add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Your commands' `TMPDIR` is `{scratch}/tmp`. Add no \
          worktree to any other checkout, and write nothing under the self trees directory.",
         crate::check::render(&[], Some(&claim)),
         scratch = a.scratch,

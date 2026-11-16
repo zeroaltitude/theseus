@@ -119,7 +119,7 @@ impl ToolRuntime {
             .session
             .filter(|_| tool.name().starts_with("fs."))
             .and_then(|session| crate::rsi::own_tree::of(self, session));
-        let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
+        let (decision, bound) = crate::sandbox::unbrokered(self, at.session, tool, plan, input, t);
         // A self session's soft hold is a notice that runs: self-improvement
         // fails open (theseus-cudar). The floor and the keel still wait, and
         // every later layer (web text, a place's floor) may still hold it.

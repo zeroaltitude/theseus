@@ -480,6 +480,17 @@ impl ToolRuntime {
             }
             _ => None,
         };
+        // A self review's command outside the sandbox keeps its temporary files under its own
+        // scratch, not in the machine's shared one (`rsi::own_removals::review_tmp`).
+        if !class.l1() {
+            if let Some(tmp) = crate::rsi::own_removals::review_tmp(self, tc.session_id) {
+                env.retain(|(k, _)| k != crate::rsi::builder_dir::TMP_VAR);
+                env.push((
+                    crate::rsi::builder_dir::TMP_VAR.into(),
+                    tmp.display().to_string(),
+                ));
+            }
+        }
         let (brokered, sandbox) = sandbox::for_job(
             self,
             class,

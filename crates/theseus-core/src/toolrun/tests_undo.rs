@@ -98,6 +98,18 @@ fn rig_scripted(
     tweak: impl FnOnce(&mut Config),
     script: impl FnOnce(&Path) -> Vec<Scripted>,
 ) -> Rig {
+    rig_launched(verdict, confidence, sealed, tweak, script, None)
+}
+
+/// [`rig_scripted`] with a job launcher of the test's own (one that keeps what each job was given).
+fn rig_launched(
+    verdict: &str,
+    confidence: f64,
+    sealed: bool,
+    tweak: impl FnOnce(&mut Config),
+    script: impl FnOnce(&Path) -> Vec<Scripted>,
+    launcher: Option<Arc<dyn crate::toolrun::JobLauncher>>,
+) -> Rig {
     let jev = says(verdict, confidence);
     let dir = crate::scratch::tempdir();
     let base = dir.path().canonicalize().unwrap();
@@ -141,6 +153,9 @@ fn rig_scripted(
     let fake = Arc::new(FakeProvider::scripted(script(&target)));
     let mut p = Parts::for_tests(cfg, fake, store);
     p.secrets = board();
+    if let Some(l) = launcher {
+        p.launcher = l;
+    }
     let core = Core::build(p).unwrap();
     warm(&core);
     Rig {

@@ -225,6 +225,7 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 /// secret's (decision 15, theseus-w5op).
 pub(crate) fn unbrokered(
     rt: &ToolRuntime,
+    session: Option<&str>,
     tool: &dyn Tool,
     plan: &Plan,
     input: &Value,
@@ -239,7 +240,10 @@ pub(crate) fn unbrokered(
     match l1 {
         Some(why) => {
             let asked = crate::egress::asked(input);
-            let (egress, beyond) = crate::egress::list(&rt.sandbox.cfg.egress, &asked);
+            // A self session's sandboxed command does not carry the operator's list, only the
+            // self builder's own (`rsi::builder_net`): the removal rule reads the same one.
+            let ours = rt.sandbox.egress_for(rt, session);
+            let (egress, beyond) = crate::egress::list(&ours, &asked);
             let d = l1_decision(rt, tool.name(), plan, &why, &egress, tightened);
             let d = crate::egress::gate(d, &beyond, tool.name(), &plan.summary);
             let bound = Bound {
@@ -797,6 +801,18 @@ impl Sandbox {
             // `sandbox: { egress: [...] }` (18c) asks for L1 too.
             Some(Value::Object(_)) => Some("the call asked for it with sandbox: { … }".into()),
             _ => None,
+        }
+    }
+
+    /// The list an L1 call of `session` starts from: `[sandbox] egress`, the operator's, or for a
+    /// self session the self builder's network instead (`rsi::builder_net`), which is a closed list
+    /// and never the operator's.
+    pub(crate) fn egress_for(&self, rt: &ToolRuntime, session: Option<&str>) -> Vec<String> {
+        match session {
+            Some(s) if crate::rsi::own_tree::is_self(rt, s) => {
+                crate::rsi::builder_net::self_builder_network()
+            }
+            _ => self.cfg.egress.clone(),
         }
     }
 

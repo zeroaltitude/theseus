@@ -396,6 +396,11 @@ impl ToolRuntime {
             .and_then(|j| j.pack(undo::PACK_NAME))
             .and_then(|p| v.shape_means(&p));
         let why = words(&plan.summary, means.as_deref());
+        // A self session is told what does run for it (`rsi::own_removals`).
+        let why = match crate::rsi::own_removals::what_runs(self, tc.session_id) {
+            Some(runs) => format!("{why} {runs}"),
+            None => why,
+        };
         tc.record(&crate::fact::tool::ToolHeld {
             tool: tool.name(),
             judgment: &v.judgment,
