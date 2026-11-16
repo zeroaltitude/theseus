@@ -34,15 +34,21 @@ def symbolize(exe, rows):
     if want:
         # An address a call returns to lies after the call: look one byte before it.
         offs = [hex(int(o, 16) - 1) for o in want.values()]
-        out = subprocess.run(["addr2line", "-e", exe, "-f", "-C", "-i"] + offs, capture_output=True, text=True).stdout
-        # addr2line -i prints for each address its frames, innermost first, as function / file:line pairs.
-        # It does not mark where one address ends, so ask for one at a time when inlining matters.
-        funcs = []
-        for o in offs:
-            r = subprocess.run(["addr2line", "-e", exe, "-f", "-C", "-i", o], capture_output=True, text=True).stdout.splitlines()
-            funcs.append([r[i] for i in range(0, len(r), 2)])
-        for k, fs in zip(want, funcs):
-            names[k] = fs
+        # One call for all: -a puts each address's own line before its frames (innermost first).
+        out = subprocess.run(["addr2line", "-e", exe, "-a", "-f", "-C", "-i"] + offs,
+                             capture_output=True, text=True).stdout.splitlines()
+        blocks, cur = {}, None
+        i = 0
+        while i < len(out):
+            if out[i].startswith("0x"):
+                cur = int(out[i], 16)
+                blocks[cur] = []
+                i += 1
+            else:
+                blocks[cur].append(out[i])
+                i += 2  # a function line, then its file:line
+        for k, o in zip(want, offs):
+            names[k] = blocks.get(int(o, 16), [])
     return names
 
 
