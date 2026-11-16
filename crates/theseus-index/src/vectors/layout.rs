@@ -534,6 +534,12 @@ impl Vectors {
                 self.error(format!("laying out the vector records: {e:#}"));
             }
         }
+        // The pass's scores, lists and buckets are about a hundred bytes a record: freed, but
+        // glibc keeps them mapped (81 MiB of anonymous memory at five times today's store, 18
+        // after), so they are given back here, where the index's memory at rest is what the
+        // budget counts.
+        drop(plan);
+        super::release_memory();
     }
 
     /// A layout is made: check it, and put it in place, or leave the search exact and say why.

@@ -342,6 +342,45 @@ fn measure_the_hot_set() {
     drop(out);
 }
 
+/// A layout of five times today's store finishes, in the time the design states: two minutes on
+/// the embedding thread's few threads. It was never run at that size before the measure was: a
+/// pass that is quick at 400,000 records and not at 2,000,000 is a pass that never lays the store
+/// out, and the search stays exact for ever. Slow, so ignored: build, start, lay out, and fail
+/// if it passes `THESEUS_LAYOUT_LIMIT_S` (default 120) or places nothing.
+///
+/// ```text
+/// RAYON_NUM_THREADS=4 cargo test --release -p theseus-index --lib -- --ignored --nocapture \
+///   a_layout_of_five_times_the_store_finishes_in_time
+/// ```
+///
+/// `THESEUS_LAYOUT_NODES` (default 1,330,000: 1,995,572 records) sets the size.
+#[test]
+#[ignore = "slow: builds and lays out two million records; see its comment for how to run it"]
+fn a_layout_of_five_times_the_store_finishes_in_time() {
+    let dir = std::env::temp_dir().join(format!("theseus-layout-5x-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let n: u64 = var("THESEUS_LAYOUT_NODES", 1_330_000);
+    let limit: f64 = var("THESEUS_LAYOUT_LIMIT_S", 120.0);
+    build(&dir, n, 400, 0.6);
+    let v = start(&dir, n, now_unix_ms());
+    let t0 = Instant::now();
+    v.layout_now("a layout of five times the store");
+    let took = t0.elapsed().as_secs_f64();
+    let status = v.tier_status().unwrap();
+    eprintln!("layout in {took:.1} s: {status:?}");
+    drop(v);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(
+        status.mode, "tiered",
+        "the layout placed nothing: {status:?}"
+    );
+    assert!(
+        took < limit,
+        "a layout of {n} nodes took {took:.1} s, over the {limit} s the design allows"
+    );
+}
+
 /// Searches run while another thread lays the store out again: the time each takes against the
 /// idle median.
 fn held_by_a_layout(v: &Vectors, queries: &[Vec<f32>], cut: usize, f: &RowFilter) -> (f64, f64) {
