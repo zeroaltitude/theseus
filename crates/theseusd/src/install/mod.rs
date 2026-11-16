@@ -16,6 +16,8 @@ mod migrate;
 mod modes;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_arena;
 mod token;
 
 use std::collections::BTreeMap;

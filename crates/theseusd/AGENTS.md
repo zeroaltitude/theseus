@@ -63,7 +63,7 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   second, with a count) and waited 50 ms, never returned: nothing in the loop ends the daemon but a stop. A debug
   build's `THESEUS_TEST_ACCEPT_ERRORS=N` fails the first N accepts. The other accept loops: the web UI's is axum's
   (it logs and sleeps 1 s on an error), the harness's notify socket takes the same rule, and the egress proxy's
-  waits out EMFILE and its kin. The units carry `LimitNOFILE=65536` and `TasksMax=49152`. `tests/connections.rs`;
+  waits out EMFILE and its kin. The units carry `LimitNOFILE=65536`, `TasksMax=49152` and `MALLOC_ARENA_MAX=2` (freed memory the allocator could not give back: 87 MiB held after work and a trim by default, 44 with two arenas; `install/tests_arena.rs`). `tests/connections.rs`;
   `scripts/conn-watchers.py` is the live check (watchers past 1,100).
 - `src/web.rs`: the web server for the cockpit, at `/`. It embeds `cockpit/dist` (with `allow_missing`) as the one brotli copy the cockpit's build writes beside
   each file (`cockpit/compress.ts`; fonts raw), and `web/encoded.rs` serves it by `Accept-Encoding` (brotli when taken, else

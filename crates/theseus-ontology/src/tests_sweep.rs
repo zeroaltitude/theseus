@@ -399,7 +399,7 @@ fn decay_drops_an_old_machine_membership_and_keeps_an_owners() {
     let undo = o.undo(records, &before, NOW + 1).unwrap();
     put_all(&mut o, &undo, OP);
     for (s, k) in [("s1", "topic"), ("s2", "resource")] {
-        assert_eq!(o.member_list(s, k), was.get(&(s, k)).copied());
+        assert_eq!(o.member_list(s, k).as_deref(), was.get(&(s, k)).copied());
     }
 }
 

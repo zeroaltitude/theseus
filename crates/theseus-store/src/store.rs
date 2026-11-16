@@ -2354,6 +2354,8 @@ mod tests_chain;
 #[cfg(test)]
 mod tests_frame_times;
 #[cfg(test)]
+mod tests_history_window;
+#[cfg(test)]
 mod tests_index_retry;
 #[cfg(test)]
 mod tests_keyed;

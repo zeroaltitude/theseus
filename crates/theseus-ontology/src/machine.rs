@@ -126,11 +126,7 @@ impl Ontology {
                 by: format!("{live} categories"),
             });
         }
-        let lists = self
-            .members
-            .values()
-            .filter(|l| l.kind == k.name && !l.members.is_empty())
-            .count();
+        let lists = self.members.nonempty_of_kind(&k.name);
         if lists > 0 {
             return Err(Refusal::InUse {
                 id: k.name.clone(),
@@ -219,12 +215,7 @@ impl Ontology {
                     c.id
                 ));
             }
-            let held = self
-                .members
-                .values()
-                .filter(|l| l.kind == c.kind())
-                .filter(|l| l.members.iter().any(|m| m.category == c.id))
-                .count();
+            let held = self.members.holders(&c.id);
             if held > 0 {
                 return Err(Refusal::InUse {
                     id: c.id.to_string(),
@@ -312,9 +303,8 @@ impl Ontology {
         if !by.is_machine() {
             return Ok(());
         }
-        let current: &[Membership] = self
-            .member_list(&l.session, &l.kind)
-            .map_or(&[], |c| &c.members);
+        let stored = self.member_list(&l.session, &l.kind);
+        let current: &[Membership] = stored.as_deref().map_or(&[], |c| &c.members);
         for old in current
             .iter()
             .filter(|m| matches!(m.origin, Origin::Operator | Origin::Import))
@@ -461,8 +451,7 @@ impl Ontology {
                     .map(Record::Guidance),
                 Record::Members(l) => self
                     .member_list(&l.session, &l.kind)
-                    .cloned()
-                    .map(Record::Members),
+                    .map(|l| Record::Members(l.into_owned())),
             })
             .collect()
     }

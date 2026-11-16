@@ -51,7 +51,7 @@ fn jev_files_a_topic_list_and_mints_its_category() {
     let l = list("s1", "topic", vec![entry("topic:billing", JEV)]);
     o.put(Record::Category(minted), JEV).unwrap();
     o.put(Record::Members(l.clone()), JEV).unwrap();
-    assert_eq!(o.member_list("s1", "topic"), Some(&l));
+    assert_eq!(o.member_list("s1", "topic").as_deref(), Some(&l));
     // And a person is filed by Jev, whose row names it.
     o.put(Record::Category(cat("person:ada-l", "jev:j-0001")), JEV)
         .unwrap();
@@ -215,7 +215,7 @@ fn an_undo_restores_the_earlier_list_and_retires_what_the_write_minted() {
     // The inverse applies as the operator's write.
     apply_all(&mut o, &undo, OP);
     assert_eq!(
-        o.member_list("s1", "topic"),
+        o.member_list("s1", "topic").as_deref(),
         Some(&list("s1", "topic", vec![entry("topic:ops", JEV)]))
     );
     assert_eq!(o.category(&id("topic:billing")), None);
@@ -259,7 +259,7 @@ fn an_undo_of_a_list_changed_since_the_write_is_refused() {
         format!("{e:?}").contains("changed since the write"),
         "{e:?}"
     );
-    assert_eq!(o.member_list("s1", "topic"), Some(&edited));
+    assert_eq!(o.member_list("s1", "topic").as_deref(), Some(&edited));
 }
 
 #[test]

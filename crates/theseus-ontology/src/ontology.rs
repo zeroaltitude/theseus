@@ -1,16 +1,20 @@
-//! The snapshot: every `onto:*` record, held in memory (M4 design §2.8).
-//! The core builds it lazily after serving, by one META scan, and keeps it
-//! current on every write; a compile reads it and nothing else.
+//! The snapshot: every `onto:*` record, held in memory (M4 design §2.8), but
+//! the membership lists, which a store-backed snapshot reads when asked
+//! (`members.rs`). The core builds it lazily after serving, by one META scan,
+//! and keeps it current on every write; a compile reads it and nothing else.
 //!
 //! A snapshot is always valid: [`Ontology::put`] checks a record against the
 //! whole before it applies it, and [`Ontology::load`] keeps what checks and
 //! says what it dropped. So a compile over a snapshot never meets a loop, a
 //! missing parent, or a rule nothing reads.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::category::{Category, CategoryId, Guidance, MemberList, Membership};
 use crate::kind::{seeds, Basis, Kind, Origin, PerSession, Rule};
+use crate::members::{MemberSource, Members};
 use crate::refusal::Refusal;
 use crate::text;
 use crate::{keys, Record};
@@ -28,7 +32,7 @@ pub struct Ontology {
     pub(crate) categories: BTreeMap<CategoryId, Category>,
     pub(crate) guidance: BTreeMap<CategoryId, Guidance>,
     /// By session, then kind.
-    pub(crate) members: BTreeMap<(String, String), MemberList>,
+    pub(crate) members: Members,
     /// Derived from `categories`: each one's children, and the roots under
     /// `None`.
     children: BTreeMap<Option<CategoryId>, BTreeSet<CategoryId>>,
@@ -45,7 +49,7 @@ impl Ontology {
             kinds: seeds().into_iter().map(|k| (k.name.clone(), k)).collect(),
             categories: BTreeMap::new(),
             guidance: BTreeMap::new(),
-            members: BTreeMap::new(),
+            members: Members::default(),
             children: BTreeMap::new(),
             names: BTreeMap::new(),
         }
@@ -106,22 +110,42 @@ impl Ontology {
         self.guidance.get(id)
     }
 
-    pub fn member_list(&self, session: &str, kind: &str) -> Option<&MemberList> {
-        self.members.get(&(session.to_string(), kind.to_string()))
+    /// The list a session holds of a kind. Held in the snapshot, or, when
+    /// the snapshot reads its lists from the store (`load_from`), read now.
+    pub fn member_list(&self, session: &str, kind: &str) -> Option<Cow<'_, MemberList>> {
+        self.members.get(session, kind)
     }
 
     /// Every session's member list of every kind, in key order.
-    pub fn lists(&self) -> impl Iterator<Item = &MemberList> {
-        self.members.values()
+    pub fn lists(&self) -> impl Iterator<Item = Cow<'_, MemberList>> + '_ {
+        self.members.all()
+    }
+
+    /// How many membership lists the snapshot holds in memory: all of them,
+    /// or, when it reads them from a store, only those that differ from it.
+    pub fn held_lists(&self) -> usize {
+        self.members.held_lists()
+    }
+
+    /// When each category was last held: its newest membership's time.
+    pub fn last_held(&self) -> BTreeMap<CategoryId, u64> {
+        self.members.newest()
+    }
+
+    /// The store has every list put so far: the snapshot reads them from it
+    /// again, and holds none of its own. A snapshot that holds its lists
+    /// ([`Ontology::load`]) has nothing to do.
+    pub fn settle(&mut self) {
+        self.members.settle();
     }
 
     /// A session's interpreted memberships, every kind's: what a recompile
     /// takes, beside the given ones from its place.
     pub fn memberships(&self, session: &str) -> Vec<Membership> {
         self.members
-            .range((session.to_string(), String::new())..)
-            .take_while(|((s, _), _)| s == session)
-            .flat_map(|(_, l)| l.members.iter().cloned())
+            .of_session(session)
+            .into_iter()
+            .flat_map(|l| l.members.clone())
             .collect()
     }
 
@@ -131,7 +155,7 @@ impl Ontology {
         let kinds = self.kinds.values().cloned().map(Record::Kind);
         let cats = self.categories.values().cloned().map(Record::Category);
         let guides = self.guidance.values().cloned().map(Record::Guidance);
-        let lists = self.members.values().cloned().map(Record::Members);
+        let lists = self.members.all().map(|l| Record::Members(l.into_owned()));
         kinds.chain(cats).chain(guides).chain(lists).collect()
     }
 
@@ -256,7 +280,27 @@ impl Ontology {
     /// why: the core warns of each, and the rest serves. A membership list
     /// keeps the entries that check.
     pub fn load(records: impl IntoIterator<Item = Record>) -> (Ontology, Vec<(String, Refusal)>) {
+        Self::load_with(records, None)
+    }
+
+    /// [`Ontology::load`], holding none of the membership lists: they are
+    /// read from `source`, which holds what `records` held of them, when the
+    /// snapshot is asked. Every answer is the same as `load`'s.
+    pub fn load_from(
+        records: impl IntoIterator<Item = Record>,
+        source: Arc<dyn MemberSource>,
+    ) -> (Ontology, Vec<(String, Refusal)>) {
+        Self::load_with(records, Some(source))
+    }
+
+    fn load_with(
+        records: impl IntoIterator<Item = Record>,
+        source: Option<Arc<dyn MemberSource>>,
+    ) -> (Ontology, Vec<(String, Refusal)>) {
         let mut onto = Ontology::seeded();
+        if let Some(source) = source {
+            onto.members = Members::lean(source);
+        }
         let mut dropped = Vec::new();
         let (mut kinds, mut cats, mut guides, mut lists) = (vec![], vec![], vec![], vec![]);
         for r in records {
@@ -324,18 +368,28 @@ impl Ontology {
             }
         }
 
+        onto.load_lists(lists, &mut dropped);
+        debug_assert_eq!(onto.check_all(), Ok(()));
+        (onto, dropped)
+    }
+
+    /// The membership lists of a load, each keeping the entries that check;
+    /// a list of a kind that does not check is left out, with why.
+    fn load_lists(&mut self, lists: Vec<MemberList>, dropped: &mut Vec<(String, Refusal)>) {
         for mut l in lists {
             let key = keys::members(&l.session, &l.kind);
-            let kind = match onto.list_kind(&l) {
+            let kind = match self.list_kind(&l) {
                 Ok(kind) => kind.clone(),
                 Err(e) => {
+                    self.members.dropped(&l.session, &l.kind);
                     dropped.push((key, e));
                     continue;
                 }
             };
             let mut kept: Vec<Membership> = Vec::new();
+            let stored = l.members.len();
             for m in l.members {
-                let fits = onto
+                let fits = self
                     .check_member(&kind, &m)
                     .and_then(|()| unique(&kept, &m))
                     .and_then(|()| match kind.per_session {
@@ -353,11 +407,10 @@ impl Ontology {
                     Err(e) => dropped.push((format!("{key} ({})", m.category), e)),
                 }
             }
+            let trimmed = kept.len() != stored;
             l.members = kept;
-            onto.members.insert((l.session.clone(), l.kind.clone()), l);
+            self.members.loaded(l, trimmed);
         }
-        debug_assert_eq!(onto.check_all(), Ok(()));
-        (onto, dropped)
     }
 
     /// A fresh id for a category of `kind` named `name`: the name as a slug
@@ -406,9 +459,7 @@ impl Ontology {
             Record::Guidance(g) => {
                 self.guidance.insert(g.category.clone(), g);
             }
-            Record::Members(l) => {
-                self.members.insert((l.session.clone(), l.kind.clone()), l);
-            }
+            Record::Members(l) => self.members.put(l),
         }
     }
 
@@ -441,8 +492,8 @@ impl Ontology {
         for g in self.guidance.values() {
             self.check_guidance(g)?;
         }
-        for l in self.members.values() {
-            self.check_members(l)?;
+        for l in self.members.all() {
+            self.check_members(&l)?;
         }
         Ok(())
     }
@@ -569,11 +620,7 @@ impl Ontology {
         if self.guidance.contains_key(&c.id) {
             return in_use("its guidance".into());
         }
-        let held = self
-            .members
-            .values()
-            .filter(|l| l.members.iter().any(|m| m.category == c.id))
-            .count();
+        let held = self.members.holders(&c.id);
         if held > 0 {
             return in_use(format!("{held} sessions' memberships"));
         }
@@ -613,11 +660,7 @@ impl Ontology {
                 by: format!("{} below it", kids.len()),
             });
         }
-        let held = self
-            .members
-            .values()
-            .filter(|l| l.members.iter().any(|m| m.category == c.id))
-            .count();
+        let held = self.members.holders(&c.id);
         if held > 0 {
             return Err(Refusal::InUse {
                 id: c.id.to_string(),
@@ -630,13 +673,7 @@ impl Ontology {
     /// How many sessions hold each category, by its stored memberships (a
     /// given one is read from a place, never stored, so it counts none).
     pub fn member_counts(&self) -> BTreeMap<CategoryId, u64> {
-        let mut out: BTreeMap<CategoryId, u64> = BTreeMap::new();
-        for l in self.members.values() {
-            for m in &l.members {
-                *out.entry(m.category.clone()).or_default() += 1;
-            }
-        }
-        out
+        self.members.counts()
     }
 
     /// How many levels of categories hang below `id` (0 for a leaf).

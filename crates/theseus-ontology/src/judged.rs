@@ -65,10 +65,10 @@ impl Ontology {
     /// The pairs of categories the sweep may ask `same_thing.v1` about,
     /// oldest first, in a fixed order.
     pub fn merge_pairs(&self) -> Vec<(CategoryId, CategoryId)> {
-        let mut earliest: BTreeMap<&CategoryId, u64> = BTreeMap::new();
+        let mut earliest: BTreeMap<CategoryId, u64> = BTreeMap::new();
         for l in self.lists() {
             for m in &l.members {
-                let at = earliest.entry(&m.category).or_insert(m.as_of_ms);
+                let at = earliest.entry(m.category.clone()).or_insert(m.as_of_ms);
                 *at = (*at).min(m.as_of_ms);
             }
         }

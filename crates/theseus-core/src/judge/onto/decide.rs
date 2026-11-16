@@ -313,11 +313,16 @@ fn with_member(
         .iter()
         .rev()
         .find_map(|r| match r {
-            Record::Members(l) if l.session == plan.session && l.kind == kind => Some(l),
+            Record::Members(l) if l.session == plan.session && l.kind == kind => {
+                Some(l.members.clone())
+            }
             _ => None,
         })
-        .or_else(|| o.member_list(&plan.session, kind))
-        .map_or_else(Vec::new, |l| l.members.clone());
+        .or_else(|| {
+            o.member_list(&plan.session, kind)
+                .map(|l| l.members.clone())
+        })
+        .unwrap_or_default();
     if current.iter().any(|m| &m.category == category) {
         return Ok(None);
     }
@@ -504,8 +509,8 @@ fn new_category(at: &At, kind: &str, names: &[String], confidence: f64) -> Resul
 /// category of the kind's parent kind (the kind itself, for topics).
 fn parent_for(o: &Ontology, plan: &Plan, kind: &str) -> Option<CategoryId> {
     let parent_kind = o.kind(kind)?.parent.clone()?;
-    o.member_list(&plan.session, &parent_kind)?
-        .members
+    let held = o.member_list(&plan.session, &parent_kind)?;
+    held.members
         .iter()
         .map(|m| m.category.clone())
         .find(|c| o.category(c).is_some())

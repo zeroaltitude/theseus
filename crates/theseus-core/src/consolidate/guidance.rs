@@ -42,6 +42,7 @@
 //! its rollback: nothing is read, called or written).
 
 use crate::sweep_notice::SweepId;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -50,7 +51,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use theseus_judge::price::{micros_to_usd, usd_to_micros, Micros};
 use theseus_ontology::{
-    Basis, Category, CategoryId, Guidance, Ontology, Origin, Record, DREAM_GUIDANCE_MAX,
+    Basis, Category, CategoryId, Guidance, MemberList, Ontology, Origin, Record, DREAM_GUIDANCE_MAX,
 };
 use theseus_protocol::LedgerKind;
 use theseus_store::pages::ledger_kind_session;
@@ -297,9 +298,9 @@ impl Core {
 
     /// The sessions that hold `id`, newest first, that a call may read: a
     /// person's, in a private place, not a task's nor an import's.
-    fn dream_sessions(&self, o: &Ontology, id: &CategoryId) -> Vec<SessionRecord> {
-        let mut found: Vec<SessionRecord> = o
-            .lists()
+    fn dream_sessions(&self, lists: &[Cow<'_, MemberList>], id: &CategoryId) -> Vec<SessionRecord> {
+        let mut found: Vec<SessionRecord> = lists
+            .iter()
             .filter(|l| l.kind == id.kind() && l.members.iter().any(|m| &m.category == id))
             .filter_map(|l| self.store.get_session::<SessionRecord>(&l.session).ok()?)
             .filter(|s| {
@@ -317,6 +318,8 @@ impl Core {
     /// The categories the dream may write for, most held first, each with its
     /// sessions.
     fn dream_wanted(&self, o: &Ontology) -> Vec<(CategoryId, Vec<SessionRecord>)> {
+        // Every list, read once: a store-backed snapshot reads them from the store.
+        let lists: Vec<Cow<'_, MemberList>> = o.lists().collect();
         let mut out: Vec<(CategoryId, Vec<SessionRecord>)> = o
             .categories()
             .filter(|c| c.by_machine())
@@ -325,7 +328,7 @@ impl Core {
                     .is_some_and(|k| k.basis == Basis::Interpreted && k.retired_ms.is_none())
             })
             .filter(|c| o.guidance(&c.id).is_none_or(|g| g.is_empty()))
-            .map(|c| (c.id.clone(), self.dream_sessions(o, &c.id)))
+            .map(|c| (c.id.clone(), self.dream_sessions(&lists, &c.id)))
             .filter(|(_, s)| s.len() >= MIN_SESSIONS)
             .collect();
         out.sort_by(|(a, sa), (b, sb)| sb.len().cmp(&sa.len()).then_with(|| a.cmp(b)));

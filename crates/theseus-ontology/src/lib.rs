@@ -30,6 +30,7 @@ pub mod compose;
 pub mod judged;
 pub mod kind;
 mod machine;
+pub mod members;
 pub mod merge;
 pub mod ontology;
 pub mod person;
@@ -44,6 +45,7 @@ pub use compose::{Composition, GuidanceUsed, MembershipUsed, Skipped, PATH_SEP, 
 pub use kind::{
     seeds, Basis, Kind, MinedFrom, Origin, PerSession, Rule, EXAMPLES_MAX, GIVEN, SEED,
 };
+pub use members::MemberSource;
 pub use merge::CategoryMerge;
 pub use ontology::{Ontology, MAX_DEPTH};
 pub use person::{handle, handles_of, Merge};
@@ -167,6 +169,8 @@ mod tests;
 mod tests_judged;
 #[cfg(test)]
 mod tests_kinds;
+#[cfg(test)]
+mod tests_lean;
 #[cfg(test)]
 mod tests_manifest;
 #[cfg(test)]

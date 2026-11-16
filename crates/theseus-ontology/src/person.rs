@@ -226,7 +226,7 @@ impl Ontology {
         let mut records = Vec::new();
         let mut sessions = Vec::new();
         let mut lists_before = Vec::new();
-        for l in self.members.values().filter(|l| l.kind == KIND) {
+        for l in self.lists().filter(|l| l.kind == KIND) {
             if !l.members.iter().any(|m| m.category == gone.id) {
                 continue;
             }
@@ -241,7 +241,7 @@ impl Ontology {
                 }
             }
             sessions.push(l.session.clone());
-            lists_before.push(l.clone());
+            lists_before.push(MemberList::clone(&l));
             records.push(Record::Members(MemberList {
                 session: l.session.clone(),
                 kind: KIND.into(),

@@ -194,6 +194,11 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
 - **The history check starts at the last one's mark** (theseus-0dq): `verified.*` in the index's meta, written
   with the next checkpoint. Its frame is checked again first; a frame that no longer checks or holds other
   positions sends the check back to the log's start, which finds what is wrong.
+- **The history check reads a window of a segment at a time** (theseus-mem-daemon-rest): `WINDOW_BYTES` (4 MiB),
+  nothing kept. A frame the window cuts is read again whole from its start, so the most held at once
+  (`History::peak_bytes`, in the `store.verify` phase's detail) is the larger of the window and the largest frame.
+  A stated length that runs past the segment's end is refused without reading it. Reading a whole segment held
+  64 MiB and left the daemon 155 MiB heavier for its first 15 s. Tests: `store/tests_history_window.rs`.
 - **Never delete what can't be rebuilt.** An index that is not a database is moved aside as
   `index.redb.bad-<unix ms>`, under the file's lock, and rebuilt from the WAL (Item 17). A real database that fails
   another way is refused: its recovery is `theseusd restore` from the WAL directory.

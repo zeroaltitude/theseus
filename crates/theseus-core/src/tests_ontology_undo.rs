@@ -70,7 +70,7 @@ fn topics(session: &str, members: Vec<Membership>) -> Record {
 fn bytes(core: &Core, session: &str) -> Vec<u8> {
     let o = core.runner.ontology.snapshot(&core.store).unwrap();
     serde_json::to_vec(
-        &Record::Members(o.member_list(session, "topic").unwrap().clone()).to_value(),
+        &Record::Members(o.member_list(session, "topic").unwrap().into_owned()).to_value(),
     )
     .unwrap()
 }

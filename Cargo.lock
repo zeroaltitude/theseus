@@ -6946,6 +6946,7 @@ dependencies = [
  "theseus-judge",
  "theseus-kernel",
  "theseus-mcp",
+ "theseus-ontology",
  "theseus-protocol",
  "theseus-store",
  "tokio",
