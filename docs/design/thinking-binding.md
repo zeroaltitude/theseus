@@ -36,7 +36,11 @@ or in a conversation that had a turn.
 puts it back on the requests after it. Within one turn a block the latest tail already holds, unchanged, is not sent
 again, so a turn of many steps grows by what changed; each new turn's request carries its tail whole, as before, and
 the turns before it keep theirs. That is a cost: a conversation's history now holds each turn's tail (the date line,
-the task view when there is one) until a recompile or a ring's cut lets the old turns go. A kept tail whose message no longer renders as it did (a recompile, a ring's cut, a
+the task view when there is one) until a recompile or a ring's cut lets the old turns go. A tail is kept with where it was sent (the place class, the surface, where the session speaks, what the turn
+answers) and put back only on a request for the same, and a request for a model of restricted origin gets none: what
+a place's turn was told is not told to another place, or to a model that carries none of it. A tail is kept once
+routing is done with the request (an effort message, a persona line), and found again by what its message rendered
+as, not by its index. A kept tail whose message no longer renders as it did (a recompile, a ring's cut, a
 compaction) is let go, and all of them are when a recompile strips the thinking. They are kept in memory, 256 sessions
 at most: a daemon restart forgets them, and the first request after it, in a conversation with thinking in it, meets
 the net below once.
@@ -72,6 +76,11 @@ self join's review turn, a task's turn, a recall note that arrives after the fir
 retry; and the net, once, narrowly, and not at all where a mismatch is allowed.
 
 ## What it does not do
+
+- It does not cover the bench's replay of a recorded request (`own_bench/replay.rs`), which calls the provider
+  without the net: a recorded request that drifted will meet the newest model's 400 there.
+- A tail now outlives its turn: a turn's date line, task view or standing record stays in the history, where it was
+  sent, until a recompile or a ring's cut lets that part of the history go.
 
 - It does not keep the tails across a restart. The cost is one repeat; keeping them would mean a record of each
   request's tail in the store.
