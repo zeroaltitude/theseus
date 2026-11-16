@@ -26,7 +26,7 @@
 //! frames, the memory pass's sessions, the keep-warm's rounds, the self
 //! pipeline's tick, the index tender's one request function (`tender::call`,
 //! with the answer's size), and the AWS cross-check (with its ledger tail's
-//! weight by kind, `aws::crosscheck::note_tail`).
+//! weight by kind, `aws::crosscheck::ledgered_of_tail`).
 //! `docs/design/memory-peak-record.md` says how to read a row.
 
 use std::collections::HashMap;

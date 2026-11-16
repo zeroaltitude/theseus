@@ -45,8 +45,8 @@ does not know it. An entry that took no time and has bytes is a part of a pass t
 
 The feeding costs one lock and one hash lookup per piece of work, and an RPC's answer is sized by a counting
 serializer that allocates nothing (about as long as the answer takes to write to its connection). The AWS
-cross-check's tail is sized only when the process is already over the floor, so a pass that is not a peak pays
-nothing for it.
+cross-check's tail is sized on every pass from the stored payloads' lengths, which the read has in hand, so the
+sizing costs nothing (step two, below).
 
 ## What it found
 
@@ -57,6 +57,24 @@ cross-check (`aws::tend::crosscheck_daily`) is the only pass that starts one hou
 with CloudTrail's events. Its events are bounded (20 pages of 50); its ledger tail is bounded by a count of rows, not
 by their size. The record now names it as `aws.crosscheck`, with the tail's weight by ledger kind.
 
-The second step of the issue is its own change. What the check keeps of the tail is two sets of ids (every row's
-`correlation_id`, and the `request_id`s of the `aws.called` rows: `Ledgered::of`), so the tail can be read a page at a
-time and dropped, with only those ids kept.
+## Step two: the cross-check reads a page at a time
+
+`aws::crosscheck::ledgered_of_tail` reads the same newest 100,000 rows, newest first, 256 at a time (`PAGE_ROWS`).
+Each page is decoded, its ids kept (every row's `correlation_id`, and an `aws.called` row's request ids: `Ledgered`),
+and the page dropped, so what is held at once is a page and the id sets. The answer is the same ids as
+`Ledgered::of` over `ledger_tail(100_000)` gave: `tests/crosscheck_paged.rs` compares the two over a ledger of mixed
+rows, heavy ones among them, for tails shorter than, as long as and longer than the ledger and for pages that do and
+do not divide it. The same file measures the heap with a counting allocator: over 4,000 rows holding 9.4 MB of data,
+the whole tail's reading peaked at 22.7 MB and the paged one at 0.33 MB (64-row pages), and the paged figure does not
+grow with the tail. With one planted change (the page made as long as the tail) the bound test fails and the answer
+tests still pass.
+
+The pass logs one `info` line a day with the tail's rows, its MiB and its four heaviest kinds, counted from the stored
+payloads' lengths, so what the tail weighs stays on record although the read no longer peaks.
+
+## What it found about the timing
+
+Against the journal's daemon starts (83 since 2026-10-24), 60 of the 63 peak clusters in the trim log begin 60
+minutes after a start (within 2 minutes), and two more (2026-11-05 and 2026-11-06, 11:52, no start between) a whole
+day after one: the check's `EVERY`. The three that do not (2026-10-24 17:16, 10-27 19:41, 11-13 09:25) are not
+explained by this pass; they are 0.9 to 1.4 GiB and each is a single trim.

@@ -52,22 +52,100 @@ impl Ledgered {
     pub fn of<'a>(rows: impl IntoIterator<Item = (&'a str, &'a Value)>) -> Self {
         let mut l = Ledgered::default();
         for (kind, data) in rows {
-            if let Some(c) = data["correlation_id"].as_str() {
-                l.correlation_ids.insert(c.to_string());
-            }
-            if kind != "aws.called" {
-                continue;
-            }
-            if let Some(r) = data["request_id"].as_str() {
-                l.request_ids.insert(r.to_string());
-            }
-            for r in data["request_ids"].as_array().into_iter().flatten() {
-                if let Some(r) = r.as_str() {
-                    l.request_ids.insert(r.to_string());
-                }
-            }
+            l.note(kind, data);
         }
         l
+    }
+
+    /// One row's ids: its correlation id, and for an `aws.called` row its
+    /// request ids.
+    fn note(&mut self, kind: &str, data: &Value) {
+        if let Some(c) = data["correlation_id"].as_str() {
+            self.correlation_ids.insert(c.to_string());
+        }
+        if kind != "aws.called" {
+            return;
+        }
+        if let Some(r) = data["request_id"].as_str() {
+            self.request_ids.insert(r.to_string());
+        }
+        for r in data["request_ids"].as_array().into_iter().flatten() {
+            if let Some(r) = r.as_str() {
+                self.request_ids.insert(r.to_string());
+            }
+        }
+    }
+}
+
+/// The ledger rows the check reads: the newest `TAIL_ROWS`.
+pub const TAIL_ROWS: usize = 100_000;
+/// The rows held at once while it reads them.
+pub const PAGE_ROWS: usize = 256;
+
+/// What the ledger knows, from its newest `tail` rows read `page` at a time,
+/// newest first (issue 21): a page is decoded, its ids kept, and the page
+/// dropped, so what is held at once is one page and the ids, never the tail.
+/// The same ids `Ledgered::of` finds in `ledger_tail(tail)`; a row that does
+/// not decode fails the read, as the tail's did. Also noted for the memory
+/// record: the tail's rows and stored bytes by ledger kind (the eight
+/// heaviest), counted from the stored payloads' lengths, which costs nothing.
+pub fn ledgered_of_tail(
+    store: &crate::store::Store,
+    tail: usize,
+    page: usize,
+) -> anyhow::Result<Ledgered> {
+    let mut l = Ledgered::default();
+    let mut weight: std::collections::HashMap<String, (u64, u64)> = Default::default();
+    let (mut before, mut left) = (None, tail);
+    while left > 0 {
+        let q = theseus_store::Page {
+            kind: theseus_store::kinds::LEDGER,
+            before,
+            limit: page.min(left),
+            ..Default::default()
+        };
+        let Some(got) = store.ledger_page(&q)? else {
+            anyhow::bail!("the ledger's page was not read");
+        };
+        for r in &got.records {
+            let row: LedgerRow = r.decode()?;
+            l.note(&row.kind, &row.data);
+            let w = weight.entry(row.kind).or_default();
+            w.0 += 1;
+            w.1 += r.payload.len() as u64;
+        }
+        left = left.saturating_sub(got.records.len());
+        match (got.more, got.first) {
+            (true, Some(first)) if !got.records.is_empty() => before = Some(first),
+            _ => break,
+        }
+    }
+    note_weight(weight);
+    Ok(l)
+}
+
+/// The eight kinds that weigh most: for the memory record, and in one log
+/// line a day, so what the tail weighs is on record though the read no longer
+/// peaks.
+fn note_weight(by_kind: std::collections::HashMap<String, (u64, u64)>) {
+    let rows: u64 = by_kind.values().map(|v| v.0).sum();
+    let bytes: u64 = by_kind.values().map(|v| v.1).sum();
+    let mut kinds: Vec<_> = by_kind.into_iter().collect();
+    kinds.sort_by(|a, b| (b.1 .1, &a.0).cmp(&(a.1 .1, &b.0)));
+    let top = kinds
+        .iter()
+        .take(4)
+        .map(|(k, (n, b))| format!("{k} x{n} {}KiB", b >> 10))
+        .collect::<Vec<_>>()
+        .join(", ");
+    tracing::info!(rows, mib = bytes >> 20, top = %top, "aws: the cross-check read the ledger's tail a page at a time");
+    for (kind, (n, bytes)) in kinds.into_iter().take(8) {
+        crate::resident::activity::counted(
+            crate::resident::activity::Kind::Job,
+            &format!("aws.crosscheck.tail/{kind}"),
+            n,
+            bytes,
+        );
     }
 }
 
@@ -133,33 +211,6 @@ pub(super) fn unaccounted(
         });
     }
     (ours, out)
-}
-
-/// What the ledger's tail the check read holds, by kind, for the memory
-/// record (issue 21): the check decodes the ledger's last 100,000 rows at once, one hour
-/// after every start, and what that weighs is the rows' own size, which a
-/// count of rows does not say. Walked only when the process is already over
-/// `PEAK_FLOOR`, so the pass that is not a peak pays nothing; the eight
-/// kinds that weigh most are noted, each with its rows and bytes. Returns
-/// the tail's bytes, 0 where it was not walked.
-pub(super) fn note_tail(rows: &[(u64, LedgerRow)]) -> u64 {
-    use crate::resident::activity::{counted, json_len, Kind};
-    if crate::resident::rss_bytes() <= crate::resident::PEAK_FLOOR {
-        return 0;
-    }
-    let mut by_kind: std::collections::HashMap<&str, (u64, u64)> = Default::default();
-    for (_, r) in rows {
-        let e = by_kind.entry(r.kind.as_str()).or_default();
-        e.0 += 1;
-        e.1 += json_len(&r.data);
-    }
-    let total = by_kind.values().map(|v| v.1).sum();
-    let mut kinds: Vec<_> = by_kind.into_iter().collect();
-    kinds.sort_by(|a, b| (b.1 .1, a.0).cmp(&(a.1 .1, b.0)));
-    for (kind, (n, bytes)) in kinds.into_iter().take(8) {
-        counted(Kind::Job, &format!("aws.crosscheck.tail/{kind}"), n, bytes);
-    }
-    total
 }
 
 /// The window's events, from CloudTrail's history in the account's region.
