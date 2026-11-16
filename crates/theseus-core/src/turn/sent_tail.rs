@@ -98,8 +98,15 @@ impl SentTails {
         &self,
         session: &str,
         turn: &str,
+        restricted: bool,
         compiled: &mut Compiled,
     ) -> Option<Begun> {
+        // A request for a model of restricted origin carries none of what another turn's request
+        // carried after the conversation (a task view, a record, a note drawn from other
+        // sessions): they stay with the requests that had them, kept, and this one is as it was.
+        if restricted {
+            return None;
+        }
         let last = compiled.request.messages.len().checked_sub(1)?;
         let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
         let held = {

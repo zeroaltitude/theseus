@@ -198,7 +198,10 @@ impl TurnRunner {
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
-        t.tail = self.tails.begin(sid, t.tc.turn_id, &mut compiled);
+        let restricted = self.restricted_profile(&t.target.profile);
+        t.tail = self
+            .tails
+            .begin(sid, t.tc.turn_id, restricted, &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)
