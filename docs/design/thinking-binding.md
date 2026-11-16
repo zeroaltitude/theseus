@@ -33,8 +33,10 @@ canary's reports on the older models: the message just before a thinking block, 
 or in a conversation that had a turn.
 
 `turn/sent_tail.rs` keeps each request's tail with the message that carried it, by what that message rendered as, and
-puts it back on the requests after it. A block the latest tail already holds, unchanged, is not sent again, so the
-history grows by what changed. A kept tail whose message no longer renders as it did (a recompile, a ring's cut, a
+puts it back on the requests after it. Within one turn a block the latest tail already holds, unchanged, is not sent
+again, so a turn of many steps grows by what changed; each new turn's request carries its tail whole, as before, and
+the turns before it keep theirs. That is a cost: a conversation's history now holds each turn's tail (the date line,
+the task view when there is one) until a recompile or a ring's cut lets the old turns go. A kept tail whose message no longer renders as it did (a recompile, a ring's cut, a
 compaction) is let go, and all of them are when a recompile strips the thinking. They are kept in memory, 256 sessions
 at most: a daemon restart forgets them, and the first request after it, in a conversation with thinking in it, meets
 the net below once.
@@ -52,8 +54,8 @@ The request the compiler rendered is not changed, so what is recorded and replay
 `theseus ledger -k provider.call` carries, on each row:
 
 - `thinking_mismatch_allowed`: blocks the provider reported and let through (the older models);
-- `thinking_dropped`: blocks it removed on a repeat (the newest model);
-- `prefix_repeated`: the call was refused and made again.
+- `thinking_dropped`: blocks it removed on a repeat (the newest model); present only when above zero;
+- `prefix_repeated`: the call was refused and made again; present only when it was.
 
 **A count above zero is a bug to file.** Nothing Theseus sends after a thinking block may change, so none of the three
 should ever be non-zero on a conversation that was not restarted since its last thinking step. After a restart one

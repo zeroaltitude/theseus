@@ -1110,11 +1110,19 @@ impl Fact for ProviderCall<'_> {
             "blocks": resp.content.len(),
             "input_transformations": resp.input_transformations,
             "thinking_mismatch_allowed": thinking_mismatches(resp.input_transformations.as_ref()),
-            "thinking_dropped": thinking_dropped(resp.input_transformations.as_ref()),
-            "prefix_repeated": resp.prefix_repeated,
             "node_id": self.node_id,
             "origin": self.origin,
         });
+        // The two a drift's net adds are there only when it fired, so a row that never saw one
+        // reads as it always did (`docs/design/thinking-binding.md`).
+        let mut row = row;
+        let dropped = thinking_dropped(resp.input_transformations.as_ref());
+        if dropped > 0 {
+            row["thinking_dropped"] = json!(dropped);
+        }
+        if resp.prefix_repeated {
+            row["prefix_repeated"] = json!(true);
+        }
         row
     }
 

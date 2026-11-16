@@ -334,7 +334,7 @@ async fn a_refused_prefix_is_repeated_once_with_the_providers_remedy() {
         3,
         "the refused call is no row: it never answered"
     );
-    assert_eq!(rows[0]["prefix_repeated"], json!(false), "{}", rows[0]);
+    assert!(rows[0].get("prefix_repeated").is_none(), "{}", rows[0]);
     let repeated = &rows[1];
     assert_eq!(
         (
@@ -344,9 +344,8 @@ async fn a_refused_prefix_is_repeated_once_with_the_providers_remedy() {
         (Some(1), Some(true)),
         "{repeated}"
     );
-    assert_eq!(
-        rows[2]["prefix_repeated"],
-        json!(false),
+    assert!(
+        rows[2].get("prefix_repeated").is_none(),
         "the step after is made once: {}",
         rows[2]
     );
@@ -373,12 +372,12 @@ async fn where_a_mismatch_is_allowed_nothing_is_dropped_and_the_row_counts_it() 
     let rows = call_rows(&r, &sid);
     let last = rows.last().unwrap();
     assert_eq!(
-        (
-            last["thinking_mismatch_allowed"].as_u64(),
-            last["thinking_dropped"].as_u64(),
-            last["prefix_repeated"].as_bool()
-        ),
-        (Some(1), Some(0), Some(false)),
+        last["thinking_mismatch_allowed"].as_u64(),
+        Some(1),
+        "{last}"
+    );
+    assert!(
+        last.get("thinking_dropped").is_none() && last.get("prefix_repeated").is_none(),
         "{last}"
     );
 }

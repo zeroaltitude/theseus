@@ -11,9 +11,11 @@
 //!
 //! So a tail is kept with the message it rode, by what that message rendered
 //! as, and put back in place on the requests after it; what is new goes
-//! after, as it always did. A block the latest tail already holds, unchanged,
-//! is not sent a second time: the model has it, a step or a turn back, and the
-//! history grows by what changed and nothing else. A kept tail whose message
+//! after, as it always did. Within one turn a block the latest tail already
+//! holds, unchanged, is not sent a second time: the model has it a step back,
+//! and a turn of many steps grows by what changed and nothing else. Each new
+//! turn's request carries its tail whole, as it always did, and the turns
+//! before it keep theirs. A kept tail whose message
 //! no longer renders as it did (a recompile, a ring's cut, a compaction)
 //! is let go, and so is the lot when a recompile strips the thinking, which
 //! is what needed them.
@@ -34,6 +36,7 @@ const SESSIONS: usize = 256;
 /// without it, and its blocks.
 #[derive(Debug, Clone)]
 struct Sent {
+    turn: String,
     at: usize,
     anchor: String,
     blocks: Vec<Value>,
@@ -52,6 +55,7 @@ pub struct SentTails(Mutex<Held>);
 /// A request's last message before its tail: where the tail begins, and the
 /// tails of earlier requests put back.
 pub(super) struct Begun {
+    turn: String,
     at: usize,
     blocks: usize,
     anchor: String,
@@ -92,7 +96,12 @@ fn counted(compiled: &mut Compiled, n: u64) {
 impl SentTails {
     /// Put back the tails the session's earlier requests sent, on the
     /// messages that carried them, before this request's own is attached.
-    pub(super) fn begin(&self, session: &str, compiled: &mut Compiled) -> Option<Begun> {
+    pub(super) fn begin(
+        &self,
+        session: &str,
+        turn: &str,
+        compiled: &mut Compiled,
+    ) -> Option<Begun> {
         let last = compiled.request.messages.len().checked_sub(1)?;
         let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
         let held = {
@@ -123,6 +132,7 @@ impl SentTails {
         let anchor = anchor(m);
         let blocks = blocks_of(m).map_or(0, |b| b.len());
         Some(Begun {
+            turn: turn.to_string(),
             at: last,
             blocks,
             anchor,
@@ -134,6 +144,7 @@ impl SentTails {
     /// kept tail already says, which is left off the request.
     pub(super) fn finish(&self, session: &str, compiled: &mut Compiled, begun: Option<Begun>) {
         let Some(Begun {
+            turn,
             at,
             blocks,
             anchor,
@@ -148,7 +159,11 @@ impl SentTails {
             .get_mut(at)
             .and_then(|m| blocks_of(m))
         {
-            let said: Vec<Value> = kept.last().map_or(vec![], |s| s.blocks.clone());
+            // What the same turn's latest tail said: the model has it, and is not told again.
+            let said: Vec<Value> = kept
+                .last()
+                .filter(|s| s.turn == turn)
+                .map_or(vec![], |s| s.blocks.clone());
             let tail: Vec<Value> = b.split_off(blocks.min(b.len()));
             let (fresh, repeated): (Vec<Value>, Vec<Value>) =
                 tail.into_iter().partition(|t| !said.contains(t));
@@ -162,6 +177,7 @@ impl SentTails {
             }
             if !fresh.is_empty() {
                 kept.push(Sent {
+                    turn,
                     at,
                     anchor,
                     blocks: fresh,
