@@ -1056,6 +1056,21 @@ pub fn thinking_mismatches(t: Option<&Value>) -> u64 {
     })
 }
 
+/// The `input_transformations` entry for a replayed thinking block the
+/// provider removed from the request for a changed prefix, because the call
+/// was made again asking it to (`provider::binding::repeat_for`).
+pub const THINKING_DROPPED: &str = "thinking_dropped";
+
+/// How many such entries a response carries: the blocks a drift cost.
+pub fn thinking_dropped(t: Option<&Value>) -> u64 {
+    t.and_then(Value::as_array).map_or(0, |entries| {
+        entries
+            .iter()
+            .filter(|e| e.get("type").and_then(Value::as_str) == Some(THINKING_DROPPED))
+            .count() as u64
+    })
+}
+
 /// The model call settled with its answer (`provider.call`): its row rides
 /// in its completion's frame, after the assistant node (theseus-qa0).
 pub struct ProviderCall<'a> {
@@ -1098,6 +1113,16 @@ impl Fact for ProviderCall<'_> {
             "node_id": self.node_id,
             "origin": self.origin,
         });
+        // The two a drift's net adds are there only when it fired, so a row that never saw one
+        // reads as it always did (`docs/design/thinking-binding.md`).
+        let mut row = row;
+        let dropped = thinking_dropped(resp.input_transformations.as_ref());
+        if dropped > 0 {
+            row["thinking_dropped"] = json!(dropped);
+        }
+        if resp.prefix_repeated {
+            row["prefix_repeated"] = json!(true);
+        }
         row
     }
 
