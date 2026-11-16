@@ -25,3 +25,25 @@ pub fn rules(tries: u32) -> String {
          your change did not cause it, say so in your why instead of working around it."
     )
 }
+
+/// What a builder is told when its change came back because main had moved (issue 20): its tree
+/// holds the finished change with main already merged into it, uncommitted, and what clashes is
+/// left for it to resolve. None unless the item's newest word is a tree made so, newer than its
+/// last start. The merge's own commit is the builder's `self.propose_change`, and none of this
+/// uses one of its tries.
+pub fn main_moved(t: &theseus_protocol::tasks::TaskRecord) -> Option<String> {
+    let last =
+        t.evidence.iter().rev().find(|e| {
+            e.identity.starts_with("main-merged:") || e.identity.starts_with("session:")
+        })?;
+    last.identity.strip_prefix("main-merged:")?;
+    let clash = last.note.as_deref().unwrap_or_default();
+    Some(format!(
+        "Main moved while your finished change waited, and the change no longer merges into it \
+         ({clash}). Your tree holds that change with main already merged into it, not yet \
+         committed. Open each file that clashes and resolve it: keep what your change set out to \
+         do and what main now has, and do not undo main's work. Then run the tests your change \
+         touches and call self.propose_change, which commits the merge and checks it again. \
+         That is not a failed try, because the change itself was fine."
+    ))
+}

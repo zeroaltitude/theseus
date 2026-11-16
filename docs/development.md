@@ -589,6 +589,10 @@ under its own text; there is no shadow period and no ladder wait.
   6. a plain, signed `--no-ff` merge;
   7. `main`'s gate with the benches;
   8. the push, never forced.
+
+  Before step 1, a branch that no longer merges into `main`'s tip (it moved while the change waited) is not reviewed: it goes
+  back to its builder with `main` merged into a working copy of it, to resolve what clashes, and is checked again. That is no
+  try; a third conflict of one item fails it.
 - **It installs the join** and tells the owner what changed, why, the numbers, the cost, and the one-command revert.
   A regression within a day of a self-join reverts it.
 
@@ -615,7 +619,9 @@ queue goes on.
   reads busy on a host with idle cores, and the system-wide `full` line is always zero). A hold on the slots names
   the trees that hold them.
 - A cap on tries: an item has three (`rsi/backlog/attempts.rs`: a red gate, a rejecting review, or a build that died
-  with no gate; a gate that never judged the code is none). The try that reaches it fails the item with every reason
+  with no gate; a gate that never judged the code is none, and an aborted gate, exit 75, is run again twice at most, free, and
+  one that still aborts is a red of its item, one try and no part of the kill switch's count; a red suite whose only failures are tests outside what the change reaches has those run once more, and is green
+  when they pass). The try that reaches it fails the item with every reason
   and one notice, and it waits for `theseus self retry`. A red inside twelve hours of another for the item is not posted
   again; the note lists it.
 - No build starts on a red main: the newest recorded whole gate of the commit main is at failed (the gate-times log). A

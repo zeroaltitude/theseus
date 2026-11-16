@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
-use super::{blocking, git, keel, lock, lock_dir, refused, Run, TRIES};
+use super::{blocking, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
 use crate::fact::rsi_join::SelfJoined;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
 
@@ -267,19 +267,23 @@ impl Run<'_> {
                 Ok(None)
             }
             Err(Refused::Conflict(why)) => {
-                self.conflicted(&why).await?;
+                self.conflicted(remote, &why).await?;
                 Ok(None)
             }
         }
     }
 
-    /// The branch conflicts with main: the item goes back to `proposed` and
-    /// the next build cuts a fresh branch from the new main (theseus-o1h3f.6;
-    /// it used to wait for the owner and was never tried again). This head is
-    /// held so no pass joins it again, but the held row says `conflict`, so
-    /// the pipeline does not show it as the owner's. A third conflict of one
-    /// item drops it instead, with the command back (the bound on a loop).
-    async fn conflicted(&mut self, why: &str) -> Result<()> {
+    /// The branch conflicts with main: the item goes back to `proposed`, and
+    /// its builder gets the change back with main merged into a working copy
+    /// of it, to resolve what clashes (`moved`; the owner's decision of
+    /// 2026-11-15, message 1571650848512151645). Where that working copy
+    /// cannot be made, the next build cuts a fresh branch from the new main
+    /// (theseus-o1h3f.6; it used to wait for the owner and was never tried
+    /// again). This head is held so no pass joins it again, but the held row
+    /// says `conflict`, so the pipeline does not show it as the owner's. A
+    /// third conflict of one item drops it instead, with the command back (the
+    /// bound on a loop), and the stop's words say so.
+    pub(super) async fn conflicted(&mut self, remote: &str, why: &str) -> Result<()> {
         let item = self.b.item.clone();
         let prior = crate::task_graph::get(&self.core.store, &item)?.map_or(0, |t| {
             t.evidence
@@ -295,10 +299,15 @@ impl Run<'_> {
             &self.b.head[..self.b.head.len().min(12)]
         );
         let dropped = prior + 1 >= MAX_CONFLICTS;
-        let mut text = if dropped {
-            conflict_dropped_card(&self.b.branch, &item, why)
+        let brought = if dropped {
+            None
         } else {
-            conflict_card(&self.b.branch, &item, why)
+            self.main_into_tree(remote).await
+        };
+        let mut text = match (dropped, &brought) {
+            (true, _) => conflict_dropped_card(&self.b.branch, &item, why),
+            (false, Some(_)) => moved::moved_card(&self.b.branch, &item, why),
+            (false, None) => conflict_card(&self.b.branch, &item, why),
         };
         if let Some(mut task) = crate::task_graph::get(&self.core.store, &item)? {
             let now = theseus_protocol::now_unix_ms();
@@ -317,34 +326,26 @@ impl Run<'_> {
                 by: "self-join".into(),
                 at_ms: now,
             });
+            task.evidence
+                .extend(brought.as_ref().map(|b| moved::main_merged(b, now)));
             self.core
                 .store
                 .append(&[crate::task_graph::record(&task)?])?;
         }
-        // The next build must cut a fresh branch from the new main (design
-        // item 29): close this tree, so `self_tree_open` opens a new one off
-        // origin/main instead of finding this one.
-        let (p, c) = (self.place.clone(), item.clone());
-        let mut numbers = json!({"held": true, "conflict": true, "dropped": dropped});
-        if let Err(e) = blocking(move || {
-            if let Some(t) = tree::find(&p, &c) {
-                tree::close(&p, &t)?;
-            }
-            Ok(())
-        })
-        .await
-        {
-            // The log keeps the error. The owner gets what it means: the next
-            // build may find this stale tree and cut from its old base
-            // (theseus-51sfw). The conflict's card and stop still go out.
-            tracing::warn!(error = %format!("{e:#}"),
-                "self-join: the conflicted tree was not closed");
-            text.push('\n');
-            text.push_str(&tree_not_closed_line(&item));
-            numbers["tree_closed"] = json!(false);
+        let mut numbers = json!({"held": true, "conflict": true, "dropped": dropped,
+                                 "main_merged": brought.is_some()});
+        if brought.is_none() {
+            // The next build must cut a fresh branch from the new main (design
+            // item 29): close this tree, so `self_tree_open` opens a new one off
+            // origin/main instead of finding this one.
+            self.close_stale_tree(&mut text, &mut numbers).await;
         }
         self.card(text);
-        self.stop("merge", why, numbers);
+        let said = match dropped {
+            true => format!("{why}; it has conflicted with main {MAX_CONFLICTS} times, so it is failed, not built again"),
+            false => why.to_string(),
+        };
+        self.stop("merge", &said, numbers);
         Ok(())
     }
 

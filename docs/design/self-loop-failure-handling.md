@@ -26,6 +26,32 @@ so a planted revert can prove it).
   end of a pass, a failure in tests; the install's build tree is reaped by `install::reap_target` when its build fails or its
   `self.installed` row is written, and `reap_installed_targets` clears earlier leftovers); a hold on the slots names the trees open.
 
+**Main moved under a finished change** (issue 20; `rsi/join/moved.rs`, `rsi/tree_main.rs`, `backlog/brief.rs`). A green branch whose dry run
+  on main's tip conflicts is found at the head of the join pass, before its review is spent (the pass holds `Shared::joins`, which
+  a pipeline tick does not, and it owns the conflict path's card and bound). The item goes back to `proposed`, the head is held as a
+  `conflict`, and the builder's tree is made on the branch's own commits, on a new `-N` branch, with main merged in and not committed
+  (`tree_main::bring_main_in`): what clashes is left in the files, and the builder's next `self.propose_change` commits the merge. Its
+  first turn says so (`brief::main_moved`, read from the `main-merged:` evidence newer than the item's last `session:`). None of it is
+  a try (`attempts` reads no `conflict:` or `main-merged:` evidence). The bound is the old one: a third conflict since the owner's last
+  retry fails the item, and the stop's row says so. Where the working copy cannot be made (the item has a tree open, or git says no) the
+  old path stands: the tree is closed and the next build cuts a fresh branch from the new main.
+
+**A failure that is not the change's fault** (issue 20; `rsi/rerun.rs`, `rsi/reach.rs`, `tree::rerun_tests`, `infra::judge`). **An aborted check**
+  (the gate's exit 75, "THE TREE MOVED", which it calls no verdict on the code) is run again at once, `rerun::ABORT_RERUNS` (2) more times; past
+  that the build ends saying "its check kept aborting", which is **a red of that item**: it costs one try, as a red does, and
+  is no part of the kill switch's streak (`infra::judge` reads exit 75 as red, whatever the seconds; an abort is about one working copy,
+  something wrote in it while its gate ran, not about the machine, so a branch whose own test leaves a file in its checkout fails that item
+  and halts nothing). The re-runs inside the bound are free. **A red suite's failures, once more**, when the gate
+  failed in its suite and nowhere else, the log reads whole (one summary, a distinct `FAIL` line per failed test and that many in the
+  summary, no timeout, signal or leak), every failed test's package is **outside what the change reaches**, and those tests alone, run again
+  (`tree::rerun_tests`: L1, nice 19, the tree's own build folder, with the gate's `CARGO_INCREMENTAL=0` so nothing is rebuilt), all pass: then the build is green, and the report and the row's
+  `numbers.reran` name the tests. Anything else is red as before, the first time. **Outside** is read from the workspace's own manifests
+  (`reach::read`, never `cargo metadata`, which reads the branch's `.cargo/config.toml` and would run its compiler setting at L0): a package
+  is inside when the diff edits it or when it depends on one the diff edits, through any chain, in the normal, dev and build tables
+  (`[target.*]` included), and any path in no package (`Cargo.lock`, the root manifest, `scripts/`, `docs/`, the nextest config) reaches every
+  package; a package it cannot place is inside. What it does not judge: the phases after a failed suite did not run, so the join's gate on
+  the merge is what finally judges them, and a test that reads another package's files at run time (a source-scanning test) is not in the graph.
+
 ## What this does NOT do
 
 - A self-join's own gate is not read by the main-is-red hold: its row lands in the sandbox's tmpfs `HOME` and is lost,

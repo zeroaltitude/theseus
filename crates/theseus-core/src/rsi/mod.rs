@@ -60,6 +60,8 @@ pub mod pause;
 pub mod pause_tool;
 pub mod pipeline;
 pub mod pr;
+pub mod reach;
+pub mod rerun;
 pub mod revert;
 pub mod sealed;
 mod switch;
@@ -80,10 +82,15 @@ mod tests_narrow;
 #[cfg(test)]
 mod tests_pr;
 #[cfg(test)]
+mod tests_reach;
+#[cfg(test)]
+mod tests_rerun;
+#[cfg(test)]
 pub(crate) mod tests_tree;
 pub mod tree;
 pub mod tree_fmt;
 pub mod tree_lease;
+pub mod tree_main;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 
