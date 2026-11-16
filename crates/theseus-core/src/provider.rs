@@ -1585,6 +1585,16 @@ impl FakeProvider {
     pub fn requests(&self) -> Vec<ProviderRequest> {
         self.requests.lock().unwrap().clone()
     }
+    /// What holds request `number` before it is answered: the gate, then the delay.
+    async fn held(&self, number: usize) {
+        if let Some(g) = self.gate.as_ref().filter(|g| g.at == number) {
+            g.reached.notify_one();
+            g.opened.notified().await;
+        }
+        if self.delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+        }
+    }
     /// Script `answer` for the request that carries the tool `tool`, whatever
     /// its position among the rig's calls. The answer is used once (as a
     /// queued one is) and the first rule that matches wins; a request no
@@ -1642,13 +1652,7 @@ impl Provider for FakeProvider {
                 seen.push(req.clone());
                 seen.len() - 1
             };
-            if let Some(g) = self.gate.as_ref().filter(|g| g.at == number) {
-                g.reached.notify_one();
-                g.opened.notified().await;
-            }
-            if self.delay_ms > 0 {
-                tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
-            }
+            self.held(number).await;
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
