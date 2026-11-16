@@ -24,6 +24,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [agent-notes-rule.md](agent-notes-rule.md): the durable-versus-run-state rule for an agent's own notes (`b4-theseus-holds-its-own-notes`, row B4): why there is a rule, the three questions the code asks and in what order, the two numbers and why they are judgement rather than measurement, the five shapes the rule gets wrong, and what the two default-off switches hold back until the owner has seen it.
 - [recall-warm.md](recall-warm.md): how recall meets an unloaded embedding model (issue 21 of 1.0.7): the message's arrival loads it, recall's wait covers a load up to `LOAD_BOUND`, who never waits, and what it does to time to first word.
 - [self-loop-failure-handling.md](self-loop-failure-handling.md): what stops the self-improvement loop's failures now (issue 6 of 1.0.7): the cap on tries, the rules the builder is told, formatting before the gate, no start on a red main, a tree that stays under its gate, a stale item settled, set-aside beside drop, a join that leaves no tree, and the install's reap; and what it does not do.
+- [self-builder-build-folder.md](self-builder-build-folder.md): the one directory a self builder's commands keep while its item is open (issue 20), so it can build and run the tests of what it writes: whose it is, what the view holds, why the gate never reads it, its bound and its removal; and what it does not do.
 
 And one review:
 

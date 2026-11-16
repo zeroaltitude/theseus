@@ -41,9 +41,14 @@
 //! **What stops a failing loop** (the cap on tries, the rules the builder is told, formatting
 //! before the gate, no start on a red main, a tree that stays under its gate, a stale item settled,
 //! set-aside, a join that leaves no tree, the install's reap): `docs/design/self-loop-failure-handling.md`.
+//!
+//! **The builder's build folder** (`builder_dir`: the one directory a self builder's commands keep, so it can run
+//! the tests of what it writes, apart from the gate's build tree and removed with the item):
+//! `docs/design/self-builder-build-folder.md`.
 
 pub mod backlog;
 pub mod budget;
+pub mod builder_dir;
 pub mod capacity;
 pub(crate) mod digest;
 pub mod evidence;

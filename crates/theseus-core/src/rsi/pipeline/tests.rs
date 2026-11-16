@@ -474,6 +474,10 @@ async fn ended_and_dropped_builds_free_their_slot_and_their_trees() {
     let target = place.targets().join(crate::rsi::tree::slug(&first));
     std::fs::create_dir_all(target.join("debug")).unwrap();
     std::fs::write(target.join("debug").join("big"), "build output").unwrap();
+    // The builder's own build folder (`rsi::builder_dir`) goes with the item as well.
+    let builder = crate::rsi::builder_dir::dir_in(&place.state, &crate::rsi::tree::slug(&first));
+    std::fs::create_dir_all(builder.join("debug")).unwrap();
+    std::fs::write(builder.join("debug").join("big"), "what a builder compiled").unwrap();
     r.core
         .self_drop(
             &SelfDropParams {
@@ -485,6 +489,7 @@ async fn ended_and_dropped_builds_free_their_slot_and_their_trees() {
         .unwrap();
     let t = r.tick().await;
     assert!(!target.exists(), "the build tree is deleted");
+    assert!(!builder.exists(), "the builder's build folder is deleted");
     let cleared = r.rows("self.pipeline.cleared");
     assert_eq!(cleared.len(), 1);
     assert_eq!(cleared[0]["reason"], "dropped");

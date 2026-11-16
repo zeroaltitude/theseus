@@ -14,18 +14,23 @@
 //! Nothing else changes: the rest of the state dir, the store, the secrets
 //! and the sealed sets keep their holds, a path that resolves out of the
 //! tree (or out of the trees root) by a link or `..` is judged where it
-//! lands, a write in another tree asks, and `proc.run` is untouched (its code
-//! runs in L1 as `sandbox::self_build_view` says, never through this rule).
+//! lands, a write in another tree asks, and `proc.run` is untouched by this rule (its code
+//! runs in L1 as `sandbox::self_build_view` says, and its one writable place is the build
+//! folder below).
 //! A session of any other principal gets neither.
 //!
 //! The tree is named by the task's id, which the backlog gives the model as
 //! `item`, and never by the model's own input to the tool.
+//!
+//! **One more place, for `proc.run`'s build output alone** ([`builder_folder`]):
+//! the item's build folder (`super::builder_dir`), which a self session's
+//! commands may write and keep while its tree is open.
 
 use std::path::PathBuf;
 
 use theseus_tools::{paths, Tool};
 
-use super::{budget, pr, tree, SELF_PRINCIPAL};
+use super::{budget, builder_dir, pr, tree, SELF_PRINCIPAL};
 use crate::store::Store;
 use crate::toolrun::ToolRuntime;
 
@@ -151,6 +156,35 @@ pub(crate) fn of(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
     let (core, trees) = self_session(rt, session)?;
     let root = root_of(rt, &core.store, session)?;
     Some(trees.join(tree::slug(&root)))
+}
+
+/// Where the build folder is of the self task that owns `session`, made or not, or none: the
+/// session is no self session, or its item's tree is not open (a closed item has no folder, and
+/// none is made for it). The folder is named by the session's task and never by a call.
+pub(crate) fn builder_path(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
+    let (core, trees) = self_session(rt, session)?;
+    let slug = tree::slug(&root_of(rt, &core.store, session)?);
+    trees.join(&slug).join(".git").exists().then_some(())?;
+    let state = paths::canonical_best_effort(&rt.self_pr.state);
+    Some(builder_dir::dir_in(&state, &slug))
+}
+
+/// The build folder for `session`'s self task, made if it was not there, or none (no self
+/// session, or its tree is closed): what a self session's `proc.run` in L1 may write and keep,
+/// and the only thing (`Sandbox::builder_view` binds it read-write for this session alone). Err
+/// is the words a command is refused with when the folder has reached its bound. The disk is
+/// walked, so call it off the runtime's workers.
+pub(crate) fn builder_folder(rt: &ToolRuntime, session: &str) -> Result<Option<PathBuf>, String> {
+    let Some(dir) = builder_path(rt, session) else {
+        return Ok(None);
+    };
+    std::fs::create_dir_all(builder_dir::target_in(&dir))
+        .and_then(|()| std::fs::create_dir_all(builder_dir::tmp_in(&dir)))
+        .map_err(|e| format!("the build folder for this item could not be made: {e}"))?;
+    match builder_dir::Full::of(&dir) {
+        Some(full) => Err(full.refusal()),
+        None => Ok(Some(dir)),
+    }
 }
 
 /// The root task of the session's self task, found once and kept.
