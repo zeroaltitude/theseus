@@ -205,6 +205,14 @@ pub struct GateRun {
     pub unrunnable: bool,
 }
 
+impl GateRun {
+    /// The gate stopped because its tree moved while it ran: no verdict on the code
+    /// ([`GATE_ABORTED`]).
+    pub fn aborted(&self) -> bool {
+        self.exit == Some(GATE_ABORTED)
+    }
+}
+
 /// How long a gate run may print nothing before it is stopped (theseus-x1zz8):
 /// a cold build of the whole workspace at nice 19 beside busy neighbours took
 /// about 22 minutes, and one that still prints is let run on, to 24 times
@@ -224,6 +232,20 @@ const MAY_BUILD_EVERY: Duration = Duration::from_secs(60);
 /// one that runs `git fetch` does print - hold the loop open for 24 times
 /// this, and delay a stop aimed at the build by the same factor.
 const RULE_LIMIT: Duration = Duration::from_secs(120);
+/// What the gate exports for its whole run (`scripts/gate.sh`: "flipping it half way changes cargo's
+/// unit hashes and builds a second complete set of artifacts"), so a second look at the suite
+/// (`rerun_tests`) must carry it too, or it rebuilds every workspace crate beside the gate's build.
+pub(super) const CARGO_INCREMENTAL: (&str, &str) = ("CARGO_INCREMENTAL", "0");
+
+/// The variables a second look's job has beyond `sandbox::self_build_env`'s.
+pub(super) fn rerun_env() -> Vec<(String, String)> {
+    vec![(CARGO_INCREMENTAL.0.into(), CARGO_INCREMENTAL.1.into())]
+}
+
+/// The exit status of a gate that aborted because its tree moved while it ran: no verdict on the
+/// code, pass or fail (gate.sh's `tree_moved_status`; scripts/AGENTS.md, "A tree that moved
+/// ABORTS the gate").
+pub const GATE_ABORTED: i32 = 75;
 /// How the gate says the keel stopped it (gate.sh's `phase` names).
 const KEEL_FAILED: &[&str] = &["gate: FAILED in keel", "gate: FAILED in door"];
 /// How the gate says a tool it needs is missing, so that a phase could not run
@@ -603,25 +625,31 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
 
 /// Move the tree to a fresh branch for another attempt, from where it is.
 pub fn next_branch(p: &Place, tree: &mut Tree) -> Result<()> {
-    let base = tree.branch.clone();
-    let stem = match base.rsplit_once('-') {
+    let b = next_name(p, &tree.dir, &tree.branch)?;
+    p.git_ok(&tree.dir, &["checkout", "-q", "-b", &b])?;
+    tree.branch = b;
+    Ok(())
+}
+
+/// The first `<stem>-N` (N from 2) that names no branch of the repository `dir` is in, where
+/// the stem is `branch` without its own `-N`.
+pub(super) fn next_name(p: &Place, dir: &Path, branch: &str) -> Result<String> {
+    let stem = match branch.rsplit_once('-') {
         Some((s, n)) if n.chars().all(|c| c.is_ascii_digit()) && s.contains('-') => s.to_string(),
-        _ => base.clone(),
+        _ => branch.to_string(),
     };
     let mut n = 2;
     loop {
         let b = format!("{stem}-{n}");
         let taken = p
             .git(
-                &tree.dir,
+                dir,
                 &["rev-parse", "-q", "--verify", &format!("refs/heads/{b}")],
             )?
             .status
             .success();
         if !taken {
-            p.git_ok(&tree.dir, &["checkout", "-q", "-b", &b])?;
-            tree.branch = b;
-            return Ok(());
+            return Ok(b);
         }
         n += 1;
     }
@@ -728,6 +756,53 @@ pub async fn gate(p: &Place, tree: &Tree) -> Result<Gated> {
 /// unset): the self-join's gate on the merge (theseus-pw1q.9).
 pub async fn gate_with_benches(p: &Place, tree: &Tree) -> Result<Gated> {
     gate_with(p, tree, true).await
+}
+
+/// The tests `expr` names, alone, in the tree: what a red suite's failures get once more
+/// (`rerun`). The gate's own way of running them (L1 in a daemon, nice 19, the tree's own build
+/// folder, which the gate's run left built), without its other phases. Its exit and its log,
+/// kept beside the gate's. The tree stays for as long as it runs (`tree_lease`).
+pub async fn rerun_tests(p: &Place, tree: &Tree, expr: &str) -> Result<(Option<i32>, PathBuf)> {
+    let _lease = super::tree_lease::Lease::take(&[&tree.dir, &tree.target]);
+    std::fs::create_dir_all(p.gates())?;
+    let log = p
+        .gates()
+        .join(format!("{}-rerun.log", tree.branch.replace('/', "-")));
+    let command: Vec<OsString> = [
+        "cargo",
+        "nextest",
+        "run",
+        "--workspace",
+        "--no-fail-fast",
+        "-E",
+        expr,
+    ]
+    .map(OsString::from)
+    .to_vec();
+    let status = match p.jail()? {
+        Some(j) => {
+            let mut argv: Vec<OsString> = vec!["nice".into(), "-n".into(), "19".into()];
+            if on_path("ionice") {
+                argv.extend(["ionice".into(), "-c".into(), "3".into()]);
+            }
+            argv.extend(command);
+            let job = Job {
+                tree,
+                ro: vec![],
+                argv,
+                env: rerun_env(),
+                log: &log,
+                limit: GATE_SILENCE,
+            };
+            j.run(p, job).await.map_err(|e| {
+                e.context("the tests did not run in L1, and a self build never runs at L0")
+            })?
+        }
+        None => {
+            run_niced_command(p, tree, &command, &log, Bound::Silence(GATE_SILENCE), true).await?
+        }
+    };
+    Ok((status, log))
 }
 
 async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
@@ -998,6 +1073,19 @@ pub(super) async fn run_niced(
     bound: Bound,
     benches: bool,
 ) -> Result<Option<i32>> {
+    let command = ["bash".into(), script.as_os_str().to_owned()];
+    run_niced_command(p, tree, &command, log, bound, benches).await
+}
+
+/// `command` in the tree, as [`run_niced`] runs a script.
+async fn run_niced_command(
+    p: &Place,
+    tree: &Tree,
+    command: &[OsString],
+    log: &Path,
+    bound: Bound,
+    benches: bool,
+) -> Result<Option<i32>> {
     let limit = bound.limit();
     let out = std::fs::File::create(log)?;
     let err = out.try_clone()?;
@@ -1005,7 +1093,7 @@ pub(super) async fn run_niced(
     if on_path("ionice") {
         argv.extend(["ionice".into(), "-c".into(), "3".into()]);
     }
-    argv.extend(["bash".into(), script.as_os_str().to_owned()]);
+    argv.extend(command.iter().cloned());
     let mut c = tokio::process::Command::new(&argv[0]);
     c.args(&argv[1..])
         .current_dir(&tree.dir)
@@ -1022,6 +1110,7 @@ pub(super) async fn run_niced(
     if !benches {
         c.env("THESEUS_GATE_NO_BENCH", "1");
     }
+    c.env(CARGO_INCREMENTAL.0, CARGO_INCREMENTAL.1);
     c.env("THESEUS_GATE_ROOT", &tree.dir)
         .env("CARGO_TARGET_DIR", &tree.target)
         .env("RUSTC_WRAPPER", "")

@@ -12,7 +12,7 @@ use super::tests::{git, rig, PROVED, SONNET};
 
 /// The item as the builder left it: in progress, with `conflicts` earlier
 /// conflicts in its evidence.
-fn item(r: &super::tests::Rig, id: &str, conflicts: usize) {
+pub(super) fn item(r: &super::tests::Rig, id: &str, conflicts: usize) {
     let t = TaskRecord {
         id: id.into(),
         version: 3,
@@ -38,7 +38,7 @@ fn item(r: &super::tests::Rig, id: &str, conflicts: usize) {
 }
 
 /// Main moves on with its own `same.txt`, so a branch adding another conflicts.
-fn main_moves(r: &super::tests::Rig) {
+pub(super) fn main_moves(r: &super::tests::Rig) {
     let root = r.f.place.state.parent().unwrap().to_path_buf();
     let other = root.join("mover");
     git(
@@ -56,7 +56,7 @@ fn main_moves(r: &super::tests::Rig) {
     git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
 }
 
-fn conflicting() -> Vec<(&'static str, &'static str)> {
+pub(super) fn conflicting() -> Vec<(&'static str, &'static str)> {
     let mut files = PROVED.to_vec();
     files.push(("same.txt", "mine\n"));
     files

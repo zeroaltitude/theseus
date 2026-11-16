@@ -36,6 +36,7 @@ use serde_json::{json, Value};
 use theseus_protocol::rsi::{SelfBranch, SelfBranchesParams, SelfBranchesResult};
 use theseus_tools::{Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
+use super::rerun;
 use super::tree::{self, GateRun, Place, Tree, Verdict};
 use super::Gate;
 use crate::fact::rsi_pr::SelfBranchBuilt;
@@ -303,6 +304,8 @@ struct Attempt<'a> {
     stopped_at: Option<&'static str>,
     verdict: &'static str,
     diff: (u64, u64, u64),
+    /// The suite's failures that were run once more and passed (`rerun`).
+    reran: Vec<String>,
 }
 
 /// Run `self.propose_change` for the call of `tc`. An error is the result
@@ -403,6 +406,7 @@ pub async fn propose(
         stopped_at: None,
         verdict: "halted",
         diff: (0, 0, 0),
+        reran: vec![],
     };
     let said = attempt(&core, &place, tc, &mut a).await;
     super::infra::watch(
@@ -490,7 +494,7 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, GATE, &why);
     }
-    let run = match gate_ran(a, tree::gate(place, &a.tree).await) {
+    let run = match judged(a, place).await {
         Ok(run) => run,
         Err(out) => return out,
     };
@@ -500,6 +504,14 @@ async fn attempt(
     told(core, tc, a, &run);
     match run.verdict {
         Verdict::Keel => return keel(core, place, tc, a),
+        Verdict::Red if run.aborted() => {
+            return Ok(said(
+                a,
+                "The check kept aborting, so this attempt is red and uses one try. Something \
+                 wrote in your tree while its check ran: the tail names what moved. The tree \
+                 stays open for another attempt.",
+            ))
+        }
         Verdict::Red => return Ok(said(a, "The tree stays open for another attempt.")),
         Verdict::Green => {}
     }
@@ -562,6 +574,40 @@ fn gate_ran(
     }
 }
 
+/// The gate's verdict on the tree, read as a verdict (`rerun`): a check that aborted is run again,
+/// up to [`rerun::ABORT_RERUNS`] more times, and one that kept aborting says so in its own tail; a
+/// red suite whose only failures are tests the change cannot reach is run once more on those
+/// tests, and when they all pass it is green, with the tests named in the report and the row.
+async fn judged(
+    a: &mut Attempt<'_>,
+    place: &Place,
+) -> Result<GateRun, Result<(String, Value), String>> {
+    let mut run = gate_ran(a, tree::gate(place, &a.tree).await)?;
+    let mut again = 0;
+    while run.aborted() && again < rerun::ABORT_RERUNS {
+        again += 1;
+        run = gate_ran(a, tree::gate(place, &a.tree).await)?;
+    }
+    if run.aborted() {
+        run.tail = format!(
+            "gate: the check kept aborting ({} runs, each stopped because its tree moved): it \
+             judged nothing about the code\n{}",
+            again + 1,
+            run.tail
+        );
+    } else if let Some(tests) = rerun::second_look(place, &a.tree, &run).await {
+        a.reran = tests.iter().map(rerun::Failed::name).collect();
+        run.verdict = Verdict::Green;
+        run.tail = format!(
+            "gate: the suite failed only on tests outside what this change reaches, and they \
+             passed when run again alone: {}\n{}",
+            a.reran.join(", "),
+            run.tail
+        );
+    }
+    Ok(run)
+}
+
 /// A halt between phases: the row says where.
 fn halted(a: &mut Attempt<'_>, before: &'static str, why: &str) -> Result<(String, Value), String> {
     a.verdict = "halted";
@@ -611,7 +657,11 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
             .as_ref()
             .map_or_else(|| a.i.item.clone(), |t| t.title.clone()),
         verdict: run.verdict.name().to_string(),
-        phase: failed_phase(&run.tail),
+        phase: if run.aborted() {
+            Some("a check that kept aborting".into())
+        } else {
+            failed_phase(&run.tail)
+        },
         report: a.report.clone(),
     };
     // A red notice already went out for this item tonight: this one is only in the note.
@@ -710,11 +760,13 @@ fn told_on_task(
         == Some(super::infra::Outcome::Infrastructure);
     t.version += 1;
     t.updated_at_ms = now;
+    let kept_aborting = run.aborted().then_some("its check kept aborting; ");
     t.evidence.push(theseus_protocol::tasks::TaskEvidence {
         node: None,
         identity: format!("gate:{}", e.verdict),
         note: Some(format!(
-            "{} (exit {}, {} s)",
+            "{}{} (exit {}, {} s)",
+            kept_aborting.unwrap_or_default(),
             e.line(),
             run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
             run.secs
@@ -846,7 +898,16 @@ fn built(tc: &TurnCtx<'_>, a: &Attempt<'_>) {
         cost_usd: cost_usd(tc),
         stopped_at: a.stopped_at,
         why: &a.i.why,
-        numbers: built_numbers(g, a.diff, a.pushed.is_some()),
+        numbers: {
+            let mut n = built_numbers(g, a.diff, a.pushed.is_some());
+            if !a.reran.is_empty() {
+                n["reran"] = json!(a.reran);
+            }
+            if g.is_some_and(GateRun::aborted) {
+                n["kept_aborting"] = json!(true);
+            }
+            n
+        },
     });
 }
 

@@ -92,6 +92,8 @@ mod tests_lease;
 #[cfg(test)]
 mod tests_main_red;
 #[cfg(test)]
+mod tests_moved;
+#[cfg(test)]
 mod tests_named;
 #[cfg(test)]
 mod tests_notify;
