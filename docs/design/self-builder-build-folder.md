@@ -23,11 +23,10 @@ persists between commands: `<state>/self/builder/<slug>` (`rsi/builder_dir.rs`).
   session with no open tree get the view they always had, and no folder is made for them.
 - **What the view is.** An ordinary L1 job's view (`Sandbox::job_view`: the same workspace overlays, read-only
   paths, hidden list less a mask over a directory that holds the folder, and no network beyond the call's own
-  egress list) plus that one read-write directory, plus one limit of its own: a single file may be 4 GiB
-  (`BUILDER_OUTPUT_MB`), because the link of the core's tests is far past
-  the 64 MiB default and the first real run died of `SIGXFSZ` there. It gets none of the facilities a self build's
-  gate is given (`self_build::FACILITIES`). `[sandbox] scratch_mb`, `output_mb` and every other configured cap are
-  as they were.
+  egress list) plus that one read-write directory, plus four allocations of its own (see "The
+  allocations of the builder's view"): the first real run died of `SIGXFSZ` on the link of the core's tests at the
+  64 MiB default. It gets none of the facilities a self build's
+  gate is given (`self_build::FACILITIES`). The configured `[sandbox]` caps are as they were.
 - **Apart from the gate.** The gate builds in `<state>/self/target/<slug>` (`Tree::target`), in the view
   `Sandbox::self_build_view` makes, which binds the tree and that build tree read-write and nothing under
   `<state>/self/builder`. So what a model compiled is not in the view a verdict is reached in: a gate that wanted
@@ -48,6 +47,44 @@ persists between commands: `<state>/self/builder/<slug>` (`rsi/builder_dir.rs`).
   (`Core::stop_jobs_over_builder_bound`, called from the heartbeat's timer beside `stop_jobs_below_floor`), and its
   result reads "stopped by the build folder's limit". Neither is a silent truncation. The disk floor (`[server]
   disk_floor_mb`, which stops every job) and `[self] min_free_gb` (which holds a start) are still behind it.
+
+## The allocations of the builder's view
+
+The owner, 2026-11-15 17:39:14 (chat message 1571686049867112519): "I think that in all of these, the constraints
+should be relaxed to offer more flexibility for the self builder. larger disk allocations, etc. since our current
+mode is one-at-a-time self improvements, it means we can have relatively generous disk allocations and file
+allocations. so please extend those for flexibility over safety. Removals should be possible, which seems like a
+small change. Generally, this sandbox is too stringent, so, I will tend to favor smart relaxing of the standards
+here to allow for maximum self improvement power".
+
+Every resource cap that applies to a self builder's sandboxed command, what it was, and what it is. The first four
+are the view's own constants (`sandbox/builder_view.rs`), set with `max` so a configured value that is already
+larger is kept. None is a configured default: `[sandbox]` is unchanged and no other job's view has them. Each is a
+ceiling and costs nothing until written, but `/tmp`, `/dev/shm`, HOME and scratch are memory-backed (tmpfs), so what
+a command writes there is memory.
+
+| cap | before (builder's view = an ordinary job's) | now | why |
+|---|---|---|---|
+| a single file (`RLIMIT_FSIZE`, `output_mb`) | 64 MiB (4 GiB in the first cut of this branch) | 16 GiB | the link of the core's tests died of `SIGXFSZ` at 64 MiB; equal to the gate's view |
+| scratch, the overlays' writes (`scratch_mb`) | 1 GiB | 16 GiB | cargo's registry and cache writes; the first real core test build filled 1 GiB |
+| each of `/tmp`, `/dev/shm`, HOME (`tmp_mb`) | 1 GiB | 16 GiB | compiler and linker temporaries, a test run's fixtures |
+| processes (`RLIMIT_NPROC`, `pids`) | 512 | 32,768 | parallel compilers and a test run's children on a many-core box (the gate's view: 8,192) |
+| the build folder (`rsi::builder_dir::MAX_BYTES`) | none (did not exist) | 48 GiB | measured worst case 37.9 GiB plus a quarter |
+| open files (`RLIMIT_NOFILE`) | the daemon's own, none set by L1 | unchanged | L1 sets no limit of its own |
+| memory | none (L1 has no cgroup) | unchanged | no limit to relax |
+| wall time of one call (`[tools] proc_timeout_max_secs`) | 3,600 s | unchanged | a configured `[tools]` value for every session, not a property of this view; a cold whole-workspace build measured 335 s |
+
+Not allocations, and not changed: the network (none beyond the call's own egress list), what is readable, the
+hidden list (secrets, the store, the socket, the sealed sets), the facilities the gate's view alone is given, and the
+rule that the gate never reads what the builder compiled.
+
+## Removal
+
+A build's code runs with write access to its folder, and a directory it leaves without the owner's write bit made a
+plain `remove_dir_all` fail with `EACCES`, so `tree::close` errored after the worktree was gone and the stale-item
+cleanup errored every tick. `tree::remove_all` removes a path, and when that is refused makes each directory under it
+owner-writable (never following a link) and removes it again. It is used for the builder's folder, the gate's build
+tree (`tree::close`, `pipeline::clear`) and the install's build tree (`install::reap_target`).
 
 ## Measured
 

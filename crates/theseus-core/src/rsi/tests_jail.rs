@@ -551,23 +551,30 @@ fn the_builders_view_is_an_ordinary_jobs_with_one_directory_added() {
     );
     assert_eq!(ordinary.facilities, theseus_sandbox::Facilities::NONE);
     assert_eq!(view.facilities, theseus_sandbox::Facilities::NONE);
-    // One limit is the view's own, for a linker's output; no configured cap is changed.
+    // Four allocations are the view's own (the owner, 2026-11-15 17:39:14), pinned to the values
+    // decided so that a change is made on purpose; the configured caps are untouched.
     assert_eq!(
-        view.limits.output_mb,
-        crate::sandbox::BUILDER_OUTPUT_MB.max(ordinary.limits.output_mb)
-    );
-    assert_eq!(
+        view.limits,
         theseus_sandbox::Limits {
-            output_mb: ordinary.limits.output_mb,
-            ..view.limits
-        },
-        ordinary.limits,
-        "every other limit is an ordinary job's"
+            scratch_mb: 16 * 1024,
+            tmp_mb: 16 * 1024,
+            output_mb: 16 * 1024,
+            pids: 32 * 1024,
+        }
     );
     assert_eq!(
-        ordinary.limits.output_mb, cfg.output_mb,
-        "the configured cap stands"
+        ordinary.limits,
+        theseus_sandbox::Limits::default(),
+        "an ordinary job's limits are the configured ones, as they were"
     );
+    assert_eq!(ordinary.limits.output_mb, cfg.output_mb);
+    assert_eq!(ordinary.limits.scratch_mb, cfg.scratch_mb);
+    // A configured value already larger is kept, never lowered.
+    let mut big = sb.job_view();
+    big.limits.pids = 100_000;
+    big.limits.output_mb = 99_999;
+    let kept = Sandbox::with_builder_folder(big, &folder);
+    assert_eq!((kept.limits.pids, kept.limits.output_mb), (100_000, 99_999));
     assert!(view.egress.is_empty(), "no network");
     // Only a mask over what holds the folder is lifted; the rest of the floor stays hidden.
     ordinary.hidden.retain(|h| h != Path::new("/state"));
@@ -581,5 +588,45 @@ fn the_builders_view_is_an_ordinary_jobs_with_one_directory_added() {
     assert_eq!(
         (k.as_str(), v.as_str()),
         ("CARGO_TARGET_DIR", "/state/self/builder/t")
+    );
+}
+
+/// Removal of a tree's folders works though a build made part of them read-only: a plain
+/// `remove_dir_all` is refused on such a directory, and the cleanups that call `remove_all` were
+/// failing every tick. A directory with no read bit, one with no write bit, a link out of the folder
+/// (which is never followed), and a read-only file inside all go, and what the link names stays.
+#[test]
+fn a_folder_a_build_made_read_only_is_still_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(outside.join("keep")).unwrap();
+    std::fs::write(outside.join("keep/file"), "mine").unwrap();
+    let folder = dir.path().join("folder");
+    for d in ["a/b", "locked/inner", "ro/x"] {
+        std::fs::create_dir_all(folder.join(d)).unwrap();
+    }
+    std::fs::write(folder.join("a/b/f"), "x").unwrap();
+    std::fs::write(folder.join("ro/x/f"), "x").unwrap();
+    std::fs::set_permissions(
+        folder.join("ro/x/f"),
+        std::fs::Permissions::from_mode(0o400),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("a/link")).unwrap();
+    for (d, mode) in [
+        ("locked/inner", 0o000),
+        ("locked", 0o000),
+        ("ro/x", 0o500),
+        ("ro", 0o500),
+    ] {
+        std::fs::set_permissions(folder.join(d), std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    super::tree::remove_all(&folder).unwrap();
+    assert!(!folder.exists(), "removed");
+    assert_eq!(
+        std::fs::read_to_string(outside.join("keep/file")).unwrap(),
+        "mine",
+        "a link out of the folder is not followed"
     );
 }

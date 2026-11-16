@@ -855,7 +855,7 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
             }
         }
         if target.exists() {
-            std::fs::remove_dir_all(&target)?;
+            tree::remove_all(&target)?;
             gone.push(target.display().to_string());
         }
         // The builder's build folder: `tree::close` took it with the tree, so this is one a

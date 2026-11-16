@@ -116,12 +116,17 @@ async fn a_self_builders_sandboxed_command_keeps_one_directory_and_builds_in_it(
     rest.rw.clear();
     let mut ordinary = r.core.tools.sandbox.job_view();
     ordinary.egress.clone_from(&rest.egress);
-    // One limit is the view's own, for a linker's file; the configured cap is untouched.
+    // The view's own allocations (the owner, 2026-11-15 17:39:14); every other limit is the job's.
     assert_eq!(
-        rest.limits.output_mb,
-        crate::sandbox::BUILDER_OUTPUT_MB.max(ordinary.limits.output_mb)
+        (
+            rest.limits.scratch_mb,
+            rest.limits.tmp_mb,
+            rest.limits.output_mb,
+            rest.limits.pids
+        ),
+        (16 * 1024, 16 * 1024, 16 * 1024, 32 * 1024)
     );
-    rest.limits.output_mb = ordinary.limits.output_mb;
+    rest.limits = ordinary.limits;
     assert_eq!(rest, ordinary);
     assert!(ordinary.rw.is_empty());
     // And it is not the gate's build tree, nor in the tree, nor a slot.
@@ -230,12 +235,30 @@ async fn closing_a_tree_removes_its_folder_and_opening_one_starts_with_none() {
         let t = tree::open(&r.f.place, id, theseus_protocol::now_unix_ms()).unwrap();
         let folder = builder_dir::ensure(&state, id).unwrap();
         std::fs::write(folder.join("lib.rlib"), "what a builder compiled").unwrap();
+        // A build left part of it read-only; and the gate's build tree too: both still go.
+        let target_too = if keeping {
+            vec![]
+        } else {
+            vec![t.target.join("ro/x")]
+        };
+        for d in std::iter::once(folder.join("ro/x")).chain(target_too) {
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("f"), "x").unwrap();
+            std::fs::set_permissions(&d, std::os::unix::fs::PermissionsExt::from_mode(0o500))
+                .unwrap();
+            std::fs::set_permissions(
+                d.parent().unwrap(),
+                std::os::unix::fs::PermissionsExt::from_mode(0o500),
+            )
+            .unwrap();
+        }
         if keeping {
             tree::close_keeping_target(&r.f.place, &t).unwrap();
         } else {
             tree::close(&r.f.place, &t).unwrap();
         }
         assert!(!folder.exists(), "closed (keeping the target: {keeping})");
+        assert_eq!(t.target.exists(), keeping, "the gate's build tree");
     }
     // Left behind by an earlier item of the name (a close that could not finish): not inherited.
     let stale = builder_dir::ensure(&state, "gale").unwrap();

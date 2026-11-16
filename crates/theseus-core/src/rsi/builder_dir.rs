@@ -31,10 +31,16 @@ use std::path::{Path, PathBuf};
 /// The most disk a builder's build folder may hold: 48 GiB. Measured on a fleet box, a debug build of the
 /// core's tests leaves 8.1 GiB, a build of the whole workspace's tests 32.6 GiB, and a package's
 /// tests built on top of that one (another feature set) 37.9 GiB (`docs/design/self-builder-build-folder.md`).
-/// So this holds the largest build the builder is asked to make with a quarter to spare, and no more: a
-/// build that runs away is stopped here, not at the disk's floor. The owner's yes was for about 10 GB an
-/// item, which is what an ordinary item uses; this is the most one may, and a limit of this folder alone,
-/// no existing cap's default.
+/// So this holds the largest build the builder is asked to make with a quarter to spare. The owner's
+/// yes was for about 10 GB an item, which is what an ordinary item uses; he has since asked for
+/// generous allocations for the self builder (2026-11-15 17:39:14, chat message 1571686049867112519:
+/// "larger disk allocations, etc. ... extend those for flexibility over safety"), and this stands.
+///
+/// **How it is enforced, and how well.** Nothing meters a command's writes as they happen (L1 has no
+/// quota). The folder is measured when a command starts, which then refuses it, and by the daemon on
+/// the heartbeat's timer (60 s by default, `Core::stop_jobs_over_builder_bound`), which stops a running
+/// command. So a build can write past this by whatever it writes between two looks; the disk's floor
+/// is the backstop there. A limit of this folder alone, and no existing cap's default.
 pub const MAX_BYTES: u64 = 48 * 1024 * 1024 * 1024;
 
 /// [`MAX_BYTES`]; a test sets a bound it can reach (`set_max_for_test`).
@@ -87,7 +93,7 @@ pub fn remove(state: &Path, slug: &str) -> std::io::Result<Option<u64>> {
         return Ok(None);
     }
     let held = size(&dir);
-    std::fs::remove_dir_all(&dir)?;
+    super::tree::remove_all(&dir)?;
     Ok(Some(held))
 }
 

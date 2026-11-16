@@ -1225,6 +1225,39 @@ fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
     Ok(out)
 }
 
+/// Remove `path` and all it holds, though a build made part of it read-only.
+///
+/// A build's code runs with write access to its build folder, and a directory it leaves without
+/// the owner's write bit (cargo's own `chmod`s, a test that makes a fixture read-only, a script)
+/// makes a plain `remove_dir_all` fail with `EACCES`. The loop's cleanups then failed on every
+/// tick and the item's slot stayed taken. So a first plain removal is tried, and only when it is
+/// refused each directory under `path` is made owner-writable (links are never followed) and the
+/// removal is made again. The owner's word, 2026-11-15 17:39:14 (chat message 1571686049867112519):
+/// "Removals should be possible, which seems like a small change."
+pub(crate) fn remove_all(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_dir_all(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {}
+        done => return done,
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(meta) = dir.symlink_metadata() else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let mode = meta.permissions().mode();
+        // Before the listing: a directory with no read bit cannot be listed either.
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode | 0o700));
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            stack.extend(entries.flatten().map(|e| e.path()));
+        }
+    }
+    std::fs::remove_dir_all(path)
+}
+
 /// Remove the tree and its build tree; the branch stays in the repo.
 pub fn close(p: &Place, tree: &Tree) -> Result<()> {
     close_with(p, tree, true)
@@ -1255,7 +1288,7 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     p.git_ok(&p.repo, &["worktree", "remove", "--force", &d])?;
     let _ = p.git(&p.repo, &["worktree", "prune"]);
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
-        std::fs::remove_dir_all(&tree.target)?;
+        remove_all(&tree.target)?;
     }
     // The builder's own build folder goes with its tree, whichever way the tree is closed.
     super::builder_dir::remove(&p.state, &tree.slug)?;
