@@ -43,7 +43,13 @@ impl Core {
             let seams = Seams::default();
             loop {
                 let Some(c) = core.upgrade() else { return };
-                match c.pipeline_tick(&seams).await {
+                let ran = crate::resident::activity::ran(
+                    crate::resident::activity::Kind::Job,
+                    "self.pipeline.tick",
+                );
+                let tick = c.pipeline_tick(&seams).await;
+                drop(ran);
+                match tick {
                     Ok(t) => {
                         if !t.started.is_empty() || !t.said.is_empty() || !t.stopped.is_empty() {
                             tracing::info!(started = ?t.started, said = ?t.said, stopped = ?t.stopped,

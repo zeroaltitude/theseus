@@ -512,6 +512,8 @@ impl TurnRunner {
         if self.outbox.stopping() {
             return Outcome::Stopping;
         }
+        let _ran =
+            crate::resident::activity::ran(crate::resident::activity::Kind::Job, "keep_warm.once");
         match theseus_store::blocking(|| self.keep_warm_prepare(session_id, live)) {
             Ok((b, execution)) => self.keep_warm_send(session_id, b, execution).await,
             Err(o) => o,

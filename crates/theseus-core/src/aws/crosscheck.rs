@@ -31,6 +31,7 @@ use serde_json::{json, Value};
 use super::session::Kind;
 use super::trail::Event;
 use super::{Account, Failure, Request, Signer};
+use crate::ledger::LedgerRow;
 
 /// How often the check runs, and how late it reads.
 pub const EVERY: Duration = Duration::from_secs(24 * 3600);
@@ -134,6 +135,33 @@ pub(super) fn unaccounted(
     (ours, out)
 }
 
+/// What the ledger's tail the check read holds, by kind, for the memory
+/// record (issue 21): the check decodes the ledger's last 100,000 rows at once, one hour
+/// after every start, and what that weighs is the rows' own size, which a
+/// count of rows does not say. Walked only when the process is already over
+/// `PEAK_FLOOR`, so the pass that is not a peak pays nothing; the eight
+/// kinds that weigh most are noted, each with its rows and bytes. Returns
+/// the tail's bytes, 0 where it was not walked.
+pub(super) fn note_tail(rows: &[(u64, LedgerRow)]) -> u64 {
+    use crate::resident::activity::{counted, json_len, Kind};
+    if crate::resident::rss_bytes() <= crate::resident::PEAK_FLOOR {
+        return 0;
+    }
+    let mut by_kind: std::collections::HashMap<&str, (u64, u64)> = Default::default();
+    for (_, r) in rows {
+        let e = by_kind.entry(r.kind.as_str()).or_default();
+        e.0 += 1;
+        e.1 += json_len(&r.data);
+    }
+    let total = by_kind.values().map(|v| v.1).sum();
+    let mut kinds: Vec<_> = by_kind.into_iter().collect();
+    kinds.sort_by(|a, b| (b.1 .1, a.0).cmp(&(a.1 .1, b.0)));
+    for (kind, (n, bytes)) in kinds.into_iter().take(8) {
+        counted(Kind::Job, &format!("aws.crosscheck.tail/{kind}"), n, bytes);
+    }
+    total
+}
+
 /// The window's events, from CloudTrail's history in the account's region.
 pub(super) async fn events(account: &Arc<Account>, now_ms: u64) -> Result<Vec<Event>, Failure> {
     let end = now_ms / 1000 - LAG.as_secs();
@@ -152,7 +180,12 @@ pub(super) async fn events(account: &Arc<Account>, now_ms: u64) -> Result<Vec<Ev
         class: "read",
         signer: Signer::As(Kind::Tender(super::tend::TENDER)),
     };
+    let mut ran = crate::resident::activity::ran(
+        crate::resident::activity::Kind::Job,
+        "aws.crosscheck.events",
+    );
     let out = account.request(None, &req).await?;
+    ran.bytes(crate::resident::activity::json_len(&out.body));
     Ok(out.body["Events"]
         .as_array()
         .into_iter()
