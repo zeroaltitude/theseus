@@ -29,7 +29,11 @@ CALIBRATION = [
     ("crates/theseus-voice/src/songbird_io.rs", "act", 51),
     ("crates/theseus-ontology/src/compose.rs", "compose", 95),
     ("crates/theseus-ontology/src/kind.rs", "interpreted_seeds", 96),
-    ("crates/theseus-ontology/src/ontology.rs", "load", 96),
+    # `load` was 96 until issue 21 made it a one-line wrapper over `load_with` (and `load_lists` split out of that): the row
+    # follows the large body. Measured with `too-many-lines-threshold = 40` in a scratch clippy.toml at base 9fa595f0:
+    # clippy said 68 for `load_with` (ontology.rs:296), the script says 68, and the same run agreed on `check` 88,
+    # `check_category` 84 and `check_table` 59 in that file.
+    ("crates/theseus-ontology/src/ontology.rs", "load_with", 68),
     ("crates/theseus-ontology/src/person.rs", "merge", 98),
     # 93 until the function was shortened: it reads 55 now, and clippy reads 55 too (the diff of the whole workspace at
     # threshold 40, issue 14, agreed at store.rs:1864). The stale row, not a counting bug, was the "55 against 93" that
