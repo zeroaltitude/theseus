@@ -963,16 +963,23 @@ async fn a_link_where_the_build_folder_goes_is_not_the_sessions_own() {
             swap(t, root);
             json!({"command": "rm -f notes.txt", "sandbox": true, "cwd": t.parent().unwrap()})
         };
+        // The folder is no place, so the session is no builder and its sandboxed call is given NO
+        // read-write bind: it may run unheld, and what it removes is its overlay.
         let (r, sid) = drive("self", "proc_run", line, nothing);
         r.turn(&sid).await;
         assert!(
-            r.was_held(&sid),
+            !r.was_held(&sid),
             "{name}, shell line: {:?}",
             r.results(&sid)
         );
+        let jobs = jobs_of(&sid);
+        assert_eq!(jobs.len(), 1, "{name}: {:?}", r.results(&sid));
+        let view = jobs[0].sandbox.as_ref().expect("an L1 job");
         assert!(
-            jobs_of(&sid).is_empty(),
-            "{name}: a held call starts no job"
+            view.rw.is_empty(),
+            "{name}: no bind to the link: {:?}",
+            view.rw
         );
+        assert!(r.target.exists(), "{name}: the workspace file is there");
     }
 }
