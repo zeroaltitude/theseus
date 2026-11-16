@@ -84,6 +84,16 @@ fn anon_file_mib() -> (f64, f64) {
     (anon, rss - anon)
 }
 
+/// A stage reached, on stderr, so a long run says where it is.
+fn stage(what: &str) {
+    eprintln!(
+        "[measure {:.0} s] {what}",
+        START.get_or_init(Instant::now).elapsed().as_secs_f64()
+    );
+}
+
+static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
 fn ms(t: Instant) -> f64 {
     t.elapsed().as_secs_f64() * 1e3
 }
@@ -271,14 +281,17 @@ fn measure_the_hot_set() {
         return;
     }
     let now_ms = now_unix_ms();
+    stage("start");
     let (anon0, file0) = anon_file_mib();
     let t0 = Instant::now();
     let v = start(&dir, n, now_ms);
+    stage("table built");
     let (anon1, file1) = anon_file_mib();
     let mut out = String::new();
     let _ = writeln!(out, "nodes {n}, centres {centres}, noise {noise}: start {:.1} s; anonymous {anon0:.1} -> {anon1:.1} MiB, file-backed {file0:.1} -> {file1:.1} MiB", t0.elapsed().as_secs_f64());
     let t1 = Instant::now();
     v.layout_now("measure");
+    stage("layout made");
     let _ = writeln!(
         out,
         "layout in {:.0} ms: {:?}",
@@ -293,6 +306,7 @@ fn measure_the_hot_set() {
         v.cfg.resident_mb
     );
     let queries = search_lines(&v, &dir, &mut out);
+    stage("searches done");
     // What a promotion costs, and a query held by a layout.
     let t6 = Instant::now();
     v.on_signals(&[heat::Signal::Label {
@@ -331,8 +345,15 @@ fn held_by_a_layout(v: &Vectors, queries: &[Vec<f32>], cut: usize, f: &RowFilter
     let mut during: Vec<f64> = Vec::new();
     std::thread::scope(|s| {
         s.spawn(|| {
+            // However it ends (a panic too), the loop below is told.
+            struct Done<'a>(&'a AtomicBool);
+            impl Drop for Done<'_> {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+            let _done = Done(&done);
             v.layout_now("measure again");
-            done.store(true, Ordering::SeqCst);
         });
         let mut k = 0;
         while !done.load(Ordering::SeqCst) {
