@@ -548,6 +548,7 @@ async fn a_keep_warm_read_between_turns_sends_what_the_next_turn_sends() {
     });
     let core = build_with(dir.path(), c, fake.clone());
     let sid = session(&core, SessionKind::Conversation, None);
+    core.runner.keep_warm.message(&sid, true);
     say(&core, &sid, "what does the tide table say?")
         .await
         .unwrap();

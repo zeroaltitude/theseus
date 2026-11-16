@@ -149,7 +149,7 @@ fn put_back(
 
 impl SentTails {
     /// The tails a conversation's earlier requests sent, put back on a request made for it
-    /// outside a turn (the keep-warm read, the census), so that it is the prefix the next turn
+    /// outside a turn (the keep-warm read), so that it is the prefix the next turn
     /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to.
     /// Nothing is kept or changed here, and a request for a model of restricted origin gets none.
     pub(crate) fn warm(&self, session: &str, restricted: bool, compiled: &mut Compiled) {
