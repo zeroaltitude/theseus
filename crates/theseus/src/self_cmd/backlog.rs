@@ -160,12 +160,27 @@ pub async fn retry_item(conn: &mut Conn, json: bool, item: String) -> Result<()>
         .request(method::SELF_RETRY, serde_json::to_value(&p)?)
         .await?;
     output(json, v, |r: SelfRetryResult| {
-        println!(
-            "Retrying {} ({}): it is ready again at rank {}, and the pipeline starts it on its next free slot.",
-            r.item, r.title, r.rank
-        );
+        println!("{}", retry_words(&r));
         Ok(())
     })
+}
+
+/// What a retry's answer says in words: a failed item is queued again; a held change is checked
+/// by its join again, which is not a try.
+pub(crate) fn retry_words(r: &SelfRetryResult) -> String {
+    match r.rechecked {
+        true => format!(
+            "Checking {} ({}) again: its join runs every check from the first, with no new build \
+             and no new review. It joins only if nothing stops it, is held at your card again if \
+             something does, and is closed as joined by hand if it is on main already. This is \
+             not a try.",
+            r.item, r.title
+        ),
+        false => format!(
+            "Retrying {} ({}): it is ready again at rank {}, and the pipeline starts it on its next free slot.",
+            r.item, r.title, r.rank
+        ),
+    }
 }
 
 pub async fn file_item(
@@ -277,6 +292,25 @@ mod tests {
             session: None,
             filed_ms: 0,
         }
+    }
+
+    #[test]
+    fn a_retry_of_a_held_change_says_it_is_checked_again_and_is_not_a_try() {
+        let mut r = SelfRetryResult {
+            item: "tsk_sails".into(),
+            title: "Trim the sails".into(),
+            rank: 0,
+            rechecked: true,
+        };
+        let said = retry_words(&r);
+        assert!(
+            said.contains("every check from the first") && said.contains("not a try"),
+            "{said}"
+        );
+        assert!(!said.contains("rank"), "{said}");
+        r.rechecked = false;
+        r.rank = 2;
+        assert!(retry_words(&r).contains("ready again at rank 2"));
     }
 
     /// The list shows rank, id, state, score, count, the keel mark and the

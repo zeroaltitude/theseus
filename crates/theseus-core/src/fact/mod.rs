@@ -574,6 +574,7 @@ facts![
     rsi_join::SelfJoined,
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
+    rsi_join::SelfJoinReopened,
     rsi_narrow::NarrowProposed,
     rsi_narrow::NarrowApplied,
     rsi_narrow::NarrowDeclined,

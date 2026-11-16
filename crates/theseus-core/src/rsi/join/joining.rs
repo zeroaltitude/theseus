@@ -249,9 +249,7 @@ impl Run<'_> {
             let base = git::main_of(&p, &r)?;
             let on_main = p.git(&p.repo, &["merge-base", "--is-ancestor", &h, &base])?;
             if on_main.status.success() {
-                return Ok(Err(Refused::Held(
-                    "its head is on main already: there is nothing to join".to_string(),
-                )));
+                return Ok(Err(Refused::OnMain));
             }
             if let Err(why) = git::dry_run(&p, &base, &h)? {
                 return Ok(Err(Refused::Conflict(why)));
@@ -268,8 +266,14 @@ impl Run<'_> {
         .await?;
         match merged {
             Ok(m) => Ok(Some(m)),
-            Err(Refused::Held(why)) => {
-                self.hold("merge", &why, Value::Null);
+            // The owner's retry found the head on main: he joined it by hand, so it is done.
+            Err(Refused::OnMain) if self.reopened => {
+                self.joined_by_hand()?;
+                Ok(None)
+            }
+            Err(Refused::OnMain) => {
+                let why = "its head is on main already: there is nothing to join";
+                self.hold("merge", why, Value::Null);
                 Ok(None)
             }
             Err(Refused::Conflict(why)) => {
@@ -277,6 +281,39 @@ impl Run<'_> {
                 Ok(None)
             }
         }
+    }
+
+    /// The owner's retry found the head on main, which he put there by hand: the item is done,
+    /// as a join would have left it, and its cause is not forbidden. Only an item still in
+    /// progress is closed; one the owner dropped meanwhile stays as he left it. The stop's row
+    /// says `by_hand`, which the queues and the pass read as joined, and is no hold.
+    fn joined_by_hand(&mut self) -> Result<()> {
+        let identity = format!(
+            "joined-by-hand:{}@{}",
+            self.b.branch,
+            &self.b.head[..self.b.head.len().min(12)]
+        );
+        if let Some(mut task) = crate::task_graph::get(&self.core.store, &self.b.item)? {
+            if task.state == TaskState::InProgress {
+                let now = theseus_protocol::now_unix_ms();
+                task.state = TaskState::Done;
+                task.version += 1;
+                task.updated_at_ms = now;
+                task.evidence.push(TaskEvidence {
+                    node: None,
+                    identity,
+                    note: Some("its head is on main: the owner joined it by hand".into()),
+                    by: "self-join".into(),
+                    at_ms: now,
+                });
+                self.core
+                    .store
+                    .append(&[crate::task_graph::record(&task)?])?;
+            }
+        }
+        let why = "its head is on main already, joined by hand, so it is closed as done";
+        self.stop("merge", why, json!({"by_hand": true}));
+        Ok(())
     }
 
     /// The branch conflicts with main: the item goes back to `proposed`, and
@@ -424,9 +461,12 @@ pub(crate) fn keel_card(
     lines: &str,
     stat: &str,
 ) -> String {
+    let cmd = theseus_protocol::rsi::retry_command(item);
     let body = format!(
         "{lines}The change:\n```\n{stat}\n```\nJoin it by hand when you agree, or drop it; Theseus never \
-         joins it on its own."
+         joins it on its own. If it was held by mistake, or has changed since, `{cmd}` has Theseus \
+         check it again from the first check: it joins only if nothing stops it, and is held here \
+         again, with a new card, if it still does."
     );
     crate::owner_note::note(
         crate::owner_note::Kind::Decision,
@@ -442,7 +482,10 @@ pub(crate) fn merge_keel_card(branch: &str, item: &str, log: &str) -> String {
         crate::owner_note::Kind::Decision,
         &format!("Self branch {branch} needs your yes to join"),
         &format!("main's keel guard stopped its merge ({item})"),
-        &format!("Its gate log: {log}."),
+        &format!(
+            "Its gate log: {log}. To have Theseus check it again from the first check, run `{}`.",
+            theseus_protocol::rsi::retry_command(item)
+        ),
     )
 }
 
@@ -452,7 +495,11 @@ pub(crate) fn unsigned_card(branch: &str, item: &str) -> String {
         crate::owner_note::Kind::Action,
         &format!("Set a signing key to join self branch {branch}"),
         &format!("it passed its review and main's gate ({item}), but [self] repo names no user.signingkey"),
-        "Without one, an unsigned merge never reaches main. Set one for the repo, or join it by hand.",
+        &format!(
+            "Without one, an unsigned merge never reaches main. Set one for the repo and run `{}` \
+             to have Theseus check it again, or join it by hand.",
+            theseus_protocol::rsi::retry_command(item)
+        ),
     )
 }
 
@@ -464,8 +511,8 @@ const MAX_CONFLICTS: usize = 3;
 
 /// Why the merge did not go ahead.
 enum Refused {
-    /// The head is held for the owner (it is on main already).
-    Held(String),
+    /// The head is on main already: there is nothing to join.
+    OnMain,
     /// The head conflicts with main: the item is built again.
     Conflict(String),
 }

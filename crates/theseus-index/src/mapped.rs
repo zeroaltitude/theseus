@@ -33,8 +33,20 @@ pub struct Map {
 }
 
 impl Map {
-    /// Map all of `f` (an empty file maps to no bytes).
+    /// Map all of `f` (an empty file maps to no bytes), for a read from
+    /// front to back.
     pub fn of(f: &File) -> io::Result<Map> {
+        Self::with_advice(f, libc::MADV_SEQUENTIAL)
+    }
+
+    /// Map all of `f` for reads wherever they fall: no readahead advice, so a
+    /// scan or a lookup pulls in only the pages it touches (the vector
+    /// table's columns, issue 21 of 1.0.7).
+    pub fn random(f: &File) -> io::Result<Map> {
+        Self::with_advice(f, libc::MADV_NORMAL)
+    }
+
+    fn with_advice(f: &File, advice: libc::c_int) -> io::Result<Map> {
         let len = usize::try_from(f.metadata()?.len()).map_err(io::Error::other)?;
         if len == 0 {
             return Ok(Map {
@@ -58,8 +70,17 @@ impl Map {
             return Err(io::Error::last_os_error());
         }
         // SAFETY: the range just mapped. Advice only: its failure is harmless.
-        unsafe { libc::madvise(ptr, len, libc::MADV_SEQUENTIAL) };
+        unsafe { libc::madvise(ptr, len, advice) };
         Ok(Map { ptr, len })
+    }
+
+    /// `len` bytes at `at` as int8 numbers (the vector table's cuts). The
+    /// range is checked; an `i8` and a `u8` have one layout.
+    pub fn i8s(&self, at: usize, len: usize) -> &[i8] {
+        let b = &self.bytes()[at..at + len];
+        // SAFETY: the same bytes, the same length, and `i8` has no alignment
+        // or validity requirement beyond `u8`'s.
+        unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<i8>(), b.len()) }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -70,6 +91,30 @@ impl Map {
         // A file truncated under the map would fault (SIGBUS): the weights
         // directory is the tender's, written only by the fetch.
         unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.len) }
+    }
+
+    /// Ask the kernel to read `[at, at + len)` in now, in one run, rather than
+    /// a page at a time as a scan reaches it: a scan over a file the kernel has
+    /// dropped from its cache costs one sequential read, not a fault a page.
+    /// A page already cached costs the call a look and no read.
+    pub fn will_need(&self, at: usize, len: usize) {
+        if len == 0 || self.len == 0 {
+            return;
+        }
+        let page = page_size();
+        let start = at / page * page;
+        let end = (at + len).min(self.len);
+        if end <= start {
+            return;
+        }
+        // SAFETY: a page-aligned range inside the mapping; advice only.
+        unsafe {
+            libc::madvise(
+                self.ptr.cast::<u8>().add(start).cast(),
+                end - start,
+                libc::MADV_WILLNEED,
+            );
+        }
     }
 
     /// Let `[at, at + len)`'s pages go from the resident set: the next read
@@ -96,6 +141,13 @@ impl Map {
         }
     }
 }
+
+// SAFETY: a `Map` is a read-only mapping that nothing writes through; the bytes
+// it hands out are shared immutably, so it may move between threads and be read
+// from several at once. (A file truncated under it would fault, as `bytes` says.)
+unsafe impl Send for Map {}
+// SAFETY: as above.
+unsafe impl Sync for Map {}
 
 impl Drop for Map {
     fn drop(&mut self) {

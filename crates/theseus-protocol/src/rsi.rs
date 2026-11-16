@@ -88,6 +88,14 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               on the owner's card, a red gate on the merge, no signing key, or a lost race.",
     },
     SelfRowKind {
+        name: "self.join.reopened",
+        fields: &["item", "branch", "head", "by"],
+        doc:
+            "The owner's `self retry` on a change its join holds: that head is no longer held, so \
+              the next pass runs the join on it again from its first check. It is the owner's \
+              word only, and it joins nothing by itself.",
+    },
+    SelfRowKind {
         name: "self.reverted",
         fields: &["merge", "revert", "signal", "window"],
         doc: "A join reverted on its own after a red: the signal that turned red, and the revert \
@@ -703,13 +711,19 @@ pub struct SelfRetryParams {
     pub from_job: Option<String>,
 }
 
-/// `self.retry`'s answer: the item is proposed again, at this rank.
+/// `self.retry`'s answer: the item is proposed again, at this rank; or, with `rechecked`, its
+/// finished change that a join holds goes through the join again from the first check.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SelfRetryResult {
     pub item: String,
     pub title: String,
+    /// Where the item ranks now; 0 when `rechecked`, because it is not on the backlog's list.
     pub rank: u32,
+    /// The item was not queued again: its held change is checked by the join again, and is
+    /// joined only if every check passes. Not a try.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rechecked: bool,
 }
 
 /// `self.file`'s params (theseus-cux0o): a person hands the self loop a
