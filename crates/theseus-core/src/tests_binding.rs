@@ -572,8 +572,7 @@ async fn a_keep_warm_read_between_turns_sends_what_the_next_turn_sends() {
     );
     let turn_two: Vec<_> = all
         .iter()
-        .filter(|q| q.max_tokens != MAX_TOKENS && q.messages.len() >= n)
-        .skip(1)
+        .filter(|q| q.max_tokens != MAX_TOKENS && q.messages.len() > n)
         .cloned()
         .collect();
     assert!(turn_two.len() >= 2, "{} requests", turn_two.len());
