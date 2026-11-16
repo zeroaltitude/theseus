@@ -8,7 +8,8 @@
 //! (scratch is 1 GB) and, had it fit, every command would have started from
 //! nothing. So while an item is being built its builder's commands get one
 //! read-write directory, `<state>/self/builder/<slug>`, and cargo is pointed
-//! at it (`CARGO_TARGET_DIR`, and `TMPDIR` for temporary files). Design note: `docs/design/self-builder-build-folder.md`.
+//! at it (`CARGO_TARGET_DIR`, and `TMPDIR` for temporary files). Design
+//! note: `docs/design/self-builder-build-folder.md`.
 //!
 //! - **Its own, and apart from the gate's.** The gate builds in
 //!   `<state>/self/target/<slug>` ([`super::tree::Tree::target`]); this folder

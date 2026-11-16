@@ -63,7 +63,7 @@ Every resource cap that applies to a self builder's sandboxed command, what it w
 are the view's own constants (`sandbox/builder_view.rs`), set with `max` so a configured value that is already
 larger is kept. None is a configured default: `[sandbox]` is unchanged and no other job's view has them.
 
-**Generous on disk, bounded in memory** (Tabitha, 2026-11-15 18:35, on this machine's 24 GB). `/tmp`, `/dev/shm`, HOME
+**Generous on disk, bounded in memory** (Tabitha/Claude, 2026-11-15 18:35, on this machine's 24 GB). `/tmp`, `/dev/shm`, HOME
 and scratch are all tmpfs mounts (`theseus-sandbox` `view.rs`), so what a command writes there is RAM, and nothing
 puts a memory limit behind it. Each is therefore 4 GiB (four times the default), 16 GiB in all if every one filled,
 and the large temporaries are kept out of them: the builder's `TMPDIR` is the folder's own `tmp/` directory, on disk
