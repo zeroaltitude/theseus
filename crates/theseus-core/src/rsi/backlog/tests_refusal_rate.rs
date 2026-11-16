@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
 use super::refusals::{
-    held, is_spike, said, Tally, HISTORY_MIN_CALLS, MIN_REFUSALS, REFILE_NIGHTS,
+    held, is_spike, said, spikes, Tally, HISTORY_MIN_CALLS, MIN_REFUSALS, REFILE_NIGHTS,
 };
 use super::state::{Meta, State};
 use crate::task_graph;
@@ -103,4 +103,54 @@ fn a_cause_is_held_while_open_and_for_seven_nights_after_its_filing() {
     assert!(held(key, &st, &tasks, (REFILE_NIGHTS - 1) * day));
     assert!(!held(key, &st, &tasks, REFILE_NIGHTS * day));
     assert!(!held("refusal.rate:inproc:fs.patch", &st, &tasks, day));
+}
+
+/// One night's rows, 41 of 60 calls refused and no history, in a store of
+/// its own: the window is the time the rows were written in.
+fn night_of_spike() -> (crate::store::Store, u64, u64) {
+    let dir = crate::scratch::dir("rr");
+    let store = crate::store::Store::open(&dir.join("store")).unwrap();
+    let since = theseus_protocol::now_unix_ms();
+    std::thread::sleep(std::time::Duration::from_millis(3));
+    let at = theseus_protocol::now_unix_ms();
+    for i in 0..60 {
+        let mut d = serde_json::json!({"producer": "inproc:fs.edit", "duration_ms": 1,
+                                       "correlation_id": format!("act_{i}")});
+        let kind = match i < 41 {
+            true => {
+                d["failure"] = serde_json::json!("refused");
+                "action.failed"
+            }
+            false => "action.succeeded",
+        };
+        let mut row = crate::ledger::LedgerRow::named(kind, None, None, d);
+        row.at_unix_ms = at;
+        store.append_ledger(&row).unwrap();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(3));
+    (store, since, theseus_protocol::now_unix_ms())
+}
+
+/// The spike is one summary and five of the refused rows, until an item of
+/// its cause stands in the way: open, or filed within seven nights.
+#[test]
+fn a_spike_is_not_filed_while_its_cause_is_open_or_new() {
+    let (store, since, now) = night_of_spike();
+    let day = 86_400_000;
+    let read = |st: &State, tasks: &BTreeMap<String, TaskRecord>| {
+        spikes(&store, st, tasks, since, now, "2026-11-15")
+    };
+    let none = read(&State::default(), &BTreeMap::new());
+    assert_eq!(none.len(), 6, "{none:?}");
+    assert!(none[0].id.starts_with("refusals:inproc:fs.edit:"));
+    assert!(none[0]
+        .note
+        .contains("fs.edit refused 41 of 60 calls last night"));
+
+    let (st, tasks) = item(TaskState::Proposed, now - 30 * day);
+    assert!(read(&st, &tasks).is_empty(), "open");
+    let (st, tasks) = item(TaskState::Failed, now - 6 * day);
+    assert!(read(&st, &tasks).is_empty(), "closed, filed six days ago");
+    let (st, tasks) = item(TaskState::Failed, now - 8 * day);
+    assert_eq!(read(&st, &tasks).len(), 6, "closed, filed eight days ago");
 }
