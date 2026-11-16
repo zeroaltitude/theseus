@@ -482,14 +482,18 @@ async fn a_fallback_and_the_steps_after_it_send_what_was_sent() {
     assert_stable(&r);
 }
 
-/// The kept tail costs what changed and no more: the second turn's request
-/// holds the date line once, in the place the first turn put it, and
-/// not again at its own end.
+/// The kept tail costs what changed and no more within a turn: the second step's request holds
+/// the date line once, in the place the first step put it, and not again at its own end. A
+/// new turn's request carries its tail whole, and keeps the first turn's where it was.
 #[tokio::test]
-async fn a_tail_block_the_model_already_has_is_not_sent_again() {
+async fn a_tail_block_the_model_has_is_not_sent_again_within_its_turn() {
     let r = rig(
         Binding::Refuse,
-        vec![Scripted::text("Four."), Scripted::text("Still four.")],
+        vec![
+            thinks_then_reads("toolu_a"),
+            Scripted::text("Four."),
+            Scripted::text("Still four."),
+        ],
     );
     let sid = private_session(&r.core);
     say(&r.core, &sid, "what does the tide table say?")
@@ -504,9 +508,9 @@ async fn a_tail_block_the_model_already_has_is_not_sent_again() {
             .count()
     };
     assert_eq!(
-        (dates(&reqs[0]), dates(&reqs[1])),
-        (1, 1),
+        (dates(&reqs[0]), dates(&reqs[1]), dates(&reqs[2])),
+        (1, 1, 2),
         "{:?}",
-        reqs[1].messages
+        reqs[2].messages
     );
 }
