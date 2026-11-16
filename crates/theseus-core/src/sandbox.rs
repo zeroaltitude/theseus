@@ -545,6 +545,19 @@ pub fn result_lines(detail: &Value) -> String {
                 .into(),
         );
     }
+    for l in sb["lowered"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "[L1: {} was set to {} and not the {} it is configured with, the most the process it \
+             runs under may give it]",
+            match l["limit"].as_str() {
+                Some("pids") => "its process limit ([sandbox] pids)".to_string(),
+                Some("output_mb") => "its file size limit ([sandbox] output_mb, in MB)".to_string(),
+                other => other.unwrap_or("a limit").to_string(),
+            },
+            l["got"],
+            l["asked"]
+        ));
+    }
     // What the hidden list's inode walk covered, and what it did not
     // (quft-hidden-bind). The words are the sandbox's own
     // (`theseus_sandbox::Residue::say`), carried through the wrapper's

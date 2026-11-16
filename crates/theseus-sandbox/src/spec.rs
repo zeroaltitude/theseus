@@ -244,6 +244,21 @@ pub struct Limits {
     pub pids: u64,
 }
 
+impl Limits {
+    /// These limits with each of `lowered` taken to what the command got:
+    /// the limits it actually ran under.
+    pub fn lowered_by(mut self, lowered: &[crate::report::Lowered]) -> Self {
+        for l in lowered {
+            match l.limit.as_str() {
+                "output_mb" => self.output_mb = l.got,
+                "pids" => self.pids = l.got,
+                _ => {}
+            }
+        }
+        self
+    }
+}
+
 impl Default for Limits {
     /// The design's defaults (§2.12): scratch 1024 MB, output 64 MB, 512
     /// processes.

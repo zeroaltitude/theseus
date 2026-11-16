@@ -45,6 +45,15 @@ server in L1, M7 43a).
 - **No L1 job as root.** Linux never applies `RLIMIT_NPROC` to the initial user namespace's root, and user
   namespace 1 maps the job back to the operator, so a root operator's job would have no process limit: `spawn`
   refuses it before it makes anything, with the stage "checking the job's process limit" (theseus-pv6i).
+- **A limit the process may not raise is set as high as it may be, and said.** `RLIMIT_FSIZE` and `RLIMIT_NPROC` are set
+  in the command, forked from the init with the init's own limits, and a hard limit can be lowered but not raised without a privilege no job has, so a
+  job started from inside another sandbox (the self build's gate runs the whole suite in one: 8,192 processes) asking
+  for more was refused with "setting the limits: Operation not permitted" and never ran. `init.rs`'s `grant` sets the
+  smaller of what the spec asked and the init's own hard limit (soft limit with it), and `Started.lowered` names each
+  one lowered, with what was asked and what it got; `job_l1.rs` writes it as `detail.sandbox.lowered`, reads
+  `limit_hits` against what the job had, and `sandbox::result_lines` says it at the head of the result. Never higher
+  than asked, never unset (an unlimited hard limit gives the asked value, not unlimited), and never a reason a job
+  cannot start; `RLIMIT_CORE` is lowered to 0 and always may be.
 - **A refused call has a fallback or a reason.** `close_range` refused (ENOSYS, or an older profile's EPERM) is done
   one descriptor at a time from `/proc/self/fd`, raw calls on the stack (theseus-f7tz). What L1 cannot do without is
   a `SpawnError` with its stage: never L0 instead.

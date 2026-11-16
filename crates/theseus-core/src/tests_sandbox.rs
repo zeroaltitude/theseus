@@ -411,6 +411,32 @@ fn an_l1_results_head_says_where_it_ran() {
     assert_eq!(crate::sandbox::result_lines(&json!({"exit_code": 0})), "");
 }
 
+/// A limit the job could not be given as configured (the process it runs under may not raise
+/// its own) is said at the head of its result, with what it got and what it is configured with;
+/// a job whose limits were all as configured says nothing of the kind.
+#[test]
+fn an_l1_results_head_says_a_limit_was_set_lower_than_configured() {
+    let lowered = json!({"sandbox": {"class": "l1", "lowered": [
+        {"limit": "pids", "asked": 32768, "got": 8192},
+        {"limit": "output_mb", "asked": 16384, "got": 4096}]}});
+    let lines = crate::sandbox::result_lines(&lowered);
+    assert!(
+        lines.contains(
+            "[L1: its process limit ([sandbox] pids) was set to 8192 and not the 32768 it is \
+             configured with, the most the process it runs under may give it]"
+        ),
+        "{lines}"
+    );
+    assert!(
+        lines.contains(
+            "its file size limit ([sandbox] output_mb, in MB) was set to 4096 and not the 16384"
+        ),
+        "{lines}"
+    );
+    let plain = crate::sandbox::result_lines(&json!({"sandbox": {"class": "l1"}}));
+    assert!(!plain.contains("configured with"), "{plain}");
+}
+
 /// Four L1 calls of one response run as one group (theseus-d1hi): each is its
 /// own job, with its own correlation id and its own view, started and listed
 /// once, and each result says three ran beside it.
