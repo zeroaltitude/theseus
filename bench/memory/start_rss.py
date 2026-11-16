@@ -154,11 +154,14 @@ def main():
         return build(a)
     for n in range(a.runs):
         row = one_run(a, n)
-        line = json.dumps(row)
-        print(line, flush=True)
+        print(f"{a.label} run {n}: start {row['start_ms']} ms, peak {row['peak_rss']:.0f} MiB, "
+              f"first query {row['query_ms']} ms", flush=True)
+        for when in ("at_4s", "at_120s", "after_query"):
+            m = row[when]
+            print(f"  {when:12} resident {m['rss']:7.1f}  anon {m['anon']:7.1f}  file {m['file']:7.1f}", flush=True)
         if a.out:
             with open(a.out, "a") as f:
-                f.write(line + "\n")
+                f.write(json.dumps(row) + "\n")
 
 
 if __name__ == "__main__":
