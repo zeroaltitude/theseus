@@ -27,6 +27,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [self-dependencies.md](self-dependencies.md): what a self build may download and what stops at the owner's card (issue 20): the builder reaches the cargo and npm registries and keeps its own package cache; the pipeline fetches exactly what a branch's changed lock files name, checksum-checked, for a gate that keeps no network; a dependency from anywhere else is refused; a change of dependencies is held for the owner with each package named.
 - [self-builder-build-folder.md](self-builder-build-folder.md): the one directory a self builder's commands keep while its item is open (issue 20), so it can build and run the tests of what it writes: whose it is, what the view holds, why the gate never reads it, its bound and its removal; and what it does not do.
 - [memory-peak-record.md](memory-peak-record.md): the daemon's memory peak, named (issue 21, step one): the window of activity every entry point feeds, the `resident.peak` row a trim over 512 MiB writes, how to read it, and what it found (the AWS cross-check's 100,000-row ledger tail, an hour after each start).
+- [self-own-removals.md](self-own-removals.md): why the reversibility layer's holds are lowered for a self session's own removals (issue 20): the three kinds of call the code can read, what persists from an L1 call, what "its own" is, why the self builder no longer carries the operator's network list, and what a self session still cannot remove without a hold.
 
 And one review:
 

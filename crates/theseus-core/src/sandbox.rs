@@ -225,6 +225,7 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 /// secret's (decision 15, theseus-w5op).
 pub(crate) fn unbrokered(
     rt: &ToolRuntime,
+    session: Option<&str>,
     tool: &dyn Tool,
     plan: &Plan,
     input: &Value,
@@ -239,7 +240,10 @@ pub(crate) fn unbrokered(
     match l1 {
         Some(why) => {
             let asked = crate::egress::asked(input);
-            let (egress, beyond) = crate::egress::list(&rt.sandbox.cfg.egress, &asked);
+            // A self session's sandboxed command does not carry the operator's list, only the
+            // self builder's own, the registries (`rsi::deps::hosts`): the removal rule reads the same one.
+            let ours = rt.sandbox.egress_for(rt, session);
+            let (egress, beyond) = crate::egress::list(&ours, &asked);
             let d = l1_decision(rt, tool.name(), plan, &why, &egress, tightened);
             let d = crate::egress::gate(d, &beyond, tool.name(), &plan.summary);
             let bound = Bound {
@@ -797,6 +801,23 @@ impl Sandbox {
             // `sandbox: { egress: [...] }` (18c) asks for L1 too.
             Some(Value::Object(_)) => Some("the call asked for it with sandbox: { … }".into()),
             _ => None,
+        }
+    }
+
+    /// The list an L1 call of `session` starts from: `[sandbox] egress`, the operator's, or for a
+    /// self session never that. A self builder (`own_tree::builder_path`: its item's tree is open,
+    /// and its build folder is no link) gets the package registries (`rsi::deps::hosts::egress`), a
+    /// closed list in code; any other self session, a review for one, gets no network. Reading a list is as good as the question it is asked:
+    /// the removal rule reads this same one (`rsi::own_removals`).
+    pub(crate) fn egress_for(&self, rt: &ToolRuntime, session: Option<&str>) -> Vec<String> {
+        match session {
+            Some(s) if crate::rsi::own_tree::is_self(rt, s) => {
+                match crate::rsi::own_tree::builder_path(rt, s) {
+                    Some(_) => crate::rsi::deps::hosts::egress(),
+                    None => Vec::new(),
+                }
+            }
+            _ => self.cfg.egress.clone(),
         }
     }
 

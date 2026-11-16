@@ -264,3 +264,7 @@ raised rather than run.
 
 The release note this owes is **not written here**: `docs/status.md` is the maintainer's at review.
 The line it needs is in `CLOUD_REPORT.md`, ready to paste.
+
+## Self sessions (issue 20)
+
+For a session of the self principal a hold is lowered when everything the call can remove is the session's own: its working copy, its build folder, its review scratch, or an L1 call with no network beyond the self builder's own (a self session's sandboxed command is not given the operator's `[sandbox] egress`). `irreversible_final` and the refusals are untouched, and every other principal is as above. [self-own-removals.md](self-own-removals.md) has the rule and its limits.

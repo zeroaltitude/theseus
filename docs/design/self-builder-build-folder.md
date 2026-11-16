@@ -21,7 +21,8 @@ first one's build.
 
 - **Whose.** The folder is named by the session's own task (`rsi/own_tree.rs`, `builder_path`), never by the call's
   input. The view that binds it (`sandbox/builder_view.rs`, `Sandbox::builder_view`) is made only for a self
-  session's L1 command whose item has an open tree. Another principal's call, a self session's call at L0, and a self
+  session's L1 command whose item has an open tree and whose folder is its own resolved path (a link where the folder
+  goes, or at the builders' root, gets no folder). Another principal's call, a self session's call at L0, and a self
   session with no open tree get the view they always had, and no folder is made for them.
 - **What the view is.** An ordinary L1 job's view (`Sandbox::job_view`: the same workspace overlays, read-only
   paths, hidden list less a mask over a directory that holds the folder, and no network beyond the call's own

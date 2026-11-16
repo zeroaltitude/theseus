@@ -87,7 +87,7 @@ pub fn prompt(a: &Ask) -> String {
          If you need a checkout or a build to check this, make them under `{scratch}`. That \
          directory is yours for this review and is removed when you have answered, so there is \
          nothing to clean up. Take the checkout from the self repository (`git -C {repo} worktree \
-         add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Add no \
+         add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Your commands' `TMPDIR` is `{scratch}/tmp`. Add no \
          worktree to any other checkout, and write nothing under the self trees directory.",
         crate::check::render(&[], Some(&claim)),
         scratch = a.scratch,
@@ -144,6 +144,10 @@ impl Reviewer for CheckTurn {
                 None,
             )?;
             let session = rec.session_id.clone();
+            // Its scratch is what it may remove while it runs (`rsi::own_removals`).
+            core.tools
+                .self_pr
+                .review_opened(&session, std::path::Path::new(&ask.scratch));
             let sink = crate::bus::EventSink::new(core.bus.clone(), &session, None);
             let r = core
                 .runner
@@ -161,7 +165,9 @@ impl Reviewer for CheckTurn {
                     answer_at: None,
                     prompt: None,
                 })
-                .await?;
+                .await;
+            core.tools.self_pr.review_closed(&session);
+            let r = r?;
             let (accept, reasons) = verdict_of(&r.output);
             Ok(Review {
                 accept,

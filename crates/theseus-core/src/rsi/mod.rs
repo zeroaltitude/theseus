@@ -65,6 +65,7 @@ mod log;
 pub mod mine;
 pub mod mint;
 pub mod narrow;
+pub(crate) mod own_removals;
 pub(crate) mod own_tree;
 pub mod pause;
 pub mod pause_tool;

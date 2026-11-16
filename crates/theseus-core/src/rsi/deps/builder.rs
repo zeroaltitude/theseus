@@ -50,7 +50,9 @@ pub(crate) fn apply(view: &mut L1, folder: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(cache_in(folder))
 }
 
-/// `view`'s egress list with the registries' hosts added, each once.
+/// `view`'s egress list with the registries' hosts added, each once. A self session's list reaches
+/// here already holding the registries and any host its call named itself, and never the operator's
+/// (`Sandbox::egress_for`, at the gate); this makes sure of the registries.
 pub fn extend(view: &mut L1) {
     for h in hosts::egress() {
         if !view.egress.contains(&h) {
@@ -59,25 +61,17 @@ pub fn extend(view: &mut L1) {
     }
 }
 
-/// [`operator_list`] of the operator's `[sandbox] egress` for `session`'s job: the registries too
-/// when it is a self builder's, and as configured for any other.
+/// The list `session`'s job counts as "the list" when it marks a result as outside text: for a self
+/// session, [`operator_list`], and for any other the operator's `[sandbox] egress` as configured.
 pub(crate) fn operator_list_of(rt: &ToolRuntime, session: &str) -> Vec<String> {
-    match crate::rsi::own_tree::builder_path(rt, session) {
-        Some(_) => operator_list(&rt.sandbox.cfg.egress),
-        None => rt.sandbox.cfg.egress.clone(),
-    }
+    rt.sandbox.egress_for(rt, Some(session))
 }
 
-/// The operator's `[sandbox] egress` list as a self builder's job reads it:
-/// the registries are the owner's own decision (2026-11-15 17:46:56), so a
-/// job that reached only them has reached no host beyond the list, and its
-/// result is not marked as outside text.
-pub fn operator_list(operator: &[String]) -> Vec<String> {
-    let mut list = operator.to_vec();
-    for h in hosts::egress() {
-        if !list.contains(&h) {
-            list.push(h);
-        }
-    }
-    list
+/// What a self builder's job counts as the list: the registries and nothing else (the owner's own
+/// decision, 2026-11-15 17:46:56). A self session's sandboxed command is not given the operator's
+/// `[sandbox] egress` (`Sandbox::egress_for`, which reads [`hosts::egress`] too), so a job that
+/// reached only the registries has reached no host beyond its list, and its result is not marked as
+/// outside text. The removal rule (`rsi::own_removals`) reads this same list.
+pub fn operator_list() -> Vec<String> {
+    hosts::egress()
 }

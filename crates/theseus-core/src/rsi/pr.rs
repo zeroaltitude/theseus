@@ -62,6 +62,8 @@ pub struct Board {
     pub(super) state: PathBuf,
     /// The root task of a self session's tree, once found (`own_tree`).
     pub(super) roots: Mutex<std::collections::HashMap<String, String>>,
+    /// The scratch of each review that is running, by its session (`own_removals`).
+    pub(super) reviews: Mutex<std::collections::HashMap<String, PathBuf>>,
     /// Added to every git call and the gate's (a test's hermetic git).
     env: Mutex<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1

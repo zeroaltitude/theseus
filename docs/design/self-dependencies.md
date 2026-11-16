@@ -11,7 +11,9 @@ egress list only) could not even try the library. Four parts, and the line betwe
 
 ## 1. The builder may fetch (`deps/builder.rs`, `deps/hosts.rs`)
 
-A self builder's `proc.run` gains the registries this repository already uses to its egress list, and nothing else:
+A self builder's `proc.run` is given the registries this repository already uses as its egress list, and nothing else
+(not the operator's own `[sandbox] egress` too: the gate gives a self session's sandboxed call this list in its place,
+`docs/design/self-own-removals.md`, which says what the proxy does and does not restrict):
 
 | Host | What is asked of it |
 |---|---|
