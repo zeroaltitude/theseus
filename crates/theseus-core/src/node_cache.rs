@@ -17,9 +17,9 @@
 //!   count, then by order of touch.
 //! - **A pass that reads each node once does not fill it** (issue 21):
 //!   [`NodeCache::node_once`] serves a kept node and decodes any other
-//!   without keeping it. The import's people step, an append's check and an
-//!   erase read this way; `docs/design/import-rest.md` says what filling it
-//!   cost.
+//!   without keeping it. The import's people step, an append's check, an
+//!   erase and the identity-file read read this way;
+//!   `docs/design/import-rest.md` says what filling it cost.
 //! - **The store's read path**, not memory's: it serves with `[memory]`
 //!   off too, and nothing on the start path fills it (it fills as reads
 //!   happen).

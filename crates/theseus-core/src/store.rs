@@ -1312,8 +1312,9 @@ impl Store {
     }
 
     /// [`Store::session_nodes`] for a pass that reads each session once (the
-    /// import's people steps, an append's check, an erase): what it decodes
-    /// is not kept in the heat cache, which holds what turns come back to.
+    /// import's people steps, an append's check, an erase, the identity-file
+    /// read): what it decodes is not kept in the heat cache, which holds what
+    /// turns come back to.
     pub fn session_nodes_once(&self, session_id: &str) -> Result<Vec<(u64, crate::node::Node)>> {
         self.node_records(session_id)?
             .into_iter()
