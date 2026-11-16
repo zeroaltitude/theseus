@@ -142,7 +142,7 @@ impl Board {
             .remove(session);
     }
 
-    fn review_scratch(&self, session: &str) -> Option<PathBuf> {
+    pub(crate) fn review_scratch(&self, session: &str) -> Option<PathBuf> {
         let reviews = self.reviews.lock().unwrap_or_else(PoisonError::into_inner);
         reviews.get(session).cloned()
     }

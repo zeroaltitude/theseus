@@ -488,3 +488,67 @@ async fn a_final_verdict_on_a_self_sessions_own_write_still_asks_the_owner() {
         "nothing is written until they answer"
     );
 }
+
+// ---- the review that makes the scratch ------------------------------------
+
+/// The whole path of the incident, through the review's own turn: the reviewer is a session of the
+/// self principal that `CheckTurn` opens, the scratch is the one its ask names, and what it removes
+/// there runs. When it has answered, the scratch is no longer its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
+    use crate::rsi::join::review::{Ask, CheckTurn, Reviewer};
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |c| {
+            act(c);
+            lay(Path::new(&c.server.state_dir).parent().unwrap());
+        },
+        |t| {
+            vec![
+                Scripted::tools(
+                    "Cleaning up.",
+                    &[("c1", "proc_run", rm_of(built_in_scratch)(t))],
+                ),
+                Scripted::text(
+                    "It does what it says.\nVERDICT: accept\n- the test fails without it",
+                ),
+            ]
+        },
+    );
+    let (live, _) = r.core.live_profile();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
+    let ask = Ask {
+        branch: "br-one".into(),
+        head: "0123abc".into(),
+        item: "sails".into(),
+        diff: String::new(),
+        report: "a report".into(),
+        evidence: "the evidence".into(),
+        target,
+        built_ms: 0,
+        scratch: scratch(&r.target).display().to_string(),
+        repo: base(&r.target).join("repo").display().to_string(),
+    };
+    let review = CheckTurn.review(&r.core, &ask).await.unwrap();
+    let session = review.session.expect("the review's session");
+    assert!(review.accept, "{:?}", review.reasons);
+    assert!(
+        r.rows("tool.held").is_empty(),
+        "nothing the reviewer removed was held"
+    );
+    assert!(
+        !built_in_scratch(&r.target).exists(),
+        "the checkout it made is gone"
+    );
+    assert_eq!(
+        r.core.tools.self_pr.review_scratch(&session),
+        None,
+        "and the scratch is no longer its own"
+    );
+}
