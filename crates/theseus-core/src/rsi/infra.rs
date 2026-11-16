@@ -68,7 +68,10 @@ fn judge(gate: &str, exit: Option<i64>, secs: Option<u64>, unrunnable: bool) -> 
         "failed" => Some(Outcome::Infrastructure),
         // A check that kept aborting after its re-runs is about that one working copy, not the
         // machine: a red of its item (issue 20), whatever the seconds, and no part of the streak
-        // that halts self builds.
+        // that halts self builds. The gate said so itself, so it did start, which is why the
+        // seconds do not matter here. A gate that also could not run a phase for want of a tool
+        // is still the machine's, as it is at any exit: that rule comes first.
+        "red" if unrunnable => Some(Outcome::Infrastructure),
         "red" if exit == Some(i64::from(super::tree::GATE_ABORTED)) => Some(Outcome::Red),
         "red" if unrunnable || exit == Some(i64::from(NOT_FOUND)) || secs.unwrap_or(0) == 0 => {
             Some(Outcome::Infrastructure)
@@ -296,6 +299,18 @@ mod tests {
             Some(Outcome::Red)
         );
         assert_eq!(of_attempt("halted", None), None);
+        // A check that kept aborting is a red of its item at any seconds; one that also could not
+        // run a phase for want of a tool is the machine's, as before.
+        let aborted = Some(i32::from(crate::rsi::tree::GATE_ABORTED));
+        assert_eq!(
+            of_attempt("red", Some(&run(aborted, 0))),
+            Some(Outcome::Red)
+        );
+        let no_tool = GateRun {
+            unrunnable: true,
+            ..run(aborted, 40)
+        };
+        assert_eq!(of_attempt("red", Some(&no_tool)), infra);
     }
 
     /// The gate's own words when `cockpit/node_modules` is missing and there is
