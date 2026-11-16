@@ -3,7 +3,7 @@
 (issue 21 of 1.0.7): the same restart, measured the same way, before and
 after a change.
 
-  start_rss.py --index-bin B --store DIR --index DIR [--runs 3] [--label L] [--out F]
+  start_rss.py --index-bin B --store DIR --index DIR [--runs 3] [--label L] [--out F] [--no-vectors]
 
 `--store` is a store directory (a synthetic one from `theseus-sim
 synth-memory --dir D/store --nodes 266000`, or a COPY of a real one, never the
@@ -12,7 +12,9 @@ index and a `vectors/` directory already built by the build under test (start
 a tender once, and for a vector table of the real shape, fill it with the test
 `fill_an_index_with_random_vectors`, `THESEUS_FILL_INDEX=<index>`). The
 tender runs with an empty weights directory, so its vector side builds its
-rows and no model loads.
+rows and no model loads; with --no-vectors it has no vector side at all, which
+is what the rest of the tender holds (subtract it to see what the vector
+side's tables cost).
 
 Each run starts the tender on that index and reports, from /proc/<pid>/
 smaps_rollup (MiB): resident, anonymous, and file-backed (resident minus
@@ -59,6 +61,13 @@ def status(index_bin, sock):
         return None
 
 
+def ready(st, vectors=True):
+    """Ready, and (with a vector side) a row for every chunk."""
+    if not st or st.get("state") != "ready" or not st.get("documents"):
+        return False
+    return not vectors or (st.get("vectors") or {}).get("chunks") == st["documents"]
+
+
 def query(index_bin, sock, text):
     t0 = time.time()
     subprocess.run([index_bin, "query", "--socket", sock, "-k", "10", "--sources", "bm25,entity",
@@ -71,7 +80,7 @@ def one_run(a, n):
     sock = os.path.join(index, "sock")
     empty = tempfile.mkdtemp(prefix="noweights")
     cmd = [a.index_bin, "serve", "--store", os.path.abspath(a.store), "--index", index, "--threads", "2",
-           "--nice", "0", "--weights-dir", empty]
+           "--nice", "0"] + (["--no-vectors"] if a.no_vectors else ["--weights-dir", empty])
     log = open(os.path.join(index, f"start-{n}.log"), "w")
     t0 = time.time()
     p = subprocess.Popen(cmd, stdout=log, stderr=log)
@@ -81,15 +90,13 @@ def one_run(a, n):
         while time.time() - t0 < 4.0:
             if ms is None:
                 st = status(a.index_bin, sock) if os.path.exists(sock) else None
-                v = (st or {}).get("vectors") or {}
-                if st and st.get("state") == "ready" and st.get("documents") and v.get("chunks") == st.get("documents"):
+                if ready(st, not a.no_vectors):
                     ms = (time.time() - t0) * 1000.0
             time.sleep(0.05)
         row["at_4s"] = rollup(p.pid)
         while ms is None and time.time() - t0 < 600:
             st = status(a.index_bin, sock) if os.path.exists(sock) else None
-            v = (st or {}).get("vectors") or {}
-            if st and st.get("state") == "ready" and st.get("documents") and v.get("chunks") == st.get("documents"):
+            if ready(st, not a.no_vectors):
                 ms = (time.time() - t0) * 1000.0
             time.sleep(0.05)
         row["start_ms"] = round(ms) if ms is not None else None
@@ -124,8 +131,7 @@ def build(a):
     try:
         while time.time() - t0 < 3600:
             st = status(a.index_bin, sock) if os.path.exists(sock) else None
-            v = (st or {}).get("vectors") or {}
-            if st and st.get("state") == "ready" and st.get("documents") and v.get("chunks") == st.get("documents"):
+            if ready(st, not a.no_vectors):
                 row = {"label": a.label, "build_secs": round(time.time() - t0, 1), "documents": st["documents"],
                        "nodes": st.get("nodes")}
                 print(json.dumps(row), flush=True)
@@ -148,6 +154,7 @@ def main():
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--label", default="run")
     ap.add_argument("--out")
+    ap.add_argument("--no-vectors", action="store_true", help="run the tender without its vector side")
     ap.add_argument("--build", action="store_true", help="only start until ready and stop: build or rebuild the index")
     a = ap.parse_args()
     if a.build:
