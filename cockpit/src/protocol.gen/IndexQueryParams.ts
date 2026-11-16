@@ -36,4 +36,10 @@ vector_text?: string,
  * The most word pieces of its text the vector source embeds, counted
  * by the model's own tokenizer; 0: as many as the model reads.
  */
-vector_tokens?: number, };
+vector_tokens?: number, 
+/**
+ * A turn's automatic recall (the core's): the vector source may read the hot set and the
+ * nearest groups of the cold rest, not every record (issue 21 of 1.0.7). Absent: every
+ * record, as a search somebody asked for by name wants (the memory search tool, the CLI).
+ */
+fast?: boolean, };

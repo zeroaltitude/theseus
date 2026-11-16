@@ -227,6 +227,11 @@ impl Shared {
                 &p.filters,
                 engine::fetch_for(p.k),
                 Duration::from_millis(p.wait_ms),
+                if p.fast {
+                    crate::vectors::Reach::Fast
+                } else {
+                    crate::vectors::Reach::Exact
+                },
                 gone,
             ) {
                 Ok((hits, e, s)) => {
@@ -591,8 +596,15 @@ impl Tender {
         };
         let mut nodes = Vec::new();
         let mut removed = Vec::new();
+        let mut signals = Vec::new();
         let indexed = self
-            .ingest(&batch.records, &mut step, &mut nodes, &mut removed)
+            .ingest(
+                &batch.records,
+                &mut step,
+                &mut nodes,
+                &mut removed,
+                &mut signals,
+            )
             .and_then(|()| {
                 if step.indexed + step.removed > 0 {
                     self.writer.commit().context("committing the index")?;
@@ -628,6 +640,9 @@ impl Tender {
         {
             self.save()?;
         }
+        // What the batch's rows said of use, labels and durability: the hot set's, never an
+        // answer's (`vectors/heat.rs`).
+        self.shared.vectors.on_signals(&signals);
         self.after_step(&stop);
         Ok(step)
     }
@@ -666,6 +681,7 @@ impl Tender {
         step: &mut Step,
         nodes: &mut Vec<NodeChunks>,
         removed: &mut Vec<String>,
+        signals: &mut Vec<crate::vectors::Signal>,
     ) -> anyhow::Result<()> {
         let (mut skipped, mut undecodable) = (0u64, 0u64);
         let mut files = FileCounts::default();
@@ -694,6 +710,7 @@ impl Tender {
                             nodes.push(NodeChunks {
                                 node_id: e.node_id,
                                 position: r.position,
+                                time_ms: e.created_at_ms,
                                 session: e.session_id,
                                 kind: e.kind,
                                 external: e.external,
@@ -728,6 +745,11 @@ impl Tender {
                         tracing::warn!(position = r.position, error = %err, "index: a node record it could not read");
                     }
                 },
+                kinds::LEDGER => {
+                    if let Some(s) = crate::vectors::signal_of(&r.payload) {
+                        signals.push(s);
+                    }
+                }
                 kinds::META => {
                     match place_of(r) {
                         Some((session, Some(place))) => {

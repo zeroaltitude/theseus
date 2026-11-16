@@ -66,6 +66,11 @@ enum Cmd {
         /// theseus-d7fy).
         #[arg(long, default_value_t = 0)]
         query_threads: usize,
+        /// The index's resident memory the hot set is sized to, in MiB (`[index] resident_mb`):
+        /// the records a search reads first are chosen to fit it, and the rest are read in groups
+        /// (`vectors/layout.rs`). Refused below the least that holds the index's own parts.
+        #[arg(long, default_value_t = theseus_index::vectors::DEFAULT_RESIDENT_MB)]
+        resident_mb: u64,
         /// The fusion's default weights, over the built-in ones
         /// (`bm25=1,entity=1,vector=2`; `[index] fusion` at the wire-in).
         #[arg(long)]
@@ -220,9 +225,12 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             idle_unload_mins,
             threads,
             query_threads,
+            resident_mb,
             weights,
             parent,
         } => {
+            theseus_index::vectors::check_resident_mb(resident_mb)
+                .map_err(|e| anyhow::anyhow!("--resident-mb: {e}"))?;
             // Before any thread starts: candle reads these at every matmul,
             // and rayon's pool at its first use. Every core when unset. A
             // matmul is split as RAYON_NUM_THREADS says in the pool it runs
@@ -261,6 +269,7 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
                     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/theseus/models"))
                 });
                 cfg.vectors = VectorConfig::new(dir);
+                cfg.vectors.resident_mb = resident_mb;
                 cfg.vectors.idle_unload = Duration::from_secs_f64(idle_unload_mins.max(0.0) * 60.0);
             }
             match theseus_index::serve(cfg, nice) {

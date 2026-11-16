@@ -44,6 +44,10 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct IndexQueryParams {
@@ -82,6 +86,11 @@ pub struct IndexQueryParams {
     /// by the model's own tokenizer; 0: as many as the model reads.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub vector_tokens: u64,
+    /// A turn's automatic recall (the core's): the vector source may read the hot set and the
+    /// nearest groups of the cold rest, not every record (issue 21 of 1.0.7). Absent: every
+    /// record, as a search somebody asked for by name wants (the memory search tool, the CLI).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fast: bool,
 }
 
 impl IndexQueryParams {
@@ -97,6 +106,7 @@ impl IndexQueryParams {
             weights: BTreeMap::new(),
             vector_text: None,
             vector_tokens: 0,
+            fast: false,
         }
     }
 }

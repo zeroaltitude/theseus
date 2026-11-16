@@ -488,6 +488,8 @@ impl Memory {
         };
         p.k = k.clamp(1, 100);
         p.as_of = as_of;
+        // A turn's own recall reads the hot set and the nearest groups, not every record.
+        p.fast = true;
         p.sources = sources.iter().map(|s| s.to_string()).collect();
         // The vector source may wait for a model load (`loading`).
         if sources.contains(&"vector") {

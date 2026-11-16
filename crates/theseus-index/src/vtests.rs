@@ -170,6 +170,7 @@ impl VRig {
             engine: engine.into(),
             yield_bound: Duration::ZERO,
             query_step: Duration::ZERO,
+            resident_mb: crate::vectors::DEFAULT_RESIDENT_MB,
         };
         c
     }

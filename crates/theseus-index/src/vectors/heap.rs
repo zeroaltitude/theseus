@@ -74,6 +74,7 @@ mod tests {
             t.add_node(&NodeChunks {
                 node_id: format!("nd_{i:026}"),
                 position: i as u64 * 7,
+                time_ms: 0,
                 session: format!("ses_{:026}", i % 50),
                 kind: ["user_message", "tool_result", "assistant_message"][i % 3].into(),
                 external: i % 5 == 0,
@@ -166,6 +167,7 @@ mod tests {
             .map(|i| NodeChunks {
                 node_id: format!("nd_{i:026}"),
                 position: i * 7,
+                time_ms: 0,
                 session: format!("ses_{:026}", i % 50),
                 kind: "user_message".into(),
                 external: false,

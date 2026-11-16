@@ -36,6 +36,7 @@ pub(crate) struct Columns {
     hash_hi: Column<u64>,
     hash_lo: Column<u64>,
     tokens: Column<u64>,
+    time: Column<u64>,
 }
 
 fn strings(fast: &FastFieldReaders, name: &str) -> anyhow::Result<StrColumn> {
@@ -64,6 +65,7 @@ impl Columns {
             hash_hi: fast.u64("hash_hi")?,
             hash_lo: fast.u64("hash_lo")?,
             tokens: fast.u64("tokens")?,
+            time: fast.u64("time")?,
         }))
     }
 
@@ -117,6 +119,7 @@ impl Columns {
         Ok(NodeChunks {
             node_id: id.to_string(),
             position: self.position.first(first).unwrap_or(0),
+            time_ms: self.time.first(first).unwrap_or(0),
             session,
             kind,
             external: self.external.first(first).unwrap_or(false),

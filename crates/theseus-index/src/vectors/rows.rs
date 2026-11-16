@@ -20,7 +20,7 @@
 //! **What is in the file** (little-endian, each section on a 16-byte boundary):
 //! a header; the nodes' ids end to end, with their offsets and each node's
 //! first row; a 48-byte key a row (chunk, node, position, text hash, tokens,
-//! session, kind, external); and the rows' numbers sorted by text hash, which
+//! session, kind, external, the node's own time in seconds); and the rows' numbers sorted by text hash, which
 //! answers "which rows hold this text".
 
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ use std::sync::Arc;
 
 use super::entries::Holders;
 use super::store::{align, tmpfile, u128_at, u32_at, u64_at, Bits, Out};
-use super::{Backlog, NodeChunks, Row, Table, NO_VEC};
+use super::{time_secs, Backlog, NodeChunks, Row, Table, NO_VEC};
 use crate::mapped::Map;
 
 const MAGIC: &[u8; 8] = b"thsrows1";
@@ -68,6 +68,7 @@ pub(super) struct Key {
     pub session: u32,
     pub kind: u16,
     pub external: bool,
+    pub time: u32,
 }
 
 /// A row to write: a [`Key`] without its node, which the writer numbers.
@@ -80,6 +81,7 @@ pub(super) struct RowOut {
     pub session: u32,
     pub kind: u16,
     pub external: bool,
+    pub time: u32,
 }
 
 /// The mapped rows, and the state of each that the table changes.
@@ -133,6 +135,7 @@ impl Base {
             session: u32_at(b, at + 36),
             kind: u16::from_le_bytes([b[at + 40], b[at + 41]]),
             external: b[at + 42] != 0,
+            time: u32_at(b, at + 44),
         }
     }
 
@@ -144,6 +147,11 @@ impl Base {
 
     pub fn session(&self, i: usize) -> u32 {
         u32_at(self.map.bytes(), self.keys + KEY * i + 36)
+    }
+
+    /// Row `i`'s node's own time, in whole seconds.
+    pub fn time(&self, i: usize) -> u32 {
+        u32_at(self.map.bytes(), self.keys + KEY * i + 44)
     }
 
     pub fn kind(&self, i: usize) -> u16 {
@@ -345,6 +353,7 @@ impl BaseWriter {
             k[36..40].copy_from_slice(&r.session.to_le_bytes());
             k[40..42].copy_from_slice(&r.kind.to_le_bytes());
             k[42] = u8::from(r.external);
+            k[44..48].copy_from_slice(&r.time.to_le_bytes());
             self.keys.put(&self.file, &k)?;
             self.pairs.push((r.hash, self.pairs.len() as u32));
         }
@@ -496,10 +505,19 @@ impl Table {
         }
     }
 
+    /// Row `i`'s node's own time, in whole seconds.
+    pub(super) fn row_time(&self, i: u32) -> u32 {
+        match (&self.base, self.in_tail(i)) {
+            (Some(b), None) => b.time(i as usize),
+            (_, Some(k)) => self.rows[k].time,
+            _ => 0,
+        }
+    }
+
     pub(super) fn row_tokens(&self, i: u32) -> u32 {
         match (&self.base, self.in_tail(i)) {
             (Some(b), None) => b.key(i as usize).tokens,
-            (_, Some(k)) => self.rows[k].tokens,
+            (_, Some(k)) => u32::from(self.rows[k].tokens),
             _ => 0,
         }
     }
@@ -531,11 +549,12 @@ impl Table {
                     node: Arc::from(b.node_id(k.node)),
                     chunk: k.chunk,
                     position: k.position,
+                    time: k.time,
                     session: k.session,
                     kind: k.kind,
                     external: k.external,
                     hash: k.hash,
-                    tokens: k.tokens,
+                    tokens: u16::try_from(k.tokens).unwrap_or(u16::MAX),
                     alive: b.alive(i as usize),
                     cache,
                     entry,
@@ -620,6 +639,9 @@ impl Table {
         }
         for c in &self.caches {
             c.release_pages();
+        }
+        if let Some(t) = &self.tier {
+            t.release(0..t.assigned());
         }
     }
 
@@ -753,10 +775,11 @@ impl Table {
                 chunk: r.chunk,
                 position: r.position,
                 hash: r.hash,
-                tokens: r.tokens,
+                tokens: u32::from(r.tokens),
                 session: r.session,
                 kind: r.kind,
                 external: r.external,
+                time: r.time,
             },
             pack(r.vec()),
         )
@@ -807,6 +830,7 @@ impl Table {
                 session,
                 kind,
                 external: n.external,
+                time: time_secs(n.time_ms),
             }));
             let b = self
                 .building

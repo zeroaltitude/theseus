@@ -9,10 +9,10 @@ use std::os::unix::fs::MetadataExt;
 use super::*;
 use crate::weights::SplitMix;
 
-const CUT: usize = 16;
-const FULL: usize = 48;
+pub(super) const CUT: usize = 16;
+pub(super) const FULL: usize = 48;
 
-fn stamp() -> Stamp {
+pub(super) fn stamp() -> Stamp {
     Stamp {
         model: "m@1".into(),
         weights: "w".into(),
@@ -23,7 +23,7 @@ fn stamp() -> Stamp {
     }
 }
 
-fn vector(rng: &mut SplitMix) -> Vector {
+pub(super) fn vector(rng: &mut SplitMix) -> Vector {
     let raw: Vec<f32> = (0..FULL).map(|_| rng.unit()).collect();
     let (full, cut) = embedder::finish(&raw, CUT);
     Vector {
@@ -37,10 +37,11 @@ fn vector(rng: &mut SplitMix) -> Vector {
 
 /// Node `i`: two or three chunks, a text in every fifth shared with another node's, and
 /// positions, sessions, kinds and flags that vary.
-fn node(i: u64) -> NodeChunks {
+pub(super) fn node(i: u64) -> NodeChunks {
     NodeChunks {
         node_id: format!("nd_{i:08}"),
         position: i * 3 % 1000,
+        time_ms: 1_000 * (i * 7 % 500),
         session: format!("ses_{}", i % 9),
         kind: ["user_message", "tool_result", "assistant_message"][(i % 3) as usize].into(),
         external: i.is_multiple_of(4),
@@ -58,12 +59,12 @@ fn node(i: u64) -> NodeChunks {
     }
 }
 
-fn nodes(n: u64) -> Vec<NodeChunks> {
+pub(super) fn nodes(n: u64) -> Vec<NodeChunks> {
     (0..n).map(node).collect()
 }
 
 /// The vector file of every text in `nodes` but each tenth's.
-fn write_file(dir: &Path, nodes: &[NodeChunks], seed: u64) {
+pub(super) fn write_file(dir: &Path, nodes: &[NodeChunks], seed: u64) {
     let mut rng = SplitMix(seed);
     let mut cache = Cache::open(dir, &stamp()).unwrap();
     let mut seen = HashSet::new();
@@ -94,7 +95,7 @@ fn in_memory(dir: &Path, nodes: &[NodeChunks]) -> Table {
 
 /// The table a start makes: the vector file's cuts from a scan file, the rows streamed into a
 /// file of their own.
-fn mapped(dir: &Path, nodes: &[NodeChunks]) -> Table {
+pub(super) fn mapped(dir: &Path, nodes: &[NodeChunks]) -> Table {
     let mut t = Table {
         dir: Some(dir.to_path_buf()),
         ..Table::default()
@@ -410,7 +411,7 @@ fn records_appended_after_the_scan_file_are_kept_and_folded() {
     // A reopen finds them after the scan file's own.
     let c = Cache::open_scanned(tmp.path(), &stamp()).unwrap();
     assert_eq!(
-        (c.len(), c.scan.as_ref().map(ScanFile::len)),
+        (c.len(), c.scan.as_ref().map(|s| s.len())),
         (base + 50, Some(base))
     );
     assert_eq!(c.get(1 << 110), Some(base as u32));
@@ -430,7 +431,7 @@ fn records_appended_after_the_scan_file_are_kept_and_folded() {
         "written out: {} in memory",
         c.scale.len()
     );
-    assert_eq!(c.scan.as_ref().map(ScanFile::len), Some(base + 50 + FOLD));
+    assert_eq!(c.scan.as_ref().map(|s| s.len()), Some(base + 50 + FOLD));
     assert_ne!(
         fs::metadata(c.scan_path()).unwrap().ino(),
         ino,

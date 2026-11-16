@@ -55,6 +55,7 @@ fn from_the_text(e: &Engine) -> Vec<NodeChunks> {
             .or_insert_with(|| NodeChunks {
                 node_id: c.node_id.clone(),
                 position: c.position,
+                time_ms: c.time,
                 session: c.session.clone(),
                 kind: c.kind.clone(),
                 external: c.external,
