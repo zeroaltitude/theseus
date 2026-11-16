@@ -18,7 +18,7 @@
 //! the first node that carried it, and deleting that node takes its chunks
 //! with it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ops::Bound;
 use std::path::Path;
 use std::time::Instant;
@@ -34,6 +34,7 @@ use tantivy::{
 };
 
 use crate::chunk;
+use crate::columns::{self, Nodes};
 use crate::entity::entities;
 use crate::extract::Extracted;
 use crate::files::FileText;
@@ -43,7 +44,10 @@ use crate::vectors::{text_hash, ChunkKey, NodeChunks, Texts, VectorHit};
 
 /// Bumped when the fields change: an index of another version is rebuilt.
 /// 2 = `file`, a kept file's digest on the chunks of its text (theseus-lv2u).
-pub const SCHEMA_VERSION: u32 = 2;
+/// 3 = the columns a start reads in place of the stored text: each chunk's text
+/// fingerprint and token count, and the node's id, session, kind and flags as
+/// fast fields (issue 21 of 1.0.7).
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// The writer's memory for buffered documents: tantivy's floor is 15 MB per
 /// indexing thread, and the tender runs one.
@@ -79,25 +83,33 @@ pub struct Fields {
     /// On a chunk of a kept file's read text: that file's own digest. Empty
     /// on a chunk of the node's own text.
     pub file: Field,
+    /// The chunk's text fingerprint (`ChunkKey::hash`) in two halves, and its
+    /// token estimate: columns, so a start reads them without the text.
+    pub hash_hi: Field,
+    pub hash_lo: Field,
+    pub tokens: Field,
 }
 
 pub fn schema() -> (Schema, Fields) {
     let mut b = Schema::builder();
     let f = Fields {
-        node_id: b.add_text_field("node_id", STRING | STORED),
-        chunk: b.add_u64_field("chunk", INDEXED | STORED),
-        session: b.add_text_field("session", STRING | STORED),
+        node_id: b.add_text_field("node_id", STRING | STORED | FAST),
+        chunk: b.add_u64_field("chunk", INDEXED | STORED | FAST),
+        session: b.add_text_field("session", STRING | STORED | FAST),
         position: b.add_u64_field("position", INDEXED | STORED | FAST),
-        kind: b.add_text_field("kind", STRING | STORED),
+        kind: b.add_text_field("kind", STRING | STORED | FAST),
         origin: b.add_text_field("origin", STRING | STORED),
         author: b.add_text_field("author", STRING | STORED),
         place: b.add_text_field("place", STRING | STORED),
         tool: b.add_text_field("tool", STRING | STORED),
         time: b.add_u64_field("time", STORED | FAST),
-        external: b.add_bool_field("external", INDEXED | STORED),
+        external: b.add_bool_field("external", INDEXED | STORED | FAST),
         text: b.add_text_field("text", TEXT | STORED),
         entities: b.add_text_field("entities", STRING | STORED),
         file: b.add_text_field("file", STRING | STORED),
+        hash_hi: b.add_u64_field("hash_hi", FAST),
+        hash_lo: b.add_u64_field("hash_lo", FAST),
+        tokens: b.add_u64_field("tokens", FAST),
     };
     (b.build(), f)
 }
@@ -158,8 +170,13 @@ impl Writer {
         let mut keys = Vec::new();
         let mut add = |text: &str, file: Option<&str>| -> tantivy::Result<()> {
             let i = keys.len() as u64;
-            keys.push(chunk_key(i, text));
+            let key = chunk_key(i, text);
+            keys.push(key);
+            let (hi, lo) = columns::halves(key.hash);
             let mut d = TantivyDocument::new();
+            d.add_u64(f.hash_hi, hi);
+            d.add_u64(f.hash_lo, lo);
+            d.add_u64(f.tokens, u64::from(key.tokens));
             d.add_text(f.node_id, &e.node_id);
             d.add_u64(f.chunk, i);
             d.add_text(f.session, &e.session_id);
@@ -722,31 +739,28 @@ impl Texts for Engine {
             .map(str::to_string)
     }
 
-    /// Every chunk, by node, read from the stored documents.
+    /// Every chunk, by node, read from the segments' columns: no chunk's text
+    /// is read (issue 21 of 1.0.7).
     fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>> {
-        let s = self.reader.searcher();
-        let mut by_node: BTreeMap<String, NodeChunks> = BTreeMap::new();
-        for (ord, seg) in s.segment_readers().iter().enumerate() {
-            for doc in seg.doc_ids_alive() {
-                let d: TantivyDocument = s.doc(DocAddress::new(ord as u32, doc))?;
-                let c = self.stored(&d);
-                let n = by_node
-                    .entry(c.node_id.clone())
-                    .or_insert_with(|| NodeChunks {
-                        node_id: c.node_id.clone(),
-                        position: c.position,
-                        session: c.session.clone(),
-                        kind: c.kind.clone(),
-                        external: c.external,
-                        chunks: Vec::new(),
-                    });
-                n.chunks.push(chunk_key(c.chunk, &c.text));
-            }
-        }
-        let mut out: Vec<NodeChunks> = by_node.into_values().collect();
-        for n in &mut out {
-            n.chunks.sort_by_key(|c| c.chunk);
-        }
+        let mut out = Vec::new();
+        self.each_node(&mut |_, _| {}, &mut |n| out.push(n))?;
         Ok(out)
+    }
+
+    /// The same, a node at a time: nothing but the segments' (node, chunk) lists is held beside
+    /// the node being read.
+    fn each_node(
+        &self,
+        size: &mut dyn FnMut(usize, usize),
+        each: &mut dyn FnMut(NodeChunks),
+    ) -> anyhow::Result<()> {
+        let s = self.reader.searcher();
+        let mut nodes = Nodes::open(s.segment_readers())?;
+        let (n, c) = nodes.sizes();
+        size(n, c);
+        while let Some(node) = nodes.next()? {
+            each(node);
+        }
+        Ok(())
     }
 }

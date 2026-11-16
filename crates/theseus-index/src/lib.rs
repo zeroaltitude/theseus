@@ -20,6 +20,7 @@
 pub mod ahead;
 pub mod chunk;
 pub mod client;
+mod columns;
 pub mod embedder;
 pub mod engine;
 pub mod entity;
@@ -105,6 +106,8 @@ mod tests_priority;
 mod tests_query;
 #[cfg(test)]
 mod tests_skip;
+#[cfg(test)]
+mod tests_start;
 #[cfg(test)]
 mod tests_status;
 #[cfg(test)]

@@ -139,17 +139,37 @@ pub struct NodeChunks {
 pub trait Texts {
     fn chunk_text(&self, node_id: &str, chunk: u32) -> Option<String>;
     fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>>;
+
+    /// Every node, in node-id order, to `each` one at a time: after `size` is told, once and
+    /// first, how many nodes and chunks there will be (at most). A start's rows are built from
+    /// this without a list of every node alive beside them (issue 21 of 1.0.7). The default
+    /// walks [`Texts::all_nodes`], for a source that has the list already.
+    fn each_node(
+        &self,
+        size: &mut dyn FnMut(usize, usize),
+        each: &mut dyn FnMut(NodeChunks),
+    ) -> anyhow::Result<()> {
+        let nodes = self.all_nodes()?;
+        size(nodes.len(), nodes.iter().map(|n| n.chunks.len()).sum());
+        nodes.into_iter().for_each(each);
+        Ok(())
+    }
 }
 
 mod entries;
 mod heap;
 mod held;
+#[cfg(test)]
+mod reconcile;
 mod status;
 
 pub use held::Held;
 
 // ---------------------------------------------------------------------------
 // One stamp's vectors on disk.
+
+/// Chunks a reconcile adds to the table under one hold of its lock.
+const RECONCILE_BATCH: usize = 4096;
 
 const MAGIC: &[u8; 8] = b"thsvec01";
 const HEADER: u64 = 16;
@@ -840,20 +860,35 @@ impl Table {
     /// doubling for the tender's life: at the 1.7M chunks the owner's index
     /// holds, the next power of two is 2,097,152, which is 397,152 spare rows,
     /// 32 MB, and in the worst case (just past a doubling) nearly half of the
-    /// 149 MB the rows cost. It counts only the nodes the reconcile will
-    /// actually add, so a second reconcile of the same nodes reserves nothing;
-    /// a forget racing it can leave the count a few chunks high.
-    fn reserve_for(&mut self, nodes: &[NodeChunks]) {
-        let adding = nodes
-            .iter()
-            .filter(|n| {
-                !self.by_node.contains_key(n.node_id.as_str())
-                    && !self.forgot_nodes.contains(&n.node_id)
-            })
-            .map(|n| n.chunks.len());
-        let (nodes, chunks) = adding.fold((0usize, 0usize), |(n, c), k| (n + 1, c + k));
-        self.rows.reserve_exact(chunks);
-        self.by_node.reserve(nodes);
+    /// 149 MB the rows cost. `chunks` and `nodes` are everything the index
+    /// holds; what the table already has (a node a commit added meanwhile) is
+    /// taken off, so a second reconcile of the same nodes reserves nothing.
+    fn reserve_for(&mut self, nodes: usize, chunks: usize) {
+        self.rows
+            .reserve_exact(chunks.saturating_sub(self.rows.len()));
+        self.by_node
+            .reserve(nodes.saturating_sub(self.by_node.len()));
+    }
+
+    /// Add what a reconcile read of the index: a node the table has (a commit
+    /// added it since the read) or has forgotten is left as it is, and a chunk
+    /// forgotten before the read took effect is not added.
+    fn add_read(&mut self, nodes: impl IntoIterator<Item = NodeChunks>) {
+        for mut n in nodes {
+            if self.by_node.contains_key(n.node_id.as_str())
+                || self.forgot_nodes.contains(&n.node_id)
+            {
+                continue;
+            }
+            if !self.forgot_chunks.is_empty() {
+                let id = n.node_id.clone();
+                n.chunks
+                    .retain(|c| !self.forgot_chunks.contains(&(id.clone(), c.chunk)));
+            }
+            if !n.chunks.is_empty() {
+                self.add_node(&n);
+            }
+        }
     }
 
     fn add_node(&mut self, n: &NodeChunks) {
@@ -1556,23 +1591,36 @@ impl Vectors {
             return Ok(());
         }
         let generation = self.table.read().unwrap().generation;
-        let nodes = texts.all_nodes()?;
-        let mut t = self.table.write().unwrap();
-        if t.generation == generation {
-            t.reserve_for(&nodes);
-            for n in &nodes {
-                if t.by_node.contains_key(n.node_id.as_str()) || t.forgot_nodes.contains(&n.node_id)
-                {
-                    continue;
-                }
-                let mut n = n.clone();
-                n.chunks
-                    .retain(|c| !t.forgot_chunks.contains(&(n.node_id.clone(), c.chunk)));
-                if !n.chunks.is_empty() {
-                    t.add_node(&n);
-                }
+        // The rows take what the index holds a batch at a time, the lock held for one batch, so a
+        // query between two of them is answered; a table of another generation (the index was
+        // dropped meanwhile) takes none.
+        let mut batch: Vec<NodeChunks> = Vec::new();
+        let mut weight = 0;
+        let flush = |batch: &mut Vec<NodeChunks>| {
+            let mut t = self.table.write().unwrap();
+            if t.generation == generation {
+                t.add_read(batch.drain(..));
             }
-        }
+            batch.clear();
+        };
+        texts.each_node(
+            &mut |nodes, chunks| {
+                let mut t = self.table.write().unwrap();
+                if t.generation == generation {
+                    t.reserve_for(nodes, chunks);
+                }
+            },
+            &mut |n| {
+                weight += n.chunks.len();
+                batch.push(n);
+                if weight >= RECONCILE_BATCH {
+                    flush(&mut batch);
+                    weight = 0;
+                }
+            },
+        )?;
+        flush(&mut batch);
+        let mut t = self.table.write().unwrap();
         t.reconciled = true;
         t.forgot_nodes.clear();
         t.forgot_chunks.clear();
