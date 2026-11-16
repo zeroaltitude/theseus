@@ -64,8 +64,19 @@ where
         };
         let at = (Instant::now() + wait).max(started + AFTER_START);
         tokio::time::sleep_until(at).await;
+        let _ran =
+            crate::resident::activity::ran(crate::resident::activity::Kind::Job, &pass_name::<R>());
         run(trigger).await;
     }
+}
+
+/// A pass's name for the memory record (issue 21): the function that built
+/// its closure, as `type_name` spells it, without the closures' own
+/// `{{closure}}` segments and the path before it.
+fn pass_name<R>() -> String {
+    let full = std::any::type_name::<R>();
+    let path = full.split("::{{closure}}").next().unwrap_or(full);
+    path.rsplit("::").next().unwrap_or(path).to_string()
 }
 
 /// What the run's thread took: its nice value, and whether it is in

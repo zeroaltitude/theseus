@@ -260,6 +260,7 @@ ledger_kinds! {
     RecallWithheld = "recall.withheld",
     Reconcile = "reconcile",
     RequestRedacted = "request.redacted",
+    ResidentPeak = "resident.peak",
     SandboxEgress = "sandbox.egress",
     SandboxEgressRefused = "sandbox.egress_refused",
     SandboxLimitHit = "sandbox.limit_hit",
