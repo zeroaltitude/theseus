@@ -151,6 +151,7 @@ impl Seen {
                 "self.review.verdict",
                 "self.joined",
                 "self.join.stopped",
+                "self.join.reopened",
             ],
         )?
         else {
@@ -183,6 +184,11 @@ impl Seen {
                     };
                 }
                 "self.joined" => joined.push(s(d, "branch")),
+                // The owner's retry closed a head already on main as joined by hand
+                // (`join::joining`): it is done, held by no one.
+                "self.join.stopped" if d["numbers"]["by_hand"] == true => {
+                    joined.push(s(d, "branch"));
+                }
                 // A conflict with main is no one's hold and no queue's: this head
                 // is never joined, and the item is built again (theseus-o1h3f.6).
                 "self.join.stopped" if d["numbers"]["conflict"] == true => {
@@ -190,6 +196,11 @@ impl Seen {
                 }
                 "self.join.stopped" if d["numbers"]["held"] == true => {
                     stopped.insert((s(d, "branch"), s(d, "head")), s(d, "why"));
+                }
+                // The owner's retry: the head is held no more, as it stood before the hold. A
+                // stop after it holds the head again.
+                "self.join.reopened" => {
+                    stopped.remove(&(s(d, "branch"), s(d, "head")));
                 }
                 _ => {}
             }
@@ -204,6 +215,56 @@ impl Seen {
     }
 }
 
+/// Each branch's newest green row, oldest first.
+fn newest(greens: &[Green]) -> Vec<&Green> {
+    let mut newest: Vec<&Green> = Vec::new();
+    for g in greens.iter().rev() {
+        if !newest.iter().any(|n| n.branch == g.branch) {
+            newest.push(g);
+        }
+    }
+    newest.reverse();
+    newest
+}
+
+/// Where an item's finished change stands with its join, for the owner's `self retry`.
+pub(crate) enum Held {
+    /// The ledger's index is still being built: nothing can be read yet.
+    Index,
+    /// No join holds a change of this item.
+    No,
+    /// A join holds this branch at this head, for the owner.
+    Yes { branch: String, head: String },
+}
+
+/// The change of `t` that a join stopped and holds for the owner, read from the rows exactly as
+/// the queues read them: the item's newest green branch, if it has not joined, was not sent back
+/// for a conflict with main, and its head has a held stop that no retry has lifted. Only an item
+/// still in progress holds one: a failed or dropped item's old branch is not its change, and an
+/// older branch of an item that has built again is not either.
+pub(crate) fn join_held(store: &crate::store::Store, t: &TaskRecord) -> Result<Held> {
+    if t.state != TaskState::InProgress {
+        return Ok(Held::No);
+    }
+    let Some(seen) = Seen::read(store)? else {
+        return Ok(Held::Index);
+    };
+    let Some(g) = seen.greens.iter().rev().find(|g| g.item == t.id) else {
+        return Ok(Held::No);
+    };
+    let key = (g.branch.clone(), g.head.clone());
+    let held = !seen.joined.contains(&g.branch)
+        && !seen.conflicted.contains(&key)
+        && seen.stopped.contains_key(&key);
+    Ok(match held {
+        true => Held::Yes {
+            branch: g.branch.clone(),
+            head: g.head.clone(),
+        },
+        false => Held::No,
+    })
+}
+
 /// Reviewing and joining, and the held branches: each green branch's newest
 /// head that has not joined.
 fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
@@ -214,14 +275,7 @@ fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
         stopped,
         conflicted,
     } = seen;
-    let mut newest: Vec<&Green> = Vec::new();
-    for g in greens.iter().rev() {
-        if !newest.iter().any(|n| n.branch == g.branch) {
-            newest.push(g);
-        }
-    }
-    newest.reverse();
-    for g in newest {
+    for g in newest(greens) {
         let title = by_id
             .get(g.item.as_str())
             .map_or_else(|| g.item.clone(), |t| t.title.clone());
@@ -245,7 +299,14 @@ fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
         }
         if let Some(why) = stopped.get(&key) {
             let mut e = e;
-            e.why = Some(why.clone());
+            // The command comes first: the owner's view cuts a long line from its end.
+            e.why = Some(match by_id.get(g.item.as_str()) {
+                Some(t) if t.state == TaskState::InProgress => format!(
+                    "To have Theseus check it again from the first check, run `{}`. It was held: {why}",
+                    theseus_protocol::rsi::retry_command(&g.item)
+                ),
+                _ => why.clone(),
+            });
             e.place = q.held.len() as u32 + 1;
             q.held.push(e);
             continue;

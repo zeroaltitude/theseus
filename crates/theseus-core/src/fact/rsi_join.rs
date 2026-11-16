@@ -1,5 +1,5 @@
 //! The self-join's facts (theseus-pw1q.9): `self.review.verdict`,
-//! `self.joined`, `self.installed` and `self.join.stopped`. Each carries its
+//! `self.joined`, `self.installed`, `self.join.stopped` and `self.join.reopened`. Each carries its
 //! `SELF_ROWS` fields beside every `self.*` row's `what`, `why`, `numbers`
 //! and `undo`, so `self.log` shows it as written.
 
@@ -145,6 +145,38 @@ impl Fact for SelfJoinStopped {
             format!(
                 "Self-join of {} stopped before the {}: {}.",
                 self.branch, self.phase, self.why
+            ),
+        );
+    }
+}
+
+/// The owner's `self retry` on a change a join holds: the head is held no longer, so the next
+/// pass runs the join on it again from its first check.
+pub struct SelfJoinReopened {
+    pub item: String,
+    pub branch: String,
+    pub head: String,
+    /// Who said it: the owner's name for the act.
+    pub by: String,
+}
+
+impl Fact for SelfJoinReopened {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SelfJoinReopened);
+
+    fn row(&self) -> Value {
+        json!({"item": self.item, "branch": self.branch, "head": self.head, "by": self.by,
+               "what": format!("self branch {} is to be checked by its join again", self.branch),
+               "why": "the owner asked for it with `self retry`; nothing is remembered from the \
+                       first run",
+               "numbers": null, "undo": null})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "Self-join of {} will run again from its first check; asked for by {}.",
+                self.branch, self.by
             ),
         );
     }
