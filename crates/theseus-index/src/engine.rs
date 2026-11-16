@@ -18,7 +18,7 @@
 //! the first node that carried it, and deleting that node takes its chunks
 //! with it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ops::Bound;
 use std::path::Path;
 use std::time::Instant;
@@ -34,7 +34,7 @@ use tantivy::{
 };
 
 use crate::chunk;
-use crate::columns::{self, Columns};
+use crate::columns::{self, Nodes};
 use crate::entity::entities;
 use crate::extract::Extracted;
 use crate::files::FileText;
@@ -742,29 +742,25 @@ impl Texts for Engine {
     /// Every chunk, by node, read from the segments' columns: no chunk's text
     /// is read (issue 21 of 1.0.7).
     fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>> {
-        let s = self.reader.searcher();
-        let mut by_node: BTreeMap<String, NodeChunks> = BTreeMap::new();
-        let mut id = String::new();
-        for seg in s.segment_readers() {
-            let Some(cols) = Columns::open(seg)? else {
-                continue;
-            };
-            let docs = cols.docs(seg)?;
-            for group in docs.chunk_by(|a, b| a.ord == b.ord) {
-                cols.node_id(group[0].ord, &mut id)?;
-                let n = cols.node_chunks(&id, group)?;
-                match by_node.get_mut(&id) {
-                    Some(have) => have.chunks.extend(n.chunks),
-                    None => {
-                        by_node.insert(id.clone(), n);
-                    }
-                }
-            }
-        }
-        let mut out: Vec<NodeChunks> = by_node.into_values().collect();
-        for n in &mut out {
-            n.chunks.sort_by_key(|c| c.chunk);
-        }
+        let mut out = Vec::new();
+        self.each_node(&mut |_, _| {}, &mut |n| out.push(n))?;
         Ok(out)
+    }
+
+    /// The same, a node at a time: nothing but the segments' (node, chunk) lists is held beside
+    /// the node being read.
+    fn each_node(
+        &self,
+        size: &mut dyn FnMut(usize, usize),
+        each: &mut dyn FnMut(NodeChunks),
+    ) -> anyhow::Result<()> {
+        let s = self.reader.searcher();
+        let mut nodes = Nodes::open(s.segment_readers())?;
+        let (n, c) = nodes.sizes();
+        size(n, c);
+        while let Some(node) = nodes.next()? {
+            each(node);
+        }
+        Ok(())
     }
 }

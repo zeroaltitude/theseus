@@ -93,3 +93,11 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   the text the document was written with, so it cannot differ from the text's; an index of schema 2 is rebuilt from the WAL
   by the saved schema's mismatch, as any schema bump is. Tests: `tests_start.rs` (the stored text overwritten, the start
   unchanged).
+- **The rows are built as the nodes come** (`columns::Nodes`, `Vectors::reconcile`; issue 21 of 1.0.7). A start used to
+  collect every node alive into one list (and a map of them) and add from it, so a few hundred thousand short-lived
+  strings sat in the heap beside the long-lived node ids allocated as the rows were added; when the list was freed the
+  pages could not go back (about 130 to 140 MiB at 417,000 chunks). `Nodes` merges each segment's (node, chunk, document)
+  list, twelve bytes a chunk, and hands one node at a time to `Texts::each_node`; `reconcile` adds them 4,096 chunks to a
+  hold of the table's lock (so a query between two batches is answered), after `size` has told it the rows' room. A commit
+  or a forget that lands in the middle is honoured as before. Tests: `vectors/reconcile.rs` (the list is never asked
+  for, the rows grow while the index is read, a commit and a forget in the middle).

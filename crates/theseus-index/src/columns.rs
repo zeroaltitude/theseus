@@ -125,6 +125,115 @@ impl Columns {
     }
 }
 
+/// A segment's documents, walked a node at a time.
+struct Head {
+    cols: Columns,
+    docs: Vec<Doc>,
+    at: usize,
+    /// The id of the node `at` is in; empty once the segment is done.
+    id: String,
+}
+
+impl Head {
+    fn done(&self) -> bool {
+        self.at >= self.docs.len()
+    }
+
+    /// The documents of the node `at` is in.
+    fn group(&self) -> &[Doc] {
+        let ord = self.docs[self.at].ord;
+        let n = self.docs[self.at..].partition_point(|d| d.ord == ord);
+        &self.docs[self.at..self.at + n]
+    }
+
+    /// Past this node, on to the next one's id.
+    fn step(&mut self) -> anyhow::Result<()> {
+        self.at += self.group().len();
+        if let Some(d) = self.docs.get(self.at) {
+            self.cols.node_id(d.ord, &mut self.id)?;
+        }
+        Ok(())
+    }
+}
+
+/// Every node the segments hold, one at a time in node-id order: a merge of each segment's
+/// documents, which are in that order already. Holds each segment's list of (node, chunk,
+/// document), twelve bytes a chunk, and nothing else of the nodes.
+pub(crate) struct Nodes {
+    heads: Vec<Head>,
+    least: String,
+    nodes: usize,
+    chunks: usize,
+}
+
+impl Nodes {
+    pub(crate) fn open<'a>(
+        segs: impl IntoIterator<Item = &'a SegmentReader>,
+    ) -> anyhow::Result<Self> {
+        let mut heads = Vec::new();
+        let (mut nodes, mut chunks) = (0, 0);
+        for seg in segs {
+            let Some(cols) = Columns::open(seg)? else {
+                continue;
+            };
+            let docs = cols.docs(seg)?;
+            nodes += docs.chunk_by(|a, b| a.ord == b.ord).count();
+            chunks += docs.len();
+            let mut head = Head {
+                cols,
+                docs,
+                at: 0,
+                id: String::new(),
+            };
+            if let Some(d) = head.docs.first() {
+                head.cols.node_id(d.ord, &mut head.id)?;
+            }
+            heads.push(head);
+        }
+        Ok(Self {
+            heads,
+            least: String::new(),
+            nodes,
+            chunks,
+        })
+    }
+
+    /// (nodes, chunks) alive: a node in two segments counts twice.
+    pub(crate) fn sizes(&self) -> (usize, usize) {
+        (self.nodes, self.chunks)
+    }
+
+    /// The next node, with its chunks from every segment that holds some, by chunk.
+    pub(crate) fn next(&mut self) -> anyhow::Result<Option<NodeChunks>> {
+        let mut found = false;
+        for h in self.heads.iter().filter(|h| !h.done()) {
+            if !found || h.id < self.least {
+                self.least.clone_from(&h.id);
+                found = true;
+            }
+        }
+        if !found {
+            return Ok(None);
+        }
+        let mut node: Option<NodeChunks> = None;
+        for h in &mut self.heads {
+            if h.done() || h.id != self.least {
+                continue;
+            }
+            let more = h.cols.node_chunks(&self.least, h.group())?;
+            match &mut node {
+                Some(have) => {
+                    have.chunks.extend(more.chunks);
+                    have.chunks.sort_by_key(|c| c.chunk);
+                }
+                None => node = Some(more),
+            }
+            h.step()?;
+        }
+        Ok(node)
+    }
+}
+
 /// Term `ord` of `col`, in `into`.
 fn word(col: &StrColumn, ord: u64, into: &mut String) -> anyhow::Result<()> {
     into.clear();
