@@ -21,7 +21,8 @@
 //!   none ([`sandbox_keeps_nothing`] reads the base view, so a bind added to it turns this off), and
 //!   a self builder's command is then given one more, its own item's build folder and no one else's
 //!   (`sandbox::Sandbox::with_builder_folder`, `own_tree::builder_folder`, which answers only for a
-//!   self session): the only thing that persists from such a call, and its own by construction.
+//!   self session, and only for a folder that is its own resolved path): the only thing that
+//!   persists from such a call, and its own by construction.
 //!   This covers a shell line, which the rest of the rule cannot read, because nothing it does
 //!   outside that folder stays. Whatever else the call removes is the overlay it was given.
 //! - **A plain file tool (`fs.write`, `fs.edit`, `fs.patch`) whose every write target is its own**,
@@ -86,8 +87,8 @@ pub(crate) fn what_runs(rt: &ToolRuntime, session: &str) -> Option<&'static str>
         "For this session these run: `rm` given as an argv (`{\"argv\": [\"rm\", \"-rf\", \"<path>\"]}`, \
          not a shell line) on paths inside its own working copy, build folder or review scratch; the \
          file tools on those paths; and any command run in the sandbox (`sandbox: true`), which reaches \
-         at most the package registries and keeps nothing outside its own build folder. A review's scratch is removed for it \
-         when it has answered, so it needs no clean-up.",
+         at most the package registries and keeps nothing outside its own build folder. A review's \
+         scratch is removed for it when it has answered, so it needs no clean-up.",
     )
 }
 

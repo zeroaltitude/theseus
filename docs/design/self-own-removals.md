@@ -50,7 +50,8 @@ Three kinds of call are covered, each because the code can say what it removes:
 
 **Its own** is: strictly inside its working copy (`<state>/self/trees/<its task>`, never the copy itself, which the
 pipeline holds); strictly inside its item's build folder (`<state>/self/builder/<its task>`, from
-`own_tree::builder_path`: named by the session's task and never by a call, and only while the item's tree is open);
+`own_tree::builder_path`: named by the session's task and never by a call, only while the item's tree is open, and
+only while the folder is its own resolved path, so a link where it goes or at the builders' root is no place);
 or its review scratch (`<state>/self/review/<slug>`, the directory and all inside it, registered for the session that
 runs the review by `CheckTurn` and removed from the registry when the review answers; a call can never name it, and an
 entry outside `<state>/self/review` is ignored). **Nothing under the system temporary directory is its own**: on a

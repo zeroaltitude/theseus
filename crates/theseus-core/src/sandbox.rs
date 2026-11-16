@@ -805,9 +805,9 @@ impl Sandbox {
     }
 
     /// The list an L1 call of `session` starts from: `[sandbox] egress`, the operator's, or for a
-    /// self session never that. A self builder (its item's tree is open) gets the package
-    /// registries (`rsi::deps::hosts::egress`), a closed list in code; any other self session, a
-    /// review for one, gets no network. Reading a list is as good as the question it is asked:
+    /// self session never that. A self builder (`own_tree::builder_path`: its item's tree is open,
+    /// and its build folder is no link) gets the package registries (`rsi::deps::hosts::egress`), a
+    /// closed list in code; any other self session, a review for one, gets no network. Reading a list is as good as the question it is asked:
     /// the removal rule reads this same one (`rsi::own_removals`).
     pub(crate) fn egress_for(&self, rt: &ToolRuntime, session: Option<&str>) -> Vec<String> {
         match session {
