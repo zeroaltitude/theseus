@@ -287,7 +287,16 @@ impl Core {
         closed: &watch::Receiver<()>,
     ) -> Response {
         let id = req.id.clone();
+        // What a trim that finds a peak names (issue 21): this method, its
+        // wall time, and the size of its answer.
+        let mut ran = self
+            .resident
+            .activity()
+            .ran(crate::resident::activity::Kind::Rpc, &req.method);
         let answer = self.clone().dispatch(req, tx, link, closed).await;
+        if let Ok(v) = &answer {
+            ran.bytes(crate::resident::activity::json_len(v));
+        }
         // A trim follows once the daemon has been quiet (theseus-9lxe).
         self.resident.mark();
         match answer {

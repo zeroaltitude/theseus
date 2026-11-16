@@ -55,10 +55,19 @@ pub async fn run(core: Arc<Core>) {
             _ = tick.tick() => {
                 let c = core.clone();
                 // Store work is blocking; keep it off the reactor.
-                let _ = tokio::task::spawn_blocking(move || c.heartbeat("timer")).await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    let _ran = crate::resident::activity::ran(
+                        crate::resident::activity::Kind::Job,
+                        "heartbeat.timer",
+                    );
+                    c.heartbeat("timer");
+                })
+                .await;
                 // The disk's floor holds for a job that already runs, as it
                 // does for the next one (theseus-ht82).
                 core.stop_jobs_below_floor().await;
+                // So does a self builder's build folder, at its own bound.
+                core.stop_jobs_over_builder_bound().await;
             }
             accepted = async {
                 match &listener {
@@ -77,6 +86,10 @@ pub async fn run(core: Arc<Core>) {
                     let c = core.clone();
                     let _ = tokio::task::spawn_blocking(move || {
                         tracing::debug!(ids = ?ids, "wrapper notify");
+                        let _ran = crate::resident::activity::ran(
+                            crate::resident::activity::Kind::Job,
+                            "heartbeat.notify",
+                        );
                         c.heartbeat("notify");
                     })
                     .await;
@@ -132,6 +145,8 @@ pub async fn drive(core: Arc<Core>) {
         // A call's question nobody answered expires within a tick of the time
         // its card gives (theseus-830), whatever executions the tick reads,
         // which leave out a parked one; the read below takes up its wake.
+        let _tick =
+            crate::resident::activity::ran(crate::resident::activity::Kind::Job, "driver.tick");
         core.expire_questions_if_due();
         // A task claim whose lease lapsed is freed, from the claims kept in
         // memory (39b).
@@ -174,7 +189,12 @@ pub async fn drive(core: Arc<Core>) {
                 backoff.clone(),
             );
             tokio::spawn(async move {
+                let ran = crate::resident::activity::ran(
+                    crate::resident::activity::Kind::Job,
+                    "driver.continue_execution",
+                );
                 let r = c.continue_execution(&id).await;
+                drop(ran);
                 if r.is_ok() {
                     bo.lock().unwrap().remove(&id);
                 }
