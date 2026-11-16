@@ -136,7 +136,7 @@ pub fn run(o: &Options) -> anyhow::Result<String> {
         "the table is not ready for a layout (no scan file, or a stamp being re-embedded)",
     )?;
     let t0 = Instant::now();
-    let (tier, hot, cold) = layout::build_layout(&plan, v.cap(plan.cut))?;
+    let (tier, hot, cold) = layout::build_layout(&plan, v.cap(plan.cut, plan.alive()))?;
     let made_ms = t0.elapsed().as_secs_f64() * 1e3;
     let tier = tier.map(Arc::new);
     let kept = tier.as_ref().and_then(|t| v.self_check(t, &plan));

@@ -38,13 +38,23 @@ pub const DEFAULT_RESIDENT_MB: u64 = 128;
 /// (16 MiB).
 pub const MIN_RESIDENT_MB: u64 = FIXED_MB + 16;
 
-/// What the budget keeps for what is not the hot region, measured on synthetic stores of today's
-/// size and five times it: the vector side's own memory (the table's bits and pointers, the
-/// signals) was 10 to 20 MiB anonymous, the pages of the rows a search touches 9 to 16 MiB
-/// beside the hot region, and the word index adds 10 to 22 MiB: 52 holds the largest of each at
-/// once with the hot region full (it was 40, which left the tender at 123 to 143 MiB at a full
-/// hot region, over the setting).
-pub const FIXED_MB: u64 = 52;
+/// What the budget keeps for what is not the hot region and does not grow with the store: the
+/// word index (10 to 22 MiB measured at today's size; not measured at five times it) and the
+/// table's fixed overhead and the pages of the rows a search touches. 48 with
+/// [`PER_RECORD_BYTES`] of every record makes 52 at today's 291,000 records.
+pub const FIXED_MB: u64 = 48;
+
+/// What the rest of the vector side costs for every record the store holds, hot or not: the
+/// table's bits and pointers, a row's pages a search touches, the signals. Measured on synthetic
+/// stores of 291,000 and 1,995,572 records, the part outside the hot region grew by 8 to 10
+/// bytes a record, the review's reading of it was 16: this is the larger, so that the budget
+/// holds as the store grows and the hot region shrinks to make room for it.
+pub const PER_RECORD_BYTES: u64 = 16;
+
+/// The least the hot region is made, whatever the store's size: below it a search by meaning
+/// would be nearly all groups. A store so large that this and the rest do not fit the setting
+/// exceeds it (the design note says by how much it was measured to).
+const HOT_FLOOR_MB: u64 = 16;
 
 /// A value of `[index] resident_mb` the index can keep, or why not.
 pub fn check_resident_mb(mb: u64) -> Result<(), String> {
@@ -58,10 +68,15 @@ pub fn check_resident_mb(mb: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// How many records the hot region may hold under `resident_mb`: what is left of it after
-/// [`FIXED_MB`], at a cut, a scale and an entry number a record.
-pub fn hot_cap(resident_mb: u64, cut: usize) -> usize {
-    let bytes = resident_mb.saturating_sub(FIXED_MB).saturating_mul(1 << 20);
+/// How many records the hot region may hold under `resident_mb` for a store of `records`: what is
+/// left of it after [`FIXED_MB`] and [`PER_RECORD_BYTES`] of every record, at a cut, a scale and
+/// an entry number a record, and at least [`HOT_FLOOR_MB`] of them. At the point where every
+/// record fits, the cap is the record count, so the cap never jumps as the store grows.
+pub fn hot_cap(resident_mb: u64, cut: usize, records: usize) -> usize {
+    let room = resident_mb.saturating_sub(FIXED_MB).saturating_mul(1 << 20);
+    let rest = (records as u64).saturating_mul(PER_RECORD_BYTES);
+    let floor = HOT_FLOOR_MB << 20;
+    let bytes = room.saturating_sub(rest).max(floor);
     usize::try_from(bytes / (cut as u64 + 8)).unwrap_or(usize::MAX)
 }
 
@@ -140,6 +155,14 @@ pub(super) struct Plan {
 }
 
 impl Plan {
+    /// The records some alive row holds the text of.
+    pub fn alive(&self) -> usize {
+        self.scores
+            .iter()
+            .filter(|s| **s > f32::NEG_INFINITY)
+            .count()
+    }
+
     /// Where a layout is written until it has passed its check: a name nothing opens, so a kill
     /// in the middle of the check leaves no layout that was never checked.
     pub fn cand_path(&self) -> PathBuf {
@@ -440,11 +463,11 @@ pub(super) fn choose_hot(scores: &[f32], cap: usize) -> Option<Vec<u32>> {
 }
 
 impl Vectors {
-    /// The hot region's room under this tender's budget.
-    pub(super) fn cap(&self, cut: usize) -> usize {
+    /// The hot region's room under this tender's budget, for a store of `records` alive records.
+    pub(super) fn cap(&self, cut: usize, records: usize) -> usize {
         self.cfg
             .hot_records
-            .unwrap_or_else(|| hot_cap(self.cfg.resident_mb, cut))
+            .unwrap_or_else(|| hot_cap(self.cfg.resident_mb, cut, records))
     }
 
     /// Why a layout is due now, if it is: the store does not fit the budget and has no layout (and
@@ -469,7 +492,7 @@ impl Vectors {
         let c = &t.caches[0];
         c.scan.as_ref()?;
         let alive = c.len() - c.dead();
-        let fits = alive <= self.cap(c.cut);
+        let fits = alive <= self.cap(c.cut, alive);
         match (&t.tier, fits) {
             (None, true) => None,
             (None, false) => match failed {
@@ -527,7 +550,7 @@ impl Vectors {
         let Some(plan) = self.plan(now_s) else {
             return;
         };
-        match build_layout(&plan, self.cap(plan.cut)) {
+        match build_layout(&plan, self.cap(plan.cut, plan.alive())) {
             Ok((tier, hot, cold)) => {
                 self.settle_layout(why, t0, &plan, tier.map(Arc::new), (hot, cold))
             }
@@ -758,7 +781,7 @@ impl Vectors {
         let t = self.table.try_read().ok()?;
         let c = t.caches.first()?;
         let alive = c.len().saturating_sub(c.dead()) as u64;
-        let cap = self.cap(c.cut) as u64;
+        let cap = self.cap(c.cut, alive as usize) as u64;
         let l = self.layouts.lock().unwrap();
         let (mode, why_exact) = match (&t.tier, &l.failed) {
             (Some(_), _) => ("tiered", None),
@@ -980,8 +1003,31 @@ mod tests {
     fn the_budget_holds_what_it_should() {
         // 128 MiB less the fixed part at 264 bytes a record is about 300,000 records, more than
         // the 291,000 the owner's store holds today.
-        assert!(hot_cap(128, 256) > 291_000);
-        assert!(hot_cap(128, 256) < 400_000);
+        assert!(hot_cap(128, 256, 291_000) > 291_000);
+        assert!(hot_cap(128, 256, 291_000) < 400_000);
+        // As the store grows the hot region shrinks, so that the whole stays under the setting:
+        // what the hot region and the rest cost at every size is no more than the setting.
+        let mb = |records: usize| {
+            let hot = hot_cap(128, 256, records) as u64 * 264;
+            (hot + records as u64 * PER_RECORD_BYTES) as f64 / f64::from(1 << 20) + FIXED_MB as f64
+        };
+        for records in [291_000, 600_000, 1_000_000, 2_000_000, 3_000_000] {
+            assert!(
+                mb(records) <= 128.0,
+                "{records} records: {} MiB",
+                mb(records)
+            );
+            assert!(hot_cap(128, 256, records) >= (16 << 20) / 264);
+        }
+        assert!(hot_cap(128, 256, 2_000_000) < hot_cap(128, 256, 1_000_000));
+        // It only shrinks as the store grows, and by a little for a thousand records more.
+        for records in (250_000..2_500_000).step_by(50_000) {
+            let (a, b) = (
+                hot_cap(128, 256, records),
+                hot_cap(128, 256, records + 1_000),
+            );
+            assert!(b <= a && a - b <= 100, "{records}: {a} then {b}");
+        }
         assert!(check_resident_mb(128).is_ok());
         assert!(check_resident_mb(MIN_RESIDENT_MB).is_ok());
         assert!(check_resident_mb(MIN_RESIDENT_MB - 1)

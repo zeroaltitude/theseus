@@ -15,7 +15,7 @@ stuff always at hand, and … indexes for things that can be very fast lookups".
 
 | Part | Where | What it does |
 |---|---|---|
-| the budget | `[index] resident_mb` (128), `layout.rs` | the index's resident memory at rest, the model unloaded, whatever the store's size; what is left after the index's own parts (52 MiB, measured: the table's bits and pointers, the signals, the pages of the rows a search touches, freed heap, the word index) is the hot region (a cut, a scale and an entry number: 264 bytes a record); refused below 68 |
+| the budget | `[index] resident_mb` (128), `layout.rs` | the index's resident memory at rest, the model unloaded, whatever the store's size; what is left, at the store's size, after the index's own parts (48 MiB and 16 bytes of every record the store holds, measured: the table's bits and pointers, the signals, the pages of the rows a search touches, freed heap, the word index) is the hot region (a cut, a scale and an entry number: 264 bytes a record); refused below 64 |
 | the score | `heat.rs` | recency by the node's **own** time (an import of old sessions is old; the half-life is 30 days), use (`memory.used`), importance (the gate's durability), the operator's labels (useful and should-have are hot, wrong and stale never) |
 | the signals | `heat.rs`, the tender | read off the log's ledger rows as the tender follows it, kept in `heat.log` beside the vectors; a signal only changes what is read first, never an answer |
 | the layout | `tier.rs`, `<stamp key>.tier` | copies of the int8 cuts in region order: the hot region, then groups of similar records, each group together |
@@ -110,10 +110,21 @@ about 20 s; on four threads with the files' pages dropped first, about 26 s. Its
 dot product of int8 cuts for each pair), which is why `dot_i8` takes sixteen products a step where the machine has AVX2.
 `a_layout_of_five_times_the_store_finishes_in_time` (ignored; the test's own comment says how to run it) fails over two minutes.
 
-What the budget counts at rest and after searches, vector side only (the word index's 10 to 22 MiB is added by hand):
-290,730 records (today's size; all of it hot): 10.3 MiB anonymous + 92.3 file-backed; 1,995,572 records at 128 MiB (349,525
-hot at a fixed part of 40, since changed to 52): 19.7 + 100.9. The pass gives back what it used (the heap is trimmed after it:
-81 MiB of anonymous memory remained at five times the store before, 18 after). The table's own anonymous memory grows with
-the store (about 8 bytes a chunk text), so "whatever the store's size" is bounded by that: at five times today's it is about
-20 MiB, and the fixed part is sized for the largest of each part measured, not for a store of any size.
+What the budget counts at rest and after searches, vector side only (the word index is not in these figures; at
+today's size it is 10 to 22 MiB, and at five times the store it was **not measured**: the measure is table-level, and a
+tender at that size is the thing to run). The part outside the hot region grows with the store, about 8 to 16 bytes
+for every record (the table's bits and pointers, the row pages a search touches), so the hot region is what the setting
+leaves after a fixed 48 MiB and 16 bytes of every record, never less than 16 MiB of records (`hot_cap`); a store so
+large that this does not fit the setting exceeds it. Measured (a layout on four threads, the files' pages dropped
+first):
 
+| records | `resident_mb` | mode | hot | at rest | after 300 searches |
+|---|---|---|---|---|---|
+| 290,730 (today's) | 128 | all hot | 290,730 | 15.9 MiB | 102.5 MiB |
+| 1,995,572 (five times) | 128 | tiered | 196,806 | 96.6 MiB | 97.5 MiB |
+
+With the word index's 10 to 22 MiB, today's size is 113 to 125 MiB against 128 (no layout, every record hot, nothing
+changed), and five times the store about 108 to 120 MiB if the word index stays within that (30 MiB are left for it).
+Before this the fixed part was a constant (40, then 52 MiB), and at five times the store the vector side alone was 134.6
+MiB against 128 (round 3's finding): the constant was right for today's store and wrong for a larger one. The pass
+gives back what it used (the heap is trimmed after it).

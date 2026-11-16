@@ -39,9 +39,9 @@ pub struct IndexConfig {
 }
 
 /// The least `resident_mb` the index can keep: its own parts (the word index, the groups' centres,
-/// the table's bookkeeping) need about 52 MiB, and the hot set 16 MiB more. The tender's
+/// the table's bookkeeping) need about 48 MiB, and the hot set 16 MiB more. The tender's
 /// `theseus_index::vectors::MIN_RESIDENT_MB` is the same number (the core does not link the index).
-pub const MIN_RESIDENT_MB: u64 = 68;
+pub const MIN_RESIDENT_MB: u64 = 64;
 
 impl IndexConfig {
     /// `resident_mb` is a value the index can keep, or why not.
