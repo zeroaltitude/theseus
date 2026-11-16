@@ -64,8 +64,12 @@ impl Texts for Stream<'_> {
     }
 }
 
+/// A table that keeps its rows in memory (no directory to write a file in): the
+/// path a start takes where it cannot write one.
 fn vectors(dir: &std::path::Path) -> Vectors {
-    Vectors::new(VectorConfig::new(Some(dir.to_path_buf())), dir)
+    let v = Vectors::new(VectorConfig::new(Some(dir.to_path_buf())), dir);
+    v.table.write().unwrap().dir = None;
+    v
 }
 
 fn hashes_of(v: &Vectors, node_id: &str) -> Vec<u128> {

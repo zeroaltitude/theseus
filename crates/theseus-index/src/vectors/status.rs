@@ -28,12 +28,12 @@ impl Counts {
             ..Counts::default()
         };
         let mut done = 0u64;
-        for r in t.alive() {
+        for v in t.alive_vecs() {
             c.chunks += 1;
-            if r.vec().is_some() {
+            if v.is_some() {
                 c.vectors += 1;
             }
-            if matches!(r.vec(), Some((0, _))) {
+            if matches!(v, Some((0, _))) {
                 done += 1;
             }
         }
