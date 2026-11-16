@@ -92,6 +92,18 @@ pub const SHORT_CONTEXT_CHARS: usize = 120;
 
 /// The index's answer to one query, or why there is none.
 pub type AskFuture = Pin<Box<dyn Future<Output = Result<IndexQueryResult, String>> + Send>>;
+/// What a recall's question is asked with, beyond its words.
+struct Within {
+    as_of: Option<u64>,
+    k: usize,
+    arm: MemoryArm,
+    deadline: Duration,
+    when: Option<when::When>,
+    sessions: Vec<String>,
+    /// A turn's own recall: the hot set and the nearest groups, not every record.
+    fast: bool,
+}
+
 /// Who answers a recall's query: the index tender, or a test's stand-in.
 pub type Ask = Arc<dyn Fn(IndexQueryParams) -> AskFuture + Send + Sync>;
 /// Who answers a recall's two queries at once, its words' alone and then
@@ -454,42 +466,56 @@ impl Memory {
         when: Option<when::When>,
         sessions: Vec<String>,
     ) -> Begun {
-        self.begin_reach(query, as_of, k, arm, deadline, when, sessions, false)
+        self.begin_with(
+            query,
+            Within {
+                as_of,
+                k,
+                arm,
+                deadline,
+                when,
+                sessions,
+                fast: false,
+            },
+        )
     }
 
     /// [`Memory::begin_within`] for a turn's own recall, whose vector search may read the hot set
     /// and the nearest groups of the cold rest and not every record (issue 21 of 1.0.7). A search
     /// somebody asks for by name (`memory.search`, `memory.lookup`, the memory tools, a thread's
     /// notes) goes through `begin` and `begin_within`, and is exact.
-    #[expect(clippy::too_many_arguments, reason = "begin's, and the two filters")]
     pub fn begin_turn(
         &self,
         query: impl Into<RecallQuery>,
         as_of: Option<u64>,
-        k: usize,
         arm: MemoryArm,
         deadline: Duration,
         when: Option<when::When>,
-        sessions: Vec<String>,
     ) -> Begun {
-        self.begin_reach(query, as_of, k, arm, deadline, when, sessions, true)
+        self.begin_with(
+            query,
+            Within {
+                as_of,
+                k: K,
+                arm,
+                deadline,
+                when,
+                sessions: Vec::new(),
+                fast: true,
+            },
+        )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "begin's, the two filters, and the reach"
-    )]
-    fn begin_reach(
-        &self,
-        query: impl Into<RecallQuery>,
-        as_of: Option<u64>,
-        k: usize,
-        arm: MemoryArm,
-        deadline: Duration,
-        when: Option<when::When>,
-        sessions: Vec<String>,
-        fast: bool,
-    ) -> Begun {
+    fn begin_with(&self, query: impl Into<RecallQuery>, within: Within) -> Begun {
+        let Within {
+            as_of,
+            k,
+            arm,
+            deadline,
+            when,
+            sessions,
+            fast,
+        } = within;
         let sources = arm.sources();
         let exclude: Vec<String> = match arm {
             MemoryArm::Synthesis => Vec::new(),
