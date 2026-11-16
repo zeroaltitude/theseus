@@ -273,6 +273,8 @@ mod tests_backfill;
 #[cfg(test)]
 mod tests_bg_gate;
 #[cfg(test)]
+mod tests_binding;
+#[cfg(test)]
 mod tests_books;
 #[cfg(test)]
 mod tests_budget_loop;
@@ -376,8 +378,6 @@ mod tests_engage;
 mod tests_explain;
 #[cfg(test)]
 mod tests_failures;
-#[cfg(test)]
-mod tests_binding;
 #[cfg(test)]
 mod tests_fallback;
 #[cfg(test)]

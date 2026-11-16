@@ -52,7 +52,10 @@ pub fn with_remedy(thinking: &Value) -> Value {
 /// repeat that cannot help it.
 pub fn is_prefix_refusal(e: &anyhow::Error) -> bool {
     match e.downcast_ref::<ProviderError>() {
-        Some(ProviderError::InvalidRequest { status: 400, message }) => {
+        Some(ProviderError::InvalidRequest {
+            status: 400,
+            message,
+        }) => {
             message.contains("`signature` in `thinking` block")
                 && message.contains("prefix_mismatch_behavior")
         }
@@ -81,7 +84,13 @@ fn bound(req: &ProviderRequest, messages: &[Value], i: usize, j: usize) -> Strin
     let own = messages[i]["content"]
         .as_array()
         .map_or(Vec::new(), |b| b[..j].to_vec());
-    let prefix = json!([&req.system, &req.tools, &messages[..i], &messages[i]["role"], own]);
+    let prefix = json!([
+        &req.system,
+        &req.tools,
+        &messages[..i],
+        &messages[i]["role"],
+        own
+    ]);
     hex::encode(Sha256::digest(
         serde_json::to_vec(&unmarked(&prefix)).unwrap_or_default(),
     ))
@@ -158,7 +167,9 @@ pub fn sign(req: &ProviderRequest, blocks: &mut [Value]) {
     let at = messages.len() - 1;
     for (j, b) in blocks.iter_mut().enumerate() {
         // A block that came stamped is a planted drift, and is left as it is.
-        let stamped = b["signature"].as_str().is_some_and(|s| s.starts_with(STAMP));
+        let stamped = b["signature"]
+            .as_str()
+            .is_some_and(|s| s.starts_with(STAMP));
         if is_thinking(b) && !stamped {
             b["signature"] = Value::String(format!("{STAMP}{}", bound(req, &messages, at, j)));
         }
@@ -181,8 +192,14 @@ pub fn check(
         .and_then(|t| t["block_binding"]["prefix_mismatch_behavior"].as_str())
         == Some(REMEDY);
     match (mode, asked) {
-        (Binding::Report, _) => Ok((req.clone(), Some(reported("thinking_mismatch_allowed", &drift)))),
-        (Binding::Refuse, true) => Ok((without(req, &drift), Some(reported("thinking_dropped", &drift)))),
+        (Binding::Report, _) => Ok((
+            req.clone(),
+            Some(reported("thinking_mismatch_allowed", &drift)),
+        )),
+        (Binding::Refuse, true) => Ok((
+            without(req, &drift),
+            Some(reported("thinking_dropped", &drift)),
+        )),
         (Binding::Refuse, false) => Err(refusal(&drift)),
     }
 }

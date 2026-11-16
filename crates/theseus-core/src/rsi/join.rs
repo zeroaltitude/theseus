@@ -70,7 +70,6 @@ mod reviewing;
 pub mod scratch;
 mod sealing;
 mod tender;
-mod unreviewable;
 #[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
@@ -89,6 +88,7 @@ mod tests_scratch;
 mod tests_sealed;
 #[cfg(test)]
 mod tests_unreviewable;
+mod unreviewable;
 
 use std::sync::Arc;
 use std::time::Duration;

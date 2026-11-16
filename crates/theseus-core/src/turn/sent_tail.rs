@@ -102,7 +102,12 @@ impl SentTails {
         };
         let mut kept = Vec::new();
         for s in held.into_iter().filter(|_| !stripped) {
-            let Some(m) = compiled.request.messages.get_mut(s.at).filter(|_| s.at < last) else {
+            let Some(m) = compiled
+                .request
+                .messages
+                .get_mut(s.at)
+                .filter(|_| s.at < last)
+            else {
                 continue;
             };
             if anchor(m) != s.anchor {

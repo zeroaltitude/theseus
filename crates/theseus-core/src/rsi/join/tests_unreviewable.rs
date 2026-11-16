@@ -108,7 +108,10 @@ async fn three_identical_stops_for_a_reason_that_will_not_clear_hold_the_change(
     // Nothing asks again, however many passes follow.
     for _ in 0..3 {
         let again = r.core.self_join_pass(&seams).await.unwrap();
-        assert!(again.stopped.is_empty() && again.reviewed.is_empty(), "{again:?}");
+        assert!(
+            again.stopped.is_empty() && again.reviewed.is_empty(),
+            "{again:?}"
+        );
     }
     assert_eq!((reviewer.asked(), r.posts().len()), (3, 1));
     // It was never a try of the item.
@@ -131,7 +134,10 @@ async fn the_owners_retry_starts_the_count_over() {
         assert!(held(&r).is_empty(), "pass {pass}");
     }
     r.core.self_join_pass(&seams).await.unwrap();
-    assert_eq!((reviewer.asked(), held(&r).len(), r.posts().len()), (6, 1, 2));
+    assert_eq!(
+        (reviewer.asked(), held(&r).len(), r.posts().len()),
+        (6, 1, 2)
+    );
 }
 
 /// A reason that clears is never held: the review is tried again, after a wait that doubles each
@@ -140,7 +146,9 @@ async fn the_owners_retry_starts_the_count_over() {
 async fn a_transient_reason_is_tried_again_after_a_wait_that_grows() {
     let _clock = crate::test_support::pin_mid_period();
     let (r, _id, reviewer, seams) = rig_with_failing("overloaded", true);
-    let minutes = |m: u64| theseus_protocol::time::move_clock_to(theseus_protocol::now_unix_ms() + m * 60_000);
+    let minutes = |m: u64| {
+        theseus_protocol::time::move_clock_to(theseus_protocol::now_unix_ms() + m * 60_000)
+    };
     r.core.self_join_pass(&seams).await.unwrap();
     assert_eq!(reviewer.asked(), 1);
     // The next pass comes at once, before any wait: not asked.
@@ -152,7 +160,11 @@ async fn a_transient_reason_is_tried_again_after_a_wait_that_grows() {
     assert_eq!(reviewer.asked(), 2);
     minutes(15);
     r.core.self_join_pass(&seams).await.unwrap();
-    assert_eq!(reviewer.asked(), 2, "the second wait is longer than one interval");
+    assert_eq!(
+        reviewer.asked(),
+        2,
+        "the second wait is longer than one interval"
+    );
     minutes(15);
     r.core.self_join_pass(&seams).await.unwrap();
     assert_eq!(reviewer.asked(), 3);

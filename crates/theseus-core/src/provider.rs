@@ -890,9 +890,9 @@ pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 // --------------------------------------------------------------- anthropic
 
+pub mod binding;
 mod count;
 mod digest;
-pub mod binding;
 pub use binding::Binding;
 pub mod one_tool;
 pub mod openai;

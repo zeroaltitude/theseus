@@ -107,11 +107,20 @@ async fn say(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSub
 /// block (a cache mark moves by design and is not content). Names the first
 /// place they differ.
 fn assert_same_prefix(earlier: &ProviderRequest, later: &ProviderRequest) {
-    let (a, b) = (unmarked(&json!(earlier.system)), unmarked(&json!(later.system)));
+    let (a, b) = (
+        unmarked(&json!(earlier.system)),
+        unmarked(&json!(later.system)),
+    );
     assert_eq!(a, b, "the system changed between steps");
-    let (a, b) = (unmarked(&json!(earlier.tools)), unmarked(&json!(later.tools)));
+    let (a, b) = (
+        unmarked(&json!(earlier.tools)),
+        unmarked(&json!(later.tools)),
+    );
     assert_eq!(a, b, "the tools changed between steps");
-    assert!(later.messages.len() >= earlier.messages.len(), "the later request is shorter");
+    assert!(
+        later.messages.len() >= earlier.messages.len(),
+        "the later request is shorter"
+    );
     for (i, m) in earlier.messages.iter().enumerate() {
         let (a, b): (Value, Value) = (unmarked(m), unmarked(&later.messages[i]));
         assert_eq!(a, b, "messages.{i} changed between steps");
@@ -137,7 +146,9 @@ async fn a_persons_turn_with_a_tool_step_sends_its_first_step_again() {
         vec![thinks_then_reads("toolu_a"), Scripted::text("Four.")],
     );
     let sid = private_session(&r.core);
-    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     assert_stable(&r);
 }
@@ -157,7 +168,9 @@ async fn a_second_turn_replays_the_first_turns_thinking_as_it_was_sent() {
         ],
     );
     let sid = private_session(&r.core);
-    say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     let res = say(&r.core, &sid, "and again?").await.unwrap();
     assert_eq!(res.output, "Still four.", "{res:?}");
     let reqs = r.fake.requests();
@@ -186,7 +199,11 @@ async fn a_review_turn_with_a_tool_step_sends_its_first_step_again() {
         },
     );
     let (live, _) = r.core.live_profile();
-    let target = r.core.runner.resolve_target(&live, None, None, None).unwrap();
+    let target = r
+        .core
+        .runner
+        .resolve_target(&live, None, None, None)
+        .unwrap();
     let scratch = r._dir.path().join("scratch");
     std::fs::create_dir_all(&scratch).unwrap();
     let ask = Ask {
@@ -215,7 +232,9 @@ async fn a_task_turn_with_a_tool_step_sends_its_first_step_again() {
     );
     let rec = SessionRecord::new(SessionKind::Task, None);
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    let res = say(&r.core, &rec.session_id, "read the tide table").await.unwrap();
+    let res = say(&r.core, &rec.session_id, "read the tide table")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     assert_stable(&r);
 }
@@ -236,11 +255,16 @@ async fn a_retry_after_a_transient_failure_sends_the_same_request() {
         ],
     );
     let sid = private_session(&r.core);
-    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 3, "the step, its failure, its retry");
-    assert_eq!(reqs[1].messages, reqs[2].messages, "the retry is the request it repeats");
+    assert_eq!(
+        reqs[1].messages, reqs[2].messages,
+        "the retry is the request it repeats"
+    );
     assert_same_prefix(&reqs[0], &reqs[2]);
 }
 
@@ -274,14 +298,22 @@ async fn a_refused_prefix_is_repeated_once_with_the_providers_remedy() {
         ],
     );
     let sid = private_session(&r.core);
-    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     let reqs = r.fake.requests();
-    assert_eq!(reqs.len(), 4, "the step, its refusal, its repeat, the step after");
+    assert_eq!(
+        reqs.len(),
+        4,
+        "the step, its refusal, its repeat, the step after"
+    );
     // The history held the drifted block still, so the next compile let the old thinking go and
     // the step after it is not made twice.
     assert!(
-        !serde_json::to_string(&reqs[3].messages).unwrap().contains("\"thinking\""),
+        !serde_json::to_string(&reqs[3].messages)
+            .unwrap()
+            .contains("\"thinking\""),
         "{:?}",
         reqs[3].messages
     );
@@ -292,17 +324,32 @@ async fn a_refused_prefix_is_repeated_once_with_the_providers_remedy() {
         reqs[2].thinking.as_ref().unwrap()["block_binding"],
         json!({"prefix_mismatch_behavior": "drop_block"})
     );
-    assert_eq!(reqs[1].messages, reqs[2].messages, "the repeat sends what it repeats");
+    assert_eq!(
+        reqs[1].messages, reqs[2].messages,
+        "the repeat sends what it repeats"
+    );
     let rows = call_rows(&r, &sid);
-    assert_eq!(rows.len(), 3, "the refused call is no row: it never answered");
+    assert_eq!(
+        rows.len(),
+        3,
+        "the refused call is no row: it never answered"
+    );
     assert_eq!(rows[0]["prefix_repeated"], json!(false), "{}", rows[0]);
     let repeated = &rows[1];
     assert_eq!(
-        (repeated["thinking_dropped"].as_u64(), repeated["prefix_repeated"].as_bool()),
+        (
+            repeated["thinking_dropped"].as_u64(),
+            repeated["prefix_repeated"].as_bool()
+        ),
         (Some(1), Some(true)),
         "{repeated}"
     );
-    assert_eq!(rows[2]["prefix_repeated"], json!(false), "the step after is made once: {}", rows[2]);
+    assert_eq!(
+        rows[2]["prefix_repeated"],
+        json!(false),
+        "the step after is made once: {}",
+        rows[2]
+    );
 }
 
 /// Where a mismatch is allowed, the model keeps its thinking: nothing is
@@ -314,15 +361,23 @@ async fn where_a_mismatch_is_allowed_nothing_is_dropped_and_the_row_counts_it() 
         vec![planted_drift("toolu_a"), Scripted::text("Four.")],
     );
     let sid = private_session(&r.core);
-    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 2);
-    assert!(reqs.iter().all(|q| q.thinking.as_ref().unwrap().get("block_binding").is_none()));
+    assert!(reqs
+        .iter()
+        .all(|q| q.thinking.as_ref().unwrap().get("block_binding").is_none()));
     let rows = call_rows(&r, &sid);
     let last = rows.last().unwrap();
     assert_eq!(
-        (last["thinking_mismatch_allowed"].as_u64(), last["thinking_dropped"].as_u64(), last["prefix_repeated"].as_bool()),
+        (
+            last["thinking_mismatch_allowed"].as_u64(),
+            last["thinking_dropped"].as_u64(),
+            last["prefix_repeated"].as_bool()
+        ),
         (Some(1), Some(0), Some(false)),
         "{last}"
     );
@@ -339,13 +394,24 @@ async fn only_the_prefix_refusal_is_repeated_and_only_once() {
     };
     let r = rig(Binding::Refuse, vec![Scripted::Fail(other)]);
     let sid = private_session(&r.core);
-    assert!(say(&r.core, &sid, "what does the tide table say?").await.is_err());
-    assert_eq!(r.fake.requests().len(), 1, "a different 400 is not repeated");
+    assert!(say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .is_err());
+    assert_eq!(
+        r.fake.requests().len(),
+        1,
+        "a different 400 is not repeated"
+    );
 
     let again = binding::refusal(&[(1, 0)]);
-    let r = rig(Binding::Refuse, vec![Scripted::Fail(again.clone()), Scripted::Fail(again)]);
+    let r = rig(
+        Binding::Refuse,
+        vec![Scripted::Fail(again.clone()), Scripted::Fail(again)],
+    );
     let sid = private_session(&r.core);
-    assert!(say(&r.core, &sid, "what does the tide table say?").await.is_err());
+    assert!(say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .is_err());
     assert_eq!(r.fake.requests().len(), 2, "one repeat, and no more");
 }
 
@@ -364,15 +430,26 @@ async fn a_recall_note_reads_the_same_at_every_step_of_its_turn() {
             c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         },
     );
-    let source = session(&r.core, None, &["Remember: the grey heron nests by the old weir."]);
-    r.core.runner.memory.set_ask(index_of(&r.core, vec![source]));
+    let source = session(
+        &r.core,
+        None,
+        &["Remember: the grey heron nests by the old weir."],
+    );
+    r.core
+        .runner
+        .memory
+        .set_ask(index_of(&r.core, vec![source]));
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    let res = say(&r.core, &rec.session_id, "where does the heron nest?").await.unwrap();
+    let res = say(&r.core, &rec.session_id, "where does the heron nest?")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     let reqs = r.fake.requests();
     assert!(
-        serde_json::to_string(&reqs[0].messages).unwrap().contains("grey heron"),
+        serde_json::to_string(&reqs[0].messages)
+            .unwrap()
+            .contains("grey heron"),
         "the note reached the first call"
     );
     assert_stable(&r);
@@ -399,7 +476,9 @@ async fn a_fallback_and_the_steps_after_it_send_what_was_sent() {
         ],
     );
     let sid = private_session(&r.core);
-    let res = say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    let res = say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     assert_eq!(res.output, "Four.", "{res:?}");
     assert_stable(&r);
 }
@@ -414,11 +493,21 @@ async fn a_tail_block_the_model_already_has_is_not_sent_again() {
         vec![Scripted::text("Four."), Scripted::text("Still four.")],
     );
     let sid = private_session(&r.core);
-    say(&r.core, &sid, "what does the tide table say?").await.unwrap();
+    say(&r.core, &sid, "what does the tide table say?")
+        .await
+        .unwrap();
     say(&r.core, &sid, "and again?").await.unwrap();
     let reqs = r.fake.requests();
     let dates = |q: &ProviderRequest| {
-        serde_json::to_string(&q.messages).unwrap().matches("Date: ").count()
+        serde_json::to_string(&q.messages)
+            .unwrap()
+            .matches("Date: ")
+            .count()
     };
-    assert_eq!((dates(&reqs[0]), dates(&reqs[1])), (1, 1), "{:?}", reqs[1].messages);
+    assert_eq!(
+        (dates(&reqs[0]), dates(&reqs[1])),
+        (1, 1),
+        "{:?}",
+        reqs[1].messages
+    );
 }

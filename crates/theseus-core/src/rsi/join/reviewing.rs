@@ -13,8 +13,8 @@ use theseus_protocol::tasks::{TaskEvidence, TaskState};
 use theseus_store::NewRecord;
 
 use super::planted::{self, Outcome};
-use super::unreviewable::{self, HOLD_AFTER};
 use super::review::Ask;
+use super::unreviewable::{self, HOLD_AFTER};
 use super::{blocking, git, remote_of, scratch, Run, Said};
 use crate::fact::rsi_join::SelfReviewVerdict;
 use crate::job_model::How;
@@ -237,7 +237,13 @@ impl Run<'_> {
         if cause.transient || repeats < HOLD_AFTER {
             return self.stop("review", why, numbers);
         }
-        self.card(unreviewable::card(&self.b.branch, &self.b.item, &cause.class, repeats, why));
+        self.card(unreviewable::card(
+            &self.b.branch,
+            &self.b.item,
+            &cause.class,
+            repeats,
+            why,
+        ));
         self.hold(
             "review",
             &format!(

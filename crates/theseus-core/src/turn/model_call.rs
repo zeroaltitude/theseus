@@ -193,7 +193,11 @@ impl TurnRunner {
             };
             let mut stream = std::pin::pin!(crate::exits::for_call(call, || {
                 crate::data_gate::for_session(sid, || {
-                    crate::provider::binding::stream_with_net(provider, &compiled.request, &mut on_delta)
+                    crate::provider::binding::stream_with_net(
+                        provider,
+                        &compiled.request,
+                        &mut on_delta,
+                    )
                 })
             }));
             let mut sent = false;
