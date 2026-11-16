@@ -568,7 +568,23 @@ impl crate::Core {
             tokio::time::sleep(crosscheck::LAG).await;
             loop {
                 let Some(c) = core.upgrade() else { return };
-                let rows = theseus_store::blocking(|| c.store.ledger_tail::<LedgerRow>(100_000));
+                // The pass that held 1 to 2 GiB an hour after each start
+                // (issue 21): the tail below is its weight.
+                let pass = crate::resident::activity::ran(
+                    crate::resident::activity::Kind::Job,
+                    "aws.crosscheck",
+                );
+                let rows = theseus_store::blocking(|| {
+                    let mut tail = crate::resident::activity::ran(
+                        crate::resident::activity::Kind::Job,
+                        "aws.crosscheck.ledger_tail",
+                    );
+                    let rows = c.store.ledger_tail::<LedgerRow>(100_000);
+                    if let Ok(rows) = &rows {
+                        tail.bytes(super::crosscheck::note_tail(rows));
+                    }
+                    rows
+                });
                 drop(c);
                 let checked = match rows {
                     Err(e) => Err(format!("the ledger's read failed: {e}")),
@@ -608,6 +624,7 @@ impl crate::Core {
                         }
                     }
                 }
+                drop(pass);
                 tokio::time::sleep(crosscheck::EVERY).await;
             }
         });

@@ -64,8 +64,22 @@ where
         };
         let at = (Instant::now() + wait).max(started + AFTER_START);
         tokio::time::sleep_until(at).await;
+        let _ran =
+            crate::resident::activity::ran(crate::resident::activity::Kind::Job, &pass_name::<R>());
         run(trigger).await;
     }
+}
+
+/// A pass's name for the memory record (issue 21): the function that built
+/// its closure, as `type_name` spells it, without the closures' own trailing
+/// `{{closure}}` segments and the path before it. Only the trailing ones: a
+/// function nested in an async block has one before its own name.
+fn pass_name<R>() -> String {
+    let mut path = std::any::type_name::<R>();
+    while let Some(outer) = path.strip_suffix("::{{closure}}") {
+        path = outer;
+    }
+    path.rsplit("::").next().unwrap_or(path).to_string()
 }
 
 /// What the run's thread took: its nice value, and whether it is in

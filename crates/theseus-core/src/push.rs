@@ -293,6 +293,10 @@ impl Push {
                 }
                 let c = core.clone();
                 let (board, work) = tokio::task::spawn_blocking(move || {
+                    let _ran = c
+                        .resident
+                        .activity()
+                        .ran(crate::resident::activity::Kind::Job, "push.seed");
                     let (board, execs, actions) = seed_inputs(&c, hot::RECENT)?;
                     let work = work::seed(&c, &board, &execs, &actions);
                     anyhow::Ok((board, work))
@@ -380,6 +384,10 @@ impl Push {
     /// watchers and to every `executions.watch` subscriber, and the work
     /// board's frame to every `work.watch` subscriber.
     fn apply(&self, core: &Core, f: Frame) {
+        let _ran = core
+            .resident
+            .activity()
+            .ran(crate::resident::activity::Kind::Job, "push.apply");
         let (changed, position, work) = {
             let mut b = self.board.lock().unwrap();
             let changed = b.apply(core, &f);

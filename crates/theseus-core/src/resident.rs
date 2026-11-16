@@ -20,6 +20,13 @@
 //!   with their bounds. Health never reads the heap itself: `mallinfo2`
 //!   walks every free chunk under each arena's lock, 10 ms on a heap that
 //!   holds 100 MiB free, and the cockpit asks for health every 2 s.
+//! - **A peak names its cause** (issue 21). Several times a day the daemon
+//!   held about 2 GiB for a minute and the journal said nothing. Every entry
+//!   point of work feeds `activity` (a name, a wall time, the bytes it
+//!   returned or read), and when a trim finds the resident set over
+//!   `PEAK_FLOOR` it writes one `resident.peak` row and one log line with what
+//!   ran since the trim before. A trim under it drops the window and writes
+//!   nothing. `docs/design/memory-peak-record.md` says how to read the row.
 //! - **Off the start path**: the tender starts after serving and waits on a
 //!   `Notify` and tokio's timer, never a poll; each trim and drop runs on the
 //!   blocking pool. A musl build reads no heap and trims nothing: its
@@ -28,9 +35,12 @@
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+pub mod activity;
+
 use theseus_protocol::resident::{CacheHealth, HeapHealth, ResidentHealth, TrimHealth};
 use tokio::sync::Notify;
 
+use self::activity::Activity;
 use crate::rpc::Core;
 
 /// How long the daemon is quiet after work before the tender trims.
@@ -43,6 +53,10 @@ pub const MAX_DEFER: Duration = Duration::from_secs(60);
 pub const CATALOG_IDLE: Duration = Duration::from_secs(10 * 60);
 /// The free heap below which a trim is not worth its walk of the arenas.
 pub const TRIM_FLOOR: u64 = 8 << 20;
+/// The resident set above which a trim writes what ran before it (issue 21).
+/// The daemon rests at 120 to 160 MiB and its ordinary busy minutes reach
+/// 300 to 600, so this is well over rest and under the 1 to 2 GiB peaks.
+pub const PEAK_FLOOR: u64 = 512 << 20;
 
 /// The process's resident set, in bytes: `/proc/self/statm`'s second field
 /// in pages. 0 where it cannot be read.
@@ -103,10 +117,27 @@ pub fn worth_trimming(h: &HeapHealth) -> bool {
 }
 
 /// The marks of work done and the trims that followed.
-#[derive(Default)]
 pub struct Resident {
     wake: Arc<Notify>,
     state: Mutex<State>,
+    activity: Arc<Activity>,
+}
+
+impl Default for Resident {
+    /// The process's own activity record (`Activity::global`), which the
+    /// passes with no core in hand feed as well. A test's core has one of
+    /// its own: the process's is shared by every test that runs beside it.
+    fn default() -> Self {
+        Self {
+            wake: Arc::default(),
+            state: Mutex::default(),
+            activity: if cfg!(test) {
+                Arc::default()
+            } else {
+                Activity::global().clone()
+            },
+        }
+    }
 }
 
 struct State {
@@ -118,6 +149,8 @@ struct State {
     last: Option<TrimHealth>,
     /// The heap as the tender last read it, at a trim's turn.
     heap: Option<HeapHealth>,
+    /// `PEAK_FLOOR`, lower in tests.
+    peak_floor: u64,
     /// `QUIET`, `MAX_DEFER` and `CATALOG_IDLE`, shorter in tests.
     quiet: Duration,
     max_defer: Duration,
@@ -141,6 +174,7 @@ impl Default for State {
             trims: 0,
             last: None,
             heap: None,
+            peak_floor: PEAK_FLOOR,
             quiet: QUIET,
             max_defer: MAX_DEFER,
             catalog_idle: CATALOG_IDLE,
@@ -213,6 +247,17 @@ impl Resident {
         self.wake.notify_one();
     }
 
+    /// A lower `PEAK_FLOOR`, for a test.
+    #[cfg(test)]
+    pub(crate) fn set_peak_floor(&self, floor: u64) {
+        self.state.lock().unwrap().peak_floor = floor;
+    }
+
+    /// The record every entry point of work feeds.
+    pub fn activity(&self) -> &Activity {
+        &self.activity
+    }
+
     /// The newest mark since the last trim, for a test.
     #[cfg(test)]
     pub(crate) fn marked(&self) -> Option<Instant> {
@@ -239,6 +284,10 @@ impl Resident {
             }
             _ => false,
         }
+    }
+
+    fn peak_floor(&self) -> u64 {
+        self.state.lock().unwrap().peak_floor
     }
 
     fn read_heap(&self, h: Option<HeapHealth>) {
@@ -330,8 +379,10 @@ impl Core {
 }
 
 /// Drop an idle catalog, then trim when a mark is due and the free heap is
-/// worth it. A drop is work too: it marks, so a trim follows.
-fn act(core: &Weak<Core>, drop_catalog: bool, trim_due: bool) {
+/// worth it. A drop is work too: it marks, so a trim follows. A trim that
+/// finds the resident set over `PEAK_FLOOR` records what ran before it
+/// (`Core::record_peak`); any other drops that window.
+pub(crate) fn act(core: &Weak<Core>, drop_catalog: bool, trim_due: bool) {
     let Some(c) = core.upgrade() else { return };
     if drop_catalog {
         if let Some(rows) = c.episodes.drop_if_idle(c.resident.catalog_idle()) {
@@ -345,8 +396,12 @@ fn act(core: &Weak<Core>, drop_catalog: bool, trim_due: bool) {
     if !(trim_due && c.resident.take_mark(Instant::now())) {
         return;
     }
+    // The window ends at every trim's turn, so a row names the work since
+    // the trim before, not since the start.
+    let window = c.resident.activity.drain();
     let h = heap();
     c.resident.read_heap(h.clone());
+    let mut trimmed = None;
     if h.is_some_and(|h| worth_trimming(&h)) {
         if let Some(t) = trim() {
             tracing::info!(
@@ -355,8 +410,38 @@ fn act(core: &Weak<Core>, drop_catalog: bool, trim_due: bool) {
                 rss_after_mib = t.rss_after_bytes >> 20,
                 "resident: the allocator's free pages were given back"
             );
+            trimmed = Some(t.clone());
             c.resident.trimmed(t);
         }
+    }
+    let before = trimmed
+        .as_ref()
+        .map_or_else(rss_bytes, |t| t.rss_before_bytes);
+    let floor = c.resident.peak_floor();
+    if before > floor {
+        c.record_peak(&window, before, trimmed.map(|t| t.rss_after_bytes), floor);
+    }
+}
+
+impl Core {
+    /// A trim found the resident set over `floor`: one `resident.peak` row
+    /// and one log line, both naming what ran since the trim before. The
+    /// row is no state transition, so it is logged, not fatal, if it cannot
+    /// be written.
+    fn record_peak(&self, window: &activity::Window, before: u64, after: Option<u64>, floor: u64) {
+        self.rec(None).record(&crate::fact::resident::PeakNamed {
+            window,
+            rss_before_bytes: before,
+            rss_after_bytes: after,
+            floor_bytes: floor,
+        });
+        tracing::info!(
+            rss_before_mib = before >> 20,
+            rss_after_mib = after.map(|a| a >> 20),
+            window_s = window.until_ms.saturating_sub(window.since_ms) / 1000,
+            ran = %window.summary(6),
+            "resident: the resident set peaked; what ran since the trim before is in the ledger (resident.peak)"
+        );
     }
 }
 
