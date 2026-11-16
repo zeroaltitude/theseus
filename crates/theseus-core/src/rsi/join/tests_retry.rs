@@ -61,7 +61,7 @@ impl Rig {
 
 /// An item on the backlog, as the builder left it: in progress, its change built. The owner's
 /// own filing makes the item, so it has the backlog's parent, as the retry reads it.
-fn item(r: &Rig) -> String {
+pub(super) fn item(r: &Rig) -> String {
     let filed = r
         .core
         .self_file(
@@ -99,15 +99,15 @@ fn session_row(session: &str, at_ms: u64) -> theseus_protocol::tasks::TaskEviden
     }
 }
 
-fn task(r: &Rig, id: &str) -> TaskRecord {
+pub(super) fn task(r: &Rig, id: &str) -> TaskRecord {
     crate::task_graph::get(&r.core.store, id).unwrap().unwrap()
 }
 
-fn owner() -> Answerer {
+pub(super) fn owner() -> Answerer {
     Answerer::from("the CLI")
 }
 
-fn retry(
+pub(super) fn retry(
     r: &Rig,
     id: &str,
     who: &Answerer,
@@ -123,7 +123,7 @@ fn retry(
     )
 }
 
-fn held(r: &Rig) -> Vec<theseus_protocol::rsi::SelfPipelineItem> {
+pub(super) fn held(r: &Rig) -> Vec<theseus_protocol::rsi::SelfPipelineItem> {
     r.core
         .self_pipeline(&SelfPipelineParams { week: false })
         .unwrap()
