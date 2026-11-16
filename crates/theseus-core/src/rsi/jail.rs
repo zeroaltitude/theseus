@@ -24,6 +24,7 @@ use anyhow::{bail, Context, Result};
 use theseus_kernel::job::L1;
 use theseus_kernel::probe_run::{self, Logged};
 
+use super::deps::Packages;
 use super::tree::{phase_note, Place, Tree};
 use crate::sandbox::Sandbox;
 use crate::sandbox::{self_build_env, SelfBuild};
@@ -68,12 +69,17 @@ impl Jail {
     pub fn prepare(&self, p: &Place, j: &Job<'_>) -> (L1, Vec<(String, String)>) {
         let repo = theseus_tools::paths::canonical_best_effort(&p.repo);
         let home = crate::config::expand("~");
+        // The packages the pipeline fetched for this tree's lock files, when they
+        // differ from main's (`deps::provide`, before the gate): the only thing of
+        // the registries this view sees, and it still has no network.
+        let packages = Packages::of(p, j.tree);
         let view = self.sandbox.self_build_view(&SelfBuild {
             tree: &j.tree.dir,
             target: &j.tree.target,
             repo: &repo,
             ro: &j.ro,
             home: &home,
+            packages: packages.as_ref().map(|k| k.dir.as_path()),
         });
         let mut env = self_build_env(&home, &j.tree.target);
         env.extend(j.env.iter().cloned());
@@ -83,6 +89,8 @@ impl Jail {
                 v.to_string_lossy().into_owned(),
             )
         }));
+        // Last, so nothing before it names another cache for cargo or npm.
+        env.extend(packages.iter().flat_map(Packages::env));
         (view, env)
     }
 

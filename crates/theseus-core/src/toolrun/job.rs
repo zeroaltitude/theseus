@@ -471,6 +471,36 @@ impl ToolRuntime {
             correlation_id,
         )
         .await;
+        // A self builder's L1 command may reach the registries and keeps package caches of its
+        // own (`rsi::deps::builder`). No other session's job is changed.
+        let mut sandbox = sandbox;
+        if let Some(view) = sandbox.as_mut() {
+            let session = tc.session_id;
+            let made = theseus_store::blocking(|| {
+                let folder = crate::rsi::deps::builder::folder_of(self, session)?;
+                Some(crate::rsi::deps::builder::apply(view, &folder).map(|()| folder))
+            });
+            match made {
+                Some(Ok(folder)) => {
+                    for (k, v) in crate::rsi::deps::builder::env(&folder) {
+                        env.retain(|(ek, _)| *ek != k);
+                        env.push((k, v));
+                    }
+                }
+                Some(Err(e)) => {
+                    return self
+                        .settle_job_failure(
+                            tc,
+                            correlation_id,
+                            tool.name(),
+                            call,
+                            &format!("the builder's package cache could not be made: {e}"),
+                        )
+                        .map(Err);
+                }
+                None => {}
+            }
+        }
         for (k, v) in &brokered.env {
             env.retain(|(ek, _)| ek != k);
             env.push((k.clone(), v.expose().to_string()));
@@ -1011,10 +1041,10 @@ impl ToolRuntime {
         // A job that reached a host beyond `[sandbox] egress` brought back
         // outside text (18c; theseus-gyin); so did a job of `gh`, whose output is a
         // stranger's text, unless its egress marked it already (theseus-b5cl).
-        let egress =
-            crate::egress::marker(&detail, !out.is_empty(), &self.sandbox.cfg.egress, || {
-                confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
-            });
+        let operator = crate::rsi::deps::builder::operator_list_of(self, &a.session_id);
+        let egress = crate::egress::marker(&detail, !out.is_empty(), &operator, || {
+            confirm_proposal(store, a, None).map_or_else(|_| vec![], |p| egress::bound(&p))
+        });
         let listed = match (&egress, input) {
             (None, Some(i)) => crate::external::Listed::of(i),
             _ => None,

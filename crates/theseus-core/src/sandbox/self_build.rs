@@ -24,7 +24,10 @@
 //! - **no network**: an empty egress list, so no route at all. Cargo is told
 //!   `--offline` (`CARGO_NET_OFFLINE`), so a branch that adds a crate the
 //!   cache lacks fails its gate at once, saying so ([`supply_chain`]):
-//!   refused, never fetched.
+//!   refused, never fetched. A branch whose lock files differ from main's
+//!   has the packages they name fetched before its gate, by the pipeline and
+//!   not by this view (`rsi::deps`, issue 20): [`SelfBuild::packages`] is that
+//!   cache, one more overlay, and cargo and npm read it as their home and cache.
 //! - 8,192 processes (the job default of 512 stays), and file, scratch and
 //!   `/tmp` caps sized for a compiler: the model's `proc.run` limits would
 //!   stop a link.
@@ -168,6 +171,10 @@ pub struct SelfBuild<'a> {
     /// The operator's HOME: where `.cargo`, `.npm`, `.rustup` and
     /// `.cache/theseus` are.
     pub home: &'a Path,
+    /// The package cache the pipeline fetched for this tree's lock files
+    /// (`rsi::deps::Packages`), when they differ from main's: an overlay, like
+    /// `~/.cargo`. The gate still has no network.
+    pub packages: Option<&'a Path>,
 }
 
 impl Sandbox {
@@ -180,7 +187,10 @@ impl Sandbox {
             home(".cargo"),
             home(".npm"),
             home(".cache/theseus"),
-        ];
+        ]
+        .into_iter()
+        .chain(b.packages.map(Path::to_path_buf))
+        .collect::<Vec<_>>();
         // The view's own read-only binds, apart from the operator's
         // `[sandbox] ro_paths`, which the mask filter below must not see.
         let own_ro: Vec<PathBuf> = [home(".rustup"), node_home(b.home)]
@@ -354,7 +364,9 @@ const OFFLINE_SIGNS: [&str; 6] = [
 pub fn supply_chain(log: &str) -> Option<&'static str> {
     OFFLINE_SIGNS.iter().any(|s| log.contains(s)).then_some(
         "supply chain: the branch needs a crate or package that the local cache does not hold, \
-         and a self build has no network and fetches nothing (cargo runs --offline). Add the \
-         dependency yourself, or take it out of the branch.",
+         and a self build has no network and fetches nothing (cargo runs --offline). The \
+         packages a changed lock file names are fetched for the gate before it runs, so make \
+         the lock file name it (`cargo update -p <crate>`, `npm install`), or take it out of \
+         the branch.",
     )
 }

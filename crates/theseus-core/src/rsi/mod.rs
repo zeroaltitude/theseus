@@ -41,10 +41,15 @@
 //! **What stops a failing loop** (the cap on tries, the rules the builder is told, formatting
 //! before the gate, no start on a red main, a tree that stays under its gate, a stale item settled,
 //! set-aside, a join that leaves no tree, the install's reap): `docs/design/self-loop-failure-handling.md`.
+//!
+//! **Libraries** (`deps`: what the builder may download, the packages the pipeline fetches for a gate from a branch's
+//! lock files, what is refused, and the change of dependencies that stops at the owner's card):
+//! `docs/design/self-dependencies.md`.
 
 pub mod backlog;
 pub mod budget;
 pub mod capacity;
+pub mod deps;
 pub(crate) mod digest;
 pub mod evidence;
 pub mod exams;

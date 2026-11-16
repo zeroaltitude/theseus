@@ -27,6 +27,7 @@ fn build<'a>(ro: &'a [PathBuf], home: &'a Path) -> SelfBuild<'a> {
         repo: Path::new("/repo"),
         ro,
         home,
+        packages: None,
     }
 }
 
@@ -495,4 +496,83 @@ fn a_missing_crate_is_a_supply_chain_failure_and_a_type_error_is_not() {
         assert!(why.contains("fetches nothing"), "{why}");
     }
     assert!(crate::sandbox::supply_chain("error[E0308]: mismatched types").is_none());
+}
+
+/// The packages the pipeline fetched for a gate's lock files are one more overlay of its
+/// view and two variables (cargo's home, npm's cache), and the gate keeps no network:
+/// nothing is added to its egress list and cargo is still told it is offline. A tree
+/// with no such cache gets neither.
+#[test]
+fn the_packages_fetched_for_a_gate_are_an_overlay_and_the_gate_keeps_no_network() {
+    use sha2::{Digest, Sha256};
+    let dir = crate::scratch::tempdir();
+    let state = dir.path().join("state");
+    let place = Place {
+        repo: dir.path().join("repo"),
+        state: state.clone(),
+        env: Vec::new(),
+        jail: None,
+        notify: None,
+        stop: None,
+    };
+    let tree = Tree {
+        slug: "t".into(),
+        branch: "self/t".into(),
+        dir: state.join("self/trees/t"),
+        target: state.join("self/target/t"),
+    };
+    std::fs::create_dir_all(&tree.dir).unwrap();
+    std::fs::write(tree.dir.join("Cargo.lock"), "version = 4\n").unwrap();
+    let jail = Jail::new(Arc::new(sandbox()));
+    let job = || Job {
+        tree: &tree,
+        ro: Vec::new(),
+        argv: vec!["true".into()],
+        env: Vec::new(),
+        log: Path::new("/dev/null"),
+        limit: Duration::from_secs(1),
+    };
+    let get = |env: &[(String, String)], k: &str| {
+        env.iter()
+            .rev()
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.clone())
+    };
+    let (view, env) = jail.prepare(&place, &job());
+    assert_eq!(get(&env, "CARGO_HOME"), None);
+    assert_eq!(get(&env, "npm_config_cache"), None);
+
+    let packages = place.packages().join("t");
+    std::fs::create_dir_all(&packages).unwrap();
+    let hash = hex::encode(Sha256::digest(b"version = 4\n"));
+    std::fs::write(
+        packages.join("ready.json"),
+        format!(r#"{{"cargo":"{hash}","npm":null}}"#),
+    )
+    .unwrap();
+    let (with, env) = jail.prepare(&place, &job());
+    assert!(with.workspace.contains(&packages), "{:?}", with.workspace);
+    assert!(
+        !with.rw.contains(&packages),
+        "the cache is an overlay: its writes vanish"
+    );
+    assert_eq!(
+        get(&env, "CARGO_HOME"),
+        Some(packages.join("cargo-home").display().to_string())
+    );
+    assert_eq!(
+        get(&env, "npm_config_cache"),
+        None,
+        "the npm lock did not change"
+    );
+    assert_eq!(get(&env, "CARGO_NET_OFFLINE").as_deref(), Some("true"));
+    assert_eq!(
+        with.egress, view.egress,
+        "no host is added to the gate's view"
+    );
+    assert!(with.egress.is_empty());
+    assert_eq!(with.rw, view.rw);
+    // Another lock file than the one the cache was made for is not served by it.
+    std::fs::write(tree.dir.join("Cargo.lock"), "version = 4\n# moved\n").unwrap();
+    assert_eq!(get(&jail.prepare(&place, &job()).1, "CARGO_HOME"), None);
 }

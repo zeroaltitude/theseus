@@ -284,6 +284,11 @@ impl Place {
     pub fn targets(&self) -> PathBuf {
         self.root().join("target")
     }
+    /// Where each tree's gate finds the packages its lock files name
+    /// ([`super::deps`]): beside the trees, never under them, since a directory there is a slot in use.
+    pub fn packages(&self) -> PathBuf {
+        self.root().join("packages")
+    }
     pub fn gates(&self) -> PathBuf {
         self.root().join("gates")
     }
@@ -838,6 +843,21 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
         .gates()
         .join(format!("{}.log", tree.branch.replace('/', "-")));
     let t0 = Instant::now();
+    // A branch whose lock files differ from main's has its packages fetched first, by
+    // this code and from the registries (`deps`); one that may not be fetched is red
+    // with the reason, and the gate never starts.
+    if let super::deps::Provided::Refused { why, infra } = super::deps::provide(p, tree).await {
+        std::fs::write(&log, format!("gate: {why}\n"))?;
+        return Ok(Gated::Ran(GateRun {
+            verdict: Verdict::Red,
+            exit: Some(1),
+            blob,
+            log,
+            secs: t0.elapsed().as_secs(),
+            tail: format!("gate: {why}"),
+            unrunnable: infra,
+        }));
+    }
     let status = match p.jail()? {
         Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
         None => {
@@ -1336,6 +1356,11 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     let _ = p.git(&p.repo, &["worktree", "prune"]);
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         std::fs::remove_dir_all(&tree.target)?;
+    }
+    // The packages fetched for its gate (`deps`) go with it, whichever way it is closed.
+    let packages = super::deps::Packages::dir_of(p, &tree.slug);
+    if packages.exists() {
+        std::fs::remove_dir_all(&packages)?;
     }
     Ok(())
 }

@@ -873,6 +873,7 @@ mod own_tree {
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
     mod proc_in_tree;
+    mod registries;
 
     fn held(edit: impl FnOnce(&mut Config)) -> Rig {
         rig_with(SelfMode::Act, None, |cfg| {

@@ -1231,6 +1231,7 @@ mod tests {
             repo: Path::new("/repo"),
             ro: &ro,
             home,
+            packages: None,
         });
         // `~/.cargo` is bound as an overlay ...
         assert!(view.workspace.contains(&home.join(".cargo")));
