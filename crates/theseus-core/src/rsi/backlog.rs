@@ -10,8 +10,9 @@
 //! nothing. It reads the ledger since the last night (failed calls, failed
 //! and refused turns, provider errors, invalid tool input, the owner's
 //! routing corrections, Jev's wrong labels, turns past their budgets, spend
-//! lines reached, refused acts), health's warnings, and the learning
-//! loop's report ([`read`]).
+//! lines reached, refused acts), health's warnings, the learning loop's
+//! report ([`read`]), and a tool's refusals when they rise far above its
+//! usual share ([`refusals`]).
 //!
 //! **Filing.** Each problem is a cause with a stable key (`turn.failed:
 //! timeout`, `provider.error:overloaded:anthropic`, `health:disk`), and each
