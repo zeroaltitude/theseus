@@ -565,6 +565,8 @@ under its own text; there is no shadow period and no ladder wait.
   - Each problem becomes a backlog item with its evidence, under a stable cause.
   - The backlog is ranked without a model call.
   - A cause the owner dropped is never filed again.
+  - A tool's own refusal (an edit whose text is not in the file) is no cause, but a tool whose refusals are many
+    and far above its usual share is: one item, with the numbers, while none of its cause is open or newly filed.
 - **It writes its own exam items.** Corrections, wrong labels, failed tasks and slow turns become candidate items, half
   of them sealed.
 - **It mines its own habits.** Tool-call sequences that recur across sessions and days become tools. Each one is the

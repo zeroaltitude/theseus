@@ -288,7 +288,7 @@ fn word(v: &Value) -> String {
 /// it is named by its server (`async:mcp.ext_server`), not its tool, since
 /// the server is what one fix closes. Items filed under the old key (`async`,
 /// `inproc`) keep it: there is no migration.
-fn producer(v: &Value) -> String {
+pub(super) fn producer(v: &Value) -> String {
     const NAMED: &[&str] = &["harness", "hand", "provider", "async", "inproc"];
     let s = v.as_str().unwrap_or("").trim();
     let head = word(v);
@@ -365,7 +365,7 @@ fn reason_said(v: &Value, key: &str) -> String {
     }
 }
 
-fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
+pub(super) fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
         title: String::new(),
@@ -395,7 +395,7 @@ fn line(text: &str, max: usize) -> String {
 /// none says nothing. Without this a failing post reads as "failed after 0
 /// ms" and the item that fixes it cannot tell which refusal it is. The row's
 /// `outcome` is left out: the note already says failed.
-fn action_why(d: &Value) -> String {
+pub(super) fn action_why(d: &Value) -> String {
     let mut parts = Vec::new();
     for (label, v) in [("tool", &d["tool"]), ("to", &d["outbox"])] {
         if let Some(s) = v.as_str().filter(|s| !s.is_empty()) {

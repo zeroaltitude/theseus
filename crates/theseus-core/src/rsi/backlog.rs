@@ -10,8 +10,9 @@
 //! nothing. It reads the ledger since the last night (failed calls, failed
 //! and refused turns, provider errors, invalid tool input, the owner's
 //! routing corrections, Jev's wrong labels, turns past their budgets, spend
-//! lines reached, refused acts), health's warnings, and the learning
-//! loop's report ([`read`]).
+//! lines reached, refused acts), health's warnings, the learning loop's
+//! report ([`read`]), and a tool's refusals when they rise far above its
+//! usual share ([`refusals`]).
 //!
 //! **Filing.** Each problem is a cause with a stable key (`turn.failed:
 //! timeout`, `provider.error:overloaded:anthropic`, `health:disk`), and each
@@ -59,6 +60,7 @@ mod keel;
 pub(crate) mod open_work;
 mod rank;
 mod read;
+mod refusals;
 pub(crate) use read::plain_title;
 pub(crate) mod start;
 mod state;
@@ -70,6 +72,8 @@ mod tests_brief;
 pub(crate) mod tool;
 mod word;
 
+#[cfg(test)]
+mod tests_refusal_rate;
 #[cfg(test)]
 mod tests_refused;
 
@@ -224,6 +228,9 @@ fn objective_of(c: &Candidate, item: &str) -> String {
     }
     if let Some(p) = &c.pattern {
         return p.brief.clone();
+    }
+    if c.key.starts_with(refusals::KEY) {
+        return refusals::objective_of(c, item);
     }
     let seen = match c.key == read::FAILED_MANY {
         true => format!("in {} packs in one night", c.seen()),
@@ -746,6 +753,7 @@ impl Core {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let cfg = &self.cfg.self_improve;
         let mut st = State::read(&self.store)?;
+        let tasks = self.backlog_tasks(&st)?;
         let since = st
             .read_ms
             .unwrap_or(now_ms.saturating_sub(DAY_MS))
@@ -754,6 +762,14 @@ impl Core {
         obs.extend(read::from_health(&self.health(), now_ms, &date(now_ms)));
         obs.extend(self.graduate_obs(&st, now_ms));
         obs.extend(self.mine_obs(now_ms, &date(now_ms)));
+        obs.extend(refusals::spikes(
+            &self.store,
+            &st,
+            &tasks,
+            since,
+            now_ms,
+            &date(now_ms),
+        ));
         // The second source, beside the others and never inside them
         // (theseus-dl4pu): the repository's own open issues. A source that
         // FAILS leaves every observation above untouched — `issue_obs` never
@@ -769,7 +785,7 @@ impl Core {
         night.candidates = cands.len();
         st.read_ms = Some(now_ms);
         let mut w = Work {
-            tasks: self.backlog_tasks(&st)?,
+            tasks,
             parent: None,
             changed: vec![],
             said: vec![],
