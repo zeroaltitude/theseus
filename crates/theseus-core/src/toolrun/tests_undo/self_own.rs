@@ -731,6 +731,19 @@ async fn a_self_sessions_sandboxed_command_is_not_given_the_operators_network() 
     );
 }
 
+/// A self session that is no builder (its item's tree is not open, as a review's session is not) is
+/// given no network at all, and its sandboxed command still runs unheld.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_self_session_that_is_no_builder_is_given_no_network() {
+    let (r, sid) = drive("self", "proc_run", sandboxed, operator_egress);
+    std::fs::remove_dir_all(tree(&r.target, "sails").join(".git")).unwrap();
+    r.turn(&sid).await;
+    assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
+    let jobs = jobs_of(&sid);
+    assert_eq!(jobs.len(), 1, "{:?}", r.results(&sid));
+    assert!(jobs[0].sandbox.as_ref().unwrap().egress.is_empty());
+}
+
 /// A self session's call that is still held says what runs, so it does not stop at "move it aside"
 /// and leave litter. An operator's held call is told what it always was.
 #[tokio::test(flavor = "multi_thread")]
