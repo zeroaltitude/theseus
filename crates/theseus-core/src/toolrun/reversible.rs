@@ -221,6 +221,9 @@ impl ToolRuntime {
             .map_err(Blocked::Turned)?;
         // 0d. After every outright refusal, before the order.
         let verdict = self.undo_check(tc, tool, plan, input).await;
+        // A self session's own removals are not held (issue 20): a hold is lowered, nothing else.
+        let verdict = verdict
+            .map(|v| crate::rsi::own_removals::lowered(self, tc.session_id, tool, plan, input, v));
         // Point one, and the owner's override of it (theseus-p5kln). A hold
         // nobody overrode is the hold it always was: the call does not run,
         // the model re-plans it, and no card is made. An override admits

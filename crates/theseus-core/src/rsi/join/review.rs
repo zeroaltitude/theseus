@@ -144,6 +144,10 @@ impl Reviewer for CheckTurn {
                 None,
             )?;
             let session = rec.session_id.clone();
+            // Its scratch is what it may remove while it runs (`rsi::own_removals`).
+            core.tools
+                .self_pr
+                .review_opened(&session, std::path::Path::new(&ask.scratch));
             let sink = crate::bus::EventSink::new(core.bus.clone(), &session, None);
             let r = core
                 .runner
@@ -161,7 +165,9 @@ impl Reviewer for CheckTurn {
                     answer_at: None,
                     prompt: None,
                 })
-                .await?;
+                .await;
+            core.tools.self_pr.review_closed(&session);
+            let r = r?;
             let (accept, reasons) = verdict_of(&r.output);
             Ok(Review {
                 accept,

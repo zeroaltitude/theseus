@@ -1649,3 +1649,6 @@ async fn the_floor_never_lowers_a_final_verdict_to_a_hold() {
          would never see"
     );
 }
+
+#[path = "tests_undo/self_own.rs"]
+mod self_own;
