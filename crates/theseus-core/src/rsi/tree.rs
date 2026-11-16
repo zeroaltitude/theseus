@@ -1320,31 +1320,76 @@ fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
 /// the owner's write bit (cargo's own `chmod`s, a test that makes a fixture read-only, a script)
 /// makes a plain `remove_dir_all` fail with `EACCES`. The loop's cleanups then failed on every
 /// tick and the item's slot stayed taken. So a first plain removal is tried, and only when it is
-/// refused each directory under `path` is made owner-writable (links are never followed) and the
-/// removal is made again. The owner's word, 2026-11-15 17:39:14 (chat message 1571686049867112519):
-/// "Removals should be possible, which seems like a small change."
+/// refused is each directory under `path` made `0o700` and the removal made again. The owner's
+/// word, 2026-11-15 17:39:14 (chat message 1571686049867112519): "Removals should be possible,
+/// which seems like a small change."
+///
+/// **The walk cannot be steered out of `path`.** A command of the builder may still be running
+/// while its folder is removed, and could swap a directory for a link between a check and a
+/// `chmod` by path (the round-2 review made that happen 2 times in 2000). So no step names a
+/// directory by path twice: each is opened once, `openat` with `O_NOFOLLOW` (a link is refused, never
+/// followed) and `O_PATH`, and everything after (the `chmod`, the listing, the opening of its
+/// children) goes through that open descriptor, which holds the inode that was opened whatever its
+/// name becomes. The mode is a fixed `0o700`, never one the builder chose. The last removal
+/// (`remove_dir_all`) does not follow links either.
 pub(crate) fn remove_all(path: &Path) -> std::io::Result<()> {
     match std::fs::remove_dir_all(path) {
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {}
         done => return done,
     }
-    use std::os::unix::fs::PermissionsExt;
-    let mut stack = vec![path.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(meta) = dir.symlink_metadata() else {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::{AsRawFd, OwnedFd};
+    let Ok(root) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return std::fs::remove_dir_all(path);
+    };
+    let mut stack: Vec<(Option<Arc<OwnedFd>>, std::ffi::CString)> = vec![(None, root)];
+    while let Some((parent, name)) = stack.pop() {
+        let at = parent.as_ref().map_or(libc::AT_FDCWD, |p| p.as_raw_fd());
+        let Ok(fd) = open_dir_nofollow(at, &name) else {
+            // A link where a directory was, or gone: not ours to chmod.
             continue;
         };
-        if !meta.is_dir() {
+        let proc_path = format!("/proc/self/fd/{}", fd.as_raw_fd());
+        let Ok(c_proc) = std::ffi::CString::new(proc_path.as_str()) else {
+            continue;
+        };
+        // SAFETY: a plain syscall on a valid C string; the name is this process's own descriptor
+        // for the directory just opened, so it reaches that inode and no other.
+        if unsafe { libc::chmod(c_proc.as_ptr(), 0o700) } != 0 {
             continue;
         }
-        let mode = meta.permissions().mode();
-        // Before the listing: a directory with no read bit cannot be listed either.
-        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode | 0o700));
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            stack.extend(entries.flatten().map(|e| e.path()));
+        let Ok(entries) = std::fs::read_dir(&proc_path) else {
+            continue;
+        };
+        let fd = Arc::new(fd);
+        for e in entries.flatten() {
+            // The listing's own `d_type`: a link reports as a link, whatever it points at.
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                if let Ok(n) = std::ffi::CString::new(e.file_name().as_bytes()) {
+                    stack.push((Some(fd.clone()), n));
+                }
+            }
         }
     }
     std::fs::remove_dir_all(path)
+}
+
+/// `name` under `dirfd` (or from the working directory, for an absolute name), opened as a
+/// directory without following a link at its last component, and without needing to read or search
+/// it (`O_PATH`): a link, a file or nothing there is an error.
+pub(crate) fn open_dir_nofollow(
+    dirfd: std::os::unix::io::RawFd,
+    name: &std::ffi::CStr,
+) -> std::io::Result<std::os::unix::io::OwnedFd> {
+    use std::os::unix::io::FromRawFd;
+    let flags = libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: a plain syscall on a valid C string.
+    let fd = unsafe { libc::openat(dirfd, name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `fd` is a descriptor this call just opened and nothing else owns.
+    Ok(unsafe { std::os::unix::io::OwnedFd::from_raw_fd(fd) })
 }
 
 /// Remove the tree and its build tree; the branch stays in the repo.

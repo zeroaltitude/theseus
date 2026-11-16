@@ -70,6 +70,7 @@ a command writes there is memory.
 | each of `/tmp`, `/dev/shm`, HOME (`tmp_mb`) | 1 GiB | 16 GiB | compiler and linker temporaries, a test run's fixtures |
 | processes (`RLIMIT_NPROC`, `pids`) | 512 | 32,768 | parallel compilers and a test run's children on a many-core box (the gate's view: 8,192) |
 | the build folder (`rsi::builder_dir::MAX_BYTES`) | none (did not exist) | 48 GiB | measured worst case 37.9 GiB plus a quarter |
+| `[tools] job_pids_max` (a cgroup `pids.max`, 4,096) | the kernel's doc says it is each L0 job's cgroup; an L1 job "has no cgroup of its own" (`theseus-sandbox` AGENTS.md); not proven either way for the builder's view | unchanged | a configured `[tools]` value for every session; if it does bind L1 jobs it is the one process cap still below `BUILDER_PIDS` |
 | open files (`RLIMIT_NOFILE`) | the daemon's own, none set by L1 | unchanged | L1 sets no limit of its own |
 | memory | none (L1 has no cgroup) | unchanged | no limit to relax |
 | wall time of one call (`[tools] proc_timeout_max_secs`) | 3,600 s | unchanged | a configured `[tools]` value for every session, not a property of this view; a cold whole-workspace build measured 335 s |
@@ -83,7 +84,10 @@ rule that the gate never reads what the builder compiled.
 A build's code runs with write access to its folder, and a directory it leaves without the owner's write bit made a
 plain `remove_dir_all` fail with `EACCES`, so `tree::close` errored after the worktree was gone and the stale-item
 cleanup errored every tick. `tree::remove_all` removes a path, and when that is refused makes each directory under it
-owner-writable (never following a link) and removes it again. It is used for the builder's folder, the gate's build
+`0o700` and removes it again. A command of the builder may still run while its folder is removed, so the walk is
+race-proof: every directory is opened once (`openat`, `O_NOFOLLOW`, `O_PATH`), and the `chmod`, the listing and the
+opening of its children all go through that descriptor, never a path again; a swapped-in link is refused, and the
+mode is fixed, never one the builder chose. It is used for the builder's folder, the gate's build
 tree (`tree::close`, `pipeline::clear`) and the install's build tree (`install::reap_target`).
 
 ## Measured

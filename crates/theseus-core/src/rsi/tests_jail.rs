@@ -630,3 +630,39 @@ fn a_folder_a_build_made_read_only_is_still_removed() {
         "a link out of the folder is not followed"
     );
 }
+
+/// `remove_all` never chmods through a link (the round-2 review's blocking finding: a directory
+/// swapped for a link between a check and a chmod by path was chmodded at the link's target). The
+/// opening step refuses a link, a file and nothing, and a link in the tree to a read-only directory
+/// outside it leaves that directory's mode as it was, whatever the mode the removal sets inside.
+#[test]
+fn removal_never_chmods_through_a_link() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(outside.join("inner")).unwrap();
+    std::fs::write(dir.path().join("file"), "x").unwrap();
+    std::os::unix::fs::symlink(&outside, dir.path().join("link")).unwrap();
+    let c = |name: &str| std::ffi::CString::new(dir.path().join(name).to_str().unwrap()).unwrap();
+    for refused in ["link", "file", "nothing"] {
+        let r = super::tree::open_dir_nofollow(libc::AT_FDCWD, &c(refused));
+        assert!(r.is_err(), "{refused} is not opened as a directory");
+    }
+    assert!(super::tree::open_dir_nofollow(libc::AT_FDCWD, &c("outside")).is_ok());
+
+    let folder = dir.path().join("folder");
+    std::fs::create_dir_all(folder.join("sub/locked")).unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("sub/link")).unwrap();
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o555)).unwrap();
+    std::fs::set_permissions(
+        folder.join("sub/locked"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    std::fs::set_permissions(folder.join("sub"), std::fs::Permissions::from_mode(0o500)).unwrap();
+    super::tree::remove_all(&folder).unwrap();
+    let mode = std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!folder.exists());
+    assert_eq!(mode, 0o555, "the link's target was not touched");
+}
