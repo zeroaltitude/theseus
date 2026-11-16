@@ -89,10 +89,10 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   chunk's text fingerprint (`ChunkKey`: hash, token estimate) and where its node lives, and the stored documents hold the
   chunk's whole text beside them: reading one mapped the other, about 250 MiB at 417,000 chunks, left resident for hours.
   `Writer::replace` writes the fingerprint (`hash_hi`, `hash_lo`, `tokens`) and the node's id, session, kind, chunk, position
-  and flag as fast-field columns (schema 3), and `Texts::all_nodes` reads those alone. A fingerprint is `chunk_key` of
-  the text the document was written with, so it cannot differ from the text's; an index of schema 2 is rebuilt from the WAL
-  by the saved schema's mismatch, as any schema bump is. Tests: `tests_start.rs` (the stored text overwritten, the start
-  unchanged).
+  and flag as fast-field columns (schema 3), and `Texts::each_node` (and `all_nodes`, built on it) reads those alone. A
+  fingerprint is `chunk_key` of the text the document was written with, so it cannot differ from the text's; an index of
+  schema 2 is rebuilt from the WAL by the saved schema's mismatch, as any schema bump is. Tests: `tests_start.rs` (the
+  stored text overwritten, the start unchanged).
 - **The rows are built as the nodes come** (`columns::Nodes`, `Vectors::reconcile`; issue 21 of 1.0.7). A start used to
   collect every node alive into one list (and a map of them) and add from it, so a few hundred thousand short-lived
   strings sat in the heap beside the long-lived node ids allocated as the rows were added; when the list was freed the
