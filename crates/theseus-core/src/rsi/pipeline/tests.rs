@@ -196,6 +196,7 @@ impl Rig {
             head: head.into(),
             reviewer: "fable (claude-fable-5-2)".into(),
             model: "claude-fable-5-2".into(),
+            asked: "claude-fable-5-2".into(),
             verdict: "reject".into(),
             planted_revert: "failed".into(),
             reasons: vec![finding.into()],

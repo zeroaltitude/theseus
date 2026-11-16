@@ -375,7 +375,10 @@ fn patch_applies_atomically_across_files_or_not_at_all() {
     );
     // A second section that does not apply leaves the first untouched.
     let bad = "--- a/x.txt\n+++ b/x.txt\n@@ -1,3 +1,3 @@\n one\n-TWO\n+2\n three\n--- a/new.txt\n+++ b/new.txt\n@@ -1 +1 @@\n-nothere\n+x\n";
-    assert!(Patch.run(&json!({"patch": bad}), &c).is_err());
+    // That is the tool's own refusal, marked so (the self loop files no fault for it).
+    let refused = Patch.run(&json!({"patch": bad}), &c).unwrap_err();
+    assert!(refused.message.contains("does not apply"), "{refused:?}");
+    assert_eq!(refused.meta["refusal"], json!(true), "{refused:?}");
     assert_eq!(
         fs::read_to_string(d.path().join("x.txt")).unwrap(),
         "one\nTWO\nthree\n"
@@ -388,6 +391,8 @@ fn patch_applies_atomically_across_files_or_not_at_all() {
         "{}",
         e.message
     );
+    // A patch the tool will not take as written is not a refusal of the file's state: unmarked.
+    assert_ne!(e.meta["refusal"], json!(true), "{e:?}");
     assert!(d.path().join("x.txt").exists());
     let whole = "--- a/x.txt\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-one\n-TWO\n-three\n";
     Patch.run(&json!({"patch": whole}), &c).unwrap();

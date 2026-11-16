@@ -32,7 +32,7 @@ use theseus_kernel::ExecState;
 use theseus_protocol::tasks::{TaskRecord, TaskState};
 
 use crate::rpc::Core;
-use crate::rsi::join::rows_of;
+use crate::rsi::join::{rows_of, unproven_accept};
 use crate::rsi::tree::{self, Place};
 
 /// One item, where it stands.
@@ -174,7 +174,13 @@ impl Seen {
                 }
                 "self.review.verdict" => {
                     let why = d["reasons"][0].as_str().unwrap_or_default().to_string();
-                    verdicts.insert((s(d, "branch"), s(d, "head")), (s(d, "verdict"), why));
+                    let key = (s(d, "branch"), s(d, "head"));
+                    // An accept from before the row said what was asked proves nothing: the head
+                    // is reviewed again, so it waits in the reviewing queue, not the joining one.
+                    match unproven_accept(&s(d, "verdict"), &s(d, "asked")) {
+                        true => verdicts.remove(&key),
+                        false => verdicts.insert(key, (s(d, "verdict"), why)),
+                    };
                 }
                 "self.joined" => joined.push(s(d, "branch")),
                 // A conflict with main is no one's hold and no queue's: this head

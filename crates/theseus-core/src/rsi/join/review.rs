@@ -29,7 +29,8 @@ pub struct Ask {
     pub diff: String,
     pub report: String,
     pub evidence: String,
-    /// What it runs on: `[self] reviewer_profile`'s target.
+    /// What it asks to run on: `[self] reviewer_profile`'s target, held as a pin when that is set
+    /// (`Target::chosen`), else the reviewer's pick. What ran is `Review::model`.
     pub target: Target,
     /// When the branch was built (the claim's time).
     pub built_ms: u64,
@@ -47,6 +48,10 @@ pub struct Review {
     pub cost_usd: f64,
     /// The session it ran in.
     pub session: Option<String>,
+    /// The profile and the model that answered, from the turn's own result: the target the review
+    /// asked for is a request, and a turn can end up elsewhere. Empty when it is not known.
+    pub profile: String,
+    pub model: String,
 }
 
 pub type Fut<'a> = Pin<Box<dyn Future<Output = Result<Review>> + Send + 'a>>;
@@ -163,6 +168,8 @@ impl Reviewer for CheckTurn {
                 reasons,
                 cost_usd: r.cost_usd.unwrap_or(0.0),
                 session: Some(session),
+                profile: r.profile,
+                model: r.model,
             })
         })
     }
