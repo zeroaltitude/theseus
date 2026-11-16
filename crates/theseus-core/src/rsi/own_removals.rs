@@ -14,9 +14,12 @@
 //! injection freeze), so none of those moved. What it covers, and why each is certain:
 //!
 //! - **A program call in L1 with no network.** Writes persist only to what the view binds
-//!   read-write, and the view a `proc.run` is given binds none ([`sandbox_keeps_nothing`] reads the
-//!   live view, so a bind added later turns this off); with no egress list the job cannot reach a
-//!   remote either. Whatever the call removes is the overlay it was given.
+//!   read-write. The view a `proc.run` is given binds none ([`sandbox_keeps_nothing`] reads the
+//!   base view, so a bind added to it turns this off), and a self builder's command is then given
+//!   one more, its own item's build folder and no one else's (`sandbox::Sandbox::with_builder_folder`,
+//!   `own_tree::builder_folder`, which answers only for a self session): the only thing that
+//!   persists from such a call, and its own by construction. With no egress list the job cannot
+//!   reach a remote either. Whatever else the call removes is the overlay it was given.
 //! - **A plain file tool (`fs.write`, `fs.edit`, `fs.patch`) whose every write target is its own**,
 //!   which the tool's plan names exactly.
 //! - **The system's `rm` with an `argv` and no `env`, whose flags are from a closed set and whose
@@ -24,7 +27,7 @@
 //!   line, a batch of steps and every other program (`git worktree remove` among them) are held as
 //!   today: the code cannot say what they remove.
 //!
-//! "Its own" is [`Own`]: strictly inside its working copy, its review scratch (registered by the
+//! "Its own" is [`Own`]: strictly inside its working copy or its item's build folder, its review scratch (registered by the
 //! review that made it, never named by a call), or strictly inside the system temporary directory
 //! apart from the places [`Own::kept`] names. A path is resolved before it is judged, and the file
 //! tools act on the path as resolved, so for them a link or a `..` that leaves is judged where it
@@ -62,6 +65,9 @@ struct Own {
     tree: Option<PathBuf>,
     /// Its review scratch, the directory and all inside it.
     scratch: Option<PathBuf>,
+    /// Its item's build folder (`own_tree::builder_path`): what is strictly inside it. Not the
+    /// folder itself, which the pipeline removes when the item ends.
+    builder: Option<PathBuf>,
     /// The system temporary directory: what is strictly inside it.
     tmp: PathBuf,
     /// Never its own through the temporary directory, whatever that holds: where the daemon keeps
@@ -112,6 +118,7 @@ impl Own {
         Some(Self {
             tree: own_tree::of(rt, session),
             scratch,
+            builder: own_tree::builder_path(rt, session).map(|b| paths::canonical_best_effort(&b)),
             tmp: paths::canonical_best_effort(&std::env::temp_dir()),
             kept,
         })
@@ -146,7 +153,10 @@ impl Own {
 
     fn holds_resolved(&self, p: PathBuf) -> bool {
         let strictly = |root: &Path| p != root && p.starts_with(root);
-        if self.tree.as_deref().is_some_and(strictly) {
+        if [&self.tree, &self.builder]
+            .into_iter()
+            .any(|own| own.as_deref().is_some_and(strictly))
+        {
             return true;
         }
         if self

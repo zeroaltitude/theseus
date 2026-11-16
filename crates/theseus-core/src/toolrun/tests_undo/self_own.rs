@@ -30,6 +30,10 @@ fn tree(target: &Path, id: &str) -> PathBuf {
     base(target).join("state/self/trees").join(id)
 }
 
+fn builder(target: &Path) -> PathBuf {
+    base(target).join("state/self/builder/sails")
+}
+
 fn scratch(target: &Path) -> PathBuf {
     base(target).join("state/self/review/br-one")
 }
@@ -62,6 +66,10 @@ fn lay(b: &Path) {
     std::fs::write(scratch(&t).join("tree/built.txt"), WAS).unwrap();
     std::fs::write(b.join("state/notes.txt"), WAS).unwrap();
     std::fs::write(b.join("repo/README"), WAS).unwrap();
+    // The item's tree is open (a build folder is named only while it is), with its build folder.
+    std::fs::create_dir_all(tree(&t, "sails").join(".git")).unwrap();
+    std::fs::create_dir_all(builder(&t).join("target")).unwrap();
+    std::fs::write(builder(&t).join("target/out.o"), WAS).unwrap();
     // Beside the workspace, in the temporary directory and under none of the places kept.
     std::fs::write(b.join("victim.txt"), WAS).unwrap();
 }
@@ -265,6 +273,48 @@ async fn a_self_session_removes_its_reviews_scratch_and_an_operator_cannot() {
             r.results(&sid)
         );
         assert_eq!(built_in_scratch(&r.target).exists(), !runs, "{principal}");
+    }
+}
+
+/// KEY: what is in its item's build folder is its own, which is the place an L1 builder keeps its
+/// output in; the folder itself, and another item's, are not. An operator's session has none.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_self_session_removes_its_build_folders_contents_and_nothing_beside_it() {
+    for (principal, runs) in [("self", true), ("operator", false)] {
+        let (r, sid) = drive(
+            principal,
+            "proc_run",
+            rm_of(|t| builder(t).join("target")),
+            nothing,
+        );
+        r.turn(&sid).await;
+        assert_eq!(
+            r.was_held(&sid),
+            !runs,
+            "{principal}: {:?}",
+            r.results(&sid)
+        );
+        assert_eq!(
+            builder(&r.target).join("target").exists(),
+            !runs,
+            "{principal}"
+        );
+    }
+    let aims: [(&str, Aim<PathBuf>); 3] = [
+        ("the folder itself", builder),
+        ("the builders' root", |t| {
+            builder(t).parent().unwrap().to_path_buf()
+        }),
+        ("another item's folder", |t| {
+            builder(t).with_file_name("tides")
+        }),
+    ];
+    for (what, aim) in aims {
+        let (r, sid) = drive("self", "proc_run", |t| rm_argv("-rf", aim(t)), nothing);
+        std::fs::create_dir_all(builder(&r.target).with_file_name("tides")).unwrap();
+        r.turn(&sid).await;
+        assert!(r.was_held(&sid), "{what}: {:?}", r.results(&sid));
+        assert!(builder(&r.target).join("target/out.o").exists(), "{what}");
     }
 }
 
@@ -578,7 +628,9 @@ async fn a_sandboxed_removal_is_not_held_for_a_self_session_with_no_network() {
 }
 
 /// The premise of the L1 half, from the code: the view a `proc.run` is given binds nothing
-/// read-write, for a self session as for any other, so nothing it writes persists.
+/// read-write, for a self session as for any other. A self builder's command is then given one more
+/// bind (`with_builder_folder`), its own item's build folder, which is the session's own: the only
+/// thing that persists.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_view_a_self_sessions_command_is_given_binds_nothing_read_write() {
     let (r, _) = drive("self", "proc_run", sandboxed, nothing);

@@ -27,7 +27,10 @@ model's own answer, unchanged, so a row that says "reshapeable" beside a call th
 Three kinds of call are covered, each because the code can say what it removes:
 
 1. **A program call in L1 with no network.** What persists from an L1 call is what its view binds read-write. The
-   view a `proc.run` is given (`sandbox::for_job`, from `Sandbox::job_view`) binds none: the workspace roots are
+   view a `proc.run` is given (`sandbox::for_job`, from `Sandbox::job_view`) binds none, and a self builder's command is then
+   given exactly one more read-write bind, its own item's build folder (`Sandbox::with_builder_folder`, which
+   `own_tree::builder_folder` offers only to a self session; `docs/design/self-builder-build-folder.md`), which is the
+   only thing that persists from it and is the session's own by construction. Otherwise the workspace roots are
    overlays whose writes go to scratch and are thrown away, `/tmp` is the job's own, and the floor (the store, the
    spool, the bindings, the credentials, the socket, the sealed sets) is hidden. The only things that stay are the
    job's output, which the daemon spools in its own record, and nothing else. `own_removals::sandbox_keeps_nothing`
@@ -45,7 +48,8 @@ Three kinds of call are covered, each because the code can say what it removes:
    `git clean` and every other program are held exactly as before: the code cannot say what they remove.
 
 **Its own** is: strictly inside its working copy (`<state>/self/trees/<its task>`, never the copy itself, which the
-pipeline holds); its review scratch (`<state>/self/review/<slug>`, the directory and all inside it, registered for the
+pipeline holds); strictly inside its item's build folder (`<state>/self/builder/<its task>`, from
+`own_tree::builder_path`: named by the session's task and never by a call, and only while the item's tree is open); its review scratch (`<state>/self/review/<slug>`, the directory and all inside it, registered for the
 session that runs the review by `CheckTurn` and removed from the registry when the review answers; a call can never
 name it, and an entry outside `<state>/self/review` is ignored); or strictly inside the system temporary directory,
 except the state dir, the self repo, the sealed set, the workspace and the roots, and anything that holds one of them
@@ -83,9 +87,8 @@ line, a batch, or a program other than `rm`; and a sandboxed call with a network
 - **The gate resolves at one moment and `rm` acts a moment later.** Two coordinated calls of one response could swap
   a directory for a link between them.
 
-## Not yet: the builder's build folder
+## Choices made without asking (the owner's word of 2026-11-15 17:53, decide and notify)
 
-`p8/sl-builder-tests` binds an item's build folder read-write for its session's `proc.run` in L1. It is the
-session's own by construction, and the base view stays read-write-free, so the L1 rule above still holds for it. A
-removal by `rm` there, at L0, is not in the places above: when that branch lands, `own_removals::Own::of` takes one
-more place (`own_tree::builder_path`).
+The temporary directory is as wide as the brief says, and the build folder is a place beside the working copy and the
+review scratch. Narrowing the first is one clause of `Own::holds_resolved`; a per-session `TMPDIR` under one directory
+would let it go.
