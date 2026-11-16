@@ -135,6 +135,25 @@ enum Cmd {
         #[arg(long)]
         socket: PathBuf,
     },
+    /// Put a file of query vectors to the exact scan and to the tiered search over a PRIVATE COPY
+    /// of an index, and print what the tiered search kept of the exact search's best 6 and best
+    /// 10 (issue 21 of 1.0.7). It writes the layout's files into the copy: never point it at the
+    /// index of a running tender.
+    Replay {
+        /// A copy of an index directory (`<state>/index`).
+        #[arg(long)]
+        index: PathBuf,
+        /// One query a line: 768 numbers (spaces or commas), a JSON array, or a JSON object
+        /// {"vector": [...], "as_of": N, "exclude_sessions": [...]}.
+        #[arg(long)]
+        queries: PathBuf,
+        /// The budget the layout is made under (`[index] resident_mb`).
+        #[arg(long, default_value_t = theseus_index::vectors::DEFAULT_RESIDENT_MB)]
+        resident_mb: u64,
+        /// Or the hot region's size in records, over the budget.
+        #[arg(long)]
+        hot_records: Option<usize>,
+    },
     /// Drop the index and build it again from the WAL.
     Rebuild {
         #[arg(long)]
@@ -396,6 +415,24 @@ fn run(cmd: Cmd) -> anyhow::Result<ExitCode> {
             let s: IndexStatus =
                 Client::connect(&socket, CALL_TIMEOUT)?.call(method::STATUS, ())?;
             println!("{}", serde_json::to_string_pretty(&s)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Replay {
+            index,
+            queries,
+            resident_mb,
+            hot_records,
+        } => {
+            theseus_index::vectors::check_resident_mb(resident_mb)
+                .map_err(|e| anyhow::anyhow!("--resident-mb: {e}"))?;
+            let report =
+                theseus_index::vectors::replay::run(&theseus_index::vectors::replay::Options {
+                    index,
+                    queries,
+                    resident_mb,
+                    hot_records,
+                })?;
+            print!("{report}");
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Rebuild { socket } => {

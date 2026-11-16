@@ -179,9 +179,12 @@ mod heat;
 mod held;
 mod layout;
 #[cfg(test)]
+mod measure;
+#[cfg(test)]
 mod probe;
 #[cfg(test)]
 mod reconcile;
+pub mod replay;
 mod rows;
 mod scan;
 mod status;
