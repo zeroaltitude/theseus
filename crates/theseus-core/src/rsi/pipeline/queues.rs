@@ -287,7 +287,9 @@ fn closed(q: &mut Queues, tasks: &[TaskRecord], place: &Place) {
         .filter(|t| !waiting.contains(&t.id.as_str()))
         .filter(|t| {
             let slug = tree::slug(&t.id);
-            (tree::find(place, &t.id).is_some() || place.targets().join(&slug).exists())
+            (tree::find(place, &t.id).is_some()
+                || place.targets().join(&slug).exists()
+                || place.builders().join(&slug).exists())
                 && !place.trees().join(format!("{slug}.keel")).exists()
         })
         .map(entry)

@@ -179,7 +179,7 @@ pub fn reap_target(p: &Place, merge: &str) -> bool {
     if !target.exists() {
         return false;
     }
-    match std::fs::remove_dir_all(&target) {
+    match crate::rsi::tree::remove_all(&target) {
         Ok(()) => true,
         Err(e) => {
             tracing::warn!(

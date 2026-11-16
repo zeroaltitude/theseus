@@ -571,3 +571,186 @@ fn the_packages_fetched_for_a_gate_are_an_overlay_and_the_gate_keeps_no_network(
     std::fs::write(tree.dir.join("Cargo.lock"), "version = 4\n# moved\n").unwrap();
     assert_eq!(get(&jail.prepare(&place, &job()).1, "CARGO_HOME"), None);
 }
+
+/// The builder's build folder (`rsi::builder_dir`) and the gate's build tree are two directories,
+/// and the gate's view binds neither the folder nor anything that holds it: what a model
+/// compiled there is not in the view a verdict is reached in, whatever a branch's code does. The
+/// gate builds in its own target (`CARGO_TARGET_DIR`).
+#[test]
+fn the_gates_view_never_binds_what_the_builder_compiled() {
+    let sb = sandbox();
+    let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
+    let ro = [gate];
+    let b = build(&ro, Path::new("/home/op"));
+    let view = sb.self_build_view(&b);
+    let folder = crate::rsi::builder_dir::dir_in(Path::new("/state"), "t");
+    assert_eq!(folder, PathBuf::from("/state/self/builder/t"));
+    assert_ne!(folder, b.target);
+    for bound in view.rw.iter().chain(&view.ro_paths).chain(&view.workspace) {
+        assert!(
+            !bound.starts_with(&folder) && !folder.starts_with(bound),
+            "{} binds the builder's folder or its parent",
+            bound.display()
+        );
+    }
+    let env = crate::sandbox::self_build_env(b.home, b.target);
+    let target = env.iter().find(|(k, _)| k == "CARGO_TARGET_DIR");
+    assert_eq!(
+        target.map(|(_, v)| v.as_str()),
+        Some("/state/self/target/t")
+    );
+}
+
+/// The builder's view is an ordinary job's with the one directory added, and that directory is
+/// not masked over when a hidden entry names a directory that holds it. The facilities a self
+/// build's gate is given are not the builder's.
+#[test]
+fn the_builders_view_is_an_ordinary_jobs_with_one_directory_added() {
+    let cfg = crate::sandbox::SandboxConfig::default();
+    let sb = Sandbox::new(
+        &cfg,
+        &[PathBuf::from("/work")],
+        &[
+            PathBuf::from("/state/store"),
+            PathBuf::from("/state"),
+            PathBuf::from("/sealed"),
+        ],
+    );
+    let folder = PathBuf::from("/state/self/builder/t");
+    let view = sb.builder_view(&folder);
+    assert_eq!(view.rw, std::slice::from_ref(&folder));
+    let mut ordinary = sb.job_view();
+    assert!(
+        ordinary.rw.is_empty(),
+        "an ordinary job's view is as it was"
+    );
+    assert_eq!(ordinary.facilities, theseus_sandbox::Facilities::NONE);
+    assert_eq!(view.facilities, theseus_sandbox::Facilities::NONE);
+    // Four allocations are the view's own (the owner, 2026-11-15 17:39:14), pinned to the values
+    // decided so that a change is made on purpose; the configured caps are untouched.
+    assert_eq!(
+        view.limits,
+        theseus_sandbox::Limits {
+            // The four tmpfs mounts are memory (4 GiB each); the file limit and processes are not.
+            scratch_mb: 4 * 1024,
+            tmp_mb: 4 * 1024,
+            output_mb: 16 * 1024,
+            pids: 32 * 1024,
+        }
+    );
+    assert_eq!(
+        ordinary.limits,
+        theseus_sandbox::Limits::default(),
+        "an ordinary job's limits are the configured ones, as they were"
+    );
+    assert_eq!(ordinary.limits.output_mb, cfg.output_mb);
+    assert_eq!(ordinary.limits.scratch_mb, cfg.scratch_mb);
+    // A configured value already larger is kept, never lowered.
+    let mut big = sb.job_view();
+    big.limits.pids = 100_000;
+    big.limits.output_mb = 99_999;
+    let kept = Sandbox::with_builder_folder(big, &folder);
+    assert_eq!((kept.limits.pids, kept.limits.output_mb), (100_000, 99_999));
+    assert!(view.egress.is_empty(), "no network");
+    // Only a mask over what holds the folder is lifted; the rest of the floor stays hidden.
+    ordinary.hidden.retain(|h| h != Path::new("/state"));
+    assert_eq!(view.hidden, ordinary.hidden);
+    for kept in ["/state/store", "/sealed"] {
+        assert!(view.hidden.contains(&PathBuf::from(kept)), "{kept}");
+    }
+    assert_eq!(view.workspace, sb.job_view().workspace);
+    assert_eq!(view.ro_paths, sb.job_view().ro_paths);
+    // Cargo's target and `TMPDIR` are both inside the folder, on disk: a large temporary file lands
+    // under the folder's bound and not in a memory-backed mount.
+    let env = crate::sandbox::builder_env(&folder);
+    let get = |name: &str| env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+    assert_eq!(
+        get("CARGO_TARGET_DIR"),
+        Some("/state/self/builder/t/target")
+    );
+    assert_eq!(get("TMPDIR"), Some("/state/self/builder/t/tmp"));
+    for (_, v) in &env {
+        assert!(Path::new(v).starts_with(&folder), "{v} is in the folder");
+        assert!(view.rw.iter().any(|rw| Path::new(v).starts_with(rw)));
+        // And not under any memory-backed mount's path.
+        assert!(!["/tmp", "/dev/shm"]
+            .iter()
+            .any(|m| Path::new(v).starts_with(m)));
+    }
+}
+
+/// Removal of a tree's folders works though a build made part of them read-only: a plain
+/// `remove_dir_all` is refused on such a directory, and the cleanups that call `remove_all` were
+/// failing every tick. A directory with no read bit, one with no write bit, a link out of the folder
+/// (which is never followed), and a read-only file inside all go, and what the link names stays.
+#[test]
+fn a_folder_a_build_made_read_only_is_still_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(outside.join("keep")).unwrap();
+    std::fs::write(outside.join("keep/file"), "mine").unwrap();
+    let folder = dir.path().join("folder");
+    for d in ["a/b", "locked/inner", "ro/x"] {
+        std::fs::create_dir_all(folder.join(d)).unwrap();
+    }
+    std::fs::write(folder.join("a/b/f"), "x").unwrap();
+    std::fs::write(folder.join("ro/x/f"), "x").unwrap();
+    std::fs::set_permissions(
+        folder.join("ro/x/f"),
+        std::fs::Permissions::from_mode(0o400),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("a/link")).unwrap();
+    for (d, mode) in [
+        ("locked/inner", 0o000),
+        ("locked", 0o000),
+        ("ro/x", 0o500),
+        ("ro", 0o500),
+    ] {
+        std::fs::set_permissions(folder.join(d), std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    super::tree::remove_all(&folder).unwrap();
+    assert!(!folder.exists(), "removed");
+    assert_eq!(
+        std::fs::read_to_string(outside.join("keep/file")).unwrap(),
+        "mine",
+        "a link out of the folder is not followed"
+    );
+}
+
+/// `remove_all` never chmods through a link (the round-2 review's blocking finding: a directory
+/// swapped for a link between a check and a chmod by path was chmodded at the link's target). The
+/// opening step refuses a link, a file and nothing, and a link in the tree to a read-only directory
+/// outside it leaves that directory's mode as it was, whatever the mode the removal sets inside.
+#[test]
+fn removal_never_chmods_through_a_link() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(outside.join("inner")).unwrap();
+    std::fs::write(dir.path().join("file"), "x").unwrap();
+    std::os::unix::fs::symlink(&outside, dir.path().join("link")).unwrap();
+    let c = |name: &str| std::ffi::CString::new(dir.path().join(name).to_str().unwrap()).unwrap();
+    for refused in ["link", "file", "nothing"] {
+        let r = super::tree::open_dir_nofollow(libc::AT_FDCWD, &c(refused));
+        assert!(r.is_err(), "{refused} is not opened as a directory");
+    }
+    assert!(super::tree::open_dir_nofollow(libc::AT_FDCWD, &c("outside")).is_ok());
+
+    let folder = dir.path().join("folder");
+    std::fs::create_dir_all(folder.join("sub/locked")).unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("sub/link")).unwrap();
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o555)).unwrap();
+    std::fs::set_permissions(
+        folder.join("sub/locked"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    std::fs::set_permissions(folder.join("sub"), std::fs::Permissions::from_mode(0o500)).unwrap();
+    super::tree::remove_all(&folder).unwrap();
+    let mode = std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!folder.exists());
+    assert_eq!(mode, 0o555, "the link's target was not touched");
+}

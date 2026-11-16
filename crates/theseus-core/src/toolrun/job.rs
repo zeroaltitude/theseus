@@ -461,6 +461,25 @@ impl ToolRuntime {
             .find(|(k, _)| k == "PATH")
             .map(|(_, v)| v.clone());
         let set: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
+        // A self builder's L1 command keeps one directory, its item's build
+        // folder, and cargo builds in it (`rsi::builder_dir`).
+        let build = match class.l1().then(|| {
+            theseus_store::blocking(|| crate::rsi::own_tree::builder_folder(self, tc.session_id))
+        }) {
+            Some(Ok(Some(dir))) => {
+                for (k, v) in sandbox::builder_env(&dir) {
+                    env.retain(|(ek, _)| *ek != k);
+                    env.push((k, v));
+                }
+                Some(dir)
+            }
+            Some(Err(why)) => {
+                return self
+                    .settle_job_failure(tc, correlation_id, tool.name(), call, &why)
+                    .map(Err);
+            }
+            _ => None,
+        };
         let (brokered, sandbox) = sandbox::for_job(
             self,
             class,
@@ -471,34 +490,32 @@ impl ToolRuntime {
             correlation_id,
         )
         .await;
-        // A self builder's L1 command may reach the registries and keeps package caches of its
-        // own (`rsi::deps::builder`). No other session's job is changed.
+        // The view a self builder's command runs in keeps one more directory (`builder_view`).
+        let sandbox = match (&build, sandbox) {
+            (Some(dir), Some(view)) => {
+                Some(crate::sandbox::Sandbox::with_builder_folder(view, dir))
+            }
+            (_, view) => view,
+        };
+        // A self builder's command may also reach the registries, and keeps package caches of its
+        // own inside that folder (`rsi::deps::builder`). No other session's job is changed.
         let mut sandbox = sandbox;
-        if let Some(view) = sandbox.as_mut() {
-            let session = tc.session_id;
-            let made = theseus_store::blocking(|| {
-                let folder = crate::rsi::deps::builder::folder_of(self, session)?;
-                Some(crate::rsi::deps::builder::apply(view, &folder).map(|()| folder))
-            });
-            match made {
-                Some(Ok(folder)) => {
-                    for (k, v) in crate::rsi::deps::builder::env(&folder) {
-                        env.retain(|(ek, _)| *ek != k);
-                        env.push((k, v));
-                    }
-                }
-                Some(Err(e)) => {
-                    return self
-                        .settle_job_failure(
-                            tc,
-                            correlation_id,
-                            tool.name(),
-                            call,
-                            &format!("the builder's package cache could not be made: {e}"),
-                        )
-                        .map(Err);
-                }
-                None => {}
+        if let (Some(dir), Some(view)) = (&build, sandbox.as_mut()) {
+            let made = theseus_store::blocking(|| crate::rsi::deps::builder::apply(view, dir));
+            if let Err(e) = made {
+                return self
+                    .settle_job_failure(
+                        tc,
+                        correlation_id,
+                        tool.name(),
+                        call,
+                        &format!("the builder's package cache could not be made: {e}"),
+                    )
+                    .map(Err);
+            }
+            for (k, v) in crate::rsi::deps::builder::env(dir) {
+                env.retain(|(ek, _)| *ek != k);
+                env.push((k, v));
             }
         }
         for (k, v) in &brokered.env {

@@ -412,7 +412,7 @@ fn a_builder_gains_the_registries_and_two_variables_and_nothing_else() {
 }
 
 #[test]
-fn a_builders_cache_is_writable_inside_its_folder_and_made() {
+fn a_builders_cache_is_made_inside_the_folder_the_view_already_writes() {
     let sb = crate::sandbox::Sandbox::new(
         &crate::sandbox::SandboxConfig::default(),
         &[std::path::PathBuf::from("/work")],
@@ -420,20 +420,15 @@ fn a_builders_cache_is_writable_inside_its_folder_and_made() {
     );
     let dir = crate::scratch::tempdir();
     let folder = dir.path().join("self/builder/t");
-    let mut view = sb.job_view();
-    view.hidden.push(dir.path().to_path_buf());
+    let mut view = crate::sandbox::Sandbox::with_builder_folder(sb.job_view(), &folder);
+    let before = view.rw.clone();
     builder::apply(&mut view, &folder).unwrap();
     let cache = builder::cache_in(&folder);
     assert!(cache.is_dir(), "made");
-    assert_eq!(view.rw, std::slice::from_ref(&cache));
-    assert!(
-        !view.hidden.contains(&dir.path().to_path_buf()),
-        "a mask over a directory that holds the bind is lifted"
+    assert!(cache.starts_with(&folder));
+    assert_eq!(
+        view.rw, before,
+        "the one writable directory is still the folder"
     );
     assert_eq!(view.egress, hosts::egress());
-    // Inside a folder the view already writes, nothing is bound twice.
-    let mut view = sb.job_view();
-    view.rw = vec![folder.clone()];
-    builder::apply(&mut view, &folder).unwrap();
-    assert_eq!(view.rw, [folder]);
 }

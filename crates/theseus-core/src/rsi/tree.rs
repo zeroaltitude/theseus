@@ -29,7 +29,8 @@
 //!   when main has one; a hit stops the push. It uses the credential git
 //!   already has for that remote; this code reads none.
 //! - [`close`] removes the worktree and its build tree (build caches are
-//!   regenerable); the branch stays in the repo.
+//!   regenerable), and the builder's own build folder
+//!   ([`super::builder_dir`]); the branch stays in the repo.
 //!
 //! Every git call is a child through `children::spawn`, blocking: callers on
 //! the runtime run them on the blocking pool. The gate is a tokio child.
@@ -288,6 +289,11 @@ impl Place {
     /// ([`super::deps`]): beside the trees, never under them, since a directory there is a slot in use.
     pub fn packages(&self) -> PathBuf {
         self.root().join("packages")
+    }
+    /// Where each item's builder keeps its build output ([`super::builder_dir`]): beside the
+    /// trees, never under them, since a directory there is a slot in use.
+    pub fn builders(&self) -> PathBuf {
+        super::builder_dir::root_in(&self.state)
     }
     pub fn gates(&self) -> PathBuf {
         self.root().join("gates")
@@ -605,6 +611,9 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     }
     let dir = trees.join(&slug);
     let d = dir.to_string_lossy().to_string();
+    // An item starts with an empty build folder: what an earlier item of this name left in one is
+    // never its own.
+    super::builder_dir::remove(&p.state, &slug)?;
     p.git_ok(
         &repo,
         &[
@@ -1325,6 +1334,84 @@ fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
     Ok(out)
 }
 
+/// Remove `path` and all it holds, though a build made part of it read-only.
+///
+/// A build's code runs with write access to its build folder, and a directory it leaves without
+/// the owner's write bit (cargo's own `chmod`s, a test that makes a fixture read-only, a script)
+/// makes a plain `remove_dir_all` fail with `EACCES`. The loop's cleanups then failed on every
+/// tick and the item's slot stayed taken. So a first plain removal is tried, and only when it is
+/// refused is each directory under `path` made `0o700` and the removal made again. The owner's
+/// word, 2026-11-15 17:39:14 (chat message 1571686049867112519): "Removals should be possible,
+/// which seems like a small change."
+///
+/// **The walk cannot be steered out of `path`.** A command of the builder may still be running
+/// while its folder is removed, and could swap a directory for a link between a check and a
+/// `chmod` by path (the round-2 review made that happen 2 times in 2000). So no step names a
+/// directory by path twice: each is opened once, `openat` with `O_NOFOLLOW` (a link is refused, never
+/// followed) and `O_PATH`, and everything after (the `chmod`, the listing, the opening of its
+/// children) goes through that open descriptor, which holds the inode that was opened whatever its
+/// name becomes. The mode is a fixed `0o700`, never one the builder chose. The last removal
+/// (`remove_dir_all`) does not follow links either.
+pub(crate) fn remove_all(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_dir_all(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {}
+        done => return done,
+    }
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::{AsRawFd, OwnedFd};
+    let Ok(root) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return std::fs::remove_dir_all(path);
+    };
+    let mut stack: Vec<(Option<Arc<OwnedFd>>, std::ffi::CString)> = vec![(None, root)];
+    while let Some((parent, name)) = stack.pop() {
+        let at = parent.as_ref().map_or(libc::AT_FDCWD, |p| p.as_raw_fd());
+        let Ok(fd) = open_dir_nofollow(at, &name) else {
+            // A link where a directory was, or gone: not ours to chmod.
+            continue;
+        };
+        let proc_path = format!("/proc/self/fd/{}", fd.as_raw_fd());
+        let Ok(c_proc) = std::ffi::CString::new(proc_path.as_str()) else {
+            continue;
+        };
+        // SAFETY: a plain syscall on a valid C string; the name is this process's own descriptor
+        // for the directory just opened, so it reaches that inode and no other.
+        if unsafe { libc::chmod(c_proc.as_ptr(), 0o700) } != 0 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&proc_path) else {
+            continue;
+        };
+        let fd = Arc::new(fd);
+        for e in entries.flatten() {
+            // The listing's own `d_type`: a link reports as a link, whatever it points at.
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                if let Ok(n) = std::ffi::CString::new(e.file_name().as_bytes()) {
+                    stack.push((Some(fd.clone()), n));
+                }
+            }
+        }
+    }
+    std::fs::remove_dir_all(path)
+}
+
+/// `name` under `dirfd` (or from the working directory, for an absolute name), opened as a
+/// directory without following a link at its last component, and without needing to read or search
+/// it (`O_PATH`): a link, a file or nothing there is an error.
+pub(crate) fn open_dir_nofollow(
+    dirfd: std::os::unix::io::RawFd,
+    name: &std::ffi::CStr,
+) -> std::io::Result<std::os::unix::io::OwnedFd> {
+    use std::os::unix::io::FromRawFd;
+    let flags = libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: a plain syscall on a valid C string.
+    let fd = unsafe { libc::openat(dirfd, name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `fd` is a descriptor this call just opened and nothing else owns.
+    Ok(unsafe { std::os::unix::io::OwnedFd::from_raw_fd(fd) })
+}
+
 /// Remove the tree and its build tree; the branch stays in the repo.
 pub fn close(p: &Place, tree: &Tree) -> Result<()> {
     close_with(p, tree, true)
@@ -1355,8 +1442,10 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     p.git_ok(&p.repo, &["worktree", "remove", "--force", &d])?;
     let _ = p.git(&p.repo, &["worktree", "prune"]);
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
-        std::fs::remove_dir_all(&tree.target)?;
+        remove_all(&tree.target)?;
     }
+    // The builder's own build folder goes with its tree, whichever way the tree is closed.
+    super::builder_dir::remove(&p.state, &tree.slug)?;
     Ok(())
 }
 

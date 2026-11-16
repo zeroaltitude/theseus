@@ -41,31 +41,13 @@ pub fn env(folder: &Path) -> Vec<(String, String)> {
     ]
 }
 
-/// The build folder of the self task that owns `session` (`<state>/self/builder/<slug>`, the
-/// folder `rsi::builder_dir` names), or none: the session is no self builder's, or its item's
-/// tree is not open, and then nothing here applies to it. Named by the session's own task, never
-/// by a call.
-pub(crate) fn folder_of(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
-    let tree = crate::rsi::own_tree::of(rt, session)?;
-    tree.join(".git").exists().then_some(())?;
-    let slug = tree.file_name()?.to_str()?.to_string();
-    let state = theseus_tools::paths::canonical_best_effort(&rt.self_pr.state);
-    Some(state.join("self").join("builder").join(slug))
-}
-
-/// What a self builder's command is given for `folder`: the registries on its egress list,
-/// and its cache directory writable (a mask over a directory that holds it is lifted, as for
-/// any bind the view makes). Makes the directory, so call it off the runtime's workers.
+/// What a self builder's command is given beside its build folder `folder` (`rsi::builder_dir`,
+/// which the caller took from the session's own task, never from a call): the registries on its
+/// egress list, and its package cache made inside the folder, which is already the one directory
+/// the view writes. Makes the directory, so call it off the runtime's workers.
 pub(crate) fn apply(view: &mut L1, folder: &Path) -> std::io::Result<()> {
     extend(view);
-    let cache = cache_in(folder);
-    std::fs::create_dir_all(&cache)?;
-    view.hidden
-        .retain(|h| !(cache != *h && cache.starts_with(h)));
-    if !view.rw.iter().any(|r| cache.starts_with(r)) {
-        view.rw.push(cache);
-    }
-    Ok(())
+    std::fs::create_dir_all(cache_in(folder))
 }
 
 /// `view`'s egress list with the registries' hosts added, each once.
@@ -80,7 +62,7 @@ pub fn extend(view: &mut L1) {
 /// [`operator_list`] of the operator's `[sandbox] egress` for `session`'s job: the registries too
 /// when it is a self builder's, and as configured for any other.
 pub(crate) fn operator_list_of(rt: &ToolRuntime, session: &str) -> Vec<String> {
-    match folder_of(rt, session) {
+    match crate::rsi::own_tree::builder_path(rt, session) {
         Some(_) => operator_list(&rt.sandbox.cfg.egress),
         None => rt.sandbox.cfg.egress.clone(),
     }
