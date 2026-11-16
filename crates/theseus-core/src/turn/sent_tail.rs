@@ -99,7 +99,71 @@ fn counted(compiled: &mut Compiled, n: u64) {
     compiled.estimate.upper += n + n * crate::compiler::MARGIN_PERCENT / 100;
 }
 
+/// Put the kept tails `held` back on `compiled`'s messages, in message order: each is found by what
+/// its message rendered as, not by its place (routing may have moved a message). Only the tails
+/// sent to `key` go back (`None`: the newest tail's own key, for a request no turn is making yet);
+/// the rest stay in the list as they were sent. Nothing goes back on a request a recompile
+/// stripped the thinking from. Returns the list and the place in it of the latest tail put back.
+/// The one function a turn's request and every other request of a conversation share.
+fn put_back(
+    compiled: &mut Compiled,
+    held: Vec<Sent>,
+    key: Option<&str>,
+    stripped: bool,
+) -> (Vec<Sent>, Option<usize>) {
+    let Some(last) = compiled.request.messages.len().checked_sub(1) else {
+        return (held, None);
+    };
+    let key = key
+        .or_else(|| held.last().map(|s| s.key.as_str()))
+        .map(str::to_string);
+    let mut kept = Vec::new();
+    let anchors: Vec<String> = match held.is_empty() || stripped {
+        true => Vec::new(),
+        false => compiled.request.messages[..last]
+            .iter()
+            .map(anchor)
+            .collect(),
+    };
+    let (mut from, mut here) = (0, None);
+    for s in held.into_iter().filter(|_| !stripped) {
+        // What was said to another place or surface is not said here: it stays as it was sent,
+        // for a request that comes back to where it was sent.
+        if Some(&s.key) != key.as_ref() {
+            kept.push(s);
+            continue;
+        }
+        let Some(i) = (from..anchors.len()).find(|&i| anchors[i] == s.anchor) else {
+            continue;
+        };
+        if let Some(b) = blocks_of(&mut compiled.request.messages[i]) {
+            b.extend(s.blocks.iter().cloned());
+            counted(compiled, bytes(&s.blocks));
+            from = i + 1;
+            kept.push(s);
+            here = Some(kept.len() - 1);
+        }
+    }
+    (kept, here)
+}
+
 impl SentTails {
+    /// The tails a conversation's earlier requests sent, put back on a request made for it
+    /// outside a turn (the keep-warm read, the census), so that it is the prefix the next turn
+    /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to.
+    /// Nothing is kept or changed here, and a request for a model of restricted origin gets none.
+    pub(crate) fn warm(&self, session: &str, restricted: bool, compiled: &mut Compiled) {
+        if restricted {
+            return;
+        }
+        let held = {
+            let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            h.by_session.get(session).cloned().unwrap_or_default()
+        };
+        let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
+        put_back(compiled, held, None, stripped);
+    }
+
     /// Put back the tails the session's earlier requests sent, on the
     /// messages that carried them, before this request's own is attached.
     pub(super) fn begin(
@@ -123,37 +187,7 @@ impl SentTails {
             h.recent.push_back(session.to_string());
             h.by_session.get(session).cloned().unwrap_or_default()
         };
-        let mut kept = Vec::new();
-        // The kept tails are in message order, and routing may have moved a message (an effort
-        // message placed before the turn's own): each is found by what its message rendered
-        // as, from where the one before it was.
-        let anchors: Vec<String> = match held.is_empty() || stripped {
-            true => Vec::new(),
-            false => compiled.request.messages[..last]
-                .iter()
-                .map(anchor)
-                .collect(),
-        };
-        let mut from = 0;
-        let mut here = None;
-        for s in held.into_iter().filter(|_| !stripped) {
-            // What was said to another place or surface is not said here: it stays as it was
-            // sent, for a request that comes back to where it was sent.
-            if s.key != key {
-                kept.push(s);
-                continue;
-            }
-            let Some(i) = (from..anchors.len()).find(|&i| anchors[i] == s.anchor) else {
-                continue;
-            };
-            if let Some(b) = blocks_of(&mut compiled.request.messages[i]) {
-                b.extend(s.blocks.iter().cloned());
-                counted(compiled, bytes(&s.blocks));
-                from = i + 1;
-                kept.push(s);
-                here = Some(kept.len() - 1);
-            }
-        }
+        let (kept, here) = put_back(compiled, held, Some(key), stripped);
         let m = &mut compiled.request.messages[last];
         let anchor = anchor(m);
         let blocks = blocks_of(m).map_or(0, |b| b.len());

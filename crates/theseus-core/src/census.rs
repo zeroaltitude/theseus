@@ -217,6 +217,9 @@ impl TurnRunner {
             situation: &situation,
             kept: None,
         });
+        let mut compiled = compiled;
+        self.tails
+            .warm(&sid, self.restricted_profile(&spec.profile), &mut compiled);
         let how = match (rec.is_some(), compiled.new_compilation) {
             (false, _) => "fresh",
             (true, true) => "recompile",

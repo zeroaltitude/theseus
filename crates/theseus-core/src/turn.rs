@@ -115,7 +115,7 @@ mod retry_step;
 mod route_step;
 mod self_budget_step;
 pub use self_budget_step::SELF_BUDGET_CLASS;
-mod sent_tail;
+pub(crate) mod sent_tail;
 mod settle;
 pub(crate) mod situation_step;
 mod spec_step;

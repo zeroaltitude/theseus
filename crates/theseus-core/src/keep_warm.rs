@@ -851,7 +851,12 @@ impl TurnRunner {
             situation: &situation,
             kept: None,
         };
-        Ok((current.is_some(), crate::compiler::compile(input)))
+        let mut compiled = crate::compiler::compile(input);
+        // What the turns sent after the conversation, where they sent it: the next turn's request
+        // carries it, so the read does too (`turn::sent_tail`).
+        self.tails
+            .warm(sid, self.restricted_profile(&spec.profile), &mut compiled);
+        Ok((current.is_some(), compiled))
     }
 }
 

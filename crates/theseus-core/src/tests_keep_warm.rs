@@ -43,7 +43,7 @@ pub(crate) fn build(dir: &std::path::Path, c: Config) -> (Arc<Core>, Arc<FakePro
     (build_with(dir, c, fake.clone()), fake)
 }
 
-fn build_with(dir: &std::path::Path, c: Config, fake: Arc<FakeProvider>) -> Arc<Core> {
+pub(crate) fn build_with(dir: &std::path::Path, c: Config, fake: Arc<FakeProvider>) -> Arc<Core> {
     let mut c = c;
     c.server.state_dir = dir.to_string_lossy().into_owned();
     c.tools.roots = vec![];
