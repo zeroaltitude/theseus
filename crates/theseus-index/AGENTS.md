@@ -101,3 +101,17 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   hold of the table's lock (so a query between two batches is answered), after `size` has told it the rows' room. A commit
   or a forget that lands in the middle is honoured as before. Tests: `vectors/reconcile.rs` (the list is never asked
   for, the rows grow while the index is read, a commit and a forget in the middle).
+- **The table's big parts are mapped files, so the index's own memory does not grow with the store** (`vectors/rows.rs`,
+  `vectors/scan.rs`, `vectors/store.rs`; issue 21 of 1.0.7, "design 1" of the memory review). Two files, both read-only maps (`mapped::Map`,
+  `libc::mmap`, as the weights' are; no new dependency): **`<stamp key>.scan`** holds a vector file's records in columns (hashes, scales, int8
+  cuts, an open-addressed entry table), a projection of the `.vec` file made from it with no re-embedding and checked against it by length,
+  dimensions, count and three records' hash and CRC, else made again (so an index of before opens and converts by itself); and **the rows**, written at each start, as the
+  index's nodes stream in, into a file with no name (`O_TMPFILE`: nothing can open, truncate or replace it by path), 48 bytes a row and the
+  node ids and a hash-sorted row list, in node-id order. What changes after a write is in memory: a bit a row for alive, four bytes for its vector, a bit a
+  record for dead, and a **tail** of the rows and records that arrived since (a commit; an embedded batch), at most `FOLD_ROWS` (16,384) rows
+  and `FOLD` (16,384) records before they are written into a new file; the files are only ever written new and renamed into place, never in
+  place, so a search's map is of a file that does not change (a file truncated by something else under a map would fault, as the weights' would). Row numbers run the file's
+  first, then the tail's: the scan and its ties go as they always did. A table with no directory (the tests') keeps every row and record
+  in memory, which is the path the older tests exercise. The model's unload lets the process's copy of the pages go (`release_pages`).
+  `probe_the_search` (an ignored tool) writes an index's answers to a fixed set of queries, bit for bit, and times them warm and cold.
+  Tests: `vectors/files_tests.rs`.

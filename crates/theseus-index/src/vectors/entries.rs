@@ -11,7 +11,15 @@
 //!   per text, a heap block of its own.
 
 /// A slot with no entry.
-const EMPTY: u32 = u32::MAX;
+pub const EMPTY: u32 = u32::MAX;
+
+/// Where `hash`'s probe starts in a table of `slots` slots (a power of two):
+/// its bits mixed (Fibonacci hashing), from the top.
+pub fn slot_start(slots: usize, hash: u128) -> usize {
+    let x = (hash as u64) ^ ((hash >> 64) as u64);
+    let bits = slots.trailing_zeros();
+    (x.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> (64 - bits)) as usize
+}
 
 /// A vector file's entries by their hash (see the module's doc).
 #[derive(Debug, Default)]
@@ -41,9 +49,13 @@ impl Entries {
     /// Where `hash`'s probe starts: its bits mixed (Fibonacci hashing), the
     /// table's power of two from the top.
     fn start(&self, hash: u128) -> usize {
-        let x = (hash as u64) ^ ((hash >> 64) as u64);
-        let bits = self.slots.len().trailing_zeros();
-        (x.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> (64 - bits)) as usize
+        slot_start(self.slots.len(), hash)
+    }
+
+    /// The slots, to be written out as they are (the file's own copy, read in
+    /// place by [`slot_start`]'s probe: `scan.rs`).
+    pub fn into_slots(self) -> Vec<u32> {
+        self.slots
     }
 
     /// The entry whose hash in `hashes` is `hash`.

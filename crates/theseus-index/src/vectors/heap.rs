@@ -182,6 +182,9 @@ mod tests {
             VectorConfig::new(Some(tmp.path().to_path_buf())),
             tmp.path(),
         );
+        // In memory: the rows' room is measured once. (With a directory they go
+        // into a file of their own, `rows.rs`.)
+        v.table.write().unwrap().dir = None;
         v.reconcile(&Nodes(nodes)).unwrap();
         let t = v.table.read().unwrap();
         assert_eq!(t.rows.len(), 30_000);

@@ -158,8 +158,9 @@ impl Table {
     /// row's maps, so it is a measure and not a turn's path.
     pub fn held(&self) -> Held {
         let mut h = Held {
-            chunks: self.rows.len() as u64,
-            rows: (self.rows.capacity() * size_of::<Row>()) as u64,
+            chunks: self.row_count() as u64,
+            rows: (self.rows.capacity() * size_of::<Row>()
+                + self.base.as_ref().map_or(0, |b| b.held())) as u64,
             rows_by_hash: map_bytes(
                 self.by_hash.capacity(),
                 size_of::<u128>() + size_of::<Holders>(),
@@ -203,7 +204,9 @@ impl Table {
             h.records += c.len() as u64;
             h.cuts += c.q.capacity() as u64;
             h.hashes += (c.hashes.capacity() * size_of::<u128>()) as u64;
-            h.scales += (c.scale.capacity() * size_of::<f32>() + c.dead.capacity()) as u64;
+            h.scales += (c.scale.capacity() * size_of::<f32>()
+                + c.dead.capacity()
+                + c.base_dead.bytes()) as u64;
             h.records_by_hash += (c.by_hash.slots() * size_of::<u32>()) as u64;
         }
         h
@@ -219,7 +222,9 @@ impl Cache {
             records: self.len() as u64,
             cuts: self.q.capacity() as u64,
             hashes: (self.hashes.capacity() * size_of::<u128>()) as u64,
-            scales: (self.scale.capacity() * size_of::<f32>() + self.dead.capacity()) as u64,
+            scales: (self.scale.capacity() * size_of::<f32>()
+                + self.dead.capacity()
+                + self.base_dead.bytes()) as u64,
             records_by_hash: (self.by_hash.slots() * size_of::<u32>()) as u64,
             ..Held::default()
         }
