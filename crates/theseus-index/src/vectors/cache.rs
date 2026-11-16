@@ -6,8 +6,9 @@ use super::*;
 const MAGIC: &[u8; 8] = b"thsvec01";
 pub(super) const HEADER: u64 = 16;
 
-/// One stamp's vectors: the file, and in memory each record's hash, int8
-/// cut, and scale (the 768-d vectors stay on disk, read for the re-score).
+/// One stamp's vectors: the file, and in memory or in its scan file each
+/// record's hash, int8 cut, and scale (the 768-d vectors stay on disk, read
+/// for the re-score).
 pub struct Cache {
     pub stamp: Stamp,
     pub(super) key: String,
