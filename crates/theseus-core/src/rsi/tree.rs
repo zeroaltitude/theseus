@@ -285,6 +285,11 @@ impl Place {
     pub fn targets(&self) -> PathBuf {
         self.root().join("target")
     }
+    /// Where each tree's gate finds the packages its lock files name
+    /// ([`super::deps`]): beside the trees, never under them, since a directory there is a slot in use.
+    pub fn packages(&self) -> PathBuf {
+        self.root().join("packages")
+    }
     /// Where each item's builder keeps its build output ([`super::builder_dir`]): beside the
     /// trees, never under them, since a directory there is a slot in use.
     pub fn builders(&self) -> PathBuf {
@@ -847,6 +852,21 @@ async fn gate_with(p: &Place, tree: &Tree, benches: bool) -> Result<Gated> {
         .gates()
         .join(format!("{}.log", tree.branch.replace('/', "-")));
     let t0 = Instant::now();
+    // A branch whose lock files differ from main's has its packages fetched first, by
+    // this code and from the registries (`deps`); one that may not be fetched is red
+    // with the reason, and the gate never starts.
+    if let super::deps::Provided::Refused { why, infra } = super::deps::provide(p, tree).await {
+        std::fs::write(&log, format!("gate: {why}\n"))?;
+        return Ok(Gated::Ran(GateRun {
+            verdict: Verdict::Red,
+            exit: Some(1),
+            blob,
+            log,
+            secs: t0.elapsed().as_secs(),
+            tail: format!("gate: {why}"),
+            unrunnable: infra,
+        }));
+    }
     let status = match p.jail()? {
         Some(j) => jailed(j, p, tree, &script, &log, benches).await?,
         None => {

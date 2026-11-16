@@ -137,7 +137,10 @@ impl Tests for Cargo {
 /// The same run in L1 (theseus-pw1q.21.1): the branch's tests are the
 /// branch's code, and run below the floor like its gate. Its output is a
 /// log under the gates, whose tail is the verdict's words.
-fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(bool, String)> {
+pub(super) fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(bool, String)> {
+    // A branch that changed its lock files has its packages in the cache the gate made for the
+    // same lock files, and made again here when that one is gone (`deps`).
+    crate::rsi::deps::provide_blocking(p, t)?;
     std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join(format!("planted-{}.log", t.slug));
     let argv = [

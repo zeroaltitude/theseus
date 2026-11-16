@@ -593,6 +593,14 @@ under its own text; there is no shadow period and no ladder wait.
   Before step 1, a branch that no longer merges into `main`'s tip (it moved while the change waited) is not reviewed: it goes
   back to its builder with `main` merged into a working copy of it, to resolve what clashes, and is checked again. That is no
   try; a third conflict of one item fails it.
+
+  **Libraries** ([`design/self-dependencies.md`](design/self-dependencies.md)): the builder's own commands may reach the
+  cargo and npm registries (a closed list of three hosts, `rsi/deps/hosts.rs`) and keep what they download in a package
+  cache of their own, which no gate reads. A gate has no network. Before the gate of a branch whose lock files differ
+  from main's, the daemon fetches exactly the packages those files name, from the registries, each checked against its
+  lock file's checksum, and the gate reads them from there. A dependency from any other source (a git URL, another
+  registry, a path outside the tree, a `[patch]` or `[source]`) is refused, with the reason. A change of dependencies
+  stops at the owner's card (the keel list below).
 - **It installs the join** and tells the owner what changed, why, the numbers, the cost, and the one-command revert.
   A regression within a day of a self-join reverts it.
 
@@ -603,6 +611,8 @@ under its own text; there is no shadow period and no ladder wait.
 - bump the store format;
 - change security, policy, secrets, permissions or IAM;
 - raise a spend limit;
+- add, remove or change a library: any package a lock file (`Cargo.lock`, `cockpit/package-lock.json`) names, shown on
+  the card with its old and new version and where it comes from (`rsi/join/dependencies.rs`);
 - resume after the kill switch.
 
 A branch that touches any of these stops at a card to the owner, and is never retried at that head. The rest of the

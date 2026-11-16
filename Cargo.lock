@@ -6751,6 +6751,7 @@ dependencies = [
  "lopdf",
  "serde",
  "serde_json",
+ "tempfile",
  "zip 9.0.5",
 ]
 

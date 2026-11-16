@@ -889,6 +889,7 @@ mod own_tree {
 
     mod builder_folder;
     mod proc_in_tree;
+    mod registries;
 
     fn held(edit: impl FnOnce(&mut Config)) -> Rig {
         rig_with(SelfMode::Act, None, |cfg| {

@@ -9,7 +9,10 @@
 //! - `store-format`: a line that adds or removes `MANIFEST_FORMAT` (a
 //!   one-way store format bump);
 //! - `spend-key`: a config line that adds, removes or changes a spend key
-//!   (`*_usd`, a spend limit, a ceiling, the runaway lines).
+//!   (`*_usd`, a spend limit, a ceiling, the runaway lines);
+//! - `dependency`: a package the lock files name that the change adds, removes
+//!   or changes the version or source of (`super::dependencies`, issue 20), listed
+//!   one to a line on the card.
 //!
 //! A `"self"` principal never answers the card: the card is a post to the
 //! owner's DM, and nothing in the join reads an answer to it. A branch held
@@ -164,6 +167,8 @@ pub const KEEL_GUARD: &str = "keel-guard";
 pub const STORE_FORMAT: &str = "store-format";
 /// A spend key's line.
 pub const SPEND_KEY: &str = "spend-key";
+/// A package a lock file gained, lost or changed (`super::dependencies`).
+pub const DEPENDENCY: &str = "dependency";
 
 /// The config files a spend key lives in.
 const CONFIG_PATHS: &[&str] = &[

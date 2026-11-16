@@ -45,11 +45,16 @@
 //! **The builder's build folder** (`builder_dir`: the one directory a self builder's commands keep, so it can run
 //! the tests of what it writes, apart from the gate's build tree and removed with the item):
 //! `docs/design/self-builder-build-folder.md`.
+//!
+//! **Libraries** (`deps`: what the builder may download, the packages the pipeline fetches for a gate from a branch's
+//! lock files, what is refused, and the change of dependencies that stops at the owner's card):
+//! `docs/design/self-dependencies.md`.
 
 pub mod backlog;
 pub mod budget;
 pub mod builder_dir;
 pub mod capacity;
+pub mod deps;
 pub(crate) mod digest;
 pub mod evidence;
 pub mod exams;
