@@ -37,7 +37,7 @@ part of the operator's list for a self builder (`builder::operator_list`).
 
 The gate keeps no network. Before the gate of a tree whose `Cargo.lock` or `cockpit/package-lock.json` differs from
 main's, the pipeline (the daemon's code, in `tree::gate_with`) calls `deps::provide`, which fetches exactly the packages
-those lock files name into `<state>/self/packages/<slug>`, from the registries, each checked against the checksum its
+those lock files name into `<state>/self/packages/<key>` (a hash of both lock files), from the registries, each checked against the checksum its
 lock file records:
 
 - **cargo:** `<static.crates.io>/crates/<name>/<name>-<version>.crate`, its sha256 compared with the lock's `checksum`,
@@ -52,8 +52,10 @@ lock file records:
 No build script, no code of the branch and no code of a downloaded package runs: it is a download, a hash, and a write.
 No cargo or npm runs in the daemon either (`cargo metadata` reads the branch's own config, which can name a compiler).
 A redirect is never followed, so no answer can send the fetch to another host. The cache is an overlay in the gate's
-view (writes vanish), bound only into the view of the tree it was made for, and it is read as that tree's lock files
-hash: a cache made for other lock files is not one (`Packages::of`). It goes with the tree (`tree::close`).
+view (writes vanish), bound into the view of every tree whose lock files have its key (the branch's gate, the planted
+revert's, the merge's, the install's, and a later tree cut from a main that took them): a cache made for other lock
+files is not one (`Packages::of`). It stays when a tree closes; each `provide` keeps the cache it made, main's own and
+the three newest, and removes the rest.
 
 A package the registry does not have, or serves with other bytes than the lock names, makes the gate red before it
 starts, with a message the builder reads in the gate's tail. A registry that does not answer (three tries) is the

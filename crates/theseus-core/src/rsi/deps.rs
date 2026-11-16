@@ -13,8 +13,9 @@
 //!   gate on a tree whose lock files differ from main's, the pipeline (this code, in
 //!   the daemon) fetches exactly the packages those lock files name
 //!   ([`fetch::Fetcher`]), from the registries, each checked against the checksum the
-//!   lock records, into `<state>/self/packages/<slug>`, which the gate's view
-//!   binds as an overlay ([`Packages`]). The gate keeps no network.
+//!   lock records, into `<state>/self/packages/<key>` (named by the lock files'
+//!   content, so every tree with the same lock files reads it), which the gate's
+//!   view binds as an overlay ([`Packages`]). The gate keeps no network.
 //! - **A dependency from anywhere else is refused** ([`policy`], [`lock`]): a git
 //!   URL, another registry, a path that leaves the tree, a `[patch]`, a changed
 //!   `[source]`.
@@ -61,7 +62,8 @@ pub const NPM_LOCK: &str = "cockpit/package-lock.json";
 /// What `provide` made for a tree.
 #[derive(Debug)]
 pub enum Provided {
-    /// The tree's lock files are main's: its gate reads the machine's own cache, as always.
+    /// The tree's lock files are main's: its gate reads the cache kept for main's lock files
+    /// when there is one, and the machine's own otherwise.
     Nothing,
     /// A cache for the lock files that differ.
     Ready(Packages),

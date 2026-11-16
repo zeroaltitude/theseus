@@ -69,9 +69,10 @@ impl Jail {
     pub fn prepare(&self, p: &Place, j: &Job<'_>) -> (L1, Vec<(String, String)>) {
         let repo = theseus_tools::paths::canonical_best_effort(&p.repo);
         let home = crate::config::expand("~");
-        // The packages the pipeline fetched for this tree's lock files, when they
-        // differ from main's (`deps::provide`, before the gate): the only thing of
-        // the registries this view sees, and it still has no network.
+        // The packages the pipeline fetched for this tree's lock files, whichever
+        // tree they were fetched for (`deps::provide`, keyed by the lock files'
+        // content): the only thing of the registries this view sees, and it
+        // still has no network.
         let packages = Packages::of(p, j.tree);
         let view = self.sandbox.self_build_view(&SelfBuild {
             tree: &j.tree.dir,
