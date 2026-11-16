@@ -23,7 +23,7 @@ What it prints (short lines) and writes (--out, one JSON object):
 - `grew_mib`: the last rest's anonymous memory less `before`'s, which is what the
   guard compares with --margin-mib: exit 1 when it is over, naming both numbers.
 """
-import argparse, json, os, random, shutil, signal, sqlite3, subprocess, threading, time
+import argparse, json, math, os, random, shutil, signal, sqlite3, subprocess, threading, time
 
 from rss_bench import read_kv
 from rss_daemon import CONFIG, rpc
@@ -35,6 +35,9 @@ WORDS = ["".join(_V.choice("bdfgklmnprstvz") + _V.choice("aeiou") for _ in range
 
 
 NAMES = ["Quill Marsh", "Juno Pike", "Wren Ash", "Tamsin Dray", "Corin Veil", "Ines Holt", "Pell Orme", "Sable Ode"]
+
+
+MEDIAN = 735  # bytes: a message's median text; --median changes it
 
 
 def text(rng, n):
@@ -89,7 +92,7 @@ def add_sessions(db, prefix, base, counts, rng):
             (sid, f"agent:main:slack:channel:C{s % 40:02d}", t, t, "channel", "slack", f"C{s % 40:02d}", f"room {s % 40}"),
         )
         for i in range(n):
-            body = text(rng, int(rng.lognormvariate(6.6, 0.9)))  # median 735 bytes, a long tail
+            body = text(rng, int(rng.lognormvariate(math.log(MEDIAN), 0.9)))  # a long tail
             ev = {"type": "message", "id": "e", "parentId": None, "timestamp": None,
                   "message": {"role": "user" if i % 2 == 0 else "assistant",
                               "content": [{"type": "text", "text": body}]}}
@@ -157,6 +160,18 @@ def heap_of(sock):
             "caches": {c.get("name"): round(c.get("bytes", 0) / 1048576, 1) for c in h.get("caches") or []}}
 
 
+def snapshot(prof, n):
+    """Ask the profiler in the daemon for a heap profile, and wait for it."""
+    if not prof:
+        return
+    open(prof + ".trigger", "w").close()
+    for _ in range(100):
+        if os.path.exists(f"{prof}.{n}.txt"):
+            return
+        time.sleep(0.2)
+    print(f"no heap profile {n} came", flush=True)
+
+
 def say(label, d):
     print(f"{label}: " + " ".join(f"{k}={v}" for k, v in d.items() if k != "caches"), flush=True)
 
@@ -172,6 +187,7 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--sessions", type=int, default=565)
     ap.add_argument("--messages", type=int, default=8440)
+    ap.add_argument("--median", type=int, default=735, help="a message's median text, in bytes (a long tail above it)")
     ap.add_argument("--people", action="store_true", help="also the people pass (the stand-in model answers)")
     ap.add_argument("--arena-max", default="2", help="MALLOC_ARENA_MAX as the service sets it ('' for glibc's default)")
     ap.add_argument("--settle-secs", type=int, default=20)
@@ -179,7 +195,11 @@ def main():
     ap.add_argument("--preload", help="a library for LD_PRELOAD on the daemon (an allocator, a profiler)")
     ap.add_argument("--env", action="append", default=[], help="NAME=VALUE for the daemon")
     ap.add_argument("--nights", type=int, default=1, help="imports in a row, each of new sessions")
+    ap.add_argument("--prof", help="a prefix: the daemon runs under malloc_prof.so (--preload) and a heap profile is "
+                    "written to <prefix>.0.txt before the import and <prefix>.1.txt at the last rest")
     a = ap.parse_args()
+    global MEDIAN
+    MEDIAN = a.median
     work = os.path.abspath(a.work)
     shutil.rmtree(work, ignore_errors=True)
     state = os.path.join(work, "state")
@@ -210,6 +230,9 @@ def main():
             env["MALLOC_ARENA_MAX"] = a.arena_max
         if a.preload:
             env["LD_PRELOAD"] = a.preload
+        if a.prof:
+            env["MALLOC_PROF_TRIGGER"] = a.prof + ".trigger"
+            env["MALLOC_PROF_OUT"] = a.prof
         for kv in a.env:
             k, _, v = kv.partition("=")
             env[k] = v
@@ -230,6 +253,7 @@ def main():
         time.sleep(a.settle_secs + 45)
         row["before"] = {**rollup(d.pid), **heap_of(sock)}
         say("before", row["before"])
+        snapshot(a.prof, 0)
         series = Series(d.pid)
         series.start()
         for night in range(a.nights):
@@ -258,6 +282,7 @@ def main():
             if night + 1 < a.nights:
                 make_openclaw(oc, a.sessions, a.messages, night + 1)
         series.stop_ = True
+        snapshot(a.prof, 1)
         row["trace"] = series.trace[:: max(1, len(series.trace) // 120)]
         last = row["nights"][-1]["after_70"]
         row["grew_mib"] = round(last["anon"] - row["before"]["anon"], 1)
