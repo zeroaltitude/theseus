@@ -127,6 +127,10 @@ const BARE: &[(&str, &str)] = &[
     ("theseus-core/src/own_bench/whole/tests.rs", "test-only"),
     ("theseus-core/src/rpc/tests_scratch.rs", "test-only"),
     ("theseus-core/src/rpc/tests_task_pause.rs", "test-only"),
+    (
+        "theseus-core/src/rsi/deps/tests_live.rs",
+        "test-only: an ignored live test that runs cargo and npm on a fleet box",
+    ),
     ("theseus-core/src/rsi/join/tests.rs", "test-only"),
     ("theseus-core/src/rsi/join/tests_sealed.rs", "test-only"),
     (

@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
-use super::{blocking, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
+use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
 use crate::fact::rsi_join::SelfJoined;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
 
@@ -90,6 +90,7 @@ impl Run<'_> {
                 .collect();
             let diff = git::diff(&p, &main, &h, 0)?;
             let mut hits = keel::classify(&paths, &diff);
+            hits.extend(dependencies::hits(&p, &from, &h)?);
             let t = git::detached(&p, "keel", &b, &h)?;
             let guard = keel::keel_guard(&p, &t.dir, &main, &from, &h);
             let _ = tree::close(&p, &t);
@@ -103,9 +104,14 @@ impl Run<'_> {
         }
         let mut classes: Vec<&str> = hits.iter().map(|h| h.class.as_str()).collect();
         classes.dedup();
-        let lines: String = hits
-            .iter()
+        // Each package a change of dependencies names is a line of the card: the owner reads
+        // all of them, however many, where the rest of the hits are the first twenty.
+        let (deps, others): (Vec<&keel::Hit>, Vec<&keel::Hit>) =
+            hits.iter().partition(|h| h.class == keel::DEPENDENCY);
+        let lines: String = others
+            .into_iter()
             .take(20)
+            .chain(deps)
             .map(|h| format!("- {}: {}\n", h.class, h.at))
             .collect();
         self.card(keel_card(
