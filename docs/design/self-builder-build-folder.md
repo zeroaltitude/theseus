@@ -22,8 +22,9 @@ persists between commands: `<state>/self/builder/<slug>` (`rsi/builder_dir.rs`).
   session's L1 command whose item has an open tree. Another principal's call, a self session's call at L0, and a self
   session with no open tree get the view they always had, and no folder is made for them.
 - **What the view is.** An ordinary L1 job's view (`Sandbox::job_view`: the same workspace overlays, read-only
-  paths, hidden list, and no network beyond the call's own egress list) plus that one read-write directory, plus one
-  limit of its own: a single file may be 4 GiB (`BUILDER_OUTPUT_MB`), because the link of the core's tests is far past
+  paths, hidden list less a mask over a directory that holds the folder, and no network beyond the call's own
+  egress list) plus that one read-write directory, plus one limit of its own: a single file may be 4 GiB
+  (`BUILDER_OUTPUT_MB`), because the link of the core's tests is far past
   the 64 MiB default and the first real run died of `SIGXFSZ` there. It gets none of the facilities a self build's
   gate is given (`self_build::FACILITIES`). `[sandbox] scratch_mb`, `output_mb` and every other configured cap are
   as they were.

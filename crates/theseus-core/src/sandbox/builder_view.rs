@@ -2,7 +2,8 @@
 //! (`Sandbox::job_view`) with one read-write directory added, the item's build
 //! folder (`rsi::builder_dir`), so that what cargo builds there is kept
 //! between commands. Nothing else changes: the same workspace overlays, the
-//! same read-only paths and hidden list, no network beyond the call's own
+//! same read-only paths and hidden list (less a mask over a directory that
+//! holds the folder, as in the gate's view), no network beyond the call's own
 //! egress list, the same limits but one ([`BUILDER_OUTPUT_MB`]), and none of
 //! the facilities a self build's gate is given (`self_build::FACILITIES`). The gate's view
 //! (`Sandbox::self_build_view`) never binds this directory, so what a builder
