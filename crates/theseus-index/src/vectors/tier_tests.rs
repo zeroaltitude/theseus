@@ -644,3 +644,78 @@ fn a_remembered_query_does_not_see_what_was_stored_after_it() {
     assert!(names(&sees).contains(&node.to_string()));
     assert!(!names(&blind).contains(&node.to_string()));
 }
+
+/// The check itself replays each remembered query as the recall asked it: as of its position and
+/// leaving out the sessions it left out. What it measures is then the share on what the recall
+/// could see, and not on its own message and what followed (recent, hot, always found by both
+/// searches, which lifts the share and keeps the fallback from firing). Built on records with no
+/// structure, where the share is far from the bar, so the NUMBER the check returns is what is
+/// compared: it must equal the share computed with each query's own filter, and differ from the
+/// one computed with the filter dropped, for the queries that carry an `as_of` and for those that
+/// carry excluded sessions.
+#[test]
+fn the_check_replays_each_remembered_query_as_it_was_asked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = settled(tmp.path(), &nodes(1500), 42);
+    let plan = t.plan_layout(NOW).expect("a plan");
+    let (tier, _, _) = build_layout(&plan, 200).unwrap();
+    let cand = Arc::new(tier.expect("a layout"));
+    let skipped = [
+        "ses_1".to_string(),
+        "ses_2".to_string(),
+        "ses_3".to_string(),
+    ];
+    // 64 queries: a record's own vector each; the first half asked as of that record's position
+    // (so its own record is after the query and not seen), the second half leaving out the
+    // sessions above.
+    // Rows with a vector (a tenth of the nodes have none), spread through the table.
+    let with_vectors: Vec<u32> = (0..t.row_count() as u32)
+        .filter(|&i| matches!(t.full_of(i as usize), Ok(Some(_))))
+        .collect();
+    let asked: Vec<(Vec<f32>, Option<u64>, Vec<String>)> = (0..64)
+        .map(|k| {
+            let row = with_vectors[k * 23 % with_vectors.len()];
+            let q = embedder::l2_normalize(&t.full_of(row as usize).unwrap().expect("a vector"));
+            if k < 32 {
+                (q, Some(t.row_position(row)), Vec::new())
+            } else {
+                (q, None, skipped.to_vec())
+            }
+        })
+        .collect();
+    // The share the check should find, as the recall would see it; and with the filters dropped.
+    let share = |as_asked: bool| {
+        let (mut sum, mut n) = (0f32, 0usize);
+        for (q, as_of, exclude) in &asked {
+            let f = if as_asked {
+                t.filter(*as_of, exclude, &Filters::default())
+            } else {
+                t.filter(None, &[], &Filters::default())
+            };
+            let want = t.search_with(q, CUT, &f, 10, None).unwrap();
+            let got = t.search_with(q, CUT, &f, 10, Some(cand.clone())).unwrap();
+            let want: HashSet<usize> = want.iter().map(|x| x.0).collect();
+            if want.is_empty() {
+                continue;
+            }
+            sum += got.iter().filter(|x| want.contains(&x.0)).count() as f32 / want.len() as f32;
+            n += 1;
+        }
+        sum / n as f32
+    };
+    let (as_asked, dropped) = (share(true), share(false));
+    assert!(
+        dropped > as_asked + 0.01,
+        "the fixture cannot tell the two apart: {as_asked} as asked, {dropped} with the filters dropped"
+    );
+    let v = in_a_tender(tmp.path(), t, 200);
+    for (q, as_of, exclude) in &asked {
+        v.remember_query(q, *as_of, exclude);
+    }
+    let (got, how) = v.self_check(&cand, &plan).expect("a check");
+    assert!(matches!(how, layout::Checked::Queries));
+    assert_eq!(
+        got, as_asked,
+        "the check did not replay the queries as asked ({dropped} if it dropped the filters)"
+    );
+}
