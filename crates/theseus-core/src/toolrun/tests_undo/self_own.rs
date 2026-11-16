@@ -47,6 +47,20 @@ fn act(c: &mut Config) {
 
 fn nothing(_: &mut Config) {}
 
+/// The places in the module's header, holding old bytes, made before the script is built so that a
+/// call may name a link inside them.
+fn lay(b: &Path) {
+    let t = b.join("work/notes.txt");
+    for id in ["sails", "tides"] {
+        std::fs::create_dir_all(tree(&t, id)).unwrap();
+        std::fs::write(tree(&t, id).join("notes.txt"), WAS).unwrap();
+    }
+    std::fs::create_dir_all(scratch(&t).join("tree")).unwrap();
+    std::fs::write(scratch(&t).join("tree/built.txt"), WAS).unwrap();
+    std::fs::write(b.join("state/notes.txt"), WAS).unwrap();
+    std::fs::write(b.join("repo/README"), WAS).unwrap();
+}
+
 /// A core whose one scripted call is `name` with `input`, from a session of `principal` (the task
 /// `sails` when that is `self`), with every place above laid out and holding old bytes. `verdict`
 /// is what Jev answers.
@@ -63,6 +77,7 @@ async fn drive_says(
         false,
         |c| {
             act(c);
+            lay(Path::new(&c.server.state_dir).parent().unwrap());
             tweak(c);
         },
         move |t| {
@@ -72,15 +87,6 @@ async fn drive_says(
             ]
         },
     );
-    let (t, b) = (r.target.clone(), base(&r.target));
-    for id in ["sails", "tides"] {
-        std::fs::create_dir_all(tree(&t, id)).unwrap();
-        std::fs::write(tree(&t, id).join("notes.txt"), WAS).unwrap();
-    }
-    std::fs::create_dir_all(scratch(&t).join("tree")).unwrap();
-    std::fs::write(scratch(&t).join("tree/built.txt"), WAS).unwrap();
-    std::fs::write(b.join("state/notes.txt"), WAS).unwrap();
-    std::fs::write(b.join("repo/README"), WAS).unwrap();
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     let authority = Authority {
         principal: principal.into(),
@@ -222,7 +228,6 @@ async fn a_self_sessions_write_aimed_outside_its_own_places_is_held() {
         }),
         ("the workspace by a link", |t| {
             let link = tree(t, "sails").join("out");
-            let _ = std::fs::remove_file(&link);
             std::os::unix::fs::symlink(t.parent().unwrap(), &link).unwrap();
             link.join("notes.txt")
         }),
