@@ -47,6 +47,7 @@ mod memsynth;
 mod perf;
 mod procfs;
 mod synth;
+mod synth_board;
 mod walcount;
 
 #[derive(Parser)]
@@ -152,6 +153,12 @@ enum Cmd {
         /// (with a settled action for every tenth).
         #[arg(long, default_value_t = 0)]
         ledger_rows: u64,
+        /// The people-and-topics board: this many categories (0: none), with
+        /// `--memberships` of them held by the sessions (theseus-mem-daemon-rest).
+        #[arg(long, default_value_t = 0)]
+        categories: u64,
+        #[arg(long, default_value_t = 0, requires = "categories")]
+        memberships: u64,
     },
     /// A store of the owner's shape, of invented text, for the memory spike's
     /// bench (theseus-xxac7): about 1.6 chunks a node.
@@ -468,8 +475,13 @@ fn main() -> Result<()> {
             dir,
             sessions,
             ledger_rows,
+            categories,
+            memberships,
         } => {
-            let g = synth::generate_with(&dir, sessions, ledger_rows)?;
+            let g = match categories {
+                0 => synth::generate_with(&dir, sessions, ledger_rows)?,
+                n => synth_board::generate(&dir, sessions, n, memberships)?,
+            };
             println!(
                 "synthetic store at {}: {} sessions, {} records in {} frames, {:.1} MB of WAL, in {:.0} ms",
                 dir.display(),

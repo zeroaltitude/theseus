@@ -44,22 +44,7 @@ pub fn generate(dir: &Path, sessions: u64) -> Result<Generated> {
 pub fn generate_with(dir: &Path, sessions: u64, rows: u64) -> Result<Generated> {
     let t0 = Instant::now();
     let store = Store::open(dir)?;
-    let (mut records, mut frames) = (0u64, 0u64);
-    let mut sids = Vec::new();
-    let mut i = 0u64;
-    while i < sessions {
-        let n = PER_FRAME.min(sessions - i);
-        let mut frame = Vec::with_capacity((n * 7) as usize);
-        for k in i..i + n {
-            let (sid, recs) = parked_session(k)?;
-            sids.push(sid);
-            frame.extend(recs);
-        }
-        records += frame.len() as u64;
-        store.append(&frame)?;
-        frames += 1;
-        i += n;
-    }
+    let (sids, mut records, mut frames) = write_sessions(&store, sessions)?;
     let mut i = 0u64;
     while i < rows {
         let n = ROWS_PER_FRAME.min(rows - i);
@@ -82,6 +67,28 @@ pub fn generate_with(dir: &Path, sessions: u64, rows: u64) -> Result<Generated> 
         wal_bytes,
         ms: t0.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+/// `sessions` parked sessions in frames of `PER_FRAME`: their ids, and the
+/// records and frames written.
+pub(crate) fn write_sessions(store: &Store, sessions: u64) -> Result<(Vec<String>, u64, u64)> {
+    let (mut records, mut frames) = (0u64, 0u64);
+    let mut sids = Vec::new();
+    let mut i = 0u64;
+    while i < sessions {
+        let n = PER_FRAME.min(sessions - i);
+        let mut frame = Vec::with_capacity((n * 7) as usize);
+        for k in i..i + n {
+            let (sid, recs) = parked_session(k)?;
+            sids.push(sid);
+            frame.extend(recs);
+        }
+        records += frame.len() as u64;
+        store.append(&frame)?;
+        frames += 1;
+        i += n;
+    }
+    Ok((sids, records, frames))
 }
 
 /// Ledger rows a frame of `generate_with`'s history holds.
