@@ -953,6 +953,15 @@ LimitNOFILE=65536
 # and the admission ceiling's 8 executions at a job's cap of 4,096 each, with
 # room above, so a fork bomb in one job meets its own cap first.
 TasksMax=49152
+# Freed memory (theseus-mem-daemon-rest): glibc keeps an arena for each thread
+# that allocated at once, and the daemon runs about 28, so after hours of work
+# it held about 50 MiB it could not give back. Two arenas hold the freed memory
+# in two places, which the daemon's own trim then returns. Measured on a
+# synthetic store after work and the trim: 87 MiB held by default, 44 with
+# two, 27 with one; a turn takes the same, and 32 turns at once the same.
+# Only the daemon takes this: its jobs and its index tender start with an
+# environment of their own.
+Environment=\"MALLOC_ARENA_MAX=2\"
 ";
 
 /// The start limit both daemon units share (theseus-0v8s): a start takes about 20 ms, so a

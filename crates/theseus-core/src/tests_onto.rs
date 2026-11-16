@@ -103,7 +103,7 @@ fn held(sid: &str, categories: &[&str]) -> Record {
 
 fn list_bytes(core: &Core, sid: &str) -> Vec<u8> {
     let o = core.runner.ontology.snapshot(&core.store).unwrap();
-    let list = o.member_list(sid, "topic").cloned();
+    let list = o.member_list(sid, "topic").map(|l| l.into_owned());
     serde_json::to_vec(&list.map(|l| Record::Members(l).to_value())).unwrap()
 }
 

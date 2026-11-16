@@ -108,7 +108,7 @@ impl Ontology {
     /// Decay as one step, applied to `self`; the lists the sweep may not
     /// write are left as they are.
     fn plan_decay(&mut self, now_ms: u64) -> Option<Step> {
-        let lists: Vec<MemberList> = self.lists().cloned().collect();
+        let lists: Vec<MemberList> = self.lists().map(std::borrow::Cow::into_owned).collect();
         let (mut dropped, mut records) = (Vec::new(), Vec::new());
         for l in lists {
             let stale = |m: &crate::category::Membership| {

@@ -228,15 +228,8 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
             .find(|t| t.id == id)
             .map(|t| t.title)
     });
-    // When each category was last held, from every session's lists.
-    let mut used: std::collections::HashMap<&theseus_ontology::CategoryId, u64> =
-        Default::default();
-    for l in o.lists() {
-        for m in &l.members {
-            let at = used.entry(&m.category).or_default();
-            *at = (*at).max(m.as_of_ms);
-        }
-    }
+    // When each category was last held, across every session's lists.
+    let used = o.last_held();
     let mut kinds: Vec<OntoKind> = o
         .kinds()
         .into_iter()
@@ -262,7 +255,9 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
                         .collect::<Vec<_>>()
                         .join(" › "),
                     description: c.description.clone(),
-                    session: held.is_some_and(|l| l.members.iter().any(|m| m.category == c.id)),
+                    session: held
+                        .as_ref()
+                        .is_some_and(|l| l.members.iter().any(|m| m.category == c.id)),
                     thread: k.name == "topic"
                         && thread.is_some_and(|t| t.topics.iter().any(|x| *x == c.id.as_str())),
                     used_ms: used.get(&c.id).copied().unwrap_or(0),

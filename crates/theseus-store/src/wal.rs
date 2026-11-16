@@ -89,6 +89,9 @@ use std::time::{Duration, Instant};
 
 use crate::record::{now_unix_ms, NewRecord, Record, FROZEN_SCHEMA};
 
+mod window;
+use window::{cut_by_window, WINDOW_BYTES};
+
 /// An unmarked frame's magic: every frame written before theseus-7nfj. Read,
 /// never written.
 pub const MAGIC_UNMARKED: u32 = 0x5448_574C; // "THWL"
@@ -293,6 +296,9 @@ pub struct History {
     pub bytes: u64,
     /// Time spent checking, pauses left out.
     pub busy_ms: f64,
+    /// The most of the log held in memory at once: a window, or the largest
+    /// frame when that is more.
+    pub peak_bytes: u64,
     /// Open checked every segment, so there was no history to check.
     pub checked_at_open: bool,
     /// Where the check began, when it began at an earlier check's mark
@@ -1188,6 +1194,7 @@ impl Wal {
             end: self.history_end,
             bad: self.bad.clone(),
             from: None,
+            window: WINDOW_BYTES,
         }
     }
 
@@ -1210,6 +1217,8 @@ pub struct HistoryCheck {
     bad: Arc<OnceLock<(u32, u64, u64)>>,
     /// An earlier check's mark, to start from (theseus-0dq).
     from: Option<Verified>,
+    /// How much of a segment is read at once.
+    window: usize,
 }
 
 /// Where a walk of the history begins: a segment, an offset in it, and the
@@ -1226,6 +1235,14 @@ impl HistoryCheck {
     /// that check's last frame again, then only what follows it.
     pub fn from_mark(mut self, mark: Option<Verified>) -> Self {
         self.from = mark;
+        self
+    }
+
+    /// Read `bytes` of a segment at a time (at least a frame's header), for
+    /// a test of a frame the window cuts.
+    #[cfg(test)]
+    pub(crate) fn with_window(mut self, bytes: usize) -> Self {
+        self.window = bytes.max(FRAME_HEADER);
         self
     }
 
@@ -1284,6 +1301,25 @@ impl HistoryCheck {
         Ok(h)
     }
 
+    /// The error for a frame of the history that does not check, at `off`
+    /// of `bytes` (read from offset `at` of segment `seg`): reads of its
+    /// records are refused from now on.
+    fn refuse(&self, bad: Bad, seg: u32, at: u64, bytes: &[u8], off: usize) -> WalError {
+        let _ = self.bad.set((
+            seg,
+            at + off as u64,
+            frame_end(bytes, off).saturating_add(at),
+        ));
+        match bad {
+            Bad::Torn { offset, reason } => WalError::Corrupt {
+                segment: seg,
+                offset,
+                reason: reason.into(),
+            },
+            Bad::Wrong(e) => e,
+        }
+    }
+
     /// Walk the frames from `at` to the history's end. With a `mark`, the
     /// first frame is the mark's: `Ok(None)` when it does not check or does
     /// not end at the mark's position, and nothing is refused for it, since
@@ -1317,52 +1353,56 @@ impl HistoryCheck {
             if mark.is_some() && newest.is_none() && from >= to {
                 return Ok(None);
             }
-            let bytes = read_range(&path, from, to)?;
-            let mut off = 0usize;
-            while off < bytes.len() {
-                let before = walk.expected;
-                match check_frame(&bytes, off, seg, from, &mut walk) {
-                    Ok(end) => {
-                        since += end - off;
-                        if let (Some(v), None) = (mark, newest) {
-                            if walk.expected != v.position + 1 {
-                                return Ok(None);
-                            }
+            // The segment is read a window at a time, nothing kept: a frame
+            // the window cuts is read again whole, from its start.
+            let mut pos = from;
+            let mut want = self.window as u64;
+            while pos < to {
+                let bytes = read_range(&path, pos, pos.saturating_add(want).min(to))?;
+                h.peak_bytes = h.peak_bytes.max(bytes.len() as u64);
+                let reaches_end = pos + bytes.len() as u64 >= to;
+                let mut off = 0usize;
+                let mut cut: Option<u64> = None;
+                while off < bytes.len() {
+                    let before = walk.expected;
+                    let step = check_frame(&bytes, off, seg, pos, &mut walk);
+                    if let (Err(Bad::Torn { .. }), false) = (&step, reaches_end) {
+                        if let Some(need) = cut_by_window(&bytes, off, pos, to) {
+                            cut = Some(need);
+                            break;
                         }
-                        newest = Some((seg, from + off as u64, before));
-                        off = end;
-                        walk.frames += 1;
-                        walk.records += walk.expected - before;
                     }
-                    Err(_) if mark.is_some() && newest.is_none() => return Ok(None),
-                    // In the history a frame that does not check is corrupt:
-                    // a later frame was written after it.
-                    Err(bad) => {
-                        let _ = self.bad.set((
-                            seg,
-                            from + off as u64,
-                            frame_end(&bytes, off).saturating_add(from),
-                        ));
-                        return Err(match bad {
-                            Bad::Torn { offset, reason } => WalError::Corrupt {
-                                segment: seg,
-                                offset,
-                                reason: reason.into(),
-                            },
-                            Bad::Wrong(e) => e,
-                        });
+                    match step {
+                        Ok(end) => {
+                            since += end - off;
+                            if let (Some(v), None) = (mark, newest) {
+                                if walk.expected != v.position + 1 {
+                                    return Ok(None);
+                                }
+                            }
+                            newest = Some((seg, pos + off as u64, before));
+                            off = end;
+                            walk.frames += 1;
+                            walk.records += walk.expected - before;
+                        }
+                        Err(_) if mark.is_some() && newest.is_none() => return Ok(None),
+                        // In the history a frame that does not check is corrupt:
+                        // a later frame was written after it.
+                        Err(bad) => return Err(self.refuse(bad, seg, pos, &bytes, off)),
+                    }
+                    if since >= PACE_BYTES {
+                        let p = Instant::now();
+                        pace(stretch.elapsed());
+                        paused += p.elapsed();
+                        stretch = Instant::now();
+                        since = 0;
                     }
                 }
-                if since >= PACE_BYTES {
-                    let p = Instant::now();
-                    pace(stretch.elapsed());
-                    paused += p.elapsed();
-                    stretch = Instant::now();
-                    since = 0;
-                }
+                h.bytes += off as u64;
+                pos += off as u64;
+                want = cut.unwrap_or(0).max(self.window as u64);
             }
             h.segments += 1;
-            h.bytes += bytes.len() as u64;
         }
         if mark.is_some() && newest.is_none() {
             return Ok(None);

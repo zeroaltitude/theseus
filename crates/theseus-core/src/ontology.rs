@@ -8,7 +8,9 @@
 //!   serving (`Core::warm_ontology`), or by its first reader if that comes
 //!   sooner, and kept current in memory on every write: a write checks its
 //!   records against the snapshot, writes them, and swaps the snapshot under
-//!   one lock. Nothing on the start path reads it.
+//!   one lock. Nothing on the start path reads it. It holds the categories,
+//!   guidance and how many sessions hold each category, and reads a session's
+//!   membership lists from the store when asked (`ontology/members.rs`).
 //! - **Given kinds** are the transport's: a bound place's category, and its
 //!   guild's, are made at its first bind (`Core::bind_places`), and a
 //!   session's given memberships are read from its place (and its channel's
@@ -27,6 +29,9 @@
 
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex, RwLock};
+
+mod members;
+pub use members::StoreMembers;
 
 use anyhow::Result;
 use theseus_ontology::{
@@ -116,6 +121,8 @@ impl Board {
             }
             frame.extend(rows(&now)?);
             store.append(&frame)?;
+            // The store has the lists put: the snapshot reads them from it.
+            next.settle();
             let next = Arc::new(next);
             *self.snapshot.write().unwrap() = Some(next.clone());
             Ok(next)
@@ -183,7 +190,9 @@ impl Staged<'_> {
 
     /// The frame was written: hold the new snapshot.
     pub fn commit(self) {
-        *self.board.snapshot.write().unwrap() = Some(Arc::new(self.next));
+        let mut next = self.next;
+        next.settle();
+        *self.board.snapshot.write().unwrap() = Some(Arc::new(next));
     }
 }
 
@@ -210,7 +219,7 @@ pub fn load(store: &Store) -> Result<Ontology> {
             Err(e) => tracing::warn!(key, error = %e, "an ontology record does not read: left out"),
         }
     }
-    let (onto, dropped) = Ontology::load(records);
+    let (onto, dropped) = Ontology::load_from(records, Arc::new(StoreMembers::new(store)));
     for (key, why) in dropped {
         tracing::warn!(key, error = %why, "an ontology record does not check: left out");
     }

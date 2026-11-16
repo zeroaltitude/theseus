@@ -25,6 +25,7 @@
 //! - **Said in the morning note**: one line a write, with its undo id
 //!   (`digest.rs`).
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 use theseus_ontology::{MemberList, Origin, Record};
@@ -62,14 +63,16 @@ impl Core {
         }
         let o = self.runner.ontology.snapshot(&self.store)?;
         let own = self.self_loop_sessions();
+        // The snapshot's lists as they are now: the writes below leave them be.
+        let held: Vec<Cow<'_, MemberList>> = o.lists().filter(|l| l.kind == KIND).collect();
         let mut n = 0;
         for c in o
             .categories()
             .filter(|c| c.kind() == KIND && !c.is_gone() && c.added_by.starts_with("jev:"))
         {
-            let lists: Vec<&MemberList> = o
-                .lists()
-                .filter(|l| l.kind == KIND && l.members.iter().any(|m| m.category == c.id))
+            let lists: Vec<&Cow<'_, MemberList>> = held
+                .iter()
+                .filter(|l| l.members.iter().any(|m| m.category == c.id))
                 .collect();
             let all_own = lists.iter().all(|l| {
                 own.contains(&l.session)
