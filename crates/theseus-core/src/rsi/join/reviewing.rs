@@ -14,6 +14,7 @@ use theseus_store::NewRecord;
 
 use super::planted::{self, Outcome};
 use super::review::Ask;
+use super::unreviewable::{self, HOLD_AFTER};
 use super::{blocking, git, remote_of, scratch, Run, Said};
 use crate::fact::rsi_join::SelfReviewVerdict;
 use crate::job_model::How;
@@ -184,7 +185,7 @@ impl Run<'_> {
             Ok(r) => r,
             Err(e) => {
                 let why = format!("the reviewer did not answer: {e:#}");
-                self.stop("review", &why, Value::Null);
+                self.stopped_review(&why, unreviewable::Cause::of(&e));
                 return Ok(None);
             }
         };
@@ -221,6 +222,36 @@ impl Run<'_> {
             ..ran
         })?;
         Ok(Some(v.into()))
+    }
+
+    /// A review whose turn failed. A failure that will not clear by itself, the same one for the
+    /// [`HOLD_AFTER`]th time in a row, holds the change for the owner with one card; any other is
+    /// a stop the next pass tries again, after a wait that grows while the reason is transient
+    /// (`unreviewable`).
+    fn stopped_review(&mut self, why: &str, cause: Option<unreviewable::Cause>) {
+        let Some(cause) = cause else {
+            return self.stop("review", why, Value::Null);
+        };
+        let repeats = unreviewable::run_with(&self.earlier, "review", &cause);
+        let numbers = cause.numbers(repeats);
+        if cause.transient || repeats < HOLD_AFTER {
+            return self.stop("review", why, numbers);
+        }
+        self.card(unreviewable::card(
+            &self.b.branch,
+            &self.b.item,
+            &cause.class,
+            repeats,
+            why,
+        ));
+        self.hold(
+            "review",
+            &format!(
+                "the review failed the same way {repeats} times ({}), so it waits on the owner's card",
+                cause.class
+            ),
+            numbers,
+        );
     }
 
     /// The planted revert on the remote's main; none when it stopped.

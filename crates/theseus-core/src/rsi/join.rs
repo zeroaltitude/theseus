@@ -86,6 +86,9 @@ mod tests_retry;
 mod tests_scratch;
 #[cfg(test)]
 mod tests_sealed;
+#[cfg(test)]
+mod tests_unreviewable;
+mod unreviewable;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -197,6 +200,8 @@ struct Seen {
     keel: Vec<(String, String)>,
     /// `(branch, head)` the owner's retry lifted a hold from (`self.join.reopened`).
     reopened: Vec<(String, String)>,
+    /// Each head's stops since its last verdict or retry, oldest first (`unreviewable`).
+    stops: Vec<(String, String, unreviewable::Stop)>,
 }
 
 /// The rows of `kinds` oldest first; none while the index's shape is built.
@@ -255,6 +260,18 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
     let mut out = Seen::default();
     for r in rows {
         let d = &r.data;
+        let head = (s(d, "branch"), s(d, "head"));
+        match r.kind.as_str() {
+            "self.join.stopped" => out.stops.push((
+                head.0.clone(),
+                head.1.clone(),
+                unreviewable::stop_of(&s(d, "phase"), &d["numbers"], r.at_unix_ms),
+            )),
+            "self.review.verdict" | "self.join.reopened" => {
+                out.stops.retain(|(b, h, _)| (b, h) != (&head.0, &head.1));
+            }
+            _ => {}
+        }
         match r.kind.as_str() {
             "self.branch.built" if d["gate"] == "green" && d["head"].is_string() => {
                 out.built.push(Built {
@@ -356,6 +373,8 @@ struct Run<'a> {
     /// The owner lifted a hold from this head: a head found on main is then closed as joined by
     /// hand (`joining`); nothing else about its run differs.
     reopened: bool,
+    /// This head's stops since its last verdict or retry, oldest first (`unreviewable`).
+    earlier: Vec<unreviewable::Stop>,
     pass: &'a mut Pass,
 }
 
@@ -474,6 +493,12 @@ impl Core {
                 place: place.clone(),
                 b: b.clone(),
                 reopened: seen.reopened.contains(&(b.branch.clone(), b.head.clone())),
+                earlier: seen
+                    .stops
+                    .iter()
+                    .filter(|(sb, sh, _)| (sb, sh) == (&b.branch, &b.head))
+                    .map(|(_, _, st)| st.clone())
+                    .collect(),
                 pass: &mut pass,
             };
             let verdict = match mine {
@@ -482,6 +507,10 @@ impl Core {
                     // Before its review is spent: a change main has moved under goes back to
                     // its builder (`moved`).
                     if run.moved_under(&remote_of(&self.cfg)).await? {
+                        continue;
+                    }
+                    // A review that keeps failing for a reason that clears waits longer each time.
+                    if unreviewable::waiting(&run.earlier, theseus_protocol::now_unix_ms()) {
                         continue;
                     }
                     match run.review().await? {

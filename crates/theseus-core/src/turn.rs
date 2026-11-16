@@ -114,6 +114,8 @@ mod retract_step;
 mod retry_step;
 mod route_step;
 mod self_budget_step;
+pub use self_budget_step::SELF_BUDGET_CLASS;
+pub(crate) mod sent_tail;
 mod settle;
 pub(crate) mod situation_step;
 mod spec_step;
@@ -224,6 +226,10 @@ pub struct TurnRunner {
     /// What the harness made of the owner's yes, staged at `turn.submit` for
     /// the turn it starts (theseus-2yowd).
     pub yes_facts: crate::yes_fact::Staged,
+    /// What each session's requests sent after the conversation, sent again
+    /// where it was, so a thinking block's prefix stays the one it was
+    /// written in (`sent_tail`).
+    pub tails: sent_tail::SentTails,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -433,6 +439,9 @@ struct Turn<'a> {
     repeats: repeat_step::Repeats,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
+    /// The request's last message before its tail, where the loop's tail begins: kept with the
+    /// tail once routing has finished with the request (`sent_tail`).
+    tail: Option<sent_tail::Begun>,
     /// A running task's checkpoints (theseus-ypnxt.9).
     checkpoint: checkpoint_step::Checkpoints,
     /// A refusal moved the turn to its model's fallback (theseus-7gir.18).
@@ -583,6 +592,7 @@ impl<'a> Turn<'a> {
             digest: digest_step::Digest::default(),
             repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
+            tail: None,
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
             again: Default::default(),
@@ -1789,7 +1799,12 @@ impl TurnRunner {
                 )
                 .await?
             {
-                Ok(c) => Some(c),
+                Ok(mut c) => {
+                    // Routing has had its say with the request: what it sent after the
+                    // conversation is kept for the requests after it.
+                    self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
+                    Some(c)
+                }
                 Err(f) if !t.route.held => return Ok(Next::Fail(f)),
                 Err(_) => None,
             };
@@ -1825,6 +1840,12 @@ impl TurnRunner {
             let (resp, node) = match called {
                 Called::Answered(called) => {
                     self.note_sent(t, &spec, &compiled.request.model);
+                    // The provider dropped a block whose prefix had changed, and the history
+                    // still holds it: the next compile strips the old thinking, so the call
+                    // after it is not made twice (`provider::binding::repeat_for`).
+                    if called.0.prefix_repeated {
+                        force = Some(crate::compiler::Recompile::Transcript);
+                    }
                     *called
                 }
                 Called::Failed(failure) => {

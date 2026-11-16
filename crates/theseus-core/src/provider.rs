@@ -37,9 +37,13 @@ pub const API_VERSION: &str = "2023-06-01";
 /// it out of `ProviderRequest` is what lets a fallback's request stay equal
 /// to the one it repeats and a recorded request replay byte for byte.
 ///
-/// The field that WOULD change behaviour, `thinking.block_binding`, is
-/// deliberately never sent: with the header alone a drifting block is
-/// reported and still handed to the model.
+/// The field that WOULD change behaviour, `thinking.block_binding`, is never
+/// sent on a first call: with the header alone a drifting block is reported
+/// and, on the older models, still handed to the model. `claude-fable-5-2`
+/// refuses it with a 400 instead, and that refusal alone is answered by one
+/// repeat that names `drop_block` (`binding::repeat_for`). A count above
+/// zero in the `provider.call` row is a bug to file
+/// (`docs/design/thinking-binding.md`).
 pub const BETA_THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
 
 /// Anthropic's own API, the only endpoint that answers our betas. The
@@ -533,6 +537,10 @@ pub struct ModelResponse {
     pub timing: CallTiming,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_transformations: Option<Value>,
+    /// The call was refused for a thinking block whose prefix had changed and
+    /// was made again with the provider's remedy (`binding::repeat_for`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prefix_repeated: bool,
     /// tool_use ids whose streamed input did not parse as JSON, with the raw text.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub invalid_tool_inputs: BTreeMap<String, String>,
@@ -882,8 +890,10 @@ pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 // --------------------------------------------------------------- anthropic
 
+pub mod binding;
 mod count;
 mod digest;
+pub use binding::Binding;
 pub mod one_tool;
 pub mod openai;
 #[cfg(test)]
@@ -1512,6 +1522,9 @@ pub struct FakeProvider {
     pub warms: std::sync::atomic::AtomicU64,
     /// A request it holds until the test opens the gate (theseus-1b2zm).
     pub gate: Option<Arc<RequestGate>>,
+    /// The provider's binding of a thinking block to what precedes it
+    /// (`binding`): none, and the fake binds nothing.
+    pub binding: Option<Binding>,
 }
 
 /// The fake's held request: lateness by order, as `FakeJev`'s `Held` is. The
@@ -1557,6 +1570,7 @@ impl Default for FakeProvider {
             delay_ms: 0,
             warms: Default::default(),
             gate: None,
+            binding: None,
         }
     }
 }
@@ -1570,6 +1584,16 @@ impl FakeProvider {
     }
     pub fn requests(&self) -> Vec<ProviderRequest> {
         self.requests.lock().unwrap().clone()
+    }
+    /// What holds request `number` before it is answered: the gate, then the delay.
+    async fn held(&self, number: usize) {
+        if let Some(g) = self.gate.as_ref().filter(|g| g.at == number) {
+            g.reached.notify_one();
+            g.opened.notified().await;
+        }
+        if self.delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+        }
     }
     /// Script `answer` for the request that carries the tool `tool`, whatever
     /// its position among the rig's calls. The answer is used once (as a
@@ -1628,16 +1652,12 @@ impl Provider for FakeProvider {
                 seen.push(req.clone());
                 seen.len() - 1
             };
-            if let Some(g) = self.gate.as_ref().filter(|g| g.at == number) {
-                g.reached.notify_one();
-                g.opened.notified().await;
-            }
-            if self.delay_ms > 0 {
-                tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
-            }
+            self.held(number).await;
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
+            // What the provider's binding makes of the blocks it replays.
+            let (bound_to, transformed) = binding::apply(self.binding, req)?;
             let mut next = self.next_answer(req);
             let mut billed = None;
             match next {
@@ -1698,9 +1718,11 @@ impl Provider for FakeProvider {
                     _ => {}
                 }
             }
-            let (blocks, invalid_tool_inputs) = unparsed_inputs(blocks);
+            let (mut blocks, invalid_tool_inputs) = unparsed_inputs(blocks);
+            binding::stamp(self.binding, &bound_to, &mut blocks);
             let text = text_of(&blocks);
             Ok(ModelResponse {
+                input_transformations: transformed,
                 invalid_tool_inputs,
                 usage: billed.unwrap_or_else(|| Usage {
                     input_tokens: req.estimate_tokens(),
