@@ -85,3 +85,11 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
 - **A frame that checks but is wrong is skipped** (issue 6 of 1.0.7). The tender follows with `skipping_wrong`, counts each in
   `index.status` (`frames_skipped`, `last_frame_skipped`: segment, offset and why) and indexes what follows, as the core serves on past
   it; it used to stall for good with the same error at every step. Tests: `tests_skip.rs`.
+- **A start reads columns, never the stored text** (`columns.rs`; issue 21 of 1.0.7). The vector side's rows need each
+  chunk's text fingerprint (`ChunkKey`: hash, token estimate) and where its node lives, and the stored documents hold the
+  chunk's whole text beside them: reading one mapped the other, about 250 MiB at 417,000 chunks, left resident for hours.
+  `Writer::replace` writes the fingerprint (`hash_hi`, `hash_lo`, `tokens`) and the node's id, session, kind, chunk, position
+  and flag as fast-field columns (schema 3), and `Texts::all_nodes` reads those alone. A fingerprint is `chunk_key` of
+  the text the document was written with, so it cannot differ from the text's; an index of schema 2 is rebuilt from the WAL
+  by the saved schema's mismatch, as any schema bump is. Tests: `tests_start.rs` (the stored text overwritten, the start
+  unchanged).
