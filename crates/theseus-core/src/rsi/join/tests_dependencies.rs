@@ -191,7 +191,7 @@ async fn a_lock_file_that_cannot_be_read_is_held() {
 /// lock files before they run, so a dependency that may not be fetched stops there with the
 /// reason, and nothing is run. (A dependency that may be fetched is bound to the cache the
 /// gate made: `deps::tests_fetch::every_build_of_the_same_lock_files_reads_one_cache`.)
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_planted_revert_and_the_install_ask_for_the_packages_too() {
     use std::sync::Arc;
     let f = crate::rsi::tests_tree::fixture();
@@ -211,12 +211,22 @@ async fn the_planted_revert_and_the_install_ask_for_the_packages_too() {
         )]),
     )
     .unwrap();
-    let planted = super::planted::in_l1(&jail, &place, &t, "all()").unwrap_err();
+    // On a blocking thread, as the pipeline calls them.
+    let (p2, t2, j2) = (place.clone(), t.clone(), jail.clone());
+    let planted = tokio::task::spawn_blocking(move || {
+        super::planted::in_l1(&j2, &p2, &t2, "all()").unwrap_err()
+    })
+    .await
+    .unwrap();
     assert!(
         format!("{planted:#}").contains("only crates.io is allowed"),
         "{planted:#}"
     );
-    let install = super::install::build(&place, &t, "abc123").unwrap_err();
+    let (p2, t2) = (place.clone(), t.clone());
+    let install =
+        tokio::task::spawn_blocking(move || super::install::build(&p2, &t2, "abc123").unwrap_err())
+            .await
+            .unwrap();
     assert!(
         format!("{install:#}").contains("only crates.io is allowed"),
         "{install:#}"

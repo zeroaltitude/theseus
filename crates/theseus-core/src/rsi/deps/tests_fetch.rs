@@ -371,8 +371,8 @@ async fn a_changed_cargo_lock_is_fetched_into_the_cache_the_gate_reads() {
     };
     assert_eq!(
         reg.seen().len(),
-        1,
-        "the crate it holds is not fetched again"
+        2,
+        "other lock files are another cache, made with its own download"
     );
     // The cache is the lock files' own, not the tree's: it stays when the tree closes, so the
     // planted revert's tree, the merge's and the install's, which have the same lock files, read it.
