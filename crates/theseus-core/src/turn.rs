@@ -114,6 +114,7 @@ mod retract_step;
 mod retry_step;
 mod route_step;
 mod self_budget_step;
+mod sent_tail;
 mod settle;
 pub(crate) mod situation_step;
 mod spec_step;
@@ -224,6 +225,10 @@ pub struct TurnRunner {
     /// What the harness made of the owner's yes, staged at `turn.submit` for
     /// the turn it starts (theseus-2yowd).
     pub yes_facts: crate::yes_fact::Staged,
+    /// What each session's requests sent after the conversation, sent again
+    /// where it was, so a thinking block's prefix stays the one it was
+    /// written in (`sent_tail`).
+    pub tails: sent_tail::SentTails,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's

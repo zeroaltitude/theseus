@@ -884,6 +884,8 @@ pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 mod count;
 mod digest;
+pub mod binding;
+pub use binding::Binding;
 pub mod one_tool;
 pub mod openai;
 #[cfg(test)]
@@ -1512,6 +1514,9 @@ pub struct FakeProvider {
     pub warms: std::sync::atomic::AtomicU64,
     /// A request it holds until the test opens the gate (theseus-1b2zm).
     pub gate: Option<Arc<RequestGate>>,
+    /// The provider's binding of a thinking block to what precedes it
+    /// (`binding`): none, and the fake binds nothing.
+    pub binding: Option<Binding>,
 }
 
 /// The fake's held request: lateness by order, as `FakeJev`'s `Held` is. The
@@ -1557,6 +1562,7 @@ impl Default for FakeProvider {
             delay_ms: 0,
             warms: Default::default(),
             gate: None,
+            binding: None,
         }
     }
 }
@@ -1638,6 +1644,11 @@ impl Provider for FakeProvider {
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
+            // What the provider's binding makes of the blocks it replays.
+            let (bound_to, transformed) = match self.binding {
+                Some(mode) => binding::check(mode, req).map_err(anyhow::Error::from)?,
+                None => (req.clone(), None),
+            };
             let mut next = self.next_answer(req);
             let mut billed = None;
             match next {
@@ -1698,9 +1709,13 @@ impl Provider for FakeProvider {
                     _ => {}
                 }
             }
-            let (blocks, invalid_tool_inputs) = unparsed_inputs(blocks);
+            let (mut blocks, invalid_tool_inputs) = unparsed_inputs(blocks);
+            if self.binding.is_some() {
+                binding::sign(&bound_to, &mut blocks);
+            }
             let text = text_of(&blocks);
             Ok(ModelResponse {
+                input_transformations: transformed,
                 invalid_tool_inputs,
                 usage: billed.unwrap_or_else(|| Usage {
                     input_tokens: req.estimate_tokens(),

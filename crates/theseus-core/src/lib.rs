@@ -377,6 +377,8 @@ mod tests_explain;
 #[cfg(test)]
 mod tests_failures;
 #[cfg(test)]
+mod tests_binding;
+#[cfg(test)]
 mod tests_fallback;
 #[cfg(test)]
 mod tests_families;

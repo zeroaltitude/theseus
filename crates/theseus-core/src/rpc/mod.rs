@@ -1007,6 +1007,7 @@ impl Core {
             effort_refusals: Default::default(),
             verdicts: Default::default(),
             yes_facts: Default::default(),
+            tails: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
             stubs: Default::default(),
