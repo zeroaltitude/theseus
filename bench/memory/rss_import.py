@@ -21,7 +21,7 @@ What it prints (short lines) and writes (--out, one JSON object):
   daemon's trim (it waits 10 s of quiet, and trims at most 60 s after the first
   work), then again 60 s and 70 s on;
 - `grew_mib`: the last rest's anonymous memory less `before`'s, which is what the
-  guard compares with --margin-mib: exit 1 when it is over, naming both numbers.
+  guard compares with --margin-mib: exit 1 when it is over, naming both numbers (exit 2 when an import itself failed).
 """
 import argparse, json, math, os, random, shutil, signal, sqlite3, subprocess, threading, time
 
@@ -293,6 +293,8 @@ def main():
             pass
         if row["grew_mib"] > a.margin_mib:
             rc = 1
+        if any(n["exit"] for n in row["nights"]):
+            rc = 2  # an import that failed leaves nothing to compare
     finally:
         for p in procs[::-1]:
             if p.poll() is None:
@@ -303,7 +305,7 @@ def main():
                     p.kill()
     open(out, "w").write(json.dumps(row) + "\n")
     after = row["nights"][-1]["after_70"]["anon"] if row["nights"] else "?"
-    print(f"import guard {'ok' if rc == 0 else 'FAIL'}: the daemon rested at {row.get('before', {}).get('anon')} MiB "
+    print(f"import guard {'ok' if rc == 0 else 'FAIL' if rc == 1 else 'NOT RUN: the import failed'}: the daemon rested at {row.get('before', {}).get('anon')} MiB "
           f"anonymous before the import and {after} after it (+{row.get('grew_mib')} MiB, margin {a.margin_mib})")
     raise SystemExit(rc)
 
