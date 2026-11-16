@@ -242,9 +242,11 @@ pub(crate) fn rig(
     let path = tender(dir.path(), index.clone(), model.clone(), seen.clone());
     c.runner.memory.set_ask(index);
     c.runner.memory.set_ask_two(two_on(path));
+    // new:begin
     c.runner
         .memory
-        .set_warm(warm_of(warm_up.then(|| model.clone()))); // new:
+        .set_warm(warm_of(warm_up.then(|| model.clone())));
+    // new:end
     (r, now, seen, dir)
 }
 
