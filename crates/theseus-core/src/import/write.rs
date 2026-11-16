@@ -658,7 +658,7 @@ pub(super) fn erase_in(
         if imp.erased.is_some() || !is_imported(&sid) {
             continue;
         }
-        for (_, n) in store.session_nodes(&sid)? {
+        for (_, n) in store.session_nodes_once(&sid)? {
             if matches!(n.body, Body::Erased { .. }) {
                 continue;
             }
