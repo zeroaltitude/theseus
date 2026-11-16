@@ -1357,11 +1357,6 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         std::fs::remove_dir_all(&tree.target)?;
     }
-    // The packages fetched for its gate (`deps`) go with it, whichever way it is closed.
-    let packages = super::deps::Packages::dir_of(p, &tree.slug);
-    if packages.exists() {
-        std::fs::remove_dir_all(&packages)?;
-    }
     Ok(())
 }
 

@@ -322,7 +322,7 @@ async fn a_tree_whose_lock_files_are_mains_needs_no_packages() {
     let got = provide_with(&f.place, &t, &reg.endpoints(), home().path(), true).await;
     assert!(matches!(got, Provided::Nothing), "{got:?}");
     assert!(reg.seen().is_empty());
-    assert!(!Packages::dir_of(&f.place, &t.slug).exists());
+    assert!(!Packages::dir_for(&f.place, &t).unwrap().exists());
 }
 
 #[tokio::test]
@@ -338,7 +338,7 @@ async fn a_changed_cargo_lock_is_fetched_into_the_cache_the_gate_reads() {
     else {
         panic!("not ready")
     };
-    assert_eq!(pk.dir, f.place.packages().join(&t.slug));
+    assert_eq!(Some(pk.dir.clone()), Packages::dir_for(&f.place, &t));
     assert!(pk.cargo && !pk.npm);
     let config = std::fs::read_to_string(pk.dir.join("cargo-home/config.toml")).unwrap();
     assert!(
@@ -374,9 +374,94 @@ async fn a_changed_cargo_lock_is_fetched_into_the_cache_the_gate_reads() {
         1,
         "the crate it holds is not fetched again"
     );
-    // It goes with its tree.
+    // The cache is the lock files' own, not the tree's: it stays when the tree closes, so the
+    // planted revert's tree, the merge's and the install's, which have the same lock files, read it.
     tree::close(&f.place, &t).unwrap();
-    assert!(!pk.dir.exists());
+    assert!(pk.dir.exists());
+}
+
+/// **KEY (review round 1): every build of the same lock files reads one verified cache**,
+/// not just the branch's own gate: a second tree with the same lock files (the planted
+/// revert's, the install's) is bound to it without a download, and a tree cut from a main
+/// that has since taken those lock files finds it too.
+#[tokio::test]
+async fn every_build_of_the_same_lock_files_reads_one_cache() {
+    let f = fixture();
+    let (bytes, sum) = tide();
+    let reg = Registry::start().await;
+    reg.serve("/crates/tide/tide-1.0.0.crate", Reply::Body(bytes));
+    let t = tree::open(&f.place, "adds-tide", NOW).unwrap();
+    write(&t, CARGO_LOCK, &tide_lock(&sum));
+    let h = home();
+    let Provided::Ready(pk) = provide_with(&f.place, &t, &reg.endpoints(), h.path(), true).await
+    else {
+        panic!("not ready")
+    };
+    // Another tree (the planted revert's, the install's) with the same lock file: bound, not fetched.
+    let other = tree::open(&f.place, "planted-adds-tide", NOW).unwrap();
+    assert_eq!(
+        Packages::of(&f.place, &other),
+        None,
+        "its lock is main's: no cache yet"
+    );
+    write(&other, CARGO_LOCK, &tide_lock(&sum));
+    assert_eq!(Packages::of(&f.place, &other), Some(pk.clone()));
+    let Provided::Ready(again) =
+        provide_with(&f.place, &other, &reg.endpoints(), h.path(), true).await
+    else {
+        panic!("not ready for the second tree")
+    };
+    assert_eq!(again, pk);
+    assert_eq!(reg.seen().len(), 1, "the crate was fetched once for both");
+    // The branch joins: main now has that lock file, and a tree cut from it reads the cache.
+    tree::close(&f.place, &t).unwrap();
+    tree::close(&f.place, &other).unwrap();
+    main_gains(&f, CARGO_LOCK, &tide_lock(&sum));
+    let later = tree::open(&f.place, "a-later-item", NOW).unwrap();
+    assert!(
+        provide_with(&f.place, &later, &reg.endpoints(), h.path(), true)
+            .await
+            .is_nothing(),
+        "its lock is main's, so nothing is fetched"
+    );
+    assert_eq!(
+        Packages::of(&f.place, &later),
+        Some(pk),
+        "and it still reads the cache"
+    );
+    assert_eq!(reg.seen().len(), 1);
+}
+
+/// Old caches are removed, and main's own and the newest stay.
+#[tokio::test]
+async fn old_caches_are_pruned_and_mains_stays() {
+    let f = fixture();
+    let reg = Registry::start().await;
+    let h = home();
+    let mut dirs = Vec::new();
+    for n in 0..6 {
+        let (bytes, sum) = tide();
+        reg.serve("/crates/tide/tide-1.0.0.crate", Reply::Body(bytes));
+        let t = tree::open(&f.place, &format!("lock-{n}"), NOW).unwrap();
+        // A different lock file each time: a dependency list that only differs in a comment
+        // is still other bytes, so another cache.
+        write(&t, CARGO_LOCK, &format!("{}# {n}\n", tide_lock(&sum)));
+        let Provided::Ready(pk) =
+            provide_with(&f.place, &t, &reg.endpoints(), h.path(), true).await
+        else {
+            panic!("not ready")
+        };
+        dirs.push(pk.dir);
+        tree::close(&f.place, &t).unwrap();
+        // Distinct modified times, so "newest" is what it says.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let kept: Vec<bool> = dirs.iter().map(|d| d.exists()).collect();
+    assert_eq!(
+        kept,
+        [false, false, true, true, true, true],
+        "the newest and the three before it stay"
+    );
 }
 
 #[tokio::test]
@@ -494,7 +579,7 @@ async fn a_dependency_from_anywhere_else_is_refused_before_anything_is_fetched()
         assert!(!infra, "{what}: a refused source is the change's");
         assert!(why.contains(said), "{what}: {why}");
         assert!(reg.seen().is_empty(), "{what}: {:?}", reg.seen());
-        assert!(!Packages::dir_of(&f.place, &t.slug).exists(), "{what}");
+        assert!(!Packages::dir_for(&f.place, &t).unwrap().exists(), "{what}");
     }
 }
 
@@ -561,7 +646,7 @@ async fn a_place_with_no_sandbox_judges_and_fetches_nothing() {
     let got = provide_with(&f.place, &t, &reg.endpoints(), home().path(), false).await;
     assert!(matches!(got, Provided::Nothing), "{got:?}");
     assert!(reg.seen().is_empty());
-    assert!(!Packages::dir_of(&f.place, &t.slug).exists());
+    assert!(!Packages::dir_for(&f.place, &t).unwrap().exists());
     assert!(
         super::provide(&f.place, &t).await.is_nothing(),
         "no sandbox, no fetch"

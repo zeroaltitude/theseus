@@ -185,3 +185,54 @@ async fn a_lock_file_that_cannot_be_read_is_held() {
         "{posts:?}"
     );
 }
+
+/// **KEY (review round 1): the other L1 builds of a branch's code get the same refusal as its
+/// gate**: the planted revert's tests and the install's build ask for the packages of the tree's
+/// lock files before they run, so a dependency that may not be fetched stops there with the
+/// reason, and nothing is run. (A dependency that may be fetched is bound to the cache the
+/// gate made: `deps::tests_fetch::every_build_of_the_same_lock_files_reads_one_cache`.)
+#[tokio::test]
+async fn the_planted_revert_and_the_install_ask_for_the_packages_too() {
+    use std::sync::Arc;
+    let f = crate::rsi::tests_tree::fixture();
+    let mut place = f.place;
+    let cfg = crate::sandbox::SandboxConfig::default();
+    let sandbox = crate::sandbox::Sandbox::new(&cfg, &[std::path::PathBuf::from("/work")], &[]);
+    let jail = crate::rsi::jail::Jail::new(Arc::new(sandbox));
+    place.jail = Some(jail.clone());
+    let t = crate::rsi::tree::open(&place, "git-crate", 1_792_000_000_000).unwrap();
+    std::fs::write(
+        t.dir.join("Cargo.lock"),
+        cargo_lock(&[(
+            "x",
+            "1.0.0",
+            Some("git+https://example.invalid/x?rev=abc#abc"),
+            None,
+        )]),
+    )
+    .unwrap();
+    let planted = super::planted::in_l1(&jail, &place, &t, "all()").unwrap_err();
+    assert!(
+        format!("{planted:#}").contains("only crates.io is allowed"),
+        "{planted:#}"
+    );
+    let install = super::install::build(&place, &t, "abc123").unwrap_err();
+    assert!(
+        format!("{install:#}").contains("only crates.io is allowed"),
+        "{install:#}"
+    );
+    assert!(
+        !place
+            .gates()
+            .join(format!("planted-{}.log", t.slug))
+            .exists(),
+        "nothing ran"
+    );
+    assert!(
+        !place
+            .gates()
+            .join(format!("install-{}.log", t.slug))
+            .exists(),
+        "nothing ran"
+    );
+}

@@ -55,10 +55,13 @@ pub fn script(target: &Path, merge: &str) -> String {
 
 /// The build, in L1: `scripts/build.sh --profile release` in the merged
 /// tree, into its build tree, as the install always built it, at nice 19.
-fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
+pub(super) fn build(p: &Place, tree: &Tree, merge: &str) -> Result<()> {
     let jail = p
         .jail()?
         .context("an install builds in L1, and this place has none")?;
+    // The merge's own lock files, whose crates the owner has just agreed to, are fetched the same
+    // way the merge's gate had them (`deps`).
+    crate::rsi::deps::provide_blocking(p, tree)?;
     std::fs::create_dir_all(p.gates())?;
     let log = p.gates().join(format!("install-{}.log", tree.slug));
     let argv = [

@@ -91,23 +91,28 @@ pub struct Packages {
 }
 
 impl Packages {
-    /// Where the tree `slug`'s cache is, made or not.
-    pub fn dir_of(p: &Place, slug: &str) -> PathBuf {
-        p.packages().join(slug)
+    /// Where the cache for the lock files with this key is, made or not.
+    pub fn dir_of(p: &Place, key: &str) -> PathBuf {
+        p.packages().join(key)
     }
 
-    /// The cache `provide` made for the lock files `tree` has now, or none:
-    /// what it holds is judged by the hash of each lock file, so a cache for
-    /// another head's locks is not one.
+    /// Where the cache for `tree`'s lock files is, made or not.
+    #[cfg(test)]
+    pub(crate) fn dir_for(p: &Place, tree: &Tree) -> Option<PathBuf> {
+        Some(Self::dir_of(p, &key_of(&tree.dir)?))
+    }
+
+    /// The cache `provide` made for the lock files `tree` has now, or none. The
+    /// directory is named by the lock files' own content ([`key_of`]), so every build
+    /// of the same lock files (the branch's gate, the planted revert's tests, the
+    /// merge's gate, the install) reads one cache, and a cache made for other lock
+    /// files is never found.
     pub fn of(p: &Place, tree: &Tree) -> Option<Self> {
-        let dir = Self::dir_of(p, &tree.slug);
+        let dir = Self::dir_of(p, &key_of(&tree.dir)?);
         let ready: serde_json::Value =
             serde_json::from_slice(&std::fs::read(dir.join("ready.json")).ok()?).ok()?;
-        let held = |key: &str, lock: &str| {
-            let now = lock_hash(&tree.dir, lock);
-            now.is_some() && ready.get(key).and_then(|v| v.as_str()) == now.as_deref()
-        };
-        let (cargo, npm) = (held("cargo", CARGO_LOCK), held("npm", NPM_LOCK));
+        let held = |k: &str| ready.get(k).and_then(serde_json::Value::as_bool) == Some(true);
+        let (cargo, npm) = (held("cargo"), held("npm"));
         (cargo || npm).then_some(Self { dir, cargo, npm })
     }
 
@@ -127,11 +132,22 @@ impl Packages {
     }
 }
 
-/// sha256 of a lock file as the tree has it, or none when it has none.
-fn lock_hash(dir: &Path, rel: &str) -> Option<String> {
-    Some(hex::encode(Sha256::digest(
-        std::fs::read(dir.join(rel)).ok()?,
-    )))
+/// The name of the cache for the lock files in `dir`: a sha256 over both, as the files are
+/// (a missing one counts as empty), or none when neither exists.
+fn key_of(dir: &Path) -> Option<String> {
+    let read = |rel: &str| std::fs::read(dir.join(rel)).ok();
+    let (cargo, npm) = (read(CARGO_LOCK), read(NPM_LOCK));
+    (cargo.is_some() || npm.is_some())
+        .then(|| key_from(&cargo.unwrap_or_default(), &npm.unwrap_or_default()))
+}
+
+/// [`key_of`], from the two files' bytes.
+fn key_from(cargo: &[u8], npm: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update((cargo.len() as u64).to_le_bytes());
+    h.update(cargo);
+    h.update(npm);
+    hex::encode(&h.finalize()[..16])
 }
 
 /// A lock file of the tree and whether it differs from main's.
@@ -140,21 +156,33 @@ struct Locked {
     changed: bool,
 }
 
+/// What `read_tree` found.
+struct Read {
+    cargo: Option<Locked>,
+    npm: Option<Locked>,
+    /// The tree's tracked paths, read only when a lock file differs (for the manifest scan).
+    tracked: Vec<String>,
+    /// The cache key of main's own lock files, which no prune takes away.
+    main_key: Option<String>,
+}
+
 /// What the tree's lock files are, and its tracked paths (for the manifest scan).
-fn read_tree(
-    p: &Place,
-    tree: &Tree,
-) -> anyhow::Result<(Option<Locked>, Option<Locked>, Vec<String>)> {
+fn read_tree(p: &Place, tree: &Tree) -> anyhow::Result<Read> {
+    let main_bytes = |rel: &str| -> Option<Vec<u8>> {
+        let o = p
+            .git(&p.repo, &["show", &format!("origin/main:{rel}")])
+            .ok()?;
+        o.status.success().then_some(o.stdout)
+    };
     let one = |rel: &str| -> Option<Locked> {
         let text = std::fs::read_to_string(tree.dir.join(rel)).ok()?;
-        let main = p
-            .git(&p.repo, &["show", &format!("origin/main:{rel}")])
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+        let main = main_bytes(rel).map(|b| String::from_utf8_lossy(&b).into_owned());
         let changed = main.is_none_or(|m| m.trim() != text.trim());
         Some(Locked { text, changed })
     };
+    let (m_cargo, m_npm) = (main_bytes(CARGO_LOCK), main_bytes(NPM_LOCK));
+    let main_key = (m_cargo.is_some() || m_npm.is_some())
+        .then(|| key_from(&m_cargo.unwrap_or_default(), &m_npm.unwrap_or_default()));
     let (cargo, npm) = (one(CARGO_LOCK), one(NPM_LOCK));
     let tracked =
         if cargo.as_ref().is_some_and(|l| l.changed) || npm.as_ref().is_some_and(|l| l.changed) {
@@ -165,7 +193,12 @@ fn read_tree(
         } else {
             Vec::new()
         };
-    Ok((cargo, npm, tracked))
+    Ok(Read {
+        cargo,
+        npm,
+        tracked,
+        main_key,
+    })
 }
 
 /// Make the package cache the gate on `tree` reads, from the registries
@@ -176,6 +209,24 @@ fn read_tree(
 pub async fn provide(p: &Place, tree: &Tree) -> Provided {
     let (ends, home) = (Endpoints::registries(), crate::config::expand("~"));
     provide_with(p, tree, &ends, &home, p.jail.is_some()).await
+}
+
+/// [`provide`] for the builds that run on a blocking thread (the planted revert's tests, the
+/// install's build): the same fetch, waited for there. `Err` is the words the build is
+/// refused with.
+pub fn provide_blocking(p: &Place, tree: &Tree) -> anyhow::Result<()> {
+    let run = provide(p, tree);
+    let done = match tokio::runtime::Handle::try_current() {
+        Ok(h) => h.block_on(run),
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(run),
+    };
+    match done {
+        Provided::Refused { why, .. } => anyhow::bail!("{why}"),
+        Provided::Nothing | Provided::Ready(_) => Ok(()),
+    }
 }
 
 /// [`provide`], from `ends`, with `home` the operator's HOME (where cargo's
@@ -190,7 +241,12 @@ pub(crate) async fn provide_with(
 ) -> Provided {
     let (pc, t) = (p.clone(), tree.clone());
     let read = tokio::task::spawn_blocking(move || read_tree(&pc, &t)).await;
-    let (cargo, npm, tracked) = match read {
+    let Read {
+        cargo,
+        npm,
+        tracked,
+        main_key,
+    } = match read {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => return infra(format!("the tree's lock files could not be read: {e:#}")),
         Err(e) => return infra(format!("the tree's lock files could not be read: {e}")),
@@ -223,7 +279,11 @@ pub(crate) async fn provide_with(
         return Provided::Nothing;
     }
     let t0 = Instant::now();
-    let dir = Packages::dir_of(p, &tree.slug);
+    let Some(key) = key_of(&tree.dir) else {
+        return infra("the tree's lock files vanished while its packages were fetched".into());
+    };
+    let dir = Packages::dir_of(p, &key);
+    let held = Packages::of(p, tree);
     let made = make(&dir, ends, home, cargo.is_some(), &parts).await;
     let stats = match made {
         Ok(s) => s,
@@ -238,14 +298,16 @@ pub(crate) async fn provide_with(
             ))
         }
     };
-    let held = |l: &Option<Locked>, rel: &str| l.as_ref().and_then(|_| lock_hash(&tree.dir, rel));
+    // What an earlier call for these same lock files made stays held: a cache is the lock
+    // files' own, and a call that needed one part must not forget the other.
     let ready = serde_json::json!({
-        "cargo": held(&cargo, CARGO_LOCK),
-        "npm": held(&npm, NPM_LOCK),
+        "cargo": cargo.is_some() || held.as_ref().is_some_and(|k| k.cargo),
+        "npm": npm.is_some() || held.as_ref().is_some_and(|k| k.npm),
     });
     if let Err(e) = std::fs::write(dir.join("ready.json"), ready.to_string()) {
         return infra(format!("the package cache could not be marked ready: {e}"));
     }
+    prune(p, &key, main_key.as_deref());
     tracing::info!(
         slug = %tree.slug,
         fetched = stats.fetched,
@@ -256,6 +318,30 @@ pub(crate) async fn provide_with(
     match Packages::of(p, tree) {
         Some(pk) => Provided::Ready(pk),
         None => infra("the package cache was made, and then did not match the lock files".into()),
+    }
+}
+
+/// How many caches are kept besides the one just made and the one for main's lock files.
+const KEPT_CACHES: usize = 3;
+
+/// Remove every cache but `key`'s, main's, and the [`KEPT_CACHES`] most recently made: they are
+/// regenerable from the registries, and the disk they take is a crate set each. Nothing here is
+/// an error: a cache that will not go is tried at the next call.
+fn prune(p: &Place, key: &str, main_key: Option<&str>) {
+    let Ok(entries) = std::fs::read_dir(p.packages()) else {
+        return;
+    };
+    let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name();
+            n != key && Some(n.to_string_lossy().as_ref()) != main_key
+        })
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    others.sort_by_key(|o| std::cmp::Reverse(o.0));
+    for (_, path) in others.into_iter().skip(KEPT_CACHES) {
+        let _ = std::fs::remove_dir_all(path);
     }
 }
 

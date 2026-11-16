@@ -504,7 +504,6 @@ fn a_missing_crate_is_a_supply_chain_failure_and_a_type_error_is_not() {
 /// with no such cache gets neither.
 #[test]
 fn the_packages_fetched_for_a_gate_are_an_overlay_and_the_gate_keeps_no_network() {
-    use sha2::{Digest, Sha256};
     let dir = crate::scratch::tempdir();
     let state = dir.path().join("state");
     let place = Place {
@@ -542,14 +541,10 @@ fn the_packages_fetched_for_a_gate_are_an_overlay_and_the_gate_keeps_no_network(
     assert_eq!(get(&env, "CARGO_HOME"), None);
     assert_eq!(get(&env, "npm_config_cache"), None);
 
-    let packages = place.packages().join("t");
+    // The cache is named by the lock files' content.
+    let packages = super::deps::Packages::dir_for(&place, &tree).unwrap();
     std::fs::create_dir_all(&packages).unwrap();
-    let hash = hex::encode(Sha256::digest(b"version = 4\n"));
-    std::fs::write(
-        packages.join("ready.json"),
-        format!(r#"{{"cargo":"{hash}","npm":null}}"#),
-    )
-    .unwrap();
+    std::fs::write(packages.join("ready.json"), r#"{"cargo":true,"npm":false}"#).unwrap();
     let (with, env) = jail.prepare(&place, &job());
     assert!(with.workspace.contains(&packages), "{:?}", with.workspace);
     assert!(
