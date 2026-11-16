@@ -39,6 +39,18 @@ use theseus_core::rsi::jail::{Jail, Job};
 use theseus_core::rsi::tree::{Place, Tree};
 use theseus_kernel::job::{self, WrapperArgs};
 
+/// A temporary directory that is on disk. `/tmp` is memory (a tmpfs) inside a self build's view,
+/// where the join runs this suite, and a rig whose builder folder is under it could not tell that
+/// the folder is not on the memory-backed mount, which is what `a_builders_temp_files_land_on_disk_in_its_folder`
+/// asks. The build tree (`CARGO_TARGET_DIR`) is the place the view binds read-write on disk; cargo's
+/// own scratch place for these tests (`CARGO_TARGET_TMPDIR`) is where a run outside the view has one.
+fn on_disk() -> tempfile::TempDir {
+    let base = std::env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")), PathBuf::from);
+    std::fs::create_dir_all(&base).unwrap();
+    tempfile::tempdir_in(base).unwrap()
+}
+
 fn root() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
@@ -84,7 +96,7 @@ impl Rig {
     }
 
     fn made(checkout: Option<&Path>, hidden: &[&str], building: bool) -> Self {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = on_disk();
         let p = |s: &str| dir.path().join(s);
         let repo = p("repo");
         for (path, body) in [
