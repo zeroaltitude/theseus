@@ -6,11 +6,12 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use crate::config::memory::MemoryArm;
 use crate::config::MemoryMode;
 use crate::recall::loading::LOAD_BOUND;
 use crate::recall::WORDS_ONLY;
 use crate::tests_recall::turn;
-use crate::tests_recall_standin::{recalled, rig, two_on, Model, State};
+use crate::tests_recall_standin::{recalled, rig, rig_arm, two_on, Model, State};
 
 /// The owner's case: the model was unloaded, so a recall used to answer by
 /// words alone. A person's message loads it at its arrival, and recall's
@@ -137,6 +138,39 @@ async fn a_load_that_fails_or_a_tender_that_is_down_never_holds_the_turn() {
 async fn a_message_with_recall_off_warms_nothing() {
     let model = Model::new(State::Unloaded, Duration::from_millis(700));
     let (r, now, _seen, _dir) = rig(&model, true, 250, MemoryMode::Off);
+    turn(&r.core, &now, "Where do the otters den?").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(model.warms.load(Ordering::SeqCst), 0);
+    assert_eq!(model.loads.load(Ordering::SeqCst), 0);
+}
+
+/// A person's message asks the tender to warm at its arrival, once, and a
+/// recall whose answer comes in time asks it nothing more (the question at
+/// the deadline is for a recall that has not been answered).
+#[tokio::test]
+async fn a_persons_message_asks_the_tender_to_warm_and_a_recall_in_time_asks_no_more() {
+    let model = Model::new(State::Loaded, Duration::from_millis(700));
+    let (r, now, _seen, _dir) = rig(&model, true, 250, MemoryMode::Live);
+    let (m, _) = recalled(&r, &now).await;
+    assert_eq!(m.outcome, "ran", "{:?}", m.skipped);
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    while model.warms.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        model.warms.load(Ordering::SeqCst),
+        1,
+        "the arrival's warm, and no question at a deadline that never passed"
+    );
+}
+
+/// An arm of words alone has no vector source to load a model for, so a
+/// message on it warms nothing.
+#[tokio::test]
+async fn a_message_on_an_arm_with_no_vector_source_warms_nothing() {
+    let model = Model::new(State::Unloaded, Duration::from_millis(700));
+    let (r, now, _seen, _dir) = rig_arm(&model, true, 250, MemoryMode::Live, MemoryArm::Bm25);
     turn(&r.core, &now, "Where do the otters den?").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(model.warms.load(Ordering::SeqCst), 0);

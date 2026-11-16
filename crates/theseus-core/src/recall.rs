@@ -607,12 +607,9 @@ async fn race(
             let why =
                 match failed {
                     Some(e) => format!("the vector search failed ({e}); the words alone ranked"),
-                    None => {
-                        format!(
-                    "the vector search had not answered within {} ms; the words alone ranked",
-                    if loading_waited { loading::LOAD_BOUND } else { deadline }.as_millis()
-                )
-                    }
+                    None => format!(
+                        "the vector search had not answered within {waited_ms} ms; the words alone ranked"
+                    ),
                 };
             r.skipped.insert("vector".into(), why.clone());
             (Answer::Hits(r), Some(why))

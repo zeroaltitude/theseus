@@ -18,7 +18,8 @@ index itself is unchanged: its `index.warm` and its `wait_ms` already did what i
 1. **Load at the first sign of a turn.** A person's message, at its arrival and beside Jev's connections, sends the tender
    `index.warm` in a task of its own (`Memory::warm_on_message`). The turn does not wait for it. A first keystroke
    (`session.typing`) already sent the same call; the message's arrival catches every surface that sends no keystroke.
-   One such call is out at a time. With `[memory] mode = "off"` nothing is sent. A slash command sends nothing, as for Jev.
+   One such call is out at a time. With `[memory] mode = "off"`, and in `live` with an arm that has no vector source
+   (`none`, `bm25`), nothing is sent. A slash command sends nothing, as for Jev.
 2. **Recall's wait covers a load, up to `LOAD_BOUND`.** A recall's whole query (the one with the vector source) carries
    `wait_ms = LOAD_BOUND` (2 s), so the tender holds it for a load in progress. Recall's own deadline is unchanged
    (`[memory] recall_deadline_ms`, 250 ms by default, at most 5 s). When that deadline passes with the words' answer in and

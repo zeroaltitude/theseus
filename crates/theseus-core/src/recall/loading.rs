@@ -81,7 +81,15 @@ impl Memory {
     /// call runs in a task of its own, and a tender that is off, down or slow
     /// costs nothing.
     pub fn warm_on_message(&self) {
-        if self.cfg.mode == MemoryMode::Off {
+        // Recall asks the vector source in `shadow` and `canary` whatever the
+        // arm (a control session runs `baseline` in shadow), and in `live`
+        // only when the arm has one: an arm of words alone never needs it.
+        let vectors = match self.cfg.mode {
+            MemoryMode::Off => false,
+            MemoryMode::Shadow | MemoryMode::Canary => true,
+            MemoryMode::Live => self.cfg.arm.sources().contains(&"vector"),
+        };
+        if !vectors {
             return;
         }
         let Some(warm) = self.warm_ask() else { return };

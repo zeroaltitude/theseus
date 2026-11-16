@@ -228,8 +228,24 @@ pub(crate) fn rig(
     Arc<Mutex<Vec<IndexQueryParams>>>,
     tempfile::TempDir,
 ) {
+    rig_arm(model, warm_up, deadline_ms, mode, MemoryArm::Baseline)
+}
+
+/// `rig` on `arm`.
+pub(crate) fn rig_arm(
+    model: &Arc<Model>,
+    warm_up: bool,
+    deadline_ms: u64,
+    mode: MemoryMode,
+    arm: MemoryArm,
+) -> (
+    Rig,
+    String,
+    Arc<Mutex<Vec<IndexQueryParams>>>,
+    tempfile::TempDir,
+) {
     let r = rig_with(mode, |c| {
-        c.memory.arm = MemoryArm::Baseline;
+        c.memory.arm = arm;
         c.memory.canary_fraction = 1.0;
         c.memory.recall_deadline_ms = deadline_ms;
     });
