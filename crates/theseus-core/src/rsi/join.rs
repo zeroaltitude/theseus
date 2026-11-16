@@ -25,7 +25,10 @@
 //!    evidence) in the row's frame.
 //! 2. **The keel check** ([`keel`]): a class posts the owner's card with the
 //!    diff's summary, writes `self.join.stopped` (phase `keel`) and waits;
-//!    that head is never tried again.
+//!    that head is not tried again until the owner's `theseus self retry`
+//!    (`self.join.reopened`, [`joining`]): then the pass runs it as any
+//!    accepted branch, every check from this one on, and a head still in the
+//!    keel is held again with a new card. Nothing is remembered from the hold.
 //! 3. **The join**, one a pass, under the lock ([`lock`]): fetch, the dry
 //!    run on the remote's main (`merge-tree`), a plain `--no-ff` merge in a
 //!    tree, main's gate on it through the door with the benches, the
@@ -77,6 +80,8 @@ mod tests_moved;
 mod tests_notify;
 #[cfg(test)]
 mod tests_reap;
+#[cfg(test)]
+mod tests_retry;
 #[cfg(test)]
 mod tests_scratch;
 #[cfg(test)]
@@ -190,6 +195,8 @@ struct Seen {
     joined: Vec<String>,
     /// `(branch, head)` held at the keel.
     keel: Vec<(String, String)>,
+    /// `(branch, head)` the owner's retry lifted a hold from (`self.join.reopened`).
+    reopened: Vec<(String, String)>,
 }
 
 /// The rows of `kinds` oldest first; none while the index's shape is built.
@@ -239,6 +246,7 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
             "self.review.verdict",
             "self.joined",
             "self.join.stopped",
+            "self.join.reopened",
         ],
     )?
     else {
@@ -268,12 +276,25 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
                 verdict: s(d, "verdict"),
             }),
             "self.joined" => out.joined.push(s(d, "branch")),
+            // A head already on main, closed as joined by hand on the owner's retry
+            // (`joining`): done, so it is not joined, reviewed or held again.
+            "self.join.stopped" if d["numbers"]["by_hand"] == true => {
+                out.joined.push(s(d, "branch"));
+            }
             // A head held at the keel, with no key or red on its merge waits
             // for the owner: never tried again. A conflict with main is held
             // the same (this head is never joined) but the item is built
             // again from the new main (theseus-o1h3f.6).
             "self.join.stopped" if d["numbers"]["held"] == true => {
                 out.keel.push((s(d, "branch"), s(d, "head")));
+            }
+            // The owner's retry lifts the hold as if it had never been made: the head is a
+            // branch with its review, and the pass runs every check of the join on it. A stop
+            // after this row holds it again.
+            "self.join.reopened" => {
+                let key = (s(d, "branch"), s(d, "head"));
+                out.keel.retain(|k| *k != key);
+                out.reopened.push(key);
             }
             _ => {}
         }
@@ -332,6 +353,9 @@ struct Run<'a> {
     seams: &'a Seams,
     place: Place,
     b: Built,
+    /// The owner lifted a hold from this head: a head found on main is then closed as joined by
+    /// hand (`joining`); nothing else about its run differs.
+    reopened: bool,
     pass: &'a mut Pass,
 }
 
@@ -449,6 +473,7 @@ impl Core {
                 seams,
                 place: place.clone(),
                 b: b.clone(),
+                reopened: seen.reopened.contains(&(b.branch.clone(), b.head.clone())),
                 pass: &mut pass,
             };
             let verdict = match mine {

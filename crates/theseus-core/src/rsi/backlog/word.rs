@@ -2,7 +2,8 @@
 //! `self.move` and `self.retry` and `self.file` (the owner's, from any place,
 //! as the resume is). A drop abandons the item and remembers its cause, so
 //! the cause is never filed again; a move pins the item to a rank until it is
-//! moved again; a retry queues a failed item again; a file puts a person's own
+//! moved again; a retry queues a failed item again, or lets a change its join
+//! holds at his card back into the join; a file puts a person's own
 //! finding on the backlog, which until theseus-cux0o only the nightly miner
 //! could do ([`super::filed`] is the rule, and its doc the reasoning).
 
@@ -17,7 +18,9 @@ use theseus_protocol::tasks::{TaskEvidence, TaskRecord, TaskState};
 use super::state::State;
 use super::{aside, filed, is_open, rank, Night, Work};
 use crate::approval::Answerer;
+use crate::fact::rsi_join::SelfJoinReopened;
 use crate::rpc::{Act, Core};
+use crate::rsi::pipeline::queues;
 
 /// An item the owner named that is not on the backlog, or cannot do what
 /// was asked: the caller's mistake, not the daemon's.
@@ -310,8 +313,9 @@ impl Core {
 
     /// Queue a failed item again: the owner's word. It is proposed with its
     /// session cleared and takes its place in the order, so the pipeline
-    /// starts it on its next free slot. Any other state is refused, with
-    /// words.
+    /// starts it on its next free slot. An item whose finished change a join
+    /// holds at the owner's card is not queued: its head is let back into the
+    /// join ([`Self::self_recheck`]). Any other state is refused, with words.
     pub fn self_retry(&self, p: &SelfRetryParams, who: &Answerer) -> Result<SelfRetryResult> {
         let from_job = p
             .from_job
@@ -333,10 +337,24 @@ impl Core {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut w = self.backlog_work()?;
         let id = Self::backlog_item(&w, &p.item)?;
+        match queues::join_held(&self.store, &w.tasks[&id])? {
+            queues::Held::Yes { branch, head } => {
+                return self.self_recheck(&w, &id, &branch, &head, who);
+            }
+            queues::Held::Index => {
+                return Err(BadItem(format!(
+                    "{id}: the record of the joins is still being read after a start; ask again in \
+                     a minute"
+                ))
+                .into());
+            }
+            queues::Held::No => {}
+        }
         if w.tasks[&id].state != TaskState::Failed && !aside::is_set_aside(&w.tasks[&id]) {
             return Err(BadItem(format!(
                 "{id} is {}: only a failed item can be retried (or one that was set aside, which \
-                 this brings back)",
+                 this brings back, or one whose finished change is held at your card by its join, \
+                 which this checks again; this one is not held)",
                 w.tasks[&id].state.as_str()
             ))
             .into());
@@ -376,11 +394,64 @@ impl Core {
             item: id,
             title,
             rank,
+            rechecked: false,
         })
     }
 }
 
 impl Core {
+    /// The owner's retry on an item whose accepted branch a join holds at his card: the hold
+    /// is lifted for that head (`self.join.reopened`), and the next join pass runs every check
+    /// of the join on it again from the first, as it runs one on any accepted branch. Nothing
+    /// is rebuilt, reviewed again or remembered of the hold, and nothing joins here: this
+    /// writes the row and returns. A change the join still stops is held again with a new card.
+    ///
+    /// **It is not a try, and not a retry of the item.** The item is not proposed, its session
+    /// is kept, and the evidence it gains (`rechecked:owner`) is none of the identities that
+    /// count a try (`attempts::tries`) or that start the count again (`retried:owner`), so its
+    /// attempts are as they were. The caller has judged the act (`self_retry`); the task and
+    /// the row go in one frame, under the backlog's lock.
+    fn self_recheck(
+        &self,
+        w: &Work,
+        id: &str,
+        branch: &str,
+        head: &str,
+        who: &Answerer,
+    ) -> Result<SelfRetryResult> {
+        let now = w.now;
+        let title = w.tasks[id].title.clone();
+        let mut t = w.tasks[id].clone();
+        t.version += 1;
+        t.updated_at_ms = now;
+        t.evidence.push(TaskEvidence {
+            node: None,
+            identity: "rechecked:owner".into(),
+            note: Some(format!(
+                "the owner asked for {branch} to be checked by its join again"
+            )),
+            by: who.who(),
+            at_ms: now,
+        });
+        let fact = SelfJoinReopened {
+            item: id.into(),
+            branch: branch.into(),
+            head: head.into(),
+            by: who.who(),
+        };
+        let rec = self.rec(None);
+        self.store
+            .append(&[crate::task_graph::record(&t)?, rec.row(&fact)?])?;
+        rec.announce(&fact);
+        self.rsi.pipeline.kick();
+        Ok(SelfRetryResult {
+            item: id.into(),
+            title,
+            rank: 0,
+            rechecked: true,
+        })
+    }
+
     /// Put a person's own finding on the backlog (theseus-cux0o): the
     /// owner's word, judged and written exactly as `self.drop`,
     /// `self.move` and `self.retry` are.

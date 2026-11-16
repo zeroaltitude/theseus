@@ -290,6 +290,7 @@ ledger_kinds! {
     SelfExamRejected = "self.exam.rejected",
     SelfInstalled = "self.installed",
     SelfJoinStopped = "self.join.stopped",
+    SelfJoinReopened = "self.join.reopened",
     SelfJoined = "self.joined",
     SelfReviewVerdict = "self.review.verdict",
     SelfHalted = "self.halted",

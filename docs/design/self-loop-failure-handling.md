@@ -52,6 +52,24 @@ so a planted revert can prove it).
   package; a package it cannot place is inside. What it does not judge: the phases after a failed suite did not run, so the join's gate on
   the merge is what finally judges them, and a test that reads another package's files at run time (a source-scanning test) is not in the graph.
 
+**A held change, checked again** (issue 20; `rsi/join/joining.rs`, `rsi/pipeline/queues.rs::join_held`, `backlog/word.rs::self_recheck`). A change
+  the join stops with `numbers.held` (the keel card, a keel finding or red on the merge, no signing key, a push that lost its race, a head
+  on main already) is held for the owner, and nothing looked at it again, through any number of restarts: `self retry` refused an item that
+  is in progress, and a drop forbids the cause for good. Now `theseus self retry ITEM` on an in-progress item whose newest green branch has a
+  held stop writes one row, `self.join.reopened` (item, branch, head, who), and the item's `rechecked:owner` evidence, in one frame, and
+  kicks the pipeline. **That is all it does.** The row makes the head read as it did before the hold: a branch with its review (the accept is
+  kept, as the review is once for a head and model), so the next join pass runs it as it runs any accepted branch, from the keel check
+  on, under the join lock, and the merge's own gate, signature and push are the ones every join has. Nothing is skipped and nothing is
+  remembered of the hold, so a change that still touches the keel posts a new card and is held again (a later `self.join.stopped` row
+  beats the reopened one), and a change that is clean joins. A restart reopens nothing: only the owner's word writes the row, and the
+  answer is judged as every `self.retry` is (`judge_act`). **A head already on main** (the owner joined it by hand) is found by the merge
+  step; for a reopened head it closes the item as done (`joined-by-hand:` evidence, only if the item is still in progress) and writes a
+  stop row with `numbers.by_hand`, which the queues and the pass read as joined, not held; its cause is not forbidden. For a head that was
+  not reopened the old stop stands. **Not a try:** the evidence is none of the identities `attempts::tries` counts, and not
+  `retried:owner`, which would start the count again, so the item's attempts are as they were. The merge is of the head named in the built
+  row, never of the branch's tip now, so a branch moved after its review is not what a retry joins. The pipeline's line for a held item
+  gives the command first (the owner's view cuts a long line at its end), and the three cards that hold a head say it too. **What it does not reopen:** the sealed hold, which sends the item back to its builder (a new head is measured afresh, and `join_held` offers only a green row written at or after the item's last `session:`, so the old head is not reopened while its rebuild runs), a conflict with main (the same), a hold that is not a join's (a review's refusal), and an item that is not in progress.
+
 ## What this does NOT do
 
 - A self-join's own gate is not read by the main-is-red hold: its row lands in the sandbox's tmpfs `HOME` and is lost,

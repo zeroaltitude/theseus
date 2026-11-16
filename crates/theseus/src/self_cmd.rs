@@ -91,6 +91,9 @@ pub enum SelfCmd {
         rank: u32,
     },
     /// Queue a failed or set-aside backlog item again (`bring-back`): the owner's. The pipeline starts it on its next free slot.
+    /// On an item whose finished change is held at your card by its join, it instead has Theseus check that change again from
+    /// the join's first check: it joins only if nothing stops it, is held again with a new card if something does, and is
+    /// closed as joined by hand if it is on main already. None of that counts as a try.
     #[command(visible_alias = "bring-back")]
     Retry {
         /// The item's id, or the end of it.
