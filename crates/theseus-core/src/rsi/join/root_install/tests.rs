@@ -235,7 +235,7 @@ async fn ask_makes_the_card_and_the_yes_installs() {
     assert_eq!(t.units.text(), unit_text(OLD));
     t.yes(&cards[0].correlation_id);
     t.until("the restart", |t| {
-        !t.units.restarts.lock().unwrap().is_empty()
+        t.steps().contains(&"restarting".to_string())
     })
     .await;
     assert_eq!(

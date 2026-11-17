@@ -42,7 +42,13 @@ fn drain(pipe: Option<impl Read>) -> String {
 
 /// Run `c`, wait up to `within`, and return its status and both outputs; a program that runs over is killed.
 fn run_bounded(mut c: Command, within: Duration) -> Result<(std::process::ExitStatus, String)> {
-    let mut child = c.spawn().context("the program could not start")?;
+    // A registered child (`children::spawn`), as every child of the daemon is: its exit is the sweep's to account for.
+    let mut child = theseus_kernel::children::spawn(
+        theseus_kernel::children::Kind::Owned,
+        || c.spawn(),
+        |c| Some(c.id()),
+    )
+    .context("the program could not start")?;
     let (mut out, mut err) = (child.stdout.take(), child.stderr.take());
     let t0 = Instant::now();
     let status = loop {

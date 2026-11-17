@@ -39,8 +39,10 @@ impl Core {
 
     /// A line to the owner, where approvals go.
     pub(crate) fn root_tell(&self, text: String) {
-        let body = json!({"kind": "notice", "text": text});
-        if let Err(e) = self.outbox.to_operator(None, body) {
+        if let Err(e) = self
+            .outbox
+            .to_operator(None, json!({"kind": "notice", "text": text}))
+        {
             tracing::warn!(error = %format!("{e:#}"), "self-install: the owner's notice was not written");
         }
     }
