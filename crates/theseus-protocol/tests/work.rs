@@ -58,9 +58,9 @@ fn r(id: &str, kind: WorkKind, title: &str) -> WorkRef {
     }
 }
 
-/// A whole view: every optional field set.
-fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
-    let mut question = Question {
+/// The question of a whole view: every optional field set, no options yet.
+fn whole_question() -> Question {
+    Question {
         id: "cor_m4p8z1".into(),
         kind: QuestionKind::Approval,
         asked_by: r("exe_b2c3d4", WorkKind::Task, "Beta summary"),
@@ -77,7 +77,12 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         choices: Vec::new(),
         needs_proof: false,
         needs_fresh_proof: false,
-    };
+    }
+}
+
+/// A whole view: every optional field set.
+fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
+    let mut question = whole_question();
     question.options = answer_options(&question);
     let mut v = WorkView {
         moved_to: None,
