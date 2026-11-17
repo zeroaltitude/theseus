@@ -257,7 +257,7 @@ fn why(
 /// Whether a program call runs in L1 with no host beyond the self builder's network
 /// (`rsi::deps::hosts`: the package registries, or none), over a view whose one persisting place is the
 /// session's own: what such a call removes is its overlay, or its own build folder. The L1 test is
-/// `undo_check`'s (`Sandbox::l1_for`), and the list is the one the gate gave the call
+/// `undo_check`'s (`own_tree::l1_of`), and the list is the one the gate gave the call
 /// (`Sandbox::egress_for`), so a call that names a host beyond it is not read.
 fn sandbox_keeps_nothing(
     rt: &ToolRuntime,

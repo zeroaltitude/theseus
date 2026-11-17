@@ -52,8 +52,8 @@ pub(super) fn waiting_words(what: &str, id: &str) -> String {
     )
 }
 
-/// The refusal an answer to a withdrawn question gets, or none: the question is not one the owner
-/// withdrew nothing of. It is recorded as a refused act (`approval.refused`) by the caller, so a late
+/// The refusal an answer to a withdrawn question gets, or none when the question was not
+/// withdrawn. It is recorded as a refused act (`approval.refused`) by the caller, so a late
 /// answer is a row and a message and nothing else: it binds nothing, runs nothing, wakes nothing.
 pub(crate) fn late(a: &Action, who: &Answerer) -> Option<Refusal> {
     let r = a.resolution.as_deref()?;
