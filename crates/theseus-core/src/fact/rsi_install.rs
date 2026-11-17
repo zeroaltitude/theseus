@@ -28,8 +28,12 @@ impl Fact for SelfInstallNotInstalled {
     fn row(&self) -> Value {
         json!({"merge": self.merge, "branch": self.branch, "target": self.target,
                "step": self.step,
-               "what": format!("self branch {} joined main as {} and is not installed",
-                   self.branch, short(&self.merge)),
+               "what": match self.branch.is_empty() {
+                   true => format!("a revert reached main as {} and is not installed",
+                       short(&self.merge)),
+                   false => format!("self branch {} joined main as {} and is not installed",
+                       self.branch, short(&self.merge)),
+               },
                "why": self.why, "numbers": null, "undo": null})
     }
 
