@@ -68,8 +68,10 @@ keeps the one before the current build, for the way back.
 ## Turning it on
 
 In the config, `[self] install = "ask"` (the default) puts a card to the owner after a join: "Install the change Theseus
-joined?". `"auto"` installs with no card (a sensitive setting, which asks for the second proof); `"off"` never does, and
-the loop prints the manual step as before. `theseus health` says whether the helper is installed.
+joined?". `"auto"` installs with no card (a sensitive setting, which asks for a fresh second proof); `"off"` never does, and
+the loop prints the manual step as before. A `true` in an older file (written before any helper existed) still installs
+where the loop can write the program directory, and on a root-owned layout it **asks, as `"ask"` does**: only the word
+`"auto"` installs into the administrator's directory with no card. `theseus health` says whether the helper is installed.
 
 ## Taking it away
 
