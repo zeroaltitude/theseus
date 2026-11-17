@@ -133,7 +133,6 @@ fn withheld(path: &[String], v: &Value) -> Option<&'static str> {
     }
     if path
         .iter()
-        .skip(1)
         .any(|k| sensitivity::key_reason(k) == Some("where a secret is read from"))
     {
         return Some(WITHHELD);

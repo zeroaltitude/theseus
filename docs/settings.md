@@ -54,7 +54,8 @@ setting by name (`config.show`: the value now, whether the file sets it or it is
 needs the code, whether it restarts) or, for a plain change, just proposes it, and the proposal's result already says
 each value before. Reading is free in a turn that has read only your own words; in a turn that has read text from outside
 since your last message, it asks you first. It never gives a secret's value, the names of vault items, or where a secret
-is read from.
+is read from. (Reading is free at the default `notify` posture; at `[policy] enforcement = "approve"` it is asked like every
+other call.)
 
 ## Which settings need the code
 
