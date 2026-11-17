@@ -227,3 +227,35 @@ fn the_listed_waiting_order_is_the_tab_order() {
     assert_eq!(ids(2), ["act_0000aaaa11", "act_0000bbbb22"]);
     assert!(others_after(&qs[..1], &qs[0]).is_empty());
 }
+
+/// A change to Theseus's own text or settings is drawn whole, line by line, on the answer card: the
+/// changed lines are never clipped or run together (issue 23).
+#[test]
+fn a_prompt_file_change_is_drawn_whole_on_the_card() {
+    let reason = "Change the prompt file /state/P.md?\nBefore: 4 bytes, 1 line\n```diff\n@@ -1,1 +1,1 @@\n-old line\n+new line, longer than the two hundred characters the ordinary card keeps of a reason, \
+        so that a clip would show: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n```\n";
+    let c = q(
+        "act_0000aaaa11",
+        "ses_aaaa11",
+        1_000,
+        json!({"tool": "config.ack", "reason": reason, "input": {"whole": true}}),
+    );
+    let text = card(&c, &Context::default(), 2_000).join("\n");
+    for line in reason.lines() {
+        assert!(
+            text.contains(&format!("  {line}")),
+            "{line:?} is not on the card:\n{text}"
+        );
+    }
+    assert!(!text.contains('…') && !text.contains("input:"), "{text}");
+    // Another tool's reason is still clipped to a line.
+    let other = q(
+        "act_0000bbbb22",
+        "ses_bbbb22",
+        1_000,
+        json!({"reason": reason}),
+    );
+    assert!(card(&other, &Context::default(), 2_000)
+        .join("\n")
+        .contains('…'));
+}

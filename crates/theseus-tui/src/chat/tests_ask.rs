@@ -685,3 +685,43 @@ async fn a_commands_result_lines_stay_under_its_line_behind_a_gutter() {
     r.shows("AssertionError: -2.8 != 2.8").await;
     assert!(r.text().contains("⎿ test_tidal_range"), "{}", r.text());
 }
+
+/// The daemon's card for a changed prompt file, as the daemon words it (issue 23).
+const PROMPT_CARD: &str = "Change the prompt file /state/PERSONA.md?\nIt is Theseus's file of persona warm.\nBefore: 120 bytes, 4 lines, fingerprint 0123456789abcdef\nAfter: 131 bytes, 4 lines, fingerprint fedcba9876543210\n1 line added, 1 line removed.\nThe changed lines, whole (unseen characters are written \\u{..}; a backslash is doubled):\n```diff\n@@ -1,4 +1,4 @@\n You are Theseus.\n-Be brief.\n+Be brief and warm.\n Be honest.\n```\nTakes effect with the next message; no restart.\n";
+
+/// A change to Theseus's own text or settings is drawn with its lines as the
+/// daemon wrote them: each changed line is its own row, its marker and spaces
+/// kept, and nothing is run together or cut (issue 23).
+#[tokio::test(start_paused = true)]
+async fn a_prompt_file_card_is_drawn_line_by_line_in_the_dock() {
+    let mut r = Rig::with(100, 40, script()).await;
+    r.ready().await;
+    let q = ConfirmRequest {
+        correlation_id: "act_99".into(),
+        session_id: SID.into(),
+        tool: "config.ack".into(),
+        input: json!({"whole": true, "kind": "prompt_file"}),
+        reason: PROMPT_CARD.into(),
+        by: "operator".into(),
+        requested_at_ms: T0,
+        expires_at_ms: T0 + 300_000,
+        needs_proof: true,
+        ..Default::default()
+    };
+    asked(&mut r, q).await;
+    let screen = lines_of(&r);
+    for want in PROMPT_CARD.lines() {
+        assert!(
+            screen
+                .iter()
+                .any(|l| l.trim_end() == format!("  {want}").trim_end() || l.contains(want)),
+            "{want:?} is not a row of its own:\n{}",
+            r.text()
+        );
+    }
+    assert!(
+        screen.iter().any(|l| l.contains("-Be brief."))
+            && screen.iter().any(|l| l.contains("+Be brief and warm."))
+    );
+    assert!(!r.text().contains('…'), "{}", r.text());
+}

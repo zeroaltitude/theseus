@@ -40,6 +40,7 @@ pub(crate) mod history;
 pub(crate) mod horizon;
 mod preview;
 pub(crate) mod process;
+mod prompt_file;
 mod refold;
 mod reply;
 pub(crate) mod snapshot;
@@ -913,6 +914,9 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     }
     if req.tool == theseus_protocol::work::ask::OWNER_ASK {
         return ask::card(req, &task, route, elsewhere);
+    }
+    if prompt_file::is_card(req) {
+        return prompt_file::card(req, &task, route, elsewhere);
     }
     match &req.plain {
         Some(p) => approval::card(req, p, route, elsewhere),

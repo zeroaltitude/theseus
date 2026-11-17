@@ -39,8 +39,8 @@ sensitive list in `crates/theseus-core/src/config/sensitivity.rs`, and `crates/t
    `[privacy]`, and by key name anywhere: a secret's source, an owner, a spend or budget, a folder or file, the
    sandbox, a command, an address (including a proxy), whether outside text keeps its label, text put into every
    prompt (`system`, a persona's `card`) and which provider sees the owner's text, which processes count as agents, where
-   Theseus posts, and what it is told never to keep. Prompt text is also too long for a card, so it cannot be changed
-   through this tool tonight; a file the owner names, shown on a card by its digest and length, is the likely later shape. A table in neither the sensitive list nor the ordinary one is treated as
+   Theseus posts, and what it is told never to keep. Prompt text is too long for this card, so a prompt file is changed
+   by its own tool and a card of the same door (`prompt-file-change.md`, issue 23). A table in neither the sensitive list nor the ordinary one is treated as
    sensitive, and `tests_sensitivity` fails on it. A change is judged by the settings that really differ, as well
    as the paths named, so a table written whole, an array, or `mcp.servers.x` carrying an `env` is classified as
    what it reaches.

@@ -117,6 +117,8 @@ export type * from './CompileSignal';
 export type * from './ConfigHistoryParams';
 export type * from './ConfigHistoryResult';
 export type * from './ConfigRestart';
+export type * from './ConfigShowParams';
+export type * from './ConfigShowResult';
 export type * from './ConfigStatus';
 export type * from './ConfirmListParams';
 export type * from './ConfirmListResult';

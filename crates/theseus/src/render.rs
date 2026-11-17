@@ -435,7 +435,9 @@ fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
     // What the call would do (an edit's hunk, a command with its directory)
     // stands in for its input, which holds the same text as JSON.
     let shown = diffview::preview_lines(c);
-    if shown.is_empty() {
+    // A change to Theseus's own text or settings has its card in its reason; its
+    // arguments are the daemon's own bookkeeping (issue 23).
+    if shown.is_empty() && !theseus_protocol::has_whole_text(c) {
         push(
             out,
             Tag::Dim,

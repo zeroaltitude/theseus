@@ -145,3 +145,24 @@ fn a_routine_runs_question_says_waiting_while_the_run_deadline_drops_it() {
     assert!(text.contains("waiting 11 min"), "{text}");
     assert!(!text.contains("expire"), "{text}");
 }
+
+/// The daemon's card for a changed prompt file, as the daemon words it (issue 23).
+const PROMPT_CARD: &str = "Change the prompt file /state/PERSONA.md?\nIt is Theseus's file of persona warm.\nBefore: 120 bytes, 4 lines, fingerprint 0123456789abcdef\nAfter: 131 bytes, 4 lines, fingerprint fedcba9876543210\n1 line added, 1 line removed.\nThe changed lines, whole (unseen characters are written \\u{..}; a backslash is doubled):\n```diff\n@@ -1,4 +1,4 @@\n You are Theseus.\n-Be brief.\n+Be brief and warm.\n Be honest.\n```\nTakes effect with the next message; no restart.\n";
+
+/// The board's card gives a change to Theseus's own text or settings a row for
+/// each line of the daemon's card, so the changed lines are not run together.
+#[test]
+fn a_prompt_file_change_card_has_a_row_for_each_line() {
+    let mut q = question("ses_dm0001", "cor_cfg0001", "x", 0);
+    q.tool = "config.ack".into();
+    q.input = json!({"whole": true});
+    q.reason = PROMPT_CARD.into();
+    let text = card_text(Question::Whole(&q), q.requested_at_ms + 1_000);
+    for want in PROMPT_CARD.lines() {
+        assert!(
+            text.lines().any(|l| l == format!("  {want}")),
+            "{want:?} is not a row of its own:\n{text}"
+        );
+    }
+    assert!(!text.contains('…'), "{text}");
+}

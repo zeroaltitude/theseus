@@ -35,9 +35,13 @@ pub mod card;
 pub mod diff;
 pub mod edit;
 pub mod history;
+pub mod long_value;
 pub mod mcp_attach;
+pub mod prompt_file;
 pub mod proof_seam;
 pub mod restart;
+pub mod show;
+pub mod shown;
 pub mod undo;
 pub mod wall;
 pub mod write;
@@ -173,6 +177,8 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
         r.register(Arc::new(undo::Undo));
         r.register(Arc::new(mcp_attach::Attach));
         r.register(Arc::new(mcp_attach::Detach));
+        r.register(Arc::new(prompt_file::Propose));
+        r.register(Arc::new(prompt_file::Read));
     }
 }
 
@@ -483,25 +489,26 @@ pub(crate) fn put(
     };
     let digest = write::keep_candidate(&w.state, &candidate)
         .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
+    let args = json!({
+        "question": question,
+        "base_sha256": crate::config_copy::sha256(base),
+        "candidate_sha256": digest,
+        "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
+        "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
+        "undoes": undoes.map(undo::Undoes::args),
+        "needs_fresh_proof": needs == proof_seam::Needs::Fresh,
+        "reason": reason,
+        "outside_text": outside || steered,
+        "asked_by": {
+            "session_id": tc.session_id,
+            "execution_id": tc.execution_id,
+            "turn_id": tc.turn_id,
+            "place": tc.outbox.target(tc.session_id),
+        },
+    });
     let proposal = Proposal {
         tool: ACK.into(),
-        args: json!({
-            "question": question,
-            "base_sha256": crate::config_copy::sha256(base),
-            "candidate_sha256": digest,
-            "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
-            "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
-            "undoes": undoes.map(undo::Undoes::args),
-            "needs_fresh_proof": needs == proof_seam::Needs::Fresh,
-            "reason": reason,
-            "outside_text": outside || steered,
-            "asked_by": {
-                "session_id": tc.session_id,
-                "execution_id": tc.execution_id,
-                "turn_id": tc.turn_id,
-                "place": tc.outbox.target(tc.session_id),
-            },
-        }),
+        args,
         resource: Some("config".into()),
         policy_context: json!({}),
     };

@@ -24,6 +24,15 @@ fn confirm_head(c: &ConfirmRequest) -> String {
 
 /// Its risk, the model's reason and what Yes and No do, else the gate's reason.
 fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
+    // A change to Theseus's own text or settings: the daemon's card, a row for
+    // each of its lines (issue 23).
+    if theseus_protocol::has_whole_text(c) {
+        return c
+            .reason
+            .lines()
+            .map(|l| (Tag::Dim, format!("  {l}")))
+            .collect();
+    }
     match &c.plain {
         Some(p) => p
             .lines()

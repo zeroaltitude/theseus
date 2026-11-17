@@ -1895,6 +1895,7 @@ impl Config {
                 .chain(crate::extend::NAMES)
                 .chain(crate::config_change::NAMES)
                 .chain(crate::config_change::mcp_attach::NAMES)
+                .chain(crate::config_change::prompt_file::NAMES)
                 .chain(crate::aws::NAMES)
                 .chain(crate::google::NAMES)
                 .chain(crate::term::NAMES)

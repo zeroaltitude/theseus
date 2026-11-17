@@ -24,9 +24,34 @@ pub struct Facts<'a> {
     pub wait_secs: u64,
 }
 
-/// The model's reason on one line, cut at [`REASON_CHARS`].
+/// What a card says of text read from outside: the same words for every card
+/// that has them.
+pub(super) fn care_lines(outside_text: bool, steered: bool) -> String {
+    if !(outside_text || steered) {
+        return String::new();
+    }
+    let mut out = String::from(
+        "Take care: since your last message this conversation has read text from outside (a \
+         page, a search or a server), so the request may not be only yours.",
+    );
+    if steered {
+        out.push_str(" Theseus's check flagged what it read as trying to steer it.");
+    }
+    out.push('\n');
+    out
+}
+
+/// The model's reason on one line, cut at [`REASON_CHARS`], with any character
+/// that cannot be seen written out as `\u{..}`.
 pub fn reason_line(r: &str) -> String {
     let one: String = r.split_whitespace().collect::<Vec<_>>().join(" ");
+    let one: String = one
+        .chars()
+        .map(|c| match super::shown::unseen(c) {
+            true => format!("\\u{{{:04x}}}", c as u32),
+            false => c.to_string(),
+        })
+        .collect();
     match one.chars().count() > REASON_CHARS {
         true => format!("{}…", one.chars().take(REASON_CHARS).collect::<String>()),
         false => one,

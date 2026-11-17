@@ -33,6 +33,7 @@ fn entry(number: u32, before: Option<&str>, after: Option<&str>, paths: &[&str])
         rolled_back: None,
         undone_by: None,
         undoes: None,
+        file: None,
     }
 }
 

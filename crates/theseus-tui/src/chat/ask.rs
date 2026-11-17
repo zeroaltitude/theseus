@@ -26,7 +26,7 @@ use super::dock::DockCtx;
 use super::keys::{self, Ask};
 use super::live::elapsed;
 use super::state::{call, Chat, Effect, Purpose, AUTHOR};
-use super::style::{one, span, wrap_words, Line, Sty};
+use super::style::{hard_wrap, one, span, wrap_words, Line, Sty};
 use super::tasks::TaskQ;
 use theseus_protocol::work::QuestionKind;
 
@@ -311,7 +311,13 @@ impl Chat {
                 self.say(&l);
             }
         }
-        if !q.reason.is_empty() {
+        if theseus_protocol::has_whole_text(q) {
+            for l in q.reason.lines() {
+                for row in hard_wrap(l, usize::from(self.width).saturating_sub(4)) {
+                    self.say_plain(Sty::Dim, &format!("  {row}"));
+                }
+            }
+        } else if !q.reason.is_empty() {
             self.say_words(Sty::Dim, &format!("why: {}", q.reason));
         }
         self.gap();
@@ -429,7 +435,15 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
         None if q.reason.is_empty() => String::new(),
         None => format!("why: {}", q.reason),
     };
-    if !said.is_empty() {
+    if theseus_protocol::has_whole_text(q) {
+        // A change to Theseus's own text or settings: the daemon's card, every
+        // line as it is, not run together (issue 23).
+        for line in q.reason.lines() {
+            for row in hard_wrap(line, ctx.width.saturating_sub(4)) {
+                out.push(one(Sty::Dim, format!("  {row}")));
+            }
+        }
+    } else if !said.is_empty() {
         for row in wrap_words(&said, ctx.width.saturating_sub(2), 2) {
             out.push(one(Sty::Dim, format!("  {}", row.trim_start())));
         }

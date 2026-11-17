@@ -326,6 +326,12 @@ pub fn card(c: &ConfirmRequest, ctx: &Context, now_ms: u64) -> Vec<String> {
     match (&c.budget, &c.change) {
         (Some(_), _) => out.push(format!("? {}", c.reason)),
         (None, Some(ch)) => out.push(format!("? {}", ch.question())),
+        // A change to Theseus's own text or settings: the daemon's card, whole,
+        // its lines as they are (issue 23).
+        _ if theseus_protocol::has_whole_text(c) => {
+            out.push("? a change to Theseus's own text or settings waits for you".to_string());
+            out.extend(c.reason.lines().map(|l| format!("  {l}")));
+        }
         _ => {
             out.push(format!("? {} waits for you", c.tool));
             out.push(format!("  why: {}", clip(&c.reason, 200)));

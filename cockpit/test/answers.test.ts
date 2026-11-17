@@ -1,7 +1,7 @@
 // A question's buttons from its options (`src/lib/answers.ts`, theseus-ds5os), run by `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answerParams, buttonsOf, mayAnswer, needsCode, proofLine } from '../src/lib/answers.ts'
+import { answerParams, buttonsOf, hasWholeText, isSettingsChange, mayAnswer, needsCode, proofLine } from '../src/lib/answers.ts'
 
 const opt = (id: string, label: string, takes_note = false, style = 'plain') => ({ id, label, style, takes_note, effect: `${id} does it` })
 const ask = (o: Record<string, unknown> = {}) => ({ correlation_id: 'act_7f3a9c', session_id: 'ses_a', execution_id: 'exe_a', tool: 'fs.write', input: {}, reason: 'write', by: 'operator', requested_at_ms: 0, expires_at_ms: 0, floor: false, ...o }) as any
@@ -64,4 +64,15 @@ test('the card says which footing the second proof is on, and shows the code fie
   assert.equal(needsCode(given), false)
   const here = ask({ needs_proof: true, proof: { code_needed: true, line: 'second proof: needed, enter the code from your authenticator app' } })
   assert.equal(needsCode(here), true)
+})
+
+test('a settings change keeps its lines, and has a whole text to read only when the daemon says so', () => {
+  const plain = ask({ tool: 'config.ack', input: { question: 'Change 1 setting?' } })
+  assert.equal(isSettingsChange(plain), true)
+  assert.equal(hasWholeText(plain), false)
+  assert.equal(hasWholeText(ask({ tool: 'config.ack', input: { whole: true } })), true)
+  // Only a settings change: the field means nothing on another tool's question.
+  assert.equal(isSettingsChange(ask({ input: { whole: true } })), false)
+  assert.equal(hasWholeText(ask({ input: { whole: true } })), false)
+  assert.equal(hasWholeText(ask({ tool: 'config.ack', input: null })), false)
 })

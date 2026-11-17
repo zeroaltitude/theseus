@@ -11,7 +11,13 @@
 //!   directory, synced, given the old file's permissions, renamed over it,
 //!   and the directory synced;
 //! - the text it replaces is kept first, as a numbered copy; the last
-//!   [`KEEP`] are kept.
+//!   [`KEEP`] are kept;
+//! - a prompt file's change (issue 23) keeps its copies the same way, as
+//!   `previous-NNNN.txt`, numbered from the same count as the settings'
+//!   (so a change's number names one change whichever it was), the last
+//!   [`KEEP`] of each kind; and while its question waits, the file as the
+//!   card was built from it and the text it would become are kept by their
+//!   digests ([`Kept`]), so the whole of both can be read before the yes.
 
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -121,10 +127,16 @@ pub fn previous(state: &Path) -> Vec<(u32, PathBuf)> {
     out
 }
 
+/// The number the next kept copy takes: one past the newest of either kind.
+fn next_number(state: &Path) -> u32 {
+    let newest = |v: Vec<(u32, PathBuf)>| v.last().map_or(0, |(n, _)| *n);
+    newest(previous(state)).max(newest(previous_files(state))) + 1
+}
+
 /// Keep `text`, the file about to be replaced, as the next numbered copy, and
 /// forget all but the last [`KEEP`].
 pub fn keep_previous(state: &Path, text: &str) -> std::io::Result<(u32, PathBuf)> {
-    let next = previous(state).last().map_or(1, |(n, _)| n + 1);
+    let next = next_number(state);
     let path = copy_path(state, next);
     atomic(&path, text, None)?;
     let all = previous(state);
@@ -132,6 +144,96 @@ pub fn keep_previous(state: &Path, text: &str) -> std::io::Result<(u32, PathBuf)
         let _ = std::fs::remove_file(old);
     }
     Ok((next, path))
+}
+
+fn file_copy_path(state: &Path, n: u32) -> PathBuf {
+    dir(state).join(format!("previous-{n:04}.txt"))
+}
+
+/// The text of a prompt file's copy `n`, by its number.
+pub fn file_copy(state: &Path, n: u32) -> Option<String> {
+    std::fs::read_to_string(file_copy_path(state, n)).ok()
+}
+
+/// The prompt files' previous copies, oldest first.
+pub fn previous_files(state: &Path) -> Vec<(u32, PathBuf)> {
+    let mut out: Vec<(u32, PathBuf)> = std::fs::read_dir(dir(state))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            let num = n
+                .strip_prefix("previous-")?
+                .strip_suffix(".txt")?
+                .parse()
+                .ok()?;
+            Some((num, e.path()))
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Keep `text`, a prompt file about to be replaced, as the next numbered copy,
+/// and forget all but the last [`KEEP`] of the prompt files' copies.
+pub fn keep_previous_file(state: &Path, text: &str) -> std::io::Result<(u32, PathBuf)> {
+    let next = next_number(state);
+    let path = file_copy_path(state, next);
+    atomic(&path, text, None)?;
+    let all = previous_files(state);
+    for (_, old) in all.iter().take(all.len().saturating_sub(KEEP)) {
+        let _ = std::fs::remove_file(old);
+    }
+    Ok((next, path))
+}
+
+/// A text kept while its question waits, by its digest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// A prompt file as the card was built from it.
+    FileBase,
+    /// The text the prompt file would become.
+    FileNew,
+    /// The settings file as the card was built from it, kept when a long value
+    /// is on the card.
+    SettingsBase,
+}
+
+impl Kept {
+    fn name(self) -> &'static str {
+        match self {
+            Kept::FileBase => "file-base",
+            Kept::FileNew => "file-new",
+            Kept::SettingsBase => "settings-base",
+        }
+    }
+}
+
+fn kept_path(state: &Path, kind: Kept, sha: &str) -> PathBuf {
+    dir(state).join(format!("{}-{sha}.txt", kind.name()))
+}
+
+/// Keep `text` under its digest, and say the digest.
+pub fn keep_text(state: &Path, kind: Kept, text: &str) -> std::io::Result<String> {
+    let sha = sha256(text);
+    atomic(&kept_path(state, kind, &sha), text, None)?;
+    Ok(sha)
+}
+
+/// The text kept under `sha`, read back and checked against it.
+pub fn read_kept(state: &Path, kind: Kept, sha: &str) -> Result<String, String> {
+    let text = std::fs::read_to_string(kept_path(state, kind, sha))
+        .map_err(|e| format!("the text the card was built from cannot be read: {e}"))?;
+    match sha256(&text) == sha {
+        true => Ok(text),
+        false => Err("the text kept for this card is not the one it was built from".into()),
+    }
+}
+
+/// Forget a kept text once its question is settled.
+pub fn drop_kept(state: &Path, kind: Kept, sha: &str) {
+    let _ = std::fs::remove_file(kept_path(state, kind, sha));
 }
 
 /// Write `text` as the config at `file`: the old permissions kept, the new

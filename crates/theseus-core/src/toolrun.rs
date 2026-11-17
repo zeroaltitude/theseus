@@ -1737,6 +1737,18 @@ impl ToolRuntime {
             crate::config_change::undo::UNDO => {
                 crate::config_change::undo::run(self, tc, &call.input, correlation_id)
             }
+            // A prompt file the settings name: read, or a change to it proposed (issue 23).
+            crate::config_change::prompt_file::PROPOSE => {
+                crate::config_change::prompt_file::tools::propose(
+                    self,
+                    tc,
+                    &call.input,
+                    correlation_id,
+                )
+            }
+            crate::config_change::prompt_file::READ => {
+                crate::config_change::prompt_file::tools::read(self, tc, &call.input)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {

@@ -7,13 +7,13 @@ import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { CircleCheck, OctagonX, ShieldCheck, Zap } from 'lucide-react'
-import type { ConfirmPreview, ConfirmRequest } from '@protocol'
+import type { ConfigShowResult, ConfirmPreview, ConfirmRequest } from '@protocol'
 import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
-import { answerParams, buttonsOf, needsCode, proofLine } from '@/lib/answers'
+import { answerParams, buttonsOf, hasWholeText, isSettingsChange, needsCode, proofLine } from '@/lib/answers'
 import { deadlineOf, waitedLabel } from '@/lib/heldquestion'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
@@ -67,6 +67,23 @@ function Preview({ tool, input, here, daemon }: { tool: string; input: unknown; 
           ))
           : p.text}
       </pre>
+    </div>
+  )
+}
+
+/** The whole text, before and after, of a change to a prompt file or a setting too long for its card, read from the
+ *  daemon on the owner's press (`config.show`): every line, with any character that cannot be seen written out. */
+function WholeText({ question }: { question: string }) {
+  const [words, setWords] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const read = async () => {
+    setBusy(true)
+    try { setWords((await call<ConfigShowResult>('config.show', { question })).words) } catch (e: any) { setWords(e?.message ?? String(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="mt-2">
+      <Btn tone="ok" busy={busy} onClick={read} title="Every line of the text before and after: read it before you answer">Read the whole text</Btn>
+      {words !== null && <pre className="mt-1.5 max-h-96 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line">{words}</pre>}
     </div>
   )
 }
@@ -131,8 +148,11 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             <span className="num text-[11px] text-ink-faint">asked {ago(c.requested_at_ms, now)}</span>
           </div>
           {c.change && <div className="mt-1.5 text-[12.5px] font-semibold text-wait">{changeQuestion(c.change)}</div>}
-          {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} daemon={c.preview} /></div>}
-          <div className="mt-2 text-[12px] text-ink-dim">{d && d.why !== c.reason ? <><span className="text-ink-faint">why it asks: </span>{d.why}</> : c.reason}</div>
+          {!budget && !isSettingsChange(c) && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} daemon={c.preview} /></div>}
+          {isSettingsChange(c)
+            ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2.5 font-mono text-[11.5px] text-ink-dim ring-1 ring-line">{c.reason}</pre>
+            : <div className="mt-2 text-[12px] text-ink-dim">{d && d.why !== c.reason ? <><span className="text-ink-faint">why it asks: </span>{d.why}</> : c.reason}</div>}
+          {hasWholeText(c) && <WholeText question={c.correlation_id} />}
           {c.resource && <div className="num mt-0.5 text-[11.5px] text-ink-faint">{c.resource}</div>}
           {budget && (
             <div className="mt-1 text-[12px]">
