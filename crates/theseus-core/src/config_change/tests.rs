@@ -131,6 +131,53 @@ pub(super) fn rig() -> Rig {
     }
 }
 
+/// A settings question carries the daemon's words wherever it is read: what
+/// `confirm.list` returns and what the push and the ledger row carry both have
+/// the card whole as `plain.detail` and the change in words as `plain.what`.
+/// Planting `plain: None` back into `confirm_request` fails every use of this.
+pub(crate) fn assert_worded(
+    core: &Arc<Core>,
+    q: &theseus_protocol::ConfirmRequest,
+    what_starts: &str,
+) {
+    let p = q
+        .plain
+        .as_ref()
+        .expect("a settings question has plain words");
+    assert_eq!(p.detail, q.reason, "the card whole, not a cut of it");
+    assert!(
+        p.what.starts_with(what_starts),
+        "{} / {what_starts}",
+        p.what
+    );
+    assert!(
+        p.why.is_empty(),
+        "the model's reason is not in the words: {p:?}"
+    );
+    let listed = core.confirm_list().unwrap();
+    let listed = listed
+        .iter()
+        .find(|c| c.correlation_id == q.correlation_id)
+        .expect("listed");
+    assert_eq!(listed.plain.as_ref(), Some(p), "confirm.list carries it");
+    let pushed: Vec<Value> = core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == "tool.confirm_requested")
+        .map(|(_, r)| r.data)
+        .filter(|d| d["correlation_id"] == json!(q.correlation_id))
+        .collect();
+    assert_eq!(pushed.len(), 1, "one push: {pushed:?}");
+    assert_eq!(
+        pushed[0]["plain"]["detail"],
+        json!(p.detail),
+        "the push carries it"
+    );
+    assert_eq!(pushed[0]["plain"]["what"], json!(p.what));
+}
+
 pub(super) fn change(path: &str, value: Value) -> Value {
     json!({"changes": [{"path": path, "value": value}], "reason": "the owner asked for it"})
 }
@@ -264,6 +311,11 @@ async fn a_proposal_puts_one_card_built_from_the_two_configs() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     let q = &asks[0];
     assert_eq!(q.tool, super::ACK);
+    assert_worded(
+        &r.core,
+        q,
+        "change `import.notes.enabled` from on to off; Theseus then restarts",
+    );
     assert!(q.reason.starts_with("Change 1 setting?\n"), "{}", q.reason);
     assert!(
         q.reason
@@ -810,6 +862,11 @@ async fn the_owners_word_restarts_with_one_card_and_says_it_is_back() {
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let q = r.asked().remove(0);
+    assert_worded(
+        &r.core,
+        &q,
+        "restart Theseus, with no change to its settings",
+    );
     assert!(
         q.reason
             .starts_with("Restart Theseus?\nNo turn is running now."),

@@ -93,16 +93,28 @@ the daemon, and read by every place** (`config_change/words.rs`):
 
 | Place | Before | Now |
 |---|---|---|
-| Discord card | header of the tool's name and raw arguments; the words cut at 300 | the daemon's words first and whole, the proof's clause, the footer; past one message (1,900 characters) it goes as several, silent, the buttons on the last (`render/settings.rs`) |
-| Discord settled line | the tool's name and raw arguments | "Approved by ... · change `x` from 25 to 26; Theseus then restarts" (`what`) |
+| Discord card | header of the tool's name and raw arguments; the words cut at 300 | the daemon's words first and whole, with Discord markdown escaped (a wildcard's `*` is drawn, not eaten); the proof's clause; the footer; past one message (1,900 characters) it goes as several, silent, each marked "(i/n)", the buttons on the last (`render/settings.rs`) |
+| Discord settled line | the tool's name and raw arguments | "Approved by ... · change `x` from 25 to 26; Theseus then restarts" (`what`, escaped) |
+| Discord needs-you post (the owner's DM; always the route of the install card) | one line cut at 300, with Approve under it | the same form as the card: the words whole, in parts, the proof's clause, when it expires, the buttons on the last |
 | Discord `/answer` | the words cut at 400, with buttons | the words whole when one message holds them; else where to read them, and no buttons |
-| Discord Details press | the summary cut at 300 and the rule cut at 400 | the words whole (or where to read them) |
-| cockpit card, list and palette | the call's raw preview, the words under a two-line clamp in the list | the change in words, the card whole with its line breaks, no raw call |
-| terminal card, `v` in the chat dock | `confirm config.ack: <raw>`, then the reason | "Theseus wants to <what>", the card whole; the chat dock says to press `v` first |
+| Discord Details press | the summary cut at 300, the rule cut at 400 | the words whole (or where to read them) |
+| cockpit card (ConfirmCard), Boundaries list, command palette | the call's raw preview; the list clamped the words to two lines | the change in words, the card whole with its line breaks, no raw call |
+| cockpit Operations queue, compact row | `y · Approve` under a two-line clamp | no approve in the row; "read the whole card: it is answered there"; the whole card (⏎) answers it; a no is still there |
+| cockpit bulk approve | listed with its summary, ticked by default | never in the batch: listed "asks one by one", with where it is answered, and not sent |
+| terminal board card | `confirm config.ack: <raw>`, then the reason, cut to five rows a line | the head in words, and "the whole card is N lines, too long for this pane, so it is not answered here"; `y` sends nothing and says where; `n` declines |
+| terminal chat | title raw, a risk line; `y` approved | the change in words; `y` is taken only after `v` has written the whole card into the transcript; the dock says so |
 | `theseus answer`, the list | the gate's reason | the change in words, the card whole, Yes and No |
-| `theseus answer`, the echo | `answered <id> · approve` | the same, then "approved: <what>" |
-| the answer tool's description | `config.ack (…id)` | the change in words |
-| voice | nothing: no card is read aloud or offered by voice | unchanged |
+| `theseus answer`, the echo | `answered <id> · approve` | the same, then "approved: <what>" (or "declined: ...") |
+| the model's answer tool | named `config.ack (…id)`; a yes was taken from it | named by the change in words; offered only a no for it; a yes is refused in words the model can pass on |
+| voice | nothing: no card is read aloud and none is offered by voice | unchanged; a spoken yes reaches only the answer tool, which refuses it for a settings question |
+
+**A settings question, and a call the floor holds, are answered only by the owner's own press or their own terminal.**
+`chat.answer_question` carries the owner's words as typed (`Rides::typed`); `judge_typed_settings` in `rpc/mcp_card.rs`
+refuses a yes that is typed for a settings question (`config.ack`, `self.install.ack`) or a call whose gate decision is
+the floor, in the one place an answer becomes a decision, so it holds for any future caller. The tool says so before
+asking (`words::by_press_only`) and is told, for such a question, that only a no is offered. A no from words changes
+nothing and is allowed. Every other kind (a spend limit, a task's question, a question with options, a reminder, an
+ordinary approval) is answered from chat as before.
 
 A card longer than one Discord message is sent as several because the daemon's limits (12 settings, 400 characters a
 value) make the longest card about 10,000 characters: 12 settings x (a 400-character value before and after, a path and

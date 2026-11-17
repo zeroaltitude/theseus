@@ -20,6 +20,8 @@ mod calendar;
 mod chat_answer;
 mod cites;
 mod confirms;
+#[cfg(test)]
+pub(crate) use confirms::Rides;
 mod context;
 mod google;
 mod home_claim;

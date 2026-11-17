@@ -98,6 +98,36 @@ pub fn install(commit: &str) -> String {
     format!("install the build of commit `{c8}` and restart Theseus")
 }
 
+/// What a yes from words (the model's answer tool) is told for a settings
+/// question: how it is answered instead.
+pub const BY_PRESS: &str = "a settings card is answered by its own button, or with `theseus answer <id> approve` \
+     in the owner's own terminal: it is never answered in their name from a conversation. Nothing changed";
+
+/// What a yes from words is told for a call the floor holds.
+pub const FLOOR_BY_PRESS: &str = "a call held by the floor (it reaches a protected file or program) is approved by its own button, or with \
+     `theseus answer <id> approve` in the owner's own terminal: it is never approved in their name from a conversation. Nothing ran";
+
+/// Why a yes from words (the model's answer tool) is refused for the waiting
+/// question `q`, or none: a settings question or a call held by the floor is the
+/// owner's own press, whatever else it is. Every other kind (a spend limit, a
+/// task's question, a question with options, a reminder, an ordinary approval)
+/// is answered from chat as it always was.
+pub fn by_press_only(q: &theseus_protocol::ConfirmRequest) -> Option<&'static str> {
+    if q.plain.as_ref().is_some_and(|p| !p.detail.is_empty()) {
+        Some(BY_PRESS)
+    } else if q.floor {
+        Some(FLOOR_BY_PRESS)
+    } else {
+        None
+    }
+}
+
+/// Whether `a` is a settings question (a change, an undo, a server, a restart or
+/// an install).
+pub fn is_settings_action(a: &theseus_kernel::Action) -> bool {
+    a.tool == super::ACK || a.tool == crate::rsi::join::root_install::ACK
+}
+
 /// The first line of a card's question, as the line for a question asked
 /// before the daemon kept its own (one in flight across an upgrade).
 fn first_line(question: &str) -> String {
@@ -272,5 +302,43 @@ mod tests {
             named,
             "`config.ack` — change `narrative` from off to on; Theseus then restarts (…deadbeef)"
         );
+    }
+
+    /// Only a settings question and a floor hold are the owner's own press;
+    /// every other kind is answered from chat as it always was.
+    #[test]
+    fn only_settings_and_floor_holds_are_by_press() {
+        use theseus_protocol::{BudgetAsk, ConfirmRequest};
+        let settings = plain_of(&json!({"question": "Change 1 setting?\n"}));
+        let ask = |f: &dyn Fn(&mut ConfirmRequest)| {
+            let mut q = ConfirmRequest {
+                tool: "fs.write".into(),
+                ..Default::default()
+            };
+            f(&mut q);
+            by_press_only(&q)
+        };
+        assert_eq!(ask(&|q| q.plain = settings.clone()), Some(BY_PRESS));
+        assert_eq!(ask(&|q| q.floor = true), Some(FLOOR_BY_PRESS));
+        assert_eq!(ask(&|_| {}), None, "an ordinary approval");
+        assert_eq!(
+            ask(&|q| {
+                q.tool = "budget.reset".into();
+                q.budget = Some(BudgetAsk::default());
+            }),
+            None,
+            "a spend limit"
+        );
+        assert_eq!(
+            ask(&|q| q.task = Some(Default::default())),
+            None,
+            "a task's question"
+        );
+        assert_eq!(
+            ask(&|q| q.tool = "owner_ask".into()),
+            None,
+            "a question with options"
+        );
+        assert_eq!(ask(&|q| q.tool = "wake.at".into()), None, "a reminder");
     }
 }
