@@ -164,8 +164,7 @@ impl Rooted {
             .unwrap()
             .unwrap_or_default();
         rows.iter()
-            .filter(|r| r.data["step"] == step)
-            .next_back()
+            .rfind(|r| r.data["step"] == step)
             .map(|r| r.data["why"].as_str().unwrap_or("").to_string())
             .unwrap_or_default()
     }
