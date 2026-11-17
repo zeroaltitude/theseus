@@ -188,3 +188,27 @@ fn no_history_says_so_and_a_limit_is_clamped() {
     assert_eq!(limit_of(&json!({"limit": 500})).unwrap(), SHOWN);
     assert!(limit_of(&json!({"limit": 3, "toml": "x"})).is_err());
 }
+
+/// A plain restart the owner approved keeps a copy and writes a `config.changed`
+/// row with no settings. It is not a change to a setting: history does not list
+/// it, and a bare undo afterwards still names the newest real change, whose
+/// "after" is still found (the restart's copy has the same digest as the file
+/// the change left).
+#[test]
+fn a_plain_restart_is_not_a_change_and_does_not_hide_the_one_before_it() {
+    let (dir, file, mut rows) = kept();
+    write::keep_previous(dir.path(), C).unwrap();
+    let mut restart = changed(3, C, C, &[], 3_000);
+    restart.data["restart_only"] = json!(true);
+    rows.push(restart);
+    let list = entries(&rows, dir.path(), Some(&file), SHOWN);
+    assert_eq!(names(&list), [2, 1], "the restart is not listed");
+    let after = list[0].settings().unwrap();
+    assert_eq!(after[0].after, Some(json!(true)), "{after:?}");
+    let planned = crate::config_change::undo::plan(&list, None, C).unwrap();
+    assert_eq!(planned.undoes.number, 2);
+    assert!(crate::config_change::undo::plan(&list, Some(3), C)
+        .err()
+        .unwrap()
+        .contains("no change #3"));
+}

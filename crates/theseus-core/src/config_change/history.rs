@@ -156,11 +156,16 @@ pub fn paths_of(d: &Value) -> Vec<Vec<String>> {
 }
 
 /// The changes the daemon itself made on the owner's word (the rows a config read
-/// from the vault writes have another shape), oldest first.
+/// from the vault writes have another shape), oldest first. A plain restart
+/// the owner approved writes a row of this kind with no settings
+/// (`restart_only`): it is not a change to any setting, so it is neither listed
+/// nor something an undo can name. Its kept copy still serves as the "after"
+/// of the change before it.
 fn changes(rows: &[LedgerRow]) -> Vec<&LedgerRow> {
     rows.iter()
         .filter(|r| r.kind == LedgerKind::ConfigChanged.as_str())
         .filter(|r| r.data["source"] == "owner" && r.data["previous_copy"].is_u64())
+        .filter(|r| r.data["restart_only"] != true)
         .collect()
 }
 

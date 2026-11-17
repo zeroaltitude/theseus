@@ -376,7 +376,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     let config_file = theseus_core::config::expand(&source);
     if cli.cmd.is_none() && !cli.stdio && !in_vault {
         if let Some(change_back::Found { marker, begin }) =
-            change_back::find(cli.state_dir.as_deref())
+            change_back::find(cli.state_dir.as_deref(), &config_file)
         {
             match begin {
                 restart::Begin::Watch(p) => watch = Some((marker, p)),
