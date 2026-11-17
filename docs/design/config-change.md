@@ -72,6 +72,7 @@ exec carries its path in `THESEUS_CONFIG_CHANGE`.
 - **A rollback cannot be induced to restore what an attacker prefers**: it puts back only the copy whose digest the
   marker recorded, and only over a file whose digest is the one the change wrote. A later edit by the owner is
   never overwritten.
-- Limit: a start that no exec carried (a supervisor's restart after a crash) finds the marker only in the default
-  state directory, so a daemon whose state directory is set in its settings file and not by a flag rolls back only
-  in the exec'd start.
+- Where a start looks for the marker: the path the exec carried, else the state directory this daemon serves from
+  (`--state-dir`, else the settings file's `[server] state_dir`, else the default). That is the directory the floor
+  holds; a marker anywhere else is never read, so a supervisor's restart after a crash finds its marker where a tool
+  cannot have written one, and nowhere else (`change_back.rs`, with a test).
