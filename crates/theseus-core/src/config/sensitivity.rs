@@ -231,8 +231,8 @@ pub fn is_sensitive(path: &[String]) -> bool {
 /// the owner is or what the second proof is, or that widens what Theseus may
 /// do to the machine without asking again.
 ///
-/// - who the owner is: `[places] owner` and the bindings file's path (the
-///   file names the person of each DM);
+/// - who the owner is: `[places] owner` and the bindings file's path,
+///   `[discord] bindings_file` (the file names the person of each DM);
 /// - the second proof itself: any key of `[owner_proof]`;
 /// - `[self] install` becoming `"auto"`: it installs every joined change on a
 ///   root-owned layout with no card. The older `true` is not it (it never
@@ -243,7 +243,7 @@ pub fn is_sensitive(path: &[String]) -> bool {
 pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> bool {
     let at = |p: &[&str]| path.len() >= p.len() && path.iter().zip(p).all(|(a, b)| a == b);
     at(&["places", "owner"])
-        || at(&["server", "bindings_file"])
+        || at(&["discord", "bindings_file"])
         || at(&["owner_proof"])
         || (at(&["self", "install"])
             && path.len() == 2
@@ -341,7 +341,7 @@ mod tests {
         for path in [
             "places.owner",
             "places.owner.discord",
-            "server.bindings_file",
+            "discord.bindings_file",
             "owner_proof.window_hours",
             "owner_proof",
         ] {

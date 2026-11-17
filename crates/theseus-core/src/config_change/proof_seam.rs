@@ -143,7 +143,7 @@ mod tests {
     fn who_the_owner_is_and_the_proof_itself_need_a_fresh_proof() {
         for after in [
             "[places]\nowner = [\"discord:1\"]\n",
-            "[server]\nbindings_file = \"elsewhere.toml\"\n",
+            "[discord]\nbindings_file = \"elsewhere.toml\"\n",
             "[owner_proof]\nwindow_hours = 0\n",
         ] {
             assert_eq!(

@@ -69,12 +69,6 @@ fn code(secret: &Secret, ahead: u64) -> String {
     Proofs::stand_in_code(secret, ahead)
 }
 
-/// What a restart does once it has come back: the marker is put away, so the
-/// next change may be written.
-fn restarted(r: &Rig) {
-    let _ = std::fs::remove_file(super::restart::marker_path(&r.state));
-}
-
 /// A proposal, asked: the question's id.
 async fn ask(r: &Rig, path: &str, value: Value) -> String {
     let sid = r.session();
