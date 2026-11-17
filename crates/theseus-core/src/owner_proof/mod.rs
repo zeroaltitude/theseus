@@ -18,3 +18,6 @@ pub mod totp;
 
 pub use file::{floor_paths, FILE};
 pub use proofs::{EnrolError, Offer, Proofs, Refused, Status};
+
+#[cfg(test)]
+mod tests_floor;
