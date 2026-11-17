@@ -453,6 +453,7 @@ pub fn propose(
             "candidate_sha256": digest,
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
             "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
+            "needs_fresh_proof": proof_seam::needs_fresh(&settings),
             "reason": reason,
             "outside_text": outside || steered,
             "asked_by": {

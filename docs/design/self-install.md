@@ -137,7 +137,9 @@ Code: `crates/theseus-core/src/rsi/join/root_install/` (`offer.rs` the card, `an
 
 `[self] install` is `"ask"` (default), `"auto"`, or `"off"` (a `true` of today's file reads as `"auto"`, a `false` as
 `"off"`). It is itself a sensitive setting (`[self]` is on the sensitive list), and `"auto"` is the one that matters
-most: it needs a **fresh** second proof to turn on once the proof is wired in. It applies on a root-owned layout, that
+most: it needs a **fresh** second proof to turn on once the proof is wired in (a code typed for that change alone, covered by
+no window: `config::sensitivity::needs_fresh_proof` names it, `config_change::proof_seam::needs_fresh` reads it off the
+settings a change really changes, and the wiring passes it to `owner_proof::mark(.., fresh)`). It applies on a root-owned layout, that
 is, where the user unit's `ExecStart` names `/usr/local/lib/theseus/<hex>/theseusd`. On a user's own layout only
 `"auto"` installs, as `true` did.
 

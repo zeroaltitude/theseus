@@ -222,6 +222,19 @@ pub fn is_sensitive(path: &[String]) -> bool {
     reason(path).is_some()
 }
 
+/// Whether a change of `path` to `after` needs a code typed for it alone,
+/// whatever window is open (`needs_fresh_proof`): a setting that widens what
+/// Theseus may do to the machine without asking again. One today, `[self]
+/// install` becoming `"auto"` (or the older `true`): it installs every joined
+/// change on a root-owned layout with no card. A removal reads as the
+/// default, `"ask"`, which is not widening.
+pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> bool {
+    path.len() == 2
+        && path[0] == "self"
+        && path[1] == "install"
+        && after.is_some_and(|v| v.as_str() == Some("auto") || v.as_bool() == Some(true))
+}
+
 /// The settings that take effect without a restart: where the code already
 /// applies one live. None: Theseus reads its config once, at the start, so
 /// every approved change restarts it. A setting joins this list only with the
@@ -305,6 +318,21 @@ mod tests {
     fn a_table_nobody_classified_is_sensitive() {
         let why = reason(&p("brand_new.thing")).expect("unclassified is sensitive");
         assert!(why.contains("not been classified"), "{why}");
+    }
+
+    #[test]
+    fn only_turning_install_to_auto_needs_a_fresh_proof() {
+        let v = |s: &str| Some(serde_json::json!(s));
+        let install = p("self.install");
+        assert!(needs_fresh_proof(&install, v("auto").as_ref()));
+        assert!(needs_fresh_proof(&install, Some(&serde_json::json!(true))));
+        for after in [v("ask"), v("off"), Some(serde_json::json!(false)), None] {
+            assert!(!needs_fresh_proof(&install, after.as_ref()), "{after:?}");
+        }
+        assert!(!needs_fresh_proof(&p("self.mode"), v("auto").as_ref()));
+        assert!(!needs_fresh_proof(&p("policy.install"), v("auto").as_ref()));
+        // Still sensitive on its own: the fresh proof is on top of the second one.
+        assert!(is_sensitive(&install));
     }
 
     #[test]
