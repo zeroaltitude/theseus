@@ -50,6 +50,7 @@ impl Core {
             version: crate::VERSION.into(),
             protocol: theseus_protocol::VERSION.into(),
             build: crate::build(),
+            joined_not_running: self.self_joined_not_running(),
             uptime_secs: self.started.elapsed().as_secs(),
             sessions: totals.sessions,
             imported: {

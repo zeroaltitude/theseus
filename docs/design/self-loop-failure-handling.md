@@ -70,6 +70,20 @@ so a planted revert can prove it).
   row, never of the branch's tip now, so a branch moved after its review is not what a retry joins. The pipeline's line for a held item
   gives the command first (the owner's view cuts a long line at its end), and the three cards that hold a head say it too. **What it does not reopen:** the sealed hold, which sends the item back to its builder (a new head is measured afresh, and `join_held` offers only a green row written at or after the item's last `session:`, so the old head is not reopened while its rebuild runs), a conflict with main (the same), a hold that is not a join's (a review's refusal), and an item that is not in progress.
 
+**A joined change is not what runs afterwards** (issue 20; `rsi/join/layout.rs`, `install.rs`, `verify.rs`, `words.rs`). The first
+  self join to reach its install copied the build into the user's own program directory and restarted a service whose unit runs a
+  root-owned build elsewhere: the daemon came back on the build before, and nothing said so. Now the install first reads where the
+  service's program is (`layout::read`: the unit's `ExecStart`, else the running daemon's own path, and whether the loop can write
+  that directory). **Writable:** the programs are copied there, the unit leaves a marker (`<place>/install-pending`) naming the
+  merge, and restarts; the new daemon, serving, compares its `build.commit` with the marker (`self_installed_running`): the same,
+  `self.installed` and `self.install.verified` in one frame with the "installed and running" notice; another, or none, a
+  `self.install.mismatch` row and an alert to the owner, once. **Not writable** (or not readable): nothing is copied and no unit
+  runs; the build is made and kept in its build folder for the owner's step, `self.install.not_installed` is written with the one
+  command (`layout::step`), and the owner gets one action note (`verify::not_installed_notice`), once for the merge. A revert's
+  install goes the same way. `self pipeline`, `self log` (`last_join`) and `health` (`joined_not_running`) read the ledger
+  (`words::last_join`) and say joined and installed and running, or joined but not installed with the step, or that the install
+  did not take. Nothing here writes the administrator's directory: that is a line of issue 22.
+
 ## What this does NOT do
 
 - A self-join's own gate is not read by the main-is-red hold: its row lands in the sandbox's tmpfs `HOME` and is lost,

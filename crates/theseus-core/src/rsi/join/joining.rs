@@ -6,6 +6,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
+use super::install::Started;
 use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
 use crate::fact::rsi_join::SelfJoined;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
@@ -133,11 +134,30 @@ impl Run<'_> {
         Ok(false)
     }
 
-    /// Hand the install to its unit.
+    /// Hand the install to its unit, or, where the service runs a build the loop cannot replace,
+    /// tell the owner the change is joined and not installed.
     async fn install(&mut self, merge: String) {
-        let (p, i) = (self.place.clone(), self.seams.installer.clone());
-        match blocking(move || i.start(&p, &merge)).await {
-            Ok(unit) => tracing::info!(%unit, "self-join: the install is handed to its unit"),
+        let (p, i, m) = (
+            self.place.clone(),
+            self.seams.installer.clone(),
+            merge.clone(),
+        );
+        match blocking(move || i.start(&p, &m)).await {
+            Ok(Started::Unit(unit)) => {
+                tracing::info!(%unit, "self-join: the install is handed to its unit");
+            }
+            Ok(Started::NotInstalled(n)) => {
+                let told =
+                    self.core
+                        .self_install_not_installed(&self.b.branch, &self.b.item, &merge, &n);
+                match told {
+                    Ok(_) => {
+                        tracing::info!(%merge, why = %n.why, "self-join: joined, not installed")
+                    }
+                    Err(e) => tracing::warn!(error = %format!("{e:#}"),
+                        "self-join: the not-installed notice was not written"),
+                }
+            }
             Err(e) => {
                 let why = format!("the install did not start: {e:#}");
                 self.stop("install", &why, Value::Null);

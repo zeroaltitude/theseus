@@ -62,6 +62,7 @@ pub mod guard;
 pub mod install;
 pub(crate) mod joining;
 pub mod keel;
+pub mod layout;
 pub mod lock;
 mod moved;
 pub mod planted;
@@ -74,6 +75,8 @@ mod tender;
 pub(crate) mod tests;
 #[cfg(test)]
 mod tests_dependencies;
+#[cfg(test)]
+mod tests_install_truth;
 #[cfg(test)]
 mod tests_moved;
 #[cfg(test)]
@@ -89,6 +92,8 @@ mod tests_sealed;
 #[cfg(test)]
 mod tests_unreviewable;
 mod unreviewable;
+mod verify;
+pub mod words;
 
 use std::sync::Arc;
 use std::time::Duration;
