@@ -32,8 +32,22 @@ export function buttonsOf(c: ConfirmRequest): AnswerButton[] {
   return options.map((o) => ({ id: o.id, label: o.label, tone: toneOf(o), takesNote: o.takes_note, title: o.effect }))
 }
 
-/** The `work.answer` params of pressing `option`, with the note only where the option takes one. */
-export function answerParams(c: ConfirmRequest, option: string, note: string): Record<string, unknown> {
+/** The `work.answer` params of pressing `option`, with the note only where the option takes one, and the code from the
+ *  owner's authenticator app (issue 22) only on an approving answer to a question that needs the second proof: the
+ *  daemon checks it and it goes nowhere else. A decline never carries one. */
+export function answerParams(c: ConfirmRequest, option: string, note: string, code = ''): Record<string, unknown> {
   const takes = buttonsOf(c).find((b) => b.id === option)?.takesNote
-  return { question_id: c.correlation_id, option, note: (takes && note.trim()) || undefined }
+  const out: Record<string, unknown> = { question_id: c.correlation_id, option, note: (takes && note.trim()) || undefined }
+  if (c.needs_proof && option !== 'decline' && code.trim()) out.code = code.trim()
+  return out
 }
+
+/** The card's line about the second proof, in the daemon's own words for this place: "second proof: needed, enter the
+ *  code" or "second proof: given here 3 hours ago, good for 21 hours more". None for a question that asks for none. */
+export function proofLine(c: ConfirmRequest): string | null {
+  if (!c.needs_proof) return null
+  return c.proof?.line ?? 'second proof: needed, enter the code from your authenticator app'
+}
+
+/** Whether the card shows the code field: the question needs the proof and no earlier one from this place covers it. */
+export const needsCode = (c: ConfirmRequest): boolean => Boolean(c.needs_proof) && c.proof?.code_needed !== false

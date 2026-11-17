@@ -93,9 +93,10 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
     };
     let content = format!(
         "{open}{line}\nrisk: {risk} · why it asks: {}{}\n**Approve** runs this one call · \
-         **Decline** refuses it; {who} is told and carries on\n-# {place}{}{or}",
+         **Decline** refuses it; {who} is told and carries on{}\n-# {place}{}{or}",
         why_it_asks(req, p),
         preview::hunk(req),
+        proof_clause(req),
         super::heldquestion::footer_clause(req)
     );
     CardText {
@@ -106,6 +107,24 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
             line
         },
         budget: false,
+    }
+}
+
+/// What a question that needs the owner's second proof adds to its card
+/// (issue 22): that Approve opens a form, and that the form says whether it
+/// asks for a code from the authenticator app or goes through on a proof given
+/// here earlier. Nothing for a question that asks for none.
+fn proof_clause(req: &ConfirmRequest) -> &'static str {
+    match (req.needs_proof, req.needs_fresh_proof) {
+        (false, _) => "",
+        (true, true) => {
+            "\n🔐 **Second proof, every time:** **Approve** opens a form for the code from your \
+             authenticator app"
+        }
+        (true, false) => {
+            "\n🔐 **Second proof:** **Approve** opens a form that says whether it needs the code \
+             from your authenticator app or goes through on the proof you gave here earlier"
+        }
     }
 }
 
@@ -123,6 +142,7 @@ pub(super) fn classic(
         content.push_str(&format!("\n{}", clip_middle(&req.reason, 300)));
     }
     content.push_str(&preview::hunk(req));
+    content.push_str(proof_clause(req));
     let asked_for = match route {
         Route::Dm { place, .. } => format!("for {place} · "),
         _ => String::new(),

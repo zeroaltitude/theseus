@@ -1,7 +1,7 @@
 // A question's buttons from its options (`src/lib/answers.ts`, theseus-ds5os), run by `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answerParams, buttonsOf, mayAnswer } from '../src/lib/answers.ts'
+import { answerParams, buttonsOf, mayAnswer, needsCode, proofLine } from '../src/lib/answers.ts'
 
 const opt = (id: string, label: string, takes_note = false, style = 'plain') => ({ id, label, style, takes_note, effect: `${id} does it` })
 const ask = (o: Record<string, unknown> = {}) => ({ correlation_id: 'act_7f3a9c', session_id: 'ses_a', execution_id: 'exe_a', tool: 'fs.write', input: {}, reason: 'write', by: 'operator', requested_at_ms: 0, expires_at_ms: 0, floor: false, ...o }) as any
@@ -42,4 +42,26 @@ test('a question\'s grant is a button of its own, after the plain yes, sent as a
   const c = ask({ grant_offer: { scope: 'session', kind: 'prefix', pattern: 'python3 -m unittest', words: 'yes' }, options: [opt('approve', 'Approve', false, 'primary'), grant, opt('decline', 'Decline', true)] })
   assert.deepEqual(buttonsOf(c).map((b) => [b.id, b.label, b.tone]), [['approve', 'Approve', 'ok'], ['approve_grant', 'Approve + this command for the conversation', 'ok'], ['decline', 'Decline', 'fault']])
   assert.deepEqual(answerParams(c, 'approve_grant', 'a note'), { question_id: 'act_7f3a9c', option: 'approve_grant', note: undefined })
+})
+
+test('the second proof: the code rides an approving answer to a question that needs it, never a decline or another question (issue 22)', () => {
+  const c = ask({ needs_proof: true, options: [opt('approve', 'Approve'), opt('decline', 'Decline', true)] })
+  assert.deepEqual(answerParams(c, 'approve', '', ' 123456 '), { question_id: 'act_7f3a9c', option: 'approve', note: undefined, code: '123456' })
+  assert.deepEqual(answerParams(c, 'approve', '', ''), { question_id: 'act_7f3a9c', option: 'approve', note: undefined })
+  assert.equal('code' in answerParams(c, 'decline', 'no', '123456'), false)
+  const plain = ask({ options: [opt('approve', 'Approve')] })
+  assert.equal('code' in answerParams(plain, 'approve', '', '123456'), false)
+})
+
+test('the card says which footing the second proof is on, and shows the code field only when a code is needed (issue 22)', () => {
+  assert.equal(proofLine(ask()), null)
+  assert.equal(needsCode(ask()), false)
+  const needed = ask({ needs_proof: true })
+  assert.equal(proofLine(needed), 'second proof: needed, enter the code from your authenticator app')
+  assert.equal(needsCode(needed), true)
+  const given = ask({ needs_proof: true, proof: { code_needed: false, line: 'second proof: given here 3 hours ago, good for 21 hours more' } })
+  assert.equal(proofLine(given), 'second proof: given here 3 hours ago, good for 21 hours more')
+  assert.equal(needsCode(given), false)
+  const here = ask({ needs_proof: true, proof: { code_needed: true, line: 'second proof: needed, enter the code from your authenticator app' } })
+  assert.equal(needsCode(here), true)
 })
