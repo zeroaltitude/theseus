@@ -516,6 +516,71 @@ async fn a_batch_whose_steps_differ_in_class_is_refused_and_one_class_runs() {
     assert_eq!(*classes.0.lock().unwrap(), ["l1", "l1"]);
 }
 
+/// A directory the call names that is not there is invalid input, refused at
+/// the gate: the model reads which one, a batch's step is named, nothing is
+/// admitted, and no `action.failed` row says `harness:proc.run` and nothing
+/// else (the call used to pass the gate and fail at the launch, 0 ms in). A
+/// directory that is there still runs: one job, beside the two refusals.
+#[tokio::test]
+async fn a_directory_that_is_not_there_is_refused_at_the_gate_and_files_no_failure() {
+    let single = json!({"argv": ["touch", "never"], "cwd": "nowhere"});
+    let batch = json!({"steps": [
+        {"argv": ["touch", "never"]},
+        {"argv": ["touch", "never"], "cwd": "nowhere"},
+    ]});
+    let there = json!({"argv": ["touch", "made"], "cwd": "sub"});
+    let r = rig(
+        vec![
+            run(single),
+            Scripted::text("Seen."),
+            run(batch),
+            Scripted::text("Seen."),
+            run(there),
+            Scripted::text("Done."),
+        ],
+        |_| {},
+    );
+    std::fs::create_dir(r.root.join("sub")).unwrap();
+    let missing = r.root.join("nowhere").display().to_string();
+
+    let res = r.turn("run it where there is no such directory").await;
+    let results = r.results(&res.session_id);
+    assert_eq!(results.len(), 1, "{results:?}");
+    let (status, text, _) = &results[0];
+    assert_eq!(*status, ResultStatus::Error, "{text}");
+    assert_eq!(
+        text,
+        &format!("Invalid input: working directory {missing} does not exist")
+    );
+
+    let res = r
+        .turn("run the batch where there is no such directory")
+        .await;
+    let results = r.results(&res.session_id);
+    assert_eq!(results.len(), 1, "{results:?}");
+    let (status, text, _) = &results[0];
+    assert_eq!(*status, ResultStatus::Error, "{text}");
+    assert_eq!(
+        text,
+        &format!("Invalid input: step 2: working directory {missing} does not exist")
+    );
+    assert!(!r.marker().exists(), "a step ran");
+    assert!(r.rows("tool.job_started").is_empty(), "a job started");
+    let failed = r.rows("action.failed");
+    assert!(
+        failed.is_empty(),
+        "a refusal was filed as a failure: {failed:?}"
+    );
+
+    // The positive beside the negatives: a directory that is there runs.
+    let res = r.turn("run it where the directory is").await;
+    let results = r.results(&res.session_id);
+    assert_eq!(results[0].0, ResultStatus::Ok, "{results:?}");
+    assert!(r.root.join("sub").join("made").exists());
+    assert_eq!(r.rows("tool.job_started").len(), 1);
+    assert!(r.rows("action.failed").is_empty());
+}
+
 /// The kernel's deadline covers every step's timeout.
 #[test]
 fn a_batchs_deadline_covers_every_steps_timeout() {

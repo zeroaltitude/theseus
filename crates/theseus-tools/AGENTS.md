@@ -45,6 +45,10 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 - **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
   `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
   `Tool::jobs` each step's job, every directory checked before the first starts; the plan's `steps` holds each argv.
+- **`proc.run`'s directory.** A `cwd` the call (or a step) names that is not a directory is invalid input at `plan`:
+  the model reads it, and no action is admitted to fail at the launch as a 0 ms `action.failed:harness:proc.run` row.
+  `job` asks again, since a directory can go between the gate and the launch. The session's own directory is asked only
+  there: tests of the gate plan calls in a session directory that was never made (`tests/proc_cwd.rs` holds both).
 - **A job's handle** (theseus-n8gk): `proc.run`'s `background: true` (one program, never `steps`), and `src/jobs.rs`,
   the schemas and plans of `job.read`, `job.wait` (reads) and `job.stop` (a run). Their plans read the input alone;
   the core finds the job in the calling session, makes `job.stop`'s plan the job's own run, and runs all three.
@@ -79,6 +83,9 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 
 - Each module's tests. A new reader of outside text also gets property tests, as core's readers have
   (`tests_outside_text.rs`, Item 13).
+- A change's new tests go where the planted revert keeps them: a file under `tests/` (cargo finds it with no `mod`
+  line; `tests/proc_cwd.rs` is one), or a test file `lib.rs` already declares. A new `src/tests_*.rs` that the change
+  itself declares in `lib.rs` is undone with `lib.rs`, so its tests do not run without the fix, and pass.
 - A fixture that runs the git CLI sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, so it never
   inherits the operator's config: a global `commit.gpgsign` once failed the gate with a locked agent (Item 7).
 
