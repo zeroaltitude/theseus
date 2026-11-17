@@ -145,12 +145,12 @@ fn scenario(mode: &str, suite: String, rerun: (String, i32)) -> (Rig, Scratch) {
     (r, Scratch { path: s, _dir: dir })
 }
 
-/// The files of a branch that edits package `a` and carries a test the planted revert can fail.
-fn edits_a() -> Vec<(&'static str, &'static str)> {
-    let mut files = PROVED.to_vec();
-    files.push(("crates/a/src/lib.rs", "pub fn a() {}\n"));
-    files
-}
+/// The files of a branch that edits package `a` and nothing outside it (a path in no package
+/// reaches every package), with a test the planted revert can fail.
+const EDITS_A: &[(&str, &str)] = &[
+    ("crates/a/fix.txt", "fixed\n"),
+    ("crates/a/tests/fix.sh", "test -f crates/a/fix.txt\n"),
+];
 
 /// KEY: the gate's only failure is a test of a package the merge does not touch. That test alone
 /// is run once more and passes, and the join goes on: main's whole gate runs once more (what
@@ -163,7 +163,7 @@ async fn an_unrelated_test_that_fails_once_is_run_again_and_the_change_joins() {
         red_suite("b", "job::tests::flaky"),
         (passed_again("b", "job::tests::flaky"), 0),
     );
-    let (branch, _) = r.seed("trim-the-sails", &edits_a(), SONNET);
+    let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.joined.len(), 1, "{pass:?}");
@@ -203,7 +203,7 @@ async fn an_unrelated_test_that_fails_twice_holds_the_change_and_is_named() {
         red_suite("b", "job::tests::flaky"),
         (failed_again("b", "job::tests::flaky"), 100),
     );
-    let (branch, _) = r.seed("trim-the-sails", &edits_a(), SONNET);
+    let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
@@ -232,7 +232,7 @@ async fn a_test_the_change_touches_that_fails_is_held_at_once() {
         red_suite("c", "tests::broken_by_a"),
         (passed_again("c", "tests::broken_by_a"), 0),
     );
-    let (branch, _) = r.seed("trim-the-sails", &edits_a(), SONNET);
+    let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
@@ -255,7 +255,7 @@ async fn a_pass_on_the_second_look_does_not_skip_what_follows_the_suite() {
         red_suite("b", "job::tests::flaky"),
         (passed_again("b", "job::tests::flaky"), 0),
     );
-    let (branch, _) = r.seed("trim-the-sails", &edits_a(), SONNET);
+    let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
@@ -277,11 +277,27 @@ async fn a_red_in_another_phase_is_given_no_second_look() {
         red_suite("b", "job::tests::flaky"),
         (passed_again("b", "job::tests::flaky"), 0),
     );
-    let (branch, _) = r.seed("trim-the-sails", &edits_a(), SONNET);
+    let (branch, _) = r.seed("trim-the-sails", EDITS_A, SONNET);
     let main = r.upstream_main();
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
     assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(r.upstream_main(), main);
+    assert_eq!(s.runs("cargo.args"), 0);
+    assert_eq!(s.runs("gate.runs"), 1);
+}
+
+/// A change with a file in no package (here at the root) reaches everything: nothing is outside,
+/// so an unrelated test that fails is red at once.
+#[tokio::test]
+async fn a_change_in_no_package_reaches_every_test() {
+    let (r, s) = scenario(
+        "red-always",
+        red_suite("b", "job::tests::flaky"),
+        (passed_again("b", "job::tests::flaky"), 0),
+    );
+    let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
     assert_eq!(s.runs("cargo.args"), 0);
     assert_eq!(s.runs("gate.runs"), 1);
 }
