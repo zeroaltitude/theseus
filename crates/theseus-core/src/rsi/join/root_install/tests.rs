@@ -296,8 +296,9 @@ async fn the_old_true_and_the_default_ask_on_a_root_owned_layout_and_install_not
             cards[0].reason
         );
         assert!(
-            t.helper.calls.lock().unwrap().is_empty(),
-            "{mode:?}: the helper is not called before a yes"
+            t.helper.installed.lock().unwrap().is_empty()
+                && t.helper.staged.lock().unwrap().is_empty(),
+            "{mode:?}: nothing is staged or installed before a yes"
         );
         assert!(t.units.restarts.lock().unwrap().is_empty(), "{mode:?}");
         assert_eq!(
@@ -314,7 +315,7 @@ async fn the_old_true_and_the_default_ask_on_a_root_owned_layout_and_install_not
     // With the proof not wired (nothing stands in), the legacy value makes no card either: it never reaches the helper.
     let t = rooted(SelfInstall::Legacy, None);
     t.join().await;
-    assert!(t.cards().is_empty() && t.helper.calls.lock().unwrap().is_empty());
+    assert!(t.cards().is_empty() && t.helper.installed.lock().unwrap().is_empty());
 }
 
 /// "auto" makes no card and installs; "off" never calls the helper; a user's own layout is not this module's.
