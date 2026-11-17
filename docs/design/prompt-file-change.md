@@ -1,4 +1,4 @@
-# The owner asks Theseus to change a prompt file (issue 23)
+# The owner asks Theseus to change a prompt file, or a setting too long for a card (issue 23)
 
 A second kind of change through issue 22's door (`config-change.md`), not a second door: the same wall, the same
 question (`config.ack`), the same second proof, the same kept copies, history and undo. What the daemon changes here
@@ -81,6 +81,13 @@ sizes. No restart marker is written.
 approved and from where. `config.undo` on it builds the same card (the file as it is now against the kept text before)
 and puts the text before back **exactly**, by the same proof; if the file changed again since, the card says so and
 shows those edits as the lines it removes.
+
+## A setting too long for a card (line 2)
+
+`config.propose` used to refuse a value whose shown form is over 400 characters (`diff::SHOWN`). Neither limit moved:
+a value between 400 characters and the proposal's 4,096 bytes (`MAX_VALUE_BYTES`) now goes on the same kind of card
+(`config_change/long_value.rs`): size and fingerprint of the value before and after, its changed lines whole when they
+fit, else a summary, and the whole value readable by `config.show`. A short value keeps today's card exactly.
 
 ## What the floor holds
 

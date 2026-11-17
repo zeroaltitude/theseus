@@ -165,6 +165,11 @@ fn lines(f: &Facts<'_>) -> String {
             true => "after a restart",
             false => "at once",
         };
+        // A value too long for a line has its own form below (issue 23).
+        if super::diff::too_long(s) {
+            out.push_str(&format!("{} ({when})\n", super::long_value::stub(s)));
+            continue;
+        }
         out.push_str(&format!(
             "- {}: {} → {} ({when})\n",
             super::edit::dotted(&s.path),
@@ -184,6 +189,9 @@ fn lines(f: &Facts<'_>) -> String {
             f.wait_secs
         ));
     }
+    // Long values, whole when they fit what is left of the card's room.
+    let room = super::prompt_file::card::CARD_CHARS.saturating_sub(out.chars().count() + 900);
+    out.push_str(&super::long_value::blocks(f.settings, room));
     let sensitive: Vec<String> = f
         .settings
         .iter()

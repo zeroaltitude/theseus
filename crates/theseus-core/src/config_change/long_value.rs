@@ -102,3 +102,5 @@ pub fn whole(settings: &[Setting]) -> String {
     out
 }
 
+#[cfg(test)]
+mod tests;

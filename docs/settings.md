@@ -42,8 +42,9 @@ Say what you want. Theseus proposes it as a change to named settings, with their
 setting, what it is now and what it would be, in plain words. It also says whether Theseus has to restart for the change
 to take effect (today every change restarts it), what a restart cuts, and Theseus's own reason for the change in its own
 words. If, since your last message, the conversation read text from outside (a web page, a search, a tool's reply), the
-card says so: that text could have steered the request, so read it with care. A change too big to show whole is refused
-rather than shown cut.
+card says so: that text could have steered the request, so read it with care. A card never shows cut text as if it were
+whole. A setting whose value is long (more than 400 characters, up to 4,096 bytes) is shown on the same kind of card as a
+prompt file (see below); a value larger than that is refused, and you edit the file.
 
 Press **Approve** (or answer on the card from your terminal), or **Decline**. A card that is not answered in time writes
 nothing.

@@ -86,11 +86,18 @@ pub(super) struct Rig {
 }
 
 pub(super) fn rig() -> Rig {
+    rig_with(|_, _| {})
+}
+
+/// [`rig`], with `more` to say about the settings first: it is given them and
+/// the state directory.
+pub(super) fn rig_with(more: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
     std::fs::write(&file, FILE).unwrap();
     let mut cfg = Config::example();
+    more(&mut cfg, &state);
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.policy.enforcement = Posture::Notify;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
@@ -664,7 +671,7 @@ fn the_copies_and_the_marker_are_on_the_floor() {
 async fn a_card_never_cuts_what_it_cannot_show_whole() {
     let r = rig();
     let sid = r.session();
-    r.turn(&sid, change("model.system", json!("p".repeat(2_000))))
+    r.turn(&sid, change("model.system", json!("p".repeat(5_000))))
         .await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Error, "{text}");

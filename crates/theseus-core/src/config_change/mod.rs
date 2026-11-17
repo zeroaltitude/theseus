@@ -147,7 +147,8 @@ fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
             (Some(v), false) => {
                 if v.to_string().len() > MAX_VALUE_BYTES {
                     return Err(format!(
-                        "the value of {} is larger than a setting: name the setting, not a document",
+                        "the value of {} is longer than a card can show whole, and larger than a \
+                         setting ({MAX_VALUE_BYTES} bytes): name the setting, not a document",
                         c.path
                     ));
                 }
@@ -466,10 +467,24 @@ pub(crate) fn put(
     if settings.is_empty() {
         return Err("that would change nothing: the file already has those values".into());
     }
-    // What cannot be shown whole is refused first, in its own words: a long
-    // prompt cannot be changed through this tool, sensitive or not.
-    if let Some(why) = card::too_much(&settings) {
+    // What cannot be shown whole is refused first, in its own words. A value
+    // too long for a line is not refused: it has its own form on the card
+    // (`long_value.rs`), with its whole text readable before the yes.
+    let short: Vec<diff::Setting> = settings
+        .iter()
+        .filter(|s| !diff::too_long(s))
+        .cloned()
+        .collect();
+    if let Some(why) = card::too_much(&short) {
         return Err(why);
+    }
+    let long = settings.len() - short.len();
+    if long > long_value::MAX_LONG {
+        return Err(format!(
+            "that changes {long} long values, and one card shows at most {} of them, each with \
+             its changed lines: ask for fewer at a time",
+            long_value::MAX_LONG
+        ));
     }
     let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
@@ -489,7 +504,13 @@ pub(crate) fn put(
     };
     let digest = write::keep_candidate(&w.state, &candidate)
         .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
-    let args = json!({
+    // A card with a long value has a whole text to read before the yes: the
+    // file as it was is kept beside the candidate (`show.rs`).
+    if long > 0 {
+        write::keep_text(&w.state, write::Kept::SettingsBase, base)
+            .map_err(|e| format!("the settings could not be kept for the card: {e}"))?;
+    }
+    let mut args = json!({
         "question": question,
         "base_sha256": crate::config_copy::sha256(base),
         "candidate_sha256": digest,
@@ -506,6 +527,10 @@ pub(crate) fn put(
             "place": tc.outbox.target(tc.session_id),
         },
     });
+    if long > 0 {
+        args["whole"] = json!(true);
+        args["base_kept"] = json!(true);
+    }
     let proposal = Proposal {
         tool: ACK.into(),
         args,
