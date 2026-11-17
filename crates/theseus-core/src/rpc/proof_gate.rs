@@ -61,6 +61,7 @@ impl Core {
         // opened by the owner's code must never cover one, and one can neither
         // carry a code nor spend the owner's tries on it.
         if let Some(agent) = &who.agent {
+            self.proofs.note_agent(&place);
             return Err(self.proof_refused(
                 a,
                 who,

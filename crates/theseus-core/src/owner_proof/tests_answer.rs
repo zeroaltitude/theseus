@@ -740,11 +740,26 @@ async fn an_agents_process_never_rides_the_owners_window() {
         .await
         .unwrap_err();
     assert!(refused(&e) && pending(&r, &second), "{e:?}");
+    let outcomes = |r: &OwnFiles| -> Vec<String> {
+        rows(r, "owner.proof.checked")
+            .iter()
+            .map(|row| row.data["outcome"].as_str().unwrap().to_string())
+            .collect()
+    };
     assert_eq!(
-        rows(&r, "owner.proof.checked").len(),
-        1,
-        "only the owner's own"
+        outcomes(&r),
+        ["ok", "agent", "agent"],
+        "each attempt is a row"
     );
+    // However many times an agent tries, none is a try of the owner's: six of
+    // them lock nothing, and the owner's own wrong code is still a plain wrong.
+    for _ in 0..6 {
+        let _ = confirm(&r, agent(), &second, true, Some("000000")).await;
+    }
+    let e = confirm(&r, cli(), &second, true, Some("000000"))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("not the code"), "not locked: {e:?}");
     // The owner, from the same place, still goes through on the window.
     confirm(&r, cli(), &second, true, None).await.unwrap();
     assert!(!pending(&r, &second));

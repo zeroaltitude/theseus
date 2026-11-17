@@ -386,6 +386,14 @@ impl Proofs {
         Ok(())
     }
 
+    /// An answer from an agent's process was refused before any code was read:
+    /// a row (`owner.proof.checked`, outcome `agent`) and nothing else. It is
+    /// no try, so an agent's attempts never spend the owner's five or lock them
+    /// out.
+    pub(crate) fn note_agent(&self, place: &str) {
+        self.checked_row("agent", place);
+    }
+
     /// A check's row, for the enrolment's first code, which is a check of a
     /// secret not yet kept.
     pub(super) fn checked_row(&self, outcome: &str, place: &str) {

@@ -60,7 +60,7 @@ is capped by the setting in force when it is read), and at 0 ends it.
   across restarts. A good code clears the count. A used code counts as a wrong one. A check that cannot save its
   counters, or cannot write its ledger row, is refused.
 - **The ledger**: every check, good or bad, is `owner.proof.checked` (the outcome: `ok`, `wrong`, `used`, `locked`,
-  `missing`, `not_enrolled`, `unreadable`, `unsaved`; and the place), never the code. Also `owner.proof.changed`
+  `missing`, `not_enrolled`, `unreadable`, `unsaved`, `agent`; and the place), never the code. Also `owner.proof.changed`
   (`enrolled`, `reset`, `refused`), `owner.proof.window_opened`, `owner.proof.window_used` (which question, from where)
   and `owner.proof.locked` (who, from where, how many windows).
 
@@ -79,7 +79,8 @@ decision**, so every surface meets it; a decline is never gated.
   a voice command) carries `typed`, which the daemon never takes a proof from and no window covers.
 - **An agent's process never answers it** (a process under an agent, or on the CLI one with no terminal: the answer's
   `Answerer::agent`, `peer_proc`). The CLI's socket and the web port are open to every process of the owner's user, so
-  such an answer carries no code, rides no window and spends none of the tries: it is refused and recorded.
+  such an answer carries no code, rides no window and spends none of the tries: it is refused and recorded (an
+  `owner.proof.checked` row, outcome `agent`, and no count).
 - A reset or a re-enrolment always takes a fresh code.
 - **The seam** the change branch calls: `Proofs::required_and_given(&question, &answer) -> Proof`, where `Proof` is
   `NotRequired | Given | GivenEarlier { at_ms, until_ms } | Missing | Refused(why)` and `Answer` is the code and the

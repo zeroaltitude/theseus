@@ -10,7 +10,8 @@ use super::Fact;
 
 /// A code was checked (`owner.proof.checked`): good or not, every time. The
 /// outcome is one of `ok`, `wrong`, `used`, `locked`, `not_enrolled`,
-/// `unreadable` and `unsaved`; the place is `cli`, `web`, `discord:dm` or the
+/// `unreadable`, `unsaved`, and `agent` (an answer from an agent's process, refused
+/// before any code was read, and no try); the place is `cli`, `web`, `discord:dm` or the
 /// like.
 pub struct ProofChecked<'a> {
     pub outcome: &'a str,
