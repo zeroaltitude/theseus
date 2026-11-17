@@ -106,6 +106,11 @@ const BARE: &[(&str, &str)] = &[
         "test-only: a writer killed mid-batch",
     ),
     (
+        "theseus-core/src/peer_proc.rs",
+        "test-only: a real child of the test process, to be judged a job's; \
+         under `#[cfg(test)]` in the file",
+    ),
+    (
         "theseus-core/src/peer.rs",
         "test-only: a stand-in peer process, and the `kill` that its `Drop` runs; \
          both are under `#[cfg(test)]` in the file",
