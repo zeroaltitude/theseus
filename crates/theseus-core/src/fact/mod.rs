@@ -72,6 +72,7 @@ pub mod onto;
 pub mod ontology;
 pub mod ops;
 pub mod own_bench;
+pub mod owner_proof;
 pub mod people;
 pub mod persona;
 pub mod persona_import;
@@ -322,6 +323,8 @@ facts![
     memory::MemoryUsed<'static>,
     memory::MemoryRead<'static>,
     memory::MemoryCited<'static>,
+    owner_proof::ProofChecked<'static>,
+    owner_proof::ProofChanged<'static>,
     place::PlaceViewed<'static>,
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,

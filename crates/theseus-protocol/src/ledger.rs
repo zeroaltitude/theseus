@@ -235,6 +235,8 @@ ledger_kinds! {
     PersonaImported = "persona.imported",
     PersonaMigrated = "persona.migrated",
     PersonaSoul = "persona.soul",
+    OwnerProofChanged = "owner.proof.changed",
+    OwnerProofChecked = "owner.proof.checked",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
     PlaceWarned = "place.warned",

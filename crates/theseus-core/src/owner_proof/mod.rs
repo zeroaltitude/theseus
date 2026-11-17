@@ -8,5 +8,13 @@
 //! Theseus can read the owner's mail.
 //!
 //! - [`totp`]: the code (RFC 6238), pure.
+//! - [`file`]: the one file the secret and the counters live in, and the
+//!   paths the floor holds for it.
+//! - [`proofs`]: enrolment, status, reset, and the check with its rate limit.
 
+pub mod file;
+pub mod proofs;
 pub mod totp;
+
+pub use file::{floor_paths, FILE};
+pub use proofs::{EnrolError, Offer, Proofs, Refused, Status};
