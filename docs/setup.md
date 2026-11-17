@@ -110,6 +110,20 @@ knows a new table before you add the table: the loader refuses a key it does not
 Exit status: 0 done, or nothing to do; 1 a step failed; 2 a usage error; 3 stopped before the service for you to act,
 as its last lines say.
 
+## A root-owned install
+
+If the service runs a build kept in a directory only the administrator can write
+(`/usr/local/lib/theseus/<commit>/theseusd`, with the user unit's `ExecStart` naming it), a change the self-improvement
+loop joined to `main` is not installed by the loop: it says so, and the administrator's step is
+
+```
+sudo install -d -m 0755 /usr/local/lib/theseus/<commit8> && sudo install -m 0755 <build>/release/{theseusd,theseus,theseus-tui,theseus-index} /usr/local/lib/theseus/<commit8>/ && PATH=/usr/local/lib/theseus/<commit8>:$PATH scripts/user-service.sh install --yes && scripts/user-service.sh restart
+```
+
+which checks nothing about what the programs are. To let Theseus take that step itself, after the owner's yes on a card,
+the administrator installs a one-purpose helper once: [root-install.md](root-install.md) says what it is, what it gives
+up, and how to remove it.
+
 ## A second daemon beside yours
 
 To try a build, or to prove the script itself, without touching your own daemon, give a scratch run its own of
