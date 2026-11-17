@@ -50,6 +50,23 @@ pub(crate) fn held_past_life(a: &Action) -> bool {
     theseus_protocol::work::ask::held_tool(&a.tool)
 }
 
+/// How many notices a self build's question has earned after `waited_ms`, and when the next is
+/// due: one at a life, one at two, then one an hour (a life, when that is longer). A question
+/// that waited less than a life counts as the first, as the plain count does.
+fn paced(planned_ms: u64, waited_ms: u64, life: u64) -> (u64, u64) {
+    let every = SELF_BUILD_EVERY_MS.max(life);
+    let two = 2 * life;
+    if waited_ms < two {
+        let lives = (waited_ms / life).max(1);
+        return (lives, planned_ms.saturating_add((lives + 1) * life));
+    }
+    let lives = 2 + (waited_ms - two) / every;
+    (lives, planned_ms.saturating_add(two + (lives - 1) * every))
+}
+
+/// Once a self build's question has been told twice, this is how often it is told again.
+const SELF_BUILD_EVERY_MS: u64 = 3_600_000;
+
 /// A wait in words: `15 minutes`, `1 hour 30 minutes`, `2 hours`.
 pub(crate) fn waited_words(ms: u64) -> String {
     let minutes = (ms / 60_000).max(1);
@@ -107,8 +124,16 @@ impl Core {
     pub(crate) fn question_waits(&self, a: &Action, ttl_ms: u64, now: u64) -> Result<u64> {
         let life = ttl_ms.max(MIN_LIFE_MS);
         let waited = now.saturating_sub(a.planned_at_ms);
-        let lives = (waited / life).max(1);
-        let next = a.planned_at_ms.saturating_add((lives + 1) * life);
+        // A self build's question is told twice a life apart and then once an hour
+        // (`rsi::pipeline::parked`): it can wait a night, and the owner's DM is not a clock.
+        let build = self.self_build_title(&a.session_id);
+        let (lives, next) = match build {
+            Some(_) => paced(a.planned_at_ms, waited, life),
+            None => {
+                let lives = (waited / life).max(1);
+                (lives, a.planned_at_ms.saturating_add((lives + 1) * life))
+            }
+        };
         let key = format!("{NOTICED_PREFIX}{}", a.correlation_id);
         let told: Option<Noticed> = self.store.get_meta(&key)?;
         if told.is_some_and(|t| t.lives >= lives) {
@@ -123,13 +148,16 @@ impl Core {
         // next sweep is a life away rather than this tick.
         let mut post = None;
         if self.runner.place_rule.owner_dm_bound() {
-            let text = format!(
-                "⏳ `{}` has waited {} for your answer. It is held, not cancelled: it runs or is \
-                 declined when you answer (`theseus answer {}`).",
-                a.tool,
-                waited_words(waited),
-                crate::task::short(&a.correlation_id),
-            );
+            let text = match &build {
+                Some(title) => self.build_wait_words(a, title, waited, lives, life),
+                None => format!(
+                    "⏳ `{}` has waited {} for your answer. It is held, not cancelled: it runs or \
+                     is declined when you answer (`theseus answer {}`).",
+                    a.tool,
+                    waited_words(waited),
+                    crate::task::short(&a.correlation_id),
+                ),
+            };
             let body = json!({
                 "kind": "notice", "text": text, "quiet": true,
                 "purpose": "question_waiting", "correlation_id": a.correlation_id,

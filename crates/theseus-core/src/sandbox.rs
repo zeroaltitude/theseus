@@ -232,10 +232,7 @@ pub(crate) fn unbrokered(
     tightened: Option<crate::policy::Tightened<'_>>,
 ) -> (Decision, Bound) {
     let l1 = (tool.backend() == Backend::Job)
-        .then(|| {
-            rt.sandbox
-                .l1_for(plan.argv.as_deref().unwrap_or(&[]), input)
-        })
+        .then(|| crate::rsi::own_tree::l1_of(rt, session, tool, plan, input))
         .flatten();
     match l1 {
         Some(why) => {

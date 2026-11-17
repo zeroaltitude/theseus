@@ -22,15 +22,15 @@ use theseus_kernel::Authority;
 use theseus_protocol::rsi::SelfMode;
 use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
-fn base(target: &Path) -> PathBuf {
+pub(super) fn base(target: &Path) -> PathBuf {
     target.parent().unwrap().parent().unwrap().to_path_buf()
 }
 
-fn tree(target: &Path, id: &str) -> PathBuf {
+pub(super) fn tree(target: &Path, id: &str) -> PathBuf {
     base(target).join("state/self/trees").join(id)
 }
 
-fn builder(target: &Path) -> PathBuf {
+pub(super) fn builder(target: &Path) -> PathBuf {
     base(target).join("state/self/builder/sails")
 }
 
@@ -52,11 +52,11 @@ fn act(c: &mut Config) {
 /// What a case aims a call with, from the rig's target.
 type Aim<T> = fn(&Path) -> T;
 
-fn nothing(_: &mut Config) {}
+pub(super) fn nothing(_: &mut Config) {}
 
 /// The places in the module's header, holding old bytes, made before the script is built so that a
 /// call may name a link inside them.
-fn lay(b: &Path) {
+pub(super) fn lay(b: &Path) {
     let t = b.join("work/notes.txt");
     for id in ["sails", "tides"] {
         std::fs::create_dir_all(tree(&t, id)).unwrap();
@@ -77,7 +77,7 @@ fn lay(b: &Path) {
 /// A core whose one scripted call is `name` with `input`, from a session of `principal` (the task
 /// `sails` when that is `self`), with every place above laid out and holding old bytes. `verdict`
 /// is what Jev answers.
-fn drive_says(
+pub(super) fn drive_says(
     verdict: &str,
     principal: &str,
     name: &'static str,
@@ -134,7 +134,7 @@ fn drive_says(
 }
 
 /// [`drive_says`] with the answer that holds.
-fn drive(
+pub(super) fn drive(
     principal: &str,
     name: &'static str,
     input: impl FnOnce(&Path) -> Value,
@@ -146,7 +146,7 @@ fn drive(
 impl Rig {
     /// Whether the one call was held, as the gate's own record says it: a `Declined` result and a
     /// `tool.held` row, which must agree. Jev was asked once, held or not.
-    fn was_held(&self, sid: &str) -> bool {
+    pub(super) fn was_held(&self, sid: &str) -> bool {
         let results = self.results(sid);
         let rows = self.rows("tool.held").len();
         let declined = results.iter().any(|(s, _, _)| s == "Declined");
@@ -177,7 +177,7 @@ impl crate::toolrun::JobLauncher for Recorder {
 }
 
 /// The jobs `session` started, in order.
-fn jobs_of(session: &str) -> Vec<theseus_kernel::job::WrapperArgs> {
+pub(super) fn jobs_of(session: &str) -> Vec<theseus_kernel::job::WrapperArgs> {
     let mark = theseus_protocol::JOB_SESSION_ENV;
     let all = JOBS.lock().unwrap();
     all.iter()
@@ -186,7 +186,7 @@ fn jobs_of(session: &str) -> Vec<theseus_kernel::job::WrapperArgs> {
         .collect()
 }
 
-fn read(p: PathBuf) -> String {
+pub(super) fn read(p: PathBuf) -> String {
     std::fs::read_to_string(p).unwrap()
 }
 

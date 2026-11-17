@@ -12,13 +12,20 @@ use serde_json::{json, Value};
 
 use crate::types::{Completion, Outcome};
 
+/// The detail key, and the `failure` word, of a call that failed because its own session's working
+/// copy was gone (issue 20): the nightly read does not file it under the tool's cause.
+pub const TREE_GONE: &str = "tree_gone";
+
 /// The class of a failed completion's detail; `None` when the detail names
 /// none of them (an in-process call, a provider, an older wrapper).
 pub fn classify(detail: Option<&Value>) -> Option<&'static str> {
     let d = detail?;
     let set = |k: &str| d.get(k).is_some_and(|v| !v.is_null());
     let flag = |k: &str| d.get(k).and_then(Value::as_bool).unwrap_or(false);
-    if set("spawn_error") {
+    if flag(TREE_GONE) {
+        // A self session's call whose own working copy had been closed: not a fault of the tool.
+        Some(TREE_GONE)
+    } else if set("spawn_error") {
         Some("spawn")
     } else if flag("stopped") {
         Some("stopped")
