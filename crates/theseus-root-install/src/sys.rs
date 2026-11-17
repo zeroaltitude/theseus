@@ -149,6 +149,9 @@ pub fn list(fd: RawFd) -> io::Result<Vec<String>> {
         unsafe { libc::close(dup) };
         return Err(e);
     }
+    // The duplicate shares the descriptor's offset: a listing made earlier on the same descriptor has left it at the end.
+    // SAFETY: `dir` is open.
+    unsafe { libc::rewinddir(dir) };
     let mut names = Vec::new();
     loop {
         // SAFETY: `dir` is open; `readdir` returns null at the end, and the entry it returns is valid until the
