@@ -9,7 +9,7 @@
 import type { OpsRow } from './board.ts'
 import { alive } from './board.ts'
 import { isEndedState, isRunning } from './state.ts'
-import { answerOf, type QueueItem } from './queue.ts'
+import { answerOf, settingsQuestion, type QueueItem } from './queue.ts'
 
 export type Selection = ReadonlySet<string>
 
@@ -61,10 +61,10 @@ const ASKS: ReadonlySet<BulkVerb> = new Set(['stop', 'cancel', 'rehome', 'declin
 
 /** A tool approval bulk Approve may send (decision 4): not a budget ask, not a task change, not of the always-ask kind,
  *  and one this connection may answer. */
-export const bulkApprovable = (i: QueueItem): boolean => i.kind === 'approval' && !!i.confirm && !i.confirm.floor && i.confirm.may_answer !== false
+export const bulkApprovable = (i: QueueItem): boolean => i.kind === 'approval' && !!i.confirm && !i.confirm.floor && !settingsQuestion(i.confirm) && i.confirm.may_answer !== false
 
-/** Its floor approvals: the review sheet lists them as asking one by one. */
-export const floorApproval = (i: QueueItem): boolean => i.kind === 'approval' && i.confirm?.floor === true
+/** Its floor approvals and its settings questions: the review sheet lists them as asking one by one. */
+export const floorApproval = (i: QueueItem): boolean => i.kind === 'approval' && (i.confirm?.floor === true || settingsQuestion(i.confirm))
 
 const declinable = (i: QueueItem): boolean => (i.kind === 'approval' || i.kind === 'budget' || i.kind === 'change') && !!i.confirm && i.confirm.may_answer !== false
 

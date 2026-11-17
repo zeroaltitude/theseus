@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowRightLeft, CheckCheck, FolderPlus, ListChecks, OctagonX, X } from 'lucide-react'
 import { ago, cn } from '@/lib/format'
 import type { OpsRow } from './board'
-import type { QueueItem } from './queue'
+import { settingsQuestion, type QueueItem } from './queue'
 import { PAST_WORDS } from './keys'
 import { useOpsAct } from './act'
 import { useSelection } from './useSelection'
@@ -128,9 +128,11 @@ export function useBulk({ rows, queue, homes, projects, titleOf, now, onResults 
             <li key={i.key} className="flex items-start gap-2 rounded-md px-2 py-1.5 opacity-70 ring-1 ring-wait/30">
               <span className="mt-0.5 text-wait" aria-hidden>◆</span>
               <span className="min-w-0 flex-1">
-                <span className="num text-[11px] text-wait">{i.confirm!.tool} · asks one by one</span>
+                <span className="num text-[11px] text-wait">{settingsQuestion(i.confirm) ? 'settings' : i.confirm!.tool} · asks one by one</span>
                 <span className="block text-[12.5px] text-ink">{i.confirm!.plain?.what ?? i.confirm!.reason}</span>
-                <span className="block text-[10.5px] text-ink-faint">The floor asks at every posture: answer it on its own card in the queue. It is not sent.</span>
+                <span className="block text-[10.5px] text-ink-faint">{settingsQuestion(i.confirm)
+                  ? 'A change to Theseus’s own settings is answered on its whole card in the queue, with its values and any code it needs: it is never approved in a batch. It is not sent.'
+                  : 'The floor asks at every posture: answer it on its own card in the queue. It is not sent.'}</span>
               </span>
             </li>
           ))}
