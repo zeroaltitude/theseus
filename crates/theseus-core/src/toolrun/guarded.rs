@@ -95,6 +95,13 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
         floor_paths.push(canon_path(spool));
     }
     floor_paths.extend([
+        // The directory a config change keeps its candidates, the copies
+        // before it and the restart's marker in (issue 22). It is inside the
+        // store above, and is named anyway: the rollback at a start trusts
+        // what it finds there, so a turn that could write one file there
+        // could have the config replaced with no card and no yes, and the
+        // floor must not depend on where the directory sits.
+        canon_path(crate::config_change::write::dir(&state)),
         canon_path(cfg.discord.bindings_path(&state)),
         // The user-level instruction file (theseus-wadu §1, theseus-3i6d1):
         // read live into the system block on every request, with the standing
@@ -244,6 +251,18 @@ mod tests {
                 "{name} is not floored: {floor:?}"
             );
         }
+    }
+
+    /// The directory a config change keeps its copies and its restart's
+    /// marker in is on the floor by its own name, not only as part of the
+    /// store (issue 22): a rollback trusts what is in it.
+    #[test]
+    fn the_config_changes_directory_is_floored() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/state");
+        let floor = guarded_paths(&cfg_over(state)).1;
+        let dir = crate::config_change::write::dir(state);
+        assert_eq!(dir, state.join("store").join("config-changes"));
+        assert!(floor.contains(&dir), "{dir:?} {floor:?}");
     }
 
     /// The daemon cannot pick a store name the floor does not know: it
