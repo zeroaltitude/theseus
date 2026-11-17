@@ -115,7 +115,7 @@ async fn a_small_change_to_a_long_value_shows_its_changed_lines_and_a_big_one_is
         .core
         .config_show(
             &ConfigShowParams {
-                question: Some(q.correlation_id.clone()),
+                question: Some(q.correlation_id),
                 ..Default::default()
             },
             "cli",

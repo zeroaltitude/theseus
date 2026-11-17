@@ -65,7 +65,7 @@ fn a_card_that_does_not_fit_is_a_summary_and_says_so() {
     let after = before
         .replace("line 10\n", "line ten\n")
         .replace("line 250\n", "line two fifty\n");
-    let (q, whole) = card(&before, &after.repeat(1), "r", false, false);
+    let (q, whole) = card(&before, &after, "r", false, false);
     // Two small hunks fit.
     assert!(whole, "{q}");
     let wide: String = (1..=300)
