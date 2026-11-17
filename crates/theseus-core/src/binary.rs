@@ -85,7 +85,7 @@ pub fn status_of(exe: &Path) -> BinaryStatus {
 
 /// The effective user may write `p` (`faccessat` with `AT_EACCESS`): its
 /// mode, its owner, and a read-only mount all count.
-fn writable(p: &Path) -> bool {
+pub(crate) fn writable(p: &Path) -> bool {
     let Ok(c) = CString::new(p.as_os_str().as_bytes()) else {
         return false;
     };

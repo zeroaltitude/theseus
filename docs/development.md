@@ -605,6 +605,13 @@ under its own text; there is no shadow period and no ladder wait.
   stops at the owner's card (the keel list below).
 - **It installs the join** and tells the owner what changed, why, the numbers, the cost, and the one-command revert.
   A regression within a day of a self-join reverts it.
+  - It installs only where it can write the directory the service runs from, which it reads from the unit
+    (`rsi/join/layout.rs`). The unit leaves a marker naming the join, and the new daemon checks its own commit against
+    it: `self.install.verified`, or `self.install.mismatch` and a note to the owner.
+  - Where the service runs a root-owned build, it copies nothing and restarts nothing, records
+    `self.install.not_installed`, and tells the owner once that the change is joined and not installed, with the one
+    step ([setup.md](setup.md#a-root-owned-install)). `self pipeline`, `self log` and `health` never call such a build
+    done.
 
 ### What it never does without the owner's yes (the hard keel)
 

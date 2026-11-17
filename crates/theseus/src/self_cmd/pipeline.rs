@@ -68,6 +68,9 @@ pub fn lines(r: &SelfPipelineResult) -> Vec<String> {
         );
         return out;
     }
+    if let Some(j) = &r.last_join {
+        out.push(format!("Last join: {j}"));
+    }
     let room = &r.room;
     let mut host = format!(
         "Builder: {}. Slots: {} building, {} trees open, of {}.",
@@ -262,6 +265,24 @@ mod tests {
         assert_eq!(
             l[13],
             "Rows a day: 0.14. Accept rate: 50%. Regressions: 0. Cost a row: $4.50 this week, no row yet today."
+        );
+    }
+    /// The last join is said, with whether it is what runs and the step (issue 20); a daemon
+    /// before any join says nothing of it.
+    #[test]
+    fn the_pipeline_says_whether_the_last_join_is_what_runs() {
+        let mut r = SelfPipelineResult::default();
+        assert!(!lines(&r).iter().any(|l| l.starts_with("Last join")));
+        r.last_join = Some(
+            "joined at 0123456789ab; joined but not installed: the service runs a root-owned \
+             build. To install it: sudo install x"
+                .into(),
+        );
+        let l = lines(&r);
+        assert_eq!(
+            l[1],
+            "Last join: joined at 0123456789ab; joined but not installed: the service runs a \
+             root-owned build. To install it: sudo install x"
         );
     }
 }
