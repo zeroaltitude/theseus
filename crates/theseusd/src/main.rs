@@ -811,13 +811,15 @@ fn out(text: &str) -> Result<()> {
     }
 }
 
-/// What the journal says a restart is for: a change to the settings the owner
-/// approved (its reference is the change's marker), or the vault's changed
-/// config note, which is the only other thing that asks for one.
+/// What the journal says a restart is for: one the owner approved on a
+/// settings card (its reference is the change's marker, which a plain restart
+/// and the return to the settings before an unhealthy change share), or the
+/// vault's changed config note, which is the only other thing that asks for one.
 fn restart_words(asked: Option<&theseus_protocol::ConfigRestart>) -> &'static str {
     match asked {
         Some(r) if r.reference.starts_with(restart::REF_PREFIX) => {
-            "restarting onto the change to the settings the owner approved"
+            "restarting onto the change to the settings the owner approved (or for the \
+             restart they asked for, or back onto the settings before an unhealthy change)"
         }
         _ => "restarting onto the vault's changed config note",
     }
