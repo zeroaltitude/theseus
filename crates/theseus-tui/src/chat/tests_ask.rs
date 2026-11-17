@@ -685,3 +685,60 @@ async fn a_commands_result_lines_stay_under_its_line_behind_a_gutter() {
     r.shows("AssertionError: -2.8 != 2.8").await;
     assert!(r.text().contains("⎿ test_tidal_range"), "{}", r.text());
 }
+
+fn settings_question() -> ConfirmRequest {
+    let mut card = String::from("Change 2 settings?\n");
+    for i in 0..2 {
+        card.push_str(&format!(
+            "- memory.k{i}: \"{}\" → \"{}!\" (after a restart)\n",
+            "a".repeat(380),
+            "b".repeat(380)
+        ));
+    }
+    ConfirmRequest {
+        correlation_id: "act_77".into(),
+        session_id: SID.into(),
+        tool: "config.ack".into(),
+        reason: card.clone(),
+        by: "the model".into(),
+        requested_at_ms: T0,
+        expires_at_ms: T0 + 300_000,
+        plain: Some(theseus_protocol::PlainWords {
+            who: "Theseus".into(),
+            what: "change 2 settings".into(),
+            yes: "has the daemon write these settings itself.".into(),
+            no: "changes nothing.".into(),
+            detail: card,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// A yes on a settings question is taken only after its whole card has been
+/// written into the transcript with `v`: the dock holds a line, not a card.
+#[tokio::test(start_paused = true)]
+async fn y_on_a_settings_question_waits_for_v() {
+    let mut r = Rig::with(100, 40, script()).await;
+    r.ready().await;
+    r.starts_turn("trn_1");
+    r.tell(Event::ConfirmRequested(settings_question()));
+    r.shows("v: read the whole card first").await;
+    r.press(KeyCode::Char('y')).await;
+    r.shows("press v to read the whole card first, then y")
+        .await;
+    assert!(
+        r.daemon.asked("action.confirm").is_empty(),
+        "no yes under a line of the card"
+    );
+    r.press(KeyCode::Char('v')).await;
+    r.shows("memory.k1").await;
+    let text = r.text();
+    assert!(
+        text.matches('a').count() > 700 && text.matches('b').count() > 700,
+        "every character of both values is in the transcript"
+    );
+    r.press(KeyCode::Char('y')).await;
+    r.asked("action.confirm", 1).await;
+    assert_eq!(r.daemon.asked("action.confirm")[0]["approve"], true);
+}

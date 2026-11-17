@@ -48,6 +48,9 @@ pub struct AskState {
     pub focus: Option<String>,
     /// The id of the question the fields above are about.
     pub seen: Option<String>,
+    /// The whole card of a settings question has been written into the
+    /// transcript (`v`): only then is `y` taken for it.
+    pub read: bool,
 }
 
 /// A question that waits for you: this conversation's own, or a task's.
@@ -149,6 +152,15 @@ impl Chat {
 
     fn own_key(&mut self, q: &ConfirmRequest, key: char, which: Ask) -> Option<Vec<Effect>> {
         match which {
+            // A settings question is answered with a yes only after its whole
+            // card has been put in front of the person: the dock holds a line.
+            Ask::Yes if is_settings(q) && !self.ask.read => {
+                self.say_words(
+                    Sty::Yellow,
+                    "this changes Theseus's own settings: press v to read the whole card first, then y",
+                );
+                Some(Vec::new())
+            }
             Ask::Yes => Some(self.confirm(q, true, None, false)),
             Ask::Grant if q.grant_offer.as_ref().is_some_and(|o| o.key() == key) => {
                 Some(self.confirm(q, true, None, true))
@@ -306,6 +318,7 @@ impl Chat {
             for l in p.detail_lines() {
                 self.say_words(Sty::Dim, &format!("  {l}"));
             }
+            self.ask.read = true;
             self.gap();
             return;
         }
@@ -384,6 +397,11 @@ fn expiry(q: &ConfirmRequest, now_ms: u64) -> Option<String> {
     })
 }
 
+/// Whether `q` is a settings question: the daemon sent its own whole words.
+pub(crate) fn is_settings(q: &ConfirmRequest) -> bool {
+    q.plain.as_ref().is_some_and(|p| !p.detail.is_empty())
+}
+
 /// The dock's rows for the question that has the keys.
 pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     let Some(cur) = chat.current() else {
@@ -434,9 +452,10 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     // (theseus-cudar); the gate's own reason stands in for a daemon without.
     let said = match &q.plain {
         // The whole card is a key away: the dock holds a line, not a card.
-        Some(p) if !p.detail.is_empty() => {
-            format!("v: read the whole card first · Yes: {} No: {}", p.yes, p.no)
+        Some(p) if !p.detail.is_empty() && !chat.ask.read => {
+            "v: read the whole card first; y is taken after it".to_string()
         }
+        Some(p) if !p.detail.is_empty() => format!("Yes: {} No: {}", p.yes, p.no),
         Some(p) => p.lines().split_off(1).join(" · "),
         None if q.reason.is_empty() => String::new(),
         None => format!("why: {}", q.reason),
