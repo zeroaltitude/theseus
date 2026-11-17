@@ -26,8 +26,9 @@ sensitive list in `crates/theseus-core/src/config/sensitivity.rs`, and `crates/t
    to the card.
 4. **The yes** is `action.confirm` on a question of its own, `config.ack`, judged by the place rule as an
    extension's ack is. The daemon re-reads the file: if its digest is not the one the candidate was built on, nothing
-   is written. Else it keeps the text it replaces as a numbered copy (`<state>/config-changes/previous-NNNN.toml`,
-   the last ten), then writes the candidate in one step (temporary file in the same directory, synced, the old
+   is written. Else it keeps the text it replaces as a numbered copy
+   (`<state>/store/config-changes/previous-NNNN.toml`, the last ten), then writes the candidate in one step
+   (temporary file in the same directory, synced, the old
    permissions, rename, directory synced). It records `config.changed` with the paths (not the values), who asked
    (session, turn, place), who approved and through what, and the two digests. A decline, an expiry, or a refusal
    records `config.declined`. Candidates, copies and the marker are under `<state>/store/config-changes/`: the
