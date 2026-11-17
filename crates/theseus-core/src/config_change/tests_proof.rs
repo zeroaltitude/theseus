@@ -406,7 +406,7 @@ async fn the_restart_card_counts_what_is_waiting_on_a_question() {
         .await;
     let quiet = r.asked().remove(0).reason;
     assert!(!quiet.contains("waiting on a question"), "{quiet}");
-    // One execution now waits on a card to the owner.
+    // A setting's card now waits on the owner too, beside the first restart card: two.
     let _ = ask(&r, "import.notes.enabled", json!(false)).await;
     let sid = r.session();
     r.turn_with("daemon_restart", &sid, json!({"reason": "it feels stuck"}))
