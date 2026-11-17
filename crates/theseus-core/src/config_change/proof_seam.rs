@@ -27,6 +27,24 @@ pub fn required_and_given(_question: &Action, _via: &str) -> Proof {
     Proof::NotInstalled
 }
 
+/// Whether any setting of a change needs a fresh code, one typed for that
+/// change alone and covered by no open window (`config::sensitivity::
+/// needs_fresh_proof`; today `[self] install` becoming `"auto"`). Read from
+/// the settings that really change, as the sensitive check is. The wiring
+/// passes it to `owner_proof::mark(correlation_id, fresh)` where the card is
+/// asked, and again where a yes is judged.
+pub fn needs_fresh(settings: &[super::diff::Setting]) -> bool {
+    settings
+        .iter()
+        .any(|s| crate::config::sensitivity::needs_fresh_proof(&s.path, s.after.as_ref()))
+}
+
+/// Whether a sensitive change may go to the owner at all: not while the
+/// proof is not installed.
+pub fn installed() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,22 +77,4 @@ mod tests {
         )));
         assert!(!needs_fresh(&between("", "[self]\nmode = \"on\"\n")));
     }
-}
-
-/// Whether any setting of a change needs a fresh code, one typed for that
-/// change alone and covered by no open window (`config::sensitivity::
-/// needs_fresh_proof`; today `[self] install` becoming `"auto"`). Read from
-/// the settings that really change, as the sensitive check is. The wiring
-/// passes it to `owner_proof::mark(correlation_id, fresh)` where the card is
-/// asked, and again where a yes is judged.
-pub fn needs_fresh(settings: &[super::diff::Setting]) -> bool {
-    settings
-        .iter()
-        .any(|s| crate::config::sensitivity::needs_fresh_proof(&s.path, s.after.as_ref()))
-}
-
-/// Whether a sensitive change may go to the owner at all: not while the
-/// proof is not installed.
-pub fn installed() -> bool {
-    false
 }
