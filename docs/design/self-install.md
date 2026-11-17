@@ -1,0 +1,160 @@
+# Theseus installs what its own loop joined (issue 22, last line)
+
+On a machine whose service runs programs from a directory only the administrator can write
+(`/usr/local/lib/theseus/<commit8>/`), the self-improvement loop can join a change to main and cannot make it the
+build that runs (issue 20 makes the loop say so). The owner, 2026-11-16 (chat message 1572121605432152149): it should
+be able to. This note says first what that directory protects today, because that is what is being traded, then the
+helper that does the one thing, the administrator's one-time step, and the daemon's side.
+
+## What the root-owned directory protects today, and what it does not
+
+The service is a **user** unit. `theseusd install --user` writes it to `~/.config/systemd/user/theseusd.service`
+(`crates/theseusd/src/install/modes.rs`, `user_unit_path`), owned by the operator, and `ExecStart` names the daemon's
+program by absolute path. Nothing makes that file, or the user manager that reads it, the administrator's:
+
+- the floor (`crates/theseus-core/src/toolrun/guarded.rs`) names the config, the store, the token and the sealed sets,
+  and does not name the unit or `~/.config/systemd`;
+- an L0 job runs as the operator (AGENTS.md, "The security posture": "an L0 job can strip its environment, or talk
+  to the socket itself"), and so can any other program the operator runs;
+- `systemctl --user daemon-reload` and `restart` ask for no password, and a drop-in
+  (`~/.config/systemd/user/theseusd.service.d/*.conf`, which `docs/user-service.md` says is never touched) overrides
+  the unit's `ExecStart`.
+
+So a program running as the owner can already make the next start of the daemon run **any program of its choice**:
+write its own build anywhere it can write, point the unit (or a drop-in) at it, restart. It did not need the
+administrator, and it still does not.
+
+What the root-owned directory therefore stops, exactly:
+
+- **In-place replacement** of the program the unit names, and of the three programs beside it (`theseus`,
+  `theseus-tui`, and `theseus-index`, the index tender the daemon starts from its own directory). A program running
+  as the owner cannot overwrite `/usr/local/lib/theseus/<commit8>/theseusd`; to change what that path holds it needs
+  the administrator's password.
+- **A silent swap.** Changing the running build that way is a change of the unit, which is a file the owner can see
+  and `status` reports; it is not a quiet overwrite of a file whose path never changes.
+- **An accident**: the loop's own install (issue 20) copying a build over a program the service runs.
+
+What it does not stop: re-pointing the unit; shadowing a tool the daemon finds on `PATH` (`~/.local/bin` is in the
+unit's `PATH`); anything an owner's program can do by being the owner. It is a separation of mistakes and a visible
+step, not a boundary against the owner's account. (The other layout, `theseusd install --separate`, is a real boundary:
+a system unit, the daemon as its own user, a binary at `/usr/local/lib/theseus/theseusd` that the operator cannot
+replace or re-point. **This work is not offered there** and the helper never touches that file; see "The helper writes
+one directory".)
+
+### What the administrator's step is today, and what it checks
+
+The step the loop prints on a root-owned layout (issue 20, `rsi/join/layout.rs`, `step`) is:
+
+```
+sudo install -d -m 0755 /usr/local/lib/theseus/<commit8> && sudo install -m 0755 <build>/release/{theseusd,theseus,theseus-tui,theseus-index} /usr/local/lib/theseus/<commit8>/ && PATH=/usr/local/lib/theseus/<commit8>:$PATH scripts/user-service.sh install --yes && scripts/user-service.sh restart
+```
+
+Its checks are two: sudo asks for the administrator's password, and `user-service.sh install` checks that `theseusd` is on
+`PATH` and is not a build-tree binary, then writes the unit. **It checks nothing about what the programs are**: the
+person at the keyboard decides what to copy. That judgement is what the owner trades for self-sufficiency.
+
+## What is given up
+
+A program running as the owner can now ask the helper too. It can put four programs of its own choosing into a new
+`/usr/local/lib/theseus/<commit8>/` with no password. What it could not do before is **have root-owned files in that
+directory**; what it could always do (point the unit at its own build) it still can. So the directory is protected by
+what the helper checks, and no longer by the administrator's password. Plainly, the new things a program running as the
+owner can now do, and the limits on each:
+
+1. Put root-owned, mode 0755 executables in `/usr/local/lib/theseus/<commit8>/`. They are inert unless something runs
+   them: **nothing on the machine may run a program from that directory as root or as another user** (the
+   administrator's own checklist says so). The helper sets no setuid bit and no other mode.
+2. Fill the disk under `/usr/local/lib/theseus`. The helper refuses a build over a count of 20 directories there
+   (`MAX_BUILDS`); the administrator prunes old ones by hand.
+3. Choose the directory's name by its commit: only the first eight hex digits of a commit it names. An existing
+   directory is never overwritten, so it cannot replace a build the unit already names.
+
+What the helper cannot give: the programs are not run by it (as root nothing the owner supplied is executed), no path,
+option or environment is read from the caller, and it writes one directory.
+
+**Who vouches that the programs are the commit's.** The helper cannot prove it. A build stamp in the daemon's image
+names the commit (catches a mistake: a stale directory, the wrong build), and an attacker who can write the stamp can
+write anything. What vouches is the loop: its own gate, the joined merge's signed commit, and the daemon's rule that it
+asks only for a commit its own join row names and that is main's head on the remote at that moment. All of that runs as
+the owner. So the helper protects the directory only as far as the owner's account is trusted.
+
+## The helper
+
+`crates/theseus-root-install`, one binary, `theseus-root-install <commit>`. Standard library and `libc` only.
+
+**Inputs it reads.** Its one argument (exactly forty lowercase hex digits; anything else, none, or a second argument,
+is refused). Nothing from its environment: it clears it and sets `PATH` to `/usr/sbin:/usr/bin:/sbin:/bin` (it runs no
+program, so the variable only closes a door). It reads no file but the staging directory's four files. The paths are
+compiled in; a test asserts the real program carries no override.
+
+**The staging directory.** `/var/lib/theseus-root-install/stage`, derived by the helper. Required, walking each
+component from `/` with `O_NOFOLLOW`: `/var/lib/theseus-root-install` and every directory above it root-owned and not
+group- or world-writable; the stage directory itself a directory (not a link), not group- or world-writable, owned by a
+non-root user (the administrator's step makes it the service's user's, mode 0700). It must hold exactly
+`theseusd`, `theseus`, `theseus-tui`, `theseus-index`, nothing else.
+
+**What it checks of each file.** Opened with `O_NOFOLLOW` relative to the directory's descriptor; a regular file
+(`fstat` on the open descriptor, not the name); owned by the staging directory's owner (so a hard link to a file the
+owner does not own is refused); one link; not empty; under 1 GiB; begins with the ELF magic. It is **copied** into a
+fresh directory it makes beside the target, from the open descriptor, and every later check reads the copy, which the
+owner can no longer change (this closes the race between check and copy: the source is read once, the copy is what is
+examined and what is renamed).
+
+**The build stamp.** The copy of `theseusd` must contain the stamp the daemon carries
+(`theseus-build-stamp:<commit>:`, `crates/theseusd/src/main.rs`) and every stamp in it must name the commit asked for.
+It does not run `--version`: running a program the owner wrote **as root** would hand the owner root. It reads the
+bytes. This catches a mistake, not an attacker. The other three programs are only required to be ELF files of the right
+names: only `theseusd` carries a stamp today.
+
+**What it writes: one directory.** It creates `/usr/local/lib/theseus/.install-<commit8>-<pid>` (mode 0700, root),
+writes the four copies there (0755, root:root, created `O_EXCL|O_NOFOLLOW`), makes the directory 0755, and
+`renameat2(RENAME_NOREPLACE)`s it to `/usr/local/lib/theseus/<commit8>`, then syncs `/usr/local/lib/theseus`.
+`/usr/local/lib/theseus` must already exist (the administrator's step makes it) and be root-owned and not
+group/world-writable. If `<commit8>` exists: identical content in the four files and nothing else means success
+("already installed", changes nothing); anything else is a refusal. It never removes a directory it did not just make
+(its own temporary one on a failure). It changes no unit, no `PATH`, no other directory and no file of
+`/usr/local/lib/theseus` itself, so the `--separate` layout's `/usr/local/lib/theseus/theseusd` is out of its reach (a
+commit's eight hex digits cannot be that name).
+
+**What it says.** One line to the system log (`LOG_AUTH`, tag `theseus-root-install`) for each install, each
+"already installed", and each refusal, with the reason; and the same line on its stderr. Exit 0 or 1.
+
+**Sudoers.** One rule, `<service user> ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/theseus-root-install
+[0-9a-f]...[0-9a-f]` (forty classes: the rule's own pattern allows exactly forty hex digits and no space, in addition to
+the helper's own check). `scripts/root-install.sh` writes it, checks it with `visudo -cf` before it is moved into place.
+
+## The administrator's one-time step
+
+`scripts/root-install.sh install` (run by the administrator, with `sudo`; `docs/root-install.md`): it puts the helper in
+`/usr/local/sbin`, makes `/usr/local/lib/theseus` and the staging directory (the service's user's, 0700), writes the
+sudoers rule, and prints what it did. `scripts/root-install.sh remove` is the reverse and removes nothing it did not
+make. Nothing here is run by a runner on any machine; Tabitha does it on the owner's machine with his yes.
+
+## The daemon's side
+
+`[self] install` is `"ask"` (default), `"auto"`, or `"off"` (a `true` of today's file reads as `"auto"`, a `false` as
+`"off"`). It is itself a sensitive setting (`[self]` is on the sensitive list).
+
+After a join on a root-owned layout, when the setting allows it and the helper is installed (`health` says whether):
+
+- `off`: nothing; the issue-20 notice with the one step.
+- `ask`: a card, "Install the change Theseus joined: <title>, <commit8>?", sensitive, through the same seam as
+  `config.propose` (`config_change/proof_seam.rs`): until the proof is wired it is refused as "not installed yet".
+- `auto`: no card.
+
+A build is installed only for a commit the loop's own `self.joined` row names **and** that is main's head on the remote
+at that moment. On the yes: the programs the join's L1 build made are copied into the staging directory; the helper
+runs through `sudo -n`; the unit is pointed at the new directory by `<new>/theseusd install --user --apply` with the
+daemon's own flags, the same code the setup's install uses; a transient unit restarts the service and **waits for the new
+daemon's own confirmation**; not confirmed in time, it points the unit back at the kept directory and restarts onto it.
+The restart is not `config_change`'s exec of the same image (that cannot change the program the daemon runs); it is the
+install's existing transient unit, with `config_change`'s stages (`restarting`, `started`, `confirmed`, `rolled_back`) in
+a marker so one install restarts at most twice. Every step is a ledger row; the pipeline says "joined, installed and
+running" only after the confirmation.
+
+## What a reviewer should hunt for
+
+Assume a program running as the owner that wants the daemon to run code of its choice: anything this branch gives it it
+did not have (above); any input to the helper it controls beyond the staging directory's content; a race between check
+and copy; a path component it can replace; the helper writing anywhere but its one directory; a sudoers rule that allows
+more than the one program; the daemon installing a commit its loop did not join; a rollback that can be steered.
