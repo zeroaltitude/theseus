@@ -373,6 +373,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     // A restart onto a change the owner approved left a marker (issue 22):
     // a start that serves reads it, before it reads the settings.
     let (mut watch, mut told) = (None, None);
+    let config_file = theseus_core::config::expand(&source);
     if cli.cmd.is_none() && !cli.stdio && !in_vault {
         if let Some(change_back::Found { marker, begin }) =
             change_back::find(cli.state_dir.as_deref())
@@ -382,7 +383,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
                 restart::Begin::Tell(p) => told = Some((marker, p)),
                 restart::Begin::RollBackNow(p) => {
                     let why = "the start onto the change never became healthy";
-                    if let Some(exit) = change_back::go_back(&marker, p, why) {
+                    if let Some(exit) = change_back::go_back(&marker, p, why, &config_file) {
                         return Ok(exit);
                     }
                 }
@@ -434,7 +435,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
             // The new settings do not load: go back to the ones before the change.
             if let (Err(e), Some((marker, p))) = (&loaded, watch.take()) {
                 let why = format!("the new settings do not load: {e:#}");
-                if let Some(exit) = change_back::go_back(&marker, p, &why) {
+                if let Some(exit) = change_back::go_back(&marker, p, &why, &config_file) {
                     return Ok(exit);
                 }
             }

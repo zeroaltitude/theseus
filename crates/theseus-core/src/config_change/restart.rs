@@ -81,6 +81,9 @@ pub struct Pending {
     pub via: String,
     pub requested_ms: u64,
     pub stage: Stage,
+    /// A restart the owner asked for in words, with no change to the settings.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restart_only: bool,
     /// When it confirmed, how long the restart took, in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub took_ms: Option<u64>,
@@ -108,7 +111,12 @@ pub fn load(path: &Path) -> Option<Pending> {
 /// The change is over: its marker is kept under its own name, so no later
 /// start finds it pending.
 pub fn finish(path: &Path, p: &Pending) {
-    let done = path.with_file_name(format!("done-{}.json", p.id));
+    // The id names a file: nothing but its own characters.
+    let id: String =
+        p.id.chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+    let done = path.with_file_name(format!("done-{id}.json"));
     if let Err(e) = std::fs::rename(path, &done) {
         tracing::warn!(error = %e, "the change's marker could not be put away");
     }
@@ -149,9 +157,23 @@ pub fn begin(path: &Path) -> Begin {
 }
 
 /// Put the copy kept before the change back as the config, and mark the
-/// marker `rolled_back` with `why`. Refused, with the reason, when the file is
-/// no longer what the change wrote or the copy is not what was kept.
-pub fn roll_back(path: &Path, p: &mut Pending, why: &str) -> Result<(), String> {
+/// marker `rolled_back` with `why`. Refused, with the reason, when the marker
+/// does not name this daemon's own settings file and a copy beside itself, when
+/// the file is no longer what the change wrote, or when the copy is not what
+/// was kept. `config` is the settings file this daemon serves from.
+pub fn roll_back(path: &Path, p: &mut Pending, why: &str, config: &Path) -> Result<(), String> {
+    if p.file != config {
+        return Err("the marker names a settings file that is not this daemon's own".into());
+    }
+    let beside = path
+        .parent()
+        .is_some_and(|d| p.previous.parent() == Some(d))
+        && p.previous
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("previous-"));
+    if !beside {
+        return Err("the marker's copy is not one this daemon kept".into());
+    }
     let now = std::fs::read_to_string(&p.file)
         .map_err(|e| format!("the settings file cannot be read: {e}"))?;
     if sha256(&now) != p.digest_after {
@@ -253,15 +275,18 @@ impl Core {
                         tracing::warn!(error = %e, "the change's marker could not be marked confirmed")
                     }
                 }
-                self.tell(
-                    &p,
-                    format!(
-                        "Theseus is back, on the settings you approved ({}). The restart took \
-                         {} s.",
-                        p.paths.join(", "),
-                        took.as_secs().max(1)
+                let secs = took.as_secs().max(1);
+                let text = match p.restart_only {
+                    true => format!(
+                        "Theseus is back after the restart you asked for. It took {secs} s."
                     ),
-                );
+                    false => format!(
+                        "Theseus is back, on the settings you approved ({}). The restart took \
+                         {secs} s.",
+                        p.paths.join(", ")
+                    ),
+                };
+                self.tell(&p, text);
             }
             Err(why) => self.go_back(
                 &marker,
@@ -273,7 +298,8 @@ impl Core {
 
     /// Roll the settings back and restart onto them, once.
     pub(crate) fn go_back(&self, marker: &Path, p: &mut Pending, why: &str) {
-        match roll_back(marker, p, why) {
+        let own = self.tools.config_change.file.clone().unwrap_or_default();
+        match roll_back(marker, p, why, &own) {
             Ok(()) => {
                 let r = ConfigRestart {
                     reference: format!("{REF_PREFIX}{}", marker.display()),

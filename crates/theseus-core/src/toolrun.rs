@@ -1717,6 +1717,9 @@ impl ToolRuntime {
             crate::config_change::PROPOSE => {
                 crate::config_change::propose(self, tc, &call.input, correlation_id)
             }
+            crate::config_change::RESTART => {
+                crate::config_change::restart(self, tc, &call.input, correlation_id)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {
@@ -1957,6 +1960,7 @@ pub fn build_runtime(
         // the tool is in no catalog there and no request carries it.
         if cfg.config_file.is_some() {
             r.register(Arc::new(crate::config_change::Propose));
+            r.register(Arc::new(crate::config_change::RestartTool));
         }
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

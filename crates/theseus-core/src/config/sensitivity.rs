@@ -126,6 +126,18 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
     if has("owner") {
         return Some("who the owner is");
     }
+    if is("system")
+        || has("prompt")
+        || is("card")
+        || is("end_note")
+        || has("persona")
+        || has("instruction")
+    {
+        return Some("text that is put into every prompt, or the persona that speaks");
+    }
+    if has("agent") || is("provider") || ends("_provider") || has("not_") {
+        return Some("which processes count as agents, which provider sees the owner's text, or what Theseus is told never to keep");
+    }
     if has("usd") || has("budget") || has("ceiling") || has("spend") || has("runaway") {
         return Some("a spending ceiling or budget");
     }
@@ -148,6 +160,8 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         return Some("a folder or file Theseus may touch");
     }
     if is("sandbox")
+        || is("cwd")
+        || is("socket")
         || is("egress")
         || is("command")
         || is("proc_env")
@@ -165,6 +179,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || is("endpoint")
         || ends("_endpoint")
         || is("api_base")
+        || has("proxy")
         || ends("_origin")
         || is("bind")
         || is("origin")
@@ -173,8 +188,13 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
     {
         return Some("an address Theseus listens on or sends to");
     }
-    if has("trust") || has("guild") || has("private") || has("public") {
-        return Some("which places and senders are trusted");
+    if ends("_channel") || is("channel") || has("forum") || is("task_home") || is("thread") {
+        return Some("where Theseus posts and reads");
+    }
+    if has("trust") || has("guild") || has("private") || has("public") || has("external") {
+        return Some(
+            "which places and senders are trusted, and whether outside text keeps its label",
+        );
     }
     None
 }
@@ -247,6 +267,23 @@ mod tests {
             "self.budget.usd",
             "kernel.daily_spend_ceiling_usd",
             "kernel.spend_limit_usd",
+            "discord.rest_proxy",
+            "discord.gateway_proxy",
+            "mcp.servers.docs.external",
+            "memory.include_external",
+            "model.system",
+            "profiles.sonnet.system",
+            "personas.theseus.card",
+            "context.default_persona",
+            "tools.cwd",
+            "tools.agent_processes",
+            "discord.forum_channel",
+            "discord.task_home",
+            "threads.discord_channel",
+            "ontology.not_topics",
+            "people.not_people",
+            "model.provider",
+            "profiles.sonnet.provider",
         ] {
             assert!(is_sensitive(&p(s)), "{s} must be sensitive");
         }
