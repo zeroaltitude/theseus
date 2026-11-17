@@ -104,11 +104,16 @@ impl Installer for On {
             let Some(_) = &self.calls else { return Ok(()) };
             // The unit's own work: its script, run as the unit runs it.
             let script = argv.last().unwrap();
-            let st = Command::new("/bin/bash")
-                .arg(script)
+            let mut c = Command::new("/bin/bash");
+            c.arg(script)
                 .env_clear()
-                .env("PATH", format!("{}:/usr/bin:/bin", self.bin.display()))
-                .status()?;
+                .env("PATH", format!("{}:/usr/bin:/bin", self.bin.display()));
+            let st = theseus_kernel::children::spawn(
+                theseus_kernel::children::Kind::Owned,
+                || c.spawn(),
+                |c| Some(c.id()),
+            )
+            .and_then(|mut child| child.wait())?;
             anyhow::ensure!(st.success(), "the unit's script failed");
             Ok(())
         })

@@ -145,6 +145,16 @@ fn change(branch: &str, item: &str) -> String {
     }
 }
 
+/// How to take a join back out of main: a join's own `self revert`. A revert has no such word (it
+/// would revert the revert), so it has none.
+fn undo(branch: &str, merge: &str) -> String {
+    if branch.is_empty() {
+        String::new()
+    } else {
+        format!(" To take the change back out of main instead: `theseus self revert {merge}`")
+    }
+}
+
 /// The owner's notice for a build on main that was not installed: an action, because it needs
 /// him. What happened, why, and the one step.
 pub(crate) fn not_installed_notice(
@@ -159,12 +169,12 @@ pub(crate) fn not_installed_notice(
          and restarted nothing; the service is still running the build from before it, and the \
          command-line programs are unchanged too.\nThe new programs are built and waiting in \
          {target}/release.\nThe one step that installs them, which needs the administrator's \
-         rights:\n`{step}`\nTheseus says so when the service is running this build. To take \
-         the change back out of main instead: `theseus self revert {merge}`",
+         rights:\n`{step}`\nTheseus says so when the service is running this build.{undo}",
         m = short(merge),
         why = n.why,
         target = n.target.display(),
         step = n.step,
+        undo = undo(branch, merge),
     );
     owner_note::note(
         Kind::Action,
@@ -185,9 +195,10 @@ pub(crate) fn mismatch_notice(branch: &str, merge: &str, running: Option<&str>) 
         "{what} as {m}. Theseus copied its build in and restarted the service, but \
          the service came back running {now}, not {m}. So the change is joined and is not what \
          runs. Nothing else was changed.\nTo see what the service starts: `systemctl --user cat \
-         theseusd.service` (its ExecStart line); the build it is running is in `theseus health`. \
-         To take the change back out of main: `theseus self revert {merge}`",
+         theseusd.service` (its ExecStart line); the build it is running is in `theseus health`.\
+         {undo}",
         m = short(merge),
+        undo = undo(branch, merge),
     );
     owner_note::note(
         Kind::Alert,
@@ -215,5 +226,29 @@ mod tests {
         for bad in ["", "abc12", "abc1234; rm -rf /", "../x/y/zzzzzzz"] {
             assert_eq!(commit_of(bad), None, "{bad:?}");
         }
+    }
+    /// A revert's notices carry no `self revert` of the revert's own commit (that would bring the
+    /// reverted change back); a join's do.
+    #[test]
+    fn only_a_joins_notices_offer_the_revert() {
+        let merge = "0123456789abcdef0123456789abcdef01234567";
+        let n = NotInstalled {
+            why: "w".into(),
+            target: "/t".into(),
+            step: "s".into(),
+        };
+        let revert = not_installed_notice("", "", merge, &n);
+        assert!(
+            revert.contains("A revert reached main as 0123456789ab"),
+            "{revert}"
+        );
+        assert!(!revert.contains("self revert"), "{revert}");
+        assert!(!mismatch_notice("", merge, None).contains("self revert"));
+        let join = not_installed_notice("b", "i", merge, &n);
+        assert!(
+            join.contains(&format!("`theseus self revert {merge}`")),
+            "{join}"
+        );
+        assert!(mismatch_notice("b", merge, None).contains("theseus self revert"));
     }
 }

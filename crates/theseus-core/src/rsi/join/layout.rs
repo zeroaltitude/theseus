@@ -43,19 +43,25 @@ pub struct Machine;
 
 impl Host for Machine {
     fn unit_program(&self) -> Option<PathBuf> {
-        let out = std::process::Command::new("systemctl")
-            .args([
-                "--user",
-                "show",
-                "-p",
-                "ExecStart",
-                "--value",
-                super::install::SERVICE,
-            ])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()?;
+        let mut c = std::process::Command::new("systemctl");
+        c.args([
+            "--user",
+            "show",
+            "-p",
+            "ExecStart",
+            "--value",
+            super::install::SERVICE,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+        let out = theseus_kernel::children::spawn(
+            theseus_kernel::children::Kind::Owned,
+            || c.spawn(),
+            |c| Some(c.id()),
+        )
+        .and_then(std::process::Child::wait_with_output)
+        .ok()?;
         out.status
             .success()
             .then(|| program_of(&String::from_utf8_lossy(&out.stdout)))
