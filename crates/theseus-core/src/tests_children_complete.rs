@@ -132,6 +132,10 @@ const BARE: &[(&str, &str)] = &[
         "test-only: an ignored live test that runs cargo and npm on a fleet box",
     ),
     ("theseus-core/src/rsi/join/tests.rs", "test-only"),
+    (
+        "theseus-core/src/rsi/join/root_install/tests.rs",
+        "test-only",
+    ),
     ("theseus-core/src/rsi/join/tests_sealed.rs", "test-only"),
     (
         "theseus-core/src/rsi/mint/validate/tests_dry.rs",
