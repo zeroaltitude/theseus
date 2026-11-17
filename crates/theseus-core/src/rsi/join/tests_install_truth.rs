@@ -253,7 +253,9 @@ async fn a_root_owned_layout_installs_nothing_restarts_nothing_and_tells_once() 
     let Some((dir, program)) = root_owned(t.path()) else {
         return;
     };
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let on = std::sync::Arc::new(On::new(Where {
         unit: Some(program.clone()),
         ..Where::default()
@@ -331,7 +333,9 @@ async fn a_root_owned_layout_installs_nothing_restarts_nothing_and_tells_once() 
 /// the owner is told where the build waits.
 #[tokio::test]
 async fn a_layout_it_cannot_read_installs_nothing_and_says_so() {
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let on = std::sync::Arc::new(On::new(Where::default()));
     let merge = join_with(&r, on.clone()).await;
     assert!(on.ran.lock().unwrap().is_empty());
@@ -361,7 +365,9 @@ async fn a_user_layout_installs_restarts_and_verifies() {
             std::fs::write(d.join(b), "old").unwrap();
         }
     }
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let on = std::sync::Arc::new(
         On::new(Where {
             unit: Some(mine.join("theseusd")),
@@ -428,7 +434,9 @@ async fn a_restart_that_comes_back_on_another_commit_is_a_mismatch_and_is_told()
     let t = tempfile::tempdir().unwrap();
     let mine = t.path().join("mine");
     std::fs::create_dir_all(&mine).unwrap();
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let on = std::sync::Arc::new(
         On::new(Where {
             unit: Some(mine.join("theseusd")),
@@ -478,7 +486,9 @@ async fn a_restart_that_comes_back_on_another_commit_is_a_mismatch_and_is_told()
 /// reported as one that happened. No marker, no check: an ordinary start says nothing.
 #[tokio::test]
 async fn a_build_with_no_commit_is_a_mismatch_and_an_ordinary_start_is_not() {
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let on = std::sync::Arc::new(On::new(Where::default()));
     let merge = join_with(&r, on).await;
     assert_eq!(
@@ -598,7 +608,9 @@ async fn the_pipeline_and_health_say_a_joined_change_is_not_running() {
     let Some((dir, program)) = root_owned(t.path()) else {
         return;
     };
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let on = std::sync::Arc::new(On::new(Where {
         unit: Some(program),
         ..Where::default()
