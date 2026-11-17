@@ -113,6 +113,33 @@ mod tests {
     }
 
     #[test]
+    fn the_write_refuses_a_question_the_proof_never_saw() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        // A card that asks for the card alone needs no mark.
+        assert_eq!(at_yes(&store, "act_plain", Needs::Card), Ok(()));
+        // A question asked with no mark is never written when its settings
+        // call for the proof, whatever answered it.
+        for needs in [Needs::Proof, Needs::Fresh] {
+            assert_eq!(at_yes(&store, "act_bare", needs), Err(NOT_ASKED.into()));
+        }
+        // Marked for the proof: enough for a sensitive change, not for a fresh one.
+        store
+            .append(&[
+                crate::owner_proof::mark("act_marked", false).unwrap(),
+                crate::owner_proof::mark("act_fresh", true).unwrap(),
+            ])
+            .unwrap();
+        assert_eq!(at_yes(&store, "act_marked", Needs::Proof), Ok(()));
+        assert_eq!(
+            at_yes(&store, "act_marked", Needs::Fresh),
+            Err(NOT_ASKED.into())
+        );
+        assert_eq!(at_yes(&store, "act_fresh", Needs::Fresh), Ok(()));
+        assert_eq!(at_yes(&store, "act_fresh", Needs::Proof), Ok(()));
+    }
+
+    #[test]
     fn who_the_owner_is_and_the_proof_itself_need_a_fresh_proof() {
         for after in [
             "[places]\nowner = [\"discord:1\"]\n",
