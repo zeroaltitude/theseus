@@ -31,7 +31,10 @@ and `crates/theseus-core/src/mcp/attached.rs`.
 ## The order, and what each step may do
 
 1. **The wall** (`config_change/wall.rs`): the owner, alone in a private place, in their own session, as `config.propose`.
-   A job, a task, the self loop, an MCP client and a shared place are refused, in words that name `mcp.attach`.
+   A job, a task, the self loop, an MCP client and a shared place are refused, in words that name `mcp.attach`. A
+   message that came through an agent's process (`peer_proc`) is refused too, and so is a turn that continues it after
+   an approval or a wait (the session keeps the agent behind its last input); the card is answered only by the owner in
+   person (`rpc/mcp_card.rs`), checked after `judge_act`, which stays as it was.
 2. **The second proof** (`proof_seam.rs`): attaching can give a server secrets and a network, so it is sensitive. Until
    `owner_proof` is built in the tool refuses, before anything starts, with the seam's words. The yes asks the seam
    again (`answer.rs`).
@@ -61,7 +64,7 @@ and `crates/theseus-core/src/mcp/attached.rs`.
   an escaped one-line literal (control, invisible, direction-changing and line-separating characters escaped) after a
   fixed label, under "descriptions are the server's own words"; a name too long to show whole makes no card.
 - Carry a secret's value: a table names a `[secrets]` entry, the trial is given nothing, and no turn, card, log or row
-  has a value to carry.
+  has a value to carry; an address with a name or key before an `@` is refused (the key is named in `auth_secret`).
 
 ## Limits, said plainly
 
