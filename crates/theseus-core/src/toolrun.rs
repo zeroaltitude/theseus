@@ -359,6 +359,9 @@ pub struct ToolRuntime {
     pub self_file: crate::rsi::backlog::tool::Board,
     /// `self.pause` (issue 6): pause the loop's new builds, from a chat.
     pub self_pause: crate::rsi::pause_tool::Board,
+    /// Where `config.propose` reads the settings file and keeps its copies
+    /// (issue 22): the daemon's own, never a tool's.
+    pub config_change: crate::config_change::Where,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -554,6 +557,7 @@ impl ToolRuntime {
             card_observed: Default::default(),
             self_file: Default::default(),
             self_pause: Default::default(),
+            config_change: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -1709,6 +1713,10 @@ impl ToolRuntime {
                 .map(|d| edit.take(d)),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
+            // The owner's own turn proposes a change to the settings (issue 22).
+            crate::config_change::PROPOSE => {
+                crate::config_change::propose(self, tc, &call.input, correlation_id)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {
@@ -1944,6 +1952,7 @@ pub fn build_runtime(
         crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
+        r.register(Arc::new(crate::config_change::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
@@ -2008,6 +2017,7 @@ pub fn build_runtime(
         broker.set_aws(a.clone());
     }
     let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
+    let config_change = crate::config_change::Where::new(cfg.config_file.clone(), state.clone());
     Ok(ToolRuntime {
         misroute: Default::default(),
         catalogs: Default::default(),
@@ -2102,6 +2112,7 @@ pub fn build_runtime(
         card_observed: Default::default(),
         self_file: Default::default(),
         self_pause: Default::default(),
+        config_change,
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),

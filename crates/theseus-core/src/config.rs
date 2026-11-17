@@ -100,6 +100,7 @@ pub use routing::{RoutingConfig, RoutingMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
+pub mod sensitivity;
 pub mod tui;
 pub use mcp::{McpConfig, McpServerConfig};
 
@@ -1886,6 +1887,7 @@ impl Config {
                 .chain(crate::project_tool::NAMES)
                 .chain(crate::glide::NAMES)
                 .chain(crate::extend::NAMES)
+                .chain(crate::config_change::NAMES)
                 .chain(crate::aws::NAMES)
                 .chain(crate::google::NAMES)
                 .chain(crate::term::NAMES)
@@ -2396,3 +2398,5 @@ mod tests_openai;
 mod tests_option_profiles;
 #[cfg(test)]
 mod tests_persona;
+#[cfg(test)]
+mod tests_sensitivity;

@@ -167,7 +167,7 @@ mod tests {
         );
     }
 
-    /// The clients' shared list of expiring tools is the core's own three: a
+    /// The clients' shared list of expiring tools is the core's own four: a
     /// new operator question kind that must expire is added to both, or this
     /// fails (theseus-lrc3m, review C's F3).
     #[test]
@@ -177,7 +177,8 @@ mod tests {
             [
                 crate::ask::OWNER_ASK,
                 crate::extend::ACK,
-                super::super::packs::PROMOTE
+                super::super::packs::PROMOTE,
+                crate::config_change::ACK
             ]
         );
     }

@@ -800,6 +800,9 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # nothing loads until you ack its card. Inherits enforcement, so each proposal is
 # a notice
 # "extend.propose" = "notify"
+# a proposed change to Theseus's own settings (issue 22): the owner's own turn only,
+# and it changes nothing until the owner answers its card, so each call is a notice
+# "config.propose" = "notify"
 # a self branch (theseus-pw1q.8), only while [self] mode = "act" and only in a self
 # session: Theseus's own source changed in a tree of its own, gated, reported and
 # pushed to self/*. Inherits enforcement, so each call is a notice

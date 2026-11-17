@@ -272,6 +272,7 @@ impl Core {
             theseus_kernel::BUDGET_TOOL,
             crate::extend::ACK,
             super::packs::PROMOTE,
+            crate::config_change::ACK,
         ];
         let mut wanted: std::collections::BTreeSet<&str> = asks
             .iter()

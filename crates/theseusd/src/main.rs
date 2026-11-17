@@ -26,6 +26,7 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 use theseus_core::approval::{Client, Surface};
 use theseus_core::config::{Lookup, NO_CONFIG};
+use theseus_core::config_change::restart;
 use theseus_core::config_copy::{self, Compared};
 use theseus_core::config_gate::{self, ConfigGate};
 use theseus_core::secrets::{OpReader, Secret, SecretBoard, Waited};
@@ -34,6 +35,7 @@ use theseus_core::store::Store;
 use theseus_core::{Config, Core};
 use tokio::net::UnixListener;
 
+mod change_back;
 mod install;
 mod mcp;
 mod stdio;
@@ -368,6 +370,26 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     });
     let startup = Arc::new(StartupLog::new(origin));
     let in_vault = source.starts_with("op://");
+    // A restart onto a change the owner approved left a marker (issue 22):
+    // a start that serves reads it, before it reads the settings.
+    let (mut watch, mut told) = (None, None);
+    if cli.cmd.is_none() && !cli.stdio && !in_vault {
+        if let Some(change_back::Found { marker, begin }) =
+            change_back::find(cli.state_dir.as_deref())
+        {
+            match begin {
+                restart::Begin::Watch(p) => watch = Some((marker, p)),
+                restart::Begin::Tell(p) => told = Some((marker, p)),
+                restart::Begin::RollBackNow(p) => {
+                    let why = "the start onto the change never became healthy";
+                    if let Some(exit) = change_back::go_back(&marker, p, why) {
+                        return Ok(exit);
+                    }
+                }
+                restart::Begin::Normal => {}
+            }
+        }
+    }
     // The copy is found before any config is read: in `--state-dir`, else ~/.theseus.
     let copy_path = in_vault.then(|| config_copy::path(cli.state_dir.as_deref()));
     let t = Instant::now();
@@ -408,7 +430,15 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
             )
         }
         None => {
-            let (cfg, text) = Config::load_text(&source, &op).await?;
+            let loaded = Config::load_text(&source, &op).await;
+            // The new settings do not load: go back to the ones before the change.
+            if let (Err(e), Some((marker, p))) = (&loaded, watch.take()) {
+                let why = format!("the new settings do not load: {e:#}");
+                if let Some(exit) = change_back::go_back(&marker, p, &why) {
+                    return Ok(exit);
+                }
+            }
+            let (cfg, text) = loaded?;
             (
                 cfg,
                 if in_vault {
@@ -603,6 +633,15 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     // Records `providers`, `kernel`, and `core`, one after another.
     let core = Core::new(cfg, secrets, store, startup.clone(), gate)?;
     let _ = CORE.set(Arc::downgrade(&core));
+    // The change this start is onto: wait for health and say so, or go back.
+    if let Some((marker, p)) = watch.take() {
+        tokio::spawn(core.clone().confirm_change(marker, p, socket_path.clone()));
+    }
+    // This start is the one after a rollback: it says so, once.
+    if let Some((marker, p)) = told.take() {
+        core.tell_rolled_back(&p);
+        restart::finish(&marker, &p);
+    }
     // No L1 job's view shows this daemon's socket (M4 17b).
     core.tools.sandbox.hide(socket_path.clone());
     if let Some((first, began)) = check {
@@ -755,6 +794,13 @@ fn out(text: &str) -> Result<()> {
 /// same image, marked so it never restarts again.
 fn exit(core: &Core) -> Exit {
     match core.restart_requested() {
+        // A restart onto a change to the settings carries its marker's path.
+        Some(r) if r.reference.starts_with(restart::REF_PREFIX) => Exit::Exec(
+            restart::CHANGE_ENV,
+            r.reference
+                .trim_start_matches(restart::REF_PREFIX)
+                .to_string(),
+        ),
         Some(r) => Exit::Exec(
             config_gate::RESTARTED_ENV,
             serde_json::to_string(&r).unwrap_or_default(),

@@ -1,0 +1,426 @@
+//! The owner asks Theseus to change a setting, and the daemon writes it
+//! (issue 22; `docs/design/config-change.md` has the whole design).
+//!
+//! The config file stays on the floor (`toolrun/guarded.rs`): no tool writes
+//! it, and this adds none. What it adds is a way for the DAEMON to change it,
+//! in its own code, after the owner has seen exactly what changes and said yes.
+//!
+//! 1. **The tool** (`config.propose`, here): the owner's own turn names
+//!    settings and new values (or a removal) and a one-line reason. Never
+//!    text to write. It changes nothing by itself. Who may call it is
+//!    `wall.rs`: the owner, alone in a private place, in their own session.
+//! 2. **The candidate** (`edit.rs`): the file as it is on disk now with the
+//!    named changes made on its own text, comments and order kept, then
+//!    loaded and checked exactly as a start loads it (`Config::parse`). One
+//!    that does not load makes no card; the loader's words are the result.
+//! 3. **The card** (`diff.rs`, `card.rs`): built from the two parsed configs,
+//!    each setting's value before and after in plain words, whether it needs
+//!    a restart, and, when the turn has read outside text, a line that says
+//!    so. The model's only words on it are its one-line reason, shown as its.
+//! 4. **The yes** (`answer.rs`): `action.confirm`, judged by the place rule,
+//!    on a question of its own (`config.ack`), as an extension's ack is. The
+//!    daemon re-reads the file; one that changed since the card was made is
+//!    refused and nothing is written. Otherwise it keeps the previous text as
+//!    a numbered copy and writes the candidate in one step (`write.rs`).
+//! 5. **The sensitive list** (`config/sensitivity.rs`): a change to a setting
+//!    on it is refused before a card is made, until the second proof is built
+//!    in (`proof_seam.rs`).
+
+pub mod answer;
+pub mod card;
+pub mod diff;
+pub mod edit;
+pub mod proof_seam;
+pub mod restart;
+pub mod wall;
+pub mod write;
+
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock, Weak};
+
+use serde::Deserialize;
+use serde_json::{json, Value};
+use theseus_kernel::{Action, Proposal, RetryClass};
+use theseus_protocol::ConfirmRequest;
+use theseus_store::{kinds, NewRecord};
+use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
+
+use crate::config::sensitivity;
+use crate::toolrun::{ToolRuntime, TurnCtx};
+
+pub const PROPOSE: &str = "config.propose";
+/// The question the owner's yes answers: a planned action of this tool.
+pub const ACK: &str = "config.ack";
+/// The tools this module adds, for the template's `[policy.tools]` list.
+pub const NAMES: [&str; 1] = [PROPOSE];
+/// The most settings one proposal may name.
+pub const MAX_CHANGES: usize = 20;
+/// The longest a value a proposal gives may be, as JSON: a setting, not a
+/// document.
+pub const MAX_VALUE_BYTES: usize = 4_096;
+/// How long a restart waits for a running turn to end before it cuts it, in
+/// seconds. Said on the card.
+pub const RESTART_WAIT_SECS: u64 = 120;
+/// The key under which a proposal's result is kept, so a call run again after
+/// a restart finds what the first run asked.
+const CALL_PREFIX: &str = "config.change.call.";
+
+/// Where the config file is, and the state directory the copies are kept in.
+/// `file` is none when the daemon's config is not a file it can write (a vault
+/// note, or a test): then nothing can be proposed. The core, held weakly once
+/// built, is what a restart that waits for a turn is spawned from.
+#[derive(Debug, Clone, Default)]
+pub struct Where {
+    pub file: Option<PathBuf>,
+    pub state: PathBuf,
+    core: Arc<OnceLock<Weak<crate::rpc::Core>>>,
+}
+
+impl Where {
+    pub fn new(file: Option<PathBuf>, state: PathBuf) -> Self {
+        Self {
+            file,
+            state,
+            core: Arc::default(),
+        }
+    }
+
+    /// The core, once built: held weakly, as every board holds it.
+    pub fn attach(&self, core: &Arc<crate::rpc::Core>) {
+        let _ = self.core.set(Arc::downgrade(core));
+    }
+
+    pub(crate) fn core(&self) -> Option<Arc<crate::rpc::Core>> {
+        self.core.get().and_then(Weak::upgrade)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Item {
+    path: String,
+    #[serde(default)]
+    value: Option<Value>,
+    #[serde(default)]
+    remove: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Input {
+    changes: Vec<Item>,
+    reason: String,
+}
+
+fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
+    let i: Input = parse(input)?;
+    if i.changes.is_empty() || i.changes.len() > MAX_CHANGES {
+        return Err(format!(
+            "name between 1 and {MAX_CHANGES} settings to change"
+        ));
+    }
+    let reason = card::reason_line(&i.reason);
+    if reason.is_empty() {
+        return Err("give a reason in the owner's words, one line".into());
+    }
+    let mut changes = Vec::new();
+    for c in i.changes {
+        let path = edit::parse_path(&c.path)?;
+        changes.push(match (c.value, c.remove) {
+            (Some(v), false) => {
+                if v.to_string().len() > MAX_VALUE_BYTES {
+                    return Err(format!(
+                        "the value of {} is larger than a setting: name the setting, not a document",
+                        c.path
+                    ));
+                }
+                edit::Change::Set(path, v)
+            }
+            (None, true) => edit::Change::Remove(path),
+            _ => {
+                return Err(format!(
+                    "{} needs either a value or remove = true, and not both",
+                    c.path
+                ))
+            }
+        });
+    }
+    Ok((changes, reason))
+}
+
+/// `config.propose`.
+pub struct Propose;
+
+impl Tool for Propose {
+    fn name(&self) -> &str {
+        PROPOSE
+    }
+
+    fn description(&self) -> &str {
+        "Propose a change to Theseus's own settings, on the owner's word. Name each setting by \
+         its path (`self.budget.usd`, `import.notes.enabled`, or a whole table such as \
+         `mcp.servers.<name>`) with its new value, or `remove: true`, and give a one-line reason \
+         in the owner's words. Never write TOML or text for the file. Theseus checks that the \
+         settings still load, then shows the owner one card with each value before and after; \
+         only their yes changes anything, and the daemon writes it itself. A setting that governs \
+         what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
+         spending) needs a second proof as well. Offered only to the owner, in a private place."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "type": "array",
+                    "description": "The settings to change, at most 20.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "The setting's path, keys joined by dots; quote a key that has a dot, as policy.tools.\"proc.run\"."},
+                            "value": {"description": "Its new value: a switch, a number, text, a list, or a whole table."},
+                            "remove": {"type": "boolean", "description": "Remove the setting, so it takes its default. Instead of a value."}
+                        },
+                        "required": ["path"],
+                        "additionalProperties": false
+                    }
+                },
+                "reason": {"type": "string", "description": "One line, in the owner's words: why they want it."}
+            },
+            "required": ["changes", "reason"],
+            "additionalProperties": false
+        })
+    }
+
+    fn class(&self) -> ToolClass {
+        ToolClass::Run
+    }
+
+    fn backend(&self) -> Backend {
+        Backend::Harness
+    }
+
+    fn retry(&self) -> Retry {
+        // Run again after a restart, it answers with what it asked.
+        Retry::NonRepeatable
+    }
+
+    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+        let (changes, _) = input_of(input)?;
+        let paths: Vec<String> = changes.iter().map(|c| edit::dotted(c.path())).collect();
+        Ok(Plan {
+            summary: format!("propose changing {}", paths.join(", ")),
+            ..Default::default()
+        })
+    }
+}
+
+/// The settings of a change that are sensitive: each path and why. Both what
+/// the proposal named and what really changes are read, so a table written
+/// whole, an array or a renamed key is classified as the settings it reaches.
+pub(crate) fn sensitive(
+    changes: &[edit::Change],
+    settings: &[diff::Setting],
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let named = changes.iter().map(|c| c.path());
+    for p in named.chain(settings.iter().map(|s| s.path.as_slice())) {
+        if let Some(why) = sensitivity::reason(p) {
+            let d = edit::dotted(p);
+            if !out.iter().any(|(x, _)| *x == d) {
+                out.push((d, why));
+            }
+        }
+    }
+    out
+}
+
+/// The refusal a sensitive change gets while the second proof is not built
+/// in: which settings, and the seam's words.
+fn needs_proof(sens: &[(String, String)]) -> String {
+    let names: Vec<&str> = sens.iter().map(|(p, _)| p.as_str()).collect();
+    format!("{}: {}", proof_seam::NOT_INSTALLED, names.join(", "))
+}
+
+/// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
+/// the candidate, check it loads, and ask. An error is the result the model
+/// reads.
+pub fn propose(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    input: &Value,
+    correlation_id: &str,
+) -> Result<(String, Value), String> {
+    if let Some(why) = wall::refusal(tc) {
+        return Err(why.into());
+    }
+    // Run again after a restart, it answers with what the first run asked.
+    if let Ok(done) = proposed_by_call(tc, correlation_id) {
+        return Ok(done);
+    }
+    let (changes, reason) = input_of(input)?;
+    let w = &rt.config_change;
+    let file = w.file.clone().ok_or(
+        "Theseus's settings are not a file this daemon can change (they are read from the vault, or \
+         were not given as a file): the owner edits them where they live",
+    )?;
+    let base = std::fs::read_to_string(&file)
+        .map_err(|e| format!("the settings file cannot be read: {e}"))?;
+    crate::Config::parse(&base).map(drop).map_err(|e| {
+        format!("the settings file as it is now does not load, so nothing is built on it: {e:#}")
+    })?;
+    let candidate = edit::apply(&base, &changes)?;
+    crate::Config::parse(&candidate)
+        .map(drop)
+        .map_err(|e| format!("the settings with that change do not load: {e:#}"))?;
+    let settings = diff::between(&base, &candidate)?;
+    if settings.is_empty() {
+        return Err("that would change nothing: the file already has those values".into());
+    }
+    let sens = sensitive(&changes, &settings);
+    if !sens.is_empty() && !proof_seam::installed() {
+        return Err(needs_proof(&sens));
+    }
+    // The label a turn carries once it has read outside text that steers it.
+    let outside = matches!(
+        tc.store.get_session::<crate::session::SessionRecord>(tc.session_id),
+        Ok(Some(s)) if s.data.as_ref().is_some_and(|d| d.frozen())
+    );
+    let question = card::question(&card::Facts {
+        settings: &settings,
+        outside_text: outside,
+        reason: &reason,
+        wait_secs: RESTART_WAIT_SECS,
+    });
+    let digest = write::keep_candidate(&w.state, &candidate)
+        .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
+    let proposal = Proposal {
+        tool: ACK.into(),
+        args: json!({
+            "question": question,
+            "base_sha256": crate::config_copy::sha256(&base),
+            "candidate_sha256": digest,
+            "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
+            "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
+            "reason": reason,
+            "outside_text": outside,
+            "asked_by": {
+                "session_id": tc.session_id,
+                "execution_id": tc.execution_id,
+                "turn_id": tc.turn_id,
+                "place": tc.outbox.target(tc.session_id),
+            },
+        }),
+        resource: Some("config".into()),
+        policy_context: json!({}),
+    };
+    let said = format!(
+        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place; \
+         the daemon then writes the file itself. If they decline, or do not answer in time, \
+         nothing is written."
+    );
+    ask(tc, proposal, correlation_id, &said)?;
+    Ok((
+        said,
+        json!({"settings": settings.len(), "candidate": digest}),
+    ))
+}
+
+/// The question, its card, and the record that answers a call run again, in
+/// one frame on the proposing execution.
+fn ask(
+    tc: &TurnCtx<'_>,
+    proposal: Proposal,
+    correlation_id: &str,
+    said: &str,
+) -> Result<(), String> {
+    let target = tc.outbox.target(tc.session_id);
+    let mut card = None;
+    let a = tc
+        .kernel
+        .plan_confirm_with(tc.guard, &proposal, RetryClass::NonRepeatable, None, |a| {
+            let mut records = vec![NewRecord::json(
+                kinds::META,
+                Some(&format!("{CALL_PREFIX}{correlation_id}")),
+                &said,
+            )?];
+            if let Some(target) = &target {
+                let (post, more) = tc.outbox.stage(
+                    tc.session_id,
+                    tc.execution_id,
+                    target,
+                    json!({"kind": "card", "question": a.correlation_id, "node": null}),
+                )?;
+                records.extend(more);
+                card = Some(post);
+            }
+            Ok(records)
+        })
+        .map_err(|e| format!("the question was not asked: {e:#}"))?;
+    if let Some(post) = card {
+        tc.outbox.posted(&post);
+    }
+    if let Ok(Some(session)) = tc
+        .store
+        .get_session::<crate::session::SessionRecord>(tc.session_id)
+    {
+        tc.record(&crate::fact::tool::CallAsked {
+            request: &confirm_request(&a, &session, tc.confirm_ttl_ms),
+        });
+    }
+    Ok(())
+}
+
+/// A proposal run again after a restart: what the first run asked, else why
+/// it must be proposed again.
+pub fn proposed_by_call(tc: &TurnCtx<'_>, correlation_id: &str) -> Result<(String, Value), String> {
+    match tc
+        .store
+        .get_meta::<String>(&format!("{CALL_PREFIX}{correlation_id}"))
+    {
+        Ok(Some(said)) => Ok((said, json!({}))),
+        _ => Err(
+            "the daemon restarted before this proposal was put to the owner, so nothing was \
+                  asked: propose it again"
+                .into(),
+        ),
+    }
+}
+
+/// The ack's question as the owner sees it: its card, `confirm.list`.
+pub fn confirm_request(
+    a: &Action,
+    session: &crate::session::SessionRecord,
+    ttl_ms: u64,
+) -> ConfirmRequest {
+    let args = a
+        .proposal
+        .as_ref()
+        .map(|p| p.args.clone())
+        .unwrap_or_default();
+    crate::rpc::offer(ConfirmRequest {
+        correlation_id: a.correlation_id.clone(),
+        session_id: session.session_id.clone(),
+        execution_id: a.execution_id.clone(),
+        turn_id: None,
+        tool: ACK.into(),
+        reason: args["question"].as_str().unwrap_or_default().to_string(),
+        input: args,
+        resource: a.resource.clone(),
+        by: crate::turn::OPERATOR.into(),
+        requested_at_ms: a.planned_at_ms,
+        expires_at_ms: a.planned_at_ms + ttl_ms,
+        floor: false,
+        budget: None,
+        task: crate::task::task_ref(session),
+        change: None,
+        options: Vec::new(),
+        may_answer: None,
+        preview: None,
+        grant_offer: None,
+        plain: None,
+    })
+}
+
+#[cfg(test)]
+mod tests;

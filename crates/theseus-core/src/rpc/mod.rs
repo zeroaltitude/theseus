@@ -1115,6 +1115,7 @@ impl Core {
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
         core.tools.self_pause.attach(&core);
+        core.tools.config_change.attach(&core);
         core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
@@ -1649,6 +1650,16 @@ impl Core {
              The daemon restarts onto the vault's version.",
             r.tables.join(", ")
         );
+        self.config_gate.restarting(r.clone());
+        self.restart.send_replace(Some(r));
+        self.stop();
+    }
+
+    /// Restart onto a change to the settings the owner approved, or back off
+    /// one that did not come up (issue 22, `config_change::restart`): the same
+    /// clean stop and exec as `restart_onto`, with the marker's path as its
+    /// reference.
+    pub(crate) fn restart_for(&self, r: ConfigRestart) {
         self.config_gate.restarting(r.clone());
         self.restart.send_replace(Some(r));
         self.stop();

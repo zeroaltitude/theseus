@@ -31,6 +31,7 @@ pub mod check;
 pub mod commitments;
 pub mod compiler;
 pub mod config;
+pub mod config_change;
 pub mod config_copy;
 pub mod config_gate;
 pub mod conns;

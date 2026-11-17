@@ -67,6 +67,10 @@ impl Core {
             let ttl = self.kernel.config().confirm_ttl_ms;
             return Some(super::packs::promotion_request(a, session, ttl));
         }
+        if a.tool == crate::config_change::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::config_change::confirm_request(a, session, ttl));
+        }
         let (tool, input, gate, turn_id) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -177,7 +181,10 @@ impl Core {
         if q.tool == BUDGET_TOOL {
             return Ok(self.budget_confirm(q, &rec));
         }
-        if q.tool == crate::extend::ACK || q.tool == super::packs::PROMOTE {
+        if q.tool == crate::extend::ACK
+            || q.tool == super::packs::PROMOTE
+            || q.tool == crate::config_change::ACK
+        {
             return Ok(self.confirm_request(q, &rec, &[]));
         }
         let Some(id) = node_id else {
@@ -284,6 +291,7 @@ impl Core {
                 a.tool != BUDGET_TOOL
                     && a.tool != crate::extend::ACK
                     && a.tool != super::packs::PROMOTE
+                    && a.tool != crate::config_change::ACK
             }) {
                 self.store.session_nodes(&rec.session_id)?
             } else {
@@ -382,6 +390,17 @@ impl Core {
         // nothing wakes.
         if a.tool == super::packs::PROMOTE {
             return self.answer_promotion(&a, approve, note, by, &via);
+        }
+        // A proposed change to Theseus's settings (issue 22): the daemon
+        // writes the file, or nothing; nothing wakes.
+        if a.tool == crate::config_change::ACK {
+            let answer = match approve {
+                true => crate::config_change::answer::Answer::Yes,
+                false => crate::config_change::answer::Answer::No(note),
+            };
+            let done = self.answer_config_change(&a, answer, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, the answer's row, and the wake. So no surface
@@ -587,6 +606,12 @@ impl Core {
         if a.tool == super::packs::PROMOTE {
             let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
             self.answer_promotion(a, false, Some(&why), EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
+        if a.tool == crate::config_change::ACK {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            let answer = crate::config_change::answer::Answer::Expired(&why);
+            self.answer_config_change(a, answer, EXPIRY, EXPIRY)?;
             return Ok(());
         }
         let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
