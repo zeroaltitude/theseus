@@ -872,7 +872,7 @@ async fn a_yes_from_a_shared_place_attaches_nothing() {
         .core
         .confirm_action(&q.correlation_id, true, None, from)
         .unwrap_err();
-    assert!(e.to_string().contains("came from a channel"), "{e:#}");
+    assert!(e.to_string().contains("shared place"), "{e:#}");
     assert_eq!(r.file_text(), FILE);
     assert!(!r.core.mcp.has_server("wc"));
     assert_eq!(r.asked().len(), 1, "it still waits");
