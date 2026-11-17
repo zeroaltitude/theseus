@@ -417,7 +417,11 @@ async fn undoing_a_sensitive_change_asks_with_the_second_proof() {
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let q = r.asked().remove(0);
     assert!(q.needs_proof, "{q:?}");
-    assert!(q.reason.contains("kernel.daily_spend_ceiling_usd"), "{}", q.reason);
+    assert!(
+        q.reason.contains("kernel.daily_spend_ceiling_usd"),
+        "{}",
+        q.reason
+    );
     let e = r
         .core
         .confirm_action(&q.correlation_id, true, None, "cli")

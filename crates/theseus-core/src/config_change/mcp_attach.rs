@@ -543,7 +543,13 @@ fn put(
          with the second proof; the daemon then writes the settings itself. If they decline, or \
          do not answer in time, nothing is written."
     );
-    super::ask(tc, proposal, correlation_id, &said, proof_seam::Needs::Proof)?;
+    super::ask(
+        tc,
+        proposal,
+        correlation_id,
+        &said,
+        proof_seam::Needs::Proof,
+    )?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),

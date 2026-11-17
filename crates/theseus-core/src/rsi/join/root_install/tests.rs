@@ -411,14 +411,14 @@ async fn the_second_proof_is_asked_for_the_install() {
     t.join().await;
     let q = t.cards()[0].clone();
     assert!(q.needs_proof && !q.needs_fresh_proof, "{q:?}");
-    let e = t
-        .r
-        .core
-        .confirm_action(&q.correlation_id, true, None, "cli")
-        .unwrap_err();
+    let e =
+        t.r.core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap_err();
     assert!(e.to_string().contains("second proof"), "{e:#}");
     assert!(
-        t.helper.installed.lock().unwrap().is_empty() && t.units.restarts.lock().unwrap().is_empty()
+        t.helper.installed.lock().unwrap().is_empty()
+            && t.units.restarts.lock().unwrap().is_empty()
     );
     assert_eq!(t.cards().len(), 1, "it still waits");
     // A good code answers it.
@@ -432,7 +432,11 @@ async fn the_second_proof_is_asked_for_the_install() {
     )
     .await
     .unwrap();
-    assert!(t.steps().contains(&"approved".to_string()), "{:?}", t.steps());
+    assert!(
+        t.steps().contains(&"approved".to_string()),
+        "{:?}",
+        t.steps()
+    );
 }
 
 /// Only a commit the loop's own join row names, and that is main's head on the remote now.
@@ -801,10 +805,14 @@ async fn an_agents_and_a_jobs_process_cannot_approve_the_install() {
         crate::peer_proc::Behind::Agent("claude".into()),
         crate::peer_proc::Behind::Agent(crate::peer_proc::JOB.into()),
     ] {
-        for code in [None, Some(crate::owner_proof::Proofs::stand_in_code(&secret, 1))] {
+        for code in [
+            None,
+            Some(crate::owner_proof::Proofs::stand_in_code(&secret, 1)),
+        ] {
             let e = crate::tests_m3::rpc_as(
                 &t.r.core,
-                crate::tests_m3::surface("sock#9", crate::approval::Surface::Cli).behind(who.clone()),
+                crate::tests_m3::surface("sock#9", crate::approval::Surface::Cli)
+                    .behind(who.clone()),
                 theseus_protocol::method::ACTION_CONFIRM,
                 serde_json::json!({"correlation_id": q, "approve": true, "code": code}),
             )
@@ -817,12 +825,17 @@ async fn an_agents_and_a_jobs_process_cannot_approve_the_install() {
         }
     }
     assert!(
-        t.helper.installed.lock().unwrap().is_empty() && t.units.restarts.lock().unwrap().is_empty()
+        t.helper.installed.lock().unwrap().is_empty()
+            && t.units.restarts.lock().unwrap().is_empty()
     );
     assert_eq!(t.cards().len(), 1, "it still waits");
     // The owner's own hand, inside the window, installs.
     t.yes(&q);
-    assert!(t.steps().contains(&"approved".to_string()), "{:?}", t.steps());
+    assert!(
+        t.steps().contains(&"approved".to_string()),
+        "{:?}",
+        t.steps()
+    );
 }
 
 /// The one file an install's restart looks for is inside a path the floor holds, so a tool's read or write there waits

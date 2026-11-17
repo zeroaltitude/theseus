@@ -344,7 +344,10 @@ async fn attaching_and_detaching_are_asked_with_the_second_proof() {
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let attach = r.asked().remove(0);
-    assert!(attach.needs_proof && !attach.needs_fresh_proof, "{attach:?}");
+    assert!(
+        attach.needs_proof && !attach.needs_fresh_proof,
+        "{attach:?}"
+    );
     let sid = r.session();
     r.turn(&sid, "mcp_detach", json!({"name": "base"})).await;
     let (status, text) = r.result(&sid);

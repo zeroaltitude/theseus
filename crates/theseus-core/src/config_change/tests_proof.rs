@@ -143,9 +143,7 @@ async fn a_sensitive_change_with_no_proof_enrolled_cannot_be_approved_and_says_h
     }
     assert_eq!(r.file_text(), FILE);
     assert!(waiting(&r, &q), "it still waits");
-    assert!(
-        r.rows("config.changed").is_empty() && !super::restart::marker_path(&r.state).exists()
-    );
+    assert!(r.rows("config.changed").is_empty() && !super::restart::marker_path(&r.state).exists());
 }
 
 /// The way in: paired, a good code writes the change and opens a window for
@@ -202,10 +200,11 @@ async fn a_wrong_code_changes_nothing_and_is_recorded() {
         .chars()
         .map(|c| if c == '7' { '3' } else { '7' })
         .collect::<String>();
-    let e = answer(&r, cli(), &q, true, Some(&wrong))
-        .await
-        .unwrap_err();
-    assert!(e.message.contains("second proof") || e.message.contains("code"), "{e:?}");
+    let e = answer(&r, cli(), &q, true, Some(&wrong)).await.unwrap_err();
+    assert!(
+        e.message.contains("second proof") || e.message.contains("code"),
+        "{e:?}"
+    );
     assert_eq!(r.file_text(), FILE);
     assert!(waiting(&r, &q));
     assert_eq!(outcomes(&r), ["wrong"]);
@@ -250,7 +249,11 @@ async fn who_the_owner_is_and_the_proof_itself_ask_for_a_fresh_code_inside_a_win
             .await
             .unwrap_or_else(|e| panic!("{path}: {e:?}"));
         assert_ne!(r.file_text(), FILE, "{path}");
-        assert_eq!(r.core.proofs.status().windows, opened, "{path}: no window moved");
+        assert_eq!(
+            r.core.proofs.status().windows,
+            opened,
+            "{path}: no window moved"
+        );
     }
 }
 
@@ -268,8 +271,12 @@ async fn an_undo_of_a_sensitive_change_is_held_to_the_same_rules() {
     let after = r.file_text();
     assert_ne!(after, FILE);
     let sid = r.session();
-    r.turn_with("config_undo", &sid, json!({"reason": "the owner wants it back"}))
-        .await;
+    r.turn_with(
+        "config_undo",
+        &sid,
+        json!({"reason": "the owner wants it back"}),
+    )
+    .await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let u = r.asked().pop().unwrap().correlation_id;
@@ -310,7 +317,11 @@ async fn a_rollback_ends_every_open_window() {
     assert_eq!(windows(&r), ["cli"], "nothing has ended them yet");
     r.core.tell_rolled_back(&p);
     assert!(windows(&r).is_empty());
-    assert_eq!(r.rows("owner.proof.locked").len(), 1, "ended by the daemon, and recorded");
+    assert_eq!(
+        r.rows("owner.proof.locked").len(),
+        1,
+        "ended by the daemon, and recorded"
+    );
     let q2 = ask(&r, CEILING, json!(300)).await;
     assert_eq!(card(&r, cli(), &q2).await["proof"]["code_needed"], true);
 }
@@ -331,8 +342,12 @@ async fn an_agents_and_a_jobs_process_approve_neither_a_proposal_nor_an_undo() {
     let ordinary = ask(&r, "import.notes.enabled", json!(false)).await;
     let sensitive = ask(&r, CEILING, json!(400)).await;
     let sid = r.session();
-    r.turn_with("config_undo", &sid, json!({"reason": "the owner wants it back"}))
-        .await;
+    r.turn_with(
+        "config_undo",
+        &sid,
+        json!({"reason": "the owner wants it back"}),
+    )
+    .await;
     let undo = r.asked().pop().unwrap().correlation_id;
     let windows_before = r.core.proofs.status().windows;
     for who in [

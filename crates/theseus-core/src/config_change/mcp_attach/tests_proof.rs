@@ -17,12 +17,7 @@ fn owner() -> Client {
     surface("sock#1", Surface::Cli).behind(Behind::Owner)
 }
 
-async fn yes(
-    r: &Rig,
-    client: Client,
-    corr: &str,
-    code: Option<&str>,
-) -> Result<Value, RpcError> {
+async fn yes(r: &Rig, client: Client, corr: &str, code: Option<&str>) -> Result<Value, RpcError> {
     rpc_as(
         &r.core,
         client,
@@ -55,7 +50,11 @@ async fn a_server_is_attached_on_a_code_and_removed_inside_the_window() {
     )
     .await
     .unwrap();
-    assert!(r.file_text().contains("[mcp.servers.wc]"), "{}", r.file_text());
+    assert!(
+        r.file_text().contains("[mcp.servers.wc]"),
+        "{}",
+        r.file_text()
+    );
     assert!(r.core.mcp.is_loaded("wc"));
     assert_eq!(r.core.proofs.status().windows.len(), 1);
     // Taking it away is the same card inside the window, on the yes alone.

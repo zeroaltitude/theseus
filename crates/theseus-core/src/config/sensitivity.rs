@@ -42,7 +42,10 @@ pub const SENSITIVE_TABLES: [(&str, &str); 15] = [
     ("content_based_security", "how outside text is handled"),
     ("judge", "the judge that checks risky acts, and its spend"),
     ("privacy", "which models and paths may see private text"),
-    ("owner_proof", "the second proof itself: how long a code covers"),
+    (
+        "owner_proof",
+        "the second proof itself: how long a code covers",
+    ),
 ];
 
 /// A top-level table that is ordinary, apart from its keys that

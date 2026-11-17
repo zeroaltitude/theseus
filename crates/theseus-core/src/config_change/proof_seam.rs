@@ -54,7 +54,8 @@ impl Needs {
 }
 
 /// The words of a yes that reaches the write on a question the proof never saw.
-pub const NOT_ASKED: &str = "this change needs the owner's second proof, and the card was not asked \
+pub const NOT_ASKED: &str =
+    "this change needs the owner's second proof, and the card was not asked \
      with it, so nothing was written: ask for the change again";
 
 /// The daemon's write, before it writes: the question must carry the mark
