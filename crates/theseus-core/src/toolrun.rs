@@ -1959,9 +1959,14 @@ pub fn build_runtime(
         crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
-        r.register(Arc::new(crate::config_change::Propose));
-        r.register(Arc::new(crate::config_change::history::History));
-        r.register(Arc::new(crate::config_change::undo::Undo));
+        // Only where Theseus's settings are a file the daemon can change
+        // (issue 22): a config read from the vault, and every default test config, has none, so
+        // the tools are in no catalog there and no request carries them.
+        if cfg.config_file.is_some() {
+            r.register(Arc::new(crate::config_change::Propose));
+            r.register(Arc::new(crate::config_change::history::History));
+            r.register(Arc::new(crate::config_change::undo::Undo));
+        }
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
