@@ -25,7 +25,9 @@
 //! a copy someone replaced is never restored. It marks the marker
 //! `rolled_back`, which no start acts on again, so **one change restarts at
 //! most twice (onto it, and back) and never loops**. The start after a
-//! rollback tells the owner and records `config.rolled_back`.
+//! rollback tells the owner and records `config.rolled_back`, and ends every
+//! open window of the owner's second proof (`Proofs::end_windows`): a window
+//! was given under settings that are gone.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -358,11 +360,17 @@ impl Core {
         if let Err(e) = self.store.append_ledger(&row) {
             tracing::warn!(error = %e, "ledger append failed");
         }
+        // The settings a second proof's window was given under are gone: every
+        // window ends, and the next sensitive change asks for a code.
+        let windows = match self.proofs.end_windows("a config rollback") {
+            Ok(0) | Err(_) => "",
+            Ok(_) => " The windows of your second proof were ended, so the next change that needs it asks for a code.",
+        };
         self.tell(
             p,
             format!(
                 "Theseus went back to the settings it had before the change ({}): {why}. It is \
-                 running on the old settings, and will not try the change again by itself.",
+                 running on the old settings, and will not try the change again by itself.{windows}",
                 p.paths.join(", ")
             ),
         );

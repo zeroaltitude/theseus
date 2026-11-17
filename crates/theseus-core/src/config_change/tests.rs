@@ -33,7 +33,7 @@ const OWNER: u64 = 4_100_000_000_000_000_001;
 const LAB: u64 = 4_100_000_000_000_000_777;
 
 /// The settings file the owner keeps: comments, an order of its own.
-const FILE: &str = r#"# Theseus, on this machine.
+pub(super) const FILE: &str = r#"# Theseus, on this machine.
 narrative = false
 
 [secrets]
@@ -77,15 +77,15 @@ impl Provider for Model {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
     model: Arc<Model>,
-    file: PathBuf,
-    state: PathBuf,
+    pub(super) file: PathBuf,
+    pub(super) state: PathBuf,
     _dir: tempfile::TempDir,
 }
 
-fn rig() -> Rig {
+pub(super) fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
@@ -112,22 +112,22 @@ fn rig() -> Rig {
     }
 }
 
-fn change(path: &str, value: Value) -> Value {
+pub(super) fn change(path: &str, value: Value) -> Value {
     json!({"changes": [{"path": path, "value": value}], "reason": "the owner asked for it"})
 }
 
 impl Rig {
-    fn session(&self) -> String {
+    pub(super) fn session(&self) -> String {
         let r = SessionRecord::new(SessionKind::Conversation, None);
         self.core.store.put_session(&r.session_id, &r).unwrap();
         r.session_id
     }
 
-    async fn turn(&self, sid: &str, call: Value) {
+    pub(super) async fn turn(&self, sid: &str, call: Value) {
         self.turn_with("config_propose", sid, call).await;
     }
 
-    async fn turn_with(&self, tool: &str, sid: &str, call: Value) {
+    pub(super) async fn turn_with(&self, tool: &str, sid: &str, call: Value) {
         self.model.calls.lock().unwrap().push((tool.into(), call));
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
@@ -156,7 +156,7 @@ impl Rig {
             .unwrap();
     }
 
-    fn result(&self, sid: &str) -> (ResultStatus, String) {
+    pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {
         self.core
             .store
             .session_nodes(sid)
@@ -174,7 +174,7 @@ impl Rig {
             .expect("the proposal's result")
     }
 
-    fn rows(&self, kind: &str) -> Vec<Value> {
+    pub(super) fn rows(&self, kind: &str) -> Vec<Value> {
         self.core
             .store
             .ledger_tail::<crate::ledger::LedgerRow>(100_000)
@@ -185,11 +185,11 @@ impl Rig {
             .collect()
     }
 
-    fn asked(&self) -> Vec<theseus_protocol::ConfirmRequest> {
+    pub(super) fn asked(&self) -> Vec<theseus_protocol::ConfirmRequest> {
         self.core.confirm_list().unwrap()
     }
 
-    fn file_text(&self) -> String {
+    pub(super) fn file_text(&self) -> String {
         std::fs::read_to_string(&self.file).unwrap()
     }
 }

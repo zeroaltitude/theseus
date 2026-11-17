@@ -624,4 +624,6 @@ pub fn confirm_request(
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_proof;
+#[cfg(test)]
 mod tests_undo;
