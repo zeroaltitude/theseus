@@ -1840,16 +1840,6 @@ pub(crate) struct Gated {
 /// may not make (the place rule, theseus-nbsh).
 pub const PLACE_REFUSAL: &str = "place";
 
-/// Only where Theseus's settings are a file the daemon can change (issue 22): a config read from the vault, and every
-/// default test config, has none, so these tools are in no catalog there and no request carries them. Its own
-/// function so `build_runtime` stays under the complexity budget.
-fn register_config_tools(cfg: &crate::Config, r: &mut Registry) {
-    if cfg.config_file.is_some() {
-        r.register(Arc::new(crate::config_change::Propose));
-        r.register(Arc::new(crate::config_change::RestartTool));
-    }
-}
-
 /// The tool runtime from config: registry, canonical roots, policy, limits,
 /// the job environment resolved once from the daemon's own, and the secret
 /// broker over the daemon's board.
@@ -1968,7 +1958,7 @@ pub fn build_runtime(
         crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
-        register_config_tools(cfg, &mut r);
+        crate::config_change::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
