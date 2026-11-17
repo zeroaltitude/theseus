@@ -149,7 +149,21 @@ pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
         ));
     }
     t.push_str(&format!("\n**Tool:** `{}`", req.tool));
-    t.push_str(&format!("\n**Rule:** {}", clip(req.reason.trim(), 400)));
+    // A change to Theseus's own text or settings (issue 23): its card is on the
+    // message above, whole, and this view clips a rule to a line, so it shows the
+    // heading and where the whole is, never part of the changed lines.
+    if theseus_protocol::has_whole_text(req) {
+        let heading = req.reason.lines().next().unwrap_or_default();
+        t.push_str(&format!(
+            "\n**Rule:** {}\nThe changed lines are on the card, whole; they are not repeated \
+             here cut. To read the whole text, before and after: `theseus config show {}`, or the \
+             cockpit.",
+            clip(heading, 200),
+            req.correlation_id
+        ));
+    } else {
+        t.push_str(&format!("\n**Rule:** {}", clip(req.reason.trim(), 400)));
+    }
     let asker = match (&req.plain, &req.task) {
         (Some(p), _) => p.who.clone(),
         (_, Some(task)) => format!("task {}", task.short),

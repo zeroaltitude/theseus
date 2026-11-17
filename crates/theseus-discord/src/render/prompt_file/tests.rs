@@ -143,3 +143,20 @@ fn an_ordinary_settings_card_is_not_drawn_in_this_form() {
         c.content
     );
 }
+
+/// Details shows a prompt-file card's heading and where the whole is, and no
+/// part of the changed lines, which it would otherwise clip to 400 characters.
+#[test]
+fn details_shows_no_part_of_the_changed_lines() {
+    let body = "w".repeat(900);
+    let card = format!(
+        "Change the prompt file /state/P.md?\n```diff\n@@ -1,1 +1,1 @@\n-old\n+{body}\n```\n"
+    );
+    let t = crate::render::question_details(&request(&card, json!({"whole": true})));
+    assert!(t.contains("Change the prompt file /state/P.md?"), "{t}");
+    assert!(t.contains("theseus config show act_1"), "{t}");
+    assert!(!t.contains("www") && !t.contains("```diff"), "{t}");
+    // Another settings question keeps its rule, clipped to a line.
+    let other = crate::render::question_details(&request("Change 1 setting?\n- a: on", json!({})));
+    assert!(other.contains("**Rule:** Change 1 setting?"), "{other}");
+}
