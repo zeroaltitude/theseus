@@ -362,6 +362,8 @@ pub struct ToolRuntime {
     /// Where `config.propose` reads the settings file and keeps its copies
     /// (issue 22): the daemon's own, never a tool's.
     pub config_change: crate::config_change::Where,
+    /// The install of a joined change into the root-owned program directory (issue 22).
+    pub root_install: crate::rsi::join::root_install::Board,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -558,6 +560,7 @@ impl ToolRuntime {
             self_file: Default::default(),
             self_pause: Default::default(),
             config_change: Default::default(),
+            root_install: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -2035,6 +2038,7 @@ pub fn build_runtime(
     }
     let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
     let config_change = crate::config_change::Where::new(cfg.config_file.clone(), state.clone());
+    let root_install = crate::rsi::join::root_install::Board::new(state.clone());
     Ok(ToolRuntime {
         misroute: Default::default(),
         catalogs: Default::default(),
@@ -2130,6 +2134,7 @@ pub fn build_runtime(
         self_file: Default::default(),
         self_pause: Default::default(),
         config_change,
+        root_install,
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),

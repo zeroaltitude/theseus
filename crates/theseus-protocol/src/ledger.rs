@@ -297,6 +297,7 @@ ledger_kinds! {
     SelfSealedDrift = "self.sealed.drift",
     SelfExamRejected = "self.exam.rejected",
     SelfInstalled = "self.installed",
+    SelfRootInstall = "self.root_install",
     SelfInstallNotInstalled = "self.install.not_installed",
     SelfInstallMismatch = "self.install.mismatch",
     SelfInstallVerified = "self.install.verified",

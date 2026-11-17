@@ -496,6 +496,7 @@ pub(crate) fn put(
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
             "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
             "undoes": undoes.map(undo::Undoes::args),
+            "needs_fresh_proof": proof_seam::needs_fresh(&settings),
             "reason": reason,
             "outside_text": outside || steered,
             "asked_by": {

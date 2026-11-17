@@ -1135,6 +1135,7 @@ impl Core {
         core.tools.self_file.attach(&core);
         core.tools.self_pause.attach(&core);
         core.tools.config_change.attach(&core);
+        core.tools.root_install.attach(&core);
         core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools

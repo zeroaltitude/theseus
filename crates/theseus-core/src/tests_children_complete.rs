@@ -116,6 +116,11 @@ const BARE: &[(&str, &str)] = &[
          both are under `#[cfg(test)]` in the file",
     ),
     (
+        "theseus-core/src/peer_proc.rs",
+        "test-only: a stand-in `sleep` the test starts to be a job's process and \
+         kills and waits for itself; under `#[cfg(test)]` in the file",
+    ),
+    (
         "theseus-core/src/broker/tests.rs",
         "test-only: a hermetic git",
     ),
@@ -137,6 +142,10 @@ const BARE: &[(&str, &str)] = &[
         "test-only: an ignored live test that runs cargo and npm on a fleet box",
     ),
     ("theseus-core/src/rsi/join/tests.rs", "test-only"),
+    (
+        "theseus-core/src/rsi/join/root_install/tests.rs",
+        "test-only",
+    ),
     ("theseus-core/src/rsi/join/tests_sealed.rs", "test-only"),
     (
         "theseus-core/src/rsi/mint/validate/tests_dry.rs",
@@ -162,6 +171,11 @@ const BARE: &[(&str, &str)] = &[
          reaps every child itself and runs in a test process, which has no sweep",
     ),
     ("theseus-core/src/tests_m3.rs", "test-only"),
+    (
+        "theseus-core/src/tests_m3/agent_answers.rs",
+        "test-only: a stand-in `sleep` a test starts to be a job's process and \
+         kills and waits for itself",
+    ),
     (
         "theseus-core/src/tests_project_context.rs",
         "test-only: a hermetic git builds the fixture repository the project \

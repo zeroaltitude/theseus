@@ -335,6 +335,11 @@ impl Core {
         if self.cfg.self_improve.mode != theseus_protocol::rsi::SelfMode::Act {
             return Ok(None);
         }
+        // An install into the root-owned directory is "installed and running" only once the new daemon has
+        // confirmed itself (`root_install::verify`), which calls this again.
+        if self.root_install_pending_for(commit) {
+            return Ok(None);
+        }
         let verified = self.self_install_marked(commit);
         let told = self.self_installed_row(commit, verified)?;
         if verified {

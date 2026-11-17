@@ -82,6 +82,13 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "A joined build installed: what was swapped in.",
     },
     SelfRowKind {
+        name: "self.root_install",
+        fields: &["merge", "step"],
+        doc: "A step of installing a joined change into the root-owned program directory (issue 22): \
+              asked, declined, refused, staged, installed by the helper, the unit pointed, restarted, \
+              verified or rolled back, each with what it did and why.",
+    },
+    SelfRowKind {
         name: "self.install.not_installed",
         fields: &["merge", "branch", "target", "step"],
         doc: "A joined build that was not installed: the service runs a build in a directory the \

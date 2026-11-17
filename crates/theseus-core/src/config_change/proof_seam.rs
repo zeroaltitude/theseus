@@ -34,6 +34,18 @@ pub fn required_and_given(_question: &Action, _via: &str) -> Proof {
     Proof::NotInstalled
 }
 
+/// Whether any setting of a change needs a fresh code, one typed for that
+/// change alone and covered by no open window (`config::sensitivity::
+/// needs_fresh_proof`; today `[self] install` becoming `"auto"`). Read from
+/// the settings that really change, as the sensitive check is. The wiring
+/// passes it to `owner_proof::mark(correlation_id, fresh)` where the card is
+/// asked, and again where a yes is judged.
+pub fn needs_fresh(settings: &[super::diff::Setting]) -> bool {
+    settings
+        .iter()
+        .any(|s| crate::config::sensitivity::needs_fresh_proof(&s.path, s.after.as_ref()))
+}
+
 /// Whether a sensitive change may go to the owner at all: not while the
 /// proof is not installed.
 pub fn installed() -> bool {
@@ -66,4 +78,38 @@ pub(crate) fn pretend() -> impl Drop {
     }
     PRETEND.with(|p| p.set(true));
     Guard
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config_change::diff;
+
+    fn between(before: &str, after: &str) -> Vec<diff::Setting> {
+        diff::between(before, after).expect("both parse")
+    }
+
+    #[test]
+    fn a_change_that_turns_install_to_auto_needs_a_fresh_proof_however_it_is_written() {
+        for after in [
+            "[self]\ninstall = \"auto\"\n",
+            "self = { install = \"auto\" }\n",
+        ] {
+            assert!(needs_fresh(&between("", after)), "{after}");
+        }
+        assert!(needs_fresh(&between(
+            "[self]\ninstall = \"off\"\n",
+            "[self]\ninstall = \"auto\"\nmode = \"on\"\n"
+        )));
+    }
+
+    #[test]
+    fn the_other_self_settings_and_a_move_away_from_auto_do_not() {
+        assert!(!needs_fresh(&between("", "[self]\ninstall = \"ask\"\n")));
+        assert!(!needs_fresh(&between(
+            "[self]\ninstall = \"auto\"\n",
+            "[self]\ninstall = \"off\"\n"
+        )));
+        assert!(!needs_fresh(&between("", "[self]\nmode = \"on\"\n")));
+    }
 }

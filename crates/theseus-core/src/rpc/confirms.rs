@@ -90,6 +90,12 @@ impl Core {
             let ttl = self.kernel.config().confirm_ttl_ms;
             return Some(crate::config_change::confirm_request(a, session, ttl));
         }
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::rsi::join::root_install::confirm_request(
+                a, session, ttl,
+            ));
+        }
         let (tool, input, gate, turn_id) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -209,6 +215,7 @@ impl Core {
         if q.tool == crate::extend::ACK
             || q.tool == super::packs::PROMOTE
             || q.tool == crate::config_change::ACK
+            || q.tool == crate::rsi::join::root_install::ACK
         {
             return Ok(self.confirm_request(q, &rec, &[]));
         }
@@ -317,6 +324,7 @@ impl Core {
                     && a.tool != crate::extend::ACK
                     && a.tool != super::packs::PROMOTE
                     && a.tool != crate::config_change::ACK
+                    && a.tool != crate::rsi::join::root_install::ACK
             }) {
                 self.store.session_nodes(&rec.session_id)?
             } else {
@@ -457,6 +465,31 @@ impl Core {
                 false => crate::config_change::answer::Answer::No(note),
             };
             let done = self.answer_config_change(&a, answer, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
+        }
+        // A joined change the owner is asked to install (issue 22): the helper
+        // and the restart run off this path; nothing wakes.
+        if a.tool == crate::rsi::join::root_install::ACK {
+            // An agent's process on the CLI or the web socket is not the owner at this card: only the owner's own
+            // hand installs a change into what Theseus runs.
+            if approve && who.agent.is_some() {
+                let r = Refusal {
+                    who: who.who(),
+                    via: who.via(),
+                    why: crate::rsi::join::root_install::AGENT_REFUSAL.to_string(),
+                };
+                self.refused(
+                    Act::Answer {
+                        action: &a,
+                        approve,
+                    },
+                    &who,
+                    &r,
+                )?;
+                return Err(r.into());
+            }
+            let done = self.answer_root_install(&a, approve, note, by, &via)?;
             self.admission.notify_waiters();
             return Ok(done);
         }
@@ -670,6 +703,11 @@ impl Core {
             let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
             let answer = crate::config_change::answer::Answer::Expired(&why);
             self.answer_config_change(a, answer, EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            self.answer_root_install(a, false, Some(&why), EXPIRY, EXPIRY)?;
             return Ok(());
         }
         let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));

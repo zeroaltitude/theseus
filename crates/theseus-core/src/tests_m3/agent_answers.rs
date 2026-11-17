@@ -389,3 +389,29 @@ async fn confirm_list_says_an_agent_may_not_answer_a_money_question() {
         assert_eq!(asked[0]["may_answer"], json!(may), "{list}");
     }
 }
+
+/// The card that installs what Theseus's own loop joined (issue 22) is the owner's own hand: an agent's process, on
+/// the CLI or the web socket, cannot approve it (the refusal is recorded and the question keeps waiting), and the
+/// owner's own terminal answers it.
+#[tokio::test]
+async fn an_agent_cannot_approve_the_card_that_installs_a_joined_change() {
+    let r = rig(vec![]);
+    let q = plant(&r.core, crate::rsi::join::root_install::ACK);
+    for who in [
+        agent("claude"),
+        agent(crate::peer_proc::NO_TERMINAL),
+        web_agent("codex"),
+    ] {
+        let e = confirm(&r, who, &q, true)
+            .await
+            .expect_err("an agent does not approve it");
+        assert!(e.message.contains("not the owner"), "{}", e.message);
+    }
+    assert_eq!(ledgered(&r, "approval.refused").len(), 3);
+    assert!(ledgered(&r, "action.confirm_answered").is_empty());
+    still_waiting(&r, &q);
+    confirm(&r, owner(), &q, true)
+        .await
+        .expect("the owner's own terminal");
+    assert_eq!(ledgered(&r, "action.confirm_answered").len(), 1);
+}
