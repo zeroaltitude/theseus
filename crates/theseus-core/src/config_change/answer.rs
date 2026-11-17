@@ -44,6 +44,23 @@ struct Applied {
     pending: Option<Pending>,
 }
 
+/// The `config.undone` record a yes to an undo writes beside `config.changed`:
+/// none for any other question, or for an answer that wrote nothing.
+fn undone_row(
+    a: &Action,
+    approve: bool,
+    args: &Value,
+    who: &Value,
+    by: &str,
+    via: &str,
+) -> Result<Option<NewRecord>> {
+    let Some(u) = args.get("undoes").filter(|u| approve && u.is_object()) else {
+        return Ok(None);
+    };
+    let row = super::undo::undone_row(&a.session_id, &a.correlation_id, u, args, who, by, via);
+    Ok(Some(NewRecord::json(kinds::LEDGER, None, &row)?))
+}
+
 impl Core {
     /// The yes to a restart the owner asked for in words: nothing is written,
     /// but the marker is, so the start that follows says it is back, and goes
@@ -269,10 +286,7 @@ impl Core {
             NewRecord::json(kinds::LEDGER, None, &row)?,
         ];
         // An undo that was written names the change it undid.
-        if let (true, Some(u)) = (approve, args.get("undoes").filter(|u| u.is_object())) {
-            let undone = super::undo::undone_row(&a.session_id, corr, u, &args, &who, by, via);
-            rows.push(NewRecord::json(kinds::LEDGER, None, &undone)?);
-        }
+        rows.extend(undone_row(a, approve, &args, &who, by, via)?);
         let proposal = a.proposal.clone().unwrap_or_default();
         self.kernel.frame(&[&a.execution_id], |k| {
             match approve {

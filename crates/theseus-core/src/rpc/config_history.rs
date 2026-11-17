@@ -6,7 +6,7 @@
 //! private place) and the MCP server does not offer it.
 
 use serde_json::Value;
-use theseus_protocol::{method, ConfigHistoryParams, ConfigHistoryResult};
+use theseus_protocol::{ConfigHistoryParams, ConfigHistoryResult};
 
 use super::confirms::Act;
 use super::projects::failure;
@@ -14,9 +14,6 @@ use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::config_change::history;
-
-/// This module's method, routed by one dispatch arm.
-pub(super) const OWN: [&str; 1] = [method::CONFIG_HISTORY];
 
 impl Core {
     pub(super) fn rpc_config_history(

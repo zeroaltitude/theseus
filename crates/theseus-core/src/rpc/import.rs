@@ -70,7 +70,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::JOB_STOP
         || super::peek::OWN.contains(&name)
         || name == method::LEDGER_VERIFY
-        || super::config_history::OWN.contains(&name)
+        || name == method::CONFIG_HISTORY
         || name == method::TOOL_DEFER
         || name == method::FORECAST_CALIBRATION
         || name == method::TURN_INSPECT
@@ -189,9 +189,6 @@ impl Core {
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);
         }
-        if super::config_history::OWN.contains(&name) {
-            return self.rpc_config_history(params, conn);
-        }
         if name == method::TOOL_DEFER {
             return super::server::reply(self.tool_defer());
         }
@@ -244,6 +241,7 @@ impl Core {
                 let r = blocking(move || write::list(&core.store)).await?;
                 serde_json::to_value(r)
             }
+            method::CONFIG_HISTORY => return self.rpc_config_history(params, conn),
             method::IMPORT_EPISODES => return self.import_episodes(params, conn).await,
             method::IMPORT_ERASE => {
                 let p: ImportEraseParams = parse(params)?;

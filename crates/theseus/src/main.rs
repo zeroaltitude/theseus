@@ -1445,6 +1445,15 @@ async fn plans_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     }
 }
 
+/// `theseus undo` and `theseus config`: what the owner holds back, and what they changed.
+async fn owner_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Config { cmd } => config_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        _ => unreachable!("only undo and config come here"),
+    }
+}
+
 /// `theseus ledger`: a check of the chain, or the rows.
 async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     match l {
@@ -1564,8 +1573,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Config { cmd } => config_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        cmd @ (Cmd::Undo { .. } | Cmd::Config { .. }) => owner_cmd(c, json, cmd).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
         Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,
