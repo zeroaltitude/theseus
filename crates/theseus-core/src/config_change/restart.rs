@@ -340,8 +340,10 @@ impl Core {
 
     /// A line to the owner, in the place they asked, or where approvals go.
     fn tell(&self, p: &Pending, text: String) {
-        let body = json!({"kind": "notice", "text": text});
-        if let Err(e) = self.outbox.to_operator(Some(&p.session_id), body) {
+        if let Err(e) = self
+            .outbox
+            .to_operator(Some(&p.session_id), json!({"kind": "notice", "text": text}))
+        {
             tracing::warn!(error = %format!("{e:#}"), "the owner's notice about the settings change was not written");
         }
     }
