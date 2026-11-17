@@ -258,15 +258,24 @@ pub fn outside(graph: &Graph, changed: &[String], package: &str) -> bool {
 
 /// The paths of the tree's change against main, from main's merge base with it.
 pub fn changed(p: &super::tree::Place, tree: &super::tree::Tree) -> Result<Vec<String>> {
+    names(p, tree, "origin/main...HEAD")
+}
+
+/// The paths a merge brings to `base`, the main it was made on: the join's tree is that merge, and
+/// what the change touches is read against the very commit it was merged into, never against a
+/// ref that may have moved since.
+pub fn changed_from(
+    p: &super::tree::Place,
+    tree: &super::tree::Tree,
+    base: &str,
+) -> Result<Vec<String>> {
+    names(p, tree, &format!("{base}..HEAD"))
+}
+
+fn names(p: &super::tree::Place, tree: &super::tree::Tree, range: &str) -> Result<Vec<String>> {
     let o = p.git(
         &tree.dir,
-        &[
-            "diff",
-            "--name-only",
-            "-z",
-            "--no-renames",
-            "origin/main...HEAD",
-        ],
+        &["diff", "--name-only", "-z", "--no-renames", range],
     )?;
     if !o.status.success() {
         bail!(

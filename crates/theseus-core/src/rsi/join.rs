@@ -90,6 +90,8 @@ mod tests_scratch;
 #[cfg(test)]
 mod tests_sealed;
 #[cfg(test)]
+mod tests_second_look;
+#[cfg(test)]
 mod tests_unreviewable;
 mod unreviewable;
 mod verify;

@@ -216,7 +216,16 @@ pub(crate) fn rig_parts(
     edit: impl FnOnce(&mut Config),
     parts: impl FnOnce(&mut crate::rpc::Parts),
 ) -> Rig {
-    let f = fixture();
+    rig_on(fixture(), mode, edit, parts)
+}
+
+/// [`rig_parts`] over a fixture the test made (a gate of its own).
+pub(crate) fn rig_on(
+    f: Fixture,
+    mode: SelfMode,
+    edit: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
     let root = f.place.state.parent().unwrap().to_path_buf();
     let gpg = root.join("fake-gpg.sh");
     std::fs::write(&gpg, FAKE_GPG).unwrap();
