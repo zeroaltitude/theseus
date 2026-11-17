@@ -1309,3 +1309,24 @@ async fn an_agents_input_is_remembered_for_the_turns_that_continue_it() {
     assert!(text.contains("agent's process (claude)"), "{text}");
     assert_eq!(r.fakes.connects.load(Ordering::SeqCst), 0);
 }
+
+/// Each key of a server's table that decides what runs, what it reaches or what
+/// it is given is sensitive on its own, wherever it is set.
+#[test]
+fn the_keys_of_a_servers_table_that_matter_are_each_sensitive() {
+    for key in [
+        "sandbox",
+        "egress",
+        "env",
+        "auth_secret",
+        "command",
+        "url",
+        "external",
+    ] {
+        let path = super::super::edit::parse_path(&format!("mcp.servers.wc.{key}")).unwrap();
+        assert!(
+            crate::config::sensitivity::reason(&path).is_some(),
+            "mcp.servers.wc.{key} must be sensitive"
+        );
+    }
+}
