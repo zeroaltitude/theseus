@@ -48,6 +48,8 @@ mod tests_narrow_read;
 #[cfg(test)]
 mod tests_patch;
 #[cfg(test)]
+mod tests_proc_cwd;
+#[cfg(test)]
 mod tests_read_cap;
 #[cfg(test)]
 mod tests_stale;

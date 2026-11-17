@@ -136,6 +136,21 @@ pub fn shell_argv(line: &str) -> Vec<String> {
     vec!["bash".into(), "-c".into(), line.into()]
 }
 
+/// A directory a program is to run in must exist. `plan` asks it at the gate,
+/// so a missing one is invalid input the model reads and answers, not a
+/// harness fault written after the call was admitted; `job` asks it again,
+/// since the directory can go between the gate and the launch.
+fn existing(cwd: &std::path::Path) -> Result<(), String> {
+    if cwd.is_dir() {
+        Ok(())
+    } else {
+        Err(format!(
+            "working directory {} does not exist",
+            cwd.display()
+        ))
+    }
+}
+
 fn named(argv: &[String]) -> bool {
     argv.first().is_some_and(|p| !p.trim().is_empty())
 }
@@ -217,6 +232,10 @@ impl Tool for Run {
         };
         let Some(steps) = &a.steps else {
             let cwd = dir(None);
+            // Only a directory the call names is the model's to get right.
+            if a.cwd.is_some() {
+                existing(&cwd)?;
+            }
             let argv = program.unwrap_or_default();
             return Ok(Plan {
                 summary: format!("run `{}` in {}", argv.join(" "), cwd.display()),
@@ -234,6 +253,9 @@ impl Tool for Run {
         let mut listed = Vec::new();
         for (i, step) in steps.iter().enumerate() {
             let cwd = dir(step.cwd.as_deref());
+            if step.cwd.is_some() || a.cwd.is_some() {
+                existing(&cwd).map_err(|e| format!("step {}: {e}", i + 1))?;
+            }
             listed.push(format!(
                 "{}. `{}` in {}",
                 i + 1,
@@ -265,12 +287,7 @@ impl Tool for Run {
             .as_deref()
             .map(|p| ctx.resolve(p))
             .unwrap_or_else(|| ctx.cwd.clone());
-        if !cwd.is_dir() {
-            return Err(format!(
-                "working directory {} does not exist",
-                cwd.display()
-            ));
-        }
+        existing(&cwd)?;
         Ok(JobSpec {
             argv: a.program().ok_or("a batch's jobs are its steps'")?,
             cwd,
