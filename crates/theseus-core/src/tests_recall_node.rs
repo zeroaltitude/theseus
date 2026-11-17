@@ -7,7 +7,7 @@
 //! is given.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::Value;
 use theseus_protocol::memory::{MemoryLabelParams, RecallManifest};
@@ -334,8 +334,9 @@ async fn a_wrong_label_keeps_a_node_out() {
 
 /// A stalled index holds a canary turn no longer than its deadline: the
 /// turn goes on without recall, its row says `deadline`, and no node is
-/// written.
-#[tokio::test]
+/// written. On the paused clock: the bound on the turn's time is its own
+/// virtual time.
+#[tokio::test(start_paused = true)]
 async fn a_stalled_index_holds_a_canary_turn_no_longer_than_its_deadline() {
     let r = canary_with(|c| c.memory.recall_deadline_ms = 50);
     let c = &r.core;
@@ -343,7 +344,7 @@ async fn a_stalled_index_holds_a_canary_turn_no_longer_than_its_deadline() {
     c.runner.memory.set_ask(Arc::new(|_| -> AskFuture {
         Box::pin(std::future::pending())
     }));
-    let t0 = Instant::now();
+    let t0 = tokio::time::Instant::now();
     let res = turn(c, &b, "is anyone there?").await;
     assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
     assert_eq!((res.loops, res.recalled), (1, 0));
