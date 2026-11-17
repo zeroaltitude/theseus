@@ -18,7 +18,8 @@ settings with a line that says so, and cannot be undone. Nothing else supplies a
 
 Who reads it: the tool `config.history` in the owner's own conversation (the same wall as `config.propose`,
 `wall.rs`: a private place only the owner writes in, not a task, an execution whose principal is the operator's), and
-the RPC `config.history`, judged as an act (`Act::Settings`, the place rule: the owner, from a private place). The CLI
+the RPC `config.history`, judged as an act (`Act::Settings`, the place rule: the owner, from a private place); an
+agent's process on the CLI or the web socket is refused before that, and the refusal ledgered. The CLI
 is `theseus config history` and is refused inside a job. The MCP server does not offer the RPC, and
 `routine::grant::NEVER` names both new tools. The words carry settings and the names of secrets, which is why none of
 this is open to a job, a task, the self loop, an MCP client or a shared place.
