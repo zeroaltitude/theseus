@@ -50,7 +50,13 @@ export type HealthResult = { name: string, version: string, protocol: string,
 /**
  * The binary's version and commit, as `server.started` names them (theseus-9o5n).
  */
-build: Build, uptime_secs: number, 
+build: Build, 
+/**
+ * The commit of a self change that is joined to main and is not what this service runs: its
+ * install was not possible (the service runs a build the loop cannot replace) or did not
+ * take. Absent when there is none.
+ */
+joined_not_running?: string, uptime_secs: number, 
 /**
  * The owner's own sessions: the imported and erased ones are `imported`'s (theseus-revl).
  */

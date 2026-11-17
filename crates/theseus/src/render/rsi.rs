@@ -74,6 +74,24 @@ pub(super) fn push_health(o: &mut Vec<Line>, s: Option<&SelfState>) {
     }
 }
 
+/// Health's line for a self change that is joined to main and is not what the service runs
+/// (issue 20): its commit, and what to read. Nothing when there is none.
+pub(super) fn push_joined(o: &mut Vec<Line>, commit: Option<&str>, running: Option<&str>) {
+    if let Some(c) = commit {
+        let short = |s: &str| s[..s.len().min(12)].to_string();
+        push(
+            o,
+            Tag::Warn,
+            &format!(
+                "joined, not running: {} is joined to main and is not what this service runs{}; \
+                 `theseus self pipeline` says why and what installs it",
+                short(c),
+                running.map_or_else(String::new, |r| format!(" ({})", short(r))),
+            ),
+        );
+    }
+}
+
 /// `theseus self log`'s budget lines: the day's spend, then each branch's
 /// against its line.
 pub fn budget_lines(b: &SelfBudgetView) -> Vec<String> {
@@ -198,5 +216,24 @@ mod tests {
                 "  tsk_a: $10.00 of $10.00 (stopped at its line)",
             ]
         );
+    }
+
+    /// Health names a joined change that is not what runs: its commit and the build that does; and
+    /// says nothing when there is none (issue 20).
+    #[test]
+    fn health_names_a_joined_change_that_is_not_running() {
+        let mut o = Vec::new();
+        push_joined(&mut o, None, Some("a"));
+        assert!(o.is_empty());
+        push_joined(&mut o, Some(&"b".repeat(40)), Some(&"a".repeat(40)));
+        let said: Vec<String> = o.into_iter().map(|l| l.text).collect();
+        assert_eq!(said.len(), 1, "{said:?}");
+        for want in [
+            "joined, not running: bbbbbbbbbbbb",
+            "(aaaaaaaaaaaa)",
+            "theseus self pipeline",
+        ] {
+            assert!(said[0].contains(want), "{want}: {}", said[0]);
+        }
     }
 }

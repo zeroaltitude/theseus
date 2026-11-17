@@ -23,6 +23,12 @@ pub struct HealthResult {
     /// The binary's version and commit, as `server.started` names them (theseus-9o5n).
     #[serde(default)]
     pub build: Build,
+    /// The commit of a self change that is joined to main and is not what this service runs: its
+    /// install was not possible (the service runs a build the loop cannot replace) or did not
+    /// take. Absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub joined_not_running: Option<String>,
     pub uptime_secs: u64,
     /// The owner's own sessions: the imported and erased ones are `imported`'s (theseus-revl).
     pub sessions: u64,
