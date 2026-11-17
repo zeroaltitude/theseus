@@ -2,9 +2,10 @@
 //! file and a scratch state directory (issue 22, line 4), with stand-in servers
 //! in this process (`theseus_mcp::fake`):
 //!
-//! - until the second proof is built in, an attach is refused before anything
-//!   starts; past it, the server is tried once in L1 with no secret, and the
-//!   card lists its tools, its secrets by name and its hosts;
+//! - an attach's card is marked as needing the second proof (these tests give
+//!   the stand-in owner's place an open window); the server is tried once in L1
+//!   with no secret, and the card lists its tools, its secrets by name and its
+//!   hosts;
 //! - the yes writes `[mcp.servers.<name>]` through `config_change`'s own write
 //!   and loads the server live, its tools offered with no restart;
 //! - a failed trial is shown, `read` is only what the owner named, a secret is
@@ -48,7 +49,7 @@ const WC_VALUE: &str = "wc-value-7f3a91d2e4";
 
 /// The settings file: a secret the daemon has loaded, one only the file has,
 /// and one server that was there at the start.
-const FILE: &str = r#"# Theseus, on this machine.
+pub(super) const FILE: &str = r#"# Theseus, on this machine.
 narrative = false
 
 [secrets]
@@ -154,16 +155,16 @@ impl Provider for Model {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
     model: Arc<Model>,
     fakes: Arc<Fakes>,
-    file: PathBuf,
+    pub(super) file: PathBuf,
     state: PathBuf,
     _dir: tempfile::TempDir,
 }
 
-fn rig() -> Rig {
+pub(super) fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
@@ -222,18 +223,18 @@ fn rig() -> Rig {
     }
 }
 
-fn wc() -> Value {
+pub(super) fn wc() -> Value {
     json!({"name": "wc", "command": ["wc-server", "--lines"], "reason": "the owner wants word counts"})
 }
 
 impl Rig {
-    fn session(&self) -> String {
+    pub(super) fn session(&self) -> String {
         let r = SessionRecord::new(SessionKind::Conversation, None);
         self.core.store.put_session(&r.session_id, &r).unwrap();
         r.session_id
     }
 
-    async fn turn(&self, sid: &str, tool: &str, call: Value) {
+    pub(super) async fn turn(&self, sid: &str, tool: &str, call: Value) {
         self.turn_by(sid, tool, call, None).await;
     }
 
@@ -268,7 +269,7 @@ impl Rig {
             .unwrap();
     }
 
-    fn result(&self, sid: &str) -> (ResultStatus, String) {
+    pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {
         self.core
             .store
             .session_nodes(sid)
@@ -286,7 +287,7 @@ impl Rig {
             .expect("the call's result")
     }
 
-    fn rows(&self, kind: &str) -> Vec<Value> {
+    pub(super) fn rows(&self, kind: &str) -> Vec<Value> {
         self.core
             .store
             .ledger_tail::<crate::ledger::LedgerRow>(100_000)
@@ -297,15 +298,15 @@ impl Rig {
             .collect()
     }
 
-    fn asked(&self) -> Vec<theseus_protocol::ConfirmRequest> {
+    pub(super) fn asked(&self) -> Vec<theseus_protocol::ConfirmRequest> {
         self.core.confirm_list().unwrap()
     }
 
-    fn file_text(&self) -> String {
+    pub(super) fn file_text(&self) -> String {
         std::fs::read_to_string(&self.file).unwrap()
     }
 
-    fn offered(&self) -> Vec<String> {
+    pub(super) fn offered(&self) -> Vec<String> {
         self.core
             .tools
             .mcp
@@ -333,35 +334,48 @@ impl Rig {
     }
 }
 
-/// Until the second proof is built in, nothing is tried, asked or written.
+/// An attach and a detach are asked with the second proof: the card is marked,
+/// and with no app paired it cannot be approved, so nothing is written.
 #[tokio::test]
-async fn attaching_is_refused_as_sensitive_until_the_proof_is_wired() {
+async fn attaching_and_detaching_are_asked_with_the_second_proof() {
     let r = rig();
     let sid = r.session();
     r.turn(&sid, "mcp_attach", wc()).await;
     let (status, text) = r.result(&sid);
-    assert_eq!(status, ResultStatus::Error, "{text}");
-    assert!(
-        text.contains("needs the second proof, which is not installed yet"),
-        "{text}"
-    );
-    assert_eq!(r.fakes.connects.load(Ordering::SeqCst), 0, "nothing ran");
-    assert!(r.asked().is_empty());
-    assert_eq!(r.file_text(), FILE);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let attach = r.asked().remove(0);
+    assert!(attach.needs_proof && !attach.needs_fresh_proof, "{attach:?}");
     let sid = r.session();
     r.turn(&sid, "mcp_detach", json!({"name": "base"})).await;
     let (status, text) = r.result(&sid);
-    assert_eq!(status, ResultStatus::Error, "{text}");
-    assert!(text.contains("second proof"), "{text}");
-    assert!(r.asked().is_empty());
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let detach = r
+        .asked()
+        .into_iter()
+        .find(|c| c.correlation_id != attach.correlation_id)
+        .expect("the detach's card");
+    assert!(detach.needs_proof, "{detach:?}");
+    for q in [&attach, &detach] {
+        let e = r
+            .core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("theseus owner proof enroll"),
+            "{e:#}"
+        );
+    }
+    assert_eq!(r.file_text(), FILE);
+    assert!(!r.core.mcp.has_server("wc"));
+    assert_eq!(r.asked().len(), 2, "both still wait");
 }
 
 /// The trial is the sandbox's, with no secret and no network beyond what was
 /// asked, whatever the server will run in; and its card says what runs.
 #[tokio::test]
 async fn the_trial_is_in_l1_with_no_secret_and_the_card_lists_the_tools() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     let mut call = wc();
     call["env"] = json!({"WC_KEY": "wc_key"});
@@ -435,8 +449,8 @@ async fn the_trial_is_in_l1_with_no_secret_and_the_card_lists_the_tools() {
 /// no network at all, and the card says it is outside.
 #[tokio::test]
 async fn a_server_asked_for_at_l0_is_tried_in_l1_with_no_network() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     let mut call = wc();
     call["sandbox"] = json!("l0");
@@ -454,8 +468,8 @@ async fn a_server_asked_for_at_l0_is_tried_in_l1_with_no_network() {
 /// are offered with no restart.
 #[tokio::test]
 async fn the_yes_writes_the_table_and_loads_the_server_live() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let mut call = wc();
     call["read"] = json!(["echo"]);
     call["egress"] = json!(["api.wordlist.invalid:443"]);
@@ -533,8 +547,8 @@ async fn the_yes_writes_the_table_and_loads_the_server_live() {
 /// whatever it lists once it starts.
 #[tokio::test]
 async fn a_server_that_fails_its_trial_shows_the_failure_and_may_still_be_attached() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     let mut call = wc();
     call["name"] = json!("needy");
@@ -567,8 +581,8 @@ async fn a_server_that_fails_its_trial_shows_the_failure_and_may_still_be_attach
 /// where, and that its key comes from a named secret.
 #[tokio::test]
 async fn an_http_server_is_tried_without_its_key() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.turn(
         &sid,
@@ -611,8 +625,8 @@ async fn an_http_server_is_tried_without_its_key() {
 /// trial still ran, without it.
 #[tokio::test]
 async fn a_secret_the_settings_lack_makes_no_card_and_says_how_to_add_it() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     let mut call = wc();
     call["env"] = json!({"A": "nokey", "B": "late_key"});
@@ -645,8 +659,8 @@ async fn a_secret_the_settings_lack_makes_no_card_and_says_how_to_add_it() {
 /// the server only when it starts it, after the yes, by its own road.
 #[tokio::test]
 async fn a_secret_is_named_and_its_value_reaches_the_server_only_after_the_yes() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let mut call = wc();
     call["env"] = json!({"WC_KEY": "wc_key"});
     let (card, sid) = r.attached(call).await;
@@ -698,8 +712,8 @@ async fn a_secret_is_named_and_its_value_reaches_the_server_only_after_the_yes()
 /// restart; its table leaves the file.
 #[tokio::test]
 async fn detach_unloads_the_server_live_and_removes_its_table() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     r.attached(wc()).await;
     assert!(r.offered().iter().any(|n| n.starts_with("mcp__wc__")));
     let sid = r.session();
@@ -768,8 +782,8 @@ async fn detach_unloads_the_server_live_and_removes_its_table() {
 /// says so beforehand, and the yes keeps the restart's marker.
 #[tokio::test]
 async fn a_server_started_from_the_file_is_removed_with_a_restart_the_card_names() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.turn(&sid, "mcp_detach", json!({"name": "base"})).await;
     let q = r.asked().remove(0);
@@ -796,8 +810,8 @@ async fn a_server_started_from_the_file_is_removed_with_a_restart_the_card_names
 /// A name already on the board or in the file is not attached twice.
 #[tokio::test]
 async fn a_name_in_use_is_not_attached_again() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     for name in ["base", "wc"] {
         if name == "wc" {
             r.attached(wc()).await;
@@ -816,8 +830,8 @@ async fn a_name_in_use_is_not_attached_again() {
 /// words for these tools.
 #[tokio::test]
 async fn a_task_and_a_shared_place_cannot_attach_or_detach() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     for tool in ["mcp_attach", "mcp_detach"] {
         let parent = r.session();
         let mut rec = SessionRecord::new(SessionKind::Conversation, None);
@@ -853,8 +867,8 @@ async fn a_task_and_a_shared_place_cannot_attach_or_detach() {
 /// file is as it was, and nothing was loaded.
 #[tokio::test]
 async fn a_yes_from_a_shared_place_attaches_nothing() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.turn(&sid, "mcp_attach", wc()).await;
     let q = r.asked().remove(0);
@@ -884,8 +898,8 @@ async fn a_yes_from_a_shared_place_attaches_nothing() {
 /// waiting; the same card answered from the owner's own terminal goes through.
 #[tokio::test]
 async fn an_agents_process_cannot_attach_or_detach_or_approve_a_card() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     for (tool, call) in [
         ("mcp_attach", wc()),
         ("mcp_detach", json!({"name": "base"})),
@@ -933,8 +947,8 @@ async fn an_agents_process_cannot_attach_or_detach_or_approve_a_card() {
 /// alone, is written as `external = false`, and says so on its own line.
 #[tokio::test]
 async fn external_false_is_asked_for_shown_and_written() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let mut call = wc();
     call["external"] = json!(false);
     let sid = r.session();
@@ -969,8 +983,8 @@ async fn external_false_is_asked_for_shown_and_written() {
 /// altered after its card, or a file edited under it, is refused.
 #[tokio::test]
 async fn a_candidate_altered_after_its_card_is_never_written() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.turn(&sid, "mcp_attach", wc()).await;
     let q = r.asked().remove(0);
@@ -1254,8 +1268,8 @@ fn the_yes_checks_that_only_the_servers_own_table_changes() {
 /// and is named in `auth_secret`.
 #[tokio::test]
 async fn an_address_with_a_key_in_it_is_refused() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.turn(
         &sid,
@@ -1274,8 +1288,8 @@ async fn an_address_with_a_key_in_it_is_refused() {
 /// the yes.
 #[tokio::test]
 async fn a_failed_trial_keeps_no_earlier_list() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.turn(&sid, "mcp_attach", wc()).await;
     assert!(
@@ -1296,8 +1310,8 @@ async fn a_failed_trial_keeps_no_earlier_list() {
 /// refused there too, though the continuation's sink knows nothing of it.
 #[tokio::test]
 async fn an_agents_input_is_remembered_for_the_turns_that_continue_it() {
-    let _proof = super::super::proof_seam::pretend();
     let r = rig();
+    r.core.proofs.open_stand_in_window("cli");
     let sid = r.session();
     r.core
         .store

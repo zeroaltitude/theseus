@@ -746,3 +746,5 @@ pub(crate) fn at_yes(args: &Value, settings: &[diff::Setting]) -> Result<bool, S
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_proof;
