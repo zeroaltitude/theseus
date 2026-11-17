@@ -106,7 +106,11 @@ After your yes, Theseus waits up to two minutes for a turn that is running to en
 place and tells you, in the place you asked, that it is back and on which settings. If the new settings do not load, or
 Theseus is not healthy within two minutes, it puts the copy of the old settings back, restarts once more onto them, and
 tells you. It never restarts twice for one change, and it never overwrites a change you made to the file by hand in the
-meantime. You can also ask for a plain restart in your own words; it has its own card.
+meantime. You can also ask for a plain restart in your own words; it has its own card. That card says how many turns are running and
+how many executions are **waiting on a question to you**. Count the second number before you say yes: a build of the
+self-improvement loop that is parked on a question is not running, so `theseus self pipeline` does not show it as
+building and a restart can look safe when it is not. A restart does not answer or drop those questions; they stay
+waiting, but anything of theirs that was running is cut.
 
 ## Installing what its own loop joined
 
@@ -116,6 +120,9 @@ If Theseus's programs are in a directory only the administrator can write, its s
 - `off`: nothing; the loop's own message tells you the command to run by hand.
 - `ask` (the default): Theseus builds the joined change and puts **one card** to you, which needs the code; your yes
   installs it and restarts onto it, and goes back to the build before if the new one is not healthy.
+  An older settings file that says `install = true` is read as its own value: it installs where the loop can write the
+  program directory, and on a root-owned one it **asks**, like `ask`. Only the word `auto` installs into a root-owned
+  directory with no card.
 - `auto`: it installs each joined change with no card. Turning it on asks for a fresh code.
 
 For `ask` or `auto` to work the administrator runs one command, once: `scripts/root-install.sh install --user NAME

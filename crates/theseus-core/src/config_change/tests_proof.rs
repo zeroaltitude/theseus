@@ -394,3 +394,32 @@ async fn an_agents_and_a_jobs_process_approve_neither_a_proposal_nor_an_undo() {
     // The code was never spent on them: the owner's own hand, inside the window, can.
     answer(&r, cli(), &sensitive, true, None).await.unwrap();
 }
+
+/// The restart card counts what is parked on a question to the owner, not only
+/// the turns that are running: such an execution (a self build among them) is
+/// not "building", so a card that counted turns alone made a restart look safe.
+#[tokio::test]
+async fn the_restart_card_counts_what_is_waiting_on_a_question() {
+    let r = rig();
+    let sid = r.session();
+    r.turn_with("daemon_restart", &sid, json!({"reason": "it feels stuck"}))
+        .await;
+    let quiet = r.asked().remove(0).reason;
+    assert!(!quiet.contains("waiting on a question"), "{quiet}");
+    // One execution now waits on a card to the owner.
+    let _ = ask(&r, "import.notes.enabled", json!(false)).await;
+    let sid = r.session();
+    r.turn_with("daemon_restart", &sid, json!({"reason": "it feels stuck"}))
+        .await;
+    let card = r
+        .asked()
+        .into_iter()
+        .map(|c| c.reason)
+        .find(|t| t.starts_with("Restart Theseus?") && t.contains("waiting on a question"))
+        .expect("a restart card that counts the waiting execution");
+    assert!(card.contains("2 executions are waiting"), "{card}");
+    assert!(
+        card.contains("self-improvement build") && card.contains("does not show it as building"),
+        "{card}"
+    );
+}

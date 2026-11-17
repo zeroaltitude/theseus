@@ -339,6 +339,11 @@ pub fn restart(
     let question = card::restart_question(&card::RestartFacts {
         // The asking turn is one of them, and ends as this returns.
         running: rt.admission.load().0.saturating_sub(1),
+        // Whatever is parked on a question to the owner, a self build included.
+        waiting: tc
+            .kernel
+            .pending_confirms()
+            .map_or(0, |v| u32::try_from(v.len()).unwrap_or(u32::MAX)),
         outside_text: outside || steered,
         steered,
         reason: &reason,

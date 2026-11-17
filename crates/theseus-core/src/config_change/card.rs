@@ -63,6 +63,10 @@ pub fn too_much(settings: &[Setting]) -> Option<String> {
 pub struct RestartFacts<'a> {
     /// Turns running now.
     pub running: u32,
+    /// Executions waiting on a question to the owner now: a turn, a task, or
+    /// the self-improvement loop's build parked on one. None of them is
+    /// "running", so a count of turns alone makes a restart look safe.
+    pub waiting: u32,
     pub outside_text: bool,
     pub steered: bool,
     pub reason: &'a str,
@@ -85,6 +89,14 @@ pub fn restart_question(f: &RestartFacts<'_>) -> String {
          not healthy afterwards it restarts once more.\n",
         f.wait_secs
     );
+    if f.waiting > 0 {
+        out.push_str(&format!(
+            "{} waiting on a question to you (a self-improvement build parked on one is among them, \
+             and `theseus self pipeline` does not show it as building). A restart does not answer \
+             them or drop them: they stay waiting, but anything of theirs that was running is cut.\n",
+            crate::narrative::count(u64::from(f.waiting), "execution is", "executions are")
+        ));
+    }
     if f.outside_text || f.steered {
         out.push_str(
             "Take care: since your last message this conversation has read text from outside (a \
