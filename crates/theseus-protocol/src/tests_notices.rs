@@ -108,6 +108,8 @@ fn ask(id: &str, asked: u64, expires: u64) -> Question {
         tool: Some("fs.write".into()),
         asked_at_ms: asked,
         choices: Vec::new(),
+        needs_proof: false,
+        needs_fresh_proof: false,
     };
     q.options = crate::work::answer_options(&q);
     q

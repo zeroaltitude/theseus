@@ -4,6 +4,7 @@ import type { BudgetAsk } from "./BudgetAsk";
 import type { ConfirmPreview } from "./ConfirmPreview";
 import type { GrantOffer } from "./GrantOffer";
 import type { PlainWords } from "./PlainWords";
+import type { ProofStanding } from "./ProofStanding";
 import type { TaskChange } from "./TaskChange";
 import type { TaskRef } from "./TaskRef";
 
@@ -68,4 +69,20 @@ grant_offer?: GrantOffer,
  * The question in plain words, worded once for every surface
  * (theseus-cudar): who asks, what, why, the risk, and what Yes and No do.
  */
-plain?: PlainWords, };
+plain?: PlainWords, 
+/**
+ * The asker marked this question as needing the owner's second proof, a
+ * code from the authenticator app (issue 22): a yes without one changes
+ * nothing.
+ */
+needs_proof?: boolean, 
+/**
+ * And a proof given earlier never covers it: a fresh code every time.
+ */
+needs_fresh_proof?: boolean, 
+/**
+ * What an answer from the asking connection's place would be asked for,
+ * in words (`confirm.list` sets it; a push, heard alike by every
+ * connection, does not).
+ */
+proof?: ProofStanding, };

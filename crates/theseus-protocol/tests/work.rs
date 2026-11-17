@@ -75,6 +75,8 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         tool: Some("fs.write".into()),
         asked_at_ms: AT,
         choices: Vec::new(),
+        needs_proof: false,
+        needs_fresh_proof: false,
     };
     question.options = answer_options(&question);
     let mut v = WorkView {

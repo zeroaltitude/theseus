@@ -52,3 +52,51 @@ impl Fact for ProofChanged<'_> {
         row
     }
 }
+
+/// A good code opened a window (`owner.proof.window_opened`): for a while an
+/// answer from this place needs no code. The place and when it ends.
+pub struct WindowOpened<'a> {
+    pub place: &'a str,
+    pub until_ms: u64,
+}
+
+impl Fact for WindowOpened<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::OwnerProofWindowOpened);
+
+    fn row(&self) -> Value {
+        json!({"place": self.place, "until_ms": self.until_ms})
+    }
+}
+
+/// A question went through on a window's earlier proof
+/// (`owner.proof.window_used`): which question, from where, and when the
+/// window ends. The window's end does not move.
+pub struct WindowUsed<'a> {
+    pub question: &'a str,
+    pub place: &'a str,
+    pub until_ms: u64,
+}
+
+impl Fact for WindowUsed<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::OwnerProofWindowUsed);
+
+    fn row(&self) -> Value {
+        json!({"question": self.question, "place": self.place, "until_ms": self.until_ms})
+    }
+}
+
+/// Every open window was ended (`owner.proof.locked`): by the owner (`lock`,
+/// from where) or by the daemon (a config rollback), and how many closed.
+pub struct WindowsEnded<'a> {
+    pub by: &'a str,
+    pub place: &'a str,
+    pub closed: usize,
+}
+
+impl Fact for WindowsEnded<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::OwnerProofLocked);
+
+    fn row(&self) -> Value {
+        json!({"by": self.by, "place": self.place, "closed": self.closed})
+    }
+}

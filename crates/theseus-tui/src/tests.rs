@@ -421,6 +421,9 @@ pub fn pending(correlation_id: &str, reason: &str) -> PendingConfirm {
 /// The whole question behind `pending(correlation_id, reason)`.
 pub fn question(sid: &str, correlation_id: &str, reason: &str, at: u64) -> ConfirmRequest {
     ConfirmRequest {
+        needs_proof: false,
+        needs_fresh_proof: false,
+        proof: None,
         correlation_id: correlation_id.to_string(),
         session_id: sid.to_string(),
         execution_id: format!("exe_{sid}"),

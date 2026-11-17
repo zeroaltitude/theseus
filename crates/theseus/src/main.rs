@@ -58,6 +58,7 @@ mod ontology;
 mod open;
 mod ops_cmd;
 mod own_bench;
+mod owner_proof_cmd;
 mod packs;
 mod pages;
 mod persona_cmd;
@@ -742,6 +743,16 @@ enum Cmd {
     Persona {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
+    },
+    /// Your own second proof, a code from an authenticator app, asked for by the changes that
+    /// matter most: `owner proof enroll` pairs the app (once, here), `owner proof status` says
+    /// whether one is paired and which places a good code still covers, `owner proof reset`
+    /// takes the pairing away, and `owner proof lock` ends every open window. Yours alone (refused
+    /// inside a job, and by the daemon from every surface but your own terminal).
+    #[command(hide = true)]
+    Owner {
+        #[command(subcommand)]
+        cmd: owner_proof_cmd::OwnerCmd,
     },
     /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
@@ -1553,6 +1564,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,

@@ -5388,6 +5388,7 @@ async fn answer_as(
         author: discord.map(|_| "discord:zeroaltitude".to_string()),
         discord: origin(discord),
         grant: None,
+        code: None,
     };
     rpc_as(
         core,

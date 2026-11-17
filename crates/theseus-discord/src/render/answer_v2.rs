@@ -181,6 +181,8 @@ mod tests {
             tool: Some("owner_ask".into()),
             asked_at_ms: 0,
             choices: (0..n).map(|i| format!("choice {i}")).collect(),
+            needs_proof: false,
+            needs_fresh_proof: false,
         }
     }
 

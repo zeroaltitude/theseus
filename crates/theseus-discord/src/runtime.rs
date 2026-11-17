@@ -107,6 +107,7 @@ mod answer_cmd;
 mod follow;
 pub(crate) mod horizon;
 mod horizon_cmds;
+mod proof_form;
 pub(crate) mod start_task;
 mod steer;
 mod succession;
@@ -1332,6 +1333,7 @@ impl Shared {
                             author: Some(who.clone()),
                             discord,
                             grant: grant::answer_of(&self.core, &c.custom_id, &corr),
+                            code: None,
                         },
                     )
                     .await;

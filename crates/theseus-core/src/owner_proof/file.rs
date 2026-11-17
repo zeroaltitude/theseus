@@ -45,6 +45,19 @@ pub(super) struct Held {
     /// No check is made before this.
     #[serde(default)]
     pub locked_until_ms: u64,
+    /// The places a good code covers for a while.
+    #[serde(default)]
+    pub windows: Vec<Window>,
+}
+
+/// A good code's cover over the place it came from: until `until_ms`, a
+/// question answered from `place` needs no code. Held here, in the file the
+/// daemon alone writes, so nothing a turn does opens, moves or lengthens one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Window {
+    pub place: String,
+    pub opened_at_ms: u64,
+    pub until_ms: u64,
 }
 
 impl Held {
@@ -55,6 +68,7 @@ impl Held {
             last_step: Some(last_step),
             wrong_ms: Vec::new(),
             locked_until_ms: 0,
+            windows: Vec::new(),
         }
     }
 
@@ -79,6 +93,7 @@ impl std::fmt::Debug for Held {
             .field("enrolled_at_ms", &self.enrolled_at_ms)
             .field("last_step", &self.last_step)
             .field("locked_until_ms", &self.locked_until_ms)
+            .field("windows", &self.windows.len())
             .finish_non_exhaustive()
     }
 }

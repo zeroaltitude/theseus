@@ -40,7 +40,12 @@ impl Rig {
 
     fn keeper(state: &Path, store: Store, now: &Arc<AtomicU64>) -> Proofs {
         let now = Arc::clone(now);
-        Proofs::open(state, store, Arc::new(move || now.load(Ordering::SeqCst)))
+        Proofs::open(
+            state,
+            store,
+            Arc::new(move || now.load(Ordering::SeqCst)),
+            24,
+        )
     }
 
     /// The same state dir and store, a new keeper: a restart.

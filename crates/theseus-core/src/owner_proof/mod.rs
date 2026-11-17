@@ -10,14 +10,24 @@
 //! - [`totp`]: the code (RFC 6238), pure.
 //! - [`file`]: the one file the secret and the counters live in, and the
 //!   paths the floor holds for it.
+//! - [`marks`]: a question marked as needing the proof, by the daemon's own code.
 //! - [`proofs`]: enrolment, status, reset, and the check with its rate limit.
+//! - [`windows`]: a good code covers the place it came from for a while, and
+//!   the seam a question's answer is judged by (`Proofs::required_and_given`).
 
 pub mod file;
+pub mod marks;
 pub mod proofs;
 pub mod totp;
+pub mod windows;
 
 pub use file::{floor_paths, FILE};
-pub use proofs::{EnrolError, Offer, Proofs, Refused, Status};
+pub use marks::{mark, marked};
+pub use proofs::{EnrolError, Offer, Proofs, Refused, Status, MAX_WINDOW_HOURS};
+pub use windows::{Answer, Proof};
 
 #[cfg(test)]
 mod tests_floor;
+
+#[cfg(test)]
+mod tests_answer;

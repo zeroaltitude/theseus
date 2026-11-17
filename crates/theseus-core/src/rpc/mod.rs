@@ -49,6 +49,8 @@ mod memory;
 mod methods;
 mod modes;
 mod owner_input;
+mod owner_proof;
+mod proof_gate;
 pub(crate) use methods::ledger_tags;
 mod agenda;
 mod capture;
@@ -339,6 +341,9 @@ pub struct Core {
     /// `standing::Board` serialises the records' board with its own `writes`.
     /// Taken by `Core::card_frame` and nowhere else.
     pub(crate) card_writes: std::sync::Mutex<()>,
+    /// The owner's second proof (issue 22): the authenticator's file, the
+    /// check of a code and its limit, and the windows a good code opens.
+    pub(crate) proofs: crate::owner_proof::Proofs,
     /// The push (theseus-in3): one view per execution, seeded on first need.
     pub push: crate::push::Push,
     /// The index tender's supervisor (roadmap row 51): the socket daemon runs
@@ -1056,6 +1061,16 @@ impl Core {
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let sealed = crate::rsi::sealed::open(&cfg);
         let watches = tools.watches.clone();
+        // The owner's second proof (issue 22), over the state dir the floor holds.
+        let proofs = crate::owner_proof::Proofs::open(
+            &theseus_tools::paths::canonical_best_effort(&cfg.state_dir()),
+            store.clone(),
+            {
+                let kernel = kernel.clone();
+                Arc::new(move || kernel.now_ms())
+            },
+            cfg.owner_proof.window_hours,
+        );
         let core = Arc::new(Self {
             cfg,
             store,
@@ -1086,6 +1101,7 @@ impl Core {
             conns: Arc::default(),
             last_sweep: Default::default(),
             card_writes: Default::default(),
+            proofs,
             push: crate::push::Push::default(),
             index,
             mcp,

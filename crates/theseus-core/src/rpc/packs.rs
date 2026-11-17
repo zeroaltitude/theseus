@@ -634,6 +634,9 @@ pub fn promotion_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Co
         .map(|p| p.args.clone())
         .unwrap_or_default();
     super::answer::offer(ConfirmRequest {
+        needs_proof: false,
+        needs_fresh_proof: false,
+        proof: None,
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),

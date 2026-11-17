@@ -23,6 +23,7 @@ pub const TRIES: usize = 5;
 pub const TRIES_WITHIN_MS: u64 = 10 * 60 * 1000;
 /// How long a lock holds: ten minutes.
 pub const LOCK_MS: u64 = 10 * 60 * 1000;
+pub use crate::config::owner_proof::MAX_WINDOW_HOURS;
 /// How long an enrolment waits for its first code before it is dropped.
 pub const ENROL_WAIT_MS: u64 = 10 * 60 * 1000;
 
@@ -70,7 +71,7 @@ impl std::fmt::Display for Refused {
 impl std::error::Error for Refused {}
 
 /// What `status` says: never the secret.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub enrolled: bool,
     pub enrolled_at_ms: Option<u64>,
@@ -78,6 +79,8 @@ pub struct Status {
     pub locked_until_ms: Option<u64>,
     /// The file is there and cannot be used.
     pub unavailable: bool,
+    /// The windows still open: where, since when, until when.
+    pub windows: Vec<file::Window>,
 }
 
 /// What an enrolment offers the owner, once: the address and the secret for
@@ -127,21 +130,24 @@ impl std::error::Error for EnrolError {}
 
 /// An enrolment waiting for the app's first code. In memory only: it is kept
 /// when a code from the app proves the owner has the secret, and not before.
-struct Pending {
-    secret: Secret,
+pub(super) struct Pending {
+    pub(super) secret: Secret,
     started_ms: u64,
     tries: usize,
 }
 
 /// The keeper. One per daemon, over its state dir.
 pub struct Proofs {
-    path: PathBuf,
+    pub(super) path: PathBuf,
     store: Store,
     clock: Clock,
+    /// How long a good code covers the place it came from, in hours
+    /// (`[owner_proof] window_hours`, 0 to [`MAX_WINDOW_HOURS`]).
+    pub(super) window_hours: u32,
     /// One check at a time: the counters are read, changed and written
     /// under it, so two surfaces checking at once share one rate limit.
-    io: Mutex<()>,
-    pending: Mutex<Option<Pending>>,
+    pub(super) io: Mutex<()>,
+    pub(super) pending: Mutex<Option<Pending>>,
 }
 
 impl std::fmt::Debug for Proofs {
@@ -153,23 +159,26 @@ impl std::fmt::Debug for Proofs {
 }
 
 /// A lock on `m` that a panic elsewhere does not take away.
-fn held<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(super) fn held<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Proofs {
-    /// The keeper over `state`'s own file, writing its rows to `store`.
-    pub fn open(state: &Path, store: Store, clock: Clock) -> Self {
+    /// The keeper over `state`'s own file, writing its rows to `store`. A
+    /// good code covers its place for `window_hours`, which is held to
+    /// [`MAX_WINDOW_HOURS`].
+    pub fn open(state: &Path, store: Store, clock: Clock, window_hours: u32) -> Self {
         Self {
             path: state.join(file::FILE),
             store,
             clock,
+            window_hours: window_hours.min(MAX_WINDOW_HOURS),
             io: Mutex::new(()),
             pending: Mutex::new(None),
         }
     }
 
-    fn now(&self) -> u64 {
+    pub(super) fn now(&self) -> u64 {
         (self.clock)()
     }
 
@@ -183,18 +192,26 @@ impl Proofs {
                 enrolled_at_ms: None,
                 locked_until_ms: None,
                 unavailable: false,
+                windows: Vec::new(),
             },
             Ok(Some(h)) => Status {
                 enrolled: true,
                 enrolled_at_ms: Some(h.enrolled_at_ms),
                 locked_until_ms: (h.locked_until_ms > now).then_some(h.locked_until_ms),
                 unavailable: false,
+                windows: h
+                    .windows
+                    .iter()
+                    .filter(|w| w.until_ms > now)
+                    .cloned()
+                    .collect(),
             },
             Err(_) => Status {
                 enrolled: false,
                 enrolled_at_ms: None,
                 locked_until_ms: None,
                 unavailable: true,
+                windows: Vec::new(),
             },
         }
     }
@@ -273,7 +290,7 @@ impl Proofs {
         }
     }
 
-    fn record<F: crate::fact::Fact>(&self, f: &F) -> anyhow::Result<()> {
+    pub(super) fn record<F: crate::fact::Fact>(&self, f: &F) -> anyhow::Result<()> {
         self.store.append(&[crate::fact::row(f, None, None)?])?;
         Ok(())
     }
@@ -363,7 +380,7 @@ impl Proofs {
 
     /// A check's row, for the enrolment's first code, which is a check of a
     /// secret not yet kept.
-    fn checked_row(&self, outcome: &str, place: &str) {
+    pub(super) fn checked_row(&self, outcome: &str, place: &str) {
         let fact = ProofChecked {
             outcome,
             place,
