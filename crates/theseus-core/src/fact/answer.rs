@@ -463,6 +463,39 @@ impl Fact for QuestionWithdrawn<'_> {
     }
 }
 
+/// A self build ended while a question of its own was still open (issue 20): the question is
+/// withdrawn (`confirm.resolved`, `withdrawn`), its card says so, and an answer after this is late
+/// and changes nothing. The call is declined in the kernel's own frame (`action.declined`, by
+/// `withdrawn`), so no row of this fact's is written.
+pub struct BuildQuestionWithdrawn<'a> {
+    pub action: &'a Action,
+    pub why: &'a str,
+}
+
+impl Fact for BuildQuestionWithdrawn<'_> {
+    const METHOD: Option<&'static str> = Some(notify::CONFIRM_RESOLVED);
+
+    fn event(&self) -> Option<Event> {
+        Some(Event::ConfirmResolved(ConfirmResolved {
+            session_id: self.action.session_id.clone(),
+            correlation_id: self.action.correlation_id.clone(),
+            by: Some("self".into()),
+            withdrawn: true,
+            ..Default::default()
+        }))
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "{} was withdrawn: {}; it was not run.",
+                self.action.tool, self.why
+            ),
+        );
+    }
+}
+
 /// Nobody answered a call's question by the time its card said it expires
 /// (theseus-830; `action.expired`, `confirm.resolved` expired): the call is
 /// declined in the same frame, its execution woken, and the model reads that

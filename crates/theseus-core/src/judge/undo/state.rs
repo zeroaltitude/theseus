@@ -14,7 +14,7 @@
 //!
 //! FOUR fields a plan does not carry are passed in by the gate because only
 //! it knows them: `is_program` (the tool's backend), `l1` (what
-//! `Sandbox::l1_for` would bind for this argv, which the pack reads as
+//! `own_tree::l1_of` would bind for this call, which the pack reads as
 //! losing nothing on this machine), `cwd`, and -- since
 //! `p5kln-location-facts` -- [`UndoCall::held`], the targets whose whole
 //! current bytes this session's own read record holds. The fourth is here for

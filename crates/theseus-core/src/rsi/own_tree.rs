@@ -124,6 +124,60 @@ pub(crate) fn l1_in_own_tree(
     }
 }
 
+/// Why `session`'s `proc.run` runs in L1, or none: what `Sandbox::l1_for` says, and beyond it one
+/// more case, [`l1_instead_of_floor`]. Every reader of a call's class that knows the session asks
+/// this and not `l1_for` alone, so the gate, the reversibility layer, a batch and the removal rule
+/// agree on which class the call is bound for.
+pub(crate) fn l1_of(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    tool: &dyn Tool,
+    plan: &theseus_tools::Plan,
+    input: &serde_json::Value,
+) -> Option<String> {
+    rt.sandbox
+        .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
+        .or_else(|| l1_instead_of_floor(rt, session, tool, plan, input))
+}
+
+/// A self builder's command that the floor would hold at L0 only because it runs `theseusd`, bound
+/// for L1 instead (issue 20). The floor reads every word that could be a program, so
+/// `cargo test -p theseusd`, the builder's own test run of the daemon crate, asked the owner for an
+/// answer on 2026-11-17 and parked an unattended build. The builder's brief tells it to use
+/// `sandbox: true`, and this one did not.
+///
+/// In L1 the floor is not in the view (the store, the spool, the bindings, the credentials, the
+/// socket, the config, the owner's proof and the sealed sets are hidden), and only the build folder
+/// persists, so a program of that name reaches none of it: the hold protects nothing there, and the
+/// call is asked about no more than any sandboxed command. It is NOT lowered at L0: the call is
+/// moved, and a call that cannot be (a root daemon L1 refuses, an explicit `sandbox: false`, any
+/// other session) is held as before. Only the one program name counts: a call that also runs `op`
+/// or names any path on the floor, or any line the floor did not finish reading, is held.
+/// A self session that is no builder (its item's tree is not open) is not moved either.
+/// `docs/design/self-own-tree-asks.md` says why the floor held it and what is and is not moved.
+fn l1_instead_of_floor(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    tool: &dyn Tool,
+    plan: &theseus_tools::Plan,
+    input: &serde_json::Value,
+) -> Option<String> {
+    // The cheap tests first: most calls are neither a program's nor a self session's.
+    if tool.name() != "proc.run" || input.get("sandbox").is_some() || rt.sandbox.refusal().is_some()
+    {
+        return None;
+    }
+    let session = session?;
+    (rt.policy.floor_is_only_the_daemons_binary(plan)
+        && is_self(rt, session)
+        && builder_path(rt, session).is_some())
+    .then(|| {
+        "a self builder's command that runs Theseus's own binary runs in the sandbox, where it \
+         reaches none of Theseus's own state"
+            .to_string()
+    })
+}
+
 /// A self session's call that waited for approval, now a notice that runs
 /// (theseus-cudar): the posture's own reason is kept, so the notice says
 /// what would have asked. The floor and the owner's other holds never come
@@ -138,6 +192,28 @@ pub(crate) fn fail_open(d: crate::policy::Decision, tool: &str) -> crate::policy
         }),
         ..crate::policy::Decision::new(crate::policy::Posture::Notify, rule)
     }
+}
+
+/// Whether a call of a self session failed to start because its own working copy is gone (issue
+/// 20): the session is a self session, the call's working directory (its `cwd`, or the session's
+/// own directory when it names none) is inside the tree its task works in, that directory does
+/// not exist, and neither does the tree. A tool that is not broken is not blamed for a tree that was closed.
+pub(crate) fn tree_gone(
+    rt: &ToolRuntime,
+    tc: &crate::toolrun::TurnCtx<'_>,
+    input: &serde_json::Value,
+) -> bool {
+    let Some(tree) = of(rt, tc.session_id) else {
+        return false;
+    };
+    let ctx = rt.ctx_in(tc);
+    let cwd = match input.get("cwd").and_then(serde_json::Value::as_str) {
+        Some(c) => ctx.resolve(c),
+        None => ctx.cwd.clone(),
+    };
+    // The tree itself must be gone: a missing folder inside a tree that is still open is the
+    // model's own mistake, and is told so in the plain words it can correct.
+    !tree.is_dir() && !cwd.is_dir() && paths::within(&paths::canonical_best_effort(&cwd), &tree)
 }
 
 /// The slug of the self item `session` works on, which names its reports and

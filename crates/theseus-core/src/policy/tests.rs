@@ -1201,3 +1201,89 @@ fn deciding_stays_well_under_a_millisecond() {
     );
     assert!(per < std::time::Duration::from_millis(1), "{per:?}");
 }
+
+/// What a self builder's own test run of the daemon crate looks like to the floor (issue 20): a line
+/// that works in its own tree and runs `cargo test -p theseusd`. The floor asked the owner about it,
+/// and the reason is the PROGRAM rule: `-p` hides nothing, so the package name is read as a program.
+/// The tree it works in is no part of why: only the files and directories the floor names are on it.
+#[test]
+fn the_package_name_after_dash_p_is_what_puts_a_builders_test_run_on_the_floor() {
+    let (_d, root) = workspace();
+    let p = policy(&root, Posture::Open);
+    let tree = root.join("self/trees/task-one");
+    let line = |cargo: &str| {
+        let line = format!(
+            "cd {}; rustfmt --edition 2021 --check a.rs && echo FMT-OK; {cargo} 2>&1 | grep -E \"^test |result\"",
+            tree.display()
+        );
+        plan(tree.clone(), Access::Exec, Some(vec!["bash", "-c", &line]))
+    };
+    let t = T("proc.run");
+    let daemon = p.decide(&t, &line("cargo test -p theseusd --test t"));
+    assert!(daemon.floor, "{}", daemon.reason);
+    assert!(
+        daemon
+            .reason
+            .contains("`theseusd` is Theseus's own binary or the 1Password CLI"),
+        "the program rule, not a path: {}",
+        daemon.reason
+    );
+    assert!(
+        !daemon.reason.contains("is Theseus's own state"),
+        "{}",
+        daemon.reason
+    );
+    assert!(p.floor_is_only_the_daemons_binary(&line("cargo test -p theseusd --test t")));
+    // The same line over another package, in the same tree, is not on the floor at all.
+    let other = p.decide(&t, &line("cargo test -p another --test t"));
+    assert!(!other.floor, "{}", other.reason);
+    assert!(!p.floor_is_only_the_daemons_binary(&line("cargo test -p another --test t")));
+}
+
+/// `floor_is_only_the_daemons_binary` is true for the program rule on `theseusd` and for nothing
+/// else the floor reads: another floored program, a path on the floor named by any word, a
+/// resource on the floor, or a line the floor did not finish reading each make it false.
+#[test]
+fn only_the_daemons_binary_on_the_floor_is_not_the_floor_for_anything_else() {
+    let (_d, root) = workspace();
+    let p = policy(&root, Posture::Open);
+    let store = root.join("state/store/history");
+    let on = |line: &str| {
+        p.floor_is_only_the_daemons_binary(&plan(
+            root.clone(),
+            Access::Exec,
+            Some(vec!["bash", "-c", line]),
+        ))
+    };
+    assert!(on("cargo test -p theseusd"));
+    assert!(on(
+        "cargo build -p theseusd && ./target/debug/theseusd check"
+    ));
+    assert!(!on("cargo test -p another"), "not on the floor at all");
+    assert!(!on("cargo test -p theseusd; op item get x"), "op too");
+    assert!(!on("op item get x"), "op alone");
+    assert!(
+        !on(&format!("cat {}; cargo test -p theseusd", store.display())),
+        "a path on the floor"
+    );
+    assert!(
+        !on(&format!(
+            "cargo test -p theseusd --manifest-path={}",
+            store.display()
+        )),
+        "a path on the floor, as an option's value"
+    );
+    // A resource on the floor, and a line nested past what the floor reads.
+    let on_floor = plan(
+        root.join("state"),
+        Access::Exec,
+        Some(vec!["bash", "-c", "cargo test -p theseusd"]),
+    );
+    assert!(!p.floor_is_only_the_daemons_binary(&on_floor));
+    let mut parts: Vec<String> = (0..70).map(|n| format!("bash -c 'echo d{n}'")).collect();
+    parts.push("cargo test -p theseusd".into());
+    assert!(
+        !on(&parts.join("; ")),
+        "a line the floor ran out of reading"
+    );
+}

@@ -136,12 +136,12 @@ impl ToolRuntime {
         let mut granted = Vec::new();
         let mut classes = Vec::new();
         for j in steps {
-            let argv = j.plan.argv.as_deref().unwrap_or_default();
             let (d, b) = self.order(at, tool, &j.plan, &j.input, seen);
             // What chose L1, as `sandbox::unbrokered` asked it.
-            let l1 = b
-                .l1()
-                .then(|| self.sandbox.l1_for(argv, &j.input).unwrap_or_default());
+            let l1 = b.l1().then(|| {
+                crate::rsi::own_tree::l1_of(self, at.session, tool, &j.plan, &j.input)
+                    .unwrap_or_default()
+            });
             classes.push((j.named.clone(), l1));
             if let Some(g) = &d.granted {
                 if !granted.contains(g) {

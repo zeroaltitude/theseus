@@ -190,7 +190,18 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         let specs: Vec<JobSpec> = match tool.jobs(&call.input, &self.ctx_in(tc)) {
             Ok(s) => s,
-            Err(e) => return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e),
+            Err(e) => {
+                // A self session's own working copy that is gone is no fault of the tool: the
+                // failure says so and is marked, so the backlog does not file it (`tree_gone`).
+                if crate::rsi::own_tree::tree_gone(self, tc, &call.input) {
+                    let msg = format!(
+                        "{e}. This session's working copy was closed, because the work it belonged \
+                         to has ended; nothing more can run here. Stop and say so."
+                    );
+                    return self.settle_tree_gone(tc, correlation_id, tool.name(), call, &msg);
+                }
+                return self.settle_job_failure(tc, correlation_id, tool.name(), call, &e);
+            }
         };
         let Some(spool) = self.spool.clone() else {
             return self.settle_job_failure(
@@ -663,6 +674,32 @@ impl ToolRuntime {
         call: &ToolUse,
         msg: &str,
     ) -> Result<CallOutcome> {
+        self.settle_failure_with(tc, correlation_id, tool, call, msg, json!({"error": msg}))
+    }
+
+    /// [`Self::settle_job_failure`] for a call whose own working copy is gone: its completion's
+    /// detail carries `tree_gone`, which the ledger row's `failure` word and the backlog read.
+    fn settle_tree_gone(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &str,
+        call: &ToolUse,
+        msg: &str,
+    ) -> Result<CallOutcome> {
+        let detail = json!({"error": msg, theseus_kernel::TREE_GONE: true});
+        self.settle_failure_with(tc, correlation_id, tool, call, msg, detail)
+    }
+
+    fn settle_failure_with(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &str,
+        call: &ToolUse,
+        msg: &str,
+        detail: Value,
+    ) -> Result<CallOutcome> {
         let node = self.result_node(
             tc,
             ResultNode {
@@ -681,7 +718,7 @@ impl ToolRuntime {
             producer: format!("harness:{tool}"),
             signature: None,
             cost_micros: None,
-            detail: Some(json!({"error": msg})),
+            detail: Some(detail),
         };
         tc.kernel.accept_completion_with(&c, vec![node.record()?])?;
         Self::announce_end(tc, &node);

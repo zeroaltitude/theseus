@@ -395,6 +395,18 @@ impl Core {
         )?;
         // An MCP server's card is the owner's in person (issue 22).
         self.judge_mcp_card(&who, &a, approve)?;
+        // An answer to a question whose self build ended is late: recorded, and nothing else.
+        if let Some(r) = crate::rsi::pipeline::parked::late(&a, &who) {
+            self.refused(
+                Act::Answer {
+                    action: &a,
+                    approve,
+                },
+                &who,
+                &r,
+            )?;
+            return Err(r.into());
+        }
         let by = who.label.as_str();
         if a.state != theseus_kernel::ActionState::Planned {
             anyhow::bail!(
