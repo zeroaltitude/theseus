@@ -11,7 +11,7 @@
 //!   and a yes puts back exactly the settings of that change, keeping what
 //!   was changed since to other settings;
 //! - a setting changed again since is said on the card with both values;
-//! - undoing a sensitive change is refused as sensitive until the proof is wired;
+//! - undoing a sensitive change is held to the second proof, as a proposal is;
 //! - a task's session can neither read the history nor undo.
 
 use std::path::PathBuf;
@@ -404,23 +404,28 @@ async fn a_declined_undo_writes_nothing() {
     assert_eq!(r.rows("config.declined").len(), 1);
 }
 
-/// Undoing a sensitive change is a sensitive change: refused before a card
-/// with the seam's words, until the second proof is wired in.
+/// Undoing a sensitive change is a sensitive change: its card is marked as
+/// needing the second proof, and a yes alone writes nothing.
 #[tokio::test]
-async fn undoing_a_sensitive_change_is_refused_as_sensitive() {
+async fn undoing_a_sensitive_change_asks_with_the_second_proof() {
     let r = rig();
     let ceiling = format!("{FILE}\n[kernel]\ndaily_spend_ceiling_usd = 300.0\n");
     r.seed(FILE, &ceiling, &["kernel.daily_spend_ceiling_usd"]);
     let sid = r.session();
     r.turn(&sid, "config_undo", undo(None)).await;
     let (status, text) = r.result(&sid);
-    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let q = r.asked().remove(0);
+    assert!(q.needs_proof, "{q:?}");
+    assert!(q.reason.contains("kernel.daily_spend_ceiling_usd"), "{}", q.reason);
+    let e = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap_err();
     assert!(
-        text.contains("this setting needs the second proof, which is not installed yet"),
-        "{text}"
+        e.to_string().contains("theseus owner proof enroll"),
+        "{e:#}"
     );
-    assert!(text.contains("kernel.daily_spend_ceiling_usd"), "{text}");
-    assert!(r.asked().is_empty());
     assert_eq!(r.file_text(), ceiling);
 }
 

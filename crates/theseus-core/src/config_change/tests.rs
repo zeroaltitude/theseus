@@ -461,10 +461,11 @@ async fn a_task_and_a_shared_place_cannot_propose() {
     assert!(r.asked().is_empty());
 }
 
-/// A change that reaches a sensitive setting is refused before a card is
-/// made, with the seam's words: named whole, as a table, or deeper.
+/// A change that reaches a sensitive setting gets a card that is marked as
+/// needing the second proof: named whole, as a table, or deeper. With no app
+/// paired it cannot be approved, and nothing is written.
 #[tokio::test]
-async fn a_sensitive_change_is_refused_with_the_seams_words() {
+async fn a_sensitive_change_is_asked_with_the_second_proof_marked() {
     let r = rig();
     for call in [
         change("kernel.daily_spend_ceiling_usd", json!(300)),
@@ -478,12 +479,21 @@ async fn a_sensitive_change_is_refused_with_the_seams_words() {
         let sid = r.session();
         r.turn(&sid, call.clone()).await;
         let (status, text) = r.result(&sid);
-        assert_eq!(status, ResultStatus::Error, "{call}: {text}");
+        assert_eq!(status, ResultStatus::Ok, "{call}: {text}");
+        assert!(text.contains("with the second proof"), "{call}: {text}");
+        let q = r.asked().pop().expect("a card");
+        assert!(q.needs_proof && !q.needs_fresh_proof, "{call}");
+        let e = r
+            .core
+            .confirm_action(&q.correlation_id, true, None, "cli")
+            .unwrap_err();
         assert!(
-            text.contains("this setting needs the second proof, which is not installed yet"),
-            "{call}: {text}"
+            e.to_string().contains("theseus owner proof enroll"),
+            "{call}: {e:#}"
         );
-        assert!(r.asked().is_empty(), "{call}");
+        r.core
+            .confirm_action(&q.correlation_id, false, None, "cli")
+            .unwrap();
     }
     assert_eq!(r.file_text(), FILE);
 }
