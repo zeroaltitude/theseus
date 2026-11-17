@@ -58,6 +58,7 @@ mod ontology;
 mod open;
 mod ops_cmd;
 mod own_bench;
+mod owner_proof_cmd;
 mod packs;
 mod pages;
 mod persona_cmd;
@@ -743,6 +744,16 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<persona_cmd::PersonaCmd>,
     },
+    /// Your own second proof, a code from an authenticator app, asked for by the changes that
+    /// matter most: `owner proof enroll` pairs the app (once, here), `owner proof status` says
+    /// whether one is paired and which places a good code still covers, `owner proof reset`
+    /// takes the pairing away, and `owner proof lock` ends every open window. Yours alone (refused
+    /// inside a job, and by the daemon from every surface but your own terminal).
+    #[command(hide = true)]
+    Owner {
+        #[command(subcommand)]
+        cmd: owner_proof_cmd::OwnerCmd,
+    },
     /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
     /// preference|fact] [--scope everywhere|place:T|session:ID | --surface NAME] TEXT` and `standing revoke ID` are
@@ -1415,7 +1426,7 @@ async fn wait_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     wait_session_or_any(c, json, session, until, after, timeout).await
 }
 
-/// `theseus agenda`, `card`, `digest` and `mode`: the horizon,
+/// `theseus agenda`, `card`, `digest`, `mode` and `owner`: the horizon,
 /// the owner card's proposals, the speaking voice, what happened while you were away, and a conversation's mode.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
@@ -1423,7 +1434,8 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
         Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Digest(a) => digest::run(c, json, a).await,
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
-        _ => unreachable!("only agenda, card, digest and mode come here"),
+        Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
+        _ => unreachable!("only agenda, card, digest, mode and owner come here"),
     }
 }
 
@@ -1540,7 +1552,7 @@ async fn run(cli: Cli) -> Result<()> {
         | Cmd::Chat { .. } => {
             unreachable!("above")
         }
-        cmd @ Cmd::Card { .. } => long_cmd(c, json, cmd).await,
+        cmd @ (Cmd::Card { .. } | Cmd::Owner { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,

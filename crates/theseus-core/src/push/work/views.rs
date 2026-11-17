@@ -319,6 +319,8 @@ impl WorkBoard {
             .or(ai.expires_at_ms)
             .or_else(|| asked.as_ref().map(|i| a.planned_at_ms + i.life_ms()));
         let mut q = Question {
+            needs_proof: false,
+            needs_fresh_proof: false,
             id: a.correlation_id.clone(),
             kind,
             asked_by: me,

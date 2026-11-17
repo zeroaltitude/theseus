@@ -86,6 +86,8 @@ mod tests {
             tool: Some("fs.write".into()),
             asked_at_ms: 0,
             choices: (0..choices).map(|i| format!("choice {i}")).collect(),
+            needs_proof: false,
+            needs_fresh_proof: false,
         }
     }
 

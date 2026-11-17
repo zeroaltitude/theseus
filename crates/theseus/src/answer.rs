@@ -37,6 +37,11 @@ pub struct AnswerArgs {
     /// Return as soon as the answer is recorded instead of following the turn it resumes.
     #[arg(long)]
     pub no_wait: bool,
+    /// The six digits your authenticator app shows, for a change that needs your second proof
+    /// (`-` reads them from standard input). Not needed again from the same place for a while
+    /// after a good one: `theseus owner proof status` says how long.
+    #[arg(long, value_name = "DIGITS")]
+    pub code: Option<String>,
 }
 
 /// What a retired snooze option now says: `snooze_1h` is `snooze 1h`.
@@ -70,12 +75,21 @@ pub async fn answer(conn: &mut Conn, json: bool, a: AnswerArgs) -> Result<()> {
     if a.when.is_some() {
         anyhow::bail!("a time goes with `snooze` alone: `theseus answer ID snooze WHEN`");
     }
+    let code = match a.code.as_deref() {
+        Some("-") => {
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line)?;
+            Some(line.trim().to_string())
+        }
+        other => other.map(str::to_string),
+    };
     // Subscribed before the answer wakes the turn, so none of its events are missed.
     let params = WorkAnswerParams {
         question_id: question,
         option,
         note: a.note,
         watch: !a.no_wait,
+        code: code.map(theseus_protocol::owner_proof::ProofCode::new),
         ..Default::default()
     };
     let mut printer = Printer::new(if json { Mode::Json } else { Mode::Text }, false);
@@ -95,6 +109,9 @@ pub async fn answer(conn: &mut Conn, json: bool, a: AnswerArgs) -> Result<()> {
                 "answered {} · {} · following the resumed turn in {sid}",
                 r.question_id, r.option
             );
+            if let Some(detail) = &r.detail {
+                eprintln!("{detail}");
+            }
             crate::cmd::follow_resumed(conn, json, &mut printer, sid).await
         }
         None => output(json, v, say),

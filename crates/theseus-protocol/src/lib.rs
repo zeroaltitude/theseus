@@ -77,6 +77,7 @@ mod ontology;
 pub mod ops;
 pub mod outbox;
 pub mod own_bench;
+pub mod owner_proof;
 pub mod packs;
 pub mod patterns;
 pub mod persona;
@@ -1079,6 +1080,20 @@ pub struct ConfirmRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub plain: Option<plain::PlainWords>,
+    /// The asker marked this question as needing the owner's second proof, a
+    /// code from the authenticator app (issue 22): a yes without one changes
+    /// nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_proof: bool,
+    /// And a proof given earlier never covers it: a fresh code every time.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_fresh_proof: bool,
+    /// What an answer from the asking connection's place would be asked for,
+    /// in words (`confirm.list` sets it; a push, heard alike by every
+    /// connection, does not).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub proof: Option<owner_proof::ProofStanding>,
 }
 
 /// What a budget question asks about (theseus-0sg): the session reached its
@@ -1128,6 +1143,12 @@ pub struct ActionConfirmParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub grant: Option<grants::GrantAnswer>,
+    /// The owner's second proof, for a question that needs one (issue 22):
+    /// a code from the authenticator app, typed into the surface's own form.
+    /// Checked by the daemon; never stored or echoed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub code: Option<owner_proof::ProofCode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

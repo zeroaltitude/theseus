@@ -296,6 +296,17 @@ impl Place {
     /// An answer pressed: `work.answer` as the presser.
     pub(super) async fn answer_press(&self, p: &TaskPress, question: &str, option: &str) {
         let s = &self.shared;
+        // An approval that needs the owner's second proof opens its form first.
+        if theseus_protocol::answer::approves(option) {
+            let discord = super::origin_of(
+                p.i.author().map(|u| u.id.get()),
+                p.i.channel.as_ref().map(|c| c.id.get()),
+                p.i.guild_id,
+            );
+            if s.proof_form(&p.i, question, discord).await {
+                return;
+            }
+        }
         s.respond(
             &p.i,
             InteractionResponseType::DeferredUpdateMessage,

@@ -43,6 +43,13 @@ pub(crate) fn expired_answer(a: &Action) -> Option<(ResultStatus, String)> {
 pub struct Rides<'a> {
     pub extra: &'a [theseus_store::NewRecord],
     pub ask: Option<(&'a str, theseus_store::NewRecord)>,
+    /// The owner's second proof, a code from their authenticator app, for a
+    /// question that asks for one (issue 22). Checked by `proof_gate`; never
+    /// stored or echoed.
+    pub code: Option<&'a theseus_protocol::owner_proof::ProofCode>,
+    /// The answer was typed or spoken as words: it can carry no proof and is
+    /// covered by no window (`proof_gate`).
+    pub typed: bool,
 }
 
 impl Core {
@@ -51,6 +58,18 @@ impl Core {
     /// shows its node's input and the policy's reason; None if its node is not
     /// in `nodes`.
     pub(crate) fn confirm_request(
+        &self,
+        a: &Action,
+        session: &SessionRecord,
+        nodes: &[(u64, Node)],
+    ) -> Option<ConfirmRequest> {
+        self.confirm_request_plain(a, session, nodes)
+            .map(|r| self.with_proof_marks(r))
+    }
+
+    /// `confirm_request` before the owner's second proof's marks are read
+    /// onto it (issue 22).
+    fn confirm_request_plain(
         &self,
         a: &Action,
         session: &SessionRecord,
@@ -86,6 +105,9 @@ impl Core {
             .and_then(|g| g.decision.clone())
             .unwrap_or_default();
         let mut req = super::answer::offer(ConfirmRequest {
+            needs_proof: false,
+            needs_fresh_proof: false,
+            proof: None,
             correlation_id: a.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: a.execution_id.clone(),
@@ -123,6 +145,9 @@ impl Core {
         let b = &e.budget;
         let needed = usd(b.question_needs_micros);
         Some(super::answer::offer(ConfirmRequest {
+            needs_proof: false,
+            needs_fresh_proof: false,
+            proof: None,
             correlation_id: q.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: e.id.clone(),
@@ -342,7 +367,12 @@ impl Core {
         by: impl Into<Answerer>,
         rides: Rides<'_>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        let Rides { extra, ask } = rides;
+        let Rides {
+            extra,
+            ask,
+            code,
+            typed,
+        } = rides;
         let who = by.into();
         let a = self
             .kernel
@@ -361,6 +391,12 @@ impl Core {
                 "action {correlation_id} is {}, not waiting for confirmation",
                 a.state.as_str()
             );
+        }
+        // The owner's second proof (issue 22): a question the asker marked
+        // is approved on a good code or an open window of this place, and on
+        // no other footing. A decline tightens and is never gated.
+        if approve {
+            self.proof_gate(&a, &who, code, typed)?;
         }
         let via = who.via();
         if a.tool == BUDGET_TOOL {

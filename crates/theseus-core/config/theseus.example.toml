@@ -1073,6 +1073,17 @@ port = 7433
 [tui]
 notify = "auto"
 
+# ---------------------------------------------------------------- owner_proof
+# The owner's second proof: a code from an authenticator app, asked for by the
+# changes that matter most. The secret is never here: `theseus owner proof
+# enroll`, in your own terminal, pairs the app and the daemon keeps the secret
+# in a file of its own. A good code covers the place it was typed in (the CLI,
+# the cockpit, a Discord DM) for this many hours, so a second such change from
+# the same place needs no code; another place asks for its own. 0 asks every
+# time; at most 24. `theseus owner proof lock` ends every open window at once.
+[owner_proof]
+window_hours = 24
+
 # ---------------------------------------------------------------- mcp_server
 # Theseus's own MCP server: an MCP client on this machine (Claude Code,
 # another agent) opens a Theseus conversation, sends it text, and reads the

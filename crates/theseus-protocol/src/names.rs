@@ -104,6 +104,8 @@ pub mod method {
         TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
         TASK_REHOME = "task.rehome", TASK_NOT_THIS = "task.not_this", // the owner says "not this" to a task: cancel it, one rolling preference, label its offer
         TASK_RESCHEDULE = "task.reschedule",
+        /// The owner's second proof (issue 22, `owner_proof`): a code from their authenticator app. Pairing, its first code, the status, a reset, and ending every open window. The owner's own shell alone.
+        OWNER_PROOF_ENROLL = "owner.proof.enroll", OWNER_PROOF_CONFIRM = "owner.proof.confirm", OWNER_PROOF_STATUS = "owner.proof.status", OWNER_PROOF_RESET = "owner.proof.reset", OWNER_PROOF_LOCK = "owner.proof.lock",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
         /// Wakes (DD8): the turns conversations asked for at a time, with `wake.at`, that have not run yet.

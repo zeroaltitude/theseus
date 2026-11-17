@@ -100,6 +100,7 @@ pub use routing::{RoutingConfig, RoutingMode};
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
+pub mod owner_proof;
 pub mod sensitivity;
 pub mod tui;
 pub use mcp::{McpConfig, McpServerConfig};
@@ -150,6 +151,10 @@ pub struct Config {
     /// `[tui]`: how the terminal clients ping the owner (theseus-f0bi9).
     #[serde(default)]
     pub tui: tui::TuiConfig,
+    /// `[owner_proof]`: how long a good code from the owner's authenticator
+    /// app covers the place it came from (issue 22).
+    #[serde(default)]
+    pub owner_proof: owner_proof::OwnerProofConfig,
     #[serde(default)]
     pub telemetry: crate::telemetry::TelemetryConfig,
     #[serde(default)]
@@ -1645,6 +1650,7 @@ impl Config {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub fn validate(&self) -> Result<()> {
         self.tui.validate()?;
+        self.owner_proof.validate()?;
         for (name, r) in &self.secrets {
             if crate::secrets::is_local(r) {
                 crate::secrets::check_local(r).with_context(|| format!("secrets.{name}"))?;

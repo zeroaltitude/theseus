@@ -81,6 +81,8 @@ fn question(kind: QuestionKind) -> Question {
         tool: Some("proc.run".into()),
         asked_at_ms: AT,
         choices: Vec::new(),
+        needs_proof: false,
+        needs_fresh_proof: false,
     };
     q.options = answer_options(&q);
     q

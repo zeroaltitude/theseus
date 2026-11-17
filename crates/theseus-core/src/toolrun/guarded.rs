@@ -135,6 +135,16 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
     if let Some(s) = crate::rsi::sealed::guard_of(cfg) {
         floor_paths.extend(s.paths().iter().cloned());
     }
+    // The owner's second proof (issue 22): the authenticator's secret, in a
+    // file of its own in the state dir, and the file it is written beside
+    // before the rename. Nothing a tool does may read or write either; the
+    // daemon alone does, and a code from the owner's app is typed into a
+    // card's own form, never a turn.
+    floor_paths.extend(
+        crate::owner_proof::floor_paths(&state)
+            .into_iter()
+            .map(canon_path),
+    );
     (roots, floor_paths)
 }
 
@@ -360,5 +370,24 @@ mod tests {
             assert!(hidden.contains(&store), "{store:?} not hidden: {hidden:?}");
             assert!(hidden.contains(&spool), "{spool:?} not hidden: {hidden:?}");
         }
+    }
+
+    /// The owner's authenticator file is on the floor beside the token file
+    /// and the config file, in both of its names (the file and the one it is
+    /// written to before the rename), and no L1 view shows either. Its own
+    /// name is written as a word on purpose: a rename of the file that moved
+    /// it off the floor reds here.
+    #[test]
+    fn the_owners_authenticator_file_is_floored_and_hidden() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/proof");
+        let cfg = cfg_over(state);
+        let floor = guarded_paths(&cfg).1;
+        let hidden = super::sandbox_for(&cfg).job_view().hidden;
+        for name in ["owner-proof.json", "owner-proof.json.new"] {
+            let path = state.join(name);
+            assert!(floor.contains(&path), "{name} is not floored: {floor:?}");
+            assert!(hidden.contains(&path), "{name} is not hidden: {hidden:?}");
+        }
+        assert_eq!(crate::owner_proof::FILE, "owner-proof.json");
     }
 }

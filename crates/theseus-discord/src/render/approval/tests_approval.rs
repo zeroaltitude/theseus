@@ -183,3 +183,27 @@ fn a_card_without_plain_words_keeps_the_old_shape() {
         c.content
     );
 }
+
+/// A question that needs the owner's second proof says so on its card (issue 22):
+/// that Approve opens a form, and what the form decides. One that asks for a
+/// fresh code every time says that; one that asks for none adds nothing.
+#[test]
+fn a_card_that_needs_the_second_proof_says_so() {
+    let ordinary = card(&request(json!({})), &Route::Here, "").content;
+    assert!(!ordinary.contains("Second proof"), "{ordinary}");
+    let needs = card(&request(json!({"needs_proof": true})), &Route::Here, "").content;
+    assert!(
+        needs.contains(
+            "\n🔐 **Second proof:** **Approve** opens a form that says whether it needs the code \
+             from your authenticator app or goes through on the proof you gave here earlier"
+        ),
+        "{needs}"
+    );
+    let fresh = card(
+        &request(json!({"needs_proof": true, "needs_fresh_proof": true})),
+        &Route::Here,
+        "",
+    )
+    .content;
+    assert!(fresh.contains("**Second proof, every time:**"), "{fresh}");
+}

@@ -676,6 +676,7 @@ impl Place {
                         option,
                         author,
                         discord: Some(origin),
+                        typed: true,
                         ..Default::default()
                     };
                     match rpc

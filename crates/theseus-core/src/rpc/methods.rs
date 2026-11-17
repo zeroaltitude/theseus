@@ -1669,7 +1669,10 @@ impl Core {
                 p.approve,
                 p.note.as_deref(),
                 who,
-                Default::default(),
+                super::confirms::Rides {
+                    code: p.code.as_ref(),
+                    ..Default::default()
+                },
             ),
         }
         .map_err(|e| match e.downcast::<Refusal>() {
