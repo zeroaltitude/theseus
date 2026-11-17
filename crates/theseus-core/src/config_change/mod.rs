@@ -49,10 +49,12 @@ use crate::config::sensitivity;
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub const PROPOSE: &str = "config.propose";
+/// The owner's plain word: restart Theseus, with no change to its settings.
+pub const RESTART: &str = "daemon.restart";
 /// The question the owner's yes answers: a planned action of this tool.
 pub const ACK: &str = "config.ack";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 1] = [PROPOSE];
+pub const NAMES: [&str; 2] = [PROPOSE, RESTART];
 /// The most settings one proposal may name.
 pub const MAX_CHANGES: usize = 20;
 /// The longest a value a proposal gives may be, as JSON: a setting, not a
@@ -74,6 +76,9 @@ pub struct Where {
     pub file: Option<PathBuf>,
     pub state: PathBuf,
     core: Arc<OnceLock<Weak<crate::rpc::Core>>>,
+    /// Held across a yes's re-read, keep and write, so two yeses never both
+    /// pass the digest check before either writes.
+    pub(crate) writes: Arc<std::sync::Mutex<()>>,
 }
 
 impl Where {
@@ -82,6 +87,7 @@ impl Where {
             file,
             state,
             core: Arc::default(),
+            writes: Arc::default(),
         }
     }
 
@@ -215,6 +221,138 @@ impl Tool for Propose {
     }
 }
 
+/// Whether this turn has read outside text since the owner's last message,
+/// and whether Theseus's own check flagged what it read as steering it. A
+/// session whose history cannot be read counts as having read some.
+pub(crate) fn outside_text(tc: &TurnCtx<'_>) -> (bool, bool) {
+    let outside = match tc.store.session_nodes(tc.session_id) {
+        Ok(nodes) => outside_since_owner(&nodes),
+        Err(_) => true,
+    };
+    let steered = matches!(
+        tc.store.get_session::<crate::session::SessionRecord>(tc.session_id),
+        Ok(Some(s)) if s.data.as_ref().is_some_and(|d| d.frozen())
+    );
+    (outside, steered)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RestartInput {
+    reason: String,
+}
+
+/// `daemon.restart`: the owner's plain word to restart Theseus.
+pub struct RestartTool;
+
+impl Tool for RestartTool {
+    fn name(&self) -> &str {
+        RESTART
+    }
+
+    fn description(&self) -> &str {
+        "Ask to restart Theseus, on the owner's word, with no change to its settings. The owner \
+         sees one card that says what a restart cuts (a running turn, a job, the \
+         self-improvement loop's build); only their yes restarts it, and Theseus then tells them \
+         it is back and how long it took. Offered only to the owner, in a private place."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "One line, in the owner's words: why they want it restarted."}
+            },
+            "required": ["reason"],
+            "additionalProperties": false
+        })
+    }
+
+    fn class(&self) -> ToolClass {
+        ToolClass::Run
+    }
+
+    fn backend(&self) -> Backend {
+        Backend::Harness
+    }
+
+    fn retry(&self) -> Retry {
+        Retry::NonRepeatable
+    }
+
+    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+        let _: RestartInput = parse(input)?;
+        Ok(Plan {
+            summary: "ask to restart Theseus".into(),
+            ..Default::default()
+        })
+    }
+}
+
+/// Run `daemon.restart`: put one card to the owner, which says what a restart
+/// cuts. The yes restarts by the same road as a change does, with a marker so
+/// the owner is told when it is back.
+pub fn restart(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    input: &Value,
+    correlation_id: &str,
+) -> Result<(String, Value), String> {
+    if let Some(wall_why) = wall::refusal(tc) {
+        return Err(wall_why.into());
+    }
+    if let Ok(done) = proposed_by_call(tc, correlation_id) {
+        return Ok(done);
+    }
+    let i: RestartInput = parse(input)?;
+    rt.config_change.file.as_ref().ok_or(
+        "this daemon cannot restart itself and come back checked (its settings are not a file it \
+         keeps a copy of)",
+    )?;
+    let reason = card::reason_line(&i.reason);
+    if reason.is_empty() {
+        return Err("give a reason in the owner's words, one line".into());
+    }
+    let (outside, steered) = outside_text(tc);
+    let question = card::restart_question(&card::RestartFacts {
+        // The asking turn is one of them, and ends as this returns.
+        running: rt.admission.load().0.saturating_sub(1),
+        outside_text: outside || steered,
+        steered,
+        reason: &reason,
+        wait_secs: RESTART_WAIT_SECS,
+    });
+    let proposal = Proposal {
+        tool: ACK.into(),
+        args: json!({
+            "question": question, "restart_only": true, "paths": Vec::<String>::new(),
+            "restart": true, "reason": reason, "outside_text": outside || steered,
+            "asked_by": {
+                "session_id": tc.session_id, "execution_id": tc.execution_id,
+                "turn_id": tc.turn_id, "place": tc.outbox.target(tc.session_id),
+            },
+        }),
+        resource: Some("daemon".into()),
+        policy_context: json!({}),
+    };
+    let said = format!(
+        "Asked the owner:\n{question}Nothing restarts until they say yes, from a private place."
+    );
+    ask(tc, proposal, correlation_id, &said)?;
+    Ok((said, json!({})))
+}
+
+/// Whether any result after the owner's last message is marked as outside
+/// text.
+pub(crate) fn outside_since_owner(nodes: &[(u64, crate::node::Node)]) -> bool {
+    let last_said = nodes
+        .iter()
+        .rposition(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }));
+    nodes[last_said.map_or(0, |i| i + 1)..]
+        .iter()
+        .any(|(_, n)| crate::external::is_outside(n))
+}
+
 /// The settings of a change that are sensitive: each path and why. Both what
 /// the proposal named and what really changes are read, so a table written
 /// whole, an array or a renamed key is classified as the settings it reaches.
@@ -277,18 +415,20 @@ pub fn propose(
     if settings.is_empty() {
         return Err("that would change nothing: the file already has those values".into());
     }
+    // What cannot be shown whole is refused first, in its own words: a long
+    // prompt cannot be changed through this tool, sensitive or not.
+    if let Some(why) = card::too_much(&settings) {
+        return Err(why);
+    }
     let sens = sensitive(&changes, &settings);
     if !sens.is_empty() && !proof_seam::installed() {
         return Err(needs_proof(&sens));
     }
-    // The label a turn carries once it has read outside text that steers it.
-    let outside = matches!(
-        tc.store.get_session::<crate::session::SessionRecord>(tc.session_id),
-        Ok(Some(s)) if s.data.as_ref().is_some_and(|d| d.frozen())
-    );
+    let (outside, steered) = outside_text(tc);
     let question = card::question(&card::Facts {
         settings: &settings,
-        outside_text: outside,
+        outside_text: outside || steered,
+        steered,
         reason: &reason,
         wait_secs: RESTART_WAIT_SECS,
     });
@@ -303,7 +443,7 @@ pub fn propose(
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
             "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
             "reason": reason,
-            "outside_text": outside,
+            "outside_text": outside || steered,
             "asked_by": {
                 "session_id": tc.session_id,
                 "execution_id": tc.execution_id,

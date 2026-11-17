@@ -1,5 +1,7 @@
 use super::*;
 
+mod failed_detail;
+
 #[test]
 fn cap_keeps_head_and_tail_and_forbidden_env_names() {
     let s = "a".repeat(100) + &"b".repeat(100);

@@ -124,11 +124,11 @@ impl Rig {
     }
 
     async fn turn(&self, sid: &str, call: Value) {
-        self.model
-            .calls
-            .lock()
-            .unwrap()
-            .push(("config_propose".into(), call));
+        self.turn_with("config_propose", sid, call).await;
+    }
+
+    async fn turn_with(&self, tool: &str, sid: &str, call: Value) {
+        self.model.calls.lock().unwrap().push((tool.into(), call));
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -471,6 +471,9 @@ async fn a_sensitive_change_is_refused_with_the_seams_words() {
         change("tools.roots", json!(["/tmp/elsewhere"])),
         change("mcp.servers.files", json!({"command": ["files-server"]})),
         change("policy.enforcement", json!("open")),
+        change("model.system", json!("be brief")),
+        change("discord.rest_proxy", json!("evil.test:80")),
+        change("model.provider", json!("anthropic")),
     ] {
         let sid = r.session();
         r.turn(&sid, call.clone()).await;
@@ -601,4 +604,259 @@ async fn an_unhealthy_start_goes_back_once_and_stays_on_the_old_settings() {
         super::restart::begin(&marker),
         super::restart::Begin::Normal
     );
+}
+
+/// The copies, the candidates and the marker are inside a path the floor
+/// holds, so a tool's read or write there waits for the owner as the store's
+/// own files do. They were beside the store, in a directory the floor does not
+/// name, and a turn could plant a marker there.
+#[test]
+fn the_copies_and_the_marker_are_on_the_floor() {
+    let r = rig();
+    let floor = &r.core.tools.ctx.floor;
+    let held = |p: &std::path::Path| {
+        let p = theseus_tools::paths::canonical_best_effort(p);
+        floor.iter().any(|f| theseus_tools::paths::within(&p, f))
+    };
+    let dir = super::write::dir(&r.state);
+    assert!(held(&dir), "{dir:?} is not under the floor {floor:?}");
+    assert!(held(&super::restart::marker_path(&r.state)));
+    assert!(held(&dir.join("previous-0001.toml")));
+    assert!(
+        !held(&r.state.join("config-changes")),
+        "the old place is not on the floor"
+    );
+}
+
+/// What cannot be shown whole is refused, never cut: a long prompt, and a
+/// change that reaches more settings than one card holds.
+#[tokio::test]
+async fn a_card_never_cuts_what_it_cannot_show_whole() {
+    let r = rig();
+    let sid = r.session();
+    r.turn(&sid, change("model.system", json!("p".repeat(2_000))))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(
+        text.contains("model.system") && text.contains("longer than a card can show whole"),
+        "{text}"
+    );
+    assert!(r.asked().is_empty());
+    // A short one is shown whole, with its quotes and line breaks escaped.
+    let sid = r.session();
+    r.turn(
+        &sid,
+        change(
+            "telemetry.service_name",
+            json!("be brief\n- narrative: on → off (at once)"),
+        ),
+    )
+    .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let q = r.asked().remove(0);
+    assert!(
+        q.reason
+            .contains(r#"→ "be brief\n- narrative: on → off (at once)" (after a restart)"#),
+        "{}",
+        q.reason
+    );
+    assert_eq!(q.reason.matches("\n- ").count(), 1, "{}", q.reason);
+}
+
+/// Outside text read since the owner's last message is said; before it, not.
+#[test]
+fn outside_text_is_read_from_the_results_since_the_owner_last_spoke() {
+    use crate::node::{Body, Node};
+    let msg = |id: &str, at: u64| {
+        let mut n = Node::harness_body(
+            "nod",
+            "ses_a",
+            "test",
+            Body::UserMessage {
+                text: "hi".into(),
+                attachments: vec![],
+            },
+        );
+        n.id = id.into();
+        n.created_at_ms = at;
+        n
+    };
+    let page = |id: &str, at: u64, url: Option<&str>| {
+        let mut n = Node::harness_body(
+            "nod",
+            "ses_a",
+            "test",
+            Body::ToolResult {
+                tool_use_id: format!("tu_{id}"),
+                tool: "http.fetch".into(),
+                status: ResultStatus::Ok,
+                is_error: false,
+                content: "text".into(),
+                correlation_id: None,
+                bytes_total: 4,
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: Value::Null,
+                image: None,
+                external: url.map(|u| theseus_tools::External { url: u.into() }),
+                payload: None,
+            },
+        );
+        n.id = id.into();
+        n.created_at_ms = at;
+        n
+    };
+    let nodes = |v: Vec<Node>| {
+        v.into_iter()
+            .enumerate()
+            .map(|(i, n)| (i as u64, n))
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        !super::outside_since_owner(&nodes(vec![msg("a", 1), page("b", 2, None)])),
+        "a local result"
+    );
+    assert!(super::outside_since_owner(&nodes(vec![
+        msg("a", 1),
+        page("b", 2, Some("https://x.test/"))
+    ])));
+    assert!(
+        !super::outside_since_owner(&nodes(vec![
+            page("b", 1, Some("https://x.test/")),
+            msg("a", 2)
+        ])),
+        "read before the owner spoke again"
+    );
+}
+
+/// The owner's plain word: one card that says what a restart cuts, a yes that
+/// restarts with a marker and writes nothing, and the start that follows says
+/// it is back.
+#[tokio::test]
+async fn the_owners_word_restarts_with_one_card_and_says_it_is_back() {
+    let r = rig();
+    let sid = r.session();
+    r.turn_with("daemon_restart", &sid, json!({"reason": "it feels stuck"}))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let q = r.asked().remove(0);
+    assert!(
+        q.reason
+            .starts_with("Restart Theseus?\nNo turn is running now."),
+        "{}",
+        q.reason
+    );
+    assert!(
+        q.reason.contains("cuts what is running") && q.reason.contains("waits up to 120 s"),
+        "{}",
+        q.reason
+    );
+    assert!(
+        q.reason.contains("in its own words: \"it feels stuck\""),
+        "{}",
+        q.reason
+    );
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert_eq!(r.file_text(), FILE, "nothing is written");
+    let marker = super::restart::marker_path(&r.state);
+    let p = super::restart::load(&marker).expect("a marker for the start that follows");
+    assert!(p.restart_only && p.paths.is_empty());
+    assert!(
+        r.core.restart_requested().is_some() || {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+            r.core.restart_requested().is_some()
+        }
+    );
+    let super::restart::Begin::Watch(p) = super::restart::begin(&marker) else {
+        panic!("watch")
+    };
+    let sock = r.state.join("scratch.sock");
+    let _serving = tokio::net::UnixListener::bind(&sock).unwrap();
+    r.core.clone().confirm_change(marker.clone(), p, sock).await;
+    let done =
+        super::restart::load(&marker.with_file_name(format!("done-{}.json", q.correlation_id)))
+            .unwrap();
+    assert_eq!(done.stage, super::restart::Stage::Confirmed);
+    assert_eq!(r.rows("config.changed")[0]["restart_only"], json!(true));
+}
+
+/// A second yes while a change is still being applied is refused, and a
+/// second card made after the first yes cannot replace its marker.
+#[tokio::test]
+async fn a_second_change_waits_for_the_first_to_be_applied() {
+    let r = rig();
+    let (s1, s2) = (r.session(), r.session());
+    r.turn(&s1, change("import.notes.enabled", json!(false)))
+        .await;
+    r.turn(&s2, change("narrative", json!(true))).await;
+    let asks = r.asked();
+    assert_eq!(asks.len(), 2);
+    let card = |path: &str| {
+        asks.iter()
+            .find(|q| q.reason.contains(path))
+            .unwrap()
+            .correlation_id
+            .clone()
+    };
+    r.core
+        .confirm_action(&card("import.notes.enabled"), true, None, "cli")
+        .unwrap();
+    let after_first = r.file_text();
+    let done = r
+        .core
+        .confirm_action(&card("narrative:"), true, None, "cli")
+        .unwrap();
+    assert!(!done.approved);
+    assert_eq!(r.file_text(), after_first, "the second wrote nothing");
+    let d = &r.rows("config.declined")[0];
+    assert!(
+        d["why"]
+            .as_str()
+            .unwrap()
+            .contains("another change is still being applied"),
+        "{d}"
+    );
+    let p = super::restart::load(&super::restart::marker_path(&r.state)).unwrap();
+    assert_eq!(
+        p.paths,
+        ["import.notes.enabled"],
+        "the first change's marker is intact"
+    );
+}
+
+/// An agent's process on the CLI is not the owner at a card: its yes is
+/// refused and recorded, the question keeps waiting, and the owner's own
+/// answer then counts.
+#[tokio::test]
+async fn an_agents_yes_is_refused_and_the_owners_counts() {
+    let r = rig();
+    let sid = r.session();
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
+    let q = r.asked().remove(0);
+    let agent = crate::approval::Answerer {
+        label: "agent:claude".into(),
+        surface: crate::approval::Surface::Cli,
+        discord: None,
+        agent: Some("claude".into()),
+    };
+    let e = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, agent)
+        .unwrap_err();
+    assert!(e.to_string().contains("only the owner answers it"), "{e:#}");
+    assert_eq!(r.file_text(), FILE);
+    assert_eq!(r.asked().len(), 1, "it still waits");
+    assert_eq!(r.rows("approval.refused").len(), 1);
+    r.core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap();
+    assert!(r.file_text().contains("enabled = false"));
 }

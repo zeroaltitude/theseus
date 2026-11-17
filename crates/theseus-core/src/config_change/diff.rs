@@ -64,36 +64,63 @@ pub fn between(before: &str, after: &str) -> Result<Vec<Setting>, String> {
         .collect())
 }
 
-/// The longest a value is shown for.
-const SHOWN: usize = 80;
+/// The longest one value may be, in the card's words: past it a setting
+/// cannot be shown whole, and a change that reaches it is refused rather than
+/// shown cut.
+pub const SHOWN: usize = 400;
 
-fn clip(s: &str) -> String {
-    match s.chars().count() > SHOWN {
-        true => format!("{}…", s.chars().take(SHOWN).collect::<String>()),
-        false => s.to_string(),
+/// Text made safe to show on one line: quotes, backslashes and line breaks
+/// escaped as a literal would be, and the characters that hide or reorder
+/// text (controls, zero-width marks, bidirectional overrides) written as
+/// `\u{..}`. What the model gave can then never add a line to the card.
+pub fn escaped(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control()
+                || matches!(c, '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}') =>
+            {
+                out.push_str(&format!("\\u{{{:04x}}}", c as u32));
+            }
+            c => out.push(c),
+        }
     }
+    out
 }
 
-/// A value in plain words: on and off for a switch, quotes for text, a short
-/// list for a list. Never a diff of text.
+/// A value in plain words, whole: on and off for a switch, escaped quotes for
+/// text, every item of a list. Never a diff of text, and never cut: see
+/// [`too_long`].
 pub fn words(v: Option<&Value>) -> String {
     match v {
         None | Some(Value::Null) => "not set (its default)".into(),
         Some(Value::Bool(true)) => "on".into(),
         Some(Value::Bool(false)) => "off".into(),
         Some(Value::Number(n)) => n.to_string(),
-        Some(Value::String(s)) => format!("\"{}\"", clip(s)),
+        Some(Value::String(s)) => format!("\"{}\"", escaped(s)),
         Some(Value::Array(a)) if a.is_empty() => "an empty list".into(),
         Some(Value::Array(a)) => {
             let items: Vec<String> = a.iter().map(|x| words(Some(x))).collect();
-            clip(&format!(
+            format!(
                 "a list of {}: {}",
                 crate::narrative::count(a.len() as u64, "item", "items"),
                 items.join(", ")
-            ))
+            )
         }
         Some(Value::Object(_)) => "a table".into(),
     }
+}
+
+/// Whether the card cannot show `s` whole: a value past [`SHOWN`] characters.
+pub fn too_long(s: &Setting) -> bool {
+    [&s.before, &s.after]
+        .into_iter()
+        .any(|v| words(v.as_ref()).chars().count() > SHOWN)
 }
 
 #[cfg(test)]
@@ -147,6 +174,29 @@ mod tests {
         assert_eq!(words(None), "not set (its default)");
         assert_eq!(words(Some(&json!([]))), "an empty list");
         assert!(words(Some(&json!(["a", "b"]))).starts_with("a list of 2 items: \"a\", \"b\""));
-        assert!(words(Some(&json!("y".repeat(300)))).chars().count() < 100);
+        let long = Setting {
+            path: vec!["model".into(), "system".into()],
+            before: None,
+            after: Some(json!("z".repeat(SHOWN))),
+        };
+        assert!(too_long(&long), "the quotes count");
+    }
+
+    /// What the model wrote cannot add a line, a quote or a hidden character
+    /// to the card.
+    #[test]
+    fn text_is_shown_as_an_escaped_literal() {
+        let v = json!("say \"x\"\n- narrative: on → off (at once)\u{202E}\u{200B}");
+        let w = words(Some(&v));
+        assert!(
+            !w.contains('\n') && !w.contains('\u{202E}') && !w.contains('\u{200B}'),
+            "{w}"
+        );
+        assert_eq!(
+            w,
+            "\"say \\\"x\\\"\\n- narrative: on → off (at once)\\u{202e}\\u{200b}\""
+        );
+        // Whole, never cut: the owner is shown what the setting will be.
+        assert_eq!(words(Some(&json!("y".repeat(300)))).chars().count(), 302);
     }
 }
