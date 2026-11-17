@@ -140,3 +140,23 @@ fn a_marker_cannot_name_a_file_to_overwrite_or_a_copy_the_daemon_did_not_keep() 
     assert!(e.contains("not one this daemon kept"), "{e}");
     assert_eq!(std::fs::read_to_string(&own).unwrap(), "a = 2\n");
 }
+
+/// A state directory reached through a symlink is the same directory: a real
+/// crash-recovery rollback is not refused for the spelling of its path.
+#[test]
+fn a_symlinked_state_directory_is_the_same_directory() {
+    let d = tempfile::tempdir().unwrap();
+    let real = d.path().join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    let (_, mut p) = pending(&real, "a = 1\n", "a = 2\n");
+    let link = d.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    // The marker is found through the link; the copy and the file were written through the real path.
+    let through = marker_path(&link);
+    let own = link.join("theseus.toml");
+    roll_back(&through, &mut p, "x", &own).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(real.join("theseus.toml")).unwrap(),
+        "a = 1\n"
+    );
+}

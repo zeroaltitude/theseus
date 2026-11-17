@@ -18,13 +18,17 @@ pub struct Found {
 }
 
 /// The state directory the settings file names, `[server] state_dir`, read
-/// as plain TOML (the file parsed when the change was written). None when it
-/// names none or cannot be read.
-fn configured_state_dir(config_file: &Path) -> Option<PathBuf> {
-    let text = std::fs::read_to_string(config_file).ok()?;
-    let doc: toml::Value = toml::from_str(&text).ok()?;
-    let dir = doc.get("server")?.get("state_dir")?.as_str()?;
-    Some(expand(dir))
+/// as plain TOML (the file parsed when the change was written): `Ok(None)` when
+/// it names none, `Err` when the file cannot be read or does not parse, which
+/// no change of this daemon's leaves behind.
+fn configured_state_dir(config_file: &Path) -> Result<Option<PathBuf>, ()> {
+    let text = std::fs::read_to_string(config_file).map_err(drop)?;
+    let doc: toml::Value = toml::from_str(&text).map_err(drop)?;
+    Ok(doc
+        .get("server")
+        .and_then(|s| s.get("state_dir"))
+        .and_then(toml::Value::as_str)
+        .map(expand))
 }
 
 /// The marker this start was given: the path the exec carried, else the one in
@@ -48,9 +52,12 @@ pub fn find_in(state_flag: Option<&Path>, config_file: &Path, default_dir: &Path
         _ => {
             let dir = match state_flag {
                 Some(d) => expand(&d.to_string_lossy()),
-                None => {
-                    configured_state_dir(config_file).unwrap_or_else(|| default_dir.to_path_buf())
-                }
+                // Settings that cannot be read as TOML name no directory the
+                // floor holds: no marker is read from anywhere.
+                None => match configured_state_dir(config_file) {
+                    Ok(named) => named.unwrap_or_else(|| default_dir.to_path_buf()),
+                    Err(()) => return None,
+                },
             };
             restart::marker_path(&dir)
         }
@@ -134,5 +141,8 @@ mod tests {
         std::fs::write(&config, "narrative = false\n").unwrap();
         assert!(find_in(None, &config, &default_dir).is_some());
         assert!(find_in(None, &config, &named.join("elsewhere")).is_none());
+        // Settings that do not parse name no directory: nothing is read.
+        std::fs::write(&config, "this is = not [valid toml\n").unwrap();
+        assert!(find_in(None, &config, &default_dir).is_none());
     }
 }
