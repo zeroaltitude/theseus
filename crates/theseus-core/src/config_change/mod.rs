@@ -360,7 +360,8 @@ pub fn restart(
     let said = format!(
         "Asked the owner:\n{question}Nothing restarts until they say yes, from a private place."
     );
-    ask(tc, proposal, correlation_id, &said)?;
+    // A plain restart changes no setting: its own card, and the card's yes alone.
+    ask(tc, proposal, correlation_id, &said, proof_seam::Needs::Card)?;
     Ok((said, json!({})))
 }
 
