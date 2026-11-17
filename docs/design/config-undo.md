@@ -48,7 +48,9 @@ the two parsed files as every card is, so it shows exactly what will move and no
 
 ## The floor
 
-`<state>/config-changes/` (the copies, the candidates and the restart's marker) is on the floor
-(`toolrun/guarded.rs`), through the same `write::dir` the writer uses: no tool reads or writes a copy, and no L1 view
-shows the directory. A copy is read by the daemon only: `history.rs`, `undo.rs` and the restart's way back. Nothing
-copies one out of the state directory.
+`<state>/store/config-changes/` (the copies, the candidates and the restart's marker) is inside the store directory,
+which the floor already names (`toolrun/guarded.rs`; `write::dir` is the one place that says where): no tool reads or
+writes a copy, and no L1 view shows the directory. `tests_floor_config_copies` pins it. A copy is read by the daemon
+only: `history.rs` (and `undo.rs` through it) and the restart's way back. Nothing copies one out of the state
+directory. Which changes exist comes from the ledger's rows and never from a directory listing, and a copy is believed
+only when its digest is the one its row recorded, so a file somebody placed there is not listed and cannot be undone to.

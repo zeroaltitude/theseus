@@ -1,7 +1,8 @@
 //! The copies the daemon keeps when it changes its own settings are on the
-//! floor (issue 22, undo): `<state>/config-changes/` holds each previous
-//! copy of the config, with every setting and the name of every secret in
-//! it, the candidates, and the restart's marker.
+//! floor (issue 22, undo): `<state>/store/config-changes/` (inside the store
+//! directory, which the floor names) holds each previous
+//! copy of the config, with every setting and the name of every secret in it,
+//! the candidates, and the restart's marker.
 //!
 //! A tool that could read one would see all of them, and one that could write
 //! one would have a later undo, or the restart's way back, put its text
@@ -99,7 +100,8 @@ async fn a_tool_cannot_write_a_kept_copy() {
 #[tokio::test]
 async fn a_read_beside_the_copies_asks_nothing() {
     let r = rig(|copy| {
-        let note = copy.parent().unwrap().parent().unwrap().join("note.txt");
+        let state = copy.parent().unwrap().parent().unwrap().parent().unwrap();
+        let note = state.parent().unwrap().join("note.txt");
         std::fs::write(&note, "a quiet harbour\n").unwrap();
         vec![
             call("c1", "fs_read", json!({"path": note})),
@@ -107,5 +109,10 @@ async fn a_read_beside_the_copies_asks_nothing() {
         ]
     });
     let res = turn(&r.core, None, "read the note").await;
-    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    let why = r.core.pending_confirms(&res.session_id).unwrap();
+    assert!(
+        res.awaiting_confirm.is_none(),
+        "{:?}",
+        why.iter().map(|p| p.reason.clone()).collect::<Vec<_>>()
+    );
 }
