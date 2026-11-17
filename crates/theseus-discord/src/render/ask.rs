@@ -149,14 +149,14 @@ pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
         ));
     }
     t.push_str(&format!("\n**Tool:** `{}`", req.tool));
-    // A change to Theseus's own text or settings (issue 23): its card is on the
-    // message above, whole, and this view clips a rule to a line, so it shows the
-    // heading and where the whole is, never part of the changed lines.
+    // A change to Theseus's own text or settings (issue 23): this view clips a
+    // rule to a line, and the needs-you card it hangs from shows only a summary,
+    // so it shows the heading and where the whole is, never part of the changed lines.
     if theseus_protocol::has_whole_text(req) {
         let heading = req.reason.lines().next().unwrap_or_default();
         t.push_str(&format!(
-            "\n**Rule:** {}\nThe changed lines are on the card, whole; they are not repeated \
-             here cut. To read the whole text, before and after: `theseus config show {}`, or the \
+            "\n**Rule:** {}\nThe changed lines are not shown here, so no part of them is shown \
+             cut. To read the whole text, before and after: `theseus config show {}`, or the \
              cockpit.",
             clip(heading, 200),
             req.correlation_id
