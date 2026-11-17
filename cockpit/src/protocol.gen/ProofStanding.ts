@@ -21,6 +21,6 @@ not_enrolled?: boolean,
 given_at_ms?: number, until_ms?: number, 
 /**
  * The card's line, in plain words: "second proof: needed, enter the
- * code" or "second proof: given here 3 hours ago, good for 21 more".
+ * code" or "second proof: given here 3 hours ago, good for 21 hours more".
  */
 line: string, };

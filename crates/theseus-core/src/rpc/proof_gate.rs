@@ -63,7 +63,9 @@ impl Core {
                 a,
                 who,
                 format!(
-                    "it needs your second proof, and an answer typed or spoken as words cannot                      carry it: press Approve on its card and type the code into its form, or                      answer with `theseus answer {} approve --code <the six digits>`",
+                    "it needs your second proof, and an answer typed or spoken as words cannot \
+                     carry it: press Approve on its card and type the code into its form, or \
+                     answer with `theseus answer {} approve --code <the six digits>`",
                     a.correlation_id
                 ),
             ));

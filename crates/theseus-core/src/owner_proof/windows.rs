@@ -20,7 +20,7 @@
 //!   A good code given for such a question opens no window either.
 //! - **The card always says which it is** (`Proofs::standing`): "second
 //!   proof: needed, enter the code from your authenticator app", or "second
-//!   proof: given here 3 hours ago, good for 21 more".
+//!   proof: given here 3 hours ago, good for 21 hours more".
 //! - **Ending one early:** `Proofs::lock` ends every open window at once.
 //!   A restart keeps the windows (they are in the file); a config rollback's
 //!   restart ends them (`Proofs::end_windows`, which the rollback calls).

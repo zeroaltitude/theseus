@@ -64,7 +64,7 @@ pub struct ProofStanding {
     #[cfg_attr(test, ts(optional))]
     pub until_ms: Option<u64>,
     /// The card's line, in plain words: "second proof: needed, enter the
-    /// code" or "second proof: given here 3 hours ago, good for 21 more".
+    /// code" or "second proof: given here 3 hours ago, good for 21 hours more".
     pub line: String,
 }
 
