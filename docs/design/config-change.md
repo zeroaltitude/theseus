@@ -108,3 +108,25 @@ A card longer than one Discord message is sent as several because the daemon's l
 value) make the longest card about 10,000 characters: 12 settings x (a 400-character value before and after, a path and
 about 60 words of restart and proof) is five messages of 1,900. Lowering the limits to fit one message would have made
 a list of hosts or a persona's text impossible to change at all.
+
+## One card, not three approvals (the first live change)
+
+Asked to change one ordinary setting, Theseus first looked at the settings file with the shell, twice, and each look was
+held by the floor for the owner. Why: in a direct message the family `settings` is deferred (`PlaceKind::Dm.defaults()`),
+so `proc.run` was loaded and `config.propose` was not; nothing told the model a setting's value; the standing prompt
+says nothing about settings. The floor is untouched. What changed is that the look is no longer the shell's:
+
+- **`config.show`** (`config_change/show.rs`) reads settings by name: the value now, whether the file sets it or it is the
+  default, whether a change is sensitive (and why) and needs a fresh code, and whether it restarts. Built by the daemon
+  from the file as it would start (parsed and checked, every default filled in), never the file's text. The wall is
+  `config.history`'s (the owner alone, in a private place, in their own session). It needs no approval in a clean turn;
+  a turn that has read outside text since the owner's last message is **asked** (`ask_if_outside` sets the plan's
+  `authority`, which the gate asks for at every posture, as it does for a task's layer 1).
+- **It never gives** anything in `[secrets]` or `[broker]`, a value under a key that names where a secret is read from
+  (`sensitivity::key_reason`'s first class), any vault reference (`op://`) or URL that carries a user, a password or a
+  query, or a value longer than a card shows whole (it says how long). It still says whether such a setting is set.
+- **`config.propose`'s result** says each setting's value before, set or default, as the daemon read the file, so a plain
+  change needs no look.
+- The descriptions of both say that a setting is changed by proposing it, that the file is never opened, listed or
+  searched, and that the shell is not the way; the `settings` family's summary line, which is what a deferred family is
+  found by, says the same.

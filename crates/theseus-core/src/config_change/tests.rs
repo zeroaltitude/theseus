@@ -47,6 +47,10 @@ enabled = true   # turn it off to stop the import
 /// Answers each turn's first request with the call its input names.
 struct Model {
     calls: Mutex<Vec<(String, Value)>>,
+    /// A turn of several steps (`Rig::steps`): each answer to a result is the
+    /// next call, named `p1`, `p2`, ..., then the text.
+    steps: Mutex<std::collections::VecDeque<(String, Value)>>,
+    made: Mutex<usize>,
 }
 
 impl Provider for Model {
@@ -63,6 +67,19 @@ impl Provider for Model {
             .last()
             .and_then(|m| m["content"].as_array())
             .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+        if let Some((tool, input)) = self.steps.lock().unwrap().pop_front() {
+            let id = format!("p{}", {
+                let mut n = self.made.lock().unwrap();
+                *n += 1;
+                *n
+            });
+            let answer = Scripted::tools("", &[(id.as_str(), tool.as_str(), input)]);
+            return Box::pin(async move {
+                FakeProvider::scripted(vec![answer])
+                    .stream_message(req, on_delta)
+                    .await
+            });
+        }
         let answer = match self.calls.lock().unwrap().pop() {
             Some((tool, input)) if !answers_a_call => {
                 Scripted::tools("", &[("p1", tool.as_str(), input)])
@@ -101,6 +118,8 @@ pub(super) fn rig() -> Rig {
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         calls: Mutex::default(),
+        steps: Mutex::default(),
+        made: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -129,6 +148,18 @@ impl Rig {
 
     pub(super) async fn turn_with(&self, tool: &str, sid: &str, call: Value) {
         self.model.calls.lock().unwrap().push((tool.into(), call));
+        self.run_turn(sid).await;
+    }
+
+    /// One turn of several calls, in order, each made after the result of the
+    /// one before: `p1`, `p2`, ...; the owner's words are the turn's input.
+    pub(super) async fn steps(&self, sid: &str, steps: Vec<(&str, Value)>) {
+        *self.model.made.lock().unwrap() = 0;
+        *self.model.steps.lock().unwrap() = steps.into_iter().map(|(t, v)| (t.into(), v)).collect();
+        self.run_turn(sid).await;
+    }
+
+    async fn run_turn(&self, sid: &str) {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -157,6 +188,10 @@ impl Rig {
     }
 
     pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {
+        self.result_of(sid, "p1")
+    }
+
+    pub(super) fn result_of(&self, sid: &str, call: &str) -> (ResultStatus, String) {
         self.core
             .store
             .session_nodes(sid)
@@ -168,7 +203,7 @@ impl Rig {
                     status,
                     content,
                     ..
-                } if tool_use_id == "p1" => Some((*status, content.clone())),
+                } if tool_use_id == call => Some((*status, content.clone())),
                 _ => None,
             })
             .expect("the proposal's result")

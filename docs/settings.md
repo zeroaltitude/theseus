@@ -46,7 +46,15 @@ card says so: that text could have steered the request, so read it with care. A 
 rather than shown cut.
 
 Press **Approve** (or answer on the card from your terminal), or **Decline**. A card that is not answered in time writes
-nothing.
+nothing. In Discord a card that is longer than one message arrives as several, the buttons on the last, and none of it is
+cut; when you have answered, the line that replaces it says in words what you approved or declined.
+
+A plain "set X to Y" is **one card and nothing else to answer**. Theseus does not open the settings file: it reads a
+setting by name (`config.show`: the value now, whether the file sets it or it is the default, whether a change to it
+needs the code, whether it restarts) or, for a plain change, just proposes it, and the proposal's result already says
+each value before. Reading is free in a turn that has read only your own words; in a turn that has read text from outside
+since your last message, it asks you first. It never gives a secret's value, the names of vault items, or where a secret
+is read from.
 
 ## Which settings need the code
 

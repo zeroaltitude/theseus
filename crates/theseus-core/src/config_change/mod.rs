@@ -38,6 +38,7 @@ pub mod history;
 pub mod mcp_attach;
 pub mod proof_seam;
 pub mod restart;
+pub mod show;
 pub mod undo;
 pub mod wall;
 pub mod words;
@@ -62,7 +63,7 @@ pub const RESTART: &str = "daemon.restart";
 /// The question the owner's yes answers: a planned action of this tool.
 pub const ACK: &str = "config.ack";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 4] = [PROPOSE, RESTART, history::HISTORY, undo::UNDO];
+pub const NAMES: [&str; 5] = [PROPOSE, RESTART, history::HISTORY, undo::UNDO, show::SHOW];
 /// The most settings one proposal may name.
 pub const MAX_CHANGES: usize = 20;
 /// The longest a value a proposal gives may be, as JSON: a setting, not a
@@ -171,6 +172,7 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
         r.register(Arc::new(Propose));
         r.register(Arc::new(RestartTool));
         r.register(Arc::new(history::History));
+        r.register(Arc::new(show::Show));
         r.register(Arc::new(undo::Undo));
         r.register(Arc::new(mcp_attach::Attach));
         r.register(Arc::new(mcp_attach::Detach));
@@ -186,13 +188,14 @@ impl Tool for Propose {
     }
 
     fn description(&self) -> &str {
-        "Propose a change to Theseus's own settings, on the owner's word. Name each setting by \
-         its path (`self.budget.usd`, `import.notes.enabled`, or a whole table such as \
-         `mcp.servers.<name>`) with its new value, or `remove: true`, and give a one-line reason \
-         in the owner's words. Never write TOML or text for the file. Theseus checks that the \
-         settings still load, then shows the owner one card with each value before and after; \
-         only their yes changes anything, and the daemon writes it itself. A setting that governs \
-         what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
+        "Change a Theseus setting (a budget, a cap, a switch, a server), on the owner's word: the only way to change one. \
+         The settings file is never opened, listed or searched, and the shell is not the way. Name each setting by \
+         its path (`self.budget.usd`, `import.notes.enabled`, or a whole table such as `mcp.servers.<name>`) with \
+         its new value, or `remove: true`, and give a one-line reason in the owner's words. Never write TOML or text \
+         for the file. The result says each setting's value before, set or default, so no look is needed first \
+         (`config.show` reads other settings). Theseus checks that the settings still load, then shows the owner one \
+         card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
+         A setting that governs what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
          spending) needs a second proof as well. Offered only to the owner, in a private place."
     }
 
@@ -511,11 +514,12 @@ pub(crate) fn put(
     let said = format!(
         "Asked the owner:\n{question}Nothing changes until they say yes, from a private place{}; \
          the daemon then writes the file itself. If they decline, or do not answer in time, \
-         nothing is written.",
+         nothing is written.\n{}",
         match needs {
             proof_seam::Needs::Card => "",
             _ => ", with the second proof",
-        }
+        },
+        show::before(base, &settings)
     );
     ask(tc, proposal, correlation_id, &said, needs)?;
     Ok((
