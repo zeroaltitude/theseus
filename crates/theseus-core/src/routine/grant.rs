@@ -33,12 +33,18 @@ use crate::toolrun::ToolRuntime;
 /// Tools no grant names: a program or a prompt the model writes runs whatever
 /// it is given, and these change what may run or who may act. A routine that
 /// needs one asks, as any task does.
-pub const NEVER: [&str; 10] = [
+pub const NEVER: [&str; 16] = [
     "proc.run",
     "term.open",
     "term.send",
     "routine.create",
     "extend.propose",
+    "config.propose",
+    "config.history",
+    "config.undo",
+    "daemon.restart",
+    "mcp.attach",
+    "mcp.detach",
     "task.update",
     "task.split",
     "task.close",

@@ -92,6 +92,8 @@ fn asking(mut v: WorkView) -> WorkView {
         tool: Some("proc.run".into()),
         asked_at_ms: 1,
         choices: vec![],
+        needs_proof: false,
+        needs_fresh_proof: false,
     });
     v
 }

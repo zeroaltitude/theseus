@@ -38,6 +38,9 @@
 - **[setup.md](setup.md)**: one command from a checkout to a running daemon (`scripts/setup.sh`): what it needs,
   what each step does, where the config lives and the order theseusd looks for it, a second daemon beside yours,
   and the same steps by hand.
+- **[settings.md](settings.md)**: asking Theseus to change its own settings, for the person who owns the machine: pairing the
+  authenticator app, the card, which settings need the code, the 24-hour window, history and undo, attaching an MCP
+  server, the restart and its way back, the install setting, and what none of this protects against.
 - **[user-service.md](user-service.md)**: running the daemon as a systemd user service. It covers why, the one
   command (`scripts/user-service.sh install`), what each step does, daily use, undoing it, and the WSL notes.
 - **[development.md](development.md)**: how Theseus is developed, by agents and by itself: tracking, the gate, the

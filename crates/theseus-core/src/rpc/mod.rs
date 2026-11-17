@@ -24,11 +24,14 @@ mod context;
 mod google;
 mod home_claim;
 mod inspect;
+mod mcp_card;
+pub(crate) use mcp_card::agent_input_key;
 mod question_waits;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};
 pub(crate) use question_waits::{held_past_life, waited_words};
 pub(crate) use undo_allow::Taken;
+mod config_history;
 mod disk_watch;
 mod driver;
 mod exec_list;
@@ -49,6 +52,8 @@ mod memory;
 mod methods;
 mod modes;
 mod owner_input;
+mod owner_proof;
+mod proof_gate;
 pub(crate) use methods::ledger_tags;
 mod agenda;
 mod capture;
@@ -339,6 +344,9 @@ pub struct Core {
     /// `standing::Board` serialises the records' board with its own `writes`.
     /// Taken by `Core::card_frame` and nowhere else.
     pub(crate) card_writes: std::sync::Mutex<()>,
+    /// The owner's second proof (issue 22): the authenticator's file, the
+    /// check of a code and its limit, and the windows a good code opens.
+    pub(crate) proofs: crate::owner_proof::Proofs,
     /// The push (theseus-in3): one view per execution, seeded on first need.
     pub push: crate::push::Push,
     /// The index tender's supervisor (roadmap row 51): the socket daemon runs
@@ -1056,6 +1064,16 @@ impl Core {
         tracing::info!(profile = %live.0, source = %live.1, "live profile");
         let sealed = crate::rsi::sealed::open(&cfg);
         let watches = tools.watches.clone();
+        // The owner's second proof (issue 22), over the state dir the floor holds.
+        let proofs = crate::owner_proof::Proofs::open(
+            &theseus_tools::paths::canonical_best_effort(&cfg.state_dir()),
+            store.clone(),
+            {
+                let kernel = kernel.clone();
+                Arc::new(move || kernel.now_ms())
+            },
+            cfg.owner_proof.window_hours,
+        );
         let core = Arc::new(Self {
             cfg,
             store,
@@ -1086,6 +1104,7 @@ impl Core {
             conns: Arc::default(),
             last_sweep: Default::default(),
             card_writes: Default::default(),
+            proofs,
             push: crate::push::Push::default(),
             index,
             mcp,
@@ -1115,6 +1134,8 @@ impl Core {
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
         core.tools.self_pause.attach(&core);
+        core.tools.config_change.attach(&core);
+        core.tools.root_install.attach(&core);
         core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
@@ -1184,6 +1205,10 @@ impl Core {
         // stored list, offered at once; each starts after serving.
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
+        }
+        // Who attached which MCP server by asking (issue 22): one META key.
+        if let Err(e) = core.seed_attached() {
+            tracing::warn!(error = %format!("{e:#}"), "who attached which MCP server did not read");
         }
         // `[personas]`, read once (theseus-utfnl): one frame at the first
         // start that has them, nothing after.
@@ -1649,6 +1674,16 @@ impl Core {
              The daemon restarts onto the vault's version.",
             r.tables.join(", ")
         );
+        self.config_gate.restarting(r.clone());
+        self.restart.send_replace(Some(r));
+        self.stop();
+    }
+
+    /// Restart onto a change to the settings the owner approved, or back off
+    /// one that did not come up (issue 22, `config_change::restart`): the same
+    /// clean stop and exec as `restart_onto`, with the marker's path as its
+    /// reference.
+    pub(crate) fn restart_for(&self, r: ConfigRestart) {
         self.config_gate.restarting(r.clone());
         self.restart.send_replace(Some(r));
         self.stop();

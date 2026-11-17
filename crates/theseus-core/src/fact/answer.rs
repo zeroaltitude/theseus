@@ -212,6 +212,7 @@ impl ActRefused<'_> {
             | Act::Routine { .. }
             | Act::Watch { .. }
             | Act::UndoAllow { .. }
+            | Act::Settings { .. }
             | Act::Thread { .. } => None,
         }
     }
@@ -254,6 +255,7 @@ impl Fact for ActRefused<'_> {
             | Act::Routine { what, .. }
             | Act::Watch { what, .. }
             | Act::UndoAllow { what }
+            | Act::Settings { what }
             | Act::Thread { what, .. } => {
                 json!({"act": act.method(), "what": what, "who": r.who, "via": r.via,
                        "why": r.why, "by": self.by})
@@ -350,6 +352,9 @@ impl Fact for ActRefused<'_> {
             Act::UndoAllow { what } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. The call stays held, \
                  and the model re-plans it as it was asked to."
+            ),
+            Act::Settings { what } => format!(
+                "{what}, from {who} through {via}, did not count: {why}. Nothing was shown."
             ),
             Act::Trust { what, .. } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. The repository is as \

@@ -39,6 +39,18 @@ pub struct WorkAnswerParams {
     /// wakes it, as `action.confirm`'s `watch` does.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub watch: bool,
+    /// The owner's second proof, for a question that needs one (issue 22):
+    /// a code from the authenticator app, typed into the surface's own form.
+    /// Checked by the daemon; never stored or echoed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub code: Option<crate::owner_proof::ProofCode>,
+    /// The answer was typed or spoken as words (a Discord reply, a voice
+    /// command), not pressed on a card: a question that needs the owner's
+    /// second proof is never approved on one, whatever window is open. Only
+    /// ever makes the daemon stricter.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub typed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -138,6 +150,8 @@ impl ConfirmRequest {
                 true => crate::work::ask::choices_of(&self.input),
                 false => Vec::new(),
             },
+            needs_proof: self.needs_proof,
+            needs_fresh_proof: self.needs_fresh_proof,
         };
         q.options = answer_options(&q);
         q

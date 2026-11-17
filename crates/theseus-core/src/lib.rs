@@ -31,6 +31,7 @@ pub mod check;
 pub mod commitments;
 pub mod compiler;
 pub mod config;
+pub mod config_change;
 pub mod config_copy;
 pub mod config_gate;
 pub mod conns;
@@ -95,6 +96,7 @@ pub mod outputs;
 pub mod own_bench;
 pub mod owner_ask;
 pub mod owner_note;
+pub mod owner_proof;
 mod pace;
 pub mod pacer;
 pub mod pack_names;
@@ -392,6 +394,8 @@ mod tests_find_sticks;
 mod tests_first_request;
 #[cfg(test)]
 mod tests_fit;
+#[cfg(test)]
+mod tests_floor_config_copies;
 #[cfg(test)]
 mod tests_floor_shapes;
 #[cfg(test)]

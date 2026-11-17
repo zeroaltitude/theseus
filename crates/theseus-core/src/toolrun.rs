@@ -359,6 +359,11 @@ pub struct ToolRuntime {
     pub self_file: crate::rsi::backlog::tool::Board,
     /// `self.pause` (issue 6): pause the loop's new builds, from a chat.
     pub self_pause: crate::rsi::pause_tool::Board,
+    /// Where `config.propose` reads the settings file and keeps its copies
+    /// (issue 22): the daemon's own, never a tool's.
+    pub config_change: crate::config_change::Where,
+    /// The install of a joined change into the root-owned program directory (issue 22).
+    pub root_install: crate::rsi::join::root_install::Board,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -554,6 +559,8 @@ impl ToolRuntime {
             card_observed: Default::default(),
             self_file: Default::default(),
             self_pause: Default::default(),
+            config_change: Default::default(),
+            root_install: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -1634,7 +1641,10 @@ impl ToolRuntime {
                 // keeps a flow from naming another.
                 Box::pin(self.run_flow(tc, correlation_id, tool.as_ref(), call)).await
             }
-            Backend::Harness if tool.name() == crate::extend::PROPOSE => {
+            Backend::Harness
+                if tool.name() == crate::extend::PROPOSE
+                    || crate::config_change::mcp_attach::is_async(tool.name()) =>
+            {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
             }
@@ -1709,6 +1719,24 @@ impl ToolRuntime {
                 .map(|d| edit.take(d)),
             // Run again after a restart: what the first run proposed.
             crate::extend::PROPOSE => crate::extend::proposed_by_call(tc, correlation_id),
+            // The owner's own turn proposes a change to the settings (issue 22).
+            crate::config_change::PROPOSE => {
+                crate::config_change::propose(self, tc, &call.input, correlation_id)
+            }
+            // Run again after a restart: what the first run asked the owner.
+            crate::config_change::mcp_attach::ATTACH | crate::config_change::mcp_attach::DETACH => {
+                crate::config_change::proposed_by_call(tc, correlation_id)
+            }
+            crate::config_change::RESTART => {
+                crate::config_change::restart(self, tc, &call.input, correlation_id)
+            }
+            // The history of those changes, and the undo of one (issue 22).
+            crate::config_change::history::HISTORY => {
+                crate::config_change::history::run(self, tc, &call.input)
+            }
+            crate::config_change::undo::UNDO => {
+                crate::config_change::undo::run(self, tc, &call.input, correlation_id)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {
@@ -1944,6 +1972,7 @@ pub fn build_runtime(
         crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
+        crate::config_change::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
@@ -2008,6 +2037,8 @@ pub fn build_runtime(
         broker.set_aws(a.clone());
     }
     let self_pr = Arc::new(crate::rsi::pr::Board::new(state.clone()));
+    let config_change = crate::config_change::Where::new(cfg.config_file.clone(), state.clone());
+    let root_install = crate::rsi::join::root_install::Board::new(state.clone());
     Ok(ToolRuntime {
         misroute: Default::default(),
         catalogs: Default::default(),
@@ -2102,6 +2133,8 @@ pub fn build_runtime(
         card_observed: Default::default(),
         self_file: Default::default(),
         self_pause: Default::default(),
+        config_change,
+        root_install,
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),

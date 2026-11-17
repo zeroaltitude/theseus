@@ -41,6 +41,7 @@ const PLAIN: &[&str] = &[
     "commands",
     "channels",
     "extensions",
+    "settings",
     "plan",
 ];
 

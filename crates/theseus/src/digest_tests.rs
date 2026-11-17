@@ -21,6 +21,8 @@ fn at(h: u64, m: u64) -> u64 {
 
 fn question() -> Question {
     Question {
+        needs_proof: false,
+        needs_fresh_proof: false,
         id: "act_0000a1b2c3".into(),
         kind: QuestionKind::Approval,
         asked_by: work("tsk_x", WorkKind::Task, "Kelp count"),

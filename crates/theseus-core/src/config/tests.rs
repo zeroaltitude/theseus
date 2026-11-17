@@ -251,7 +251,7 @@ fn example_template_uncommented_still_parses() {
 
 /// The template with every commented-out parameter un-commented: each `# `
 /// line that reads as a table header or a `key = value` is kept as TOML.
-fn uncommented(template: &str) -> String {
+pub(super) fn uncommented(template: &str) -> String {
     let mut out = String::new();
     for line in template.lines() {
         let t = line.trim_start();

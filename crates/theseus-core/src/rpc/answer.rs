@@ -164,9 +164,14 @@ impl Core {
         let who = conn.answerer(None, p.discord);
         let may = self.may_answer(&who).is_ok();
         let mut confirms = self.confirms_listed(discord)?;
+        self.with_proof_standing(&mut confirms, &who);
         for c in &mut confirms {
-            // An agent draws no button for what spends money or changes AWS (theseus-5rvss).
-            let agent_barred = who.agent.is_some() && crate::approval::owners_alone(&c.tool);
+            // An agent draws no button for what spends money or changes AWS (theseus-5rvss), nor for a card that
+            // changes Theseus's own settings, attaches a server or installs a build (issue 22): its yes is refused.
+            let agent_barred = who.agent.is_some()
+                && (crate::approval::owners_alone(&c.tool)
+                    || c.tool == crate::config_change::ACK
+                    || c.tool == crate::rsi::join::root_install::ACK);
             c.may_answer = Some(may && !agent_barred);
         }
         Ok(theseus_protocol::ConfirmListResult { confirms })
@@ -338,6 +343,7 @@ impl Core {
             )));
         };
         let approve = route(kind, &chosen.id)?;
+        let proof_by = who.clone();
         if p.watch {
             self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
         }
@@ -347,7 +353,11 @@ impl Core {
                 approve,
                 p.note.as_deref(),
                 who,
-                Default::default(),
+                super::confirms::Rides {
+                    code: p.code.as_ref(),
+                    typed: p.typed,
+                    ..Default::default()
+                },
             )
             .map_err(|e| match e.downcast::<Refusal>() {
                 Ok(r) => RpcFailure {
@@ -361,12 +371,14 @@ impl Core {
             .resumes
             .then(|| self.work_ref_of(&done.execution_id, &done.session_id));
         // A declined budget question resumes nothing: the session waits on it.
-        let detail = (kind == QuestionKind::Budget && !approve).then(|| {
-            format!(
-                "{} keeps waiting on its budget; a new message asks again",
-                done.session_id
-            )
-        });
+        let detail = (kind == QuestionKind::Budget && !approve)
+            .then(|| {
+                format!(
+                    "{} keeps waiting on its budget; a new message asks again",
+                    done.session_id
+                )
+            })
+            .or_else(|| approve.then(|| self.proof_detail(a, &proof_by)).flatten());
         Ok(WorkAnswerResult {
             question_id: a.correlation_id.clone(),
             option: chosen.id.clone(),
@@ -473,6 +485,8 @@ impl Core {
                 super::confirms::Rides {
                     extra: &[],
                     ask: Some((&option, record)),
+                    code: p.code.as_ref(),
+                    typed: p.typed,
                 },
             )
             .map_err(|e| match e.downcast::<Refusal>() {
@@ -498,6 +512,8 @@ impl Core {
     /// ask of `answer_options`.
     fn bare_question(&self, a: &Action, kind: QuestionKind) -> theseus_protocol::work::Question {
         theseus_protocol::work::Question {
+            needs_proof: false,
+            needs_fresh_proof: false,
             id: a.correlation_id.clone(),
             kind,
             asked_by: self.work_ref_of(&a.execution_id, &a.session_id),

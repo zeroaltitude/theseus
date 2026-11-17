@@ -264,6 +264,8 @@ fn a_guarded_scope_scrubs_and_cannot_answer() {
     .unwrap();
     assert_eq!(view.state, WorkState::NeedsYou);
     view.question = Some(Question {
+        needs_proof: false,
+        needs_fresh_proof: false,
         id: "act_1".into(),
         kind: QuestionKind::Approval,
         asked_by: who,

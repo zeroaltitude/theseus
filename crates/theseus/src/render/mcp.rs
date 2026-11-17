@@ -61,6 +61,19 @@ pub fn mcp_lines(l: &McpListResult) -> Vec<String> {
             s.transport,
             server_words(s)
         ));
+        if let Some(by) = &s.attached_by {
+            let at = s
+                .attached_at_ms
+                .and_then(|ms| jiff::Timestamp::from_millisecond(ms as i64).ok())
+                .map(|t| {
+                    let local = t.to_zoned(jiff::tz::TimeZone::system());
+                    format!(" on {}", local.strftime("%Y-%m-%d at %H:%M"))
+                });
+            out.push(format!(
+                "  attached by asking: approved by {by}{}",
+                at.unwrap_or_default()
+            ));
+        }
         for t in l.tools.iter().filter(|t| t.server == s.name) {
             let hints = match t.hints.is_empty() {
                 true => String::new(),
@@ -173,6 +186,43 @@ mod tests {
         assert_eq!(
             lines[2],
             "  prompt fake/greet (name*, tone) · Greets someone."
+        );
+    }
+
+    /// `theseus mcp` says which servers were attached by asking, by whom, and
+    /// when; a server written in the file says nothing of the kind.
+    #[test]
+    fn a_server_attached_by_asking_says_so() {
+        let by_asking = McpServerStatus {
+            name: "wc".into(),
+            transport: "stdio".into(),
+            state: "ready".into(),
+            attached_by: Some("owner through discord".into()),
+            attached_at_ms: Some(1_700_000_000_000),
+            ..Default::default()
+        };
+        let in_the_file = McpServerStatus {
+            name: "base".into(),
+            ..by_asking.clone()
+        };
+        let in_the_file = McpServerStatus {
+            attached_by: None,
+            attached_at_ms: None,
+            ..in_the_file
+        };
+        let lines = mcp_lines(&McpListResult {
+            servers: vec![by_asking, in_the_file],
+            tools: vec![],
+            prompts: vec![],
+        });
+        let said: Vec<&String> = lines
+            .iter()
+            .filter(|l| l.contains("attached by asking"))
+            .collect();
+        assert_eq!(said.len(), 1, "{lines:?}");
+        assert!(
+            said[0].contains("approved by owner through discord on 2023-11-1"),
+            "{said:?}"
         );
     }
 }

@@ -423,6 +423,12 @@ pub struct Question {
     /// An `ask`'s own choices, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<String>,
+    /// The asker marked it as needing the owner's second proof (issue 22).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_proof: bool,
+    /// And a proof given earlier never covers it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_fresh_proof: bool,
 }
 
 impl Question {
@@ -928,6 +934,8 @@ fn brief(p: &PendingConfirm, asked_by: WorkRef, asked_at_ms: u64) -> Question {
         tool: Some(p.tool.clone()),
         asked_at_ms,
         choices: Vec::new(),
+        needs_proof: false,
+        needs_fresh_proof: false,
     };
     q.options = answer_options(&q);
     q

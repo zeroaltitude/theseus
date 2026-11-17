@@ -104,6 +104,8 @@ pub mod method {
         TASK_CANCEL = "task.cancel", TASK_PAUSE = "task.pause", TASK_RESUME = "task.resume", // the owner holds a task at its next loop, and lets it go on
         TASK_REHOME = "task.rehome", TASK_NOT_THIS = "task.not_this", // the owner says "not this" to a task: cancel it, one rolling preference, label its offer
         TASK_RESCHEDULE = "task.reschedule",
+        /// The owner's second proof (issue 22, `owner_proof`): a code from their authenticator app. Pairing, its first code, the status, a reset, and ending every open window. The owner's own shell alone.
+        OWNER_PROOF_ENROLL = "owner.proof.enroll", OWNER_PROOF_CONFIRM = "owner.proof.confirm", OWNER_PROOF_STATUS = "owner.proof.status", OWNER_PROOF_RESET = "owner.proof.reset", OWNER_PROOF_LOCK = "owner.proof.lock",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
         /// Wakes (DD8): the turns conversations asked for at a time, with `wake.at`, that have not run yet.
@@ -121,6 +123,8 @@ pub mod method {
         PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach", PROJECT_TRUST = "project.trust", PROJECT_UNTRUST = "project.untrust", PROJECT_TRUSTED = "project.trusted",
         /// A project's items (issue 13): a step of the project's own list, added, closed and listed.
         PROJECT_ITEM_ADD = "project.item.add", PROJECT_ITEM_CLOSE = "project.item.close", PROJECT_ITEM_LIST = "project.item.list",
+        /// The last changes the owner approved to Theseus's own settings, as words (issue 22).
+        CONFIG_HISTORY = "config.history",
         UNDO_LIST = "undo.list", UNDO_ALLOW = "undo.allow", // the owner lets a call undo.v1 held run as it was first proposed (theseus-p5kln)
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",

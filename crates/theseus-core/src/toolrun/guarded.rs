@@ -95,6 +95,13 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
         floor_paths.push(canon_path(spool));
     }
     floor_paths.extend([
+        // The directory a config change keeps its candidates, the copies
+        // before it and the restart's marker in (issue 22). It is inside the
+        // store above, and is named anyway: the rollback at a start trusts
+        // what it finds there, so a turn that could write one file there
+        // could have the config replaced with no card and no yes, and the
+        // floor must not depend on where the directory sits.
+        canon_path(crate::config_change::write::dir(&state)),
         canon_path(cfg.discord.bindings_path(&state)),
         // The user-level instruction file (theseus-wadu §1, theseus-3i6d1):
         // read live into the system block on every request, with the standing
@@ -128,6 +135,16 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
     if let Some(s) = crate::rsi::sealed::guard_of(cfg) {
         floor_paths.extend(s.paths().iter().cloned());
     }
+    // The owner's second proof (issue 22): the authenticator's secret, in a
+    // file of its own in the state dir, and the file it is written beside
+    // before the rename. Nothing a tool does may read or write either; the
+    // daemon alone does, and a code from the owner's app is typed into a
+    // card's own form, never a turn.
+    floor_paths.extend(
+        crate::owner_proof::floor_paths(&state)
+            .into_iter()
+            .map(canon_path),
+    );
     (roots, floor_paths)
 }
 
@@ -236,6 +253,18 @@ mod tests {
         }
     }
 
+    /// The directory a config change keeps its copies and its restart's
+    /// marker in is on the floor by its own name, not only as part of the
+    /// store (issue 22): a rollback trusts what is in it.
+    #[test]
+    fn the_config_changes_directory_is_floored() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/state");
+        let floor = guarded_paths(&cfg_over(state)).1;
+        let dir = crate::config_change::write::dir(state);
+        assert_eq!(dir, state.join("store").join("config-changes"));
+        assert!(floor.contains(&dir), "{dir:?} {floor:?}");
+    }
+
     /// The daemon cannot pick a store name the floor does not know: it
     /// resolves through `rpc::store_dir`, which joins a name out of
     /// `STORE_DIR_NAMES`, and the floor floors every name in that list. One
@@ -341,5 +370,24 @@ mod tests {
             assert!(hidden.contains(&store), "{store:?} not hidden: {hidden:?}");
             assert!(hidden.contains(&spool), "{spool:?} not hidden: {hidden:?}");
         }
+    }
+
+    /// The owner's authenticator file is on the floor beside the token file
+    /// and the config file, in both of its names (the file and the one it is
+    /// written to before the rename), and no L1 view shows either. Its own
+    /// name is written as a word on purpose: a rename of the file that moved
+    /// it off the floor reds here.
+    #[test]
+    fn the_owners_authenticator_file_is_floored_and_hidden() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/proof");
+        let cfg = cfg_over(state);
+        let floor = guarded_paths(&cfg).1;
+        let hidden = super::sandbox_for(&cfg).job_view().hidden;
+        for name in ["owner-proof.json", "owner-proof.json.new"] {
+            let path = state.join(name);
+            assert!(floor.contains(&path), "{name} is not floored: {floor:?}");
+            assert!(hidden.contains(&path), "{name} is not hidden: {hidden:?}");
+        }
+        assert_eq!(crate::owner_proof::FILE, "owner-proof.json");
     }
 }

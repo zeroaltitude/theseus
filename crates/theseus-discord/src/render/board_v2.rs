@@ -571,6 +571,8 @@ mod tests {
             tool: Some("fs.write".into()),
             asked_at_ms: NOW - 240_000,
             choices: vec![],
+            needs_proof: false,
+            needs_fresh_proof: false,
         });
         v
     }

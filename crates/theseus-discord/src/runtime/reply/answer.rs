@@ -222,6 +222,7 @@ impl Shared {
                         option: option.clone(),
                         author: Some(author.clone()),
                         discord: Some(origin.clone()),
+                        typed: true,
                         ..Default::default()
                     },
                 )

@@ -130,7 +130,7 @@ Its config must keep off your daemon's places: `[discord] enabled = false` (one 
 Some machines keep the service's program where only an administrator can write: the unit's `ExecStart` names
 `/usr/local/lib/theseus/<commit>/theseusd` (a directory for each build), or the one `/usr/local/lib/theseus/theseusd`
 that `theseusd install --separate` makes. Theseus's own loop can build a change, join it to `main` and, with
-`[self] install = true`, install it, but only where it can write the directory the service runs from. It reads that
+`[self] install = "auto"` or the `true` of an older file, install it, but only where it can write the directory the service runs from (`true` never installs into a root-owned directory by itself: there it asks, as `"ask"` does). It reads that
 directory from the unit (`systemctl --user show -p ExecStart theseusd.service`) and, where it cannot write it, **copies
 nothing and restarts nothing**: a restart that changed nothing would cost the owner a turn in flight for no gain, and new
 command-line programs beside an old daemon are a mismatch of their own. It records `self.install.not_installed` and
@@ -157,8 +157,9 @@ Where the loop can write the service's directory (the user's own `~/.local/bin`,
 sets up), it installs there, restarts, and the unit leaves a marker naming the commit it installed. The new daemon checks
 its own `build.commit` against the marker once it is serving: equal, it writes `self.install.verified` with
 `self.installed`; not equal (or a build that names no commit), it writes `self.install.mismatch` and tells the owner that
-the change is joined and not what runs. Letting the loop write the administrator's directory itself is a separate
-decision (issue 22), and nothing here does.
+the change is joined and not what runs. Doing the administrator's step itself, after the owner's yes on a card, is the job of a one-purpose helper the
+administrator installs once: [root-install.md](root-install.md) says what it is, what it gives up, and how to remove it;
+`[self] install = "ask"` (the default) puts the card, `"auto"` makes none, `"off"` never installs.
 
 ## By hand
 

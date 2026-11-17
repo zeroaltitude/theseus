@@ -77,6 +77,14 @@ impl Core {
         let approve = approves(answer).ok_or_else(|| {
             format!("`{answer}` is not an answer to this question: answer it with `yes` or `no`")
         })?;
+        // A yes to a question that needs the owner's second proof is never
+        // taken from chat: the proof is typed into a card's own form.
+        if let Some(why) = approve
+            .then(|| self.chat_refusal(&q.correlation_id))
+            .flatten()
+        {
+            return Err(why);
+        }
         self.confirm_action(&q.correlation_id, approve, note, who)
             .map_err(|e| format!("the answer was not taken: {e:#}"))?;
         Ok(match approve {
@@ -96,6 +104,9 @@ impl Core {
         note: Option<&str>,
         who: Answerer,
     ) -> Result<String, String> {
+        if let Some(why) = self.chat_refusal(&q.correlation_id) {
+            return Err(why);
+        }
         let a = self
             .kernel
             .action(&q.correlation_id)
@@ -135,6 +146,8 @@ impl Core {
             super::confirms::Rides {
                 extra: &[],
                 ask: Some((&option, record)),
+                code: None,
+                typed: true,
             },
         )
         .map_err(|e| format!("the answer was not taken: {e:#}"))?;
