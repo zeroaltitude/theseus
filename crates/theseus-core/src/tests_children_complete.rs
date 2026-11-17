@@ -116,11 +116,6 @@ const BARE: &[(&str, &str)] = &[
          both are under `#[cfg(test)]` in the file",
     ),
     (
-        "theseus-core/src/peer_proc.rs",
-        "test-only: a stand-in `sleep` the test starts to be a job's process and \
-         kills and waits for itself; under `#[cfg(test)]` in the file",
-    ),
-    (
         "theseus-core/src/broker/tests.rs",
         "test-only: a hermetic git",
     ),
