@@ -110,6 +110,94 @@ struct Spec {
     reason: String,
 }
 
+/// What an attach names, checked before anything is built: one transport, and
+/// only the settings that transport takes.
+fn check(i: &AttachInput) -> Result<(), String> {
+    match (i.command.is_empty(), &i.url) {
+        (true, None) => {
+            return Err(
+                "name what to attach: `command` (a program and its arguments, as a list) or `url`"
+                    .into(),
+            )
+        }
+        (false, Some(_)) => {
+            return Err("a server has one transport: `command` or `url`, not both".into())
+        }
+        (false, None) => {
+            if i.command.len() > MAX_ARGS || i.command.iter().any(|a| a.len() > MAX_ARG_BYTES) {
+                return Err(format!(
+                    "a command has at most {MAX_ARGS} arguments of {MAX_ARG_BYTES} bytes"
+                ));
+            }
+            if i.command[0].trim().is_empty() {
+                return Err("the command names no program".into());
+            }
+            if i.auth_secret.is_some() {
+                return Err(
+                    "`auth_secret` is for a server over HTTP; a program gets its secrets in `env`"
+                        .into(),
+                );
+            }
+        }
+        (true, Some(u)) => {
+            if !(u.starts_with("https://") || u.starts_with("http://")) {
+                return Err(format!("{u:?} is not an http:// or https:// address"));
+            }
+            if !i.env.is_empty() {
+                return Err("`env` is for a program Theseus starts; a server over HTTP gets its key from `auth_secret`".into());
+            }
+            if i.sandbox.as_deref() == Some("l1") || !i.egress.is_empty() {
+                return Err("`sandbox` and `egress` are for a program Theseus starts; a server over HTTP runs elsewhere".into());
+            }
+        }
+    }
+    if [i.env.len(), i.read.len(), i.egress.len()]
+        .iter()
+        .any(|n| *n > MAX_LIST)
+    {
+        return Err(format!(
+            "name at most {MAX_LIST} secrets, read-only tools or hosts"
+        ));
+    }
+    Ok(())
+}
+
+/// The table to write, from the server as the owner asked for it.
+fn table_of(wanted: &McpServerConfig) -> Value {
+    let mut table = serde_json::Map::new();
+    match &wanted.url {
+        Some(u) => {
+            table.insert("url".into(), json!(u));
+            if let Some(s) = &wanted.auth_secret {
+                table.insert("auth_secret".into(), json!(s));
+            }
+        }
+        None => {
+            table.insert("command".into(), json!(wanted.command));
+            if !wanted.env.is_empty() {
+                table.insert("env".into(), json!(wanted.env));
+            }
+            table.insert(
+                "sandbox".into(),
+                json!(match wanted.sandbox {
+                    McpSandbox::L1 => "l1",
+                    McpSandbox::L0 => "l0",
+                }),
+            );
+            if !wanted.egress.is_empty() {
+                table.insert("egress".into(), json!(wanted.egress));
+            }
+        }
+    }
+    if !wanted.read.is_empty() {
+        table.insert("read".into(), json!(wanted.read));
+    }
+    if !wanted.external {
+        table.insert("external".into(), json!(false));
+    }
+    Value::Object(table)
+}
+
 impl Spec {
     fn of(i: &AttachInput) -> Result<Self, String> {
         if !server_name_ok(&i.name) || i.name.starts_with(crate::extend::SERVER_PREFIX) {
@@ -120,47 +208,7 @@ impl Spec {
                 crate::extend::SERVER_PREFIX
             ));
         }
-        match (i.command.is_empty(), &i.url) {
-            (true, None) => return Err(
-                "name what to attach: `command` (a program and its arguments, as a list) or `url`"
-                    .into(),
-            ),
-            (false, Some(_)) => {
-                return Err("a server has one transport: `command` or `url`, not both".into())
-            }
-            (false, None) => {
-                if i.command.len() > MAX_ARGS || i.command.iter().any(|a| a.len() > MAX_ARG_BYTES) {
-                    return Err(format!(
-                        "a command has at most {MAX_ARGS} arguments of {MAX_ARG_BYTES} bytes"
-                    ));
-                }
-                if i.command[0].trim().is_empty() {
-                    return Err("the command names no program".into());
-                }
-                if i.auth_secret.is_some() {
-                    return Err("`auth_secret` is for a server over HTTP; a program gets its secrets in `env`".into());
-                }
-            }
-            (true, Some(u)) => {
-                if !(u.starts_with("https://") || u.starts_with("http://")) {
-                    return Err(format!("{u:?} is not an http:// or https:// address"));
-                }
-                if !i.env.is_empty() {
-                    return Err("`env` is for a program Theseus starts; a server over HTTP gets its key from `auth_secret`".into());
-                }
-                if i.sandbox.as_deref() == Some("l1") || !i.egress.is_empty() {
-                    return Err("`sandbox` and `egress` are for a program Theseus starts; a server over HTTP runs elsewhere".into());
-                }
-            }
-        }
-        if [i.env.len(), i.read.len(), i.egress.len()]
-            .iter()
-            .any(|n| *n > MAX_LIST)
-        {
-            return Err(format!(
-                "name at most {MAX_LIST} secrets, read-only tools or hosts"
-            ));
-        }
+        check(i)?;
         let sandbox = match (i.sandbox.as_deref(), i.url.is_some()) {
             (Some("l0"), _) | (None, true) => McpSandbox::L0,
             (Some("l1"), _) | (None, false) => McpSandbox::L1,
@@ -199,40 +247,9 @@ impl Spec {
             },
             ..wanted.clone()
         };
-        let mut table = serde_json::Map::new();
-        match &wanted.url {
-            Some(u) => {
-                table.insert("url".into(), json!(u));
-                if let Some(s) = &wanted.auth_secret {
-                    table.insert("auth_secret".into(), json!(s));
-                }
-            }
-            None => {
-                table.insert("command".into(), json!(wanted.command));
-                if !wanted.env.is_empty() {
-                    table.insert("env".into(), json!(wanted.env));
-                }
-                table.insert(
-                    "sandbox".into(),
-                    json!(match wanted.sandbox {
-                        McpSandbox::L1 => "l1",
-                        McpSandbox::L0 => "l0",
-                    }),
-                );
-                if !wanted.egress.is_empty() {
-                    table.insert("egress".into(), json!(wanted.egress));
-                }
-            }
-        }
-        if !wanted.read.is_empty() {
-            table.insert("read".into(), json!(wanted.read));
-        }
-        if !wanted.external {
-            table.insert("external".into(), json!(false));
-        }
         Ok(Spec {
             name: i.name.clone(),
-            table: Value::Object(table),
+            table: table_of(&wanted),
             wanted,
             trial,
             reason: super::card::reason_line(i.reason.as_deref().unwrap_or_default()),
@@ -630,7 +647,7 @@ pub async fn attach(
 }
 
 /// Run `mcp.detach` for the call `correlation_id` of the turn `tc`.
-pub async fn detach(
+pub fn detach(
     rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
     input: &Value,

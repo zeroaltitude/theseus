@@ -32,7 +32,6 @@ impl ToolRuntime {
             }
             crate::config_change::mcp_attach::DETACH => {
                 crate::config_change::mcp_attach::detach(self, tc, &call.input, correlation_id)
-                    .await
             }
             _ => crate::extend::propose(self, tc, &call.input, correlation_id).await,
         };

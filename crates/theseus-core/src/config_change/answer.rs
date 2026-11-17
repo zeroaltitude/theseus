@@ -34,6 +34,24 @@ pub(crate) enum Answer<'a> {
     Expired(&'a str),
 }
 
+impl Answer<'_> {
+    /// How the question's card closes: approved when the yes wrote, else
+    /// expired or declined with the reason.
+    fn closed(&self, written: bool, by: &str, note: Option<&str>) -> Closed {
+        match (written, self) {
+            (true, _) => Closed::new("approved", Some(by)),
+            (false, Answer::Expired(why)) => Closed {
+                note: Some((*why).to_string()),
+                ..Closed::new("expired", None)
+            },
+            (false, _) => Closed {
+                note: note.map(str::to_string),
+                ..Closed::new("declined", Some(by))
+            },
+        }
+    }
+}
+
 /// What a yes did.
 struct Applied {
     previous: u32,
@@ -225,18 +243,7 @@ impl Core {
             write::drop_candidate(&state, sha);
         }
         self.session_rec(&a.session_id).announce(&answered);
-        let closed = match (&applied, &answer) {
-            (Some(_), _) => Closed::new("approved", Some(by)),
-            (None, Answer::Expired(why)) => Closed {
-                note: Some((*why).to_string()),
-                ..Closed::new("expired", None)
-            },
-            (None, _) => Closed {
-                note: note.clone(),
-                ..Closed::new("declined", Some(by))
-            },
-        };
-        self.card_closed(corr, closed);
+        self.card_closed(corr, answer.closed(applied.is_some(), by, note.as_deref()));
         // The board takes the server on, or lets it go, with no restart.
         if let Some(l) = live {
             self.mcp_apply(l);

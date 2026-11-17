@@ -24,7 +24,7 @@ pub(crate) struct Live {
 impl Live {
     /// The record of who attached which, for the answer's frame.
     pub fn record(&self) -> Result<NewRecord> {
-        Ok(NewRecord::json(kinds::META, Some(META_KEY), &self.set)?)
+        NewRecord::json(kinds::META, Some(META_KEY), &self.set)
     }
 }
 
