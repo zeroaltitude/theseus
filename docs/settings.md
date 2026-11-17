@@ -108,9 +108,9 @@ Theseus is not healthy within two minutes, it puts the copy of the old settings 
 tells you. It never restarts twice for one change, and it never overwrites a change you made to the file by hand in the
 meantime. You can also ask for a plain restart in your own words; it has its own card. That card says how many turns are running and
 how many executions are **waiting on a question to you**. Count the second number before you say yes: a build of the
-self-improvement loop that is parked on a question is not running, so `theseus self pipeline` does not show it as
-building and a restart can look safe when it is not. A restart does not answer or drop those questions; they stay
-waiting, but anything of theirs that was running is cut.
+self-improvement loop that is parked on a question is not running, but `theseus self pipeline` shows it as building,
+waiting on you, with the command to answer it; a restart is not safe for it. A restart does not answer or drop those
+questions; they stay waiting, but anything of theirs that was running is cut.
 
 ## Installing what its own loop joined
 

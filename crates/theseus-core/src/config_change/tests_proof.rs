@@ -419,7 +419,8 @@ async fn the_restart_card_counts_what_is_waiting_on_a_question() {
         .expect("a restart card that counts the waiting execution");
     assert!(card.contains("2 executions are waiting"), "{card}");
     assert!(
-        card.contains("self-improvement build") && card.contains("does not show it as building"),
+        card.contains("self-improvement build")
+            && card.contains("shows it as building, waiting on you"),
         "{card}"
     );
 }
