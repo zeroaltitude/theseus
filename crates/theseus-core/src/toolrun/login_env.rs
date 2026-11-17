@@ -77,11 +77,7 @@ impl LoginEnv {
                 });
                 // Every name the shell printed that the secret rule refuses
                 // is said, listed or not: names only, never a value.
-                let refused: Vec<&str> = captured
-                    .iter()
-                    .map(|(n, _)| n.as_str())
-                    .filter(|n| forbidden_env(n))
-                    .collect();
+                let refused = warned(&captured);
                 if !refused.is_empty() {
                     tracing::warn!(
                         names = %refused.join(", "),
@@ -99,6 +95,28 @@ impl LoginEnv {
         let _ = self.got.set(kept);
         names
     }
+}
+
+/// The variables the daemon sets on itself to carry a restart across (the
+/// umask it started under, the marker of the settings change it restarts for,
+/// and the note that it restarted onto the vault's config): a login shell
+/// started from the daemon inherits them. They are the daemon's own, so the
+/// warning that a name looks like a secret does not name them; no job sees
+/// them either way (`forbidden_env` holds every `THESEUS` name back).
+const OWN: [&str; 3] = [
+    theseus_kernel::umask::ENV,
+    crate::config_change::restart::CHANGE_ENV,
+    crate::config_gate::RESTARTED_ENV,
+];
+
+/// The names a captured environment holds that the secret rule refuses, apart
+/// from the daemon's own.
+pub(crate) fn warned(captured: &[(String, String)]) -> Vec<&str> {
+    captured
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .filter(|n| forbidden_env(n) && !OWN.contains(n))
+        .collect()
 }
 
 /// The shell to run: `$SHELL` when it is an executable file, else bash, else sh.

@@ -811,6 +811,18 @@ fn out(text: &str) -> Result<()> {
     }
 }
 
+/// What the journal says a restart is for: a change to the settings the owner
+/// approved (its reference is the change's marker), or the vault's changed
+/// config note, which is the only other thing that asks for one.
+fn restart_words(asked: Option<&theseus_protocol::ConfigRestart>) -> &'static str {
+    match asked {
+        Some(r) if r.reference.starts_with(restart::REF_PREFIX) => {
+            "restarting onto the change to the settings the owner approved"
+        }
+        _ => "restarting onto the vault's changed config note",
+    }
+}
+
 /// How the daemon ends: a restart onto the vault's changed note execs the
 /// same image, marked so it never restarts again.
 fn exit(core: &Core) -> Exit {
@@ -1583,7 +1595,7 @@ async fn serve_socket(
             // No STOPPING for a restart in place: the pid lives on through
             // the exec and serves again, so the init system is told nothing.
             _ = core.restart_asked() => {
-                tracing::info!("restarting onto the vault's changed config note");
+                tracing::info!("{}", restart_words(core.restart_requested().as_ref()));
                 break;
             }
             _ = sigint.recv() => {
@@ -1961,5 +1973,22 @@ mod tests {
             resolved_words(&empty.status()),
             "0 secret(s) resolved in 0 ms (nothing to fetch): "
         );
+    }
+
+    /// The journal says what a restart is for: the owner's approved change to
+    /// the settings, or the vault's changed note, and not the one for the other.
+    #[test]
+    fn the_journal_says_what_the_restart_is_for() {
+        let settings = theseus_protocol::ConfigRestart {
+            reference: format!("{}/x/change.json", restart::REF_PREFIX),
+            ..Default::default()
+        };
+        let vault = theseus_protocol::ConfigRestart {
+            reference: "op://v/i/f".into(),
+            ..Default::default()
+        };
+        assert!(restart_words(Some(&settings)).contains("settings the owner approved"));
+        assert!(!restart_words(Some(&settings)).contains("vault"));
+        assert!(restart_words(Some(&vault)).contains("vault's changed config note"));
     }
 }
