@@ -606,6 +606,41 @@ async fn planted_files_under_the_state_directory_change_nothing() {
     assert!(!dir.join("confirmed").exists());
 }
 
+/// One install at a time: while one is under way, an install of another commit is refused before it stages anything.
+#[tokio::test]
+async fn a_second_install_waits_for_the_first() {
+    let t = rooted(SelfInstall::Auto, None);
+    let merge = t.join().await;
+    t.until("the restart", |t| {
+        !t.units.restarts.lock().unwrap().is_empty()
+    })
+    .await;
+    let staged = t.helper.staged.lock().unwrap().len();
+    let go = Go {
+        question: "q".into(),
+        merge: "e".repeat(40),
+        branch: "b".into(),
+        what: "w".into(),
+        target: PathBuf::from("/nonexistent"),
+        old_program: OLD.into(),
+        approved_by: "cli".into(),
+        via: "cli".into(),
+    };
+    t.r.core.clone().run_root_install(go).await;
+    assert!(
+        t.why_of("failed").contains("still under way"),
+        "{}",
+        t.why_of("failed")
+    );
+    assert!(t.why_of("failed").contains(short(&merge)));
+    assert_eq!(
+        t.helper.staged.lock().unwrap().len(),
+        staged,
+        "nothing more was staged"
+    );
+    assert_eq!(t.units.restarts.lock().unwrap().len(), 1);
+}
+
 /// The restart's script, run for real with a stand-in `systemctl`: confirmed, it restarts once; not confirmed, or a
 /// restart that fails, it puts the unit back and restarts once more: never more than two.
 #[test]

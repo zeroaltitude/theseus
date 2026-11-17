@@ -110,20 +110,6 @@ knows a new table before you add the table: the loader refuses a key it does not
 Exit status: 0 done, or nothing to do; 1 a step failed; 2 a usage error; 3 stopped before the service for you to act,
 as its last lines say.
 
-## A root-owned install
-
-If the service runs a build kept in a directory only the administrator can write
-(`/usr/local/lib/theseus/<commit>/theseusd`, with the user unit's `ExecStart` naming it), a change the self-improvement
-loop joined to `main` is not installed by the loop: it says so, and the administrator's step is
-
-```
-sudo install -d -m 0755 /usr/local/lib/theseus/<commit8> && sudo install -m 0755 <build>/release/{theseusd,theseus,theseus-tui,theseus-index} /usr/local/lib/theseus/<commit8>/ && PATH=/usr/local/lib/theseus/<commit8>:$PATH scripts/user-service.sh install --yes && scripts/user-service.sh restart
-```
-
-which checks nothing about what the programs are. To let Theseus take that step itself, after the owner's yes on a card,
-the administrator installs a one-purpose helper once: [root-install.md](root-install.md) says what it is, what it gives
-up, and how to remove it.
-
 ## A second daemon beside yours
 
 To try a build, or to prove the script itself, without touching your own daemon, give a scratch run its own of
@@ -144,7 +130,7 @@ Its config must keep off your daemon's places: `[discord] enabled = false` (one 
 Some machines keep the service's program where only an administrator can write: the unit's `ExecStart` names
 `/usr/local/lib/theseus/<commit>/theseusd` (a directory for each build), or the one `/usr/local/lib/theseus/theseusd`
 that `theseusd install --separate` makes. Theseus's own loop can build a change, join it to `main` and, with
-`[self] install = true`, install it, but only where it can write the directory the service runs from. It reads that
+`[self] install = "auto"` (`true` in an older file reads as it), install it, but only where it can write the directory the service runs from. It reads that
 directory from the unit (`systemctl --user show -p ExecStart theseusd.service`) and, where it cannot write it, **copies
 nothing and restarts nothing**: a restart that changed nothing would cost the owner a turn in flight for no gain, and new
 command-line programs beside an old daemon are a mismatch of their own. It records `self.install.not_installed` and
@@ -171,8 +157,9 @@ Where the loop can write the service's directory (the user's own `~/.local/bin`,
 sets up), it installs there, restarts, and the unit leaves a marker naming the commit it installed. The new daemon checks
 its own `build.commit` against the marker once it is serving: equal, it writes `self.install.verified` with
 `self.installed`; not equal (or a build that names no commit), it writes `self.install.mismatch` and tells the owner that
-the change is joined and not what runs. Letting the loop write the administrator's directory itself is a separate
-decision (issue 22), and nothing here does.
+the change is joined and not what runs. Doing the administrator's step itself, after the owner's yes on a card, is the job of a one-purpose helper the
+administrator installs once: [root-install.md](root-install.md) says what it is, what it gives up, and how to remove it;
+`[self] install = "ask"` (the default) puts the card, `"auto"` makes none, `"off"` never installs.
 
 ## By hand
 

@@ -17,7 +17,11 @@ and only after the owner's card (and the second proof, once it is built in).
 
 `scripts/root-install.sh install --user NAME --helper FILE`, run by the administrator with `sudo`, once. `NAME` is the
 user the service runs as; `FILE` is the helper built from this checkout (`cargo build --release -p
-theseus-root-install`, then `target/release/theseus-root-install`; read it and the script before you run them).
+theseus-root-install`, then `target/release/theseus-root-install`; read it and the script before you run them). **Build
+the helper and run the script from a checkout the service user cannot write**: the script runs as root, and a program
+that could swap the helper's file between the script's check and its copy would have root through the rule. The script
+checks the copy it installs, and makes its sudoers temporary file in `/etc/sudoers.d`, but a file the owner can write
+while you run it is still the owner's.
 
 | Path | What | Owner and mode |
 |---|---|---|

@@ -317,6 +317,16 @@ impl Core {
     async fn root_install_steps(&self, go: &Go) -> Result<String, String> {
         let board = self.tools.root_install.clone();
         let say = |e: anyhow::Error| format!("{e:#}");
+        // One install at a time, whatever commit: two would share the one staging directory and race their restarts.
+        if let Some(p) = self
+            .root_pending()
+            .filter(|p| matches!(p.stage, Stage::Restarting | Stage::Started))
+        {
+            return Err(format!(
+                "another install ({}) is still under way: one at a time",
+                short(&p.merge)
+            ));
+        }
         self.root_check_head(go).await?;
         let (unit, old, new, new_text) = self.root_plan(go).await?;
         // The programs, into the staging directory, and the helper.

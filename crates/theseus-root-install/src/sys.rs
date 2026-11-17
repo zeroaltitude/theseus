@@ -120,6 +120,14 @@ pub fn fsync(fd: RawFd) -> io::Result<()> {
     cvt(unsafe { libc::fsync(fd) }).map(drop)
 }
 
+/// Whether a process with this id exists (signal 0).
+pub fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 sends nothing.
+    unsafe {
+        libc::kill(pid, 0) == 0 || io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+}
+
 pub fn euid() -> u32 {
     // SAFETY: no arguments, no failure.
     unsafe { libc::geteuid() }

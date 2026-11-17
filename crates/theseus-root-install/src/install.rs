@@ -41,6 +41,7 @@ pub(crate) fn install(cfg: &Config, commit: &str) -> Result<Outcome, Refusal> {
             ));
         }
     }
+    sweep_stale(lib.as_raw_fd());
     let temp = format!(".install-{c8}-{}", std::process::id());
     ctx(
         sys::mkdirat(lib.as_raw_fd(), &temp, 0o700),
@@ -182,6 +183,23 @@ fn same_bytes(mut a: File, mut b: File) -> Result<bool, Refusal> {
         if n == 0 {
             // `a` is at its end; `b` must be too.
             return Ok(ctx(b.read(&mut y[..1]), "comparing")? == 0);
+        }
+    }
+}
+
+/// The temporary directories of runs that were killed (`.install-<c8>-<pid>`, the pid no longer a process): they are
+/// this helper's own and hold up to four programs each, and the count of builds does not see them.
+fn sweep_stale(lib: RawFd) {
+    for name in sys::list(lib).unwrap_or_default() {
+        let Some(pid) = name
+            .strip_prefix(".install-")
+            .and_then(|rest| rest.rsplit_once('-'))
+            .and_then(|(_, pid)| pid.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        if pid != std::process::id() as i32 && !sys::alive(pid) {
+            remove_temp(lib, &name);
         }
     }
 }

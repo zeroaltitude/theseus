@@ -311,6 +311,24 @@ fn a_program_directory_over_the_count_is_refused() {
 }
 
 #[test]
+fn the_leftovers_of_a_killed_run_are_swept_and_a_live_ones_are_not() {
+    let rig = Rig::new();
+    let dead = rig.cfg.lib_dir.join(".install-aaaaaaaa-2147483000");
+    let live = rig
+        .cfg
+        .lib_dir
+        .join(format!(".install-bbbbbbbb-{}", std::process::id()));
+    for d in [&dead, &live] {
+        std::fs::create_dir(d).unwrap();
+        std::fs::write(d.join("theseusd"), "x").unwrap();
+    }
+    // The live one is this very process's name: the run's own temporary directory has the same pid but another commit.
+    rig.install();
+    assert!(!dead.exists(), "a dead run's directory is removed");
+    assert!(live.exists(), "this process's own is never touched");
+}
+
+#[test]
 fn nothing_but_the_one_directory_is_ever_written() {
     // A file and a directory beside the target are left exactly as they were.
     let rig = Rig::new();
