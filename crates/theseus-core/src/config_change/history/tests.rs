@@ -102,7 +102,10 @@ fn a_copy_no_row_names_is_not_read() {
     let only_the_first = &rows[..1];
     let list = entries(only_the_first, dir.path(), Some(&file), SHOWN);
     assert_eq!(names(&list), [1]);
-    assert!(list[0].before_doc.is_some(), "its own copy is named by its row");
+    assert!(
+        list[0].before_doc.is_some(),
+        "its own copy is named by its row"
+    );
     assert!(
         list[0].after_doc.is_none(),
         "copy 2 holds the text but no row names it, and the file now is another"
