@@ -595,7 +595,7 @@ async fn judged(
             again + 1,
             run.tail
         );
-    } else if let Some(tests) = rerun::second_look(place, &a.tree, &run).await {
+    } else if let Some(tests) = rerun::second_look(place, &a.tree, &run, None).await {
         a.reran = tests.iter().map(rerun::Failed::name).collect();
         run.verdict = Verdict::Green;
         run.tail = format!(
