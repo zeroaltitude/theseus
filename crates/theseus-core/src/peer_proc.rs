@@ -171,7 +171,9 @@ fn under_in(read: impl Fn(u32) -> Option<Proc>, pid: u32, daemon: u32) -> bool {
             _ => return false,
         }
     }
-    false
+    // The steps ran out before the chain ended: a job nested this deep must not
+    // read as the owner's own terminal, so this is the strict side, a job's.
+    true
 }
 
 /// `behind_in`, but a peer under `daemon` is a job's before anything else is
@@ -407,6 +409,32 @@ mod tests {
             behind_of(daemon_tree(), 9, &none, Rule::Terminal, 1),
             Behind::Owner
         );
+    }
+
+    /// A chain longer than the walk is a job's: the steps run out, and the
+    /// answer is the strict side, never the owner's. One that ends at init
+    /// inside the steps is not under the daemon.
+    #[test]
+    fn a_chain_too_deep_to_walk_is_a_jobs() {
+        let deep = |pid: u32| {
+            (1000..1200)
+                .contains(&pid)
+                .then(|| proc(pid + 1, 34900, "sh", &["sh"]))
+        };
+        assert!(under_in(deep, 1000, 100));
+        let none: Vec<String> = Vec::new();
+        for rule in [Rule::Terminal, Rule::Agents] {
+            assert_eq!(
+                behind_of(deep, 1000, &none, rule, 100),
+                Behind::Agent(JOB.into())
+            );
+        }
+        let ends = |pid: u32| match pid {
+            1000 => Some(proc(2000, 34900, "sh", &["sh"])),
+            2000 => Some(proc(1, 34900, "bash", &["bash"])),
+            _ => None,
+        };
+        assert!(!under_in(ends, 1000, 100));
     }
 
     /// On this machine: a process this one started is a job's, and this
