@@ -819,9 +819,10 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<undo_cmd::UndoCmd>,
     },
-    /// The changes made to Theseus's own settings on your word (`config history`): who asked, who approved,
-    /// each setting before and after. To change a setting or put one back, ask Theseus in a conversation.
-    /// Yours alone (refused inside a job).
+    /// The changes made to Theseus's own settings on your word: who asked, who approved, and each setting before
+    /// and after (`config history`). To change a setting or put one back, ask Theseus in a conversation. Yours
+    /// alone (refused inside a job).
+    #[command(hide = true)]
     Config {
         #[command(subcommand)]
         cmd: Option<config_cmd::ConfigCmd>,

@@ -559,3 +559,44 @@ async fn the_history_over_the_wire_is_the_owners_alone() {
         "{refused:?}"
     );
 }
+
+/// Which changes exist comes from the daemon's own record, the ledger's rows,
+/// and each copy is believed only when its digest is the one its row recorded.
+/// A copy somebody put in the directory (it is on the floor, so no tool can,
+/// but a program running as the owner could) is not listed, cannot be undone
+/// to, and an altered copy of a real change is not believed.
+#[tokio::test]
+async fn a_planted_copy_is_not_listed_and_cannot_be_undone_to() {
+    let r = rig();
+    r.two_changes();
+    let dir = super::write::dir(&r.state);
+    let evil = "narrative = false\n\n[policy]\nenforcement = \"open\"\n";
+    std::fs::write(dir.join("previous-0099.toml"), evil).unwrap();
+    let said = r
+        .core
+        .config_history(&ConfigHistoryParams::default(), "cli")
+        .unwrap();
+    assert_eq!(said.changes, 2, "{}", said.words);
+    assert!(
+        !said.words.contains("#99") && !said.words.contains("enforcement"),
+        "{}",
+        said.words
+    );
+    let sid = r.session();
+    r.turn(&sid, "config_undo", undo(Some(99))).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("no change #99"), "{text}");
+    // A real change's copy, overwritten with other text, is not believed.
+    std::fs::write(dir.join("previous-0001.toml"), evil).unwrap();
+    let sid = r.session();
+    r.turn(&sid, "config_undo", undo(Some(1))).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(
+        text.contains("no longer kept") && !text.contains("enforcement"),
+        "{text}"
+    );
+    assert!(r.asked().is_empty());
+    assert_eq!(r.file_text(), after_2());
+}
