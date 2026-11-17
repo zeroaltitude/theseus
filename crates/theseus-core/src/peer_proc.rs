@@ -21,6 +21,11 @@
 //! no controlling terminal of its own, so a terminal says nothing there. A
 //! holder that cannot be found is an agent (`untraced`), never the owner.
 //!
+//! A peer whose chain passes through the daemon's own process is a job's
+//! (a command, a script or a tool a turn ran), on the CLI socket and the web
+//! port alike: an agent, never the owner, whatever terminal it holds or
+//! program it runs (issue 22).
+//!
 //! A light guard, as the CLI's refusal inside a job is (theseus-zmgb): an
 //! agent that opens a pty and strips its ancestry reads as the owner. The
 //! boundary is the DM's card and L1.
@@ -35,6 +40,10 @@ pub const NO_TERMINAL: &str = "no terminal";
 /// The name of an agent whose process could not be read (it exited before
 /// the walk).
 pub const UNTRACED: &str = "untraced";
+
+/// The name an agent gets when its chain passes through the daemon's own
+/// process: a job's.
+pub const JOB: &str = "a job";
 
 /// What is behind a connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,9 +154,44 @@ pub fn behind_in(
     }
 }
 
-/// `behind_in` over this machine's `/proc`.
+/// Whether `pid`, or a process above it, is `daemon`: what a job's process
+/// is, since a job runs under the daemon that started it. A daemon that is
+/// pid 1 holds every process there is, so it says nothing.
+fn under_in(read: impl Fn(u32) -> Option<Proc>, pid: u32, daemon: u32) -> bool {
+    if daemon <= 1 {
+        return false;
+    }
+    let mut at = pid;
+    for _ in 0..DEPTH {
+        if at == daemon {
+            return true;
+        }
+        match read(at) {
+            Some(p) if p.ppid > 1 => at = p.ppid,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// `behind_in`, but a peer under `daemon` is a job's before anything else is
+/// asked of it.
+pub fn behind_of(
+    read: impl Fn(u32) -> Option<Proc>,
+    pid: u32,
+    agents: &[String],
+    rule: Rule,
+    daemon: u32,
+) -> Behind {
+    if under_in(&read, pid, daemon) {
+        return Behind::Agent(JOB.into());
+    }
+    behind_in(read, pid, agents, rule)
+}
+
+/// `behind_of` over this machine's `/proc`, under this process.
 pub fn behind(pid: u32, agents: &[String], rule: Rule) -> Behind {
-    behind_in(read_proc, pid, agents, rule)
+    behind_of(read_proc, pid, agents, rule, std::process::id())
 }
 
 /// Where a connection's peer process comes from, and so how it is judged.
@@ -322,6 +366,82 @@ mod tests {
             behind_in(looped, 2, &names(&["claude"]), Rule::Terminal),
             Behind::Owner
         );
+    }
+
+    /// The daemon (100, under a service manager) and what it ran: a job's
+    /// shell (110) and, under it, a `theseus answer` on a terminal (111) and
+    /// one under `claude` (121); beside them the owner's own terminal (9).
+    fn daemon_tree() -> impl Fn(u32) -> Option<Proc> {
+        let base = tree();
+        move |pid| match pid {
+            100 => Some(proc(1, 0, "theseusd", &["theseusd"])),
+            110 => Some(proc(100, 34900, "sh", &["sh", "-c"])),
+            111 => Some(proc(110, 34900, "theseus", &["theseus", "answer"])),
+            120 => Some(proc(110, 34900, "node", &["node", "/usr/bin/claude"])),
+            121 => Some(proc(120, 34900, "theseus", &["theseus", "answer"])),
+            _ => base(pid),
+        }
+    }
+
+    /// A process the daemon ran is a job's, on a terminal or not, on either
+    /// rule and with the agent list empty: only the owner's own terminal,
+    /// beside the daemon and not under it, is the owner's.
+    #[test]
+    fn a_peer_under_the_daemon_is_a_jobs_on_either_rule() {
+        let none: Vec<String> = Vec::new();
+        let job = Behind::Agent(JOB.into());
+        for rule in [Rule::Terminal, Rule::Agents] {
+            // Without the daemon known, the same terminal is the owner's:
+            // this is what the walk by the agent list alone cannot tell.
+            assert_eq!(behind_in(daemon_tree(), 111, &none, rule), Behind::Owner);
+            assert_eq!(behind_of(daemon_tree(), 111, &none, rule, 100), job);
+            assert_eq!(behind_of(daemon_tree(), 110, &none, rule, 100), job);
+            // The job's own is named a job before an agent host above it.
+            let claude = names(&["claude"]);
+            assert_eq!(behind_of(daemon_tree(), 121, &claude, rule, 100), job);
+            // The owner's terminal is not under the daemon.
+            assert_eq!(behind_of(daemon_tree(), 9, &none, rule, 100), Behind::Owner);
+        }
+        // A daemon that is pid 1 holds everything and says nothing.
+        assert_eq!(
+            behind_of(daemon_tree(), 9, &none, Rule::Terminal, 1),
+            Behind::Owner
+        );
+    }
+
+    /// On this machine: a process this one started is a job's, and this
+    /// process's own pid is under itself.
+    #[test]
+    fn a_real_child_of_this_process_is_a_jobs() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("sleep starts");
+        let job = Behind::Agent(JOB.into());
+        let asked = [Rule::Terminal, Rule::Agents].map(|r| behind(child.id(), &[], r));
+        child.kill().ok();
+        child.wait().ok();
+        assert_eq!(asked, [job.clone(), job]);
+    }
+
+    /// The web port's way in too: the holder of a loopback client's end is
+    /// found as it is on the web, and one under the daemon is a job's. Here
+    /// this process holds both ends, so the holder is the daemon itself.
+    #[test]
+    fn a_web_client_the_daemon_holds_is_a_jobs() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = listener.local_addr().unwrap();
+        let stream = std::net::TcpStream::connect(server).unwrap();
+        let client = stream.local_addr().unwrap();
+        let (_accepted, _) = listener.accept().unwrap();
+        let peer = Peer::new(
+            Source::Web {
+                server: Some(server),
+                client,
+            },
+            Arc::from(Vec::<String>::new()),
+        );
+        assert_eq!(peer.behind(), &Behind::Agent(JOB.into()));
     }
 
     #[test]
