@@ -152,8 +152,10 @@ lets the service's user run it; `health` says so, in `binary.helper`):
 - no helper: nothing is installed, and the owner is told the plain step.
 
 **Who may answer the card.** Only the owner himself: Discord's button from his account, his own terminal, the cockpit.
-`approval::owners_alone` names the card's question (`self.install.ack`), so a process that `peer_proc` finds to be an
-agent (Claude Code, Codex, anything with no terminal) is refused on the CLI and on the web socket, and draws no button.
+The answer's dispatch (`rpc/confirms.rs`, as for `config_change`'s card) refuses a yes from a process that `peer_proc`
+finds to be an agent (Claude Code, Codex, anything with no terminal), on the CLI and on the web socket; the refusal is
+recorded and the card keeps waiting. (`approval::owners_alone` does not name the card, so such a process is still shown
+its button; pressing it is refused.)
 In `auto` there is no card, which is why that setting needs the fresh proof.
 
 **On the yes.** The card's answer settles in one frame, and the install runs as a task off the answer's path:
