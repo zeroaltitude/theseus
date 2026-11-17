@@ -57,8 +57,9 @@ and `crates/theseus-core/src/mcp/attached.rs`.
 - Show a card that differs from what is written: the card reads the parsed candidate, the yes checks the candidate by
   its digest, and the settings that change are re-checked at the yes.
 - Make a tool read-only that the owner did not name.
-- Let a server's own words pass as the card's: a tool's name is cut to the characters a name has, a description is its
-  first line with control and direction-changing characters dropped, and both sit under "in the server's own words".
+- Let a server's own words pass as the card's: a tool's name is shown whole and a description is its first line, each
+  an escaped one-line literal (control, invisible, direction-changing and line-separating characters escaped) after a
+  fixed label, under "descriptions are the server's own words"; a name too long to show whole makes no card.
 - Carry a secret's value: a table names a `[secrets]` entry, the trial is given nothing, and no turn, card, log or row
   has a value to carry.
 

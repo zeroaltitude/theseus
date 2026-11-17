@@ -53,10 +53,11 @@ pub struct Facts<'a> {
     pub unloaded: &'a [String],
 }
 
-/// A character that shows as nothing, or turns the text around it.
+/// A character that shows as nothing, turns the text around it, or breaks a
+/// line where the card is shown (the line and paragraph separators).
 fn invisible(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}')
+        || matches!(c, '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}' | '\u{e0000}'..='\u{e007f}')
 }
 
 /// `s` as a one-line quoted literal: a quote, a backslash, a line break, and
