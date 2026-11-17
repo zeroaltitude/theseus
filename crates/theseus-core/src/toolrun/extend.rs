@@ -11,9 +11,10 @@ use super::{CallOutcome, ResultNode, ToolRuntime, TurnCtx};
 use crate::provider::ToolUse;
 
 impl ToolRuntime {
-    /// `extend.propose` (M7 43a): a harness call whose trial waits on its
-    /// server, so it is awaited here, as an async tool is, and never on a
-    /// core; its result is written as any harness call's.
+    /// `extend.propose` (M7 43a), and `mcp.attach` and `mcp.detach` (issue 22,
+    /// whose trial waits on its server the same way): a harness call that
+    /// waits on its server, so it is awaited here, as an async tool is, and
+    /// never on a core; its result is written as any harness call's.
     pub(super) async fn run_extend(
         &self,
         tc: &TurnCtx<'_>,
@@ -24,7 +25,16 @@ impl ToolRuntime {
         Self::harness_started(tc, correlation_id, tool, call);
         let started = theseus_protocol::now_unix_ms();
         let t0 = Instant::now();
-        let done = crate::extend::propose(self, tc, &call.input, correlation_id).await;
+        let done = match tool.name() {
+            crate::config_change::mcp_attach::ATTACH => {
+                crate::config_change::mcp_attach::attach(self, tc, &call.input, correlation_id)
+                    .await
+            }
+            crate::config_change::mcp_attach::DETACH => {
+                crate::config_change::mcp_attach::detach(self, tc, &call.input, correlation_id)
+            }
+            _ => crate::extend::propose(self, tc, &call.input, correlation_id).await,
+        };
         // A trial a cancel or a stop aborted (18a): the cancel settles the
         // call, with its verdict, and its result says so, riding as a late
         // one does.

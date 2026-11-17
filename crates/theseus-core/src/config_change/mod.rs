@@ -35,6 +35,7 @@ pub mod card;
 pub mod diff;
 pub mod edit;
 pub mod history;
+pub mod mcp_attach;
 pub mod proof_seam;
 pub mod restart;
 pub mod undo;
@@ -160,7 +161,7 @@ fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
     Ok((changes, reason))
 }
 
-/// Register the two tools, only where Theseus's settings are a file the daemon
+/// Register the tools, only where Theseus's settings are a file the daemon
 /// can change (issue 22): a config read from the vault, and every default test
 /// config, has none, so the tools are in no catalog there and no request
 /// carries them.
@@ -170,6 +171,8 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
         r.register(Arc::new(RestartTool));
         r.register(Arc::new(history::History));
         r.register(Arc::new(undo::Undo));
+        r.register(Arc::new(mcp_attach::Attach));
+        r.register(Arc::new(mcp_attach::Detach));
     }
 }
 

@@ -34,6 +34,24 @@ pub(crate) enum Answer<'a> {
     Expired(&'a str),
 }
 
+impl Answer<'_> {
+    /// How the question's card closes: approved when the yes wrote, else
+    /// expired or declined with the reason.
+    fn closed(&self, written: bool, by: &str, note: Option<&str>) -> Closed {
+        match (written, self) {
+            (true, _) => Closed::new("approved", Some(by)),
+            (false, Answer::Expired(why)) => Closed {
+                note: Some((*why).to_string()),
+                ..Closed::new("expired", None)
+            },
+            (false, _) => Closed {
+                note: note.map(str::to_string),
+                ..Closed::new("declined", Some(by))
+            },
+        }
+    }
+}
+
 /// What a yes did.
 struct Applied {
     previous: u32,
@@ -160,10 +178,14 @@ impl Core {
             .map_err(|e| format!("the candidate no longer loads: {e:#}"))?;
         let settings = diff::between(&now, &candidate)?;
         let sens = sensitive(&[], &settings);
-        if !sens.is_empty() {
+        // An attached or removed MCP server is always sensitive, whatever the
+        // table says (`mcp_attach`), and only its own table may change.
+        let server = super::mcp_attach::at_yes(args, &settings)?;
+        if !sens.is_empty() || server {
             // The card is never made for these, so this is a second wall.
             match proof_seam::required_and_given(a, "") {
                 proof_seam::Proof::NotInstalled => return Err(super::needs_proof(&sens)),
+                proof_seam::Proof::Given => {}
             }
         }
         let (previous, copy) = write::keep_previous(&w.state, &now).map_err(|e| {
@@ -287,6 +309,14 @@ impl Core {
         ];
         // An undo that was written names the change it undid.
         rows.extend(undone_row(a, approve, &args, &who, by, via)?);
+        // A server attached or removed by asking: who did it rides in the frame.
+        let live = match applied.is_some() {
+            true => self.mcp_prepare(&args, by, via, &a.session_id)?,
+            false => None,
+        };
+        if let Some(l) = &live {
+            rows.push(l.record()?);
+        }
         let proposal = a.proposal.clone().unwrap_or_default();
         self.kernel.frame(&[&a.execution_id], |k| {
             match approve {
@@ -302,18 +332,11 @@ impl Core {
             write::drop_candidate(&state, sha);
         }
         self.session_rec(&a.session_id).announce(&answered);
-        let closed = match (&applied, &answer) {
-            (Some(_), _) => Closed::new("approved", Some(by)),
-            (None, Answer::Expired(why)) => Closed {
-                note: Some((*why).to_string()),
-                ..Closed::new("expired", None)
-            },
-            (None, _) => Closed {
-                note: note.clone(),
-                ..Closed::new("declined", Some(by))
-            },
-        };
-        self.card_closed(corr, closed);
+        self.card_closed(corr, answer.closed(applied.is_some(), by, note.as_deref()));
+        // The board takes the server on, or lets it go, with no restart.
+        if let Some(l) = live {
+            self.mcp_apply(l);
+        }
         // Written and answered: now the restart, which waits for a running
         // turn to end for a stated time and then cuts it.
         if let Some(p) = applied.as_ref().and_then(|d| d.pending.as_ref()) {

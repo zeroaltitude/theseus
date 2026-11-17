@@ -89,6 +89,12 @@ impl McpBoard {
             acked: Some(acked),
             ..Server::new(name, &cfg, stored)
         });
+        self.put_loaded(name, server);
+    }
+
+    /// `server` on the board as `name`, in place of an older one of that name,
+    /// which is stopped once the new one stands.
+    pub(super) fn put_loaded(self: &Arc<Self>, name: &str, server: Arc<Server>) {
         // Under the list's lock, so `start` either sees it or has started.
         let old = {
             let mut loaded = self.loaded();

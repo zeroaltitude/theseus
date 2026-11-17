@@ -24,6 +24,8 @@ mod context;
 mod google;
 mod home_claim;
 mod inspect;
+mod mcp_card;
+pub(crate) use mcp_card::agent_input_key;
 mod question_waits;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};
@@ -1202,6 +1204,10 @@ impl Core {
         // stored list, offered at once; each starts after serving.
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
+        }
+        // Who attached which MCP server by asking (issue 22): one META key.
+        if let Err(e) = core.seed_attached() {
+            tracing::warn!(error = %format!("{e:#}"), "who attached which MCP server did not read");
         }
         // `[personas]`, read once (theseus-utfnl): one frame at the first
         // start that has them, nothing after.

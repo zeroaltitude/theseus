@@ -50,4 +50,13 @@ digest: string,
 /**
  * `read` entries the server does not list.
  */
-unknown_read?: Array<string>, };
+unknown_read?: Array<string>, 
+/**
+ * Who attached it by asking, and through what: absent for a server the
+ * owner wrote in the file.
+ */
+attached_by?: string, 
+/**
+ * When it was attached by asking, in ms since the epoch.
+ */
+attached_at_ms?: number, };

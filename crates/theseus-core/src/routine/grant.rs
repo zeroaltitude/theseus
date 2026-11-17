@@ -43,6 +43,8 @@ pub const NEVER: [&str; 14] = [
     "config.history",
     "config.undo",
     "daemon.restart",
+    "mcp.attach",
+    "mcp.detach",
     "task.update",
     "task.split",
     "task.close",

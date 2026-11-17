@@ -1638,7 +1638,10 @@ impl ToolRuntime {
                 // keeps a flow from naming another.
                 Box::pin(self.run_flow(tc, correlation_id, tool.as_ref(), call)).await
             }
-            Backend::Harness if tool.name() == crate::extend::PROPOSE => {
+            Backend::Harness
+                if tool.name() == crate::extend::PROPOSE
+                    || crate::config_change::mcp_attach::is_async(tool.name()) =>
+            {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
             }
@@ -1716,6 +1719,10 @@ impl ToolRuntime {
             // The owner's own turn proposes a change to the settings (issue 22).
             crate::config_change::PROPOSE => {
                 crate::config_change::propose(self, tc, &call.input, correlation_id)
+            }
+            // Run again after a restart: what the first run asked the owner.
+            crate::config_change::mcp_attach::ATTACH | crate::config_change::mcp_attach::DETACH => {
+                crate::config_change::proposed_by_call(tc, correlation_id)
             }
             crate::config_change::RESTART => {
                 crate::config_change::restart(self, tc, &call.input, correlation_id)

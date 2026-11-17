@@ -385,6 +385,8 @@ impl Core {
                 approve,
             },
         )?;
+        // An MCP server's card is the owner's in person (issue 22).
+        self.judge_mcp_card(&who, &a, approve)?;
         let by = who.label.as_str();
         if a.state != theseus_kernel::ActionState::Planned {
             anyhow::bail!(
