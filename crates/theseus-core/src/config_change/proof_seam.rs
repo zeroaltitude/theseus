@@ -38,7 +38,10 @@ mod tests {
 
     #[test]
     fn a_change_that_turns_install_to_auto_needs_a_fresh_proof_however_it_is_written() {
-        for after in ["[self]\ninstall = \"auto\"\n", "self = { install = \"auto\" }\n"] {
+        for after in [
+            "[self]\ninstall = \"auto\"\n",
+            "self = { install = \"auto\" }\n",
+        ] {
             assert!(needs_fresh(&between("", after)), "{after}");
         }
         assert!(needs_fresh(&between(
