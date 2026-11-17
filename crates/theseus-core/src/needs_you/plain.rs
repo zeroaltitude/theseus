@@ -242,6 +242,7 @@ pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
         risk: risk_of(req).into(),
         yes: "runs this one call.".into(),
         no: "refuses it; the session is told and carries on without it.".into(),
+        detail: String::new(),
     }
 }
 

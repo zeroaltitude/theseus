@@ -262,6 +262,7 @@ pub fn change_card(
         content,
         line: format!("{task}the {} of task `…{}`", c.field, short_id(&c.task)),
         budget: false,
+        more: Vec::new(),
     }
 }
 

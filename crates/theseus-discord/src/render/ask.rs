@@ -135,6 +135,9 @@ fn risk_mark(risk: &str) -> &'static str {
 /// asked, when it expires — or, for a held question, how long it has been
 /// waiting (`heldquestion`) — and the question's id.
 pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
+    if super::settings::is_settings(req) {
+        return super::settings::details(req);
+    }
     let mut t = format!(
         "**Details**\n**What:** {}",
         clip(
@@ -213,6 +216,7 @@ pub fn card(
         content,
         line: format!("{task}asks: {}", clip(question, 80)),
         budget: false,
+        more: Vec::new(),
     }
 }
 

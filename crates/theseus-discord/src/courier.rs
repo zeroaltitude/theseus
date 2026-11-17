@@ -1213,6 +1213,13 @@ impl Lane {
             Event::Card
         };
         let mut writes = Vec::new();
+        // A card whose words run past one message goes as several, each whole
+        // and silent; the last carries the buttons and is the one that pings.
+        // A card that closed while it waited is one message, already settled.
+        let before: Vec<String> = match closed {
+            Some(_) => Vec::new(),
+            None => std::mem::take(&mut card.more),
+        };
         // A card in a guild channel names the people who can answer it, and
         // Discord notifies them and nobody else (theseus-9j9): a card is the
         // one message that waits on a human. A card in a DM needs no mention,
@@ -1220,6 +1227,7 @@ impl Lane {
         let mut named = Vec::new();
         let (how, dm) = match &route {
             Route::Here => {
+                writes.extend(parts_of(&q, channel, &before));
                 if self.kind == "channel" && closed.is_none() {
                     let owners = core.runner.place_rule.owners(&core.cfg);
                     named = answerers(&self.shared.place_users(channel), &owners);
@@ -1238,6 +1246,7 @@ impl Lane {
             }
             Route::Dm { user, dm, .. } => {
                 let dm_channel = self.shared.dm_channel(*user).await?;
+                writes.extend(parts_of(&q, dm_channel, &before));
                 writes.push(Write {
                     key,
                     channel: dm_channel,
@@ -1305,6 +1314,11 @@ impl Lane {
         let mut writes = Vec::new();
         for m in d["messages"].as_array().into_iter().flatten() {
             let key = m["key"].as_str().unwrap_or("").to_string();
+            // A settings card's earlier messages stay as they were sent: the
+            // line that closes it is on its last.
+            if key.starts_with(render::settings::PART_KEY) {
+                continue;
+            }
             let (Some(channel), Some(message)) = (
                 m["channel"].as_str().and_then(|s| s.parse().ok()),
                 m["id"].as_str().and_then(|s| s.parse().ok()),
@@ -2229,6 +2243,23 @@ pub(crate) async fn courier(shared: Arc<Shared>) {
 /// A card's message key, which its settle finds it by.
 fn key_of_card(question: &str) -> String {
     format!("confirm:{question}")
+}
+
+/// A card's earlier messages (`render::settings`): plain and silent, each under
+/// a key of its own, which its settle leaves alone.
+fn parts_of(question: &str, channel: u64, parts: &[String]) -> Vec<Write> {
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, part)| {
+            lone(
+                format!("{}{question}:{i}", render::settings::PART_KEY),
+                channel,
+                part.clone(),
+                false,
+            )
+        })
+        .collect()
 }
 
 /// A card's `content` and buttons as one V2 message: its words and the

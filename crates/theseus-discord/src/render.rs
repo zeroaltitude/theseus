@@ -42,6 +42,7 @@ mod preview;
 pub(crate) mod process;
 mod refold;
 mod reply;
+pub(crate) mod settings;
 pub(crate) mod snapshot;
 mod step;
 pub(crate) mod task_view;
@@ -197,7 +198,11 @@ pub enum Route {
 /// budget question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardText {
+    /// The card's last message, which carries its buttons.
     pub content: String,
+    /// The messages before it, when its words are longer than one (a
+    /// settings card, `settings.rs`): each whole, in order.
+    pub more: Vec<String>,
     pub line: String,
     pub budget: bool,
 }
@@ -906,7 +911,11 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
                 dollars(b.limit_usd)
             ),
             budget: true,
+            more: Vec::new(),
         };
+    }
+    if settings::is_settings(req) {
+        return settings::card(req, route, elsewhere);
     }
     if let Some(c) = &req.change {
         return board::change_card(req, c, &task, route, elsewhere);

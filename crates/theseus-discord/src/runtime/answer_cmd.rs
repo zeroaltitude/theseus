@@ -34,7 +34,7 @@ use crate::files::{self, FileMeta, Plan};
 use crate::render::answer_v2::{self as av2, FILE_FIELD, NOTE_FIELD, OTHER};
 use crate::render::board_v2::{ago, short};
 use crate::render::v2::{container, text};
-use crate::render::{card_v2, clip};
+use crate::render::{card_v2, clip, settings};
 
 /// How long a presser's list of questions is read from memory.
 pub(super) const TTL: Duration = Duration::from_secs(3);
@@ -71,6 +71,9 @@ fn options_of(r: &ConfirmRequest) -> Vec<AnswerOption> {
 /// The card's words for a request: who asks and what, an ask's own question
 /// with its options numbered, and when.
 fn words_of(r: &ConfirmRequest) -> String {
+    if settings::is_settings(r) {
+        return settings_words(r);
+    }
     let who = r
         .task
         .as_ref()
@@ -101,6 +104,24 @@ fn words_of(r: &ConfirmRequest) -> String {
     t
 }
 
+/// A settings question's words: the daemon's own, whole; or, when they do not
+/// fit one message, where to read them (the question is not answered here).
+fn settings_words(r: &ConfirmRequest) -> String {
+    let said = match settings::words_here(r) {
+        Some(whole) => format!("🔔 {whole}"),
+        None => format!(
+            "🔔 {}\nThis is longer than one message can show whole, so it is not answered from \
+             here: read it on its own message, or with `theseus answer`, and answer it there.",
+            r.plain.as_ref().map_or("", |p| p.what.as_str())
+        ),
+    };
+    format!(
+        "{said}\n-# `…{}` · asked {}",
+        short(&r.correlation_id),
+        ago(r.requested_at_ms)
+    )
+}
+
 /// A choice's name in the autocomplete.
 fn name_of(r: &ConfirmRequest) -> String {
     let who = r
@@ -116,7 +137,13 @@ fn name_of(r: &ConfirmRequest) -> String {
     format!(
         "{mark} {} · {} …{}",
         clip(&who, 30),
-        clip(&r.reason, 40),
+        clip(
+            r.plain
+                .as_ref()
+                .filter(|_| settings::is_settings(r))
+                .map_or(&r.reason, |p| &p.what),
+            40
+        ),
         short(&r.correlation_id)
     )
 }
@@ -140,6 +167,10 @@ pub(super) fn choices(open: &[ConfirmRequest], typed: &str) -> Vec<(String, Stri
 pub(super) fn view_of(r: &ConfirmRequest) -> Vec<Value> {
     let options = options_of(r);
     let mut inner = vec![text(words_of(r))];
+    // Words that do not fit are never answered from here.
+    if settings::is_settings(r) && settings::words_here(r).is_none() {
+        return vec![container(Some(0xE5_48_4D), inner)];
+    }
     inner.extend(av2::controls(&r.correlation_id, &options));
     inner.extend(av2::note_row(&r.correlation_id, &options));
     vec![container(Some(0xE5_48_4D), inner)]

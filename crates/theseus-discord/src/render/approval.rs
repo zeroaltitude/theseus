@@ -107,6 +107,7 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
             line
         },
         budget: false,
+        more: Vec::new(),
     }
 }
 
@@ -114,7 +115,7 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
 /// (issue 22): that Approve opens a form, and that the form says whether it
 /// asks for a code from the authenticator app or goes through on a proof given
 /// here earlier. Nothing for a question that asks for none.
-fn proof_clause(req: &ConfirmRequest) -> &'static str {
+pub(super) fn proof_clause(req: &ConfirmRequest) -> &'static str {
     match (req.needs_proof, req.needs_fresh_proof) {
         (false, _) => "",
         (true, true) => {
@@ -163,6 +164,7 @@ pub(super) fn classic(
             line
         },
         budget: false,
+        more: Vec::new(),
     }
 }
 

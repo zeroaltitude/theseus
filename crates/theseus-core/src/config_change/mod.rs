@@ -40,6 +40,7 @@ pub mod proof_seam;
 pub mod restart;
 pub mod undo;
 pub mod wall;
+pub mod words;
 pub mod write;
 
 use std::path::PathBuf;
@@ -354,6 +355,7 @@ pub fn restart(
         args: json!({
             "question": question, "restart_only": true, "paths": Vec::<String>::new(),
             "restart": true, "reason": reason, "outside_text": outside || steered,
+            "settled": words::RESTART,
             "asked_by": {
                 "session_id": tc.session_id, "execution_id": tc.execution_id,
                 "turn_id": tc.turn_id, "place": tc.outbox.target(tc.session_id),
@@ -487,6 +489,7 @@ pub(crate) fn put(
         tool: ACK.into(),
         args: json!({
             "question": question,
+            "settled": words::change(&settings, undoes.map(|u| u.number)),
             "base_sha256": crate::config_copy::sha256(base),
             "candidate_sha256": digest,
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
@@ -598,6 +601,7 @@ pub fn confirm_request(
         .as_ref()
         .map(|p| p.args.clone())
         .unwrap_or_default();
+    let plain = words::plain_of(&args);
     crate::rpc::offer(ConfirmRequest {
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
@@ -618,7 +622,7 @@ pub fn confirm_request(
         may_answer: None,
         preview: None,
         grant_offer: None,
-        plain: None,
+        plain,
         // `confirm.list` reads the proof's marks onto it; the card the asker
         // posts says it in `ask`.
         needs_proof: false,

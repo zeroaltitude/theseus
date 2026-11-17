@@ -17,8 +17,16 @@ pub(super) fn plain_lines(out: &mut Vec<Line>, c: &ConfirmRequest) -> bool {
     if let Some(first) = words.next() {
         push(out, Tag::Ask, &format!("  ? {first}"));
     }
-    for l in words {
+    // The daemon's own whole words for a settings question, each line of them,
+    // never cut: what the yes writes is read here before it is said.
+    for l in p.detail_lines() {
+        push(out, Tag::Plain, &format!("      {l}"));
+    }
+    for l in words.filter(|_| p.detail.is_empty()) {
         push(out, Tag::Dim, &format!("      {l}"));
+    }
+    if !p.detail.is_empty() {
+        push(out, Tag::Dim, &format!("      Yes: {} No: {}", p.yes, p.no));
     }
     true
 }
@@ -106,6 +114,7 @@ mod tests {
             risk: "read-only".into(),
             yes: "runs this one call.".into(),
             no: "refuses it; the session is told and carries on without it.".into(),
+            ..Default::default()
         });
         let lines: Vec<String> = super::super::confirm_lines(&c)
             .iter()

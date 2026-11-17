@@ -301,6 +301,14 @@ impl Chat {
         self.say_plain(Sty::Bold, &format!("the whole call · {words}"));
         let width = usize::from(self.width);
         let preview = diffview::preview_lines(q);
+        // A settings question: the daemon's own words, whole, not its raw call.
+        if let Some(p) = q.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+            for l in p.detail_lines() {
+                self.say_words(Sty::Dim, &format!("  {l}"));
+            }
+            self.gap();
+            return;
+        }
         if preview.is_empty() {
             let json = serde_json::to_string_pretty(&q.input).unwrap_or_default();
             for l in json.lines() {
@@ -425,6 +433,10 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     // The plain words say risk, the model's reason and what Yes and No do
     // (theseus-cudar); the gate's own reason stands in for a daemon without.
     let said = match &q.plain {
+        // The whole card is a key away: the dock holds a line, not a card.
+        Some(p) if !p.detail.is_empty() => {
+            format!("v: read the whole card first · Yes: {} No: {}", p.yes, p.no)
+        }
         Some(p) => p.lines().split_off(1).join(" · "),
         None if q.reason.is_empty() => String::new(),
         None => format!("why: {}", q.reason),

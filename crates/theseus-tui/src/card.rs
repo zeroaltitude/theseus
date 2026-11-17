@@ -25,6 +25,12 @@ fn confirm_head(c: &ConfirmRequest) -> String {
 /// Its risk, the model's reason and what Yes and No do, else the gate's reason.
 fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
     match &c.plain {
+        // A settings question: the daemon's own words, whole.
+        Some(p) if !p.detail.is_empty() => p
+            .detail_lines()
+            .into_iter()
+            .map(|l| (Tag::Dim, format!("  {l}")))
+            .collect(),
         Some(p) => p
             .lines()
             .split_off(1)

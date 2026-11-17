@@ -241,6 +241,7 @@ mod tests {
             risk: "read-only".into(),
             yes: "runs this one call.".into(),
             no: "refuses it; the session is told and carries on without it.".into(),
+            ..Default::default()
         });
         let (_, w) = words(None, &r, "ignored");
         assert_eq!(w.what, "read its own report from the 05:12 run");
