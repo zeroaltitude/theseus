@@ -127,9 +127,13 @@ fn rooted_with(
     r.core.tools.root_install.stand_in(Seams {
         helper: helper.clone(),
         units: units.clone(),
-        proof,
         build: Arc::new(fake_build),
     });
+    // The owner's second proof: `Some(true)` pairs a stand-in authenticator and gives the CLI's place a window, as a
+    // good code from there does; None pairs nothing.
+    if proof == Some(true) {
+        r.core.proofs.open_stand_in_window("cli");
+    }
     Rooted { r, helper, units }
 }
 
@@ -383,21 +387,16 @@ async fn no_helper_means_no_install_and_a_plain_notice() {
     assert!(t.steps().contains(&"no_helper".to_string()));
 }
 
-/// The second proof is asked: until it is built in no card is made (and no build is spent), and a yes that arrives
-/// anyway is refused with the seam's words and installs nothing.
+/// The second proof is asked: with no app paired no card is made (and no build is spent), and the owner is told how to
+/// pair one; with one paired the card is marked, a yes alone from a place with no window is refused and installs
+/// nothing, and a good code installs.
 #[tokio::test]
-async fn the_second_proof_is_asked_through_the_seam() {
+async fn the_second_proof_is_asked_for_the_install() {
     let t = rooted(SelfInstall::Ask, None);
     t.join().await;
-    assert!(
-        t.cards().is_empty(),
-        "no card while the proof is not installed"
-    );
+    assert!(t.cards().is_empty(), "no card while no app is paired");
     let said = t.notices().join("\n");
-    assert!(
-        said.contains(crate::config_change::proof_seam::NOT_INSTALLED),
-        "{said}"
-    );
+    assert!(said.contains("theseus owner proof enroll"), "{said}");
     assert!(t
         .helper
         .calls
@@ -406,22 +405,34 @@ async fn the_second_proof_is_asked_through_the_seam() {
         .iter()
         .all(|c| c == "presence"));
 
-    // A card made while the proof was given, answered after it no longer is.
-    let t = rooted(SelfInstall::Ask, Some(true));
+    // Paired, no window: the card is made and marked; a yes alone installs nothing.
+    let t = rooted(SelfInstall::Ask, None);
+    let secret = t.r.core.proofs.enrol_stand_in();
     t.join().await;
-    let q = t.cards()[0].correlation_id.clone();
-    t.r.core.tools.root_install.stand_in(Seams {
-        helper: t.helper.clone(),
-        units: t.units.clone(),
-        proof: Some(false),
-        build: Arc::new(fake_build),
-    });
-    t.yes(&q);
-    assert!(t.steps().contains(&"declined".to_string()));
+    let q = t.cards()[0].clone();
+    assert!(q.needs_proof && !q.needs_fresh_proof, "{q:?}");
+    let e = t
+        .r
+        .core
+        .confirm_action(&q.correlation_id, true, None, "cli")
+        .unwrap_err();
+    assert!(e.to_string().contains("second proof"), "{e:#}");
     assert!(
-        t.helper.installed.lock().unwrap().is_empty()
-            && t.units.restarts.lock().unwrap().is_empty()
+        t.helper.installed.lock().unwrap().is_empty() && t.units.restarts.lock().unwrap().is_empty()
     );
+    assert_eq!(t.cards().len(), 1, "it still waits");
+    // A good code answers it.
+    let code = crate::owner_proof::Proofs::stand_in_code(&secret, 0);
+    crate::tests_m3::rpc_as(
+        &t.r.core,
+        crate::tests_m3::surface("sock#1", crate::approval::Surface::Cli)
+            .behind(crate::peer_proc::Behind::Owner),
+        theseus_protocol::method::ACTION_CONFIRM,
+        serde_json::json!({"correlation_id": q.correlation_id, "approve": true, "code": code}),
+    )
+    .await
+    .unwrap();
+    assert!(t.steps().contains(&"approved".to_string()), "{:?}", t.steps());
 }
 
 /// Only a commit the loop's own join row names, and that is main's head on the remote now.
@@ -776,6 +787,42 @@ fn the_restart_script_quotes_what_it_embeds() {
         .status()
         .unwrap();
     assert!(ok.success());
+}
+
+/// An agent's process and a job's process cannot approve the install card, with the owner's good code in hand and
+/// the owner's own window open.
+#[tokio::test]
+async fn an_agents_and_a_jobs_process_cannot_approve_the_install() {
+    let t = rooted(SelfInstall::Ask, None);
+    let secret = t.r.core.proofs.open_stand_in_window("cli");
+    t.join().await;
+    let q = t.cards()[0].correlation_id.clone();
+    for who in [
+        crate::peer_proc::Behind::Agent("claude".into()),
+        crate::peer_proc::Behind::Agent(crate::peer_proc::JOB.into()),
+    ] {
+        for code in [None, Some(crate::owner_proof::Proofs::stand_in_code(&secret, 1))] {
+            let e = crate::tests_m3::rpc_as(
+                &t.r.core,
+                crate::tests_m3::surface("sock#9", crate::approval::Surface::Cli).behind(who.clone()),
+                theseus_protocol::method::ACTION_CONFIRM,
+                serde_json::json!({"correlation_id": q, "approve": true, "code": code}),
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                e.message.contains("agent's process") || e.message.contains("only the owner"),
+                "{who:?}: {e:?}"
+            );
+        }
+    }
+    assert!(
+        t.helper.installed.lock().unwrap().is_empty() && t.units.restarts.lock().unwrap().is_empty()
+    );
+    assert_eq!(t.cards().len(), 1, "it still waits");
+    // The owner's own hand, inside the window, installs.
+    t.yes(&q);
+    assert!(t.steps().contains(&"approved".to_string()), "{:?}", t.steps());
 }
 
 /// The one file an install's restart looks for is inside a path the floor holds, so a tool's read or write there waits
