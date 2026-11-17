@@ -2,7 +2,7 @@
 
 On a machine whose service runs programs from a directory only the administrator can write
 (`/usr/local/lib/theseus/<commit8>/`), the self-improvement loop can join a change to main and cannot make it the
-build that runs (issue 20 makes the loop say so). The owner, 2026-11-16 (chat message 1572121605432152149): it should
+build that runs (issue 20 makes the loop say so). The owner, 2026-11-16: it should
 be able to. This note says first what that directory protects today, because that is what is being traded, then the
 helper that does the one thing, the administrator's one-time step, and the daemon's side.
 
@@ -121,7 +121,7 @@ commit's eight hex digits cannot be that name).
 
 **Sudoers.** One rule, `<service user> ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/theseus-root-install
 [0-9a-f]...[0-9a-f]` (forty classes: the rule's own pattern allows exactly forty hex digits and no space, in addition to
-the helper's own check). `scripts/root-install.sh` writes it, checks it with `visudo -cf` before it is moved into place.
+the helper's own check). `scripts/root-install.sh` writes it (with a `Defaults!` line for the program that makes sudo clear the caller's environment, `LD_*` included, which the helper cannot do for itself: the dynamic loader reads them before `main`), and checks it with `visudo -cf` before it is moved into place.
 
 ## The administrator's one-time step
 

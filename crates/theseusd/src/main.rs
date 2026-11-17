@@ -174,6 +174,20 @@ enum Exit {
     Exec(&'static str, String),
 }
 
+/// The commit this binary was built from, as a stamp in its own bytes: `theseus-root-install` reads it from a copy of
+/// the program (and never runs it) to check a build is the one it was asked for (issue 22). The text is
+/// `theseus-build-stamp:<commit>:`, and it is the **only** place that text is in this program: a second copy of the
+/// prefix would be read as a malformed stamp. A test reads it back out of the built program with the helper's scanner.
+#[used]
+static BUILD_STAMP: &str = concat!("theseus-build-stamp:", env!("THESEUS_COMMIT"), ":");
+/// The length of `theseus-build-stamp:`, so [`build_commit`] names no second copy of it (a test holds the number).
+const STAMP_PREFIX_LEN: usize = 20;
+
+/// The commit [`BUILD_STAMP`] names, which is `THESEUS_COMMIT` (empty outside a checkout).
+fn build_commit() -> &'static str {
+    &BUILD_STAMP[STAMP_PREFIX_LEN..BUILD_STAMP.len() - 1]
+}
+
 fn main() -> Result<()> {
     // An L1 job's init (17b): pid 1 of the job, started by its wrapper with
     // its spec on fd 3. First, before anything else: it stays one thread,
@@ -206,7 +220,7 @@ fn main() -> Result<()> {
     let origin = Instant::now();
     // The commit this binary was built from, a constant (theseus-9o5n):
     // health and `server.started` name it.
-    theseus_core::set_commit(env!("THESEUS_COMMIT"));
+    theseus_core::set_commit(build_commit());
     // Before anything is created (theseus-wz2): the store, the spool and raw
     // job output, the config copy, and the socket are the operator's alone.
     // The operator's own umask is kept for a job's command and a tool's new

@@ -6920,6 +6920,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "theseus-root-install"
+version = "1.0.6"
+dependencies = [
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "theseus-sandbox"
 version = "1.0.6"
 dependencies = [
@@ -7061,6 +7069,7 @@ dependencies = [
  "theseus-kernel",
  "theseus-mcp",
  "theseus-protocol",
+ "theseus-root-install",
  "theseus-sandbox",
  "theseus-sim",
  "theseus-store",

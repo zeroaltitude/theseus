@@ -1,0 +1,27 @@
+[package]
+name = "theseus-root-install"
+description = "The one-purpose helper (issue 22): copies the four programs of a named commit from one fixed staging directory into a root-owned directory beside the others, and does nothing else. Standard library and libc only; installed once by the administrator behind one sudoers rule."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# The reader rule (theseus-wjy): a tool, a binary of its own, run by the daemon through `sudo -n` after the owner's yes
+# (`theseus-core`'s `rsi/join/root_install`). It is the one tool no ordinary install ships, so it says why (theseus-g7qp).
+[package.metadata.theseus]
+tool = "run through `sudo -n` by the daemon, after the owner's yes, to put the build its own loop joined into the root-owned program directory (issue 22)"
+run_from_tree = "a privileged helper: only the administrator installs it, once, with scripts/root-install.sh, so no ordinary install (scripts/build.sh, scripts/setup.sh) ever copies it"
+
+[[bin]]
+name = "theseus-root-install"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
