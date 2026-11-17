@@ -143,6 +143,18 @@ fn check(i: &AttachInput) -> Result<(), String> {
             if !(u.starts_with("https://") || u.starts_with("http://")) {
                 return Err(format!("{u:?} is not an http:// or https:// address"));
             }
+            let authority = u.split_once("://").map_or("", |(_, r)| r);
+            if authority
+                .split(['/', '?', '#'])
+                .next()
+                .is_some_and(|a| a.contains('@'))
+            {
+                return Err(
+                    "the address carries a name or key before an `@`: a key is a secret, \
+                            so name it in `auth_secret` and leave it out of the address"
+                        .into(),
+                );
+            }
             if !i.env.is_empty() {
                 return Err("`env` is for a program Theseus starts; a server over HTTP gets its key from `auth_secret`".into());
             }
@@ -387,7 +399,14 @@ fn refusal(tc: &TurnCtx<'_>, tool: &str) -> Option<String> {
     if let Some(why) = wall::refusal(tc) {
         return Some(why.replacen("config.propose", tool, 1));
     }
-    tc.sink.agent.as_ref().map(|agent| {
+    // The agent behind this turn's input: on the sink, and, for a turn that
+    // goes on after an approval or a wait, as the input path kept it.
+    let kept = tc
+        .store
+        .get_meta::<String>(&crate::rpc::agent_input_key(tc.session_id))
+        .ok()
+        .flatten();
+    tc.sink.agent.clone().or(kept).as_ref().map(|agent| {
         format!(
             "{tool} is the owner's own act, and this message came through an agent's process \
              ({agent}): it is not offered. The owner asks in their own words, from a DM, their \
@@ -616,6 +635,9 @@ pub async fn attach(
             tools: tried.tools.clone(),
         };
         g.board.keep_listed(&spec.name, list);
+    } else {
+        // An earlier trial's list is not this server's.
+        g.board.take_listed(&spec.name);
     }
     let outside = outside_text(tc);
     let facts = |server| Facts {

@@ -1249,3 +1249,63 @@ fn the_yes_checks_that_only_the_servers_own_table_changes() {
         assert!(super::at_yes(args, settings).is_err());
     }
 }
+
+/// An address that carries a key before an `@` is refused: a key is a secret
+/// and is named in `auth_secret`.
+#[tokio::test]
+async fn an_address_with_a_key_in_it_is_refused() {
+    let _proof = super::super::proof_seam::pretend();
+    let r = rig();
+    let sid = r.session();
+    r.turn(
+        &sid,
+        "mcp_attach",
+        json!({"name": "docs", "url": "https://user:key@docs.example.invalid/mcp"}),
+    )
+    .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("before an `@`"), "{text}");
+    assert!(!text.contains("user:key"), "{text}");
+    assert_eq!(r.fakes.connects.load(Ordering::SeqCst), 0);
+}
+
+/// A trial that failed does not leave an earlier trial's list to be offered at
+/// the yes.
+#[tokio::test]
+async fn a_failed_trial_keeps_no_earlier_list() {
+    let _proof = super::super::proof_seam::pretend();
+    let r = rig();
+    let sid = r.session();
+    r.turn(&sid, "mcp_attach", wc()).await;
+    assert!(
+        r.core.mcp.take_listed("wc").is_some(),
+        "a good trial keeps its list"
+    );
+    r.turn(&r.session(), "mcp_attach", wc()).await;
+    let mut broken = wc();
+    broken["command"] = json!(["broken"]);
+    r.turn(&r.session(), "mcp_attach", broken).await;
+    assert!(
+        r.core.mcp.take_listed("wc").is_none(),
+        "the failed trial left a list"
+    );
+}
+
+/// An agent's input is remembered for the turns that continue it: the tool is
+/// refused there too, though the continuation's sink knows nothing of it.
+#[tokio::test]
+async fn an_agents_input_is_remembered_for_the_turns_that_continue_it() {
+    let _proof = super::super::proof_seam::pretend();
+    let r = rig();
+    let sid = r.session();
+    r.core
+        .store
+        .put_meta(&crate::rpc::agent_input_key(&sid), &"claude".to_string())
+        .unwrap();
+    r.turn(&sid, "mcp_attach", wc()).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("agent's process (claude)"), "{text}");
+    assert_eq!(r.fakes.connects.load(Ordering::SeqCst), 0);
+}

@@ -25,6 +25,7 @@ mod google;
 mod home_claim;
 mod inspect;
 mod mcp_card;
+pub(crate) use mcp_card::agent_input_key;
 mod question_waits;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};

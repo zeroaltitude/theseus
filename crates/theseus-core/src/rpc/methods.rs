@@ -1043,6 +1043,7 @@ impl Core {
             ),
         ))
         .from_agent(conn.answerer(None, None).agent);
+        self.note_agent_input(&session.session_id, sink.agent.as_deref());
         let voice = p.surface.as_deref() == Some("voice");
         let this_session = session.session_id.clone();
         // The thread it runs in grows from what it did (theseus-98bz.5).

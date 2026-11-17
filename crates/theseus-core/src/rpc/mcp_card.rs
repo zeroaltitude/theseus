@@ -16,7 +16,28 @@ use super::confirms::Act;
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 
+/// The META key that keeps the agent whose process the session's last input
+/// came through, so a turn that continues after an approval or a wait knows it.
+pub(crate) fn agent_input_key(session_id: &str) -> String {
+    format!("mcp.agent_input.{session_id}")
+}
+
 impl Core {
+    /// Keep (or forget) the agent behind a session's input. A write only when
+    /// the answer changes, so an ordinary turn writes nothing.
+    pub(super) fn note_agent_input(&self, session_id: &str, agent: Option<&str>) {
+        let key = agent_input_key(session_id);
+        let kept = self.store.get_meta::<String>(&key).ok().flatten();
+        let done = match (agent, kept.as_deref()) {
+            (Some(a), k) if k != Some(a) => self.store.put_meta(&key, &a.to_string()),
+            (None, Some(_)) => self.store.delete_meta(&key),
+            _ => Ok(()),
+        };
+        if let Err(e) = done {
+            tracing::warn!(error = %e, "the agent behind a session's input was not kept");
+        }
+    }
+
     /// `Err` when `who` may not answer `a`, a card of this kind; the refusal
     /// is ledgered and narrated as any refused answer is.
     pub(super) fn judge_mcp_card(&self, who: &Answerer, a: &Action, approve: bool) -> Result<()> {
