@@ -93,6 +93,22 @@ fn the_limit_is_kept_and_a_change_made_without_a_place_says_where() {
     );
 }
 
+/// Which copies exist is the ledger's record, not the directory's: a file in
+/// the copies' directory that no row names is never read, even when its text
+/// is the very one a change's "after" asks for.
+#[test]
+fn a_copy_no_row_names_is_not_read() {
+    let (dir, file, rows) = kept();
+    let only_the_first = &rows[..1];
+    let list = entries(only_the_first, dir.path(), Some(&file), SHOWN);
+    assert_eq!(names(&list), [1]);
+    assert!(list[0].before_doc.is_some(), "its own copy is named by its row");
+    assert!(
+        list[0].after_doc.is_none(),
+        "copy 2 holds the text but no row names it, and the file now is another"
+    );
+}
+
 /// A copy that is gone, or is not the one the row recorded, gives no values:
 /// the change is listed by its settings and says why.
 #[test]

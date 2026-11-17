@@ -91,6 +91,16 @@ pub fn drop_candidate(state: &Path, sha: &str) {
     let _ = std::fs::remove_file(candidate_path(state, sha));
 }
 
+/// The text of copy `n`, by its name: the number is one a ledger row recorded,
+/// so no directory is listed to learn which copies exist.
+pub fn copy(state: &Path, n: u32) -> Option<String> {
+    std::fs::read_to_string(copy_path(state, n)).ok()
+}
+
+fn copy_path(state: &Path, n: u32) -> PathBuf {
+    dir(state).join(format!("previous-{n:04}.toml"))
+}
+
 /// The previous copies, oldest first: their number and path.
 pub fn previous(state: &Path) -> Vec<(u32, PathBuf)> {
     let mut out: Vec<(u32, PathBuf)> = std::fs::read_dir(dir(state))
@@ -115,7 +125,7 @@ pub fn previous(state: &Path) -> Vec<(u32, PathBuf)> {
 /// forget all but the last [`KEEP`].
 pub fn keep_previous(state: &Path, text: &str) -> std::io::Result<(u32, PathBuf)> {
     let next = previous(state).last().map_or(1, |(n, _)| n + 1);
-    let path = dir(state).join(format!("previous-{next:04}.toml"));
+    let path = copy_path(state, next);
     atomic(&path, text, None)?;
     let all = previous(state);
     for (_, old) in all.iter().take(all.len().saturating_sub(KEEP)) {

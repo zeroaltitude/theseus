@@ -172,9 +172,15 @@ fn changes(rows: &[LedgerRow]) -> Vec<&LedgerRow> {
 /// The changes as history lists them, newest first, at most `limit`.
 pub fn entries(rows: &[LedgerRow], state: &Path, file: Option<&Path>, limit: usize) -> Vec<Entry> {
     let all = changes(rows);
-    let copies: Vec<(u32, String)> = write::previous(state)
-        .into_iter()
-        .filter_map(|(n, p)| Some((n, std::fs::read_to_string(p).ok()?)))
+    // Which copies exist is the ledger's record (every `config.changed` row
+    // names the copy it kept, a plain restart's included), never a directory
+    // listing: a file the daemon has no row for is not read.
+    let kept: Vec<u32> = rows
+        .iter()
+        .filter(|r| r.kind == LedgerKind::ConfigChanged.as_str())
+        .filter(|r| r.data["source"] == "owner")
+        .filter_map(|r| r.data["previous_copy"].as_u64())
+        .map(|n| n as u32)
         .collect();
     let now = file.and_then(|f| std::fs::read_to_string(f).ok());
     let number = |r: &LedgerRow| r.data["previous_copy"].as_u64().unwrap_or_default() as u32;
@@ -188,18 +194,18 @@ pub fn entries(rows: &[LedgerRow], state: &Path, file: Option<&Path>, limit: usi
         let d = &r.data;
         let n = number(r);
         let question = text(d, "question").unwrap_or_default();
-        let before = copies
-            .iter()
-            .find(|(c, t)| *c == n && Some(sha256(t)) == text(d, "digest_before"))
-            .and_then(|(_, t)| doc_of(t));
+        let before = write::copy(state, n)
+            .filter(|t| Some(sha256(t)) == text(d, "digest_before"))
+            .and_then(|t| doc_of(&t));
         let want_after = text(d, "digest_after");
-        let after = copies
+        let after = kept
             .iter()
-            .filter(|(c, _)| *c > n)
-            .map(|(_, t)| t)
-            .chain(now.as_ref())
+            .filter(|c| **c > n)
+            .take(write::KEEP)
+            .filter_map(|c| write::copy(state, *c))
+            .chain(now.clone())
             .find(|t| Some(sha256(t)) == want_after)
-            .and_then(|t| doc_of(t));
+            .and_then(|t| doc_of(&t));
         let said = |kind: LedgerKind, key: &str| -> Vec<&LedgerRow> {
             rows.iter()
                 .filter(|x| x.kind == kind.as_str() && x.data[key] == question.as_str())
