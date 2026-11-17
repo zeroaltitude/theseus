@@ -37,4 +37,11 @@ watch?: boolean,
  * a code from the authenticator app, typed into the surface's own form.
  * Checked by the daemon; never stored or echoed.
  */
-code?: ProofCode, };
+code?: ProofCode, 
+/**
+ * The answer was typed or spoken as words (a Discord reply, a voice
+ * command), not pressed on a card: a question that needs the owner's
+ * second proof is never approved on one, whatever window is open. Only
+ * ever makes the daemon stricter.
+ */
+typed?: boolean, };
