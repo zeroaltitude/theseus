@@ -39,8 +39,8 @@ pub fn find(state_flag: Option<&Path>) -> Option<Found> {
 /// Go back, and exec onto the settings before the change. Refused (logged):
 /// the start goes on as it would have, since the file is not what the change
 /// wrote, or the copy is not what was kept.
-pub fn go_back(marker: &Path, mut p: Pending, why: &str) -> Option<Exit> {
-    match restart::roll_back(marker, &mut p, why) {
+pub fn go_back(marker: &Path, mut p: Pending, why: &str, config: &Path) -> Option<Exit> {
+    match restart::roll_back(marker, &mut p, why, config) {
         Ok(()) => {
             tracing::warn!(why = %why, "the new settings are put back; restarting onto the old ones");
             Some(Exit::Exec(CHANGE_ENV, marker.display().to_string()))

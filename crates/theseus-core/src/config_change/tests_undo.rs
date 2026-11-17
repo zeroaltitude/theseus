@@ -600,3 +600,32 @@ async fn a_planted_copy_is_not_listed_and_cannot_be_undone_to() {
     assert!(r.asked().is_empty());
     assert_eq!(r.file_text(), after_2());
 }
+
+/// An undo's card is answered as a proposal's is: an agent's process on the
+/// CLI is not the owner, so its yes is refused and recorded, nothing is
+/// written, the question keeps waiting, and the owner's own yes then counts.
+#[tokio::test]
+async fn an_agents_yes_to_an_undo_is_refused_and_the_owners_counts() {
+    let r = rig();
+    r.two_changes();
+    let sid = r.session();
+    r.turn(&sid, "config_undo", undo(None)).await;
+    let q = r.asked().remove(0);
+    let agent = Answerer {
+        label: "agent:claude".into(),
+        surface: Surface::Cli,
+        discord: None,
+        agent: Some("claude".into()),
+    };
+    let e = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, agent)
+        .unwrap_err();
+    assert!(e.to_string().contains("only the owner answers it"), "{e:#}");
+    assert_eq!(r.file_text(), after_2());
+    assert_eq!(r.asked().len(), 1, "it still waits");
+    assert_eq!(r.rows("approval.refused").len(), 1);
+    assert!(r.rows("config.undone").is_empty());
+    r.yes();
+    assert_eq!(r.file_text(), after_1());
+}

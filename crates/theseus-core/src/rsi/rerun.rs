@@ -35,6 +35,13 @@
 //! summary; a test the change reaches that really failed always has its own real line. Names are
 //! checked against a plain alphabet before they go into a filter. A change written to game this
 //! reading is still met by the join's gate on the merge, which runs the whole suite again.
+//!
+//! **The join's gate gets the same second look** (issue 20: a test of main's that fails by chance
+//! held a good change for the owner), by the same function, with one difference in what it reads:
+//! the join's tree is a merge, so the change is what the merge brings to the main it was made on
+//! (`base`), not a diff against a ref. Same tree, same view, same rules above, and a gate that
+//! passes this way is recorded as having passed on a second look. A keel stop, a build or clippy
+//! failure and an aborted check are not given one.
 
 use std::path::Path;
 
@@ -173,7 +180,7 @@ pub fn filter(tests: &[Failed]) -> String {
 }
 
 /// The tests a red gate failed only in, when the gate went red in its suite and in nothing else.
-fn failed_in_suite(run: &GateRun) -> Option<Vec<Failed>> {
+pub fn failed_in_suite(run: &GateRun) -> Option<Vec<Failed>> {
     let phase = super::pr::failed_phase(&run.tail)?;
     if run.verdict != Verdict::Red
         || run.aborted()
@@ -184,9 +191,15 @@ fn failed_in_suite(run: &GateRun) -> Option<Vec<Failed>> {
     suite_failures(&std::fs::read_to_string(&run.log).ok()?)
 }
 
-/// Whether every failed test is outside what the change reaches. Blocking: git and the disk.
-fn all_outside(p: &Place, tree: &Tree, failed: &[Failed]) -> Option<bool> {
-    let changed = reach::changed(p, tree).ok()?;
+/// Whether every failed test is outside what the change reaches. Blocking: git and the disk. The
+/// change is read against `base` when one is given (the join's merge, made on that main), else
+/// against `origin/main` from the merge base (a build's own branch).
+fn all_outside(p: &Place, tree: &Tree, failed: &[Failed], base: Option<&str>) -> Option<bool> {
+    let changed = match base {
+        Some(base) => reach::changed_from(p, tree, base),
+        None => reach::changed(p, tree),
+    }
+    .ok()?;
     let graph = reach::read(&tree.dir).ok()?;
     Some(
         failed
@@ -197,18 +210,29 @@ fn all_outside(p: &Place, tree: &Tree, failed: &[Failed]) -> Option<bool> {
 
 /// The tests a red gate failed on that are run once more and all pass: those, for the row. None
 /// when the red stands: any other cause, a failed test the change can reach or that cannot be
-/// placed, a test that fails again, or a second run that could not be made.
-pub async fn second_look(p: &Place, tree: &Tree, run: &GateRun) -> Option<Vec<Failed>> {
+/// placed, a test that fails again, or a second run that could not be made. `base` is the commit
+/// a merge tree was made on, for the join's gate; a build passes none.
+pub async fn second_look(
+    p: &Place,
+    tree: &Tree,
+    run: &GateRun,
+    base: Option<&str>,
+) -> Option<Vec<Failed>> {
     let failed = failed_in_suite(run)?;
-    let (pc, tc, fc) = (p.clone(), tree.clone(), failed.clone());
-    let outside = tokio::task::spawn_blocking(move || all_outside(&pc, &tc, &fc))
+    let (pc, tc, fc, bc) = (
+        p.clone(),
+        tree.clone(),
+        failed.clone(),
+        base.map(str::to_string),
+    );
+    let outside = tokio::task::spawn_blocking(move || all_outside(&pc, &tc, &fc, bc.as_deref()))
         .await
         .ok()??;
     if !outside {
         return None;
     }
     tracing::info!(branch = %tree.branch, tests = failed.len(),
-        "self-pr: the suite's failures are outside what the change reaches; running them once more");
+        "self: the suite's failures are outside what the change reaches; running them once more");
     let (status, log) = tree::rerun_tests(p, tree, &filter(&failed)).await.ok()?;
     let text = read(&log)?;
     (status == Some(0) && all_passed(&text, &failed)).then_some(failed)

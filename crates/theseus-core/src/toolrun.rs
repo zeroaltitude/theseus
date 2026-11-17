@@ -1717,6 +1717,9 @@ impl ToolRuntime {
             crate::config_change::PROPOSE => {
                 crate::config_change::propose(self, tc, &call.input, correlation_id)
             }
+            crate::config_change::RESTART => {
+                crate::config_change::restart(self, tc, &call.input, correlation_id)
+            }
             // The history of those changes, and the undo of one (issue 22).
             crate::config_change::history::HISTORY => {
                 crate::config_change::history::run(self, tc, &call.input)
@@ -1964,6 +1967,7 @@ pub fn build_runtime(
         // the tools are in no catalog there and no request carries them.
         if cfg.config_file.is_some() {
             r.register(Arc::new(crate::config_change::Propose));
+            r.register(Arc::new(crate::config_change::RestartTool));
             r.register(Arc::new(crate::config_change::history::History));
             r.register(Arc::new(crate::config_change::undo::Undo));
         }
