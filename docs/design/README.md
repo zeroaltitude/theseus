@@ -13,6 +13,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [m5-judgment.md](m5-judgment.md): M5, judgment: the Jev client, its packs in shadow, the learning ledger, and the ladder from shadow to live. Roadmap steps 23 to 28.
 - [m6-memory.md](m6-memory.md): M6, memory as an experiment: the memory exam, the index tender, recall, and the ablation harness. Roadmap steps 29 to 35.
 - [config-change.md](config-change.md): the owner asks Theseus to change a setting and the daemon writes it, then restarts itself with a way back (issue 22).
+- [config-undo.md](config-undo.md): the history of those changes, and undoing one by the same card, without writing the old file back (issue 22).
 - [m7-surface.md](m7-surface.md): M7, the surface: the MCP client and server, recurring wakes, bindings, the task graph, the web UI, self-extension, and voice. Roadmap steps 36 to 39 and 41 to 45.
 - [thinking-binding.md](thinking-binding.md): why a turn on the newest model failed at its second step (issue 20): a thinking block is bound to everything before it, the tail that did not stay, the one repeat with the provider's remedy, and how to read the mismatch counts (`theseus ledger -k provider.call`).
 - [threads.md](threads.md): the threads lane's rules and decisions: the router's order, the directory rule, the ask's `new` offer, the bench's clock, deferred tools past the budget and the `raised` field, the families call, and the home claim beside a split.

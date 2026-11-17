@@ -114,6 +114,8 @@ export type * from './CompilationInfo';
 export type * from './CompilationListParams';
 export type * from './CompilationListResult';
 export type * from './CompileSignal';
+export type * from './ConfigHistoryParams';
+export type * from './ConfigHistoryResult';
 export type * from './ConfigRestart';
 export type * from './ConfigStatus';
 export type * from './ConfirmListParams';

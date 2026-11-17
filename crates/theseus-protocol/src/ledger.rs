@@ -91,6 +91,7 @@ ledger_kinds! {
     ConfigHeld = "config.held",
     ConfigInvalid = "config.invalid",
     ConfigRolledBack = "config.rolled_back",
+    ConfigUndone = "config.undone",
     ConfigUnreachable = "config.unreachable",
     ContentJudged = "content.judged",
     ContentLabelled = "content.labelled",

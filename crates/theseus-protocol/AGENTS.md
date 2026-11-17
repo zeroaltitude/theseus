@@ -97,6 +97,9 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   one line each. Writers take a variant, so a new kind is a new line here, and core's `tests_registry` fails a
   variant nothing writes. A row stores the kind's name, so old kinds (`LedgerKind::RENAMED`) and unknown ones still
   read; renaming a kind is a store version change (P5b).
+- `config_history.rs` (issue 22): `config.history`'s params and answer (`ConfigHistoryParams`, `ConfigHistoryResult`): the
+  last changes the owner approved to Theseus's settings, as the daemon's words; a read, the owner's alone, not offered by
+  the MCP server.
 - `ledger_verify.rs` (theseus-bmkxk): `ledger.verify`'s params and answer (`LedgerVerifyParams`, `LedgerVerifyResult`,
   `LedgerBreak`, `LedgerHead`): the hash chain's walk, read only; no row's data rides it. Health's `ledger_head` is its
   short form (`LedgerHead::short`), and `LedgerGap` is health's `ledger_gap` (theseus-lu5n): since when the index has

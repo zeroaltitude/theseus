@@ -25,13 +25,19 @@
 //! 5. **The sensitive list** (`config/sensitivity.rs`): a change to a setting
 //!    on it is refused before a card is made, until the second proof is built
 //!    in (`proof_seam.rs`).
+//! 6. **The history and the undo** (`history.rs`, `undo.rs`;
+//!    `docs/design/config-undo.md`): `config.history` lists the last changes
+//!    from the ledger and the kept copies, and `config.undo` puts one change's
+//!    settings back through `put`, the same path a proposal takes.
 
 pub mod answer;
 pub mod card;
 pub mod diff;
 pub mod edit;
+pub mod history;
 pub mod proof_seam;
 pub mod restart;
+pub mod undo;
 pub mod wall;
 pub mod write;
 
@@ -52,7 +58,7 @@ pub const PROPOSE: &str = "config.propose";
 /// The question the owner's yes answers: a planned action of this tool.
 pub const ACK: &str = "config.ack";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 1] = [PROPOSE];
+pub const NAMES: [&str; 3] = [PROPOSE, history::HISTORY, undo::UNDO];
 /// The most settings one proposal may name.
 pub const MAX_CHANGES: usize = 20;
 /// The longest a value a proposal gives may be, as JSON: a setting, not a
@@ -259,8 +265,14 @@ pub fn propose(
         return Ok(done);
     }
     let (changes, reason) = input_of(input)?;
-    let w = &rt.config_change;
-    let file = w.file.clone().ok_or(
+    let base = read_base(rt)?;
+    put(rt, tc, correlation_id, &base, &changes, &reason, None)
+}
+
+/// The settings file as it is on disk, which must load as it is: nothing is
+/// built on a file that does not.
+pub(crate) fn read_base(rt: &ToolRuntime) -> Result<String, String> {
+    let file = rt.config_change.file.clone().ok_or(
         "Theseus's settings are not a file this daemon can change (they are read from the vault, or \
          were not given as a file): the owner edits them where they live",
     )?;
@@ -269,15 +281,33 @@ pub fn propose(
     crate::Config::parse(&base).map(drop).map_err(|e| {
         format!("the settings file as it is now does not load, so nothing is built on it: {e:#}")
     })?;
-    let candidate = edit::apply(&base, &changes)?;
+    Ok(base)
+}
+
+/// Put `changes` to the file `base` to the owner as one card: the candidate,
+/// its check, the sensitive list and the proof seam, the card, the question.
+/// `config.propose` and `config.undo` both come here and nowhere else, so
+/// an undo is held to everything a proposal is (`undoes` is only what an undo
+/// adds to the card and to the question's arguments).
+pub(crate) fn put(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    correlation_id: &str,
+    base: &str,
+    changes: &[edit::Change],
+    reason: &str,
+    undoes: Option<&undo::Undoes>,
+) -> Result<(String, Value), String> {
+    let w = &rt.config_change;
+    let candidate = edit::apply(base, changes)?;
     crate::Config::parse(&candidate)
         .map(drop)
         .map_err(|e| format!("the settings with that change do not load: {e:#}"))?;
-    let settings = diff::between(&base, &candidate)?;
+    let settings = diff::between(base, &candidate)?;
     if settings.is_empty() {
         return Err("that would change nothing: the file already has those values".into());
     }
-    let sens = sensitive(&changes, &settings);
+    let sens = sensitive(changes, &settings);
     if !sens.is_empty() && !proof_seam::installed() {
         return Err(needs_proof(&sens));
     }
@@ -286,22 +316,30 @@ pub fn propose(
         tc.store.get_session::<crate::session::SessionRecord>(tc.session_id),
         Ok(Some(s)) if s.data.as_ref().is_some_and(|d| d.frozen())
     );
-    let question = card::question(&card::Facts {
+    let facts = card::Facts {
         settings: &settings,
         outside_text: outside,
-        reason: &reason,
+        reason,
         wait_secs: RESTART_WAIT_SECS,
-    });
+    };
+    let question = match undoes {
+        Some(u) => {
+            let now = theseus_protocol::now_unix_ms();
+            card::question_undoing(u.number, &undo::preface(u, now), &facts)
+        }
+        None => card::question(&facts),
+    };
     let digest = write::keep_candidate(&w.state, &candidate)
         .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
     let proposal = Proposal {
         tool: ACK.into(),
         args: json!({
             "question": question,
-            "base_sha256": crate::config_copy::sha256(&base),
+            "base_sha256": crate::config_copy::sha256(base),
             "candidate_sha256": digest,
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
             "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
+            "undoes": undoes.map(undo::Undoes::args),
             "reason": reason,
             "outside_text": outside,
             "asked_by": {
@@ -424,3 +462,5 @@ pub fn confirm_request(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_undo;

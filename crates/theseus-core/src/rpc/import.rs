@@ -70,6 +70,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name == method::JOB_STOP
         || super::peek::OWN.contains(&name)
         || name == method::LEDGER_VERIFY
+        || super::config_history::OWN.contains(&name)
         || name == method::TOOL_DEFER
         || name == method::FORECAST_CALIBRATION
         || name == method::TURN_INSPECT
@@ -187,6 +188,9 @@ impl Core {
         }
         if name == method::LEDGER_VERIFY {
             return super::server::reply(self.ledger_verify(params).await?);
+        }
+        if super::config_history::OWN.contains(&name) {
+            return self.rpc_config_history(params, conn);
         }
         if name == method::TOOL_DEFER {
             return super::server::reply(self.tool_defer());

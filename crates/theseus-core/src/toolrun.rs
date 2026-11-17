@@ -1717,6 +1717,13 @@ impl ToolRuntime {
             crate::config_change::PROPOSE => {
                 crate::config_change::propose(self, tc, &call.input, correlation_id)
             }
+            // The history of those changes, and the undo of one (issue 22).
+            crate::config_change::history::HISTORY => {
+                crate::config_change::history::run(self, tc, &call.input)
+            }
+            crate::config_change::undo::UNDO => {
+                crate::config_change::undo::run(self, tc, &call.input, correlation_id)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {
@@ -1953,6 +1960,8 @@ pub fn build_runtime(
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::config_change::Propose));
+        r.register(Arc::new(crate::config_change::history::History));
+        r.register(Arc::new(crate::config_change::undo::Undo));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).

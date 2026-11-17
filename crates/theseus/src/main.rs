@@ -21,6 +21,7 @@ mod census;
 mod chat_cmd;
 mod cite;
 mod cmd;
+mod config_cmd;
 mod content_cmd;
 mod digest;
 mod extend;
@@ -818,6 +819,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<undo_cmd::UndoCmd>,
     },
+    /// The changes made to Theseus's own settings on your word (`config history`): who asked, who approved,
+    /// each setting before and after. To change a setting or put one back, ask Theseus in a conversation.
+    /// Yours alone (refused inside a job).
+    Config {
+        #[command(subcommand)]
+        cmd: Option<config_cmd::ConfigCmd>,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     #[command(hide = true)]
     Rpc {
@@ -1556,6 +1564,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Config { cmd } => config_cmd::run(c, json, cmd.unwrap_or_default()).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
         Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,

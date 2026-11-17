@@ -31,10 +31,24 @@ pub fn reason_line(r: &str) -> String {
 /// The question the owner is asked.
 pub fn question(f: &Facts<'_>) -> String {
     let n = f.settings.len();
-    let mut out = format!(
+    let heading = format!(
         "Change {}?\n",
         crate::narrative::count(n as u64, "setting", "settings")
     );
+    heading + &lines(f)
+}
+
+/// An undo's question (issue 22): its own heading and its `preface`, then the
+/// settings, the restart, the proof and the rest as every card says them.
+pub fn question_undoing(number: u32, preface: &str, f: &Facts<'_>) -> String {
+    format!("Undo change #{number}?\n{preface}{}", lines(f))
+}
+
+/// What a card says after its heading: each setting before and after, the
+/// restart, the second proof, the injection label and the reason.
+fn lines(f: &Facts<'_>) -> String {
+    let n = f.settings.len();
+    let mut out = String::new();
     for s in f.settings.iter().take(LISTED) {
         let when = match sensitivity::needs_restart(&s.path) {
             true => "after a restart",

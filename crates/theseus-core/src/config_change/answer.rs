@@ -194,10 +194,15 @@ impl Core {
                 "decline"
             }),
         };
-        let rows = vec![
+        let mut rows = vec![
             crate::fact::row(&answered, session, None)?,
             NewRecord::json(kinds::LEDGER, None, &row)?,
         ];
+        // An undo that was written names the change it undid.
+        if let (true, Some(u)) = (approve, args.get("undoes").filter(|u| u.is_object())) {
+            let undone = super::undo::undone_row(&a.session_id, corr, u, &args, &who, by, via);
+            rows.push(NewRecord::json(kinds::LEDGER, None, &undone)?);
+        }
         let proposal = a.proposal.clone().unwrap_or_default();
         self.kernel.frame(&[&a.execution_id], |k| {
             match approve {
