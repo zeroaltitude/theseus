@@ -128,7 +128,9 @@ do_install() {
   run install -d $(own root root) -m 0755 "$LIB"
   run install -d $(own root root) -m 0755 "$STATE"
   run install -d $(own "$USER_NAME" "$group") -m 0700 "$STAGE"
-  run install $(own root root) -m 0755 "$HELPER_SRC" "$HELPER.new"
+  # 0700 until the copy has been checked: a source swapped for a link to a root-readable file is not readable by anyone
+  # else for the moment it takes to find out.
+  run install $(own root root) -m 0700 "$HELPER_SRC" "$HELPER.new"
   if [ $DRY = 0 ]; then
     # What was checked above is the source; what is installed is this copy, in a root-owned directory, so it is the
     # copy that is checked again (a source swapped for a link since then is copied as the file it points at).
@@ -137,6 +139,7 @@ do_install() {
       die "the copy of the helper is not a program: nothing was installed (build it in a directory the service user cannot write)"
     fi
   fi
+  run chmod 0755 "$HELPER.new"
   run mv -f "$HELPER.new" "$HELPER"
   local tmp
   # As root the temporary file is made beside the rule, in a root-owned directory (sudo ignores a name with a dot in
