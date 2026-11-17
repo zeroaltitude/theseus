@@ -228,6 +228,12 @@ pub struct BinaryStatus {
     /// What is writable, or why it is not known, in words.
     #[serde(default)]
     pub detail: String,
+    /// On a machine whose service runs root-owned programs: whether the administrator has installed the helper
+    /// that lets Theseus install what its own loop joined (`docs/root-install.md`): `installed`, or
+    /// `not installed` with why. Empty where it does not apply (the service runs the user's own copy), and from a
+    /// daemon before it.
+    #[serde(default)]
+    pub helper: String,
 }
 
 /// The prompt cache (theseus-ezeg): each profile's TTL and where it comes

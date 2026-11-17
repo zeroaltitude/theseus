@@ -14,7 +14,9 @@ use super::Seams;
 /// daemon has written `self.installed`; a second look removes nothing more.
 #[tokio::test]
 async fn the_installs_build_tree_is_reaped_once_it_is_installed() {
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     r.seed("trim-the-sails", PROVED, SONNET);
     let installs = Arc::new(Builds::default());
     let seams = Seams {
@@ -44,7 +46,9 @@ async fn the_installs_build_tree_is_reaped_once_it_is_installed() {
 /// serves, by its row alone.
 #[tokio::test]
 async fn a_leftover_tree_of_an_installed_merge_is_reaped_at_serving() {
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     r.seed("trim-the-sails", PROVED, SONNET);
     let seams = Seams {
         installer: Arc::new(Builds::default()),

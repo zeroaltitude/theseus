@@ -89,7 +89,7 @@ impl Core {
         }
         let done = done?;
         if let Done::Reverted(r) = &done {
-            if self.cfg.self_improve.install && (!auto || refused(self).is_none()) {
+            if self.cfg.self_improve.install.standing_ok() && (!auto || refused(self).is_none()) {
                 let (p, i, r) = (place.clone(), seams.installer.clone(), r.clone());
                 if let Err(e) = blocking(move || i.start(&p, &r)).await {
                     self.revert_held(
@@ -277,7 +277,7 @@ impl Core {
                     window,
                     detail,
                     *tested,
-                    self.cfg.self_improve.install,
+                    self.cfg.self_improve.install.standing_ok(),
                 );
                 self.write_with_notice(&f, text);
             }

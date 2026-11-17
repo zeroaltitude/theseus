@@ -342,7 +342,9 @@ async fn a_revert_is_by_the_self_repos_identity() {
 /// with `[self] install`.
 #[tokio::test]
 async fn the_install_is_handed_the_revert_when_install_is_on() {
-    let r = rig_on(fixture(), SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_on(fixture(), SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let bad = r.land("trim-mast", &[("broken.txt", "oops\n")]);
     r.joined("trim-mast", &bad);
     r.red("gate", &bad);

@@ -5,7 +5,7 @@
 use std::ffi::CString;
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
 fn cstr(name: &str) -> io::Result<CString> {
     CString::new(name).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))
@@ -17,11 +17,6 @@ fn cvt(r: libc::c_int) -> io::Result<libc::c_int> {
     } else {
         Ok(r)
     }
-}
-
-/// `/`, the start of a walk.
-pub fn open_root() -> io::Result<OwnedFd> {
-    open_path("/", libc::O_RDONLY | libc::O_DIRECTORY)
 }
 
 /// The anchor of a walk: opened by its whole path once, then never by path again.
@@ -164,10 +159,6 @@ pub fn list(fd: RawFd) -> io::Result<Vec<String>> {
     unsafe { libc::closedir(dir) };
     names.sort();
     Ok(names)
-}
-
-pub fn raw(fd: &impl AsRawFd) -> RawFd {
-    fd.as_raw_fd()
 }
 
 /// One line to the system log, as an authentication-facility notice.

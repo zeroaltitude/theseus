@@ -351,3 +351,45 @@ async fn confirm_list_says_an_agent_may_not_answer_a_money_question() {
         assert_eq!(asked[0]["may_answer"], json!(may), "{list}");
     }
 }
+
+/// The card that installs what Theseus's own loop joined (issue 22) is the owner's alone: an agent's process, on the CLI
+/// or the web socket, cannot approve or decline it, and draws no button for it; the owner's own terminal answers it.
+#[tokio::test]
+async fn an_agent_cannot_answer_the_card_that_installs_a_joined_change() {
+    let r = rig(vec![]);
+    let q = plant(&r.core, crate::rsi::join::root_install::ACK);
+    assert!(crate::approval::owners_alone(
+        crate::rsi::join::root_install::ACK
+    ));
+    for who in [
+        agent("claude"),
+        agent(crate::peer_proc::NO_TERMINAL),
+        web_agent("codex"),
+    ] {
+        let e = confirm(&r, who, &q, true)
+            .await
+            .expect_err("an agent does not answer it");
+        assert!(e.message.contains("not the owner"), "{}", e.message);
+        confirm(&r, agent("claude"), &q, false)
+            .await
+            .expect_err("nor decline it");
+    }
+    still_waiting(&r, &q);
+    let listed = rpc_as(&r.core, agent("claude"), method::CONFIRM_LIST, json!({}))
+        .await
+        .unwrap();
+    let card = listed["confirms"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["tool"] == crate::rsi::join::root_install::ACK);
+    if let Some(card) = card {
+        assert_eq!(
+            card["may_answer"], false,
+            "an agent draws no button: {card}"
+        );
+    }
+    confirm(&r, owner(), &q, true)
+        .await
+        .expect("the owner's own terminal");
+}

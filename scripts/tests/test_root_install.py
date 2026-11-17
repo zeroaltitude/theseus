@@ -76,6 +76,19 @@ class RootInstall(unittest.TestCase):
         self.assertEqual(os.listdir(self.path("usr/local/sbin")), ["theseus-root-install"])
         self.assertEqual(os.listdir(self.path("etc/sudoers.d")), ["theseus-root-install"])
 
+    def test_install_twice_is_the_same_as_once_and_remove_twice_is_harmless(self):
+        self.install()
+        first = {rel: read(self.path(rel), "rb") for rel in ("usr/local/sbin/theseus-root-install", "etc/sudoers.d/theseus-root-install")}
+        out = self.install()
+        self.assertIn("done.", out.stdout)
+        for rel, data in first.items():
+            self.assertEqual(read(self.path(rel), "rb"), data, rel)
+        self.assertEqual(sorted(os.listdir(self.path("usr/local/sbin"))), ["theseus-root-install"])
+        self.run_script("remove", "--yes", check=True)
+        again = self.run_script("remove", "--yes", check=True)
+        self.assertIn("no rule", again.stdout)
+        self.assertIn("no helper", again.stdout)
+
     def test_the_rule_is_checked_by_visudo_when_it_is_there(self):
         self.install()
         visudo = shutil.which("visudo")

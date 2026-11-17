@@ -104,6 +104,9 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
         // `ContentItem`, so no injection label can ever be raised on it.
         canon_path(state.join(crate::project_context::USER_FILE)),
         canon("~/.config/op"),
+        // The one file an install's restart looks for, the new daemon's confirmation (issue 22): a tool that wrote
+        // it would stop a build that is not healthy from being put back.
+        canon_path(crate::rsi::join::root_install::dir_in(&state)),
     ]);
     // The token file the daemon was given, by flag or by environment, the
     // config note's last-known-good copy (theseus-2fo), and the config file
@@ -341,5 +344,24 @@ mod tests {
             assert!(hidden.contains(&store), "{store:?} not hidden: {hidden:?}");
             assert!(hidden.contains(&spool), "{spool:?} not hidden: {hidden:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_install_floor {
+    use super::*;
+
+    /// The one file an install's restart looks for (issue 22), the new daemon's confirmation, is on the floor: no tool
+    /// writes it, and no L1 view shows it.
+    #[test]
+    fn the_installs_confirmation_is_on_the_floor() {
+        let mut cfg = crate::Config::example();
+        let d = tempfile::tempdir().unwrap();
+        cfg.server.state_dir = d.path().to_string_lossy().into_owned();
+        let (_, floor) = guarded_paths(&cfg);
+        let want = theseus_tools::paths::canonical_best_effort(
+            &crate::rsi::join::root_install::dir_in(&state_dir_in_use(&cfg)),
+        );
+        assert!(floor.contains(&want), "{want:?} in {floor:?}");
     }
 }

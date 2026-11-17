@@ -132,25 +132,59 @@ make. Nothing here is run by a runner on any machine; Tabitha does it on the own
 
 ## The daemon's side
 
+Code: `crates/theseus-core/src/rsi/join/root_install/` (`offer.rs` the card, `answer.rs` the yes and the run,
+`verify.rs` the start after, `unit.rs` the unit's text, `machine.rs` `sudo -n` and the user unit).
+
 `[self] install` is `"ask"` (default), `"auto"`, or `"off"` (a `true` of today's file reads as `"auto"`, a `false` as
-`"off"`). It is itself a sensitive setting (`[self]` is on the sensitive list).
+`"off"`). It is itself a sensitive setting (`[self]` is on the sensitive list), and `"auto"` is the one that matters
+most: it needs a **fresh** second proof to turn on once the proof is wired in. It applies on a root-owned layout, that
+is, where the user unit's `ExecStart` names `/usr/local/lib/theseus/<hex>/theseusd`. On a user's own layout only
+`"auto"` installs, as `true` did.
 
-After a join on a root-owned layout, when the setting allows it and the helper is installed (`health` says whether):
+After a join on that layout, when the setting is not `"off"` and the helper is installed (`sudo -n -l` says the rule
+lets the service's user run it; `health` says so, in `binary.helper`):
 
-- `off`: nothing; the issue-20 notice with the one step.
-- `ask`: a card, "Install the change Theseus joined: <title>, <commit8>?", sensitive, through the same seam as
-  `config.propose` (`config_change/proof_seam.rs`): until the proof is wired it is refused as "not installed yet".
-- `auto`: no card.
+- `ask`: the build is made in L1 (as every install builds), and a card is put to the owner: "Install the change Theseus
+  joined: <title>, <commit8>?", sensitive, through the same seam as `config.propose` (`config_change/proof_seam.rs`).
+  Until the proof is wired in, **no card is made** (it would be refused when answered, and no build is spent on it), and
+  the owner is told why, once, with the manual step.
+- `auto`: no card; the same run.
+- no helper: nothing is installed, and the owner is told the plain step.
 
-A build is installed only for a commit the loop's own `self.joined` row names **and** that is main's head on the remote
-at that moment. On the yes: the programs the join's L1 build made are copied into the staging directory; the helper
-runs through `sudo -n`; the unit is pointed at the new directory by `<new>/theseusd install --user --apply` with the
-daemon's own flags, the same code the setup's install uses; a transient unit restarts the service and **waits for the new
-daemon's own confirmation**; not confirmed in time, it points the unit back at the kept directory and restarts onto it.
-The restart is not `config_change`'s exec of the same image (that cannot change the program the daemon runs); it is the
-install's existing transient unit, with `config_change`'s stages (`restarting`, `started`, `confirmed`, `rolled_back`) in
-a marker so one install restarts at most twice. Every step is a ledger row; the pipeline says "joined, installed and
-running" only after the confirmation.
+**Who may answer the card.** Only the owner himself: Discord's button from his account, his own terminal, the cockpit.
+`approval::owners_alone` names the card's question (`self.install.ack`), so a process that `peer_proc` finds to be an
+agent (Claude Code, Codex, anything with no terminal) is refused on the CLI and on the web socket, and draws no button.
+In `auto` there is no card, which is why that setting needs the fresh proof.
+
+**On the yes.** The card's answer settles in one frame, and the install runs as a task off the answer's path:
+
+1. The commit must be one the loop's own `self.joined` row names (the ledger) **and** main's head on the remote after a
+   fetch, at that moment. Else: nothing, and a ledger row says which.
+2. The unit must still be what the card named: the same single `ExecStart` program, in a per-commit directory of the
+   program directory, not already the new one.
+3. The programs the join's L1 build made are copied into the staging directory, and the helper runs through `sudo -n`.
+   A refusal ends the install with nothing changed.
+4. The memory of the install is written to the **store** (META `self.install.pending`): the commit, the program the
+   service ran, the unit's text as it was. Then the unit is written with its one `ExecStart` program changed and not a byte
+   else. (The brief said "by the same code the setup's install uses": re-running `theseusd install --user` from the
+   transient unit would rebuild the whole unit from that unit's environment and could change its `PATH` and flags, so
+   only the program path is changed, with a test that the rest is untouched.)
+5. A transient `systemd-run --user` unit, whose script is its argument (no file is written for it and none read back),
+   restarts the service, waits up to four minutes for the new daemon's confirmation, and otherwise writes the unit's old
+   text back (embedded in the script, from the store's copy) and restarts once more. A restart that fails goes back at
+   once. At most two restarts, onto the build and back; never a loop.
+
+**The start after.** The daemon that finds the install's record and is the build it names waits up to two minutes for
+health (it serves its socket, its store is open, and the index tender is off or not `down` or `stalled`), writes the
+confirmation, records `self.root_install` `verified`, and only then does the join's notice say "installed and running"
+(`self_installed_as` holds back while an install of that commit is pending). The daemon that finds the record and is not
+that build says the install went back, once. Every step is a `self.root_install` ledger row.
+
+**Nothing the daemon trusts lives where a tool can write it.** Which commit, which program ran before, and the unit as it
+was are in the store; the commit joined is the ledger's; the card's arguments are the question's. The one file kept,
+`<state>/self-install/confirmed`, is the new daemon's go-ahead for the script; it is on the floor
+(`toolrun/guarded.rs`), and a test plants files under that directory and shows they change nothing. The staging
+directory's content is user-writable by nature, which is why the helper copies from open descriptors and checks the copy.
 
 ## What a reviewer should hunt for
 

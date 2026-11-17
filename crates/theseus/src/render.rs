@@ -1040,6 +1040,10 @@ pub fn binary_line(b: &theseus_protocol::BinaryStatus) -> Option<String> {
             b.path, b.detail
         )),
         "unknown" => Some(format!("binary: unknown: {}", b.detail)),
+        _ if !b.helper.is_empty() => Some(format!(
+            "self-install: the helper for a root-owned install is {}",
+            b.helper
+        )),
         _ => None,
     }
 }

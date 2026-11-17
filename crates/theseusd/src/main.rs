@@ -656,6 +656,9 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
         core.tell_rolled_back(&p);
         restart::finish(&marker, &p);
     }
+    // An install of a joined change into the root-owned program directory (issue 22): this start is the build it
+    // named, and confirms itself once healthy, or it is the build before and says the install went back.
+    core.root_install_after_serving(socket_path.clone());
     // No L1 job's view shows this daemon's socket (M4 17b).
     core.tools.sandbox.hide(socket_path.clone());
     if let Some((first, began)) = check {

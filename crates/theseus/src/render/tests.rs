@@ -106,6 +106,7 @@ fn the_binary_line_says_only_when_jobs_can_write_it() {
         path: "/home/invented/.local/bin/theseusd".into(),
         state: state.into(),
         detail: "its directory is writable by this daemon's user".into(),
+        ..Default::default()
     };
     assert_eq!(binary_line(&b("ok")), None);
     assert_eq!(

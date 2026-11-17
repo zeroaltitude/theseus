@@ -100,9 +100,9 @@ pub struct SelfImproveConfig {
     /// The self-join's lock directory; none: `<state>/self/join.lock`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub join_lock: Option<String>,
-    /// Build, install and restart onto a joined merge (theseus-pw1q.9).
-    #[serde(default)]
-    pub install: bool,
+    /// Build, install and restart onto a joined merge (theseus-pw1q.9; issue 22).
+    #[serde(default, deserialize_with = "install")]
+    pub install: SelfInstall,
     /// A hand role is narrowed at most this often (days).
     #[serde(default = "default_narrow_every_days")]
     pub narrow_every_days: u32,
@@ -192,7 +192,7 @@ impl Default for SelfImproveConfig {
             graduate_window_days: GRADUATE_WINDOW_DAYS,
             reviewer_profile: None,
             join_lock: None,
-            install: false,
+            install: SelfInstall::default(),
             narrow_every_days: default_narrow_every_days(),
             narrow_days: default_narrow_days(),
             narrow_read_pages: default_narrow_read_pages(),
@@ -200,6 +200,26 @@ impl Default for SelfImproveConfig {
             pipeline_builds: default_pipeline_builds(),
             min_free_gb: default_min_free_gb(),
         }
+    }
+}
+
+/// `[self] install`: what the loop does with a change it joined.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SelfInstall {
+    /// Never install a joined change; the notice says the one step.
+    Off,
+    /// Ask the owner, on a card, where the install needs the administrator's helper (the default).
+    #[default]
+    Ask,
+    /// Install with no card: the owner's standing word.
+    Auto,
+}
+
+impl SelfInstall {
+    /// The owner's standing OK to install a joined change without asking: what `install = true` was.
+    pub fn standing_ok(self) -> bool {
+        self == Self::Auto
     }
 }
 
@@ -357,6 +377,29 @@ fn one_of<'de, D: Deserializer<'de>, T: Copy>(
 
 fn mode<'de, D: Deserializer<'de>>(d: D) -> Result<SelfMode, D::Error> {
     one_of(d, "mode", &[("off", SelfMode::Off), ("act", SelfMode::Act)])
+}
+
+/// `install` is `"off"`, `"ask"` or `"auto"`; a boolean of an older file reads as `"auto"` (true: the owner's
+/// standing OK) or `"off"` (false: what the default was).
+fn install<'de, D: Deserializer<'de>>(d: D) -> Result<SelfInstall, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Either {
+        Flag(bool),
+        Word(String),
+    }
+    match Either::deserialize(d)? {
+        Either::Flag(true) => Ok(SelfInstall::Auto),
+        Either::Flag(false) => Ok(SelfInstall::Off),
+        Either::Word(w) => match w.as_str() {
+            "off" => Ok(SelfInstall::Off),
+            "ask" => Ok(SelfInstall::Ask),
+            "auto" => Ok(SelfInstall::Auto),
+            other => Err(serde::de::Error::custom(format!(
+                "install: {other:?} is not \"off\", \"ask\" or \"auto\""
+            ))),
+        },
+    }
 }
 
 fn digest<'de, D: Deserializer<'de>>(d: D) -> Result<SelfDigest, D::Error> {
@@ -596,12 +639,13 @@ mod tests {
         // profile it ran on before, as the pin an owner may keep.
         assert_eq!(none.reviewer_profile, None);
         assert_eq!(none.join_lock, None);
-        assert!(!none.install);
+        assert!(!none.install.standing_ok());
+        assert_eq!(none.install, SelfInstall::Ask);
         let t = Config::EXAMPLE_TOML;
         assert!(
             t.contains("\n# reviewer_profile = \"fable\"")
                 && t.contains("\n# join_lock = \"")
-                && t.contains("\n# install = false"),
+                && t.contains("\n# install = \"ask\""),
             "the template names the join's keys with their defaults"
         );
         let cfg = Config::from_toml(
@@ -611,7 +655,18 @@ mod tests {
         .self_improve;
         assert_eq!(cfg.reviewer_profile.as_deref(), Some("opus"));
         assert_eq!(cfg.join_lock.as_deref(), Some("/srv/joins.lock"));
-        assert!(cfg.install);
+        assert!(cfg.install.standing_ok());
+        let word = |w: &str| {
+            Config::from_toml(&format!("[self]\ninstall = {w}\n")).map(|c| c.self_improve.install)
+        };
+        assert_eq!(word("\"auto\"").unwrap(), SelfInstall::Auto);
+        assert_eq!(word("\"off\"").unwrap(), SelfInstall::Off);
+        assert_eq!(
+            word("false").unwrap(),
+            SelfInstall::Off,
+            "a flag of an older file"
+        );
+        assert!(word("\"sometimes\"").is_err());
     }
 
     /// The narrowing's keys have defaults, are in the template, and take a

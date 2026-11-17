@@ -495,7 +495,9 @@ async fn a_green_branch_is_reviewed_joined_signed_and_noticed_once() {
 /// tree is no open tree.
 #[tokio::test]
 async fn a_join_with_an_install_leaves_no_tree_open() {
-    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let r = rig_with(SelfMode::Act, |c| {
+        c.self_improve.install = crate::config::self_improve::SelfInstall::Auto
+    });
     let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
     let p = &r.f.place;
     let before = git(&p.repo, &["worktree", "list"]);

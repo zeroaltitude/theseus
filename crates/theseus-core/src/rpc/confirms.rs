@@ -71,6 +71,12 @@ impl Core {
             let ttl = self.kernel.config().confirm_ttl_ms;
             return Some(crate::config_change::confirm_request(a, session, ttl));
         }
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::rsi::join::root_install::confirm_request(
+                a, session, ttl,
+            ));
+        }
         let (tool, input, gate, turn_id) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -184,6 +190,7 @@ impl Core {
         if q.tool == crate::extend::ACK
             || q.tool == super::packs::PROMOTE
             || q.tool == crate::config_change::ACK
+            || q.tool == crate::rsi::join::root_install::ACK
         {
             return Ok(self.confirm_request(q, &rec, &[]));
         }
@@ -292,6 +299,7 @@ impl Core {
                     && a.tool != crate::extend::ACK
                     && a.tool != super::packs::PROMOTE
                     && a.tool != crate::config_change::ACK
+                    && a.tool != crate::rsi::join::root_install::ACK
             }) {
                 self.store.session_nodes(&rec.session_id)?
             } else {
@@ -399,6 +407,13 @@ impl Core {
                 false => crate::config_change::answer::Answer::No(note),
             };
             let done = self.answer_config_change(&a, answer, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
+        }
+        // A joined change the owner is asked to install (issue 22): the helper
+        // and the restart run off this path; nothing wakes.
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let done = self.answer_root_install(&a, approve, note, by, &via)?;
             self.admission.notify_waiters();
             return Ok(done);
         }
@@ -614,6 +629,11 @@ impl Core {
             self.answer_config_change(a, answer, EXPIRY, EXPIRY)?;
             return Ok(());
         }
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            self.answer_root_install(a, false, Some(&why), EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
         let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
         self.decline_expired(a, ttl_ms, &why)
     }
@@ -787,6 +807,12 @@ impl Core {
             // A job's stop: the owner from any channel, a shared place's too.
             Act::Stop { .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
+            }
+            // The card that installs what the loop joined (issue 22): an agent's process is not the owner.
+            Act::Answer { action, .. }
+                if who.agent.is_some() && action.tool == crate::rsi::join::root_install::ACK =>
+            {
+                Err(crate::rsi::join::root_install::AGENT_REFUSAL.to_string())
             }
             // Money and AWS are the owner's own (theseus-5rvss): an agent's
             // answer on the CLI to a question that spends or changes either
