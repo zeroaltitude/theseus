@@ -137,6 +137,9 @@ pub(super) fn write(path: &Path, held: &Held) -> std::io::Result<()> {
             .truncate(true)
             .mode(0o600)
             .open(&new)?;
+        // The mode above applies only to a file this call creates: a stray file of
+        // the same name keeps its own, so it is set whatever was there.
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         f.write_all(&bytes)?;
         f.sync_all()?;
         std::fs::rename(&new, path)

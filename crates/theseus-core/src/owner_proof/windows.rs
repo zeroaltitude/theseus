@@ -120,12 +120,11 @@ impl Proofs {
     /// The open window over `place`, if any.
     fn window_of(&self, place: &str) -> Option<Window> {
         let _io = held(&self.io);
-        let now = self.now();
         let h = file::read(&self.path).ok().flatten()?;
         h.windows
             .iter()
-            .find(|w| w.place == place && w.until_ms > now)
-            .cloned()
+            .filter(|w| w.place == place)
+            .find_map(|w| self.capped(w))
     }
 
     /// A good code from `place`: its window, from now. Another window over

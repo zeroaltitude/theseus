@@ -671,7 +671,15 @@ async fn neither_the_secret_nor_a_code_is_anywhere_a_model_can_read() {
         ("the log", log),
         ("the ledger's rows", rows_text),
     ] {
-        for needle in [&base32, &hex, &first, &good, &wrong.to_string()] {
+        // A code as a quoted string: six digits inside a millisecond timestamp are no leak.
+        let quoted = |c: &str| format!("\"{c}\"");
+        for needle in [
+            &base32,
+            &hex,
+            &quoted(&first),
+            &quoted(&good),
+            &quoted(wrong),
+        ] {
             assert!(
                 !text.contains(needle.as_str()),
                 "{what} holds a secret or a code"
@@ -703,4 +711,41 @@ async fn neither_the_secret_nor_a_code_is_anywhere_a_model_can_read() {
     // It is in the one file, which only the daemon writes.
     let kept = std::fs::read_to_string(state.join(file::FILE)).unwrap();
     assert!(kept.contains(&hex));
+}
+
+/// An agent's process on the owner's own socket never rides the owner's
+/// window and never carries a code: the owner's good code opened the `cli`
+/// window, and an agent's yes from the same place changes nothing, spends none
+/// of the owner's tries, and is recorded.
+#[tokio::test]
+async fn an_agents_process_never_rides_the_owners_window() {
+    let (r, corr, _, second) = asked().await;
+    mark_it(&r, &corr, false);
+    mark_it(&r, &second, false);
+    let secret = enrol(&r);
+    confirm(&r, cli(), &corr, true, Some(&code(&secret, 0)))
+        .await
+        .unwrap();
+    assert_eq!(rows(&r, "owner.proof.window_opened").len(), 1);
+    let agent = || cli().behind(crate::peer_proc::Behind::Agent("an-agent".into()));
+    let e = confirm(&r, agent(), &second, true, None).await.unwrap_err();
+    assert!(
+        refused(&e) && e.message.contains("agent's process"),
+        "{e:?}"
+    );
+    assert!(pending(&r, &second), "the agent's yes changed nothing");
+    // Nor can it carry a code, and the code it sent is not spent.
+    let good = code(&secret, 1);
+    let e = confirm(&r, agent(), &second, true, Some(&good))
+        .await
+        .unwrap_err();
+    assert!(refused(&e) && pending(&r, &second), "{e:?}");
+    assert_eq!(
+        rows(&r, "owner.proof.checked").len(),
+        1,
+        "only the owner's own"
+    );
+    // The owner, from the same place, still goes through on the window.
+    confirm(&r, cli(), &second, true, None).await.unwrap();
+    assert!(!pending(&r, &second));
 }

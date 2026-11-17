@@ -56,6 +56,21 @@ impl Core {
             return Ok(false);
         };
         let place = who.via();
+        // An agent's process is never the owner: the CLI's socket and the web
+        // port are open to every process of the owner's user, so a window
+        // opened by the owner's code must never cover one, and one can neither
+        // carry a code nor spend the owner's tries on it.
+        if let Some(agent) = &who.agent {
+            return Err(self.proof_refused(
+                a,
+                who,
+                format!(
+                    "this needs the owner's second proof, and an answer from an agent's process \
+                     ({agent}) cannot carry it: the owner approves it from their own terminal \
+                     or on its card"
+                ),
+            ));
+        }
         // Words are never a proof, and never a card's yes: no code is read
         // from them and no window covers them.
         if typed {

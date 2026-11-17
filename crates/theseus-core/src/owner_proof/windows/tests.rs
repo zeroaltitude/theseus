@@ -527,3 +527,43 @@ fn spans_are_said_in_words() {
     assert_eq!(span(HOUR), "1 hour");
     assert_eq!(span(21 * HOUR + 30 * 60_000), "21 hours");
 }
+
+/// Lowering `window_hours` shortens a window already open, to nothing at 0:
+/// the window is capped at read time by the setting in force now, in the
+/// seam, on the card's words and in status.
+#[test]
+fn lowering_the_setting_shortens_a_window_already_open() {
+    let mut r = Rig::new(24);
+    r.advance(30_000);
+    let q = question("q1", true, false);
+    let code = r.code();
+    let _ = r.proofs.required_and_given(&q, &answer(Some(&code), "cli"));
+    assert_eq!(r.proofs.status().windows.len(), 1);
+    // 24 down to 2: three hours in, it is over; one hour in, it is not, and ends at two.
+    r.hours = 2;
+    r.restarted();
+    r.advance(HOUR);
+    assert!(matches!(
+        r.proofs.required_and_given(&q, &answer(None, "cli")),
+        Proof::GivenEarlier { until_ms, .. } if until_ms == T0 + 30_000 + 2 * HOUR
+    ));
+    r.advance(2 * HOUR);
+    assert_eq!(
+        r.proofs.required_and_given(&q, &answer(None, "cli")),
+        Proof::Missing
+    );
+    assert!(r.proofs.status().windows.is_empty());
+    // And at 0 a window opened under 24 is none at all.
+    let mut r = Rig::new(24);
+    r.advance(30_000);
+    let code = r.code();
+    let _ = r.proofs.required_and_given(&q, &answer(Some(&code), "cli"));
+    r.hours = 0;
+    r.restarted();
+    assert_eq!(
+        r.proofs.required_and_given(&q, &answer(None, "cli")),
+        Proof::Missing
+    );
+    assert!(r.proofs.status().windows.is_empty());
+    assert!(r.proofs.standing("cli", false).code_needed);
+}

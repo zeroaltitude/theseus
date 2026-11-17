@@ -182,6 +182,19 @@ impl Proofs {
         (self.clock)()
     }
 
+    /// `w` as the setting in force now allows it: a window's end is never
+    /// later than `window_hours` after it opened, and with the setting at 0
+    /// there is none. So lowering `[owner_proof] window_hours` shortens a
+    /// window already open, and `None` once it is over.
+    pub(super) fn capped(&self, w: &file::Window) -> Option<file::Window> {
+        let allowed = u64::from(self.window_hours) * 3_600_000;
+        let until_ms = w.until_ms.min(w.opened_at_ms.saturating_add(allowed));
+        (allowed > 0 && until_ms > self.now()).then(|| file::Window {
+            until_ms,
+            ..w.clone()
+        })
+    }
+
     /// Whether one is enrolled, and since when; never the secret.
     pub fn status(&self) -> Status {
         let _io = held(&self.io);
@@ -199,12 +212,7 @@ impl Proofs {
                 enrolled_at_ms: Some(h.enrolled_at_ms),
                 locked_until_ms: (h.locked_until_ms > now).then_some(h.locked_until_ms),
                 unavailable: false,
-                windows: h
-                    .windows
-                    .iter()
-                    .filter(|w| w.until_ms > now)
-                    .cloned()
-                    .collect(),
+                windows: h.windows.iter().filter_map(|w| self.capped(w)).collect(),
             },
             Err(_) => Status {
                 enrolled: false,
