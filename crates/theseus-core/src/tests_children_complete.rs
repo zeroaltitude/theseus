@@ -172,11 +172,6 @@ const BARE: &[(&str, &str)] = &[
     ),
     ("theseus-core/src/tests_m3.rs", "test-only"),
     (
-        "theseus-core/src/tests_m3/agent_answers.rs",
-        "test-only: a stand-in `sleep` a test starts to be a job's process and \
-         kills and waits for itself",
-    ),
-    (
         "theseus-core/src/tests_project_context.rs",
         "test-only: a hermetic git builds the fixture repository the project \
          context reads",

@@ -192,6 +192,26 @@ impl Rig {
     pub(super) fn file_text(&self) -> String {
         std::fs::read_to_string(&self.file).unwrap()
     }
+
+    /// A change made earlier, as the daemon leaves one: the text before it kept
+    /// as the next copy, the file left as `after`, and its row.
+    pub(super) fn seed(&self, before: &str, after: &str, paths: &[&str]) {
+        let (n, _) = super::write::keep_previous(&self.state, before).unwrap();
+        std::fs::write(&self.file, after).unwrap();
+        let row = crate::ledger::LedgerRow::new(
+            theseus_protocol::LedgerKind::ConfigChanged,
+            None,
+            None,
+            json!({
+                "source": "owner", "question": format!("seed{n}"), "paths": paths,
+                "asked_by": {"session_id": "ses_old", "place": "discord:dm:42"},
+                "approved_by": "cli", "via": "cli", "restart": true, "previous_copy": n,
+                "digest_before": crate::config_copy::sha256(before),
+                "digest_after": crate::config_copy::sha256(after),
+            }),
+        );
+        self.core.store.append_ledger(&row).unwrap();
+    }
 }
 
 /// The card is built from the file and the candidate, and says the model's

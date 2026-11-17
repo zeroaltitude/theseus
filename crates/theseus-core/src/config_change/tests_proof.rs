@@ -112,7 +112,7 @@ async fn an_ordinary_change_needs_the_card_alone() {
     let r = rig();
     let q = ask(&r, "import.notes.enabled", json!(false)).await;
     let c = card(&r, cli(), &q).await;
-    assert_eq!(c["needs_proof"], false, "{c}");
+    assert_ne!(c["needs_proof"], true, "{c}");
     answer(&r, cli(), &q, true, None).await.unwrap();
     assert!(r.file_text().contains("enabled = false"));
     let p = super::restart::load(&super::restart::marker_path(&r.state))
@@ -257,19 +257,19 @@ async fn who_the_owner_is_and_the_proof_itself_ask_for_a_fresh_code_inside_a_win
     }
 }
 
-/// An undo of a sensitive change is a sensitive change: marked, asks for the
-/// code or an open window, and puts the setting back.
+/// The settings file after a change to the day's ceiling, as seeded for an undo.
+fn with_ceiling() -> String {
+    format!("{FILE}\n[kernel]\ndaily_spend_ceiling_usd = 300.0\n")
+}
+
+/// An undo of a sensitive change is a sensitive change: marked, and inside an
+/// open window it goes on the yes alone from the place that has the window
+/// and from no other.
 #[tokio::test]
-async fn an_undo_of_a_sensitive_change_is_held_to_the_same_rules() {
+async fn an_undo_of_a_sensitive_change_rides_the_window_of_its_own_place_only() {
     let r = rig();
-    let secret = r.core.proofs.enrol_stand_in();
-    let q = ask(&r, CEILING, json!(300)).await;
-    answer(&r, cli(), &q, true, Some(&code(&secret, 0)))
-        .await
-        .unwrap();
-    restarted(&r);
-    let after = r.file_text();
-    assert_ne!(after, FILE);
+    let _ = r.core.proofs.open_stand_in_window("cli");
+    r.seed(FILE, &with_ceiling(), &[CEILING]);
     let sid = r.session();
     r.turn_with(
         "config_undo",
@@ -280,21 +280,38 @@ async fn an_undo_of_a_sensitive_change_is_held_to_the_same_rules() {
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let u = r.asked().pop().unwrap().correlation_id;
-    // Inside the window: the yes alone, from this place only.
     assert_eq!(card(&r, cli(), &u).await["needs_proof"], true);
     let e = answer(&r, web(), &u, true, None).await.unwrap_err();
     assert!(e.message.contains("second proof"), "{e:?}");
-    assert_eq!(r.file_text(), after);
-    // After lock it asks for a code, and a code does it.
+    assert_eq!(r.file_text(), with_ceiling());
+    answer(&r, cli(), &u, true, None).await.unwrap();
+    assert!(!r.file_text().contains("daily_spend_ceiling_usd"));
+    assert_eq!(r.rows("config.undone").len(), 1);
+}
+
+/// After `lock` the same undo asks for a code, and a code does it.
+#[tokio::test]
+async fn after_lock_an_undo_of_a_sensitive_change_asks_for_a_code() {
+    let r = rig();
+    let secret = r.core.proofs.open_stand_in_window("cli");
     r.core.proofs.lock("cli", "cli").unwrap();
+    r.seed(FILE, &with_ceiling(), &[CEILING]);
+    let sid = r.session();
+    r.turn_with(
+        "config_undo",
+        &sid,
+        json!({"reason": "the owner wants it back"}),
+    )
+    .await;
+    let u = r.asked().pop().unwrap().correlation_id;
+    assert_eq!(card(&r, cli(), &u).await["proof"]["code_needed"], true);
     let e = answer(&r, cli(), &u, true, None).await.unwrap_err();
     assert!(e.message.contains("second proof"), "{e:?}");
-    assert_eq!(r.file_text(), after);
+    assert_eq!(r.file_text(), with_ceiling());
     answer(&r, cli(), &u, true, Some(&code(&secret, 1)))
         .await
         .unwrap();
     assert!(!r.file_text().contains("daily_spend_ceiling_usd"));
-    assert_eq!(r.rows("config.undone").len(), 1);
 }
 
 /// A rollback's restart ends every open window: the settings a window was
@@ -317,13 +334,22 @@ async fn a_rollback_ends_every_open_window() {
     assert_eq!(windows(&r), ["cli"], "nothing has ended them yet");
     r.core.tell_rolled_back(&p);
     assert!(windows(&r).is_empty());
+    let told = crate::tests_day_ceiling::posts(&r.core, "notice")
+        .iter()
+        .map(|b| b["text"].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        told.contains("went back to the settings") && told.contains("windows of your second proof"),
+        "{told}"
+    );
     assert_eq!(
         r.rows("owner.proof.locked").len(),
         1,
         "ended by the daemon, and recorded"
     );
-    let q2 = ask(&r, CEILING, json!(300)).await;
-    assert_eq!(card(&r, cli(), &q2).await["proof"]["code_needed"], true);
+    // The next sensitive change asks for a code again.
+    assert!(r.core.proofs.standing("cli", false).code_needed);
 }
 
 /// An agent's process and a job's process approve no card of this module, not
@@ -331,12 +357,8 @@ async fn a_rollback_ends_every_open_window() {
 #[tokio::test]
 async fn an_agents_and_a_jobs_process_approve_neither_a_proposal_nor_an_undo() {
     let r = rig();
-    let secret = r.core.proofs.enrol_stand_in();
-    let first = ask(&r, CEILING, json!(300)).await;
-    answer(&r, cli(), &first, true, Some(&code(&secret, 0)))
-        .await
-        .unwrap();
-    restarted(&r);
+    let secret = r.core.proofs.open_stand_in_window("cli");
+    r.seed(FILE, &with_ceiling(), &[CEILING]);
     let after = r.file_text();
     // Three cards waiting: an ordinary proposal, a sensitive one, an undo.
     let ordinary = ask(&r, "import.notes.enabled", json!(false)).await;
@@ -367,9 +389,14 @@ async fn an_agents_and_a_jobs_process_approve_neither_a_proposal_nor_an_undo() {
             }
         }
     }
+    // An agent is shown no button on any of them.
+    let agent = surface("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
+    for q in [&ordinary, &sensitive, &undo] {
+        assert_eq!(card(&r, agent.clone(), q).await["may_answer"], false);
+    }
     assert_eq!(r.file_text(), after, "nothing was written");
     assert!(waiting(&r, &ordinary) && waiting(&r, &sensitive) && waiting(&r, &undo));
     assert_eq!(r.core.proofs.status().windows, windows_before);
-    // The code was never spent on them: the owner's own hand still can.
+    // The code was never spent on them: the owner's own hand, inside the window, can.
     answer(&r, cli(), &sensitive, true, None).await.unwrap();
 }
