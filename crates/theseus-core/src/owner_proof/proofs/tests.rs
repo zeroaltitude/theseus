@@ -65,7 +65,7 @@ impl Rig {
     }
 
     /// The code the app shows `steps` steps after `T0`.
-    fn code(&self, steps: u64) -> String {
+    fn code(steps: u64) -> String {
         totp::code_at_step(&rfc(), totp::step_at(T0 / 1000) + steps)
     }
 
@@ -99,11 +99,11 @@ fn a_good_code_goes_once() {
     let r = Rig::new();
     r.enrolled();
     r.advance(30_000);
-    let code = r.code(1);
+    let code = Rig::code(1);
     assert_eq!(r.proofs.check(&code, "cli"), Ok(()));
     assert_eq!(r.proofs.check(&code, "web"), Err(Refused::Used));
     r.advance(30_000);
-    assert_eq!(r.proofs.check(&r.code(2), "cli"), Ok(()));
+    assert_eq!(r.proofs.check(&Rig::code(2), "cli"), Ok(()));
 }
 
 /// An earlier code of the window is refused once a later one was taken: the
@@ -114,12 +114,12 @@ fn an_earlier_code_is_used_once_a_later_one_was_taken() {
     r.enrolled();
     r.advance(30_000);
     assert_eq!(
-        r.proofs.check(&r.code(2), "cli"),
+        r.proofs.check(&Rig::code(2), "cli"),
         Ok(()),
         "one step ahead of the clock"
     );
-    assert_eq!(r.proofs.check(&r.code(1), "cli"), Err(Refused::Used));
-    assert_eq!(r.proofs.check(&r.code(0), "cli"), Err(Refused::Used));
+    assert_eq!(r.proofs.check(&Rig::code(1), "cli"), Err(Refused::Used));
+    assert_eq!(r.proofs.check(&Rig::code(0), "cli"), Err(Refused::Used));
 }
 
 /// A used code is refused after a restart, too: the step is in the file.
@@ -128,7 +128,7 @@ fn a_used_code_stays_used_across_a_restart() {
     let mut r = Rig::new();
     r.enrolled();
     r.advance(30_000);
-    let code = r.code(1);
+    let code = Rig::code(1);
     assert_eq!(r.proofs.check(&code, "cli"), Ok(()));
     r.restarted();
     assert_eq!(r.proofs.check(&code, "cli"), Err(Refused::Used));
@@ -154,7 +154,7 @@ fn five_wrong_codes_lock_checking_even_for_a_good_code_and_across_a_restart() {
         panic!("the fifth wrong code locks: {fifth:?}");
     };
     assert_eq!(until_ms, r.now.load(Ordering::SeqCst) + LOCK_MS);
-    let good = r.code(1);
+    let good = Rig::code(1);
     assert_eq!(
         r.proofs.check(&good, "cli"),
         Err(Refused::TooMany { until_ms })
@@ -168,7 +168,7 @@ fn five_wrong_codes_lock_checking_even_for_a_good_code_and_across_a_restart() {
     assert_eq!(r.proofs.status().locked_until_ms, Some(until_ms));
     // Ten minutes later it is checked again, with a clean count.
     r.advance(LOCK_MS);
-    assert_eq!(r.proofs.check(&r.code(21), "cli"), Ok(()));
+    assert_eq!(r.proofs.check(&Rig::code(21), "cli"), Ok(()));
 }
 
 /// The tries are counted over the window: slow wrong codes never lock.
@@ -196,7 +196,7 @@ fn the_limit_is_one_count_across_surfaces() {
         let _ = r.proofs.check("000000", place);
     }
     assert!(matches!(
-        r.proofs.check(&r.code(0), "discord:dm"),
+        r.proofs.check(&Rig::code(0), "discord:dm"),
         Err(Refused::TooMany { .. })
     ));
 }
@@ -210,7 +210,7 @@ fn a_good_code_clears_the_count() {
     for _ in 0..4 {
         assert_eq!(r.proofs.check("000000", "cli"), Err(Refused::Wrong));
     }
-    assert_eq!(r.proofs.check(&r.code(1), "cli"), Ok(()));
+    assert_eq!(r.proofs.check(&Rig::code(1), "cli"), Ok(()));
     for _ in 0..4 {
         assert_eq!(r.proofs.check("000000", "cli"), Err(Refused::Wrong));
     }
@@ -223,7 +223,7 @@ fn every_check_is_a_row_that_never_holds_the_code() {
     let r = Rig::new();
     r.enrolled();
     r.advance(30_000);
-    let good = r.code(1);
+    let good = Rig::code(1);
     let _ = r.proofs.check("987654", "cli");
     let _ = r.proofs.check(&good, "web");
     let _ = r.proofs.check(&good, "discord:dm");
@@ -261,7 +261,10 @@ fn the_file_is_mode_0600_and_a_looser_one_is_not_trusted() {
         "the write's own file is renamed away"
     );
     std::fs::set_permissions(r.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(r.proofs.check(&r.code(0), "cli"), Err(Refused::Unavailable));
+    assert_eq!(
+        r.proofs.check(&Rig::code(0), "cli"),
+        Err(Refused::Unavailable)
+    );
     assert!(r.proofs.status().unavailable);
 }
 
@@ -283,10 +286,13 @@ fn a_check_that_cannot_save_is_refused() {
     r.advance(30_000);
     // The write goes beside the file; a directory of that name makes it fail.
     std::fs::create_dir(r.dir.path().join("owner-proof.json.new")).unwrap();
-    assert_eq!(r.proofs.check(&r.code(1), "cli"), Err(Refused::Unavailable));
+    assert_eq!(
+        r.proofs.check(&Rig::code(1), "cli"),
+        Err(Refused::Unavailable)
+    );
     std::fs::remove_dir(r.dir.path().join("owner-proof.json.new")).unwrap();
     assert_eq!(
-        r.proofs.check(&r.code(1), "cli"),
+        r.proofs.check(&Rig::code(1), "cli"),
         Ok(()),
         "and nothing was used by the refusal"
     );
@@ -382,7 +388,7 @@ fn a_reset_needs_a_valid_code() {
     r.advance(30_000);
     assert_eq!(r.proofs.reset("000000", "cli"), Err(Refused::Wrong));
     assert!(r.path().exists());
-    assert_eq!(r.proofs.reset(&r.code(1), "cli"), Ok(()));
+    assert_eq!(r.proofs.reset(&Rig::code(1), "cli"), Ok(()));
     assert!(!r.path().exists());
     assert!(!r.proofs.status().enrolled);
     let changed = r.rows("owner.proof.changed");

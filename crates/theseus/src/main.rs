@@ -1426,7 +1426,7 @@ async fn wait_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     wait_session_or_any(c, json, session, until, after, timeout).await
 }
 
-/// `theseus agenda`, `card`, `digest` and `mode`: the horizon,
+/// `theseus agenda`, `card`, `digest`, `mode` and `owner`: the horizon,
 /// the owner card's proposals, the speaking voice, what happened while you were away, and a conversation's mode.
 async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
@@ -1434,7 +1434,8 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
         Cmd::Card { cmd } => card_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Digest(a) => digest::run(c, json, a).await,
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
-        _ => unreachable!("only agenda, card, digest and mode come here"),
+        Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
+        _ => unreachable!("only agenda, card, digest, mode and owner come here"),
     }
 }
 
@@ -1551,7 +1552,7 @@ async fn run(cli: Cli) -> Result<()> {
         | Cmd::Chat { .. } => {
             unreachable!("above")
         }
-        cmd @ Cmd::Card { .. } => long_cmd(c, json, cmd).await,
+        cmd @ (Cmd::Card { .. } | Cmd::Owner { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,
@@ -1564,7 +1565,6 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::SelfImprove { cmd } => self_cmd::run(c, json, cmd).await,
         Cmd::Persona { cmd } => persona_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,

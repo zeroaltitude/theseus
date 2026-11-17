@@ -36,12 +36,9 @@ async fn asked() -> (OwnFiles, String, String, String) {
         ]
     });
     let res = turn(&r.core, None, "change the settings").await;
-    let corr = res.awaiting_confirm.clone().expect("the floor waits");
+    let corr = res.awaiting_confirm.expect("the floor waits");
     let other = turn(&r.core, None, "and the other settings").await;
-    let second = other
-        .awaiting_confirm
-        .clone()
-        .expect("the floor waits again");
+    let second = other.awaiting_confirm.expect("the floor waits again");
     (r, corr, res.session_id, second)
 }
 
@@ -596,22 +593,55 @@ async fn lock_ends_the_windows_for_the_owner_and_for_no_one_else() {
     assert!(refused(&e) && pending(&r, &second), "{e:?}");
 }
 
+/// What the log writes, kept for the test to read.
+#[derive(Clone, Default)]
+struct Sink(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Sink {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(b);
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Every file under `state` but the proof's own holds neither the secret's
+/// base32, its hex, nor its raw bytes. Returns how many files were read.
+fn no_secret_in_files(state: &std::path::Path, secret: &Secret) -> usize {
+    let (base32, hex, raw) = (
+        secret.base32(),
+        hex::encode(secret_bytes(secret)),
+        secret_bytes(secret),
+    );
+    let mut seen = 0;
+    let mut stack = vec![state.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().is_some_and(|n| n != file::FILE) {
+                let bytes = std::fs::read(&p).unwrap_or_default();
+                seen += 1;
+                let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+                assert!(
+                    !has(base32.as_bytes()) && !has(hex.as_bytes()) && !has(&raw),
+                    "{} holds the secret",
+                    p.display()
+                );
+            }
+        }
+    }
+    seen
+}
+
 /// Neither the secret nor a code is in anything a model's tools can read: the
 /// state dir but for the one file (the store, the spool, the ledger), the
 /// rows, health, the lists and answers, the session's transcript, and the log.
 #[tokio::test]
 async fn neither_the_secret_nor_a_code_is_anywhere_a_model_can_read() {
-    #[derive(Clone, Default)]
-    struct Sink(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for Sink {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
     let sink = Sink::default();
     let w = sink.clone();
     let sub = tracing_subscriber::fmt()
@@ -688,26 +718,10 @@ async fn neither_the_secret_nor_a_code_is_anywhere_a_model_can_read() {
     }
     // The state dir's other files: no secret, base32, hex or raw bytes.
     let state = r.agents.parent().unwrap();
-    let mut seen = 0;
-    let mut stack = vec![state.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).unwrap().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.file_name().is_some_and(|n| n != file::FILE) {
-                let bytes = std::fs::read(&p).unwrap_or_default();
-                seen += 1;
-                let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
-                assert!(
-                    !has(base32.as_bytes()) && !has(hex.as_bytes()) && !has(&secret_bytes(&secret)),
-                    "{} holds the secret",
-                    p.display()
-                );
-            }
-        }
-    }
-    assert!(seen > 0, "the walk read the store's files");
+    assert!(
+        no_secret_in_files(state, &secret) > 0,
+        "the walk read the store's files"
+    );
     // It is in the one file, which only the daemon writes.
     let kept = std::fs::read_to_string(state.join(file::FILE)).unwrap();
     assert!(kept.contains(&hex));
