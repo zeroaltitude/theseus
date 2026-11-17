@@ -149,20 +149,28 @@ fn a_routine_runs_question_says_waiting_while_the_run_deadline_drops_it() {
 /// The daemon's card for a changed prompt file, as the daemon words it (issue 23).
 const PROMPT_CARD: &str = "Change the prompt file /state/PERSONA.md?\nIt is Theseus's file of persona warm.\nBefore: 120 bytes, 4 lines, fingerprint 0123456789abcdef\nAfter: 131 bytes, 4 lines, fingerprint fedcba9876543210\n1 line added, 1 line removed.\nThe changed lines, whole (unseen characters are written \\u{..}; a backslash is doubled):\n```diff\n@@ -1,4 +1,4 @@\n You are Theseus.\n-Be brief.\n+Be brief and warm.\n Be honest.\n```\nTakes effect with the next message; no restart.\n";
 
-/// The board's card gives a change to Theseus's own text or settings a row for
-/// each line of the daemon's card, so the changed lines are not run together.
+/// The board's card shows a change to Theseus's own text or settings as its
+/// heading and where to read the whole: never part of the changed lines under a
+/// heading that says they are whole, since this pane cuts what does not fit.
 #[test]
-fn a_prompt_file_change_card_has_a_row_for_each_line() {
+fn a_prompt_file_change_card_says_where_the_whole_is_and_shows_no_part_of_it() {
     let mut q = question("ses_dm0001", "cor_cfg0001", "x", 0);
     q.tool = "config.ack".into();
     q.input = json!({"whole": true});
     q.reason = PROMPT_CARD.into();
     let text = card_text(Question::Whole(&q), q.requested_at_ms + 1_000);
-    for want in PROMPT_CARD.lines() {
+    assert!(
+        text.contains("  Change the prompt file /state/PERSONA.md?\n"),
+        "{text}"
+    );
+    assert!(text.contains("theseus config show cor_cfg0001"), "{text}");
+    for part in ["-Be brief.", "+Be brief and warm.", "```diff", "@@ -1,4"] {
         assert!(
-            text.lines().any(|l| l == format!("  {want}")),
-            "{want:?} is not a row of its own:\n{text}"
+            !text.contains(part),
+            "{part:?} is shown cut or whole here:\n{text}"
         );
     }
-    assert!(!text.contains('…'), "{text}");
+    // Whatever the pane does with the rows, no row of it is cut: every row
+    // the card gives is short enough to wrap, and none is the middle of a line.
+    assert!(text.lines().count() <= 6, "{text}");
 }

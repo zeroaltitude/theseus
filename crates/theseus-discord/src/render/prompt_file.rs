@@ -47,5 +47,23 @@ pub(super) fn card(req: &ConfirmRequest, task: &str, route: &Route, elsewhere: &
     }
 }
 
+/// What `/answer` shows of such a question: the daemon's card whole, or, when it
+/// is longer than the card's room, words that say where to read it. Never cut.
+pub(crate) fn whole_change_words(who: &str, req: &ConfirmRequest) -> String {
+    let text = req.reason.trim_end();
+    match text.chars().count() <= CARD_CHARS {
+        true => format!(
+            "🔔 **{}** · a change to Theseus's own text or settings\n{text}",
+            super::clip(who, 60)
+        ),
+        false => format!(
+            "🔔 **{}** · a change to Theseus's own text or settings. It is too long to show \
+             here, so it is not shown cut: read it with `theseus config show`, or in the \
+             cockpit, and answer there.",
+            super::clip(who, 60)
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -41,6 +41,7 @@ pub(crate) mod horizon;
 mod preview;
 pub(crate) mod process;
 mod prompt_file;
+pub(crate) use prompt_file::whole_change_words;
 mod refold;
 mod reply;
 pub(crate) mod snapshot;

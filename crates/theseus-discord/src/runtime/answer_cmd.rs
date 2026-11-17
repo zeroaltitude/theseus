@@ -91,6 +91,10 @@ fn words_of(r: &ConfirmRequest) -> String {
             }
             s
         }
+        // A change to Theseus's own text or settings: the daemon built the card
+        // to fit, and the owner presses Approve under what is here, so it is
+        // drawn whole or not at all (issue 23).
+        None if theseus_protocol::has_whole_text(r) => crate::render::whole_change_words(&who, r),
         None => format!("🔔 **{}** · {}", clip(&who, 60), clip(&r.reason, 400)),
     };
     t.push_str(&format!(
@@ -365,4 +369,61 @@ fn fields_of(m: &ModalInteractionData) -> (String, Vec<String>) {
         .iter()
         .for_each(|c| walk(c, &mut note, &mut files));
     (note, files)
+}
+
+#[cfg(test)]
+mod tests_whole {
+    use super::*;
+    use serde_json::json;
+    use theseus_core::config_change::prompt_file::card::CARD_CHARS;
+
+    fn change(reason: &str) -> ConfirmRequest {
+        serde_json::from_value(json!({
+            "correlation_id": "act_9", "session_id": "ses_a", "execution_id": "exe_a",
+            "tool": "config.ack", "input": {"whole": true}, "reason": reason, "by": "operator",
+            "requested_at_ms": 1, "expires_at_ms": 0, "needs_proof": true,
+        }))
+        .unwrap()
+    }
+
+    /// Every character of the message `/answer` builds for a question, as text.
+    fn drawn(r: &ConfirmRequest) -> String {
+        serde_json::to_string(&view_of(r)).unwrap()
+    }
+
+    /// `/answer` shows the daemon's card whole, the changed lines included, with
+    /// Approve under it: it never clips a settings change to a line's length.
+    #[test]
+    fn answer_shows_a_prompt_file_card_whole_not_clipped_to_400() {
+        let body = "w".repeat(900);
+        let card = format!(
+            "Change the prompt file /state/P.md?\n```diff\n@@ -1,1 +1,1 @@\n-old\n+{body}\n```\nTakes effect with the next message.\n"
+        );
+        assert!(card.chars().count() > 400 && card.chars().count() <= CARD_CHARS);
+        let shown = drawn(&change(&card));
+        let json_card = serde_json::to_string(card.trim_end()).unwrap();
+        assert!(
+            shown.contains(&json_card[1..json_card.len() - 1]),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(&body),
+            "every character of the changed line: {shown}"
+        );
+    }
+
+    /// A card past the room says where to read it, and shows none of the lines.
+    #[test]
+    fn answer_does_not_show_a_card_past_the_room_cut() {
+        let card = format!(
+            "Change the prompt file /state/P.md?\n+{}\n",
+            "z".repeat(CARD_CHARS)
+        );
+        let shown = drawn(&change(&card));
+        assert!(!shown.contains("zzzz"), "{shown}");
+        assert!(
+            shown.contains("not shown cut") && shown.contains("theseus config show"),
+            "{shown}"
+        );
+    }
 }

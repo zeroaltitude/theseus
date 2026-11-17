@@ -24,14 +24,24 @@ fn confirm_head(c: &ConfirmRequest) -> String {
 
 /// Its risk, the model's reason and what Yes and No do, else the gate's reason.
 fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
-    // A change to Theseus's own text or settings: the daemon's card, a row for
-    // each of its lines (issue 23).
+    // A change to Theseus's own text or settings (issue 23): this pane is a few
+    // rows high and cuts what does not fit, and the owner says yes to what is on
+    // the card, so it shows the heading and says where the whole is, never part
+    // of the changed lines. The chat's own question shows the card line by line.
     if theseus_protocol::has_whole_text(c) {
-        return c
-            .reason
-            .lines()
-            .map(|l| (Tag::Dim, format!("  {l}")))
-            .collect();
+        let heading = c.reason.lines().next().unwrap_or_default();
+        return vec![
+            (Tag::Dim, format!("  {heading}")),
+            (
+                Tag::Dim,
+                format!(
+                    "  The changed lines are too long for this pane, so none are shown here. Read \
+                     the whole card in the chat, in the cockpit, or with `theseus config show {}`, \
+                     then answer.",
+                    c.correlation_id
+                ),
+            ),
+        ];
     }
     match &c.plain {
         Some(p) => p
