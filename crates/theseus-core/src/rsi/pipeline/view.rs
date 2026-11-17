@@ -61,6 +61,7 @@ impl Core {
             builder: Local.name().into(),
             budget: self.runner.self_budget.view(),
             state,
+            last_join: self.self_last_join().map(|j| j.line),
             ..SelfPipelineResult::default()
         };
         let cfg = &self.cfg.self_improve;

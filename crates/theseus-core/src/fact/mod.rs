@@ -90,6 +90,7 @@ pub mod rsi_backlog;
 pub mod rsi_budget;
 pub mod rsi_exams;
 pub mod rsi_graduate;
+pub mod rsi_install;
 pub mod rsi_join;
 pub mod rsi_mine;
 pub mod rsi_mint;
@@ -575,6 +576,9 @@ facts![
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
     rsi_join::SelfJoinReopened,
+    rsi_install::SelfInstallNotInstalled,
+    rsi_install::SelfInstallMismatch,
+    rsi_install::SelfInstallVerified,
     rsi_narrow::NarrowProposed,
     rsi_narrow::NarrowApplied,
     rsi_narrow::NarrowDeclined,

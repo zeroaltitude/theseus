@@ -51,6 +51,7 @@ impl Core {
             more,
             building,
             budget: self.runner.self_budget.view(),
+            last_join: self.self_last_join().map(|j| j.line),
         })
     }
 }

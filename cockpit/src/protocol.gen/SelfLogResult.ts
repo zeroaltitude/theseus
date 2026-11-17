@@ -20,4 +20,9 @@ building?: boolean,
  * The self budget: the day's spend and each branch's (theseus-pw1q.3).
  * Absent while the mode is off.
  */
-budget?: SelfBudgetView, };
+budget?: SelfBudgetView, 
+/**
+ * The last join and whether it is what runs: `joined at 1a2b3c4d5e6f; installed and
+ * running`, or `joined but not installed`, with the step. Absent before any join.
+ */
+last_join?: string, };

@@ -264,6 +264,9 @@ pub fn log_lines(r: &SelfLogResult) -> Vec<String> {
     if let Some(b) = &r.budget {
         out.extend(render::budget_lines(b));
     }
+    if let Some(j) = &r.last_join {
+        out.push(format!("Last join: {j}"));
+    }
     if r.building {
         out.push(
             "The ledger's index is still being built after a start: ask again in a minute.".into(),
@@ -322,5 +325,24 @@ mod tests {
         assert_eq!(age_ms("7d").unwrap(), 7 * 86_400_000);
         assert_eq!(age_ms("2w").unwrap(), 14 * 86_400_000);
         assert!(age_ms("7").is_err() && age_ms("d").is_err() && age_ms("7y").is_err());
+    }
+
+    /// `self log` says whether the last join is what runs, beside its rows (issue 20).
+    #[test]
+    fn the_log_says_whether_the_last_join_is_what_runs() {
+        let mut r = SelfLogResult {
+            rows: vec![],
+            state: Default::default(),
+            more: false,
+            building: false,
+            budget: None,
+            last_join: None,
+        };
+        assert!(!log_lines(&r).iter().any(|l| l.starts_with("Last join")));
+        r.last_join = Some("joined at 0123456789ab; installed and running".into());
+        assert_eq!(
+            log_lines(&r)[1],
+            "Last join: joined at 0123456789ab; installed and running"
+        );
     }
 }

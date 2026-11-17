@@ -168,7 +168,8 @@ async fn an_agents_web_answer_to_a_money_question_is_refused_and_the_owners_bind
 }
 
 /// A job's process is never the owner (issue 22). In these tests the test
-/// process is the daemon, and a real process it started has no agent host
+/// process is the daemon. A peer that is the daemon or under it (here its own
+/// pid, as `peer_proc`'s tests also walk a real child) has no agent host
 /// above it and the agent list is empty: the connection is still an agent's,
 /// named a job, on the CLI socket and on the web port (whose client end this
 /// process holds here), and the owner's own terminal still answers.
@@ -177,15 +178,10 @@ async fn a_process_the_daemon_ran_answers_no_money_question_on_either_surface() 
     let r = rig(vec![]);
     let q = plant(&r.core, "aws.stack.apply");
 
-    let mut child = std::process::Command::new("sleep")
-        .arg("30")
-        .spawn()
-        .expect("sleep starts");
-    let by_cli = surface("sock#9", Cli).with_pid(Some(child.id()));
-    let cli = confirm(&r, by_cli, &q, true).await;
-    child.kill().ok();
-    child.wait().ok();
-    let e = cli.expect_err("a job's process does not answer a stack apply");
+    let by_cli = surface("sock#9", Cli).with_pid(Some(std::process::id()));
+    let e = confirm(&r, by_cli, &q, true)
+        .await
+        .expect_err("a job's process does not answer a stack apply");
     assert!(e.message.contains(WHY), "{}", e.message);
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
