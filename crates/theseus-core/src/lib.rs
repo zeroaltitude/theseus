@@ -395,6 +395,8 @@ mod tests_first_request;
 #[cfg(test)]
 mod tests_fit;
 #[cfg(test)]
+mod tests_floor_config_copies;
+#[cfg(test)]
 mod tests_floor_shapes;
 #[cfg(test)]
 mod tests_floor_stdio;

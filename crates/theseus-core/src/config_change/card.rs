@@ -105,10 +105,24 @@ pub fn restart_question(f: &RestartFacts<'_>) -> String {
 /// The question the owner is asked. Call [`too_much`] first: a card never cuts.
 pub fn question(f: &Facts<'_>) -> String {
     let n = f.settings.len();
-    let mut out = format!(
+    let heading = format!(
         "Change {}?\n",
         crate::narrative::count(n as u64, "setting", "settings")
     );
+    heading + &lines(f)
+}
+
+/// An undo's question (issue 22): its own heading and its `preface`, then the
+/// settings, the restart, the proof and the rest as every card says them. Call
+/// [`too_much`] first, as for a proposal.
+pub fn question_undoing(number: u32, preface: &str, f: &Facts<'_>) -> String {
+    format!("Undo change #{number}?\n{preface}{}", lines(f))
+}
+
+/// What a card says after its heading: each setting before and after, the
+/// restart, the second proof, the injection label and the reason.
+fn lines(f: &Facts<'_>) -> String {
+    let mut out = String::new();
     for s in f.settings {
         let when = match sensitivity::needs_restart(&s.path) {
             true => "after a restart",

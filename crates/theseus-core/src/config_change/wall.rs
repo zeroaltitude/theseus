@@ -49,6 +49,18 @@ pub fn refusal(tc: &TurnCtx<'_>) -> Option<&'static str> {
     })
 }
 
+/// [`refusal`], in the words of another tool that keeps the same wall
+/// (`config.history`, `config.undo`): its own name, and "is about" where the
+/// proposal's words say "changes".
+pub fn refusal_for(tc: &TurnCtx<'_>, tool: &str) -> Option<String> {
+    refusal(tc).map(|why| {
+        why.replace(super::PROPOSE, tool).replace(
+            "changes Theseus's own settings, so",
+            "is about Theseus's own settings, so",
+        )
+    })
+}
+
 /// What the wall reads.
 pub struct Facts<'a> {
     pub class: PlaceClass,

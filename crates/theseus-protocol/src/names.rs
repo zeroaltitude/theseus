@@ -123,6 +123,8 @@ pub mod method {
         PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach", PROJECT_TRUST = "project.trust", PROJECT_UNTRUST = "project.untrust", PROJECT_TRUSTED = "project.trusted",
         /// A project's items (issue 13): a step of the project's own list, added, closed and listed.
         PROJECT_ITEM_ADD = "project.item.add", PROJECT_ITEM_CLOSE = "project.item.close", PROJECT_ITEM_LIST = "project.item.list",
+        /// The last changes the owner approved to Theseus's own settings, as words (issue 22).
+        CONFIG_HISTORY = "config.history",
         UNDO_LIST = "undo.list", UNDO_ALLOW = "undo.allow", // the owner lets a call undo.v1 held run as it was first proposed (theseus-p5kln)
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",

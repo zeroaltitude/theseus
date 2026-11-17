@@ -21,6 +21,7 @@ mod census;
 mod chat_cmd;
 mod cite;
 mod cmd;
+mod config_cmd;
 mod content_cmd;
 mod digest;
 mod extend;
@@ -829,6 +830,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<undo_cmd::UndoCmd>,
     },
+    /// The changes made to Theseus's own settings on your word: who asked, who approved, and each setting before
+    /// and after (`config history`). To change a setting or put one back, ask Theseus in a conversation. Yours
+    /// alone (refused inside a job).
+    #[command(hide = true)]
+    Config {
+        #[command(subcommand)]
+        cmd: Option<config_cmd::ConfigCmd>,
+    },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     #[command(hide = true)]
     Rpc {
@@ -1448,6 +1457,15 @@ async fn plans_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     }
 }
 
+/// `theseus undo` and `theseus config`: what the owner holds back, and what they changed.
+async fn owner_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Config { cmd } => config_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        _ => unreachable!("only undo and config come here"),
+    }
+}
+
 /// `theseus ledger`: a check of the chain, or the rows.
 async fn ledger_cmd(c: &mut Conn, json: bool, l: Cmd) -> Result<()> {
     match l {
@@ -1567,7 +1585,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
-        Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,
+        cmd @ (Cmd::Undo { .. } | Cmd::Config { .. }) => owner_cmd(c, json, cmd).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
         Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,

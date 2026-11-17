@@ -1720,6 +1720,13 @@ impl ToolRuntime {
             crate::config_change::RESTART => {
                 crate::config_change::restart(self, tc, &call.input, correlation_id)
             }
+            // The history of those changes, and the undo of one (issue 22).
+            crate::config_change::history::HISTORY => {
+                crate::config_change::history::run(self, tc, &call.input)
+            }
+            crate::config_change::undo::UNDO => {
+                crate::config_change::undo::run(self, tc, &call.input, correlation_id)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {

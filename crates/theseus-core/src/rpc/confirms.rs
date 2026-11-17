@@ -1152,6 +1152,11 @@ pub(crate) enum Act<'a> {
     /// `what` names it: `Letting the held call hld_… run as it was first
     /// proposed`.
     UndoAllow { what: &'a str },
+    /// The owner's read of the history of changes to Theseus's own settings
+    /// (issue 22, `config.history`): the kept copies hold every setting and
+    /// the name of every secret among them, so only the owner, from a private
+    /// place, reads it. `what` names it.
+    Settings { what: &'a str },
     /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
     /// every recall, writes notes into sessions, and posts a card, so a job's process
     /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
@@ -1188,6 +1193,7 @@ impl Act<'_> {
             Act::Task { .. } => theseus_protocol::method::TASK_START,
             Act::Stop { .. } => theseus_protocol::method::JOB_STOP,
             Act::UndoAllow { .. } => theseus_protocol::method::UNDO_ALLOW,
+            Act::Settings { .. } => theseus_protocol::method::CONFIG_HISTORY,
         }
     }
 }

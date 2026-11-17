@@ -221,6 +221,7 @@ mod tests {
         method::LEDGER_TAIL,
         method::LEDGER_WINDOW,
         method::LEDGER_VERIFY,
+        method::CONFIG_HISTORY,
         method::PROFILE_LIST,
         method::PROFILE_USE,
         method::PROFILE_RELEASE,
