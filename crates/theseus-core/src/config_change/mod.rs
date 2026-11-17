@@ -178,7 +178,7 @@ impl Tool for Propose {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "path": {"type": "string", "description": "The setting's path, keys joined by dots; quote a key that has a dot, as policy.tools.\"proc.run\"."},
+                            "path": {"type": "string", "description": "The setting's path, keys joined by dots; quote a key that has a dot, as providers.\"my.host\"."},
                             "value": {"description": "Its new value: a switch, a number, text, a list, or a whole table."},
                             "remove": {"type": "boolean", "description": "Remove the setting, so it takes its default. Instead of a value."}
                         },
