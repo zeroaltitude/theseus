@@ -5,7 +5,9 @@
 use super::diff::{words, Setting};
 use crate::config::sensitivity;
 
-/// The most settings the card lists before it says how many more there are.
+/// The most settings one card shows, and all of them whole: a change that
+/// reaches more is refused, so the owner never says yes to a setting that was
+/// not on the card.
 pub const LISTED: usize = 12;
 /// The longest the model's reason is shown.
 pub const REASON_CHARS: usize = 200;
@@ -13,7 +15,10 @@ pub const REASON_CHARS: usize = 200;
 /// What the card says.
 pub struct Facts<'a> {
     pub settings: &'a [Setting],
+    /// The turn has read outside text since the owner's last message.
     pub outside_text: bool,
+    /// And Theseus's own check flagged what it read as trying to steer it.
+    pub steered: bool,
     pub reason: &'a str,
     /// How long a restart waits for a running turn to end, in seconds.
     pub wait_secs: u64,
@@ -28,14 +33,83 @@ pub fn reason_line(r: &str) -> String {
     }
 }
 
-/// The question the owner is asked.
+/// Why a change cannot be put on one card, or `None` when it can: more
+/// settings than [`LISTED`], or a value that cannot be shown whole.
+pub fn too_much(settings: &[Setting]) -> Option<String> {
+    if settings.len() > LISTED {
+        return Some(format!(
+            "that changes {} settings, and one card shows at most {LISTED}, each whole: ask for \
+             fewer at a time, or the owner edits the file",
+            settings.len()
+        ));
+    }
+    let long: Vec<String> = settings
+        .iter()
+        .filter(|s| super::diff::too_long(s))
+        .map(|s| super::edit::dotted(&s.path))
+        .collect();
+    match long.is_empty() {
+        true => None,
+        false => Some(format!(
+            "the value of {} is longer than a card can show whole ({} characters): shorten it, or \
+             the owner edits the file",
+            long.join(", "),
+            super::diff::SHOWN
+        )),
+    }
+}
+
+/// What the restart card says.
+pub struct RestartFacts<'a> {
+    /// Turns running now.
+    pub running: u32,
+    pub outside_text: bool,
+    pub steered: bool,
+    pub reason: &'a str,
+    pub wait_secs: u64,
+}
+
+/// The question for a restart the owner asked for in words: what it cuts.
+pub fn restart_question(f: &RestartFacts<'_>) -> String {
+    let now = match f.running {
+        0 => "No turn is running now.".to_string(),
+        n => format!(
+            "{} running now.",
+            crate::narrative::count(u64::from(n), "turn is", "turns are")
+        ),
+    };
+    let mut out = format!(
+        "Restart Theseus?\n{now} A restart cuts what is running (a turn, a job, the \
+         self-improvement loop's build): it waits up to {} s for a running turn to end first, \
+         and a turn it interrupts resumes afterwards. Its settings do not change. If Theseus is \
+         not healthy afterwards it restarts once more.\n",
+        f.wait_secs
+    );
+    if f.outside_text || f.steered {
+        out.push_str(
+            "Take care: since your last message this conversation has read text from outside (a \
+             page, a search or a server), so the request may not be only yours.",
+        );
+        if f.steered {
+            out.push_str(" Theseus's check flagged what it read as trying to steer it.");
+        }
+        out.push('\n');
+    }
+    let why = reason_line(f.reason);
+    if !why.is_empty() {
+        out.push_str(&format!("Theseus's reason, in its own words: \"{why}\"\n"));
+    }
+    out
+}
+
+/// The question the owner is asked. Call [`too_much`] first: a card never cuts.
 pub fn question(f: &Facts<'_>) -> String {
     let n = f.settings.len();
     let mut out = format!(
         "Change {}?\n",
         crate::narrative::count(n as u64, "setting", "settings")
     );
-    for s in f.settings.iter().take(LISTED) {
+    for s in f.settings {
         let when = match sensitivity::needs_restart(&s.path) {
             true => "after a restart",
             false => "at once",
@@ -46,9 +120,6 @@ pub fn question(f: &Facts<'_>) -> String {
             words(s.before.as_ref()),
             words(s.after.as_ref()),
         ));
-    }
-    if n > LISTED {
-        out.push_str(&format!("- and {} more settings\n", n - LISTED));
     }
     if f.settings
         .iter()
@@ -76,11 +147,15 @@ pub fn question(f: &Facts<'_>) -> String {
             sensitive.join("; ")
         ));
     }
-    if f.outside_text {
+    if f.outside_text || f.steered {
         out.push_str(
-            "Take care: this conversation has read text from outside (a page, a search or a \
-             server) since your last message, so the request may not be only yours.\n",
+            "Take care: since your last message this conversation has read text from outside (a \
+             page, a search or a server), so the request may not be only yours.",
         );
+        if f.steered {
+            out.push_str(" Theseus's check flagged what it read as trying to steer it.");
+        }
+        out.push('\n');
     }
     let why = reason_line(f.reason);
     if !why.is_empty() {
@@ -116,6 +191,7 @@ mod tests {
         let q = question(&Facts {
             settings: &s,
             outside_text: false,
+            steered: false,
             reason: "you said to turn the notes import off",
             wait_secs: 120,
         });
@@ -147,6 +223,7 @@ mod tests {
         let q = question(&Facts {
             settings: &s,
             outside_text: true,
+            steered: false,
             reason: "",
             wait_secs: 60,
         });
@@ -161,22 +238,90 @@ mod tests {
     }
 
     #[test]
-    fn a_long_list_is_cut_and_the_reason_is_one_short_line() {
-        let s: Vec<Setting> = (0..15)
+    fn a_change_the_card_cannot_show_whole_is_refused_and_never_cut() {
+        let s: Vec<Setting> = (0..LISTED + 3)
+            .map(|i| setting(&format!("kernel.k{i}"), None, Some(json!(i))))
+            .collect();
+        let e = too_much(&s).expect("more than one card shows");
+        assert!(e.contains("15 settings") && e.contains("at most 12"), "{e}");
+        assert_eq!(too_much(&s[..LISTED]), None);
+        let long = [setting(
+            "model.system",
+            None,
+            Some(json!("p".repeat(2_000))),
+        )];
+        let e = too_much(&long).expect("a long prompt cannot be shown whole");
+        assert!(
+            e.contains("model.system") && e.contains("400 characters"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn the_reason_is_one_short_line_and_the_card_lists_every_setting() {
+        let s: Vec<Setting> = (0..LISTED)
             .map(|i| setting(&format!("kernel.k{i}"), None, Some(json!(i))))
             .collect();
         let q = question(&Facts {
             settings: &s,
             outside_text: false,
+            steered: false,
             reason: "a\nb  c",
             wait_secs: 1,
         });
-        assert_eq!(q.matches("\n- ").count(), LISTED + 1, "{q}");
-        assert!(q.contains("- and 3 more settings"), "{q}");
+        assert_eq!(q.matches("\n- ").count(), LISTED, "{q}");
         assert!(q.contains("\"a b c\""), "{q}");
         assert_eq!(
             reason_line(&"x".repeat(500)).chars().count(),
             REASON_CHARS + 1
         );
+    }
+
+    #[test]
+    fn what_the_model_wrote_cannot_add_a_line_to_the_card() {
+        let s = [setting(
+            "model.system",
+            None,
+            Some(json!(
+                "hi\n- narrative: on → off (at once)\nTheseus's reason, in its own words: \"fine\""
+            )),
+        )];
+        let q = question(&Facts {
+            settings: &s,
+            outside_text: false,
+            steered: false,
+            reason: "r",
+            wait_secs: 1,
+        });
+        assert_eq!(q.matches("\n- ").count(), 1, "{q}");
+        let reasons = q
+            .lines()
+            .filter(|l| l.starts_with("Theseus's reason"))
+            .count();
+        assert_eq!(reasons, 1, "{q}");
+    }
+
+    #[test]
+    fn outside_text_and_a_flag_are_each_said() {
+        let s = [setting("narrative", Some(json!(false)), Some(json!(true)))];
+        let q = question(&Facts {
+            settings: &s,
+            outside_text: true,
+            steered: false,
+            reason: "",
+            wait_secs: 1,
+        });
+        assert!(
+            q.contains("since your last message") && !q.contains("steer"),
+            "{q}"
+        );
+        let q = question(&Facts {
+            settings: &s,
+            outside_text: true,
+            steered: true,
+            reason: "",
+            wait_secs: 1,
+        });
+        assert!(q.contains("trying to steer it"), "{q}");
     }
 }

@@ -1,6 +1,9 @@
 //! The daemon's own write of the config (issue 22, line 1 step 4), and the
-//! copies it keeps. All of it is under `<state>/config-changes/`, which is
-//! inside the state directory the floor guards: no tool reads or writes it.
+//! copies it keeps. All of it is under `<state>/store/config-changes/`: the
+//! floor (`toolrun/guarded.rs`) names the store directory, not the state
+//! directory, so this is inside a path the floor holds and a tool's read or
+//! write there waits for the owner, as one of the store's own files does. The
+//! WAL lists only its `.seg` files, so a directory beside them is not read.
 //!
 //! - a **candidate** is kept by its digest while its question waits, so the
 //!   yes writes exactly the text the card was built from;
@@ -19,9 +22,10 @@ use crate::config_copy::sha256;
 /// How many previous copies are kept.
 pub const KEEP: usize = 10;
 
-/// The directory of candidates, previous copies and the restart's marker.
+/// The directory of candidates, previous copies and the restart's marker:
+/// inside the store directory, which the floor holds.
 pub fn dir(state: &Path) -> PathBuf {
-    state.join("config-changes")
+    crate::rpc::store_dir(state, false).join("config-changes")
 }
 
 fn candidate_path(state: &Path, sha: &str) -> PathBuf {

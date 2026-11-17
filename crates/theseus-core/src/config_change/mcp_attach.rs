@@ -427,6 +427,13 @@ fn asked_by(tc: &TurnCtx<'_>) -> Value {
     })
 }
 
+/// Whether the turn has read outside text, or is steered by it: one flag for
+/// the card's line.
+fn outside_text(tc: &TurnCtx<'_>) -> bool {
+    let (outside, steered) = super::outside_text(tc);
+    outside || steered
+}
+
 /// What the file and the running board say before anything is tried: the file
 /// as it is, its settings, and where it is.
 struct Ground {
@@ -512,7 +519,7 @@ fn put(
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
             "restart": restart,
             "reason": reason,
-            "outside_text": super::outside_text(tc),
+            "outside_text": outside_text(tc),
             "asked_by": asked_by(tc),
             "mcp": marker,
         }),
@@ -610,7 +617,7 @@ pub async fn attach(
         };
         g.board.keep_listed(&spec.name, list);
     }
-    let outside = super::outside_text(tc);
+    let outside = outside_text(tc);
     let facts = |server| Facts {
         name: &spec.name,
         server,
@@ -685,7 +692,7 @@ pub fn detach(
         tools: &g.board.offered_tools(&i.name),
         restart,
         wait_secs: RESTART_WAIT_SECS,
-        outside_text: super::outside_text(tc),
+        outside_text: outside_text(tc),
         reason: &reason,
     });
     let digest = write::keep_candidate(&rt.config_change.state, &candidate)

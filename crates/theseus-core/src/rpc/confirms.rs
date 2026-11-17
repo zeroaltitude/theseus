@@ -396,6 +396,26 @@ impl Core {
         // A proposed change to Theseus's settings (issue 22): the daemon
         // writes the file, or nothing; nothing wakes.
         if a.tool == crate::config_change::ACK {
+            // An agent's process on the CLI or the web socket is not the owner at
+            // a card: only the owner's own hand changes Theseus's settings.
+            if approve && who.agent.is_some() {
+                let r = Refusal {
+                    who: who.who(),
+                    via: who.via(),
+                    why: "this changes Theseus's own settings, so only the owner answers it: \
+                          press it in the DM, or answer from your own terminal"
+                        .to_string(),
+                };
+                self.refused(
+                    Act::Answer {
+                        action: &a,
+                        approve,
+                    },
+                    &who,
+                    &r,
+                )?;
+                return Err(r.into());
+            }
             let answer = match approve {
                 true => crate::config_change::answer::Answer::Yes,
                 false => crate::config_change::answer::Answer::No(note),

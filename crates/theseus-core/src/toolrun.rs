@@ -1724,6 +1724,9 @@ impl ToolRuntime {
             crate::config_change::mcp_attach::ATTACH | crate::config_change::mcp_attach::DETACH => {
                 crate::config_change::proposed_by_call(tc, correlation_id)
             }
+            crate::config_change::RESTART => {
+                crate::config_change::restart(self, tc, &call.input, correlation_id)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {

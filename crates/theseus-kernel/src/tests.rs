@@ -15,6 +15,8 @@ use crate::kernel::*;
 use crate::spool::Spool;
 use crate::types::*;
 
+mod failure_error;
+
 pub(super) struct World {
     pub(super) dir: TempDir,
     pub(super) clock: Arc<VirtualClock>,

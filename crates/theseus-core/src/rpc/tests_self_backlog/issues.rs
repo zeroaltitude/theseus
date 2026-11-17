@@ -101,15 +101,23 @@ fn an_issue_becomes_a_backlog_item_that_names_the_issue_it_came_from() {
     // repository and the number and can go and look.
     let said = format!("{:?}", one);
     assert!(said.contains("harbourworks/lanterns"), "{said}");
-    assert!(said.contains("118"), "{said}");
+    // The number is searched in the evidence, where the origin is written, and not in a `{:?}` of
+    // the whole item: its generated id and its times hold digits too, and "118" among them would
+    // let this pass when the origin is missing.
+    assert!(
+        one.evidence
+            .iter()
+            .any(|e| e.contains("harbourworks/lanterns issue #118")),
+        "{:?}",
+        one.evidence
+    );
     // The owner writes the issues, so an issue is nobody's keel class and the
     // item is proposed rather than held: the keel guard is still the guard on
     // what a branch for it may do.
     assert_eq!(one.state, "proposed", "{one:?}");
-    assert!(
-        !night.waiting.iter().any(|w| w.contains("118")),
-        "{night:?}"
-    );
+    // `waiting` holds task ids, made from the clock and random digits: the item is compared by
+    // its own id, never by a substring of the issue's number.
+    assert!(!night.waiting.contains(&one.id), "{night:?}");
 }
 
 /// The card's second bar, and it is not negotiable: **a source that FAILS

@@ -63,6 +63,57 @@ struct Applied {
 }
 
 impl Core {
+    /// The yes to a restart the owner asked for in words: nothing is written,
+    /// but the marker is, so the start that follows says it is back, and goes
+    /// back to the copy kept (the same text) if it is not healthy.
+    fn plan_plain_restart(
+        &self,
+        a: &Action,
+        file: &std::path::Path,
+        by: &str,
+        via: &str,
+    ) -> Result<Applied, String> {
+        let w = &self.tools.config_change;
+        let now = std::fs::read_to_string(file)
+            .map_err(|e| format!("the settings file cannot be read: {e}"))?;
+        let (previous, copy) = write::keep_previous(&w.state, &now)
+            .map_err(|e| format!("the settings could not be kept, so nothing restarts: {e}"))?;
+        let sha = sha256(&now);
+        let args = a
+            .proposal
+            .as_ref()
+            .map(|p| p.args.clone())
+            .unwrap_or_default();
+        let p = Pending {
+            id: a.correlation_id.clone(),
+            file: file.to_path_buf(),
+            previous: copy,
+            previous_sha256: sha.clone(),
+            digest_before: sha.clone(),
+            digest_after: sha.clone(),
+            paths: vec![],
+            session_id: a.session_id.clone(),
+            place: args["asked_by"]["place"].as_str().map(str::to_string),
+            approved_by: by.to_string(),
+            via: via.to_string(),
+            requested_ms: theseus_protocol::now_unix_ms(),
+            stage: Stage::Restarting,
+            restart_only: true,
+            took_ms: None,
+            why: None,
+        };
+        restart::save(&restart::marker_path(&w.state), &p).map_err(|e| {
+            format!("the restart's marker could not be kept, so nothing restarts: {e}")
+        })?;
+        Ok(Applied {
+            previous,
+            before: sha.clone(),
+            after: sha,
+            restart: true,
+            pending: Some(p),
+        })
+    }
+
     /// The yes: write the candidate the card showed, or say why not.
     fn write_change(
         &self,
@@ -72,10 +123,27 @@ impl Core {
         via: &str,
     ) -> Result<Applied, String> {
         let w = &self.tools.config_change;
+        // One yes at a time, and none while a change is still being applied.
+        let _one = w
+            .writes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(p) = restart::load(&restart::marker_path(&w.state)) {
+            if matches!(p.stage, Stage::Restarting | Stage::Started) {
+                return Err(
+                    "another change is still being applied (Theseus restarts first): \
+                            ask again once it is back"
+                        .into(),
+                );
+            }
+        }
         let file = w
             .file
             .clone()
             .ok_or("the settings are not a file this daemon can change")?;
+        if args["restart_only"].as_bool() == Some(true) {
+            return self.plan_plain_restart(a, &file, by, via);
+        }
         let want_base = args["base_sha256"].as_str().unwrap_or_default();
         let sha = args["candidate_sha256"].as_str().unwrap_or_default();
         let now = std::fs::read_to_string(&file)
@@ -130,6 +198,7 @@ impl Core {
             via: via.to_string(),
             requested_ms: theseus_protocol::now_unix_ms(),
             stage: Stage::Restarting,
+            restart_only: false,
             took_ms: None,
             why: None,
         });
@@ -190,6 +259,7 @@ impl Core {
                     "asked_by": who, "approved_by": by, "via": via,
                     "digest_before": d.before, "digest_after": d.after,
                     "previous_copy": d.previous, "restart": d.restart,
+                    "restart_only": args["restart_only"].as_bool().unwrap_or(false),
                 }),
             ),
             None => LedgerRow::new(

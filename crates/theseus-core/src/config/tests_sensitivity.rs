@@ -46,7 +46,7 @@ fn leaves(v: &Value, at: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
 /// on this list. Broader than what is sensitive, so what is ordinary among
 /// them is named.
 fn suspect(k: &str) -> bool {
-    const WORDS: [&str; 41] = [
+    const WORDS: &[&str] = &[
         "usd",
         "budget",
         "ceiling",
@@ -88,6 +88,8 @@ fn suspect(k: &str) -> bool {
         "argv",
         "origin",
         "base",
+        "proxy",
+        "external",
     ];
     k.to_ascii_lowercase()
         .split(|c: char| !c.is_ascii_alphanumeric())
