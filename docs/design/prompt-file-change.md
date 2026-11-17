@@ -51,9 +51,10 @@ The yes checks all of it again.
 Built from the two texts alone. It names the file and which level names it, says each text's size, lines and
 **fingerprint** (SHA-256, the first 16 hex digits, as a context file's digest in the prompt's manifest), counts lines
 added and removed, and shows **the changed lines themselves, whole, with two lines of context**, in a fenced block, when
-the whole card fits `CARD_CHARS` (1,600: what a Discord card carries). When they do not fit, or a line holds a triple
-backtick, the card says "too long to show on a card whole, so this is a summary and not the text", gives the line
-ranges, and names `theseus config show`. It never presents cut text as whole. Unseen characters (controls, separators,
+the whole card fits `CARD_CHARS` (1,450: what a Discord message carries besides its heading, the second proof's clause
+and its footer). When they do not fit, or a line holds a triple backtick, the card says "too long to show on a card
+whole, so this is a summary and not the text", gives the line ranges, and names `theseus config show`. It never presents
+cut text as whole. Unseen characters (controls, separators,
 zero-width, direction marks, hidden tag and variation characters: `shown::unseen`) are written `\u{..}` and counted on
 the card and in the whole text; a backslash is doubled. The model's reason is shown as the model's, one line, with its
 unseen characters written out. A card says when the turn read outside text since the owner's last message.
