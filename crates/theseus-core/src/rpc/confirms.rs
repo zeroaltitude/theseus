@@ -433,6 +433,24 @@ impl Core {
         // A joined change the owner is asked to install (issue 22): the helper
         // and the restart run off this path; nothing wakes.
         if a.tool == crate::rsi::join::root_install::ACK {
+            // An agent's process on the CLI or the web socket is not the owner at this card: only the owner's own
+            // hand installs a change into what Theseus runs.
+            if approve && who.agent.is_some() {
+                let r = Refusal {
+                    who: who.who(),
+                    via: who.via(),
+                    why: crate::rsi::join::root_install::AGENT_REFUSAL.to_string(),
+                };
+                self.refused(
+                    Act::Answer {
+                        action: &a,
+                        approve,
+                    },
+                    &who,
+                    &r,
+                )?;
+                return Err(r.into());
+            }
             let done = self.answer_root_install(&a, approve, note, by, &via)?;
             self.admission.notify_waiters();
             return Ok(done);
@@ -827,12 +845,6 @@ impl Core {
             // A job's stop: the owner from any channel, a shared place's too.
             Act::Stop { .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
-            }
-            // The card that installs what the loop joined (issue 22): an agent's process is not the owner.
-            Act::Answer { action, .. }
-                if who.agent.is_some() && action.tool == crate::rsi::join::root_install::ACK =>
-            {
-                Err(crate::rsi::join::root_install::AGENT_REFUSAL.to_string())
             }
             // Money and AWS are the owner's own (theseus-5rvss): an agent's
             // answer on the CLI to a question that spends or changes either

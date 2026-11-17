@@ -182,8 +182,9 @@ that build says the install went back, once. Every step is a `self.root_install`
 
 **Nothing the daemon trusts lives where a tool can write it.** Which commit, which program ran before, and the unit as it
 was are in the store; the commit joined is the ledger's; the card's arguments are the question's. The one file kept,
-`<state>/self-install/confirmed`, is the new daemon's go-ahead for the script; it is on the floor
-(`toolrun/guarded.rs`), and a test plants files under that directory and shows they change nothing. The staging
+`<state>/store/self-install/confirmed`, is the new daemon's go-ahead for the script; it is inside the store directory the
+floor holds (no tool reads or writes it, as with `config_change`'s copies), a test holds that, and a test plants files
+under the old place and shows they change nothing. The staging
 directory's content is user-writable by nature, which is why the helper copies from open descriptors and checks the copy.
 
 ## What a reviewer should hunt for

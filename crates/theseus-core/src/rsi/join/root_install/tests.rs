@@ -705,6 +705,29 @@ fn the_restart_script_quotes_what_it_embeds() {
     assert!(ok.success());
 }
 
+/// The one file an install's restart looks for is inside a path the floor holds, so a tool's read or write there waits
+/// for the owner as the store's own files do; and the old, off-floor place is not.
+#[test]
+fn the_confirmation_is_on_the_floor() {
+    let t = rooted(SelfInstall::Ask, Some(true));
+    let floor = &t.r.core.tools.ctx.floor;
+    let held = |p: &Path| {
+        let p = theseus_tools::paths::canonical_best_effort(p);
+        floor.iter().any(|f| theseus_tools::paths::within(&p, f))
+    };
+    let board = &t.r.core.tools.root_install;
+    assert!(
+        held(&board.dir()),
+        "{:?} is not under the floor {floor:?}",
+        board.dir()
+    );
+    assert!(held(&board.signal()));
+    assert!(
+        !held(&board.state.join("self-install")),
+        "beside the store is off the floor"
+    );
+}
+
 /// The card's words name the commit, the title, the place and the way back, in plain words.
 #[test]
 fn the_card_says_what_where_and_the_way_back() {

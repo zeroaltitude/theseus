@@ -222,7 +222,7 @@ impl Board {
     }
 
     /// The directory of the one file the restart's unit looks for: the new daemon's confirmation. On the floor
-    /// (`toolrun/guarded.rs`): no tool writes it. Nothing else of an install is kept in a file.
+    /// (inside the store directory): no tool writes it. Nothing else of an install is kept in a file.
     pub fn dir(&self) -> PathBuf {
         dir_in(&self.state)
     }
@@ -233,9 +233,10 @@ impl Board {
     }
 }
 
-/// The directory of the confirmation, in a state directory.
+/// The directory of the confirmation, in a state directory: inside the store directory, which the floor holds, so no
+/// tool reads or writes it (the WAL reads only its `.seg` files).
 pub fn dir_in(state: &Path) -> PathBuf {
-    state.join(DIR)
+    crate::rpc::store_dir(state, false).join(DIR)
 }
 
 /// The first eight digits of a commit: what its directory is named.

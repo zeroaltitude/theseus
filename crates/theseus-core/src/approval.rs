@@ -250,10 +250,6 @@ const AWS_READS: [&str; 6] = [
 /// the cost-bearing reads (`aws.cost`, `aws.inventory`, `aws.logs.query`).
 /// Only the owner answers these, never an agent on the CLI.
 pub(crate) fn owners_alone(tool: &str) -> bool {
-    // The card that installs what Theseus's own loop joined (issue 22): an agent's process is not the owner.
-    if tool == crate::rsi::join::root_install::ACK {
-        return true;
-    }
     tool == theseus_kernel::BUDGET_TOOL || (tool.starts_with("aws.") && !AWS_READS.contains(&tool))
 }
 
