@@ -10,10 +10,11 @@
 //! [`write::KEEP`] are kept) or was altered is listed with its settings and
 //! without values, and says so. A value is never taken from anything else.
 //!
-//! The copies are on the floor and are read here, by the daemon, and by
-//! `undo.rs`. A tool of a turn gets only the words this makes, and only the
-//! owner's own turn gets them (`wall.rs`): a copy holds every setting, and
-//! the names of every secret among them.
+//! The copies are on the floor and are read by the daemon only: here (and
+//! by `undo.rs` through [`entries`]) and by the restart's way back. A tool of
+//! a turn gets only the words this makes, and only the owner's own turn gets
+//! them (`wall.rs`): a copy holds every setting, and the names of every
+//! secret among them.
 
 use std::path::Path;
 

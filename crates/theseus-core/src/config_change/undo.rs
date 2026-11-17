@@ -9,7 +9,8 @@
 //! files; a sensitive setting is judged by the same list and the same seam
 //! (undoing a sensitive change is a sensitive change); the yes is the same
 //! question, the same write of one step, the same restart and the same way
-//! back. Nothing here writes a file or reads one other than the kept copies.
+//! back. Nothing here writes a file; it reads only the settings file and,
+//! through `history.rs`, the kept copies.
 //!
 //! **It is not "write the old file back".** The file before the change is
 //! read only for the values of the settings that change touched. A setting
