@@ -74,6 +74,7 @@
 //! said, with the tick's task records and rows in one frame.
 
 pub mod main_red;
+pub(crate) mod parked;
 pub(crate) mod queues;
 mod stale;
 mod tender;
@@ -97,6 +98,8 @@ mod tests_moved;
 mod tests_named;
 #[cfg(test)]
 mod tests_notify;
+#[cfg(test)]
+mod tests_parked;
 #[cfg(test)]
 mod tests_pause;
 #[cfg(test)]
@@ -468,6 +471,9 @@ impl Core {
         for e in &q.closed {
             clear(place, e, "closed", w)?;
         }
+        // And no build leaves a question behind (`parked`): after the moves above, so one whose
+        // working copy they just removed is withdrawn in the same tick.
+        self.withdraw_ended_questions(q).await?;
         Ok(())
     }
 

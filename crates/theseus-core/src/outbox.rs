@@ -200,6 +200,9 @@ impl Closed {
             let (by, note) = rest.split_once(": ").unwrap_or((rest, ""));
             let how = if note.starts_with("superseded") {
                 "superseded"
+            } else if by == "withdrawn" {
+                // A question whose self build ended (`rsi::pipeline::parked`).
+                "withdrawn"
             } else {
                 "declined"
             };

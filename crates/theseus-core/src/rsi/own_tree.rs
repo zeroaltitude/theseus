@@ -154,6 +154,7 @@ pub(crate) fn l1_of(
 /// other session) is held as before. Only the one program name counts: a call that also runs `op`
 /// or names any path on the floor, or any line the floor did not finish reading, is held.
 /// A self session that is no builder (its item's tree is not open) is not moved either.
+/// `docs/design/self-own-tree-asks.md` says why the floor held it and what is and is not moved.
 fn l1_instead_of_floor(
     rt: &ToolRuntime,
     session: Option<&str>,

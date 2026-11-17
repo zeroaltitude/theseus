@@ -347,6 +347,18 @@ impl Core {
                 approve,
             },
         )?;
+        // An answer to a question whose self build ended is late: recorded, and nothing else.
+        if let Some(r) = crate::rsi::pipeline::parked::late(&a, &who) {
+            self.refused(
+                Act::Answer {
+                    action: &a,
+                    approve,
+                },
+                &who,
+                &r,
+            )?;
+            return Err(r.into());
+        }
         let by = who.label.as_str();
         if a.state != theseus_kernel::ActionState::Planned {
             anyhow::bail!(
