@@ -138,7 +138,7 @@ pub fn set_umask(mask: u32) {
     unsafe { libc::umask(mask as libc::mode_t) };
 }
 
-/// The names in a directory, but `.` and `..`, sorted. Read from a duplicate of the descriptor.
+/// The names in a directory, but `.` and `..`, sorted. Read from a duplicate of the descriptor, from its start.
 pub fn list(fd: RawFd) -> io::Result<Vec<String>> {
     // SAFETY: `dup` of a descriptor the caller holds; `fdopendir` takes the duplicate and `closedir` closes it.
     let dup = cvt(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) })?;
@@ -149,7 +149,7 @@ pub fn list(fd: RawFd) -> io::Result<Vec<String>> {
         unsafe { libc::close(dup) };
         return Err(e);
     }
-    // The duplicate shares the descriptor's offset: a listing made earlier on the same descriptor has left it at the end.
+    // The duplicate shares the original's offset, which an earlier listing of the same descriptor left at the end.
     // SAFETY: `dir` is open.
     unsafe { libc::rewinddir(dir) };
     let mut names = Vec::new();
