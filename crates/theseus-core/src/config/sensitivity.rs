@@ -126,6 +126,9 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
     if has("owner") {
         return Some("who the owner is");
     }
+    if is("external") {
+        return Some("whether a server's results are marked as outside text");
+    }
     if has("usd") || has("budget") || has("ceiling") || has("spend") || has("runaway") {
         return Some("a spending ceiling or budget");
     }

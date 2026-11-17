@@ -319,7 +319,7 @@ impl Extensions {
         let _ = self.board.set(Arc::downgrade(board));
     }
 
-    fn board(&self) -> Option<Arc<McpBoard>> {
+    pub(crate) fn board(&self) -> Option<Arc<McpBoard>> {
         self.board.get().and_then(Weak::upgrade)
     }
 

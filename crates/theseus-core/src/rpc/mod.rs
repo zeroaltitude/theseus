@@ -1186,6 +1186,10 @@ impl Core {
         if let Err(e) = core.seed_extensions() {
             tracing::warn!(error = %format!("{e:#}"), "the loaded extensions did not read");
         }
+        // Who attached which MCP server by asking (issue 22): one META key.
+        if let Err(e) = core.seed_attached() {
+            tracing::warn!(error = %format!("{e:#}"), "who attached which MCP server did not read");
+        }
         // `[personas]`, read once (theseus-utfnl): one frame at the first
         // start that has them, nothing after.
         if let Err(e) = core.migrate_personas() {

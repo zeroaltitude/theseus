@@ -16,6 +16,9 @@ use theseus_kernel::Action;
 pub enum Proof {
     /// The proof is not built into this daemon: a sensitive change is refused.
     NotInstalled,
+    /// Required, and a good proof came with the answer. Only a build with the
+    /// proof in returns it (a test pretends, `pretend`).
+    Given,
 }
 
 /// The words a refused sensitive change says.
@@ -24,11 +27,43 @@ pub const NOT_INSTALLED: &str = "this setting needs the second proof, which is n
 /// Whether the second proof is required for `question` and what was given
 /// with its answer `via`. Until the proof is installed: not installed.
 pub fn required_and_given(_question: &Action, _via: &str) -> Proof {
+    #[cfg(test)]
+    if pretending() {
+        return Proof::Given;
+    }
     Proof::NotInstalled
 }
 
 /// Whether a sensitive change may go to the owner at all: not while the
 /// proof is not installed.
 pub fn installed() -> bool {
+    #[cfg(test)]
+    if pretending() {
+        return true;
+    }
     false
+}
+
+#[cfg(test)]
+thread_local! {
+    static PRETEND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn pretending() -> bool {
+    PRETEND.with(std::cell::Cell::get)
+}
+
+/// A test that follows a sensitive change past the proof: on this thread, the
+/// proof is built in and was given, until the guard drops.
+#[cfg(test)]
+pub(crate) fn pretend() -> impl Drop {
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            PRETEND.with(|p| p.set(false));
+        }
+    }
+    PRETEND.with(|p| p.set(true));
+    Guard
 }

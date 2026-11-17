@@ -166,7 +166,9 @@ impl Core {
         let mut confirms = self.confirms_listed(discord)?;
         for c in &mut confirms {
             // An agent draws no button for what spends money or changes AWS (theseus-5rvss).
-            let agent_barred = who.agent.is_some() && crate::approval::owners_alone(&c.tool);
+            let agent_barred = who.agent.is_some()
+                && (crate::approval::owners_alone(&c.tool)
+                    || crate::config_change::mcp_attach::is_card_of(&c.tool, &c.input));
             c.may_answer = Some(may && !agent_barred);
         }
         Ok(theseus_protocol::ConfirmListResult { confirms })

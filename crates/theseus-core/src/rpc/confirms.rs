@@ -788,6 +788,19 @@ impl Core {
             Act::Stop { .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // Attaching or removing an MCP server changes what Theseus runs and
+            // reaches (issue 22): the owner in person, never an agent's
+            // process, and from a DM or a terminal, never a channel.
+            Act::Answer { action, .. } if crate::config_change::mcp_attach::is_card(action) => {
+                crate::places::owner_in_person_of(
+                    who,
+                    &self.runner.place_rule,
+                    &self.cfg,
+                    "attaching or removing an MCP server changes what Theseus runs and reaches, \
+                     so only the owner answers it",
+                    "an MCP server is attached or removed",
+                )
+            }
             // Money and AWS are the owner's own (theseus-5rvss): an agent's
             // answer on the CLI to a question that spends or changes either
             // is refused, and the question keeps waiting.

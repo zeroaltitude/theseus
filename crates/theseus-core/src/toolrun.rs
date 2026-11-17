@@ -1638,7 +1638,10 @@ impl ToolRuntime {
                 // keeps a flow from naming another.
                 Box::pin(self.run_flow(tc, correlation_id, tool.as_ref(), call)).await
             }
-            Backend::Harness if tool.name() == crate::extend::PROPOSE => {
+            Backend::Harness
+                if tool.name() == crate::extend::PROPOSE
+                    || crate::config_change::mcp_attach::is_async(tool.name()) =>
+            {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
             }
@@ -1716,6 +1719,10 @@ impl ToolRuntime {
             // The owner's own turn proposes a change to the settings (issue 22).
             crate::config_change::PROPOSE => {
                 crate::config_change::propose(self, tc, &call.input, correlation_id)
+            }
+            // Run again after a restart: what the first run asked the owner.
+            crate::config_change::mcp_attach::ATTACH | crate::config_change::mcp_attach::DETACH => {
+                crate::config_change::proposed_by_call(tc, correlation_id)
             }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
@@ -1953,6 +1960,8 @@ pub fn build_runtime(
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::config_change::Propose));
+        r.register(Arc::new(crate::config_change::mcp_attach::Attach));
+        r.register(Arc::new(crate::config_change::mcp_attach::Detach));
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).

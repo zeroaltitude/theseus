@@ -30,6 +30,7 @@ pub mod answer;
 pub mod card;
 pub mod diff;
 pub mod edit;
+pub mod mcp_attach;
 pub mod proof_seam;
 pub mod restart;
 pub mod wall;
@@ -281,11 +282,7 @@ pub fn propose(
     if !sens.is_empty() && !proof_seam::installed() {
         return Err(needs_proof(&sens));
     }
-    // The label a turn carries once it has read outside text that steers it.
-    let outside = matches!(
-        tc.store.get_session::<crate::session::SessionRecord>(tc.session_id),
-        Ok(Some(s)) if s.data.as_ref().is_some_and(|d| d.frozen())
-    );
+    let outside = outside_text(tc);
     let question = card::question(&card::Facts {
         settings: &settings,
         outside_text: outside,
@@ -324,6 +321,14 @@ pub fn propose(
         said,
         json!({"settings": settings.len(), "candidate": digest}),
     ))
+}
+
+/// The label a turn carries once it has read outside text that steers it.
+pub(crate) fn outside_text(tc: &TurnCtx<'_>) -> bool {
+    matches!(
+        tc.store.get_session::<crate::session::SessionRecord>(tc.session_id),
+        Ok(Some(s)) if s.data.as_ref().is_some_and(|d| d.frozen())
+    )
 }
 
 /// The question, its card, and the record that answers a call run again, in

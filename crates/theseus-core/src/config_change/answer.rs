@@ -75,10 +75,14 @@ impl Core {
             .map_err(|e| format!("the candidate no longer loads: {e:#}"))?;
         let settings = diff::between(&now, &candidate)?;
         let sens = sensitive(&[], &settings);
-        if !sens.is_empty() {
+        // An attached or removed MCP server is always sensitive, whatever the
+        // table says (`mcp_attach`), and only its own table may change.
+        let server = super::mcp_attach::at_yes(args, &settings)?;
+        if !sens.is_empty() || server {
             // The card is never made for these, so this is a second wall.
             match proof_seam::required_and_given(a, "") {
                 proof_seam::Proof::NotInstalled => return Err(super::needs_proof(&sens)),
+                proof_seam::Proof::Given => {}
             }
         }
         let (previous, copy) = write::keep_previous(&w.state, &now).map_err(|e| {
@@ -194,10 +198,18 @@ impl Core {
                 "decline"
             }),
         };
-        let rows = vec![
+        let mut rows = vec![
             crate::fact::row(&answered, session, None)?,
             NewRecord::json(kinds::LEDGER, None, &row)?,
         ];
+        // A server attached or removed by asking: who did it rides in the frame.
+        let live = match applied.is_some() {
+            true => self.mcp_prepare(&args, by, via, &a.session_id)?,
+            false => None,
+        };
+        if let Some(l) = &live {
+            rows.push(l.record()?);
+        }
         let proposal = a.proposal.clone().unwrap_or_default();
         self.kernel.frame(&[&a.execution_id], |k| {
             match approve {
@@ -225,6 +237,10 @@ impl Core {
             },
         };
         self.card_closed(corr, closed);
+        // The board takes the server on, or lets it go, with no restart.
+        if let Some(l) = live {
+            self.mcp_apply(l);
+        }
         // Written and answered: now the restart, which waits for a running
         // turn to end for a stated time and then cuts it.
         if let Some(p) = applied.as_ref().and_then(|d| d.pending.as_ref()) {

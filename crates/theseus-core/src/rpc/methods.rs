@@ -1041,7 +1041,8 @@ impl Core {
                 p.author.clone(),
                 p.speaking.as_ref().map(|s| s.discord.clone()),
             ),
-        ));
+        ))
+        .from_agent(conn.answerer(None, None).agent);
         let voice = p.surface.as_deref() == Some("voice");
         let this_session = session.session_id.clone();
         // The thread it runs in grows from what it did (theseus-98bz.5).

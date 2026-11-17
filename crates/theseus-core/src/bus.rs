@@ -373,6 +373,10 @@ pub struct EventSink {
     /// job (`Core::owner_input`): a task takes it as a steer
     /// (theseus-slmj1).
     pub owner: bool,
+    /// The agent's process behind the connection the input came from, when
+    /// there is one (`peer_proc`): what an agent typed is not the owner's own
+    /// word for an act that is the owner's alone (`mcp.attach`, issue 22).
+    pub agent: Option<String>,
 }
 
 impl EventSink {
@@ -383,12 +387,19 @@ impl EventSink {
             session_id: session_id.to_string(),
             surface: None,
             owner: false,
+            agent: None,
         }
     }
 
     /// The sink of the owner's own input (theseus-slmj1).
     pub fn from_owner(mut self, owner: bool) -> Self {
         self.owner = owner;
+        self
+    }
+
+    /// The sink of an input that came through an agent's process.
+    pub fn from_agent(mut self, agent: Option<String>) -> Self {
+        self.agent = agent;
         self
     }
 
