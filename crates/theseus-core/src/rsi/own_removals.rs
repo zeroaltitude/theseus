@@ -275,10 +275,7 @@ fn sandbox_keeps_nothing(
         &crate::egress::asked(input),
     );
     tool.backend() == Backend::Job
-        && rt
-            .sandbox
-            .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
-            .is_some()
+        && own_tree::l1_of(rt, Some(session), tool, plan, input).is_some()
         && beyond.is_empty()
         && given.iter().all(|h| theirs.contains(h))
         && rt.sandbox.job_view().rw.is_empty()

@@ -286,10 +286,7 @@ impl ToolRuntime {
         }
         let is_program = tool.backend() == Backend::Job;
         let l1 = is_program
-            && self
-                .sandbox
-                .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
-                .is_some();
+            && crate::rsi::own_tree::l1_of(self, Some(tc.session_id), tool, plan, input).is_some();
         // What this session's own record holds (`p5kln-location-facts`): the
         // read board, asked per target. `holds` is one `stat` and a compare,
         // never a transcript scan, so it belongs on this path.
