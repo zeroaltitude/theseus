@@ -251,4 +251,26 @@ mod tests {
         .unwrap();
         assert_eq!(restart.risk, "restarts Theseus");
     }
+
+    /// The model is told what waits as the change in words, so a yes from the
+    /// owner is judged against what the card says, and never against a tool's
+    /// name.
+    #[test]
+    fn the_answer_tool_names_a_settings_question_by_its_change() {
+        let args = json!({
+            "question": "Change 1 setting?\n- narrative: off → on (after a restart)\n",
+            "settled": "change `narrative` from off to on; Theseus then restarts",
+        });
+        let q = theseus_protocol::ConfirmRequest {
+            correlation_id: "act_00000000deadbeef".into(),
+            tool: super::super::ACK.into(),
+            plain: plain_of(&args),
+            ..Default::default()
+        };
+        let named = crate::chat_acts::named_question(&q);
+        assert_eq!(
+            named,
+            "`config.ack` — change `narrative` from off to on; Theseus then restarts (…deadbeef)"
+        );
+    }
 }

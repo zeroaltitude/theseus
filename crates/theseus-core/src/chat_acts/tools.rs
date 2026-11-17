@@ -82,6 +82,11 @@ pub(crate) fn allow_args(input: &Value) -> Result<AllowArgs, String> {
 /// say back, never by the correlation id alone.
 pub(crate) fn named_question(q: &ConfirmRequest) -> String {
     let id = tail(&q.correlation_id, 8);
+    // A settings question is named by the change it asks, in the daemon's own
+    // words, so what the owner says yes to is what the model was told waits.
+    if let Some(p) = q.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+        return format!("`{}` — {} (…{id})", q.tool, p.what);
+    }
     match (&q.change, &q.task) {
         (Some(ch), _) => format!("`{}` — {} «{}» ({})", q.tool, ch.field, ch.title, ch.task),
         (None, Some(t)) => format!("`{}` for task «{}» (…{id})", q.tool, t.short),

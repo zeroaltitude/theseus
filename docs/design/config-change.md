@@ -76,3 +76,35 @@ exec carries its path in `THESEUS_CONFIG_CHANGE`.
   (`--state-dir`, else the settings file's `[server] state_dir`, else the default). That is the directory the floor
   holds; a marker anywhere else is never read, so a supervisor's restart after a crash finds its marker where a tool
   cannot have written one, and nowhere else (`change_back.rs`, with a test).
+
+## The card in every place it is answered (the first live change)
+
+The first live change showed the owner a card headed by the tool's name and its raw arguments, with the daemon's words
+cut in the middle past 300 characters, and a settled line that read as the same machine text. The daemon had built the
+card whole; the Discord binding drew it with its form for any tool's approval. So the card is now **worded once, by
+the daemon, and read by every place** (`config_change/words.rs`):
+
+- `PlainWords::what` is the change in one line, built from the facts the card was built from (each setting with its
+  value before and after, the restart; the server's name for an attach or a removal; "restart"; the commit for an
+  install), and never from the model's reason. It is kept in the question's arguments (`settled`), so a question asked
+  before an upgrade still gets its first line.
+- `PlainWords::detail` is the card whole. A surface that has it draws it in place of the raw call.
+- A settings question is recognised by having `detail`, not by a tool's name.
+
+| Place | Before | Now |
+|---|---|---|
+| Discord card | header of the tool's name and raw arguments; the words cut at 300 | the daemon's words first and whole, the proof's clause, the footer; past one message (1,900 characters) it goes as several, silent, the buttons on the last (`render/settings.rs`) |
+| Discord settled line | the tool's name and raw arguments | "Approved by ... · change `x` from 25 to 26; Theseus then restarts" (`what`) |
+| Discord `/answer` | the words cut at 400, with buttons | the words whole when one message holds them; else where to read them, and no buttons |
+| Discord Details press | the summary cut at 300 and the rule cut at 400 | the words whole (or where to read them) |
+| cockpit card, list and palette | the call's raw preview, the words under a two-line clamp in the list | the change in words, the card whole with its line breaks, no raw call |
+| terminal card, `v` in the chat dock | `confirm config.ack: <raw>`, then the reason | "Theseus wants to <what>", the card whole; the chat dock says to press `v` first |
+| `theseus answer`, the list | the gate's reason | the change in words, the card whole, Yes and No |
+| `theseus answer`, the echo | `answered <id> · approve` | the same, then "approved: <what>" |
+| the answer tool's description | `config.ack (…id)` | the change in words |
+| voice | nothing: no card is read aloud or offered by voice | unchanged |
+
+A card longer than one Discord message is sent as several because the daemon's limits (12 settings, 400 characters a
+value) make the longest card about 10,000 characters: 12 settings x (a 400-character value before and after, a path and
+about 60 words of restart and proof) is five messages of 1,900. Lowering the limits to fit one message would have made
+a list of hosts or a persona's text impossible to change at all.
