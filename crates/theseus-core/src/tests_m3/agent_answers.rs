@@ -167,6 +167,48 @@ async fn an_agents_web_answer_to_a_money_question_is_refused_and_the_owners_bind
     assert!(a.confirm.is_some(), "the owner's yes bound the confirm");
 }
 
+/// A job's process is never the owner (issue 22). In these tests the test
+/// process is the daemon, and a real process it started has no agent host
+/// above it and the agent list is empty: the connection is still an agent's,
+/// named a job, on the CLI socket and on the web port (whose client end this
+/// process holds here), and the owner's own terminal still answers.
+#[tokio::test]
+async fn a_process_the_daemon_ran_answers_no_money_question_on_either_surface() {
+    let r = rig(vec![]);
+    let q = plant(&r.core, "aws.stack.apply");
+
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("sleep starts");
+    let by_cli = surface("sock#9", Cli).with_pid(Some(child.id()));
+    let cli = confirm(&r, by_cli, &q, true).await;
+    child.kill().ok();
+    child.wait().ok();
+    let e = cli.expect_err("a job's process does not answer a stack apply");
+    assert!(e.message.contains(WHY), "{}", e.message);
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.local_addr().unwrap();
+    let stream = std::net::TcpStream::connect(server).unwrap();
+    let (_accepted, _) = listener.accept().unwrap();
+    let by_web = surface("web#9", Web).with_web_ends(Some(server), stream.local_addr().unwrap());
+    confirm(&r, by_web, &q, false)
+        .await
+        .expect_err("nor through the web port");
+
+    let refused = ledgered(&r, "approval.refused");
+    assert_eq!(refused.len(), 2, "{refused:?}");
+    assert_eq!(refused[0]["by"], "agent:a job");
+    assert_eq!(refused[0]["via"], "cli");
+    assert_eq!(refused[1]["by"], "agent:a job");
+    assert_eq!(refused[1]["via"], "web");
+    still_waiting(&r, &q);
+
+    confirm(&r, owner(), &q, true).await.expect("the owner's");
+    assert_eq!(ledgered(&r, "action.confirm_answered").len(), 1);
+}
+
 /// An ordinary approval is an agent's to answer on the web as on the CLI,
 /// and the row says which agent (theseus-iie8e).
 #[tokio::test]

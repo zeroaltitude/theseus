@@ -155,11 +155,11 @@ fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
     Ok((changes, reason))
 }
 
-/// Put this module's tools in `r`, only where Theseus's settings are a file the
-/// daemon can change: a config read from the vault, and every default test
+/// Register the tools, only where Theseus's settings are a file the daemon
+/// can change (issue 22): a config read from the vault, and every default test
 /// config, has none, so the tools are in no catalog there and no request
 /// carries them.
-pub(crate) fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
+pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
     if cfg.config_file.is_some() {
         r.register(Arc::new(Propose));
         r.register(Arc::new(RestartTool));

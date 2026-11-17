@@ -1962,7 +1962,6 @@ pub fn build_runtime(
         crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
-        // Only where Theseus's settings are a file the daemon can change (issue 22).
         crate::config_change::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));

@@ -162,12 +162,16 @@ pub fn begin(path: &Path) -> Begin {
 /// the file is no longer what the change wrote, or when the copy is not what
 /// was kept. `config` is the settings file this daemon serves from.
 pub fn roll_back(path: &Path, p: &mut Pending, why: &str, config: &Path) -> Result<(), String> {
-    if p.file != config {
+    // A path is the same directory or file by what it names, not how it is
+    // spelled: a state directory reached through a symlink is its own.
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if canon(&p.file) != canon(config) {
         return Err("the marker names a settings file that is not this daemon's own".into());
     }
     let beside = path
         .parent()
-        .is_some_and(|d| p.previous.parent() == Some(d))
+        .zip(p.previous.parent())
+        .is_some_and(|(a, b)| canon(a) == canon(b))
         && p.previous
             .file_name()
             .is_some_and(|n| n.to_string_lossy().starts_with("previous-"));
