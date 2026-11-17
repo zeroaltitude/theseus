@@ -128,6 +128,9 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`undo`**: the calls `undo.v1` held for losing something that nothing holds a copy of, and your word that the
   original was right. `theseus undo list`; `theseus undo allow ID` lets that call run as it was first proposed
   (yours alone, refused inside a job). Saying "run the original" in the conversation does the same thing.
+- **`config`**: the changes made to Theseus's own settings on your word: who asked, who approved, and each setting
+  before and after. `theseus config history`. A change, and the undo of one, are asked of Theseus in a conversation and
+  answered on a card; this only reads (yours alone, refused inside a job).
 - **`ledger`**: recent ledger rows (every turn, loop, provider call, state change, error). `theseus ledger -n 20 -k provider.call`;
   `ledger verify`, `ledger head`.
 - **`postmortem`**: an incident's timeline from the ledger, as markdown. `theseus postmortem --since 6h`.
@@ -178,6 +181,11 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`persona rate`**: rate the latest message Theseus sent unprompted. `theseus persona rate up`.
 - **`standing`**: the owner's standing orders, preferences and facts, kept in every prompt of their scope.
   `theseus standing add --kind order "no emoji"`; `standing revoke ID`.
+- **`owner`**: your own second proof, a code from an authenticator app, asked for by the changes that matter most.
+  `theseus owner proof enroll` pairs the app (once, in your own terminal); `owner proof status` says whether one is
+  paired and which places a good code still covers; `owner proof reset` takes a code and removes the pairing;
+  `owner proof lock` ends every open window; and `theseus answer ID approve --code 123456` answers a change that needs it.
+  Yours alone: refused inside a job. See `docs/design/owner-proof.md`.
 - **`card`**: the owner card, proposed from imported history; each proposal is a question to keep, edit or decline.
   `theseus card`; `card propose|keep|edit|decline|scope|done`; `card keep ID --scope surface:terminal` says where a kept
   one holds, and `card scope ID everywhere` moves a kept one's record.

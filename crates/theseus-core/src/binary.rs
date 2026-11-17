@@ -14,11 +14,17 @@ use theseus_protocol::BinaryStatus;
 /// The running binary's status: `current_exe` as this process sees it.
 pub fn status() -> BinaryStatus {
     match std::env::current_exe() {
-        Ok(p) => status_of(&p),
+        Ok(p) => BinaryStatus {
+            // Only where the program is in a root-owned build directory (issue 22): whether the helper that
+            // installs what the loop joined is there.
+            helper: crate::rsi::join::root_install::helper_word(&p),
+            ..status_of(&p)
+        },
         Err(e) => BinaryStatus {
             path: String::new(),
             state: "unknown".into(),
             detail: format!("the running binary's path could not be read: {e}"),
+            helper: String::new(),
         },
     }
 }
@@ -37,6 +43,7 @@ pub fn status_of(exe: &Path) -> BinaryStatus {
         path: path.display().to_string(),
         state: state.into(),
         detail,
+        helper: String::new(),
     };
     let dir = path.parent().unwrap_or(Path::new("/"));
     let (file, folder) = match (std::fs::metadata(&path), std::fs::metadata(dir)) {

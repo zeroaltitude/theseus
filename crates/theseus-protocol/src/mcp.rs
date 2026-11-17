@@ -51,6 +51,15 @@ pub struct McpServerStatus {
     /// `read` entries the server does not list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown_read: Vec<String>,
+    /// Who attached it by asking, and through what: absent for a server the
+    /// owner wrote in the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub attached_by: Option<String>,
+    /// When it was attached by asking, in ms since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub attached_at_ms: Option<u64>,
 }
 
 /// One MCP tool, as the model is offered it.

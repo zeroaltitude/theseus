@@ -106,6 +106,11 @@ const BARE: &[(&str, &str)] = &[
         "test-only: a writer killed mid-batch",
     ),
     (
+        "theseus-core/src/peer_proc.rs",
+        "test-only: a real child of the test process, to be judged a job's; \
+         under `#[cfg(test)]` in the file",
+    ),
+    (
         "theseus-core/src/peer.rs",
         "test-only: a stand-in peer process, and the `kill` that its `Drop` runs; \
          both are under `#[cfg(test)]` in the file",
@@ -132,6 +137,10 @@ const BARE: &[(&str, &str)] = &[
         "test-only: an ignored live test that runs cargo and npm on a fleet box",
     ),
     ("theseus-core/src/rsi/join/tests.rs", "test-only"),
+    (
+        "theseus-core/src/rsi/join/root_install/tests.rs",
+        "test-only",
+    ),
     ("theseus-core/src/rsi/join/tests_sealed.rs", "test-only"),
     (
         "theseus-core/src/rsi/mint/validate/tests_dry.rs",

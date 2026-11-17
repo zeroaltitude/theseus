@@ -14,12 +14,18 @@ use serde_json::Value;
 /// The tool's name.
 pub const OWNER_ASK: &str = "owner_ask";
 /// The tools whose question still expires at its life: an `owner_ask` applies
-/// its default, and an extension's ack and a pack's promotion are declined.
+/// its default, and an extension's ack, a pack's promotion, a settings change's ack and a joined change's install ack are declined.
 /// A call's question, and a budget question, are held past it (theseus-v2dnc);
 /// the core's `held_past_life` and the clients' cards all read this one list
 /// (theseus-lrc3m); the cockpit's `heldquestion.ts` imports it as generated
 /// (`ts.rs` writes `protocol.gen/ExpiringTools.ts`), and keeps no copy.
-pub const EXPIRING_TOOLS: [&str; 3] = [OWNER_ASK, "extend.ack", "pack.promote"];
+pub const EXPIRING_TOOLS: [&str; 5] = [
+    OWNER_ASK,
+    "extend.ack",
+    "pack.promote",
+    "config.ack",
+    "self.install.ack",
+];
 
 /// Whether `tool`'s question is held until it is answered, never expired. A
 /// budget question holds too, and says so itself.

@@ -45,6 +45,7 @@ One line each; a crate's key modules and its readers are in its own `AGENTS.md`.
 - `theseus-tui`: The terminal UI: every session in a sidebar, what needs you answered inline, a session's history and input line. A protocol client.
 - `theseus-index`: The index tender (M6): a child of the daemon that follows the WAL read-only into BM25, exact entities, and vectors, and answers on `<state>/index/sock`. An installed binary of its own, beside `theseusd`.
 - `theseus-mcp`: The Model Context Protocol by hand: the client the core's MCP board reads (36b), a fake server, and Theseus's own server (feature `server`, wired at 41b).
+- `theseus-root-install`: A privileged helper beside the binaries: copies the four programs of one commit from a fixed staging directory into a root-owned directory, and does nothing else (issue 22; `docs/design/self-install.md`).
 - `theseus-follow`: The WAL follower: a store's log read from outside the process that writes it, from a cursor, woken by inotify.
 - `theseus-exam`: A tool beside the binaries: M6's memory exam, one scratch daemon per `[memory] arm`, and its report.
 - `theseus-sim`: A tool beside the binaries: the crash test, `kernel-sim`, the lifecycle bench and its history, fake Discord and model servers, and the Discord proof.

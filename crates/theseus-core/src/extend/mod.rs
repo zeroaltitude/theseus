@@ -319,7 +319,7 @@ impl Extensions {
         let _ = self.board.set(Arc::downgrade(board));
     }
 
-    fn board(&self) -> Option<Arc<McpBoard>> {
+    pub(crate) fn board(&self) -> Option<Arc<McpBoard>> {
         self.board.get().and_then(Weak::upgrade)
     }
 
@@ -913,6 +913,9 @@ pub fn confirm_request(
         .map(|p| p.args.clone())
         .unwrap_or_default();
     crate::rpc::offer(ConfirmRequest {
+        needs_proof: false,
+        needs_fresh_proof: false,
+        proof: None,
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),

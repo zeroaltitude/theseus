@@ -167,6 +167,44 @@ async fn an_agents_web_answer_to_a_money_question_is_refused_and_the_owners_bind
     assert!(a.confirm.is_some(), "the owner's yes bound the confirm");
 }
 
+/// A job's process is never the owner (issue 22). In these tests the test
+/// process is the daemon. A peer that is the daemon or under it (here its own
+/// pid, as `peer_proc`'s tests also walk a real child) has no agent host
+/// above it and the agent list is empty: the connection is still an agent's,
+/// named a job, on the CLI socket and on the web port (whose client end this
+/// process holds here), and the owner's own terminal still answers.
+#[tokio::test]
+async fn a_process_the_daemon_ran_answers_no_money_question_on_either_surface() {
+    let r = rig(vec![]);
+    let q = plant(&r.core, "aws.stack.apply");
+
+    let by_cli = surface("sock#9", Cli).with_pid(Some(std::process::id()));
+    let e = confirm(&r, by_cli, &q, true)
+        .await
+        .expect_err("a job's process does not answer a stack apply");
+    assert!(e.message.contains(WHY), "{}", e.message);
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.local_addr().unwrap();
+    let stream = std::net::TcpStream::connect(server).unwrap();
+    let (_accepted, _) = listener.accept().unwrap();
+    let by_web = surface("web#9", Web).with_web_ends(Some(server), stream.local_addr().unwrap());
+    confirm(&r, by_web, &q, false)
+        .await
+        .expect_err("nor through the web port");
+
+    let refused = ledgered(&r, "approval.refused");
+    assert_eq!(refused.len(), 2, "{refused:?}");
+    assert_eq!(refused[0]["by"], "agent:a job");
+    assert_eq!(refused[0]["via"], "cli");
+    assert_eq!(refused[1]["by"], "agent:a job");
+    assert_eq!(refused[1]["via"], "web");
+    still_waiting(&r, &q);
+
+    confirm(&r, owner(), &q, true).await.expect("the owner's");
+    assert_eq!(ledgered(&r, "action.confirm_answered").len(), 1);
+}
+
 /// An ordinary approval is an agent's to answer on the web as on the CLI,
 /// and the row says which agent (theseus-iie8e).
 #[tokio::test]
@@ -350,4 +388,30 @@ async fn confirm_list_says_an_agent_may_not_answer_a_money_question() {
         assert_eq!(asked.len(), 1, "{list}");
         assert_eq!(asked[0]["may_answer"], json!(may), "{list}");
     }
+}
+
+/// The card that installs what Theseus's own loop joined (issue 22) is the owner's own hand: an agent's process, on
+/// the CLI or the web socket, cannot approve it (the refusal is recorded and the question keeps waiting), and the
+/// owner's own terminal answers it.
+#[tokio::test]
+async fn an_agent_cannot_approve_the_card_that_installs_a_joined_change() {
+    let r = rig(vec![]);
+    let q = plant(&r.core, crate::rsi::join::root_install::ACK);
+    for who in [
+        agent("claude"),
+        agent(crate::peer_proc::NO_TERMINAL),
+        web_agent("codex"),
+    ] {
+        let e = confirm(&r, who, &q, true)
+            .await
+            .expect_err("an agent does not approve it");
+        assert!(e.message.contains("not the owner"), "{}", e.message);
+    }
+    assert_eq!(ledgered(&r, "approval.refused").len(), 3);
+    assert!(ledgered(&r, "action.confirm_answered").is_empty());
+    still_waiting(&r, &q);
+    confirm(&r, owner(), &q, true)
+        .await
+        .expect("the owner's own terminal");
+    assert_eq!(ledgered(&r, "action.confirm_answered").len(), 1);
 }

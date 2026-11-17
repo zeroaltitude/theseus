@@ -6,14 +6,14 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CircleCheck, OctagonX, Zap } from 'lucide-react'
+import { CircleCheck, OctagonX, ShieldCheck, Zap } from 'lucide-react'
 import type { ConfirmPreview, ConfirmRequest } from '@protocol'
 import { call } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
-import { answerParams, buttonsOf } from '@/lib/answers'
+import { answerParams, buttonsOf, needsCode, proofLine } from '@/lib/answers'
 import { deadlineOf, waitedLabel } from '@/lib/heldquestion'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
@@ -85,6 +85,9 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
   const now = past ?? tick
   const { busy, run } = useAct()
   const [note, setNote] = useState('')
+  // The code from the owner's authenticator app (issue 22): held in this card's memory alone, sent to the daemon with
+  // the answer, and forgotten once it is sent.
+  const [code, setCode] = useState('')
   // A call's question is held, not expiring: it says how long it has waited, never a deadline (theseus-lrc3m).
   const deadline = deadlineOf(c)
   const waited = waitedLabel(c, now)
@@ -92,7 +95,12 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
   const span = deadline && c.requested_at_ms ? deadline - c.requested_at_ms : 0
   const budget = c.budget
   const buttons = buttonsOf(c)
-  const answer = (option: string) => run(option, 'work.answer', answerParams(c, option, note))
+  const answer = async (option: string) => {
+    const ok = await run(option, 'work.answer', answerParams(c, option, note, code))
+    setCode('')
+    return ok
+  }
+  const proof = proofLine(c)
   // The card leads with its decision (theseus-hnof.5): what pressing the first button does, in the daemon's own words.
   // It was the fourth line, after the tool, the policy's sentence and the path.
   const d = budget || c.change ? null : decisionWords(c.tool, c.input, c.reason)
@@ -136,6 +144,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             </div>
           )}
           {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
+          {proof && <div className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-wait"><ShieldCheck size={13} />{proof}</div>}
           {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {buttons.map((b) => (
               <Btn key={b.id} tone={b.tone} busy={busy === b.id} title={b.title} onClick={() => answer(b.id)}>
@@ -143,6 +152,8 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
               </Btn>
             ))}
             {buttons.length === 0 && <span className="text-[11.5px] text-wait">this connection may not answer it: answer from the CLI (theseus answer {short(c.correlation_id)}), or a private place</span>}
+            {needsCode(c) && <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="code from your authenticator app" inputMode="numeric" autoComplete="off" maxLength={7} aria-label="second proof code"
+              className="num w-48 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />}
             {buttons.some((b) => b.takesNote) && <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional; the model sees it on a decline)"
               className="min-w-40 flex-1 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />}
             <span className="text-[11px] text-ink-faint">by {c.by}</span>

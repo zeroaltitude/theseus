@@ -27,6 +27,7 @@
 //!
 //! Each start, ready, exit, failure, and change is a fact (`fact::mcp`).
 
+pub mod attached;
 pub mod ext;
 pub mod l1;
 pub mod prompts;
@@ -441,6 +442,8 @@ impl Server {
             } else {
                 self.unknown_read(&l.tools)
             },
+            attached_by: None,
+            attached_at_ms: None,
         }
     }
 }
@@ -502,6 +505,11 @@ pub struct McpBoard {
     /// Loaded extensions (43b, `ext.rs`), `ext-<name>`: offered as the
     /// configured servers are, loaded and revoked while the daemon runs.
     extensions: Mutex<BTreeMap<String, ext::Loaded>>,
+    /// Who attached which server by asking (`attached.rs`).
+    attached: Mutex<attached::AttachedSet>,
+    /// The lists the trials of servers asked for found, kept until the owner
+    /// answers (`attached.rs`).
+    listed: Mutex<BTreeMap<String, StoredList>>,
 }
 
 impl McpBoard {
@@ -531,6 +539,8 @@ impl McpBoard {
             started: Default::default(),
             trials: Mutex::default(),
             extensions: Mutex::default(),
+            attached: Mutex::default(),
+            listed: Mutex::default(),
         });
         board.rebuild();
         board
@@ -562,7 +572,11 @@ impl McpBoard {
             .cloned()
             .chain(self.loaded_servers())
             .chain(trials.values().cloned())
-            .map(|s| s.status())
+            .map(|s| {
+                let mut status = s.status();
+                self.mark_attached(&mut status);
+                status
+            })
             .collect()
     }
 

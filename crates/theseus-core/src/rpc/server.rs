@@ -348,6 +348,11 @@ impl Core {
             method::CONTENT_UNLABEL => route(params, |p| self.content_unlabel(p, conn)),
             method::PLACE_PUBLISH => route(params, |p| self.place_publish(p, conn)),
             method::TASK_START => route(params, |p| self.task_start_rpc(p, conn)),
+            m @ (method::OWNER_PROOF_ENROLL
+            | method::OWNER_PROOF_CONFIRM
+            | method::OWNER_PROOF_STATUS
+            | method::OWNER_PROOF_RESET
+            | method::OWNER_PROOF_LOCK) => self.rpc_owner_proof(m, params, conn),
             method::HANDS_LIST => route(params, |p| self.rpc_hands_list(&p)),
             method::BUDGET_LIST | method::POLICY_EXPLAIN => self.rpc_reads(&req.method, params),
             method::ONTOLOGY_LIST

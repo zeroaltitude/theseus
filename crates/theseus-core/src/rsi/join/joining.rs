@@ -65,7 +65,21 @@ impl Run<'_> {
         let Some(merge) = done? else {
             return Ok(false);
         };
-        if self.core.cfg.self_improve.install && self.phase("install") {
+        // A root-owned layout is the helper's (issue 22): a card for `"ask"`, none for `"auto"`. Any other layout
+        // installs only on the owner's standing word, as before.
+        let standing = self.core.cfg.self_improve.install.standing_ok();
+        if self.core.root_install_applies().await && self.phase("install") {
+            let (core, place) = (self.core.clone(), self.place.clone());
+            let (branch, item) = (self.b.branch.clone(), self.b.item.clone());
+            if !core
+                .root_install_after_join(&place, &merge, &branch, &item)
+                .await
+                && standing
+            {
+                // No helper: the loop's own install, which says the one step (issue 20).
+                self.install(merge).await;
+            }
+        } else if standing && self.phase("install") {
             self.install(merge).await;
         }
         Ok(true)

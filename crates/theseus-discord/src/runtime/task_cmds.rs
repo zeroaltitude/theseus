@@ -282,6 +282,12 @@ impl Shared {
                 true
             }
             Some(InteractionData::ModalSubmit(m))
+                if m.custom_id.starts_with(super::proof_form::MODAL) =>
+            {
+                self.proof_form_submit(i, m, &who).await;
+                true
+            }
+            Some(InteractionData::ModalSubmit(m))
                 if m.custom_id.starts_with(crate::render::answer_v2::MODAL) =>
             {
                 self.answer_modal(i, m, &who).await;

@@ -50,6 +50,8 @@ zeroize.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 sha2 = "0.10"
 hmac = "0.12"
+# The owner proof's code (RFC 6238 is HMAC-SHA1; in the lock already, under other crates).
+sha1 = "0.10"
 hkdf = "0.12"
 hex = "0.4"
 # A rename's diff (L2), as text.diff makes one.

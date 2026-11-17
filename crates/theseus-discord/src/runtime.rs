@@ -107,6 +107,7 @@ mod answer_cmd;
 mod follow;
 pub(crate) mod horizon;
 mod horizon_cmds;
+mod proof_form;
 pub(crate) mod start_task;
 mod steer;
 mod succession;
@@ -1312,6 +1313,11 @@ impl Shared {
                 let Some(Press { approve, corr }) = parse_confirm_id(&c.custom_id) else {
                     return;
                 };
+                // A question that needs the owner's second proof opens its form
+                // instead of answering: the code is typed there, never in a message.
+                if approve && self.proof_form(&i, &corr, discord.clone()).await {
+                    return;
+                }
                 // Acknowledge now (Discord allows three seconds), answer the kernel, then settle the message.
                 self.respond(
                     &i,
@@ -1332,6 +1338,7 @@ impl Shared {
                             author: Some(who.clone()),
                             discord,
                             grant: grant::answer_of(&self.core, &c.custom_id, &corr),
+                            code: None,
                         },
                     )
                     .await;

@@ -36,4 +36,12 @@ asked_at_ms: number,
 /**
  * An `ask`'s own choices, in order.
  */
-choices?: Array<string>, };
+choices?: Array<string>, 
+/**
+ * The asker marked it as needing the owner's second proof (issue 22).
+ */
+needs_proof?: boolean, 
+/**
+ * And a proof given earlier never covers it.
+ */
+needs_fresh_proof?: boolean, };

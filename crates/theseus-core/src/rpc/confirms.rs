@@ -43,6 +43,13 @@ pub(crate) fn expired_answer(a: &Action) -> Option<(ResultStatus, String)> {
 pub struct Rides<'a> {
     pub extra: &'a [theseus_store::NewRecord],
     pub ask: Option<(&'a str, theseus_store::NewRecord)>,
+    /// The owner's second proof, a code from their authenticator app, for a
+    /// question that asks for one (issue 22). Checked by `proof_gate`; never
+    /// stored or echoed.
+    pub code: Option<&'a theseus_protocol::owner_proof::ProofCode>,
+    /// The answer was typed or spoken as words: it can carry no proof and is
+    /// covered by no window (`proof_gate`).
+    pub typed: bool,
 }
 
 impl Core {
@@ -51,6 +58,18 @@ impl Core {
     /// shows its node's input and the policy's reason; None if its node is not
     /// in `nodes`.
     pub(crate) fn confirm_request(
+        &self,
+        a: &Action,
+        session: &SessionRecord,
+        nodes: &[(u64, Node)],
+    ) -> Option<ConfirmRequest> {
+        self.confirm_request_plain(a, session, nodes)
+            .map(|r| self.with_proof_marks(r))
+    }
+
+    /// `confirm_request` before the owner's second proof's marks are read
+    /// onto it (issue 22).
+    fn confirm_request_plain(
         &self,
         a: &Action,
         session: &SessionRecord,
@@ -67,6 +86,16 @@ impl Core {
             let ttl = self.kernel.config().confirm_ttl_ms;
             return Some(super::packs::promotion_request(a, session, ttl));
         }
+        if a.tool == crate::config_change::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::config_change::confirm_request(a, session, ttl));
+        }
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let ttl = self.kernel.config().confirm_ttl_ms;
+            return Some(crate::rsi::join::root_install::confirm_request(
+                a, session, ttl,
+            ));
+        }
         let (tool, input, gate, turn_id) = nodes.iter().find_map(|(_, n)| match &n.body {
             Body::ToolCall {
                 tool,
@@ -82,6 +111,9 @@ impl Core {
             .and_then(|g| g.decision.clone())
             .unwrap_or_default();
         let mut req = super::answer::offer(ConfirmRequest {
+            needs_proof: false,
+            needs_fresh_proof: false,
+            proof: None,
             correlation_id: a.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: a.execution_id.clone(),
@@ -119,6 +151,9 @@ impl Core {
         let b = &e.budget;
         let needed = usd(b.question_needs_micros);
         Some(super::answer::offer(ConfirmRequest {
+            needs_proof: false,
+            needs_fresh_proof: false,
+            proof: None,
             correlation_id: q.correlation_id.clone(),
             session_id: session.session_id.clone(),
             execution_id: e.id.clone(),
@@ -177,7 +212,11 @@ impl Core {
         if q.tool == BUDGET_TOOL {
             return Ok(self.budget_confirm(q, &rec));
         }
-        if q.tool == crate::extend::ACK || q.tool == super::packs::PROMOTE {
+        if q.tool == crate::extend::ACK
+            || q.tool == super::packs::PROMOTE
+            || q.tool == crate::config_change::ACK
+            || q.tool == crate::rsi::join::root_install::ACK
+        {
             return Ok(self.confirm_request(q, &rec, &[]));
         }
         let Some(id) = node_id else {
@@ -284,6 +323,8 @@ impl Core {
                 a.tool != BUDGET_TOOL
                     && a.tool != crate::extend::ACK
                     && a.tool != super::packs::PROMOTE
+                    && a.tool != crate::config_change::ACK
+                    && a.tool != crate::rsi::join::root_install::ACK
             }) {
                 self.store.session_nodes(&rec.session_id)?
             } else {
@@ -334,7 +375,12 @@ impl Core {
         by: impl Into<Answerer>,
         rides: Rides<'_>,
     ) -> Result<theseus_protocol::ActionConfirmResult> {
-        let Rides { extra, ask } = rides;
+        let Rides {
+            extra,
+            ask,
+            code,
+            typed,
+        } = rides;
         let who = by.into();
         let a = self
             .kernel
@@ -347,12 +393,20 @@ impl Core {
                 approve,
             },
         )?;
+        // An MCP server's card is the owner's in person (issue 22).
+        self.judge_mcp_card(&who, &a, approve)?;
         let by = who.label.as_str();
         if a.state != theseus_kernel::ActionState::Planned {
             anyhow::bail!(
                 "action {correlation_id} is {}, not waiting for confirmation",
                 a.state.as_str()
             );
+        }
+        // The owner's second proof (issue 22): a question the asker marked
+        // is approved on a good code or an open window of this place, and on
+        // no other footing. A decline tightens and is never gated.
+        if approve {
+            self.proof_gate(&a, &who, code, typed)?;
         }
         let via = who.via();
         if a.tool == BUDGET_TOOL {
@@ -382,6 +436,62 @@ impl Core {
         // nothing wakes.
         if a.tool == super::packs::PROMOTE {
             return self.answer_promotion(&a, approve, note, by, &via);
+        }
+        // A proposed change to Theseus's settings (issue 22): the daemon
+        // writes the file, or nothing; nothing wakes.
+        if a.tool == crate::config_change::ACK {
+            // An agent's process on the CLI or the web socket is not the owner at
+            // a card: only the owner's own hand changes Theseus's settings.
+            if approve && who.agent.is_some() {
+                let r = Refusal {
+                    who: who.who(),
+                    via: who.via(),
+                    why: "this changes Theseus's own settings, so only the owner answers it: \
+                          press it in the DM, or answer from your own terminal"
+                        .to_string(),
+                };
+                self.refused(
+                    Act::Answer {
+                        action: &a,
+                        approve,
+                    },
+                    &who,
+                    &r,
+                )?;
+                return Err(r.into());
+            }
+            let answer = match approve {
+                true => crate::config_change::answer::Answer::Yes,
+                false => crate::config_change::answer::Answer::No(note),
+            };
+            let done = self.answer_config_change(&a, answer, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
+        }
+        // A joined change the owner is asked to install (issue 22): the helper
+        // and the restart run off this path; nothing wakes.
+        if a.tool == crate::rsi::join::root_install::ACK {
+            // An agent's process on the CLI or the web socket is not the owner at this card: only the owner's own
+            // hand installs a change into what Theseus runs.
+            if approve && who.agent.is_some() {
+                let r = Refusal {
+                    who: who.who(),
+                    via: who.via(),
+                    why: crate::rsi::join::root_install::AGENT_REFUSAL.to_string(),
+                };
+                self.refused(
+                    Act::Answer {
+                        action: &a,
+                        approve,
+                    },
+                    &who,
+                    &r,
+                )?;
+                return Err(r.into());
+            }
+            let done = self.answer_root_install(&a, approve, note, by, &via)?;
+            self.admission.notify_waiters();
+            return Ok(done);
         }
         // The answer is one frame, a kernel transaction (theseus-jj9f): the
         // bind or the decline, the answer's row, and the wake. So no surface
@@ -587,6 +697,17 @@ impl Core {
         if a.tool == super::packs::PROMOTE {
             let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
             self.answer_promotion(a, false, Some(&why), EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
+        if a.tool == crate::config_change::ACK {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            let answer = crate::config_change::answer::Answer::Expired(&why);
+            self.answer_config_change(a, answer, EXPIRY, EXPIRY)?;
+            return Ok(());
+        }
+        if a.tool == crate::rsi::join::root_install::ACK {
+            let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
+            self.answer_root_install(a, false, Some(&why), EXPIRY, EXPIRY)?;
             return Ok(());
         }
         let why = format!("nobody answered within {}", fact::answer::within(ttl_ms));
@@ -1071,6 +1192,11 @@ pub(crate) enum Act<'a> {
     /// `what` names it: `Letting the held call hld_… run as it was first
     /// proposed`.
     UndoAllow { what: &'a str },
+    /// The owner's read of the history of changes to Theseus's own settings
+    /// (issue 22, `config.history`): the kept copies hold every setting and
+    /// the name of every secret among them, so only the owner, from a private
+    /// place, reads it. `what` names it.
+    Settings { what: &'a str },
     /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
     /// every recall, writes notes into sessions, and posts a card, so a job's process
     /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
@@ -1107,6 +1233,7 @@ impl Act<'_> {
             Act::Task { .. } => theseus_protocol::method::TASK_START,
             Act::Stop { .. } => theseus_protocol::method::JOB_STOP,
             Act::UndoAllow { .. } => theseus_protocol::method::UNDO_ALLOW,
+            Act::Settings { .. } => theseus_protocol::method::CONFIG_HISTORY,
         }
     }
 }

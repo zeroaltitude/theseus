@@ -68,6 +68,7 @@ mod moved;
 pub mod planted;
 pub mod review;
 mod reviewing;
+pub mod root_install;
 pub mod scratch;
 mod sealing;
 mod tender;
