@@ -4,9 +4,10 @@
 //! The owner names a server in a private place: a command to run, or an
 //! address. `mcp.attach` then, in this order:
 //!
-//! 1. refuses unless the caller is the owner (`wall.rs`) and the second proof
-//!    is built in (`proof_seam.rs`): attaching can give a server secrets and
-//!    a network, so it is a sensitive change. Nothing has started by then;
+//! 1. refuses unless the caller is the owner (`wall.rs`). Attaching can give a
+//!    server secrets and a network, so its card is always marked as needing
+//!    the second proof (`proof_seam.rs`): a code, or an open window of the
+//!    same place. Nothing has started by then;
 //! 2. **tries the server once**, in the sandbox (L1, whatever the owner asked
 //!    for it to run in), with no secret and no network beyond the hosts asked
 //!    for, and lists its tools. A server over HTTP is asked for its list
@@ -428,14 +429,6 @@ pub(crate) fn is_card_of(tool: &str, input: &Value) -> bool {
     tool == ACK && input.get("mcp").is_some()
 }
 
-/// The refusal while the second proof is not built in.
-fn needs_proof(what: &str) -> String {
-    format!(
-        "{}: {what} is a change to what Theseus runs and reaches",
-        proof_seam::NOT_INSTALLED
-    )
-}
-
 /// Who asked, as the answer's ledger row records it.
 fn asked_by(tc: &TurnCtx<'_>) -> Value {
     json!({
@@ -550,7 +543,7 @@ fn put(
          with the second proof; the daemon then writes the settings itself. If they decline, or \
          do not answer in time, nothing is written."
     );
-    super::ask(tc, proposal, correlation_id, &said)?;
+    super::ask(tc, proposal, correlation_id, &said, proof_seam::Needs::Proof)?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -585,10 +578,6 @@ pub async fn attach(
     }
     let i: AttachInput = parse(input)?;
     let spec = Spec::of(&i)?;
-    // Nothing is started, and nothing is reached, until this is built in.
-    if !proof_seam::installed() {
-        return Err(needs_proof(&format!("attaching {}", spec.name)));
-    }
     let g = ground(rt)?;
     if g.config.mcp.servers.contains_key(&spec.name) || g.board.has_server(&spec.name) {
         return Err(format!(
@@ -689,9 +678,6 @@ pub fn detach(
         return Ok(done);
     }
     let i: DetachInput = parse(input)?;
-    if !proof_seam::installed() {
-        return Err(needs_proof(&format!("removing {}", i.name)));
-    }
     let g = ground(rt)?;
     let Some(server) = g.config.mcp.servers.get(&i.name).cloned() else {
         return Err(format!(

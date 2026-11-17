@@ -47,19 +47,17 @@ impl Core {
         }
     }
 
-    /// Whether the second proof is given for `a` answered `via`: the seam's own answer (a test says otherwise).
-    pub(crate) fn root_proof_given(&self, a: Option<&Action>, via: &str) -> bool {
-        if let Some(given) = self.tools.root_install.proof() {
-            return given;
-        }
-        match a {
-            // Every variant by name, as `config_change::answer` does: the proof's wiring adds variants, and each must
-            // be decided here, never let through by a match that names only the one that refuses.
-            Some(a) => match proof_seam::required_and_given(a, via) {
-                proof_seam::Proof::NotInstalled => false,
-            },
-            None => proof_seam::installed(),
-        }
+    /// Whether an authenticator app is paired: without one no card is made (the owner could not answer it), and no
+    /// build is spent on it.
+    pub(crate) fn root_proof_enrolled(&self) -> bool {
+        let status = self.proofs.status();
+        status.enrolled && !status.unavailable
+    }
+
+    /// Whether the card `a` was asked with the second proof (the daemon's own mark, staged in the frame that
+    /// asked it): the wall behind the gate, for a card that was made without one.
+    pub(crate) fn root_card_marked(&self, a: &Action) -> bool {
+        crate::owner_proof::marked(&self.store, &a.correlation_id).is_some()
     }
 
     /// Whether the service runs a root-owned build and `[self] install` is not `"off"`: whether a join is this
@@ -103,8 +101,9 @@ impl Core {
             self.root_no_helper(mode, merge, what, &why);
             return false;
         }
-        if mode.asks() && !self.root_proof_given(None, "") {
-            // The card would be refused when answered, so it is not made, and no build is spent on it.
+        if mode.asks() && !self.root_proof_enrolled() {
+            // No authenticator app is paired: the card could not be answered, so it is not made, and no build is
+            // spent on it.
             self.root_no_proof(merge, what);
             return true;
         }
@@ -178,19 +177,19 @@ impl Core {
         }
     }
 
-    /// No card while the second proof is not built in.
+    /// No card while no authenticator app is paired.
     fn root_no_proof(&self, merge: &str, what: &str) {
-        let why = proof_seam::NOT_INSTALLED;
         self.root_row(
             "refused",
             merge,
-            "no card: the install needs the second proof",
-            why,
+            "no card: the install needs the second proof, and no authenticator app is paired",
+            "",
             Value::Null,
         );
         self.root_tell(format!(
             "Theseus joined a change to main ({what}, {c8}) and would install it with the administrator's helper, \
-             which needs your second proof; {why}, so it did not ask. It is joined and not installed: the step is in \
+             which needs your second proof, and no authenticator app is paired yet, so it did not ask. To pair one, \
+             run `theseus owner proof enroll` in your own terminal. It is joined and not installed: the step is in \
              docs/setup.md, \"A root-owned install\".",
             c8 = short(merge)
         ));
@@ -249,7 +248,13 @@ impl Core {
             &proposal,
             RetryClass::NonRepeatable,
             None,
-            |_| Ok(vec![]),
+            // Asked with the owner's second proof: the daemon's own mark, in the frame that asks.
+            |a| {
+                Ok(proof_seam::Needs::Proof
+                    .mark(&a.correlation_id)?
+                    .into_iter()
+                    .collect())
+            },
         );
         let ended = self
             .kernel
@@ -262,7 +267,10 @@ impl Core {
             .fetch_min(a.planned_at_ms + ttl, SeqCst);
         self.session_rec(&rec.session_id)
             .record(&crate::fact::tool::CallAsked {
-                request: &confirm_request(&a, &rec, ttl),
+                request: &ConfirmRequest {
+                    needs_proof: true,
+                    ..confirm_request(&a, &rec, ttl)
+                },
             });
         self.root_row(
             "asked",
@@ -317,6 +325,10 @@ pub fn confirm_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Conf
         preview: None,
         grant_offer: None,
         plain: None,
+        // `confirm.list` reads the proof's marks onto it; the card asked says it in `ask_root_install`.
+        needs_proof: false,
+        needs_fresh_proof: false,
+        proof: None,
     })
 }
 

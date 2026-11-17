@@ -1,83 +1,81 @@
-//! The seam for the second proof (issue 22, line 1 step 6).
+//! Where a card of issue 22 meets the owner's second proof.
 //!
-//! A change to a sensitive setting is never made on the card's yes alone: it
-//! also needs a second proof, a code from the owner's authenticator app,
-//! built on its own branch (`owner_proof`). Until that module is on main,
-//! this is the one function the change path asks, and it answers "not
-//! installed", so such a change is refused before a card is made, and again
-//! on a yes (`answer.rs`), whatever else happened. The later commit that wires
-//! the proof in replaces the body of [`required_and_given`] with a call to
-//! `owner_proof::required_and_given`, and nothing else here moves.
+//! A change to a sensitive setting, an undo of one, an MCP server attached or
+//! removed, and the install of a joined change are never made on the card's
+//! yes alone: each asks for a code from the owner's authenticator app too
+//! (`owner_proof`). The card is **marked** by the daemon's own record, staged
+//! in the frame that asks it ([`Needs::mark`]); the one place an answer
+//! becomes a decision (`rpc::proof_gate`) then approves a marked question only
+//! on a good code or an open window of the answer's own place. The daemon's
+//! write asks once more at the yes ([`at_yes`]): the question must carry the
+//! mark its settings call for, so a card asked without one is never written.
+//!
+//! An ordinary change needs the card alone. A change to who the owner is, to
+//! the proof itself, or turning `[self] install` to `"auto"` is marked fresh:
+//! a code typed for that change, covered by no window.
 
-use theseus_kernel::Action;
+use theseus_store::NewRecord;
 
-/// What the second proof is, for a question and its answer.
+use super::diff::Setting;
+use crate::store::Store;
+
+/// What a card asks of the owner besides the card itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Proof {
-    /// The proof is not built into this daemon: a sensitive change is refused.
-    NotInstalled,
-    /// Required, and a good proof came with the answer. Only a build with the
-    /// proof in returns it (a test pretends, `pretend`).
-    Given,
+pub enum Needs {
+    /// An ordinary change: the card's yes.
+    Card,
+    /// A sensitive change: a code, or an open window of the same place.
+    Proof,
+    /// A code typed for this change alone, whatever window is open.
+    Fresh,
 }
 
-/// The words a refused sensitive change says.
-pub const NOT_INSTALLED: &str = "this setting needs the second proof, which is not installed yet";
-
-/// Whether the second proof is required for `question` and what was given
-/// with its answer `via`. Until the proof is installed: not installed.
-pub fn required_and_given(_question: &Action, _via: &str) -> Proof {
-    #[cfg(test)]
-    if pretending() {
-        return Proof::Given;
+impl Needs {
+    /// What a change of `settings` asks: `sensitive` when it reached a
+    /// sensitive setting, or is one of the kinds that always are (an MCP
+    /// server's card, the install card).
+    pub fn of(sensitive: bool, settings: &[Setting]) -> Self {
+        match (needs_fresh(settings), sensitive) {
+            (true, _) => Self::Fresh,
+            (false, true) => Self::Proof,
+            (false, false) => Self::Card,
+        }
     }
-    Proof::NotInstalled
+
+    /// The record that marks the question `correlation_id`, to be staged in
+    /// the frame that asks it. None for a card that asks for no proof.
+    pub fn mark(self, correlation_id: &str) -> anyhow::Result<Option<NewRecord>> {
+        match self {
+            Self::Card => Ok(None),
+            Self::Proof => crate::owner_proof::mark(correlation_id, false).map(Some),
+            Self::Fresh => crate::owner_proof::mark(correlation_id, true).map(Some),
+        }
+    }
+}
+
+/// The words of a yes that reaches the write on a question the proof never saw.
+pub const NOT_ASKED: &str = "this change needs the owner's second proof, and the card was not asked \
+     with it, so nothing was written: ask for the change again";
+
+/// The daemon's write, before it writes: the question must carry the mark
+/// `needs` calls for. The code itself was judged where the answer became a
+/// decision; this is the wall behind it, for a card that was made without a
+/// mark.
+pub fn at_yes(store: &Store, correlation_id: &str, needs: Needs) -> Result<(), String> {
+    match (needs, crate::owner_proof::marked(store, correlation_id)) {
+        (Needs::Card, _) | (Needs::Proof, Some(_)) | (Needs::Fresh, Some(true)) => Ok(()),
+        _ => Err(NOT_ASKED.into()),
+    }
 }
 
 /// Whether any setting of a change needs a fresh code, one typed for that
 /// change alone and covered by no open window (`config::sensitivity::
-/// needs_fresh_proof`; today `[self] install` becoming `"auto"`). Read from
-/// the settings that really change, as the sensitive check is. The wiring
-/// passes it to `owner_proof::mark(correlation_id, fresh)` where the card is
-/// asked, and again where a yes is judged.
-pub fn needs_fresh(settings: &[super::diff::Setting]) -> bool {
+/// needs_fresh_proof`). Read from the settings that really change, as the
+/// sensitive check is.
+pub fn needs_fresh(settings: &[Setting]) -> bool {
     settings
         .iter()
         .any(|s| crate::config::sensitivity::needs_fresh_proof(&s.path, s.after.as_ref()))
-}
-
-/// Whether a sensitive change may go to the owner at all: not while the
-/// proof is not installed.
-pub fn installed() -> bool {
-    #[cfg(test)]
-    if pretending() {
-        return true;
-    }
-    false
-}
-
-#[cfg(test)]
-thread_local! {
-    static PRETEND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-#[cfg(test)]
-fn pretending() -> bool {
-    PRETEND.with(std::cell::Cell::get)
-}
-
-/// A test that follows a sensitive change past the proof: on this thread, the
-/// proof is built in and was given, until the guard drops.
-#[cfg(test)]
-pub(crate) fn pretend() -> impl Drop {
-    struct Guard;
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            PRETEND.with(|p| p.set(false));
-        }
-    }
-    PRETEND.with(|p| p.set(true));
-    Guard
 }
 
 #[cfg(test)]
@@ -111,5 +109,26 @@ mod tests {
             "[self]\ninstall = \"off\"\n"
         )));
         assert!(!needs_fresh(&between("", "[self]\nmode = \"on\"\n")));
+    }
+
+    #[test]
+    fn who_the_owner_is_and_the_proof_itself_need_a_fresh_proof() {
+        for after in [
+            "[places]\nowner = [\"discord:1\"]\n",
+            "[server]\nbindings_file = \"elsewhere.toml\"\n",
+            "[owner_proof]\nwindow_hours = 0\n",
+        ] {
+            assert_eq!(
+                Needs::of(true, &between("", after)),
+                Needs::Fresh,
+                "{after}"
+            );
+        }
+        let sensitive_only = between("", "[sandbox]\negress = [\"a.example:443\"]\n");
+        assert_eq!(Needs::of(true, &sensitive_only), Needs::Proof);
+        assert_eq!(
+            Needs::of(false, &between("", "[import.notes]\nenabled = false\n")),
+            Needs::Card
+        );
     }
 }

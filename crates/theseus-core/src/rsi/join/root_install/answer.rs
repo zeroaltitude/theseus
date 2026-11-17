@@ -1,8 +1,9 @@
 //! The owner's answer to "Install the change Theseus joined": `action.confirm` on its `self.install.ack` question,
 //! judged by the place rule before it gets here, and refused to an agent's process (in `rpc/confirms.rs`'s dispatch).
 //!
-//! A yes is the second proof's to give (`config_change::proof_seam`); until it is built in, a yes settles as declined,
-//! with the seam's words. Else the install runs, as a task, off the answer's path: the answer settles at once (one
+//! A yes is the second proof's to give: the card is marked as asking for it (`config_change::proof_seam`), and the
+//! gate where the answer becomes a decision approves it only on a good code or an open window of the answer's own
+//! place; a card asked without the mark settles as declined. Else the install runs, as a task, off the answer's path: the answer settles at once (one
 //! frame: the bind or the decline, the answer's row, the ledger row), and the run's steps are ledger rows of their own.
 
 use std::path::{Path, PathBuf};
@@ -79,12 +80,12 @@ pub(super) fn restart_script(
 }
 
 impl Core {
-    /// Whether a yes is let stand: the second proof is given, and the card names a commit that is not already being
+    /// Whether a yes is let stand: the card was asked with the second proof, and the card names a commit that is not already being
     /// installed. Else it settles as a decline, with the reason.
-    fn root_yes_stands(&self, a: &Action, merge: &str, via: &str) -> Result<(), String> {
-        if !self.root_proof_given(Some(a), via) {
-            // The card is not made while the proof is not built in; a yes that arrives anyway is refused.
-            return Err(proof_seam::NOT_INSTALLED.to_string());
+    fn root_yes_stands(&self, a: &Action, merge: &str) -> Result<(), String> {
+        // The code was judged where the answer became a decision; a card asked without the mark is never installed.
+        if !self.root_card_marked(a) {
+            return Err(proof_seam::NOT_ASKED.to_string());
         }
         if !is_commit(merge) || self.root_install_pending_for(merge) {
             return Err(
@@ -184,7 +185,7 @@ impl Core {
             .unwrap_or_default();
         let text = |k: &str| args[k].as_str().unwrap_or_default().to_string();
         let merge = text("merge");
-        let (approve, note) = match (approve, self.root_yes_stands(a, &merge, via)) {
+        let (approve, note) = match (approve, self.root_yes_stands(a, &merge)) {
             (true, Err(why)) => (false, Some(why)),
             (_, _) => (approve, note.map(str::to_string)),
         };

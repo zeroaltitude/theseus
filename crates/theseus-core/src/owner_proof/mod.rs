@@ -27,6 +27,9 @@ pub use proofs::{EnrolError, Offer, Proofs, Refused, Status, MAX_WINDOW_HOURS};
 pub use windows::{Answer, Proof};
 
 #[cfg(test)]
+pub(crate) mod stand_in;
+
+#[cfg(test)]
 mod tests_floor;
 
 #[cfg(test)]

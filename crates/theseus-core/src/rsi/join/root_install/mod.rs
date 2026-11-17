@@ -10,8 +10,8 @@
 //! 1. **After a join** ([`offer`]): on a rooted layout, with `[self] install` not `"off"` and the helper there, the
 //!    change the loop just joined is built (in L1, as every install builds) and, for `"ask"`, put to the owner on a
 //!    card: "Install the change Theseus joined: <title>, <commit8>?". It is sensitive, so it goes through the same
-//!    seam as `config.propose` for the second proof (`config_change::proof_seam`): until the proof is wired, no card
-//!    is made and the owner is told why. `"auto"` makes no card.
+//!    mark as `config.propose` for the second proof (`config_change::proof_seam`): with no authenticator app paired, no
+//!    card is made and the owner is told how to pair one. `"auto"` makes no card (turning it on needed a fresh code).
 //! 2. **On the yes** ([`answer`]): the commit must be one the loop's own `self.joined` row names and main's head on
 //!    the remote at that moment. The programs are staged, the helper runs through `sudo -n`, the user unit's program
 //!    is pointed at the new directory, a marker is kept, and a transient unit restarts the service and **waits for the
@@ -138,14 +138,11 @@ pub struct Pending {
     pub why: Option<String>,
 }
 
-/// The seams a test replaces: the machine's own helper, unit, build and second proof otherwise.
+/// The seams a test replaces: the machine's own helper, unit and build otherwise.
 #[derive(Clone)]
 pub struct Seams {
     pub helper: Arc<dyn Helper>,
     pub units: Arc<dyn Units>,
-    /// The second proof as a test says it is (`Some(true)`: given). Unset: the seam's own answer, which until the
-    /// proof is built in is "not installed".
-    pub proof: Option<bool>,
     /// The build of a joined merge in L1: the machine's own, a stand-in in a test's.
     pub build: Arc<super::install::Build>,
 }
@@ -155,7 +152,6 @@ impl Default for Seams {
         Self {
             helper: Arc::new(Sudo::default()),
             units: Arc::new(UserUnit),
-            proof: None,
             build: Arc::new(super::install::build),
         }
     }
@@ -200,10 +196,6 @@ impl Board {
 
     pub fn build(&self) -> Arc<super::install::Build> {
         self.seams().build.clone()
-    }
-
-    pub fn proof(&self) -> Option<bool> {
-        self.seams().proof
     }
 
     /// A test's stand-ins, in place of the machine's.

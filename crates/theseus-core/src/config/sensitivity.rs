@@ -24,7 +24,7 @@
 //! index, or a renamed key reaches the same keys, and each is classified.
 
 /// A top-level table every key of which is sensitive, and why.
-pub const SENSITIVE_TABLES: [(&str, &str); 14] = [
+pub const SENSITIVE_TABLES: [(&str, &str); 15] = [
     ("policy", "what needs approval"),
     ("secrets", "where secrets come from"),
     ("sandbox", "the sandbox and the hosts it allows"),
@@ -42,6 +42,7 @@ pub const SENSITIVE_TABLES: [(&str, &str); 14] = [
     ("content_based_security", "how outside text is handled"),
     ("judge", "the judge that checks risky acts, and its spend"),
     ("privacy", "which models and paths may see private text"),
+    ("owner_proof", "the second proof itself: how long a code covers"),
 ];
 
 /// A top-level table that is ordinary, apart from its keys that
@@ -223,17 +224,27 @@ pub fn is_sensitive(path: &[String]) -> bool {
 }
 
 /// Whether a change of `path` to `after` needs a code typed for it alone,
-/// whatever window is open (`needs_fresh_proof`): a setting that widens what
-/// Theseus may do to the machine without asking again. One today, `[self]
-/// install` becoming `"auto"`: it installs every joined change on a root-owned
-/// layout with no card. The older `true` is not it (it never installs into a
-/// root-owned directory by itself), and a removal reads as the default,
-/// `"ask"`, which is not widening.
+/// whatever window is open (`needs_fresh_proof`): a setting that decides who
+/// the owner is or what the second proof is, or that widens what Theseus may
+/// do to the machine without asking again.
+///
+/// - who the owner is: `[places] owner` and the bindings file's path (the
+///   file names the person of each DM);
+/// - the second proof itself: any key of `[owner_proof]`;
+/// - `[self] install` becoming `"auto"`: it installs every joined change on a
+///   root-owned layout with no card. The older `true` is not it (it never
+///   installs into a root-owned directory by itself), and a removal reads as
+///   the default, `"ask"`, which is not widening.
+///
+/// Each of the first two is fresh whatever it becomes, a removal included.
 pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> bool {
-    path.len() == 2
-        && path[0] == "self"
-        && path[1] == "install"
-        && after.is_some_and(|v| v.as_str() == Some("auto"))
+    let at = |p: &[&str]| path.len() >= p.len() && path.iter().zip(p).all(|(a, b)| a == b);
+    at(&["places", "owner"])
+        || at(&["server", "bindings_file"])
+        || at(&["owner_proof"])
+        || (at(&["self", "install"])
+            && path.len() == 2
+            && after.is_some_and(|v| v.as_str() == Some("auto")))
 }
 
 /// The settings that take effect without a restart: where the code already
@@ -319,6 +330,30 @@ mod tests {
     fn a_table_nobody_classified_is_sensitive() {
         let why = reason(&p("brand_new.thing")).expect("unclassified is sensitive");
         assert!(why.contains("not been classified"), "{why}");
+    }
+
+    #[test]
+    fn who_the_owner_is_and_the_proof_itself_are_fresh_whatever_they_become() {
+        let v = |s: &str| Some(serde_json::json!(s));
+        for path in [
+            "places.owner",
+            "places.owner.discord",
+            "server.bindings_file",
+            "owner_proof.window_hours",
+            "owner_proof",
+        ] {
+            for after in [v("x"), None] {
+                assert!(
+                    needs_fresh_proof(&p(path), after.as_ref()),
+                    "{path} {after:?}"
+                );
+            }
+            assert!(is_sensitive(&p(path)), "{path} is also sensitive");
+        }
+        // Their neighbours are sensitive, not fresh.
+        for path in ["places.public", "server.state_dir", "mcp_server.port"] {
+            assert!(!needs_fresh_proof(&p(path), v("x").as_ref()), "{path}");
+        }
     }
 
     #[test]

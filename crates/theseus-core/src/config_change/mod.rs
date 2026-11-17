@@ -395,13 +395,6 @@ pub(crate) fn sensitive(
     out
 }
 
-/// The refusal a sensitive change gets while the second proof is not built
-/// in: which settings, and the seam's words.
-fn needs_proof(sens: &[(String, String)]) -> String {
-    let names: Vec<&str> = sens.iter().map(|(p, _)| p.as_str()).collect();
-    format!("{}: {}", proof_seam::NOT_INSTALLED, names.join(", "))
-}
-
 /// Run `config.propose` for the call `correlation_id` of the turn `tc`: build
 /// the candidate, check it loads, and ask. An error is the result the model
 /// reads.
@@ -466,10 +459,7 @@ pub(crate) fn put(
     if let Some(why) = card::too_much(&settings) {
         return Err(why);
     }
-    let sens = sensitive(changes, &settings);
-    if !sens.is_empty() && !proof_seam::installed() {
-        return Err(needs_proof(&sens));
-    }
+    let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
         settings: &settings,
@@ -496,7 +486,7 @@ pub(crate) fn put(
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
             "restart": settings.iter().any(|s| sensitivity::needs_restart(&s.path)),
             "undoes": undoes.map(undo::Undoes::args),
-            "needs_fresh_proof": proof_seam::needs_fresh(&settings),
+            "needs_fresh_proof": needs == proof_seam::Needs::Fresh,
             "reason": reason,
             "outside_text": outside || steered,
             "asked_by": {
@@ -510,11 +500,15 @@ pub(crate) fn put(
         policy_context: json!({}),
     };
     let said = format!(
-        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place; \
+        "Asked the owner:\n{question}Nothing changes until they say yes, from a private place{}; \
          the daemon then writes the file itself. If they decline, or do not answer in time, \
-         nothing is written."
+         nothing is written.",
+        match needs {
+            proof_seam::Needs::Card => "",
+            _ => ", with the second proof",
+        }
     );
-    ask(tc, proposal, correlation_id, &said)?;
+    ask(tc, proposal, correlation_id, &said, needs)?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -528,6 +522,7 @@ fn ask(
     proposal: Proposal,
     correlation_id: &str,
     said: &str,
+    needs: proof_seam::Needs,
 ) -> Result<(), String> {
     let target = tc.outbox.target(tc.session_id);
     let mut card = None;
@@ -539,6 +534,9 @@ fn ask(
                 Some(&format!("{CALL_PREFIX}{correlation_id}")),
                 &said,
             )?];
+            // A card that asks for the second proof is marked by the daemon's
+            // own record, in the frame that asks it.
+            records.extend(needs.mark(&a.correlation_id)?);
             if let Some(target) = &target {
                 let (post, more) = tc.outbox.stage(
                     tc.session_id,
@@ -559,9 +557,10 @@ fn ask(
         .store
         .get_session::<crate::session::SessionRecord>(tc.session_id)
     {
-        tc.record(&crate::fact::tool::CallAsked {
-            request: &confirm_request(&a, &session, tc.confirm_ttl_ms),
-        });
+        let mut request = confirm_request(&a, &session, tc.confirm_ttl_ms);
+        request.needs_proof = needs != proof_seam::Needs::Card;
+        request.needs_fresh_proof = needs == proof_seam::Needs::Fresh;
+        tc.record(&crate::fact::tool::CallAsked { request: &request });
     }
     Ok(())
 }
@@ -614,6 +613,11 @@ pub fn confirm_request(
         preview: None,
         grant_offer: None,
         plain: None,
+        // `confirm.list` reads the proof's marks onto it; the card the asker
+        // posts says it in `ask`.
+        needs_proof: false,
+        needs_fresh_proof: false,
+        proof: None,
     })
 }
 
