@@ -51,10 +51,11 @@ impl Core {
             return given;
         }
         match a {
-            Some(a) => !matches!(
-                proof_seam::required_and_given(a, via),
-                proof_seam::Proof::NotInstalled
-            ),
+            // Every variant by name, as `config_change::answer` does: the proof's wiring adds variants, and each must
+            // be decided here, never let through by a match that names only the one that refuses.
+            Some(a) => match proof_seam::required_and_given(a, via) {
+                proof_seam::Proof::NotInstalled => false,
+            },
             None => proof_seam::installed(),
         }
     }

@@ -1,5 +1,5 @@
 //! The owner's answer to "Install the change Theseus joined": `action.confirm` on its `self.install.ack` question,
-//! judged by the place rule before it gets here, and refused to an agent's process (`approval::owners_alone`).
+//! judged by the place rule before it gets here, and refused to an agent's process (in `rpc/confirms.rs`'s dispatch).
 //!
 //! A yes is the second proof's to give (`config_change::proof_seam`); until it is built in, a yes settles as declined,
 //! with the seam's words. Else the install runs, as a task, off the answer's path: the answer settles at once (one
