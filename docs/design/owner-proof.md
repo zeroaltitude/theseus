@@ -41,7 +41,8 @@ cockpit, a Discord DM): for `[owner_proof] window_hours` (24 by default; 0 asks 
 that needs the proof, answered from that same place, goes through on the card's yes alone. Another place asks for its
 own code. A use does not extend the window: it ends 24 hours from the code. The card says which it is: "second proof:
 needed, enter the code from your authenticator app", or "second proof: given here 3 hours ago, good for 21 hours more".
-`theseus owner proof lock` ends every window at once.
+`theseus owner proof lock` ends every window at once. Lowering `window_hours` shortens a window already open (its end
+is capped by the setting in force when it is read), and at 0 ends it.
 
 ## What it is
 
@@ -76,6 +77,9 @@ decision**, so every surface meets it; a decline is never gated.
 - **A code is never a message.** The chat's answer tool refuses a marked question outright (a model's tool never
   approves it in the owner's name, whatever window is open), and an answer typed or spoken as words (a Discord reply,
   a voice command) carries `typed`, which the daemon never takes a proof from and no window covers.
+- **An agent's process never answers it** (a process under an agent, or on the CLI one with no terminal: the answer's
+  `Answerer::agent`, `peer_proc`). The CLI's socket and the web port are open to every process of the owner's user, so
+  such an answer carries no code, rides no window and spends none of the tries: it is refused and recorded.
 - A reset or a re-enrolment always takes a fresh code.
 - **The seam** the change branch calls: `Proofs::required_and_given(&question, &answer) -> Proof`, where `Proof` is
   `NotRequired | Given | GivenEarlier { at_ms, until_ms } | Missing | Refused(why)` and `Answer` is the code and the
