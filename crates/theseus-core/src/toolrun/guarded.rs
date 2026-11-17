@@ -104,6 +104,13 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
         // `ContentItem`, so no injection label can ever be raised on it.
         canon_path(state.join(crate::project_context::USER_FILE)),
         canon("~/.config/op"),
+        // The copies of the config that the daemon's own changes keep (issue
+        // 22), with the candidates and the restart's marker beside them. A
+        // copy holds every setting, the names of every secret among them, and
+        // is what an undo and the restart's way back read: a tool that could
+        // read one would see them all, and one that could write one would
+        // have a later undo restore its text.
+        canon_path(crate::config_change::write::dir(&state)),
     ]);
     // The token file the daemon was given, by flag or by environment, the
     // config note's last-known-good copy (theseus-2fo), and the config file
