@@ -144,6 +144,7 @@ mod tests {
         for after in [
             "[places]\nowner = [\"discord:1\"]\n",
             "[discord]\nbindings_file = \"elsewhere.toml\"\n",
+            "[server]\nstate_dir = \"/elsewhere\"\n",
             "[owner_proof]\nwindow_hours = 0\n",
         ] {
             assert_eq!(

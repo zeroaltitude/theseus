@@ -67,9 +67,10 @@ a setting nobody has classified counts as sensitive):
 - self-improvement: its mode, its budget, and what it may change;
 - the proof itself, and attaching or removing an MCP server.
 
-Three of those ask for a **fresh code every time**, whatever else is open: a change to who the owner is (`[places]
-owner`, and `[discord] bindings_file`, the file that says who the owner is on Discord), a change to the proof's own
-settings (`[owner_proof]`), and turning `[self] install` to `auto` (below).
+Some of those ask for a **fresh code every time**, whatever else is open: a change to who the owner is (`[places]
+owner`, and `[discord] bindings_file`, the file that says who the owner is on Discord), a change to where Theseus keeps
+its state (`[server] state_dir`, which holds that file and the proof's own), a change to the proof's own settings
+(`[owner_proof]`), and turning `[self] install` to `auto` (below).
 
 ## The 24-hour window, and locking it
 

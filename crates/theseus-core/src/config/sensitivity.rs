@@ -232,7 +232,9 @@ pub fn is_sensitive(path: &[String]) -> bool {
 /// do to the machine without asking again.
 ///
 /// - who the owner is: `[places] owner` and the bindings file's path,
-///   `[discord] bindings_file` (the file names the person of each DM);
+///   `[discord] bindings_file` (the file names the person of each DM), and
+///   `[server] state_dir` (the bindings file and the proof's own file are read
+///   from it, so moving it can change both);
 /// - the second proof itself: any key of `[owner_proof]`;
 /// - `[self] install` becoming `"auto"`: it installs every joined change on a
 ///   root-owned layout with no card. The older `true` is not it (it never
@@ -243,6 +245,7 @@ pub fn is_sensitive(path: &[String]) -> bool {
 pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> bool {
     let at = |p: &[&str]| path.len() >= p.len() && path.iter().zip(p).all(|(a, b)| a == b);
     at(&["places", "owner"])
+        || at(&["server", "state_dir"])
         || at(&["discord", "bindings_file"])
         || at(&["owner_proof"])
         || (at(&["self", "install"])
@@ -287,7 +290,7 @@ mod tests {
             "tools.projects_dir",
             "places.owner",
             "places.public",
-            "server.bindings_file",
+            "discord.bindings_file",
             "server.state_dir",
             "mcp_server.port",
             "self.mode",
@@ -342,6 +345,7 @@ mod tests {
             "places.owner",
             "places.owner.discord",
             "discord.bindings_file",
+            "server.state_dir",
             "owner_proof.window_hours",
             "owner_proof",
         ] {
@@ -354,7 +358,7 @@ mod tests {
             assert!(is_sensitive(&p(path)), "{path} is also sensitive");
         }
         // Their neighbours are sensitive, not fresh.
-        for path in ["places.public", "server.state_dir", "mcp_server.port"] {
+        for path in ["places.public", "server.port", "mcp_server.port"] {
             assert!(!needs_fresh_proof(&p(path), v("x").as_ref()), "{path}");
         }
     }
