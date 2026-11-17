@@ -154,8 +154,8 @@ pub fn paths_of(d: &Value) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// The changes the daemon itself made on the owner's word (the vault note's
-/// own `config.changed` rows have another shape), oldest first.
+/// The changes the daemon itself made on the owner's word (the rows a config read
+/// from the vault writes have another shape), oldest first.
 fn changes(rows: &[LedgerRow]) -> Vec<&LedgerRow> {
     rows.iter()
         .filter(|r| r.kind == LedgerKind::ConfigChanged.as_str())

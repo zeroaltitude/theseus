@@ -12,7 +12,7 @@ use super::confirms::Act;
 use super::projects::failure;
 use super::server::{route, Conn, RpcFailure};
 use super::Core;
-use crate::approval::Answerer;
+use crate::approval::{Answerer, Refusal};
 use crate::config_change::history;
 
 /// This module's method, routed by one dispatch arm.
@@ -37,7 +37,24 @@ impl Core {
         who: impl Into<Answerer>,
     ) -> anyhow::Result<ConfigHistoryResult> {
         let what = "The history of changes to Theseus's settings";
-        self.judge_act(&who.into(), Act::Settings { what })?;
+        let who = who.into();
+        // An agent's process on the CLI or the web socket (Claude Code, Codex,
+        // anything `peer_proc` names) is not the owner, and the history holds
+        // every setting and the names of the secrets among them. Refused here,
+        // as `judge_act` refuses an act, so the refusal is ledgered the same way.
+        if who.agent.is_some() {
+            let r = Refusal {
+                who: who.who(),
+                via: who.via(),
+                why: "an agent's process is not the owner: the history of changes to Theseus's \
+                      settings is the owner's alone, from their own terminal, the web UI or a \
+                      private place"
+                    .into(),
+            };
+            self.refused(Act::Settings { what }, &who, &r)?;
+            return Err(r.into());
+        }
+        self.judge_act(&who, Act::Settings { what })?;
         let limit = p
             .limit
             .map_or(history::SHOWN, |n| (n as usize).clamp(1, history::SHOWN));

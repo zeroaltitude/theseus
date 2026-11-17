@@ -528,6 +528,22 @@ async fn the_history_over_the_wire_is_the_owners_alone() {
         }),
         agent: None,
     };
+    // An agent's process on the owner's own CLI is not the owner.
+    let agent = Answerer {
+        label: "agent:claude".into(),
+        surface: Surface::Cli,
+        discord: None,
+        agent: Some("claude".into()),
+    };
+    let e = r
+        .core
+        .config_history(&ConfigHistoryParams::default(), agent)
+        .unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("an agent's process is not the owner"),
+        "{e}"
+    );
     let e = r
         .core
         .config_history(&ConfigHistoryParams::default(), stranger)
@@ -537,6 +553,9 @@ async fn the_history_over_the_wire_is_the_owners_alone() {
         "{e}"
     );
     let refused = r.rows("approval.refused");
-    assert_eq!(refused.len(), 1, "{refused:?}");
-    assert_eq!(refused[0]["act"], json!("config.history"));
+    assert_eq!(refused.len(), 2, "{refused:?}");
+    assert!(
+        refused.iter().all(|x| x["act"] == json!("config.history")),
+        "{refused:?}"
+    );
 }

@@ -137,8 +137,8 @@ fn an_after_that_is_not_kept_is_said() {
     );
 }
 
-/// A rollback, an undo and an undone change are each said, and a change the
-/// vault note's own rows describe is not listed.
+/// A rollback, an undo and an undone change are each said, and a change a
+/// config read from the vault describes is not listed.
 #[test]
 fn rollbacks_and_undos_are_said_and_the_vaults_rows_are_not_changes() {
     let (dir, file, mut rows) = kept();
