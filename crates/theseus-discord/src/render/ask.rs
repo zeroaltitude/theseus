@@ -100,21 +100,26 @@ fn card_text(body: &serde_json::Value) -> String {
         }
     }
     t.push_str("\n-# Needs you");
-    // Held, not expired, past its first life (theseus-la5oc): the same words
-    // `render::heldquestion::footer_clause` says for the card it posts at ask
-    // time, said here for the needs-you post that may still say so long after.
-    if body["held"] == true {
-        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
-            t.push_str(&format!(" · held since <t:{}:R> · still waiting", r / 1000));
-        }
-    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
-        t.push_str(&format!(" · expires <t:{}:R>", e / 1000));
-    }
+    t.push_str(&when_clause(body));
     t.push_str(match body["choices"].as_array().is_none_or(Vec::is_empty) {
         true => " · tap, or reply yes or no",
         false => " · tap, or reply with its number",
     });
     t
+}
+
+/// Held, not expired, past its first life (theseus-la5oc): the same words
+/// `render::heldquestion::footer_clause` says for the card it posts at ask
+/// time, said here for the needs-you post that may still say so long after.
+pub(super) fn when_clause(body: &serde_json::Value) -> String {
+    if body["held"] == true {
+        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
+            return format!(" · held since <t:{}:R> · still waiting", r / 1000);
+        }
+    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
+        return format!(" · expires <t:{}:R>", e / 1000);
+    }
+    String::new()
 }
 
 /// The mark that goes with a risk badge's words.

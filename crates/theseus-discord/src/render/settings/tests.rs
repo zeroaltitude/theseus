@@ -56,6 +56,22 @@ fn longest() -> (ConfirmRequest, Vec<String>) {
     (request(&q, &words::change(&settings, None)), values)
 }
 
+/// The text of messages with their "(i/n)" markers taken off, joined.
+fn unmarked(parts: &[String]) -> String {
+    let n = parts.len();
+    let mut out = String::new();
+    for (i, p) in parts.iter().enumerate() {
+        match n {
+            1 => out.push_str(p),
+            _ => out.push_str(
+                p.strip_prefix(&format!("-# ({}/{n})\n", i + 1))
+                    .unwrap_or_else(|| panic!("part {} has no marker: {p}", i + 1)),
+            ),
+        }
+    }
+    out
+}
+
 fn drawn(req: &ConfirmRequest) -> Vec<String> {
     let c = render::card(req, &Route::Here, "the cockpit");
     let mut all = c.more.clone();
@@ -77,10 +93,10 @@ fn the_longest_card_is_drawn_whole_in_messages_each_under_the_limit() {
     for p in &parts {
         assert!(p.chars().count() < 2000, "{}", p.chars().count());
     }
-    let all = parts.concat();
+    let all = unmarked(&parts);
     let whole = &req.plain.as_ref().unwrap().detail;
     assert!(
-        all.starts_with(whole.as_str()),
+        all.starts_with(&md(whole)),
         "the daemon's words come first and whole"
     );
     for v in &values {
@@ -112,18 +128,16 @@ fn a_plain_change_is_one_message_that_settles_into_words() {
     req.needs_proof = false;
     let c = render::card(&req, &Route::Here, "");
     assert!(c.more.is_empty());
-    assert!(c
-        .content
-        .starts_with("Change 1 setting?\n- discord.task_channel_cap: 25 → 26"));
+    assert!(c.content.starts_with(&md(
+        "Change 1 setting?\n- discord.task_channel_cap: 25 → 26"
+    )));
     assert!(!c.content.contains("config.ack"));
-    assert_eq!(
-        c.line,
-        "change `discord.task_channel_cap` from 25 to 26; Theseus then restarts"
-    );
+    let said = "change `discord.task_channel_cap` from 25 to 26; Theseus then restarts";
+    assert_eq!(c.line, md(said));
     let closed = theseus_core::outbox::Closed::new("approved", None);
     assert_eq!(
         render::settled(&closed, &c.line, c.budget),
-        "✅ **Approved** by the operator · change `discord.task_channel_cap` from 25 to 26; Theseus then restarts"
+        format!("✅ **Approved** by the operator · {}", md(said))
     );
 }
 
@@ -159,4 +173,142 @@ fn a_view_that_cannot_hold_the_words_does_not_take_a_yes_on_part_of_them() {
     let short = request(&q, &words::change(&s, None));
     assert!(words_here(&short).unwrap().starts_with("Change 1 setting?"));
     assert!(details(&short).contains("- narrative: off → on"));
+}
+
+/// What Discord reads as markdown in a value does not change what is drawn: a
+/// wildcard's `*` is not italics that drop it, a pair of `||` or `~~` hides and
+/// strikes nothing, a masked link is not one, a code span is not one.
+#[test]
+fn markdown_in_a_value_is_drawn_as_the_characters_it_is() {
+    let s = [setting(
+        "sandbox.egress",
+        json!(["*.crates.io:443", "*.amazonaws.com:443"]),
+        json!([
+            "*.a",
+            "*.b",
+            "||hide||",
+            "~~strike~~",
+            "[docs](http://elsewhere.example)",
+            "`code`",
+            "<t:1:R>"
+        ]),
+    )];
+    let q = card::question(&card::Facts {
+        settings: &s,
+        outside_text: false,
+        steered: false,
+        reason: "turn *this* on",
+        wait_secs: 120,
+    });
+    let req = request(&q, &words::change(&s, None));
+    let all = unmarked(&drawn(&req));
+    for (raw, escaped) in [
+        ("\"*.crates.io:443\"", "\"\\*.crates.io:443\""),
+        ("\"*.a\", \"*.b\"", "\"\\*.a\", \"\\*.b\""),
+        ("||hide||", "\\|\\|hide\\|\\|"),
+        ("~~strike~~", "\\~\\~strike\\~\\~"),
+        (
+            "[docs](http://elsewhere.example)",
+            "\\[docs\\]\\(http://elsewhere.example\\)",
+        ),
+        ("`code`", "\\`code\\`"),
+        ("<t:1:R>", "\\<t:1:R\\>"),
+        ("turn *this* on", "turn \\*this\\* on"),
+    ] {
+        assert!(all.contains(escaped), "{raw} is drawn as {escaped}: {all}");
+    }
+    // Nothing of the daemon's words is left for Discord to read as markdown.
+    let words = md(&req.plain.as_ref().unwrap().detail);
+    let mut chars = words.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next();
+            }
+            '*' | '_' | '~' | '|' | '`' | '[' | ']' | '<' | '>' => panic!("unescaped {c}: {words}"),
+            _ => {}
+        }
+    }
+    // The settled line is escaped too.
+    let c = render::card(&req, &Route::Here, "");
+    assert!(c.line.contains("\\`sandbox.egress\\`"), "{}", c.line);
+}
+
+/// A cut never falls between a backslash and the character it escapes, and
+/// every message says which of how many it is.
+#[test]
+fn a_cut_never_splits_an_escape_and_each_message_says_its_place() {
+    let stars = "*".repeat(380);
+    let settings: Vec<Setting> = (0..12)
+        .map(|i| {
+            setting(
+                &format!("memory.k{i}"),
+                json!(stars),
+                json!(format!("{stars}!")),
+            )
+        })
+        .collect();
+    let q = card::question(&card::Facts {
+        settings: &settings,
+        outside_text: false,
+        steered: false,
+        reason: "",
+        wait_secs: 120,
+    });
+    let mut req = request(&q, &words::change(&settings, None));
+    req.needs_proof = false;
+    let parts = drawn(&req);
+    assert!(parts.len() > 3, "{}", parts.len());
+    let n = parts.len();
+    for (i, p) in parts.iter().enumerate() {
+        assert!(p.starts_with(&format!("-# ({}/{n})\n", i + 1)), "{p}");
+        assert!(p.chars().count() < 2000);
+        let body = p.split_once('\n').unwrap().1;
+        let trailing = body.chars().rev().take_while(|c| *c == '\\').count();
+        assert_eq!(trailing % 2, 0, "part {} ends inside an escape", i + 1);
+        let mut chars = body.chars();
+        while let Some(c) = chars.next() {
+            if c == '*' {
+                panic!("a bare * in part {}", i + 1);
+            }
+            if c == '\\' {
+                chars.next();
+            }
+        }
+    }
+    let all = unmarked(&parts);
+    assert!(all.contains(&md(&stars)), "every star, escaped");
+}
+
+/// The needs-you post in the owner's DM (the route of the install card, which
+/// stages no card of its own): the same words, whole, as several messages when
+/// longer than one, the proof's clause and how else to answer; and no Approve
+/// is ever under less than all of it.
+#[test]
+fn the_needs_you_post_draws_the_longest_card_whole() {
+    let (req, values) = longest();
+    let detail = req.plain.as_ref().unwrap().detail.clone();
+    let body = json!({
+        "kind": "needs_you", "question": "act_0000feed", "held": false,
+        "expires_at_ms": 1_700_000_000_000u64,
+        "card": {"who": "Theseus", "what": "change 12 settings", "risk": "x", "yes": "y", "no": "n"},
+        "settings": {"detail": detail, "needs_proof": true, "needs_fresh_proof": false, "short": "0000feed"},
+    });
+    let (before, last) = render::settings::needs_you(&body).expect("a settings post");
+    let mut all = before.clone();
+    all.push(last.clone());
+    assert!(all.len() > 1);
+    for p in &all {
+        assert!(p.chars().count() < 2000, "{}", p.chars().count());
+    }
+    let text = unmarked(&all);
+    assert!(text.starts_with(&md(&detail)), "the words first and whole");
+    for v in &values {
+        assert!(text.contains(v.as_str()) && text.contains(&format!("{v}!")));
+    }
+    assert!(text.contains("Second proof") && text.contains("theseus answer 0000feed approve"));
+    assert!(last.contains("expires <t:"), "{last}");
+    // A post with no settings words is not this form.
+    assert!(render::settings::needs_you(&json!({"card": {"what": "x"}})).is_none());
+    assert!(render::settings::needs_you(&json!({"settings": null})).is_none());
 }

@@ -12,9 +12,10 @@
 //! The line the card settles into is the daemon's own line (`PlainWords::what`),
 //! so the owner reads what he approved or declined in words.
 
+use serde_json::Value;
 use theseus_protocol::ConfirmRequest;
 
-use super::{approval, heldquestion, split_text, CardText, Route, PART_LIMIT};
+use super::{approval, ask, heldquestion, split_text, CardText, Route, PART_LIMIT};
 
 /// The key prefix of a card's earlier messages: its last carries the buttons
 /// under the card's own key, and its settle leaves these as they are, so the
@@ -24,6 +25,47 @@ pub const PART_KEY: &str = "confirmpart:";
 /// Whether the daemon worded this question whole (a settings question).
 pub fn is_settings(req: &ConfirmRequest) -> bool {
     req.plain.as_ref().is_some_and(|p| !p.detail.is_empty())
+}
+
+/// Text as Discord draws it, literally: every character that Discord reads as
+/// markdown (emphasis, strike, a spoiler, a masked link, a quote, a heading or a
+/// list at a line's start, a code span, a timestamp or channel in angle
+/// brackets) has a backslash before it. A value the owner approves is then
+/// drawn as it is, and not as italics that drop a wildcard's `*`, or a spoiler
+/// that hides the lines between two `||`.
+pub fn md(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + s.len() / 8);
+    for c in s.chars() {
+        if matches!(
+            c,
+            '\\' | '*' | '_' | '~' | '|' | '>' | '<' | '#' | '-' | '[' | ']' | '(' | ')' | '`'
+        ) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// `text` as messages, each under the limit with room for its marker: cut at a
+/// line, never between a backslash and the character it escapes, and, when
+/// there is more than one, each says which of how many it is.
+fn messages(text: &str) -> Vec<String> {
+    let mut parts = split_text(text, PART_LIMIT - 16);
+    for i in 0..parts.len().saturating_sub(1) {
+        let trailing = parts[i].chars().rev().take_while(|c| *c == '\\').count();
+        if trailing % 2 == 1 {
+            parts[i].pop();
+            parts[i + 1].insert(0, '\\');
+        }
+    }
+    let n = parts.len();
+    if n > 1 {
+        for (i, p) in parts.iter_mut().enumerate() {
+            *p = format!("-# ({}/{n})\n{p}", i + 1);
+        }
+    }
+    parts
 }
 
 /// The card: the daemon's words, the proof's clause, the footer. The last
@@ -40,11 +82,11 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     };
     let text = format!(
         "{}{}\n-# {asked_for}{}{also}",
-        p.detail,
+        md(&p.detail),
         approval::proof_clause(req),
         heldquestion::footer_clause(req)
     );
-    let mut parts = split_text(&text, PART_LIMIT);
+    let mut parts = messages(&text);
     let content = parts.pop().unwrap_or_default();
     let task = req
         .task
@@ -54,9 +96,31 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
     CardText {
         content,
         more: parts,
-        line: format!("{task}{}", p.what),
+        line: format!("{task}{}", md(&p.what)),
         budget: false,
     }
+}
+
+/// A needs-you post for a settings question (the core's card body carries its
+/// words under `settings`): the daemon's words whole and first, the proof's
+/// clause, when it expires or since when it is held, and how else to answer;
+/// as several messages when longer than one. None for a post that has none.
+pub fn needs_you(body: &Value) -> Option<(Vec<String>, String)> {
+    let s = body["settings"].as_object().filter(|s| !s.is_empty())?;
+    let detail = s.get("detail")?.as_str().filter(|d| !d.is_empty())?;
+    let short = s.get("short").and_then(Value::as_str).unwrap_or("");
+    let proof = approval::proof_clause_of(
+        s.get("needs_proof") == Some(&Value::Bool(true)),
+        s.get("needs_fresh_proof") == Some(&Value::Bool(true)),
+    );
+    let text = format!(
+        "{}{proof}\n-# Needs you{} · tap Approve or Decline, or `theseus answer {short} approve`",
+        md(detail),
+        ask::when_clause(body)
+    );
+    let mut parts = messages(&text);
+    let last = parts.pop().unwrap_or_default();
+    Some((parts, last))
 }
 
 /// The most characters one `/answer` view may show: a V2 message holds 4,000 in
@@ -68,7 +132,7 @@ const HERE: usize = 3_500;
 /// question is not answered there, for a yes is never taken on a part of it.
 pub fn words_here(req: &ConfirmRequest) -> Option<String> {
     let p = req.plain.as_ref()?;
-    let text = format!("{}{}", p.detail, approval::proof_clause(req));
+    let text = format!("{}{}", md(&p.detail), approval::proof_clause(req));
     (text.chars().count() <= HERE).then_some(text)
 }
 
@@ -81,7 +145,7 @@ pub fn details(req: &ConfirmRequest) -> String {
         None => format!(
             "**Details**\n{}\nThe whole question is longer than one message: read it on its own \
              message, or with `theseus answer`.{id}",
-            req.plain.as_ref().map_or("", |p| p.what.as_str())
+            req.plain.as_ref().map_or_else(String::new, |p| md(&p.what))
         ),
     }
 }

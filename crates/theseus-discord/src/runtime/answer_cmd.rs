@@ -107,14 +107,15 @@ fn words_of(r: &ConfirmRequest) -> String {
 /// A settings question's words: the daemon's own, whole; or, when they do not
 /// fit one message, where to read them (the question is not answered here).
 fn settings_words(r: &ConfirmRequest) -> String {
-    let said = match settings::words_here(r) {
-        Some(whole) => format!("🔔 {whole}"),
-        None => format!(
+    let said =
+        match settings::words_here(r) {
+            Some(whole) => format!("🔔 {whole}"),
+            None => format!(
             "🔔 {}\nThis is longer than one message can show whole, so it is not answered from \
              here: read it on its own message, or with `theseus answer`, and answer it there.",
-            r.plain.as_ref().map_or("", |p| p.what.as_str())
+            r.plain.as_ref().map_or_else(String::new, |p| settings::md(&p.what))
         ),
-    };
+        };
     format!(
         "{said}\n-# `…{}` · asked {}",
         short(&r.correlation_id),
