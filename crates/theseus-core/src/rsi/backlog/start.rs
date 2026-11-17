@@ -66,9 +66,11 @@ impl Core {
             .values()
             .filter(|t| t.state == TaskState::InProgress)
             .filter_map(|t| {
+                // The item's latest start: an earlier one is over, and ended (`pipeline::parked`).
                 let id = t
                     .evidence
                     .iter()
+                    .rev()
                     .find_map(|e| e.identity.strip_prefix(EXECUTION))?;
                 let e = self.kernel.execution(id).ok().flatten()?;
                 e.state.is_terminal().then(|| {

@@ -194,6 +194,28 @@ pub(crate) fn fail_open(d: crate::policy::Decision, tool: &str) -> crate::policy
     }
 }
 
+/// Whether a call of a self session failed to start because its own working copy is gone (issue
+/// 20): the session is a self session, the call's working directory (its `cwd`, or the session's
+/// own directory when it names none) is inside the tree its task works in, that directory does
+/// not exist, and neither does the tree. A tool that is not broken is not blamed for a tree that was closed.
+pub(crate) fn tree_gone(
+    rt: &ToolRuntime,
+    tc: &crate::toolrun::TurnCtx<'_>,
+    input: &serde_json::Value,
+) -> bool {
+    let Some(tree) = of(rt, tc.session_id) else {
+        return false;
+    };
+    let ctx = rt.ctx_in(tc);
+    let cwd = match input.get("cwd").and_then(serde_json::Value::as_str) {
+        Some(c) => ctx.resolve(c),
+        None => ctx.cwd.clone(),
+    };
+    // The tree itself must be gone: a missing folder inside a tree that is still open is the
+    // model's own mistake, and is told so in the plain words it can correct.
+    !tree.is_dir() && !cwd.is_dir() && paths::within(&paths::canonical_best_effort(&cwd), &tree)
+}
+
 /// The slug of the self item `session` works on, which names its reports and
 /// its tree, or none for a session that is no self task's.
 pub(crate) fn item_slug(store: &Store, session: &str) -> Option<String> {

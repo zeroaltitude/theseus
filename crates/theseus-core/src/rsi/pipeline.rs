@@ -447,8 +447,8 @@ impl Core {
     ) -> Result<()> {
         self.pipeline_reviewed(q, w)?;
         self.pipeline_capped(q, w)?;
-        self.pipeline_ended(place, q, w)?;
-        self.pipeline_stale(place, q, w)?;
+        self.pipeline_ended(place, q, w).await?;
+        self.pipeline_stale(place, q, w).await?;
         for e in &q.dropped {
             if let (Some(session), Some(exec)) = (&e.session, &e.execution) {
                 let key = format!("stopped:{}:{session}", e.item);
@@ -462,14 +462,28 @@ impl Core {
                     w.say(key, Transition::Ended(Ended(m)))?;
                 }
             }
-            clear(place, e, "dropped", w)?;
+            self.close_item_trees(place, e, "dropped", w).await?;
         }
         for e in &q.joined {
-            clear(place, e, "joined", w)?;
+            self.close_item_trees(place, e, "joined", w).await?;
         }
         // Whatever else ended an item without a join leaves no tree.
         for e in &q.closed {
-            clear(place, e, "closed", w)?;
+            self.close_item_trees(place, e, "closed", w).await?;
+        }
+        // A ready item has no build: a session of an earlier start (a restarted item's, a halted
+        // build's) is over, whatever its execution still says, before a new start reuses the tree.
+        for e in &q.ready {
+            // Still proposed now: the night's mint start can have started it since `q` was read.
+            let proposed = crate::task_graph::get(&self.store, &e.item)?
+                .is_some_and(|t| t.state == TaskState::Proposed);
+            if !proposed {
+                continue;
+            }
+            if let Err(err) = self.end_item_sessions(&e.item, None).await {
+                tracing::warn!(error = %format!("{err:#}"), item = %e.item,
+                    "a ready item's earlier sessions were not ended");
+            }
         }
         // And no build leaves a question behind (`parked`): after the moves above, so one whose
         // working copy they just removed is withdrawn in the same tick.
@@ -584,7 +598,7 @@ impl Core {
     }
 
     /// Builds whose turn ended with no green branch: failed, trees deleted.
-    fn pipeline_ended(&self, place: &tree::Place, q: &Queues, w: &mut Write) -> Result<()> {
+    async fn pipeline_ended(&self, place: &tree::Place, q: &Queues, w: &mut Write) -> Result<()> {
         let now = theseus_protocol::now_unix_ms();
         for e in &q.ended {
             if let Some(mut t) = crate::task_graph::get(&self.store, &e.item)? {
@@ -611,7 +625,7 @@ impl Core {
                 format!("ended:{}:{session}", e.item),
                 Transition::Ended(Ended(m)),
             )?;
-            clear(place, e, "ended", w)?;
+            self.close_item_trees(place, e, "ended", w).await?;
         }
         Ok(())
     }
@@ -833,10 +847,28 @@ impl Core {
     }
 }
 
+impl Core {
+    /// The ONE way a builder's working copy goes (issue 20): the item's sessions are ended first (a
+    /// question of theirs withdrawn, their calls, terminals and jobs stopped, their executions
+    /// closed), and only then are its trees removed. The pipeline's moves (ended, dropped, joined,
+    /// closed, stale) and the join's stale tree (`join::moved`) come here; a builder closing its own
+    /// tree as it hands its change in (`rsi::pr`) ends the item's other sessions the same way.
+    async fn close_item_trees(
+        &self,
+        place: &tree::Place,
+        e: &Entry,
+        reason: &str,
+        w: &mut Write,
+    ) -> Result<()> {
+        self.end_item_sessions(&e.item, None).await?;
+        remove_trees(place, e, reason, w)
+    }
+}
+
 /// Delete an item's trees (its worktree and its build tree: regenerable,
 /// never moved to a trash) and its branch when it holds no commit, with one
 /// `cleared` row when there was any.
-fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<()> {
+fn remove_trees(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<()> {
     // git and the disk, off the runtime's worker (theseus_store::blocking).
     let gone = theseus_store::blocking(|| -> Result<Vec<String>> {
         let mut gone = Vec::new();

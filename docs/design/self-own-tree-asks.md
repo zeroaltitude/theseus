@@ -83,6 +83,39 @@ registries; a shell line that edits the working copy by itself does not keep the
   (`question_waits`), then once an hour, for a self build's question only; the others keep one a life. The
   words say which change waits, what it wants, how long it has waited, how to answer and how often they come.
 
+## A working copy is not removed under a live session, and a call in a gone one is no fault of the tool
+
+Found the same day, by the loop's own reviewer. The backlog item "Harness:proc.run tool calls failing" was
+built twice and rejected twice, because its three evidence rows (ledger 721311, 721418, 768378) are not a
+fault of the tool: each is a call in a session whose working copy the pipeline had removed under it. The
+chain was the one above: the build's turn ended on a question, the pipeline read it as ended and removed the
+tree; the session, still waiting, was answered or went on, and its next call failed at launch ("working
+directory ... does not exist"), which the night filed under the tool's own cause.
+
+- **One path.** `Core::close_item_trees` (`rsi/pipeline.rs`) is the only way the pipeline removes a builder's
+  working copy (ended, dropped, joined, closed and stale items all come through it): it first ends the item's
+  sessions (`Core::end_item_sessions`, `rsi/pipeline/parked.rs`), then removes the trees. The join's stale
+  tree (`join/moved.rs`) ends them first the same way, and a builder handing its change in (`rsi/pr.rs`) ends
+  the item's OTHER sessions (the one making the call is spared: its turn is running). A ready item's earlier
+  sessions are ended at the start of every tick, so a restarted item is never built on a tree a live session
+  still holds. The other `tree::close` calls in `rsi/` are of scratch trees the join and the reverts make
+  for themselves (the join's detached trees `join::git::detached` and `join/install.rs`, `join/planted.rs`, `revert/`, and the
+  cleanup of a cut `tree_main::bring_main_in` just made), which no session works in.
+- **What "ended" is.** Its open questions are withdrawn first (the card, the reminders), then its execution is
+  cancelled (`cancel_execution`): what it planned and never sent is settled, its running calls, terminals and
+  jobs are stopped, and it is terminal, so no call of it can start. A session waiting on the owner counts as
+  live. The backlog's sweep, which marks an item whose session ended as failed or done, now reads the item's
+  LATEST execution (it read the first): an item built again is not judged by its earlier start's end.
+- **A call that finds its own tree gone** (`rsi::own_tree::tree_gone`: a self session, the call's directory,
+  its `cwd` or the session's own, is inside the tree its task works in, and neither that directory nor the
+  tree exists; a missing folder inside a tree that is still open is the model's own mistake, told in the plain
+  words and never marked) fails with words
+  the session can act on ("this session's working copy was closed, because the work it belonged to has ended;
+  nothing more can run here. Stop and say so"), and its completion carries `tree_gone`, which the ledger row
+  keeps as `failure = "tree_gone"` (`theseus-kernel` `failure.rs`). The night's read files nothing for it
+  (`backlog/read.rs`, as for an exit or a refusal). Any other missing directory, and any other session's, is
+  a failure with no class, as before.
+
 ## What is not done
 
 - The tick that withdraws is the pipeline's, which runs while self-improvement is `act` and not halted. A

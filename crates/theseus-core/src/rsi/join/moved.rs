@@ -88,6 +88,10 @@ impl Run<'_> {
     /// (`self_tree_open` would find this one); a tree that will not close is said.
     pub(super) async fn close_stale_tree(&self, text: &mut String, numbers: &mut Value) {
         let (p, c) = (self.place.clone(), self.b.item.clone());
+        // The item's sessions first (`Core::close_item_trees`): nothing of theirs outlives the tree.
+        if let Err(e) = self.core.end_item_sessions(&c, None).await {
+            tracing::warn!(error = %format!("{e:#}"), "self-join: the item's sessions were not ended");
+        }
         if let Err(e) = blocking(move || {
             if let Some(t) = tree::find(&p, &c) {
                 tree::close(&p, &t)?;

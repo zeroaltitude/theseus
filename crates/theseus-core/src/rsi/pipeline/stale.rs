@@ -10,7 +10,7 @@ use anyhow::Result;
 use theseus_protocol::tasks::TaskState;
 
 use super::queues::Queues;
-use super::{clear, evidence, Moved, Transition, Write};
+use super::{evidence, Moved, Transition, Write};
 use crate::fact::rsi_pipeline::Ended;
 use crate::rpc::Core;
 use crate::rsi::tree::Place;
@@ -20,7 +20,12 @@ pub(super) const STALE: &str = "it was in progress with no build behind it";
 
 impl Core {
     /// Settle every stale in-progress item, once.
-    pub(super) fn pipeline_stale(&self, place: &Place, q: &Queues, w: &mut Write) -> Result<()> {
+    pub(super) async fn pipeline_stale(
+        &self,
+        place: &Place,
+        q: &Queues,
+        w: &mut Write,
+    ) -> Result<()> {
         let now = theseus_protocol::now_unix_ms();
         for e in &q.stale {
             let Some(mut t) = crate::task_graph::get(&self.store, &e.item)? else {
@@ -42,7 +47,7 @@ impl Core {
                 format!("stale:{}:{}", e.item, t.version),
                 Transition::Ended(Ended(m)),
             )?;
-            clear(place, e, "stale", w)?;
+            self.close_item_trees(place, e, "stale", w).await?;
         }
         Ok(())
     }

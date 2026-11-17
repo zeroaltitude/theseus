@@ -386,3 +386,180 @@ async fn a_self_builds_reminders_come_twice_a_life_apart_and_then_once_an_hour()
     assert!(text(3).contains("once an hour from here"), "{}", text(3));
     assert!(text(3).contains("2 hours 30 minutes"), "{}", text(3));
 }
+
+/// KEY: the one way the pipeline removes a working copy (`Core::close_item_trees`) ends the item's
+/// session and withdraws its question as part of the same call, not as a later sweep's work: the call
+/// alone leaves the tree gone, the session ended, the question withdrawn, and nothing of it able to run.
+/// (Before this, the tree went first and the session's next call failed at launch: three rows of the
+/// evidence for "proc.run is failing".)
+#[tokio::test]
+async fn closing_an_items_trees_ends_its_session_and_withdraws_its_question() {
+    let (r, item, _, exec, question) = parked().await;
+    assert!(tree::find(&r.f.place, &item).is_some());
+    let mut w = super::Write {
+        mark: super::Mark::read(&r.core.store).unwrap(),
+        frame: vec![],
+        said: vec![],
+        dirty: false,
+        told: vec![],
+    };
+    let entry = super::queues::Entry {
+        item: item.clone(),
+        ..Default::default()
+    };
+    r.core
+        .close_item_trees(&r.f.place, &entry, "closed", &mut w)
+        .await
+        .unwrap();
+    assert!(tree::find(&r.f.place, &item).is_none(), "the tree is gone");
+    let a = r.core.kernel.action(&question).unwrap().unwrap();
+    assert_eq!(crate::outbox::Closed::of(&a).unwrap().how, "withdrawn");
+    assert_ends_wait(&r, &exec);
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert!(e.state.is_terminal(), "its session is ended: {:?}", e.state);
+    // Nothing of it runs afterwards: the answer is late, and no turn starts.
+    let turns = r.rows("turn.started").len();
+    assert!(r
+        .core
+        .confirm_action(&question, true, None, "test")
+        .is_err());
+    assert_eq!(r.rows("turn.started").len(), turns);
+}
+
+/// And through a tick: an item that failed with its working copy open has its tree removed and its
+/// session ended and its question withdrawn by the same tick.
+#[tokio::test]
+async fn a_failed_items_tick_ends_its_session_and_removes_its_tree() {
+    let (r, item, _, exec, question) = parked().await;
+    let mut t = crate::task_graph::get(&r.core.store, &item)
+        .unwrap()
+        .unwrap();
+    t.state = TaskState::Failed;
+    t.version += 1;
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+    r.tick().await;
+    assert!(tree::find(&r.f.place, &item).is_none());
+    assert!(!open(&r, &question));
+    assert!(r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .state
+        .is_terminal());
+}
+
+/// A ready item's earlier session is ended even when it has no question: an idle session of a build
+/// the owner restarted must not wake onto the tree a new start reuses.
+#[tokio::test]
+async fn a_restarted_items_idle_session_is_ended() {
+    let mut r = rig_with(1, 30.0);
+    r.grace = Duration::ZERO;
+    r.tick().await;
+    let item = r.fake.starts.lock().unwrap()[0].0.clone();
+    let t = crate::task_graph::get(&r.core.store, &item)
+        .unwrap()
+        .unwrap();
+    let exec = t
+        .evidence
+        .iter()
+        .find_map(|e| e.identity.strip_prefix("execution:"))
+        .unwrap()
+        .to_string();
+    assert!(!r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .state
+        .is_terminal());
+    let mut t = t;
+    t.state = TaskState::Proposed;
+    t.version += 1;
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+    r.tick().await;
+    assert!(r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .state
+        .is_terminal());
+}
+
+/// Every path that removes a working copy ends the item's sessions first. The builder's own
+/// `self.propose_change` spares the one session making the call, and ends any other.
+#[tokio::test]
+async fn ending_an_items_sessions_spares_only_the_one_making_the_call() {
+    let (r, item, session, exec, _) = parked().await;
+    let live = |r: &Rig| {
+        !r.core
+            .kernel
+            .execution(&exec)
+            .unwrap()
+            .unwrap()
+            .state
+            .is_terminal()
+    };
+    assert_eq!(
+        r.core
+            .end_item_sessions(&item, Some(&session))
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(live(&r), "the spared session is untouched");
+    assert_eq!(r.core.end_item_sessions(&item, None).await.unwrap(), 1);
+    assert!(!live(&r));
+    assert_eq!(
+        r.core.end_item_sessions(&item, None).await.unwrap(),
+        0,
+        "once"
+    );
+}
+
+/// An item built again after a restart is not failed for the earlier start's ended session: the
+/// backlog's sweep reads the item's LATEST execution.
+#[tokio::test]
+async fn a_restarted_item_is_not_swept_failed_for_its_earlier_ended_session() {
+    let (r, item, _, exec, question) = parked().await;
+    // The owner retries it: back to proposed. The next tick ends the old session and starts it anew.
+    let mut t = crate::task_graph::get(&r.core.store, &item)
+        .unwrap()
+        .unwrap();
+    t.state = TaskState::Proposed;
+    t.version += 1;
+    r.core
+        .store
+        .append(&[crate::task_graph::record(&t).unwrap()])
+        .unwrap();
+    r.tick().await;
+    assert!(r
+        .core
+        .kernel
+        .execution(&exec)
+        .unwrap()
+        .unwrap()
+        .state
+        .is_terminal());
+    assert!(!open(&r, &question));
+    assert_eq!(r.fake.starts.lock().unwrap().len(), 2, "built again");
+    assert_eq!(r.state(&item), TaskState::InProgress);
+    r.core
+        .backlog_night(theseus_protocol::now_unix_ms())
+        .unwrap();
+    assert_eq!(
+        r.state(&item),
+        TaskState::InProgress,
+        "the new build is not judged by the old session's end"
+    );
+}

@@ -161,7 +161,7 @@ impl Core {
     }
 
     /// One question withdrawn: the call declined in the kernel's frame, its clients told, its card
-    /// edited, and the execution it parked stopped so that nothing wakes it.
+    /// edited, and the execution it parked ended (cancelled), so that nothing wakes it.
     async fn withdraw(&self, a: &Action) -> Result<()> {
         self.kernel.frame(&[&a.execution_id], |k| {
             k.decline_action(&a.correlation_id, WITHDRAWN, ENDED_WHY)?;
@@ -179,15 +179,82 @@ impl Core {
                 ..Closed::new("withdrawn", None)
             },
         );
-        let live = self
-            .kernel
-            .execution(&a.execution_id)?
-            .is_some_and(|e| !e.state.is_terminal());
-        if live {
-            self.stop_execution(&a.execution_id, "self-pipeline: the build ended")
-                .await?;
-        }
+        self.end_execution(&a.execution_id).await?;
         self.admission.notify_waiters();
         Ok(())
+    }
+
+    /// An execution of a build that is over, ended: cancelled, which settles whatever it planned and
+    /// never sent, stops its running calls, terminals and jobs, and makes it terminal, so no call of
+    /// it can start. Nothing when it has ended already.
+    async fn end_execution(&self, exec: &str) -> Result<bool> {
+        let live = self
+            .kernel
+            .execution(exec)?
+            .is_some_and(|e| !e.state.is_terminal());
+        if live {
+            self.cancel_execution(exec, "self-pipeline: the build ended")
+                .await?;
+        }
+        Ok(live)
+    }
+
+    /// The executions of every session that was ever `item`'s build: the item's `execution:` and
+    /// `session:` evidence, and the execution each such session record names.
+    fn executions_of(&self, item: &str) -> Vec<String> {
+        let Ok(Some(t)) = crate::task_graph::get(&self.store, item) else {
+            return Vec::new();
+        };
+        let mut sessions: Vec<String> = t.session.clone().into_iter().collect();
+        let mut out: Vec<String> = Vec::new();
+        for e in &t.evidence {
+            if let Some(s) = e.identity.strip_prefix("session:") {
+                sessions.push(s.to_string());
+            } else if let Some(x) = e.identity.strip_prefix("execution:") {
+                out.push(x.to_string());
+            }
+        }
+        for s in sessions {
+            let rec: Option<crate::session::SessionRecord> =
+                self.store.get_session(&s).ok().flatten();
+            out.extend(rec.and_then(|r| r.execution_id));
+        }
+        out.retain(|x| !x.is_empty());
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// Every live session of `item`'s build ended, its open questions withdrawn first, so that
+    /// nothing of it can run once its working copy is gone (issue 20: a session that kept calling in
+    /// a tree removed under it failed at launch, and the failure was filed as a fault of the tool).
+    /// A session that is waiting on the owner counts as live. `spare` is the one session that is
+    /// making this call itself (a builder closing its own tree as it hands its change in): its turn
+    /// is running and is not ended from inside. Returns how many executions were ended.
+    pub(crate) async fn end_item_sessions(&self, item: &str, spare: Option<&str>) -> Result<usize> {
+        let spared = spare.and_then(|s| {
+            let rec: Option<crate::session::SessionRecord> = self.store.get_session(s).ok()?;
+            rec?.execution_id
+        });
+        let pending = self.kernel.pending_confirms()?;
+        let mut ended = 0;
+        for exec in self.executions_of(item) {
+            if spared.as_deref() == Some(exec.as_str()) {
+                continue;
+            }
+            let live = self
+                .kernel
+                .execution(&exec)?
+                .is_some_and(|e| !e.state.is_terminal());
+            for a in pending.iter().filter(|a| a.execution_id == exec) {
+                if let Err(e) = self.withdraw(a).await {
+                    tracing::warn!(error = %format!("{e:#}"), item,
+                        correlation_id = %a.correlation_id, "a question of an ended build was not withdrawn");
+                }
+            }
+            self.end_execution(&exec).await?;
+            ended += usize::from(live);
+        }
+        Ok(ended)
     }
 }

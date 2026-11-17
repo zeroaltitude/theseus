@@ -169,3 +169,62 @@ async fn a_moved_call_that_removes_a_file_of_the_tree_is_judged_as_the_sandboxed
     assert!(!r.was_held(&sid), "{:?}", r.results(&sid));
     assert!(jobs_of(&sid)[0].sandbox.is_some());
 }
+
+/// The working directory of a call is its own working copy, which was closed: the call fails at
+/// launch with words the session can act on, and its ledger row says `tree_gone` (the nightly read
+/// files nothing for it). A missing folder inside a working copy that is still open, a directory
+/// that was never its own, and the same call from a person's session fail as before and carry no
+/// mark, and are never told the working copy was closed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_in_a_closed_working_copy_fails_marked_and_any_other_missing_directory_does_not() {
+    let gone = |t: &Path| json!({"argv": ["true"], "cwd": tree(t, "sails").to_string_lossy()});
+    let inside = |t: &Path| json!({"argv": ["true"], "cwd": tree(t, "sails").join("no-such-sub").to_string_lossy()});
+    let elsewhere =
+        |t: &Path| json!({"argv": ["true"], "cwd": base(t).join("no-such-dir").to_string_lossy()});
+    type Case = (&'static str, &'static str, fn(&Path) -> Value, bool, bool);
+    // (what, principal, call, whether the tree is removed first, whether it is marked)
+    let cases: [Case; 4] = [
+        ("its own tree, closed", "self", gone, true, true),
+        (
+            "a missing folder in a tree still open",
+            "self",
+            inside,
+            false,
+            false,
+        ),
+        (
+            "a directory that was never its own",
+            "self",
+            elsewhere,
+            true,
+            false,
+        ),
+        (
+            "a person's session, the same path",
+            "operator",
+            gone,
+            true,
+            false,
+        ),
+    ];
+    for (what, principal, input, close, marked) in cases {
+        let (r, sid) = drive_says(REVERSIBLE, principal, "proc_run", input, nothing);
+        if close {
+            std::fs::remove_dir_all(tree(&r.target, "sails")).unwrap();
+        }
+        r.turn(&sid).await;
+        let results = r.results(&sid);
+        assert_eq!(results.len(), 1, "{what}: {results:?}");
+        assert_eq!(results[0].0, "Error", "{what}: {results:?}");
+        assert!(
+            results[0].1.contains("does not exist"),
+            "{what}: {results:?}"
+        );
+        let said = results[0].1.contains("working copy was closed");
+        assert_eq!(said, marked, "{what}: {results:?}");
+        let failed = r.rows("action.failed");
+        assert_eq!(failed.len(), 1, "{what}: {failed:?}");
+        let word = failed[0].get("failure").and_then(Value::as_str);
+        assert_eq!(word == Some("tree_gone"), marked, "{what}: {failed:?}");
+    }
+}
