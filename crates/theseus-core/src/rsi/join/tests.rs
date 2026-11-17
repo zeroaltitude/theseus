@@ -72,7 +72,7 @@ pub(super) struct Builds {
 }
 
 impl Installer for Builds {
-    fn start(&self, p: &Place, merge: &str) -> anyhow::Result<String> {
+    fn start(&self, p: &Place, merge: &str) -> anyhow::Result<install::Started> {
         let target = install::built_tree(p, merge, &|_, t, _| {
             // The tree is open while its build runs, and is a worktree.
             assert!(
@@ -90,7 +90,9 @@ impl Installer for Builds {
             Ok(())
         })?;
         self.targets.lock().unwrap().push(target);
-        Ok("theseus-self-install-stand-in".into())
+        Ok(install::Started::Unit(
+            "theseus-self-install-stand-in".into(),
+        ))
     }
 }
 

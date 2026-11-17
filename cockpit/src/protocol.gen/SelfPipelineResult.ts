@@ -26,4 +26,8 @@ rows_today: number, week?: SelfPipelineWeek,
 /**
  * The ledger's index is still being built: the queues are not read yet.
  */
-building_index?: boolean, };
+building_index?: boolean, 
+/**
+ * The last join and whether it is what runs (as `SelfLogResult::last_join`).
+ */
+last_join?: string, };

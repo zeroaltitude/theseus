@@ -139,6 +139,41 @@ Its config must keep off your daemon's places: `[discord] enabled = false` (one 
 `[web] enabled = false` or a `[web] port` of its own (yours is 7433). Take it away with `scripts/user-service.sh
 --unit theseus-scratch uninstall`, then delete the directory.
 
+## A root-owned install
+
+Some machines keep the service's program where only an administrator can write: the unit's `ExecStart` names
+`/usr/local/lib/theseus/<commit>/theseusd` (a directory for each build), or the one `/usr/local/lib/theseus/theseusd`
+that `theseusd install --separate` makes. Theseus's own loop can build a change, join it to `main` and, with
+`[self] install = true`, install it, but only where it can write the directory the service runs from. It reads that
+directory from the unit (`systemctl --user show -p ExecStart theseusd.service`) and, where it cannot write it, **copies
+nothing and restarts nothing**: a restart that changed nothing would cost the owner a turn in flight for no gain, and new
+command-line programs beside an old daemon are a mismatch of their own. It records `self.install.not_installed` and
+tells the owner once, in a note that says the change is joined to `main` and not installed, with the one step that
+installs it. `theseus self pipeline` and `theseus self log` say it too (`Last join: joined at <commit>; joined but not
+installed ...`), and `theseus health` names the commit in a `joined, not running` line.
+
+The step the note quotes is this one, filled in for the machine. The build waits in the loop's own build folder until
+you run it:
+
+```bash
+# a service whose program sits in a directory named for a commit
+sudo install -d -m 0755 /usr/local/lib/theseus/<commit8>
+sudo install -m 0755 <build>/release/{theseusd,theseus,theseus-tui,theseus-index} /usr/local/lib/theseus/<commit8>/
+PATH=/usr/local/lib/theseus/<commit8>:$PATH scripts/user-service.sh install --yes   # points the unit at it
+scripts/user-service.sh restart
+```
+
+For a service that runs one fixed directory, the step is the second command with that directory, then the last one. When
+the service comes back on the build, Theseus sees that its own commit is the join's, writes `self.installed`, and says
+"installed and running".
+
+Where the loop can write the service's directory (the user's own `~/.local/bin`, as [user-service.md](user-service.md)
+sets up), it installs there, restarts, and the unit leaves a marker naming the commit it installed. The new daemon checks
+its own `build.commit` against the marker once it is serving: equal, it writes `self.install.verified` with
+`self.installed`; not equal (or a build that names no commit), it writes `self.install.mismatch` and tells the owner that
+the change is joined and not what runs. Letting the loop write the administrator's directory itself is a separate
+decision (issue 22), and nothing here does.
+
 ## By hand
 
 The same steps, one at a time:

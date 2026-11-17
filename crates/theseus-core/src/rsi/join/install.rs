@@ -14,6 +14,13 @@
 //! and that has no `self.installed` row, and writes `self.installed` and the
 //! notice to the owner's DM in one frame: what changed, why, the numbers,
 //! the cost, and the revert. So the notice fires once, never twice.
+//!
+//! The copy goes where the service looks, and only where the loop can write
+//! (issue 20): [`layout`] reads where the service's program is. Where the
+//! service runs a root-owned build the install copies nothing and restarts
+//! nothing ([`Started::NotInstalled`]; `verify` tells the owner the one step).
+//! Where it installs, the unit leaves a marker naming the merge before the
+//! restart, and the new daemon checks its own commit against it (`verify`).
 
 use std::path::Path;
 
@@ -21,6 +28,9 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use super::git;
+use super::layout::{self, Layout};
+use super::verify;
+use crate::fact::rsi_install::SelfInstallVerified;
 use crate::fact::rsi_join::SelfInstalled;
 use crate::rpc::Core;
 use crate::rsi::jail::Job;
@@ -32,23 +42,48 @@ pub const BINARIES: &[&str] = &["theseusd", "theseus", "theseus-tui", "theseus-i
 /// The service the restart names (`scripts/user-service.sh`'s default unit).
 pub const SERVICE: &str = "theseusd.service";
 
-/// Starts an install of a merge; the unit's name.
+/// What starting an install came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Started {
+    /// The unit that copies the programs in and restarts the service; its name.
+    Unit(String),
+    /// Nothing was copied and nothing restarted.
+    NotInstalled(NotInstalled),
+}
+
+/// Why a build was not installed, and the one step that installs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotInstalled {
+    /// Why, as the owner reads it.
+    pub why: String,
+    /// Where the built programs wait.
+    pub target: std::path::PathBuf,
+    /// The one command that installs them.
+    pub step: String,
+}
+
+/// Starts an install of a merge.
 pub trait Installer: Send + Sync {
-    fn start(&self, p: &Place, merge: &str) -> Result<String>;
+    fn start(&self, p: &Place, merge: &str) -> Result<Started>;
 }
 
 /// The script the unit runs: the L0 half of an install, which touches no
 /// file of the repository but the binaries the L1 build made. Copy-then-
-/// rename each into the prefix, then restart. No `cd`, no `scripts/` of the
-/// tree, nothing it could have changed.
-pub fn script(target: &Path, merge: &str) -> String {
+/// rename each into `prefix` (where the service's program is), leave the
+/// marker that names the merge (`verify`), then restart. No `cd`, no
+/// `scripts/` of the tree, nothing it could have changed.
+pub fn script(target: &Path, prefix: &Path, marker: &Path, merge: &str) -> String {
     format!(
         "#!/bin/bash\n# A self-join's install (theseus-pw1q.9) of {merge}: the copy and the \
          restart. The build ran in L1.\nset -euo pipefail\ntarget={target}\n\
-         prefix=\"$HOME/.local/bin\"\nfor b in {names}; do\n  \
+         prefix={prefix}\nmarker={marker}\nfor b in {names}; do\n  \
          cp \"$target/release/$b\" \"$prefix/.$b.new\" && mv -f \"$prefix/.$b.new\" \"$prefix/$b\"\n\
-         done\nsystemctl --user restart {SERVICE}\n",
+         done\nprintf '%s\\n' {merge} > \"$marker.new\" && mv -f \"$marker.new\" \"$marker\"\n\
+         systemctl --user restart {SERVICE}\n",
         target = shell(&target.to_string_lossy()),
+        prefix = shell(&prefix.to_string_lossy()),
+        marker = shell(&marker.to_string_lossy()),
+        merge = shell(merge),
         names = BINARIES.join(" "),
     )
 }
@@ -192,52 +227,110 @@ pub fn reap_target(p: &Place, merge: &str) -> bool {
     }
 }
 
-/// The machine's own: a tree at the merge, the script, and its unit.
+/// The machine's own: the layout it reads, a tree at the merge, the script, and its unit.
 pub struct Systemd;
 
 impl Installer for Systemd {
-    fn start(&self, p: &Place, merge: &str) -> Result<String> {
-        let short = &merge[..merge.len().min(12)];
-        let target = built_tree(p, merge, &build)?;
-        let script_path = p.root().join(format!("install-{short}.sh"));
-        std::fs::write(&script_path, script(&target, merge))?;
-        let unit = format!("theseus-self-install-{short}");
-        let a = argv(&unit, &script_path);
-        let mut c = std::process::Command::new(&a[0]);
-        c.args(&a[1..])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped());
-        let o = theseus_kernel::children::spawn(
-            theseus_kernel::children::Kind::Owned,
-            || c.spawn(),
-            |c| Some(c.id()),
-        )
-        .and_then(std::process::Child::wait_with_output)
-        .context("systemd-run could not start")?;
-        if !o.status.success() {
-            bail!(
-                "systemd-run refused: {}",
-                String::from_utf8_lossy(&o.stderr).trim()
-            );
-        }
-        Ok(unit)
+    fn start(&self, p: &Place, merge: &str) -> Result<Started> {
+        start_with(p, merge, &layout::Machine, &build, &run_unit)
     }
 }
 
+/// An install of `merge` on the machine `host` describes: the layout is read first, the build
+/// is made in either case (it is what the owner's step installs), and the unit is started by
+/// `run` only where the loop can write the service's directory.
+pub(super) fn start_with(
+    p: &Place,
+    merge: &str,
+    host: &dyn layout::Host,
+    build: &Build,
+    run: &dyn Fn(&[String]) -> Result<()>,
+) -> Result<Started> {
+    let layout = layout::read(host);
+    let target = built_tree(p, merge, build)?;
+    let dir = match layout {
+        Layout::User { dir } => dir,
+        Layout::Rooted { program } => {
+            return Ok(Started::NotInstalled(NotInstalled {
+                why: format!(
+                    "this machine's service runs {}, a build kept in a directory only an \
+                     administrator can write, which Theseus cannot replace",
+                    program.display()
+                ),
+                step: layout::step(&program, &target, &p.repo, merge),
+                target,
+            }));
+        }
+        Layout::Unknown { why } => {
+            return Ok(Started::NotInstalled(NotInstalled {
+                why: format!(
+                    "Theseus could not tell where this machine's service keeps its program \
+                     ({why}), so it does not know where the new build would go"
+                ),
+                step: layout::unknown_step(&target),
+                target,
+            }));
+        }
+    };
+    let short = &merge[..merge.len().min(12)];
+    let script_path = p.root().join(format!("install-{short}.sh"));
+    std::fs::write(
+        &script_path,
+        script(&target, &dir, &verify::marker_of(p), merge),
+    )?;
+    let unit = format!("theseus-self-install-{short}");
+    run(&argv(&unit, &script_path))?;
+    Ok(Started::Unit(unit))
+}
+
+/// Hand `argv` (a `systemd-run`) to the machine.
+fn run_unit(a: &[String]) -> Result<()> {
+    let mut c = std::process::Command::new(&a[0]);
+    c.args(&a[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let o = theseus_kernel::children::spawn(
+        theseus_kernel::children::Kind::Owned,
+        || c.spawn(),
+        |c| Some(c.id()),
+    )
+    .and_then(std::process::Child::wait_with_output)
+    .context("systemd-run could not start")?;
+    if !o.status.success() {
+        bail!(
+            "systemd-run refused: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 impl Core {
-    /// Once serving: the notice for the join this build installs, if it has
-    /// none yet (the module's doc). Nothing with the mode off.
+    /// Once serving: the install's check against the marker the unit left, then the notice for
+    /// the join this build installs, if it has none yet (the module's doc). Nothing with the mode
+    /// off.
     pub fn self_installed_after_serving(&self) -> Result<Option<String>> {
         // An install that finished in an earlier run left its build tree: clear it.
         self.reap_installed_targets();
-        match crate::build().commit {
-            Some(c) => self.self_installed_as(&c),
+        self.self_installed_running(crate::build().commit.as_deref())
+    }
+
+    /// The same, for a build that names `running` as its commit: a marker naming another commit
+    /// is a mismatch, told once; one naming this commit is checked off with the notice.
+    pub fn self_installed_running(&self, running: Option<&str>) -> Result<Option<String>> {
+        if let Some(merge) = self.self_install_mismatch(running)? {
+            return Ok(Some(merge));
+        }
+        match running {
+            Some(c) => self.self_installed_as(c),
             None => Ok(None),
         }
     }
 
-    /// The same, for a build of `commit`: the merge noticed, if any.
+    /// The same, for a build of `commit`: the merge noticed, if any. A marker that names `commit`
+    /// is the install's own: the build is the one installed, which the row says (`verified`), and
+    /// the marker is spent.
     pub fn self_installed_as(&self, commit: &str) -> Result<Option<String>> {
         if self.cfg.self_improve.mode != theseus_protocol::rsi::SelfMode::Act {
             return Ok(None);
@@ -247,6 +340,15 @@ impl Core {
         if self.root_install_pending_for(commit) {
             return Ok(None);
         }
+        let verified = self.self_install_marked(commit);
+        let told = self.self_installed_row(commit, verified)?;
+        if verified {
+            self.self_install_spent();
+        }
+        Ok(told)
+    }
+
+    fn self_installed_row(&self, commit: &str, verified: bool) -> Result<Option<String>> {
         let Some(rows) = super::rows_of(
             &self.store,
             &["self.joined", "self.installed", "self.review.verdict"],
@@ -283,9 +385,19 @@ impl Core {
             .stage_to_operator(None, json!({"kind": "self_join", "text": text}))?;
         let rec = self.rec(None);
         frame.push(rec.row(&fact)?);
+        let checked = SelfInstallVerified {
+            merge: commit.into(),
+            branch,
+        };
+        if verified {
+            frame.push(rec.row(&checked)?);
+        }
         self.store.append(&frame)?;
         self.outbox.posted(&post);
         rec.announce(&fact);
+        if verified {
+            rec.announce(&checked);
+        }
         self.reap_installed_targets();
         Ok(Some(commit.into()))
     }
@@ -388,7 +500,12 @@ mod tests {
         let a = argv("theseus-self-install-abc", Path::new("/s/install-abc.sh"));
         assert_eq!(&a[..2], ["systemd-run", "--user"]);
         assert!(a.contains(&"--unit=theseus-self-install-abc".to_string()));
-        let s = script(Path::new("/t/it's/target"), "abc123");
+        let s = script(
+            Path::new("/t/it's/target"),
+            Path::new("/p/bin"),
+            Path::new("/s/install-pending"),
+            "abc123",
+        );
         assert!(s.contains("target='/t/it'\\''s/target'\n"), "{s}");
         assert!(s
             .trim_end()
@@ -406,7 +523,12 @@ mod tests {
     /// `systemctl`. It names no `cd`, no `scripts/`, no cargo.
     #[test]
     fn the_l0_half_only_copies_and_restarts() {
-        let s = script(Path::new("/t/target"), "abc123");
+        let s = script(
+            Path::new("/t/target"),
+            Path::new("/p/bin"),
+            Path::new("/s/install-pending"),
+            "abc123",
+        );
         for forbidden in ["cd ", "scripts/", "cargo", "build.sh", "bash -c", "eval"] {
             assert!(!s.contains(forbidden), "{forbidden:?} in the L0 half:\n{s}");
         }
@@ -431,7 +553,17 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&ctl, std::fs::Permissions::from_mode(0o755)).unwrap();
         let path = root.join("install.sh");
-        std::fs::write(&path, script(&root.join("target"), "abc123")).unwrap();
+        let marker = root.join("install-pending");
+        std::fs::write(
+            &path,
+            script(
+                &root.join("target"),
+                &home.join(".local/bin"),
+                &marker,
+                "abc123",
+            ),
+        )
+        .unwrap();
         let st = std::process::Command::new("/bin/bash")
             .arg(&path)
             .env_clear()
@@ -449,6 +581,11 @@ mod tests {
             std::fs::read_to_string(&calls).unwrap(),
             format!("--user restart {SERVICE}\n"),
             "the one call: the restart"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap(),
+            "abc123\n",
+            "the marker names the merge the restart was for"
         );
     }
 }

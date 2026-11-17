@@ -21,7 +21,7 @@ use crate::approval::Answerer;
 use crate::fact::rsi_join::SelfJoined;
 use crate::policy::Posture;
 use crate::provider::{FakeProvider, Provider};
-use crate::rsi::join::install::Installer;
+use crate::rsi::join::install::{Installer, Started};
 use crate::rsi::tests_tree::{fixture, fixture_with, hermetic, Fixture};
 use crate::rsi::tree::Place;
 use crate::store::Store;
@@ -84,9 +84,9 @@ impl Prober for Probed {
 struct Installs(Mutex<Vec<String>>);
 
 impl Installer for Installs {
-    fn start(&self, _p: &Place, merge: &str) -> anyhow::Result<String> {
+    fn start(&self, _p: &Place, merge: &str) -> anyhow::Result<Started> {
         self.0.lock().unwrap().push(merge.to_string());
-        Ok("unit".into())
+        Ok(Started::Unit("unit".into()))
     }
 }
 

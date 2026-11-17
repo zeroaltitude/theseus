@@ -20,6 +20,7 @@ use super::{Cause, Seams};
 use crate::fact::rsi_join::SelfJoinStopped;
 use crate::fact::rsi_revert::{SelfReverted, SelfVetoed};
 use crate::rpc::Core;
+use crate::rsi::join::install::Started;
 use crate::rsi::join::{blocking, git, lock, lock_dir, refused, remote_of, TRIES};
 use crate::rsi::tree::{self, Place, Tree, Verdict};
 
@@ -91,13 +92,29 @@ impl Core {
         if let Done::Reverted(r) = &done {
             if self.cfg.self_improve.install.standing_ok() && (!auto || refused(self).is_none()) {
                 let (p, i, r) = (place.clone(), seams.installer.clone(), r.clone());
-                if let Err(e) = blocking(move || i.start(&p, &r)).await {
-                    self.revert_held(
-                        j,
-                        "install",
-                        &format!("the install did not start: {e:#}"),
-                        false,
-                    );
+                match blocking({
+                    let r = r.clone();
+                    move || i.start(&p, &r)
+                })
+                .await
+                {
+                    Ok(Started::Unit(_)) => {}
+                    // The service runs a build the loop cannot replace: the revert is on main and
+                    // is not what runs, and the owner is told so, with the one step.
+                    Ok(Started::NotInstalled(n)) => {
+                        if let Err(e) = self.self_install_not_installed("", "", &r, &n) {
+                            tracing::warn!(error = %format!("{e:#}"),
+                                "self-revert: the not-installed notice was not written");
+                        }
+                    }
+                    Err(e) => {
+                        self.revert_held(
+                            j,
+                            "install",
+                            &format!("the install did not start: {e:#}"),
+                            false,
+                        );
+                    }
                 }
             }
         }

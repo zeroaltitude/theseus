@@ -89,6 +89,26 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
               verified or rolled back, each with what it did and why.",
     },
     SelfRowKind {
+        name: "self.install.not_installed",
+        fields: &["merge", "branch", "target", "step"],
+        doc: "A joined build that was not installed: the service runs a build in a directory the \
+              loop cannot write, so nothing was copied and nothing restarted. The one step that \
+              installs it is in the row, and the owner was told once.",
+    },
+    SelfRowKind {
+        name: "self.install.mismatch",
+        fields: &["merge", "branch", "running"],
+        doc: "An install whose service came back on another build than the one installed, or on \
+              one that names no commit: the change is joined and not what runs. The owner was \
+              told.",
+    },
+    SelfRowKind {
+        name: "self.install.verified",
+        fields: &["merge", "branch"],
+        doc: "An install whose service came back running the build installed: its own commit is \
+              the merge's.",
+    },
+    SelfRowKind {
         name: "self.join.stopped",
         fields: &["branch", "head", "phase"],
         doc: "A self-join stopped before a phase (theseus-pw1q.9): a halt, a keel class waiting \
@@ -470,6 +490,11 @@ pub struct SelfLogResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub budget: Option<SelfBudgetView>,
+    /// The last join and whether it is what runs: `joined at 1a2b3c4d5e6f; installed and
+    /// running`, or `joined but not installed`, with the step. Absent before any join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_join: Option<String>,
 }
 
 /// `self.digest`'s params: the week that ends at `until_ms` (default now).
@@ -1164,4 +1189,8 @@ pub struct SelfPipelineResult {
     /// The ledger's index is still being built: the queues are not read yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub building_index: bool,
+    /// The last join and whether it is what runs (as `SelfLogResult::last_join`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_join: Option<String>,
 }
