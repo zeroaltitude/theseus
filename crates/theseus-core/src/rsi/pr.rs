@@ -540,6 +540,13 @@ async fn attempt(
     } else {
         after.push_str("[self] remote is unset, so the branch stays local. ");
     }
+    // The item's other sessions are ended before the tree goes; this one is making the call.
+    if let Err(e) = core
+        .end_item_sessions(a.i.item.trim(), Some(tc.session_id))
+        .await
+    {
+        tracing::warn!(error = %format!("{e:#}"), "self.propose_change: other sessions were not ended");
+    }
     let (p, t) = (place.clone(), a.tree.clone());
     let closed = blocking(move || tree::close(&p, &t)).await;
     after.push_str(match closed {

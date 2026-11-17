@@ -276,6 +276,10 @@ pub fn floor_argv() -> Vec<Vec<String>> {
     vec![vec!["theseusd".into()], vec!["op".into()]]
 }
 
+/// The daemon's own program name, the one floored program a self builder's sandbox makes harmless
+/// (`floor_is_only_the_daemons_binary`).
+const DAEMON_BINARY: &str = "theseusd";
+
 /// What the floor's paths hold, in the operator's words.
 const FLOOR_STATE: &str = "Theseus's own state or the 1Password token";
 
@@ -1286,6 +1290,36 @@ impl ToolPolicy {
                 v.unread_lines
             )
         })
+    }
+
+    /// Whether the ONLY thing that puts this call on the floor is the program `theseusd` read at
+    /// some position of its command line, and the call has no path on the floor, no argument that
+    /// names one, and no line the floor left unread. `cargo test -p theseusd` is the common case:
+    /// `-p` hides nothing, so the package name is read as a program (`runs_program`), which is
+    /// the floor's deliberate over-hold. A call that also runs `op`, or names the store, the config,
+    /// the owner's proof, the sealed sets or the socket, is not this: it is on the floor for
+    /// something the program rule says nothing about. False when the call is not on the floor at
+    /// all. It decides nothing by itself: `rsi::own_tree::l1_instead_of_floor` is what reads it.
+    pub(crate) fn floor_is_only_the_daemons_binary(&self, plan: &Plan) -> bool {
+        let v = self.view(plan);
+        let on = |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f));
+        if v.unread_lines > 0
+            || v.resources.iter().any(|p| on(p))
+            || v.floor_args.iter().any(|(_, p)| on(p))
+        {
+            return false;
+        }
+        let mut found = false;
+        for f in &self.floor_argv {
+            let hit = v.argvs.iter().any(|a| runs_program(a, f))
+                || v.handed_argvs.iter().any(|a| prefix_match(a, f));
+            match (hit, f.as_slice()) {
+                (false, _) => {}
+                (true, [only]) if only == DAEMON_BINARY => found = true,
+                (true, _) => return false,
+            }
+        }
+        found
     }
 
     /// A URL whose host is a private address (DD5), unless

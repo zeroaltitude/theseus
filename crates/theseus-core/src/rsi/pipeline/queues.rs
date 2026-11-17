@@ -48,6 +48,9 @@ pub(crate) struct Entry {
     pub execution: Option<String>,
     /// Its session's turn runs, queues or waits on the owner.
     pub live: bool,
+    /// A build whose turn ended on a question to the owner and is waiting for the answer
+    /// (`parked`): the question's id.
+    pub parked_on: Option<String>,
     pub since_ms: Option<u64>,
     pub rejections: u32,
     pub why: Option<String>,
@@ -69,6 +72,9 @@ pub(crate) struct Queues {
     pub closed: Vec<Entry>,
     /// In progress, and in no queue above: nothing is building, reviewing or waiting on it.
     pub stale: Vec<Entry>,
+    /// The backlog's tasks this was read from, which the withdrawal of an ended build's question
+    /// reads again (`parked`).
+    pub tasks: Vec<TaskRecord>,
 }
 
 /// A green branch, as its row says it.
@@ -432,6 +438,7 @@ impl Core {
         let (tasks, order) = self.backlog_for_pipeline()?;
         let by_id: HashMap<&str, &TaskRecord> = tasks.iter().map(|t| (t.id.as_str(), t)).collect();
         let now = theseus_protocol::now_unix_ms();
+        let pending = self.kernel.pending_confirms().unwrap_or_default();
         let mut q = Queues::default();
         // Ready, in the backlog's order; parking, the twice rejected.
         for id in &order {
@@ -478,6 +485,9 @@ impl Core {
                     if seen.greens.iter().any(|g| g.item == t.id && g.at_ms >= at) {
                         continue;
                     }
+                    // A turn that ended on a question to the owner is a build waiting on him, not
+                    // one that ended with no branch (`parked`).
+                    self.mark_parked(&mut e, &pending, place, &t.id);
                     // A gate still runs in its tree (`tree_lease`): it is building, whatever its
                     // execution says, and its end is not the build's end.
                     let gating = tree::find(place, &t.id).is_some_and(|tr| {
@@ -525,6 +535,7 @@ impl Core {
         branches(&mut q, &seen, &by_id);
         closed(&mut q, &tasks, place);
         stale(&mut q, &tasks);
+        q.tasks = tasks;
         Ok(Some(q))
     }
 }

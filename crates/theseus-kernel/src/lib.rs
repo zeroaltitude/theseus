@@ -123,6 +123,7 @@ pub use day_ceiling::{
     DEFAULT_RUNAWAY_MICROS, DEFAULT_STEP_MICROS,
 };
 pub use earlier::EARLIER_PROCESS;
+pub use failure::TREE_GONE;
 pub use gate::{digest_json, digest_proposal, Proposal};
 pub use kernel::{
     Accepted, Cancel, Committed, Ending, Evidence, Kernel, KernelConfig, KernelError, KernelStats,

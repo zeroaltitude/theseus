@@ -432,7 +432,9 @@ fn of_action_failed(mut o: Obs, d: &Value) -> Option<Obs> {
         action_why(d)
     );
     if let Some(f) = d["failure"].as_str() {
-        if f == "exit" || f == "refused" {
+        // A job's own exit, a tool's refusal, and a call that failed because its own session's
+        // working copy was closed (issue 20) are no faults of ours.
+        if f == "exit" || f == "refused" || f == theseus_kernel::TREE_GONE {
             return None;
         }
         let f = word(&d["failure"]);
