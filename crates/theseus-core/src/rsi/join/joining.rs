@@ -8,6 +8,7 @@ use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
 use crate::fact::rsi_join::SelfJoined;
+use crate::rsi::rerun;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
 
 /// How a try ended.
@@ -177,7 +178,7 @@ impl Run<'_> {
         let close = |r: &Self| {
             let _ = tree::close(&r.place, &m.t);
         };
-        let Some(run) = self.gated(&m.t).await else {
+        let Some((run, reran)) = self.gated(&m.t, &m.base).await else {
             close(self);
             return Ok(Try::Stopped);
         };
@@ -212,11 +213,11 @@ impl Run<'_> {
                     branch: self.b.branch.clone(),
                     head: self.b.head.clone(),
                     merge: signed.clone(),
-                    gate: format!("{} (main's gate, blob {})", run.verdict.name(), run.blob),
+                    gate: gate_said(&run, &reran),
                     cost_usd: self.b.cost_usd,
                     why: self.b.why.clone(),
                     numbers: json!({"tries": attempt, "gate_secs": run.secs, "base": m.base,
-                                    "unsigned": m.merge}),
+                                    "unsigned": m.merge, "reran": reran}),
                 });
                 self.pass
                     .joined
@@ -392,25 +393,32 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// Main's gate on the merge, with the benches: its run when green.
-    async fn gated(&mut self, t: &Tree) -> Option<GateRun> {
-        if !self.phase("gate") {
-            return None;
+    /// Main's gate on the merge, with the benches: its run when green, and the tests it passed
+    /// only on a second look (none, nearly always).
+    ///
+    /// A red suite whose failures are all outside what the merge brings is given one second look
+    /// (`rerun`, the build step's own code, in this tree and this view). The suite is the last
+    /// check but two of main's gate, so a suite that fails stops it before `deny` and the gate's
+    /// own-copy check; a second look that passes is therefore followed by main's whole gate once
+    /// more, and that run is final: green, or red as any red.
+    async fn gated(&mut self, t: &Tree, base: &str) -> Option<(GateRun, Vec<String>)> {
+        let mut r = self.gate_ran(t).await?;
+        let mut reran = Vec::new();
+        if r.verdict == Verdict::Red {
+            if let Some(tests) = rerun::second_look(&self.place, t, &r, Some(base)).await {
+                reran = tests.iter().map(rerun::Failed::name).collect();
+                tracing::info!(branch = %self.b.branch, tests = %reran.join(", "),
+                    "self-join: they passed on a second look; main's whole gate once more");
+                keep_first_log(&r);
+                if !self.phase("gate") {
+                    return None;
+                }
+                r = self.gate_ran(t).await?;
+            }
         }
-        let r = match tree::gate_with_benches(&self.place, t).await {
-            Ok(tree::Gated::Ran(r)) if r.verdict == Verdict::Green => return Some(r),
-            Ok(tree::Gated::Ran(r)) => r,
-            Ok(tree::Gated::Stopped(why)) => {
-                let why = format!("stopped while main's gate on the merge waited: {why}");
-                self.stop("gate", &why, Value::Null);
-                return None;
-            }
-            Err(e) => {
-                let why = format!("main's gate on the merge did not run: {e:#}");
-                self.stop("gate", &why, Value::Null);
-                return None;
-            }
-        };
+        if r.verdict == Verdict::Green {
+            return Some((r, reran));
+        }
         let keel = r.verdict == Verdict::Keel;
         if keel {
             self.card(merge_keel_card(
@@ -419,14 +427,34 @@ impl Run<'_> {
                 &r.log.display().to_string(),
             ));
         }
-        let why = format!(
-            "main's gate on the merge is {} (exit {:?}); main is untouched",
-            r.verdict.name(),
-            r.exit
-        );
+        let why = red_said(&r, &reran);
         let phase = if keel { "keel" } else { "gate" };
-        self.hold(phase, &why, json!({"log": r.log, "secs": r.secs}));
+        self.hold(
+            phase,
+            &why,
+            json!({"log": r.log, "secs": r.secs, "reran": reran}),
+        );
         None
+    }
+
+    /// One run of main's gate on the merge. None when it did not run: the stop is recorded.
+    async fn gate_ran(&mut self, t: &Tree) -> Option<GateRun> {
+        if !self.phase("gate") {
+            return None;
+        }
+        match tree::gate_with_benches(&self.place, t).await {
+            Ok(tree::Gated::Ran(r)) => Some(r),
+            Ok(tree::Gated::Stopped(why)) => {
+                let why = format!("stopped while main's gate on the merge waited: {why}");
+                self.stop("gate", &why, Value::Null);
+                None
+            }
+            Err(e) => {
+                let why = format!("main's gate on the merge did not run: {e:#}");
+                self.stop("gate", &why, Value::Null);
+                None
+            }
+        }
     }
 
     /// The merge signed with `[self] repo`'s key; none (the owner's card)
@@ -450,6 +478,66 @@ impl Run<'_> {
                 None
             }
         }
+    }
+}
+
+/// The most failed tests a hold names; the count says the rest.
+const NAMED_FAILURES: usize = 5;
+
+/// What the row says of main's gate: its verdict, and the tests it passed only on a second look.
+fn gate_said(run: &GateRun, reran: &[String]) -> String {
+    match reran.is_empty() {
+        true => format!("{} (main's gate, blob {})", run.verdict.name(), run.blob),
+        false => format!(
+            "{}, passed on a second look (main's gate, blob {}): {}",
+            run.verdict.name(),
+            run.blob,
+            reran.join(", ")
+        ),
+    }
+}
+
+/// Why a join is held on a red gate, in plain words: the gate's verdict, which tests failed (at
+/// most [`NAMED_FAILURES`], then their count), and, when a second look was given and the gate
+/// was then red all the same, which tests had passed it.
+pub(super) fn red_said(r: &GateRun, reran: &[String]) -> String {
+    let exit = r.exit.map(|c| format!(" (exit {c})")).unwrap_or_default();
+    let mut why = format!("main's gate on the merge is {}{exit}", r.verdict.name());
+    if let Some(failed) = rerun::failed_in_suite(r) {
+        let names: Vec<String> = failed
+            .iter()
+            .take(NAMED_FAILURES)
+            .map(rerun::Failed::name)
+            .collect();
+        let n = failed.len();
+        why.push_str(&match n > NAMED_FAILURES {
+            true => format!(
+                ": {n} tests failed, the first {NAMED_FAILURES}: {}",
+                names.join(", ")
+            ),
+            false => format!(
+                ": {n} test{} failed: {}",
+                if n == 1 { "" } else { "s" },
+                names.join(", ")
+            ),
+        });
+    }
+    if !reran.is_empty() {
+        why.push_str(&format!(
+            "; {} had failed before and passed alone, so the whole gate was run once more",
+            reran.join(", ")
+        ));
+    }
+    why.push_str("; main is untouched");
+    why
+}
+
+/// The first run's log, kept beside the gate's own, which the next run writes over: the failure
+/// that was let go is what shows the flaky test its reason.
+fn keep_first_log(r: &GateRun) {
+    let kept = r.log.with_extension("first.log");
+    if let Err(e) = std::fs::copy(&r.log, &kept) {
+        tracing::warn!(error = %e, "self-join: the first gate log was not kept");
     }
 }
 
