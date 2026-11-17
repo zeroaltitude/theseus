@@ -433,10 +433,13 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
         None => {
             let loaded = Config::load_text(&source, &op).await;
             // The new settings do not load: go back to the ones before the change.
-            if let (Err(e), Some((marker, p))) = (&loaded, watch.take()) {
-                let why = format!("the new settings do not load: {e:#}");
-                if let Some(exit) = change_back::go_back(&marker, p, &why, &config_file) {
-                    return Ok(exit);
+            // Taken only on a failure: a start that loads still watches for health.
+            if let Err(e) = &loaded {
+                if let Some((marker, p)) = watch.take() {
+                    let why = format!("the new settings do not load: {e:#}");
+                    if let Some(exit) = change_back::go_back(&marker, p, &why, &config_file) {
+                        return Ok(exit);
+                    }
                 }
             }
             let (cfg, text) = loaded?;
