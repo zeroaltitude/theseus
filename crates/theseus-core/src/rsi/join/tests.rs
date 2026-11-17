@@ -554,6 +554,29 @@ async fn a_join_with_an_install_leaves_no_tree_open() {
     );
 }
 
+/// The `true` of an older file installs on a user's own layout as it always did; the default (`"ask"`) and `"off"` do
+/// not (`true` never installs into a root-owned directory by itself: `root_install`'s tests hold that).
+#[tokio::test]
+async fn the_old_true_installs_on_a_users_own_layout_and_the_default_does_not() {
+    use crate::config::self_improve::SelfInstall;
+    for (mode, installs) in [
+        (SelfInstall::Legacy, 1),
+        (SelfInstall::Auto, 1),
+        (SelfInstall::default(), 0),
+        (SelfInstall::Off, 0),
+    ] {
+        let r = rig_with(SelfMode::Act, |c| c.self_improve.install = mode);
+        r.seed("trim-the-sails", PROVED, SONNET);
+        let builds = Arc::new(Builds::default());
+        let seams = Seams {
+            installer: builds.clone(),
+            ..r.seams()
+        };
+        r.core.self_join_pass(&seams).await.unwrap();
+        assert_eq!(builds.targets.lock().unwrap().len(), installs, "{mode:?}");
+    }
+}
+
 /// The same model building and reviewing is no independent review: refused
 /// with its reason, once, and nothing is joined.
 #[tokio::test]

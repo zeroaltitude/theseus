@@ -135,13 +135,17 @@ make. Nothing here is run by a runner on any machine; Tabitha does it on the own
 Code: `crates/theseus-core/src/rsi/join/root_install/` (`offer.rs` the card, `answer.rs` the yes and the run,
 `verify.rs` the start after, `unit.rs` the unit's text, `machine.rs` `sudo -n` and the user unit).
 
-`[self] install` is `"ask"` (default), `"auto"`, or `"off"` (a `true` of today's file reads as `"auto"`, a `false` as
-`"off"`). It is itself a sensitive setting (`[self]` is on the sensitive list), and `"auto"` is the one that matters
+`[self] install` is `"ask"` (default), `"auto"`, or `"off"`. A `true` of an older file (written before any helper
+existed, when it meant "install where the loop can write the program directory") is kept as a value of its own, `Legacy`:
+on a user's own layout it installs as it always did, on a root-owned layout it is `"ask"`, a card, and never `"auto"`;
+a `false` reads as `"off"`. **The old boolean never grants the new privilege by itself:** only the explicit word `"auto"`
+installs into the root-owned directory with no card, and it is turned on only by a sensitive change with a fresh proof
+(a hand edit of the file is the administrator's own act, as any edit of the settings is). It is itself a sensitive setting (`[self]` is on the sensitive list), and `"auto"` is the one that matters
 most: it needs a **fresh** second proof to turn on once the proof is wired in (a code typed for that change alone, covered by
 no window: `config::sensitivity::needs_fresh_proof` names it, `config_change::proof_seam::needs_fresh` reads it off the
 settings a change really changes, and the wiring passes it to `owner_proof::mark(.., fresh)`). It applies on a root-owned layout, that
 is, where the user unit's `ExecStart` names `/usr/local/lib/theseus/<hex>/theseusd`. On a user's own layout only
-`"auto"` installs, as `true` did.
+`"auto"` and the legacy `true` install, as `true` did.
 
 After a join on that layout, when the setting is not `"off"` and the helper is installed (`sudo -n -l` says the rule
 lets the service's user run it; `health` says so, in `binary.helper`):

@@ -103,7 +103,7 @@ impl Core {
             self.root_no_helper(mode, merge, what, &why);
             return false;
         }
-        if mode == SelfInstall::Ask && !self.root_proof_given(None, "") {
+        if mode.asks() && !self.root_proof_given(None, "") {
             // The card would be refused when answered, so it is not made, and no build is spent on it.
             self.root_no_proof(merge, what);
             return true;
@@ -167,7 +167,7 @@ impl Core {
             why,
             Value::Null,
         );
-        if mode == SelfInstall::Ask {
+        if mode.asks() {
             self.root_tell(format!(
                 "Theseus joined a change to main ({what}, {c8}). This machine runs a root-owned build, and the \
                  helper that would let Theseus install it itself is not installed ({why}), so it is not \

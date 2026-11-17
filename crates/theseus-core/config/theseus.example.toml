@@ -1571,8 +1571,10 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # join_lock = "~/.theseus/self/join.lock" # unset: <state>/self/join.lock. A mkdir lock every self-join
 #                                         # holds; point it at the outer loop's so their joins never overlap
 # install = "ask"                         # "auto": a joined merge is built and installed on this machine with no
-#                                         # card, and the daemon restarts onto it (the owner's standing OK; `true`
-#                                         # reads as it). "ask": where the install needs the administrator's helper
+#                                         # card, and the daemon restarts onto it (the owner's standing OK, and the
+#                                         # only value that does so into a root-owned directory; a `true` of an older
+#                                         # file installs where the loop can write the program directory, and asks
+#                                         # on a root-owned one). "ask": where the install needs the administrator's helper
 #                                         # (docs/root-install.md), a card to the owner after a join. "off": never
 # narrow_every_days = 7                   # a hand role's policy is looked at for narrowing at most this often
 # narrow_days = 14                        # the days of CloudTrail a narrowing reads (1 to 90)

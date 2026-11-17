@@ -225,14 +225,15 @@ pub fn is_sensitive(path: &[String]) -> bool {
 /// Whether a change of `path` to `after` needs a code typed for it alone,
 /// whatever window is open (`needs_fresh_proof`): a setting that widens what
 /// Theseus may do to the machine without asking again. One today, `[self]
-/// install` becoming `"auto"` (or the older `true`): it installs every joined
-/// change on a root-owned layout with no card. A removal reads as the
-/// default, `"ask"`, which is not widening.
+/// install` becoming `"auto"`: it installs every joined change on a root-owned
+/// layout with no card. The older `true` is not it (it never installs into a
+/// root-owned directory by itself), and a removal reads as the default,
+/// `"ask"`, which is not widening.
 pub fn needs_fresh_proof(path: &[String], after: Option<&serde_json::Value>) -> bool {
     path.len() == 2
         && path[0] == "self"
         && path[1] == "install"
-        && after.is_some_and(|v| v.as_str() == Some("auto") || v.as_bool() == Some(true))
+        && after.is_some_and(|v| v.as_str() == Some("auto"))
 }
 
 /// The settings that take effect without a restart: where the code already
@@ -325,8 +326,13 @@ mod tests {
         let v = |s: &str| Some(serde_json::json!(s));
         let install = p("self.install");
         assert!(needs_fresh_proof(&install, v("auto").as_ref()));
-        assert!(needs_fresh_proof(&install, Some(&serde_json::json!(true))));
-        for after in [v("ask"), v("off"), Some(serde_json::json!(false)), None] {
+        for after in [
+            v("ask"),
+            v("off"),
+            Some(serde_json::json!(true)),
+            Some(serde_json::json!(false)),
+            None,
+        ] {
             assert!(!needs_fresh_proof(&install, after.as_ref()), "{after:?}");
         }
         assert!(!needs_fresh_proof(&p("self.mode"), v("auto").as_ref()));

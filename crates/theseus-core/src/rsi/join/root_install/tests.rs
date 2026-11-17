@@ -279,6 +279,44 @@ async fn ask_makes_the_card_and_the_yes_installs() {
     );
 }
 
+/// The owner's live config may already say `install = true`, written before any helper existed, when it meant "install
+/// where the loop can write the program directory". On a root-owned layout with the helper present it must make the
+/// CARD and install nothing by itself; and the default (the key absent) is the same: a card, never a silent install.
+#[tokio::test]
+async fn the_old_true_and_the_default_ask_on_a_root_owned_layout_and_install_nothing_by_themselves()
+{
+    for mode in [SelfInstall::Legacy, SelfInstall::default()] {
+        let t = rooted(mode, Some(true));
+        let merge = t.join().await;
+        let cards = t.cards();
+        assert_eq!(cards.len(), 1, "{mode:?}: one card: {:?}", t.steps());
+        assert!(
+            cards[0].reason.contains(short(&merge)),
+            "{}",
+            cards[0].reason
+        );
+        assert!(
+            t.helper.calls.lock().unwrap().is_empty(),
+            "{mode:?}: the helper is not called before a yes"
+        );
+        assert!(t.units.restarts.lock().unwrap().is_empty(), "{mode:?}");
+        assert_eq!(
+            t.units.text(),
+            unit_text(OLD),
+            "{mode:?}: the unit is as it was"
+        );
+        let steps = t.steps();
+        assert!(
+            steps.iter().any(|s| s == "asked") && !steps.iter().any(|s| s == "auto"),
+            "{mode:?}: {steps:?}"
+        );
+    }
+    // With the proof not wired (nothing stands in), the legacy value makes no card either: it never reaches the helper.
+    let t = rooted(SelfInstall::Legacy, None);
+    t.join().await;
+    assert!(t.cards().is_empty() && t.helper.calls.lock().unwrap().is_empty());
+}
+
 /// "auto" makes no card and installs; "off" never calls the helper; a user's own layout is not this module's.
 #[tokio::test]
 async fn auto_installs_with_no_card_and_off_never_touches_the_helper() {

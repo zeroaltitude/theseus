@@ -130,7 +130,7 @@ Its config must keep off your daemon's places: `[discord] enabled = false` (one 
 Some machines keep the service's program where only an administrator can write: the unit's `ExecStart` names
 `/usr/local/lib/theseus/<commit>/theseusd` (a directory for each build), or the one `/usr/local/lib/theseus/theseusd`
 that `theseusd install --separate` makes. Theseus's own loop can build a change, join it to `main` and, with
-`[self] install = "auto"` (`true` in an older file reads as it), install it, but only where it can write the directory the service runs from. It reads that
+`[self] install = "auto"` or the `true` of an older file, install it, but only where it can write the directory the service runs from (`true` never installs into a root-owned directory by itself: there it asks, as `"ask"` does). It reads that
 directory from the unit (`systemctl --user show -p ExecStart theseusd.service`) and, where it cannot write it, **copies
 nothing and restarts nothing**: a restart that changed nothing would cost the owner a turn in flight for no gain, and new
 command-line programs beside an old daemon are a mismatch of their own. It records `self.install.not_installed` and
