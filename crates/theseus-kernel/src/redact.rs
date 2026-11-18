@@ -265,6 +265,9 @@ pub struct Copier {
     /// Every byte read from the pipe so far, kept or dropped: the job's sign
     /// of life (theseus-x1zz8).
     read: Arc<AtomicU64>,
+    /// Every byte the copy has finished with (written, held or dropped): `read` ahead of it is a copy in the middle
+    /// of a write, which a pipe that is already empty does not show.
+    handled: Arc<AtomicU64>,
     /// The pipe's read end, held to count what waits in it ([`waiting`]).
     peek: Arc<OwnedFd>,
 }
@@ -284,6 +287,8 @@ impl Copier {
         let held = Arc::new(AtomicU64::new(0));
         let read = Arc::new(AtomicU64::new(0));
         let counted = read.clone();
+        let handled = Arc::new(AtomicU64::new(0));
+        let finished = handled.clone();
         let (head, tail) = split(max_bytes);
         let mut sink = Capped {
             file: to,
@@ -316,6 +321,7 @@ impl Copier {
                         } else {
                             sink.put(&buf[..n]);
                         }
+                        finished.fetch_add(n as u64, Ordering::Relaxed);
                     }
                     let (head, tail) = sink.finish();
                     Ok(Copied {
@@ -333,6 +339,7 @@ impl Copier {
             dropped,
             held,
             read,
+            handled,
             peek,
         })
     }
@@ -354,8 +361,14 @@ impl Copier {
         self.ended.clone()
     }
 
-    /// [`Copier::wait`] for a report that is about to be written: a copy that has not ended with bytes still
-    /// waiting in the pipe is behind, not held open by a descendant that is silent, so it is waited for, up to
+    /// Whether the copy is behind: bytes wait in the pipe, or it has read some it has not finished writing.
+    fn behind(&self) -> bool {
+        waiting(&self.peek) > 0
+            || self.read.load(Ordering::Relaxed) > self.handled.load(Ordering::Relaxed)
+    }
+
+    /// [`Copier::wait`] for a report that is about to be written: a copy that has not ended and is behind (bytes still
+    /// waiting in the pipe, or a write in the middle), not held open by a descendant that is silent, so it is waited for, up to
     /// [`BEHIND`] more (in all, at most `bound` + [`BEHIND`] + `bound`). A stop's verdict does not take this wait:
     /// the daemon kills a wrapper that has not answered within a few seconds of the grace, and a stop's verdict
     /// carries no output.
@@ -363,7 +376,7 @@ impl Copier {
         if self.ended.is_none() {
             self.ended = self.done.recv_timeout(bound).ok();
             let until = Instant::now() + BEHIND;
-            while self.ended.is_none() && waiting(&self.peek) > 0 && Instant::now() < until {
+            while self.ended.is_none() && self.behind() && Instant::now() < until {
                 self.ended = self.done.recv_timeout(bound).ok();
             }
         }
@@ -534,6 +547,7 @@ mod tests {
     fn stalled_copy(
         dir: &std::path::Path,
         gate: mpsc::Receiver<()>,
+        total: usize,
     ) -> (
         Copier,
         std::thread::JoinHandle<()>,
@@ -552,13 +566,13 @@ mod tests {
         let (read, mut write) = std::io::pipe().unwrap();
         let copier = Copier::spawn(read, to, 10 << 20).unwrap();
         // More than the FIFO (64 KB) and the copy's buffer (64 KB) hold: bytes stay in the pipe.
-        let writer = std::thread::spawn(move || write.write_all(&vec![b'x'; 300_000]).unwrap());
+        let writer = std::thread::spawn(move || write.write_all(&vec![b'x'; total]).unwrap());
         let reader = std::thread::spawn(move || {
             let _ = gate.recv();
             let mut from = std::fs::File::open(&fifo).unwrap();
             let mut got = 0;
             let mut buf = vec![0u8; 64 * 1024];
-            while got < 300_000 {
+            while got < total {
                 got += from.read(&mut buf).unwrap();
             }
         });
@@ -571,7 +585,7 @@ mod tests {
     fn a_stalled_copy_is_waited_for_and_the_job_is_seen_printing() {
         let dir = tempfile::tempdir().unwrap();
         let (release, gate) = mpsc::channel();
-        let (mut copier, writer, reader) = stalled_copy(dir.path(), gate);
+        let (mut copier, writer, reader) = stalled_copy(dir.path(), gate, 300_000);
         let opener = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(600));
             let _ = release.send(());
@@ -618,7 +632,7 @@ mod tests {
     fn the_plain_wait_gives_up_on_a_stalled_copy_at_its_bound() {
         let dir = tempfile::tempdir().unwrap();
         let (release, gate) = mpsc::channel();
-        let (mut copier, writer, reader) = stalled_copy(dir.path(), gate);
+        let (mut copier, writer, reader) = stalled_copy(dir.path(), gate, 300_000);
         // The sink is read after four seconds at the latest: a wait that went on behind the copy would see it
         // end then, and the plain wait is over at its bound long before.
         let late = release.clone();
@@ -637,6 +651,33 @@ mod tests {
         assert!(copier.wait(Duration::from_millis(100)).is_none());
         release.send(()).unwrap();
         writer.join().unwrap();
+        reader.join().unwrap();
+    }
+
+    /// A copy stalled in its last write with the pipe already empty (the sink took what a FIFO holds, 64 KB, and
+    /// the rest is in the copy's hands) is behind as well: the bytes it holds are the job's output.
+    #[test]
+    fn a_copy_stalled_in_a_write_with_an_empty_pipe_is_waited_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let (release, gate) = mpsc::channel();
+        let (mut copier, writer, reader) = stalled_copy(dir.path(), gate, 70_000);
+        let opener = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(600));
+            let _ = release.send(());
+        });
+        writer.join().unwrap();
+        let t0 = Instant::now();
+        while copier.read.load(Ordering::Relaxed) < 70_000 || waiting(&copier.peek) > 0 {
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the copy has not taken it all"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(copier.handled.load(Ordering::Relaxed) < 70_000);
+        let ended = copier.wait_behind(Duration::from_millis(100));
+        assert!(matches!(ended, Some(Ok(_))), "{ended:?}");
+        opener.join().unwrap();
         reader.join().unwrap();
     }
 }
