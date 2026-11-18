@@ -15,6 +15,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [config-change.md](config-change.md): the owner asks Theseus to change a setting and the daemon writes it, then restarts itself with a way back (issue 22).
 - [prompt-file-change.md](prompt-file-change.md): the owner asks Theseus to change a prompt file, or a setting too long for a card, by the same door and the same proof (issue 23).
 - [config-undo.md](config-undo.md): the history of those changes, and undoing one by the same card, without writing the old file back (issue 22).
+- [look-tools.md](look-tools.md): Theseus reads itself and the names its vault holds with tools of its own, so a look is never a card; the floor is untouched (issue 26).
 - [mcp-attach.md](mcp-attach.md): the owner attaches an MCP server by asking (issue 22): the trial in the sandbox with no secret, the one card built from the table as it will be written, the yes that writes it and loads it live, detach, and what none of it can be made to do.
 - [self-install.md](self-install.md): what the root-owned program directory protects, and the one-purpose helper that lets Theseus install what its own loop joined (issue 22).
 - [m7-surface.md](m7-surface.md): M7, the surface: the MCP client and server, recurring wakes, bindings, the task graph, the web UI, self-extension, and voice. Roadmap steps 36 to 39 and 41 to 45.
