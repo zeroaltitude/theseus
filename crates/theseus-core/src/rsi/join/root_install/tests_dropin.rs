@@ -688,17 +688,7 @@ fn the_restart_through_a_real_user_manager_runs_to_its_end() {
     let (ran, file, transient) = exercise(true);
     assert_eq!(ran, new, "confirmed: the service runs the new program");
     assert_eq!(file, clears_and_sets(&new, args));
-    // Every line of the transient unit systemd wrote is a section, a setting or a comment: none cut.
-    assert!(transient.contains("base64 -d"), "{transient}");
-    for l in transient.lines().filter(|l| !l.is_empty()) {
-        assert!(
-            l.starts_with('[')
-                || l.starts_with('#')
-                || l.split_once('=')
-                    .is_some_and(|(k, _)| k.chars().all(|c| c.is_ascii_alphabetic())),
-            "a line systemd would not read: {l:?}"
-        );
-    }
+    assert_transient_is_whole(&transient);
     let (ran, file, _) = exercise(false);
     assert_eq!(ran, old, "not confirmed: the way back runs the old program");
     assert_eq!(
@@ -709,6 +699,21 @@ fn the_restart_through_a_real_user_manager_runs_to_its_end() {
     let _ = std::fs::remove_dir_all(drop_in.parent().unwrap());
     let _ = std::fs::remove_file(units.join(&service));
     ctl(&["daemon-reload"]);
+}
+
+/// Every line of the transient unit systemd wrote is a section, a setting or a comment: none of the script was cut
+/// into lines of its own.
+fn assert_transient_is_whole(transient: &str) {
+    assert!(transient.contains("base64 -d"), "{transient}");
+    for l in transient.lines().filter(|l| !l.is_empty()) {
+        assert!(
+            l.starts_with('[')
+                || l.starts_with('#')
+                || l.split_once('=')
+                    .is_some_and(|(k, _)| k.chars().all(|c| c.is_ascii_alphabetic())),
+            "a line systemd would not read: {l:?}"
+        );
+    }
 }
 
 fn repoint_text(text: &str, old: &str, new: &str) -> String {
