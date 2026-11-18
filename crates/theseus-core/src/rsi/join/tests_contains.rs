@@ -39,7 +39,7 @@ fn the_words_follow_whether_the_running_build_contains_the_join() {
     let joined = row("self.joined", json!({"merge": a}));
     let said = |rows: &[LedgerRow], c: Contained| last_join_in(rows, &|_| Some(c.clone())).unwrap();
     // Nothing says the install finished: a later build that contains it makes it run; one that does not, does not.
-    let yes = said(&[joined.clone()], Contained::Yes(later.clone()));
+    let yes = said(std::slice::from_ref(&joined), Contained::Yes(later.clone()));
     assert_eq!(yes.install, Install::Running);
     assert_eq!(
         yes.line,
@@ -49,7 +49,7 @@ fn the_words_follow_whether_the_running_build_contains_the_join() {
             &later[..12]
         )
     );
-    let no = said(&[joined.clone()], Contained::No(later.clone())).line;
+    let no = said(std::slice::from_ref(&joined), Contained::No(later.clone())).line;
     assert!(
         no.contains("not running yet")
             && no.contains(&later[..12])
@@ -58,7 +58,7 @@ fn the_words_follow_whether_the_running_build_contains_the_join() {
         "{no}"
     );
     let unsure = said(
-        &[joined.clone()],
+        std::slice::from_ref(&joined),
         Contained::CannotTell("it has not fetched".into()),
     )
     .line;
@@ -70,7 +70,7 @@ fn the_words_follow_whether_the_running_build_contains_the_join() {
         )
     );
     // The join's own build is the running one: the plain words.
-    let own = said(&[joined.clone()], Contained::Yes(a.clone())).line;
+    let own = said(std::slice::from_ref(&joined), Contained::Yes(a.clone())).line;
     assert!(own.ends_with("installed and running"), "{own}");
     // An install that did not take, then a hand install of a later build: it runs. Where it still does not contain
     // it, or cannot tell, the install's own words (why, and the one command) stand.
@@ -83,10 +83,7 @@ fn the_words_follow_whether_the_running_build_contains_the_join() {
         said(&rows, Contained::Yes(later.clone())).install,
         Install::Running
     );
-    for c in [
-        Contained::No(later.clone()),
-        Contained::CannotTell("w".into()),
-    ] {
+    for c in [Contained::No(later), Contained::CannotTell("w".into())] {
         let j = said(&rows, c);
         assert_eq!(j.install, Install::DidNotTake);
         assert!(

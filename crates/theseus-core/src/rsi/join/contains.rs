@@ -12,7 +12,8 @@ use crate::rsi::tree::Place;
 
 /// Answers that history cannot change: a commit's ancestry is fixed, so `Yes` and `No` are kept (by clone, join and
 /// running commit); `CannotTell` is not, since a fetch may answer it.
-static KNOWN: Mutex<Option<HashMap<(PathBuf, String, String), Contained>>> = Mutex::new(None);
+type Known = HashMap<(PathBuf, String, String), Contained>;
+static KNOWN: Mutex<Option<Known>> = Mutex::new(None);
 
 fn is_hex(c: &str) -> bool {
     (7..=40).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_hexdigit())

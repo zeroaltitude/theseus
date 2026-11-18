@@ -93,6 +93,7 @@ fn utc(ms: u64) -> String {
 }
 
 /// The newest `self.joined` of `rows` (oldest first), with the install rows of its merge.
+#[cfg(test)]
 pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
     last_join_in(rows, &|_| None)
 }
