@@ -3,7 +3,7 @@
 //! request's `plain` words, which the TUI and `theseus answer` print too. A request
 //! with no `plain` (an older daemon) keeps the card `render::card` always drew.
 
-use theseus_protocol::{plain::PlainWords, ConfirmRequest};
+use theseus_protocol::{owner_proof::ProofStanding, plain::PlainWords, ConfirmRequest};
 
 use super::{clip_middle, preview, summarize, CardText, Route, ASK, FLOOR_ASK};
 
@@ -112,24 +112,43 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
 }
 
 /// What a question that needs the owner's second proof adds to its card
-/// (issue 22): that Approve opens a form, and that the form says whether it
-/// asks for a code from the authenticator app or goes through on a proof given
-/// here earlier. Nothing for a question that asks for none.
-pub(super) fn proof_clause(req: &ConfirmRequest) -> &'static str {
-    proof_clause_of(req.needs_proof, req.needs_fresh_proof)
+/// (issue 22), said before the press: whether Approve goes through on a proof
+/// given here earlier (with how long it is still good for, in the daemon's own
+/// words, whole) or opens a form for the code from the authenticator app.
+/// Nothing for a question that asks for none. The words are fixed when the card
+/// is drawn; the press is decided by the daemon at press time.
+pub(super) fn proof_clause(req: &ConfirmRequest) -> String {
+    proof_clause_of(req.needs_proof, req.needs_fresh_proof, req.proof.as_ref())
 }
 
-/// [`proof_clause`], from the two facts it reads.
-pub(super) fn proof_clause_of(needs_proof: bool, needs_fresh_proof: bool) -> &'static str {
-    match (needs_proof, needs_fresh_proof) {
-        (false, _) => "",
-        (true, true) => {
-            "\n🔐 **Second proof, every time:** **Approve** opens a form for the code from your \
-             authenticator app"
+/// [`proof_clause`], from the facts it reads. `standing` is the daemon's
+/// words for the place the card is answered in, when they are known.
+pub(super) fn proof_clause_of(
+    needs_proof: bool,
+    needs_fresh_proof: bool,
+    standing: Option<&ProofStanding>,
+) -> String {
+    match (needs_proof, needs_fresh_proof, standing) {
+        (false, _, _) => String::new(),
+        (true, true, _) => {
+            "\n🔐 **Second proof, every time:** **Approve** opens a form for the code \
+                           from your authenticator app"
+                .into()
         }
-        (true, false) => {
-            "\n🔐 **Second proof:** **Approve** opens a form that says whether it needs the code \
-             from your authenticator app or goes through on the proof you gave here earlier"
+        (true, false, Some(p)) if !p.code_needed => {
+            format!("\n🔐 {}; **Approve** goes through", p.line)
+        }
+        (true, false, Some(p)) if p.not_enrolled => format!("\n🔐 {}", p.line),
+        (true, false, Some(_)) => {
+            "\n🔐 **Second proof:** none given here earlier covers this: \
+                                  **Approve** opens a form for the code from your authenticator app"
+                .into()
+        }
+        (true, false, None) => {
+            "\n🔐 **Second proof:** **Approve** goes through if a proof you gave \
+                               here earlier still covers it, and otherwise opens a form for the \
+                               code from your authenticator app"
+                .into()
         }
     }
 }
@@ -148,7 +167,7 @@ pub(super) fn classic(
         content.push_str(&format!("\n{}", clip_middle(&req.reason, 300)));
     }
     content.push_str(&preview::hunk(req));
-    content.push_str(proof_clause(req));
+    content.push_str(&proof_clause(req));
     let asked_for = match route {
         Route::Dm { place, .. } => format!("for {place} · "),
         _ => String::new(),

@@ -13,7 +13,7 @@ import { useTick } from '@/lib/hooks'
 import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
-import { answerParams, buttonsOf, hasWholeText, needsCode, proofLine } from '@/lib/answers'
+import { answerParams, buttonsOf, goesThrough, hasWholeText, needsCode, proofLine } from '@/lib/answers'
 import { deadlineOf, waitedLabel } from '@/lib/heldquestion'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
@@ -164,7 +164,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             </div>
           )}
           {past !== undefined && <div className="mt-2 text-[11px] text-ink-faint">asked by {c.by}; the log shows how it was answered after this moment</div>}
-          {proof && <div className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-wait"><ShieldCheck size={13} />{proof}</div>}
+          {proof && <div className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-wait"><ShieldCheck size={13} />{proof}{goesThrough(c) && '; Approve goes through'}</div>}
           {past === undefined && <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {buttons.map((b) => (
               <Btn key={b.id} tone={b.tone} busy={busy === b.id} title={b.title} onClick={() => answer(b.id)}>
