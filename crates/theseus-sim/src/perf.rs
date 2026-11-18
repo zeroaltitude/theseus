@@ -262,17 +262,26 @@ fn scratch_on(
     })
 }
 
-/// The WAL read until it has been still for [`QUIET`]: every frame written
+/// [`QUIET`] on a quiet machine, and in proportion to how slowly this one gives a thread its turn (at most ten
+/// times): the writes that follow a turn land when the machine lets them, and one that landed after a 50 ms look
+/// was counted as the next turn's frame (theseus-20). Measured once, at the first look.
+fn quiet() -> Duration {
+    static QUIET_NOW: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *QUIET_NOW.get_or_init(|| QUIET * theseus_tools::busy_factor().min(10) as u32)
+}
+
+/// The WAL read until it has been still for [`quiet`]: every frame written
 /// since the last read, whatever wrote it. An error when it never settles,
 /// since a bench of a quiet daemon then measures a busy one.
 fn until_quiet(tail: &mut Tail) -> Result<Vec<Frame>> {
+    let quiet = quiet();
     let mut seen = Vec::new();
     let mut still_since = Instant::now();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let more = tail.read()?;
         if more.is_empty() {
-            if still_since.elapsed() >= QUIET {
+            if still_since.elapsed() >= quiet {
                 return Ok(seen);
             }
         } else {
