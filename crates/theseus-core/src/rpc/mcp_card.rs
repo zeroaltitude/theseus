@@ -91,7 +91,10 @@ impl Core {
         let why = if typed && crate::config_change::words::is_settings_action(a) {
             crate::config_change::words::BY_PRESS
         } else if (typed || who.agent.is_some()) && self.is_floor_hold(a) {
-            crate::config_change::words::FLOOR_BY_PRESS
+            match typed {
+                true => crate::config_change::words::FLOOR_BY_PRESS,
+                false => crate::config_change::words::FLOOR_BY_AGENT,
+            }
         } else {
             return Ok(());
         };

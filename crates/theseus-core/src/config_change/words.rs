@@ -125,6 +125,11 @@ pub const BY_PRESS: &str = "a settings card is answered by its own button, or wi
 pub const FLOOR_BY_PRESS: &str = "a call held by the floor (it reaches a protected file or program) is approved by its own button, or with \
      `theseus answer <id> approve` in the owner's own terminal: it is never approved in their name from a conversation. Nothing ran";
 
+/// What a yes from an agent's process (on the CLI or the web socket, not typed
+/// words) is told for a call the floor holds.
+pub const FLOOR_BY_AGENT: &str = "an agent's process cannot approve a call held by the floor (it reaches a protected file or program); \
+     the owner approves it by its own button, or with `theseus answer <id> approve` in the owner's own terminal. Nothing ran";
+
 /// Why a yes from words (the model's answer tool) is refused for the waiting
 /// question `q`, or none: a settings question or a call held by the floor is the
 /// owner's own press, whatever else it is. Every other kind (a spend limit, a
