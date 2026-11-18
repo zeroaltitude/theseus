@@ -160,10 +160,14 @@ impl Rig {
         });
         // What a turn's end leaves to write (its deferred rows) is written
         // before the cancel: wait for the log to be still.
+        // Still for 200 ms on a quiet machine, and in proportion on a busy one (theseus-20): the memory labels of
+        // the turn land when the machine lets them, and one that landed after a 200 ms look was counted as the
+        // cancel's.
+        let quiet = Duration::from_millis(200) * theseus_sim::busy_factor().min(10) as u32;
         let wal = self.path("state/store/wal");
         let mut before = frames(&wal).len();
         self.wait("the log still", || {
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(quiet);
             let now = frames(&wal).len();
             let still = now == before;
             before = now;
