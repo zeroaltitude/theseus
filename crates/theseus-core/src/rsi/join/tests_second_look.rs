@@ -475,3 +475,23 @@ async fn an_unrelated_test_of_the_same_package_that_fails_twice_holds_the_change
     let why = r.rows("self.join.stopped")[0]["why"].clone();
     assert!(why.as_str().unwrap().contains(TERM_TEST), "{why}");
 }
+
+/// KEY: a test binary of its own, or of a program, is judged by package: its tests can use any
+/// module of the library from outside. With the package edited, a failure there is held at once
+/// (the failed test's id carries its binary, and only a unit test of the library is placed by
+/// module).
+#[tokio::test]
+async fn a_failed_test_of_another_binary_of_an_edited_package_is_held_at_once() {
+    let (r, s) = scenario(
+        "red-always",
+        red_suite("a::integration", TERM_TEST),
+        (passed_again("a::integration", TERM_TEST), 0),
+    );
+    let (branch, _) = r.seed("trim-the-sails", EDITS_WORDS, SONNET);
+    let main = r.upstream_main();
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
+    assert_eq!(r.upstream_main(), main);
+    assert_eq!(s.runs("cargo.args"), 0, "nothing was run again");
+    assert_eq!(s.runs("gate.runs"), 1);
+}

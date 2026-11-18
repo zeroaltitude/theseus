@@ -49,6 +49,7 @@ fn workspace() -> (tempfile::TempDir, Graph) {
         "crates/core/src/keys.rs",
         "crates/core/src/tests_keys.rs",
         "crates/core/src/tests_config_words.rs",
+        "crates/core/src/tests_persona_write.rs",
         "crates/core/src/config/mod.rs",
         "crates/core/src/config/words.rs",
         "crates/core/src/config/tests_answer.rs",
@@ -58,6 +59,11 @@ fn workspace() -> (tempfile::TempDir, Graph) {
     ] {
         write(r, f, "\n");
     }
+    write(
+        r,
+        "crates/core/src/tests_ontology.rs",
+        "#[path = \"tests_persona_write.rs\"]\nmod persona_write;\n",
+    );
     let g = read(r).unwrap();
     (dir, g)
 }
@@ -195,4 +201,19 @@ fn a_module_that_is_a_link_is_not_placed() {
     std::os::unix::fs::symlink(d.path().join("elsewhere"), at.join("linked")).unwrap();
     let change = paths(&["crates/core/src/config/words.rs"]);
     assert!(!apart(&g, &change, "core", "linked::tests::x", d.path()));
+}
+
+/// KEY: a test module included by `#[path]` is named for its declaring module, not its file: a
+/// change to that file reaches the whole package, so no failed test of the library is apart.
+#[test]
+fn a_file_included_by_a_path_attribute_reaches_the_whole_package() {
+    let (d, g) = workspace();
+    let test = "tests_ontology::persona_write::a_test";
+    let own = paths(&["crates/core/src/tests_persona_write.rs"]);
+    assert!(!apart(&g, &own, "core", test, d.path()));
+    // A test of another module is judged as before by its own family, and the file's name
+    // counts for it too: the change is to a file some module is built from.
+    assert!(!apart(&g, &own, "core", TERM_TEST, d.path()));
+    let other = paths(&["crates/core/src/config/words.rs"]);
+    assert!(apart(&g, &other, "core", test, d.path()));
 }

@@ -311,7 +311,10 @@ fn top_module(rel: &str) -> &str {
 ///   is not source: those reach the whole package;
 /// - the test's top module (`term` of `term::tests::x`) is a module of the library found on the
 ///   disk, as a file or a directory, and no changed path is in the module's own file or
-///   subtree or in that of a module it goes with by name ([`family`]).
+///   subtree or in that of a module it goes with by name ([`family`]);
+/// - no changed file is the target of a `#[path = "..."]` attribute anywhere in the library
+///   ([`path_targets`]): such a file's module is named for the declaring module, not the file, so
+///   what the names say about it is not read, and it reaches the whole package.
 ///
 /// **Where the line is, and why.** A second look is cheap insurance on top of the real judge:
 /// the failed test must pass when run again, and then the whole check runs once more and decides.
@@ -322,8 +325,8 @@ fn top_module(rel: &str) -> &str {
 /// can break module B's test, and the compiler alone knows which code a test binary uses, which
 /// this does not read (no call graph is built). For such a change to be joined its break would
 /// have to fail once, then pass the test's own re-run, then pass the whole check: a fault that
-/// shows itself less than once in three runs is the one thing this lets by, and every
-/// deterministic one is held. Anything this cannot read or place is inside.
+/// shows itself less than once in three runs is the one thing this lets by, and a fault that
+/// shows on every run is held. Anything this cannot read or place is inside.
 pub fn apart(graph: &Graph, changed: &[String], binary: &str, test: &str, root: &Path) -> bool {
     let package = binary.split("::").next().unwrap_or_default();
     if outside(graph, changed, package) {
@@ -355,6 +358,9 @@ pub fn apart(graph: &Graph, changed: &[String], binary: &str, test: &str, root: 
     if !on_disk(top) {
         return false;
     }
+    let Some(moved) = path_targets(&src) else {
+        return false;
+    };
     let family = family(top);
     let prefix = format!("{}/src/", m.dir);
     mine.iter().all(|p| {
@@ -362,8 +368,46 @@ pub fn apart(graph: &Graph, changed: &[String], binary: &str, test: &str, root: 
             rel.ends_with(".rs")
                 && !matches!(rel, "lib.rs" | "main.rs")
                 && !family.iter().any(|f| f == top_module(rel))
+                && !moved.contains(rel.rsplit('/').next().unwrap_or(rel))
         })
     })
+}
+
+/// The most files of a library read for `#[path]`, and the largest of them.
+const PATH_SCAN_FILES: usize = 20_000;
+const PATH_SCAN_BYTES: u64 = 1 << 20;
+
+/// The file names a `#[path = "..."]` attribute names anywhere under `src` (by their last
+/// component, which is conservative: another file of that name elsewhere counts too). None when
+/// the tree cannot be read whole: too many files, a file too large or not text, or a link.
+fn path_targets(src: &Path) -> Option<BTreeSet<String>> {
+    let mut names = BTreeSet::new();
+    let (mut todo, mut seen) = (vec![src.to_path_buf()], 0);
+    while let Some(dir) = todo.pop() {
+        for entry in std::fs::read_dir(&dir).ok()? {
+            let entry = entry.ok()?;
+            let meta = std::fs::symlink_metadata(entry.path()).ok()?;
+            if meta.is_dir() {
+                todo.push(entry.path());
+            } else if meta.is_file() && entry.path().extension().is_some_and(|e| e == "rs") {
+                seen += 1;
+                if seen > PATH_SCAN_FILES || meta.len() > PATH_SCAN_BYTES {
+                    return None;
+                }
+                let text = std::fs::read_to_string(entry.path()).ok()?;
+                for (at, _) in text.match_indices("#[path") {
+                    let rest = &text[at + "#[path".len()..];
+                    let quoted = rest.split_once('"').and_then(|(_, r)| r.split_once('"'));
+                    if let Some((target, _)) = quoted.filter(|_| rest.find(']') > rest.find('"')) {
+                        names.insert(target.rsplit('/').next().unwrap_or(target).to_string());
+                    }
+                }
+            } else if !meta.is_file() {
+                return None;
+            }
+        }
+    }
+    Some(names)
 }
 
 /// The paths of the tree's change against main, from main's merge base with it.
