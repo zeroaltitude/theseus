@@ -2,6 +2,7 @@
 //! what runs. `theseus self pipeline`, `theseus self log` and `health` read it, so none of them
 //! can call a build done that is not what the service runs.
 
+use super::root_install::hand_words;
 use super::rows_of;
 use crate::ledger::LedgerRow;
 use crate::rpc::Core;
@@ -15,6 +16,9 @@ pub enum Install {
     NotInstalled,
     /// It was installed and the service came back on another build.
     Mismatch,
+    /// Theseus's own install tried and did not take, or was refused, or was not asked for: the install's last row says
+    /// why (`self.root_install`).
+    DidNotTake,
     /// No row says: an install in flight, or installs are off.
     Unconfirmed,
 }
@@ -30,6 +34,51 @@ pub struct LastJoin {
 
 fn short(c: &str) -> &str {
     &c[..c.len().min(12)]
+}
+
+/// The steps of an install of its own (`self.root_install`) that end it without the build running.
+const ENDED_WITHOUT: &[&str] = &[
+    "failed",
+    "rolled_back",
+    "unhealthy",
+    "refused",
+    "no_helper",
+    "declined",
+];
+
+/// The words for an install whose last row ends it without the build running: that it is not what runs, since when, why
+/// (the row's own), and the one command that installs it by hand. None for a row of an install still under way.
+fn did_not_take(row: &LedgerRow) -> Option<(Install, String)> {
+    let step = row.data["step"].as_str()?;
+    if !ENDED_WITHOUT.contains(&step) {
+        return None;
+    }
+    let text = |k: &str| row.data[k].as_str().filter(|s| !s.is_empty());
+    let by_hand = hand_words(row.data["numbers"]["step"].as_str());
+    let when = utc(row.at_unix_ms);
+    // An install that was tried and did not take says why (the row's own); one that was never made (no card, no
+    // helper, a start command that is not Theseus's to change, a no from the owner) says what the row says.
+    let said = if ["failed", "rolled_back", "unhealthy"].contains(&step) {
+        let why = text("why").unwrap_or("no reason was recorded");
+        format!(
+            "the service is not running it: the install of {when} did not take ({why}). {by_hand}"
+        )
+    } else {
+        let what = text("what")
+            .or_else(|| text("why"))
+            .unwrap_or("no reason was recorded");
+        format!("the service is not running it: it was not installed ({when}): {what}. {by_hand}")
+    };
+    Some((Install::DidNotTake, said))
+}
+
+/// A moment in UTC, `2026-11-18 07:36 UTC`: for a reader with no time zone of its own.
+fn utc(ms: u64) -> String {
+    format!(
+        "{} {} UTC",
+        crate::recall::render::utc_day(ms),
+        theseus_protocol::utc_hm(ms)
+    )
 }
 
 /// The newest `self.joined` of `rows` (oldest first), with the install rows of its merge.
@@ -62,6 +111,8 @@ pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
             Install::NotInstalled,
             format!("joined but not installed: {why}. To install it: {step}"),
         )
+    } else if let Some((install, said)) = of("self.root_install").and_then(did_not_take) {
+        (install, said)
     } else {
         (Install::Unconfirmed, "not confirmed running".to_string())
     };
@@ -86,6 +137,7 @@ impl Core {
                 "self.installed",
                 "self.install.not_installed",
                 "self.install.mismatch",
+                "self.root_install",
             ],
         )
         .ok()??;
@@ -96,7 +148,12 @@ impl Core {
     /// when the loop could not install it or it came back on another build.
     pub fn self_joined_not_running(&self) -> Option<String> {
         self.self_last_join()
-            .filter(|j| matches!(j.install, Install::NotInstalled | Install::Mismatch))
+            .filter(|j| {
+                matches!(
+                    j.install,
+                    Install::NotInstalled | Install::Mismatch | Install::DidNotTake
+                )
+            })
             .map(|j| j.merge)
     }
 }

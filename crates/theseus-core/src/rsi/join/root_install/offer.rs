@@ -10,6 +10,7 @@ use theseus_kernel::{Action, RetryClass, TurnEnd, Wake};
 use theseus_protocol::{ConfirmRequest, LedgerKind, Proposal, SessionOpenParams};
 
 use super::answer::Go;
+use super::hand::hand_words;
 use super::{exec_program, is_commit, rooted, short, Presence, ACK, CONFIRM_WITHIN_SECS, LIB_DIR};
 use crate::config::self_improve::SelfInstall;
 use crate::config_change::proof_seam;
@@ -100,6 +101,24 @@ impl Core {
         if let Ok(Presence::NotInstalled(why)) = blocking(move || Ok(helper.presence())).await {
             self.root_no_helper(mode, merge, what, &why);
             return false;
+        }
+        if let Some(why) = &unit.refusal {
+            // The start command wins from a file Theseus will not write: no card, no build, and the owner is told.
+            let step = self.root_hand_step(merge, &program);
+            self.root_row(
+                "refused",
+                merge,
+                "the service's start command is not Theseus's to change",
+                why,
+                json!({"step": step}),
+            );
+            self.root_tell(format!(
+                "The change Theseus joined ({what}, {c8}) is not what the service runs: Theseus did not install it, \
+                 because {why}. {by_hand}",
+                c8 = short(merge),
+                by_hand = hand_words(step.as_deref()),
+            ));
+            return true;
         }
         if mode.asks() && !self.root_proof_enrolled() {
             // No authenticator app is paired: the card could not be answered, so it is not made, and no build is

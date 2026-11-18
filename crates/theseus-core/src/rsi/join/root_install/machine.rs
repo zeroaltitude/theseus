@@ -2,14 +2,14 @@
 
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use super::{rooted, Helper, Presence, Unit, Units, HELPER, STAGE_DIR};
+use super::{rooted, start, Helper, Presence, Unit, Units, HELPER, STAGE_DIR};
 use crate::rsi::join::install::{BINARIES, SERVICE};
 
 /// How long a look at `sudo -n -l`, or the helper's run, may take.
@@ -114,44 +114,92 @@ impl Sudo {
     }
 }
 
+/// Remove the files of the staging directory `stage`: the helper refuses a directory with anything else in it, and an
+/// install leaves nothing there once the helper has copied it. A directory in it is refused, not removed.
+fn empty(stage: &Path) -> Result<()> {
+    let meta = std::fs::symlink_metadata(stage).with_context(|| {
+        format!("the staging directory {} is missing: the administrator's step makes it (docs/root-install.md)", stage.display())
+    })?;
+    if !meta.is_dir() {
+        bail!("{} is not a directory", stage.display());
+    }
+    for entry in std::fs::read_dir(stage)? {
+        let path = entry?.path();
+        if std::fs::symlink_metadata(&path)?.is_dir() {
+            bail!(
+                "{} is a directory: the staging directory holds only programs",
+                path.display()
+            );
+        }
+        std::fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
+/// Put the four programs of the build in `release` into the staging directory `stage`, replacing whatever it held
+/// (a leftover of any earlier commit goes first, so one never meets the next).
+pub(super) fn stage_into(stage: &Path, release: &Path) -> Result<()> {
+    empty(stage)?;
+    for name in BINARIES {
+        let from = release.join(name);
+        let meta = std::fs::symlink_metadata(&from)
+            .with_context(|| format!("{} is missing from the build", from.display()))?;
+        if !meta.is_file() {
+            bail!("{} is not a plain file", from.display());
+        }
+        let tmp = stage.join(format!(".{name}.new"));
+        std::fs::copy(&from, &tmp)
+            .with_context(|| format!("copying {name} into the staging directory"))?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::rename(&tmp, stage.join(name))?;
+    }
+    Ok(())
+}
+
+/// Remove the files of the staging directory `stage` (test seam of [`Sudo::unstage`]).
+#[cfg(test)]
+pub(super) fn unstage_from(stage: &Path) -> Result<()> {
+    empty(stage)
+}
+
 impl Helper for Sudo {
     fn presence(&self) -> Presence {
         self.cached()
     }
 
     fn stage(&self, release: &Path) -> Result<()> {
-        let stage = Path::new(STAGE_DIR);
-        let meta = std::fs::symlink_metadata(stage).with_context(|| {
-            format!("the staging directory {STAGE_DIR} is missing: the administrator's step makes it (docs/root-install.md)")
-        })?;
-        if !meta.is_dir() {
-            bail!("{STAGE_DIR} is not a directory");
-        }
-        // Whatever an earlier install left there goes first: the helper refuses a directory with anything else in it.
-        for entry in std::fs::read_dir(stage)? {
-            let path = entry?.path();
-            if std::fs::symlink_metadata(&path)?.is_dir() {
+        stage_into(Path::new(STAGE_DIR), release)
+    }
+
+    fn unstage(&self) -> Result<()> {
+        empty(Path::new(STAGE_DIR))
+    }
+
+    fn check_installed(&self, program: &Path) -> Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let private = |p: &Path, plain: bool| -> Result<()> {
+            let m = std::fs::symlink_metadata(p)
+                .with_context(|| format!("{} is not there", p.display()))?;
+            if plain && !m.is_file() || !plain && !m.is_dir() {
                 bail!(
-                    "{} is a directory: the staging directory holds only programs",
-                    path.display()
+                    "{} is not a plain {}",
+                    p.display(),
+                    if plain { "file" } else { "directory" }
                 );
             }
-            std::fs::remove_file(&path)?;
-        }
-        for name in BINARIES {
-            let from = release.join(name);
-            let meta = std::fs::symlink_metadata(&from)
-                .with_context(|| format!("{} is missing from the build", from.display()))?;
-            if !meta.is_file() {
-                bail!("{} is not a plain file", from.display());
+            if m.uid() != 0 || m.mode() & 0o022 != 0 {
+                bail!(
+                    "{} is not root's, or someone else can write it: it is not what the helper installs",
+                    p.display()
+                );
             }
-            let tmp = stage.join(format!(".{name}.new"));
-            std::fs::copy(&from, &tmp)
-                .with_context(|| format!("copying {name} into the staging directory"))?;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-            std::fs::rename(&tmp, stage.join(name))?;
-        }
-        Ok(())
+            Ok(())
+        };
+        private(program, true)?;
+        private(
+            program.parent().context("the program has no directory")?,
+            false,
+        )
     }
 
     fn install(&self, commit: &str) -> Result<String> {
@@ -207,54 +255,112 @@ pub(crate) fn helper_word(running: &Path) -> String {
     "being looked at".into()
 }
 
-/// The user's own unit for the service, and the transient unit that restarts it.
-pub struct UserUnit;
+/// The user manager's own unit files: where the service's start command is found and changed, what systemd says it
+/// will run, and the transient unit that restarts the service.
+#[derive(Default)]
+pub struct UserUnit {
+    /// The unit path to read, when a test stands one up; the process's own environment's otherwise.
+    dirs: Option<Vec<start::Dir>>,
+}
+
+/// How long a `systemctl --user` call may take (a reload reads every unit file).
+const SYSTEMCTL_WITHIN: Duration = Duration::from_secs(60);
 
 impl UserUnit {
-    fn path() -> Result<PathBuf> {
-        let base = match std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-        {
-            Some(p) => p,
-            None => {
-                PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".config")
-            }
-        };
-        Ok(base.join("systemd/user").join(SERVICE))
+    #[cfg(test)]
+    pub(super) fn in_dirs(dirs: Vec<start::Dir>) -> Self {
+        Self { dirs: Some(dirs) }
     }
+
+    pub(super) fn dirs(&self) -> Result<Vec<start::Dir>> {
+        match &self.dirs {
+            Some(d) => Ok(d.clone()),
+            None => start::search_path(),
+        }
+    }
+}
+
+/// `systemctl --user <args>`, in the daemon's own environment (it finds the user manager through it): its output.
+fn systemctl(args: &[&str]) -> Result<String> {
+    let mut c = Command::new("systemctl");
+    c.arg("--user")
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let (status, said) = run_bounded(c, SYSTEMCTL_WITHIN)?;
+    if !status.success() {
+        bail!("systemctl --user {} failed: {said}", args.join(" "));
+    }
+    Ok(said)
+}
+
+/// The argv of the `systemd-run` that restarts the service by `script`. On the owner's machine (2026-11-18) the
+/// script's lines were read back as settings of the transient unit ("Missing '=', ignoring line", "Unknown key name
+/// 'signal' in section 'Unit'", "the command vanished from the unit file"): `systemd-run` names the unit by the command
+/// line unless it is given a `--description`, and systemd 249 writes that description into `[Unit]` with its newlines.
+/// So the description is given, and no argument has a newline, a quote, a `$` or a `%` either: the script goes in as
+/// base64, which has none, to a fixed one-line command that decodes and runs it. Nothing is written for it, and none
+/// of it is read from a file.
+pub(super) fn restart_argv(script: &str, short: &str) -> Vec<String> {
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(script);
+    [
+        "systemd-run".to_string(),
+        "--user".into(),
+        "--collect".into(),
+        "--quiet".into(),
+        format!("--unit=theseus-root-install-{short}"),
+        "--property=Nice=10".into(),
+        format!("--description=Theseus install of build {short}: restart onto it, and go back if it does not confirm"),
+        "/bin/bash".into(),
+        "-c".into(),
+        format!("eval \"`echo {encoded} | base64 -d`\""),
+    ]
+    .to_vec()
 }
 
 impl Units for UserUnit {
     fn read(&self) -> Result<Unit> {
-        let path = Self::path()?;
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        Ok(Unit { path, text })
+        let pieces = start::pieces(&self.dirs()?, SERVICE)?;
+        let (at, _) = start::winner(&pieces)?;
+        let piece = &pieces[at];
+        let refusal = start::refusal(piece, |p| {
+            crate::binary::writable(p) && p.parent().is_some_and(crate::binary::writable)
+        });
+        Ok(Unit {
+            path: piece.path.clone(),
+            text: piece.text.clone(),
+            refusal,
+        })
     }
 
     fn write(&self, at: &Path, text: &str) -> Result<()> {
-        crate::config_change::write::atomic(at, text, Some(0o644))?;
+        // The file keeps the permissions it had: the way back must leave it as it was.
+        let mode = std::fs::metadata(at).map_or(0o644, |m| m.permissions().mode() & 0o7777);
+        crate::config_change::write::atomic(at, text, Some(mode))?;
         Ok(())
+    }
+
+    fn will_run(&self) -> Result<Vec<String>> {
+        systemctl(&["daemon-reload"])?;
+        Ok(start::programs_of(&systemctl(&[
+            "show",
+            "-p",
+            "ExecStart",
+            SERVICE,
+        ])?))
     }
 
     fn restart(&self, script: &str, short: &str) -> Result<String> {
         let unit = format!("theseus-root-install-{short}");
         // The script is the argument, not a file: nothing is written for the restart, so nothing can be replaced.
-        let mut c = Command::new("systemd-run");
-        c.args([
-            "--user",
-            "--collect",
-            "--quiet",
-            &format!("--unit={unit}"),
-            "--property=Nice=10",
-            "/bin/bash",
-            "-c",
-            script,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+        let argv = restart_argv(script, short);
+        let mut c = Command::new(&argv[0]);
+        c.args(&argv[1..])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
         let o = theseus_kernel::children::spawn(
             theseus_kernel::children::Kind::Owned,
             || c.spawn(),

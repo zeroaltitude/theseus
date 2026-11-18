@@ -25,49 +25,29 @@ pub fn rooted(program: &Path) -> Option<Rooted> {
     })
 }
 
-/// The program the one `ExecStart=` line of a unit names: its first word, which must be an absolute path.
+/// The program the one `ExecStart=` a file leaves names: its first word, which must be an absolute path. A bare
+/// `ExecStart=` clears what came before it, so a drop-in that clears and sets leaves its own one line.
 pub fn exec_program(text: &str) -> Option<String> {
-    let mut lines = text
-        .lines()
-        .filter(|l| l.trim_start().starts_with("ExecStart="));
-    let line = lines.next()?;
-    if lines.next().is_some() {
-        return None;
-    }
-    let word = line
-        .trim_start()
-        .strip_prefix("ExecStart=")?
-        .split_whitespace()
-        .next()?;
-    word.starts_with('/').then(|| word.to_string())
+    super::start::one_in(text).map(|(program, _)| program)
 }
 
-/// The unit's text with the program of its `ExecStart=` line changed from `old` to `new`, and not a byte else.
-/// Refused when the unit's program is not `old` (it changed since it was read), or has more than one `ExecStart=`.
+/// The file's text with the program of its one `ExecStart=` line changed from `old` to `new`, and not a byte else: the
+/// line's arguments, its spacing, every other line. Refused when the program is not `old` (it changed since it was
+/// read), or when the file leaves no single `ExecStart=`.
 pub fn repoint(text: &str, old: &str, new: &str) -> Result<String, String> {
-    match exec_program(text) {
-        Some(p) if p == old => {}
-        Some(p) => {
-            return Err(format!(
-                "the unit runs {p}, not {old}: it changed since it was read"
-            ))
+    match super::start::one_in(text) {
+        Some((p, at)) if p == old => {
+            let mut out = String::with_capacity(text.len() + new.len());
+            out.push_str(&text[..at.start]);
+            out.push_str(new);
+            out.push_str(&text[at.end..]);
+            Ok(out)
         }
-        None => return Err("the unit has no single ExecStart= naming a program".into()),
+        Some((p, _)) => Err(format!(
+            "the start command runs {p}, not {old}: it changed since it was read"
+        )),
+        None => Err("the file has no single ExecStart= naming a program".into()),
     }
-    let mut out = String::with_capacity(text.len() + new.len());
-    for line in text.split_inclusive('\n') {
-        let lead = line.len() - line.trim_start().len();
-        match line[lead..].strip_prefix("ExecStart=") {
-            Some(rest) if rest.starts_with(old) => {
-                out.push_str(&line[..lead]);
-                out.push_str("ExecStart=");
-                out.push_str(new);
-                out.push_str(&rest[old.len()..]);
-            }
-            _ => out.push_str(line),
-        }
-    }
-    Ok(out)
 }
 
 #[cfg(test)]

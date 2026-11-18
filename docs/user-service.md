@@ -186,7 +186,9 @@ you installed in the meantime. Only `restart` swaps the binary.
 and the next daemon reads their results from the spool. A crash recovers the same way.
 
 **Changing the unit.** Don't edit `theseusd.service`: a later `--apply` rewrites it. Put your own settings in a
-drop-in (`systemctl --user edit theseusd`), which is never touched. To change what the plan writes (the config
+drop-in (`systemctl --user edit theseusd`), which is never touched. (One exception: on a root-owned layout, `docs/root-install.md`, Theseus's install of a change it joined changes the
+program's path, and only that, in the one file whose `ExecStart=` wins, a drop-in included, and puts the file back as it
+was if the new build does not confirm.) To change what the plan writes (the config
 reference, the state directory, the socket, the token file, or `PATH`), run `scripts/user-service.sh install`
 again from a shell that has the new values. `theseusd install --user --check` lists what differs.
 

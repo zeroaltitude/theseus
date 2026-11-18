@@ -13,8 +13,9 @@
 //!    mark as `config.propose` for the second proof (`config_change::proof_seam`): with no authenticator app paired, no
 //!    card is made and the owner is told how to pair one. `"auto"` makes no card (turning it on needed a fresh code).
 //! 2. **On the yes** ([`answer`]): the commit must be one the loop's own `self.joined` row names and main's head on
-//!    the remote at that moment. The programs are staged, the helper runs through `sudo -n`, the user unit's program
-//!    is pointed at the new directory, a marker is kept, and a transient unit restarts the service and **waits for the
+//!    the remote at that moment. The programs are staged, the helper runs through `sudo -n`, the program of the service's start command
+//!    (in the unit, or in the drop-in whose `ExecStart=` wins: [`start`]) is pointed at the new directory and systemd is
+//!    asked that it will run it, a marker is kept, and a transient unit restarts the service and **waits for the
 //!    new daemon's own confirmation**; without it the unit points back at the directory before and restarts onto it.
 //!    One install restarts at most twice (onto the build, and back) and never loops.
 //! 3. **At the next start** ([`verify`]): the daemon that finds the marker and is the build it names waits until it
@@ -26,8 +27,10 @@
 //! `config_change`'s stages in the marker.
 
 mod answer;
+mod hand;
 mod machine;
 mod offer;
+mod start;
 mod unit;
 mod verify;
 
@@ -35,6 +38,12 @@ pub use offer::confirm_request;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_dropin;
+#[cfg(test)]
+mod tests_stage;
+#[cfg(test)]
+mod tests_start;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
@@ -42,6 +51,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub(crate) use hand::hand_words;
 pub(crate) use machine::helper_word;
 pub use machine::{Sudo, UserUnit};
 pub use unit::{exec_program, repoint, rooted, Rooted};
@@ -80,26 +90,39 @@ pub trait Helper: Send + Sync {
     fn presence(&self) -> Presence;
     /// Put the four programs of a build (`release`'s files) in the staging directory, replacing what it held.
     fn stage(&self, release: &Path) -> Result<()>;
+    /// Empty the staging directory: the helper has copied what was staged (or refused it), and the programs, a few
+    /// hundred megabytes of the owner's, are not left there.
+    fn unstage(&self) -> Result<()>;
     /// Run the helper for `commit` (through `sudo -n`): its one-line answer, or why it refused.
     fn install(&self, commit: &str) -> Result<String>;
+    /// `program` is what the helper installs: a plain file, root's, that no one else can write. Checked before the
+    /// service is pointed at it.
+    fn check_installed(&self, program: &Path) -> Result<()>;
 }
 
 /// The user unit, and the restart: a seam as [`Helper`] is.
 pub trait Units: Send + Sync {
-    /// The service's unit file as it is, with its path.
+    /// The file that holds the service's start command in force (`start.rs`): the unit file, or the drop-in whose
+    /// `ExecStart=` wins, as it is, with its path.
     fn read(&self) -> Result<Unit>;
-    /// Write the unit's text in one step.
+    /// Write that file's text in one step, keeping its permissions.
     fn write(&self, at: &Path, text: &str) -> Result<()>;
+    /// What systemd will run to start the service, after reloading its units: one program per start command. The
+    /// install restarts only when this is the new build.
+    fn will_run(&self) -> Result<Vec<String>>;
     /// Start the transient unit that runs `script` (its text, not a file: nothing on disk is read back), named for
     /// `short`: the restart that waits and goes back.
     fn restart(&self, script: &str, short: &str) -> Result<String>;
 }
 
-/// A unit file as read.
+/// The file that holds the start command in force, as read: the unit file itself, or a drop-in that sets `ExecStart=`.
 #[derive(Debug, Clone)]
 pub struct Unit {
     pub path: PathBuf,
     pub text: String,
+    /// Why Theseus will not write that file (it is the administrator's, or gone at the next boot, or not this
+    /// user's to write), in words for the owner. The install is refused, before anything changes, when this is set.
+    pub refusal: Option<String>,
 }
 
 /// Where an install is: the stages of its marker, as `config_change::restart`'s are.
@@ -125,7 +148,8 @@ pub struct Pending {
     /// The program the unit named before, and the one it names now.
     pub old_program: String,
     pub new_program: String,
-    /// The unit file, and its text as it was before it was changed: where the way back goes.
+    /// The file that held the start command (the unit, or the drop-in that won), and its text as it was before it
+    /// was changed: where the way back goes, in the script and in the daemon's own rollback.
     pub unit: PathBuf,
     pub unit_before: String,
     pub approved_by: String,
@@ -151,7 +175,7 @@ impl Default for Seams {
     fn default() -> Self {
         Self {
             helper: Arc::new(Sudo::default()),
-            units: Arc::new(UserUnit),
+            units: Arc::new(UserUnit::default()),
             build: Arc::new(super::install::build),
         }
     }
