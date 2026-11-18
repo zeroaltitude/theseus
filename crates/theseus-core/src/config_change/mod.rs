@@ -43,6 +43,7 @@ pub mod restart;
 pub mod show;
 pub mod shown;
 pub mod undo;
+pub mod waiting;
 pub mod wall;
 pub mod whole;
 pub mod words;
@@ -553,11 +554,13 @@ pub(crate) fn put(
     let said = format!(
         "Asked the owner:\n{question}Nothing changes until they say yes, from a private place{}; \
          the daemon then writes the file itself. If they decline, or do not answer in time, \
-         nothing is written.\n{}",
+         nothing is written.\n{}\n{}\n{}",
         match needs {
             proof_seam::Needs::Card => "",
             _ => ", with the second proof",
         },
+        waiting::SETTINGS_CHECKED,
+        waiting::waiting(tc),
         show::before(base, &settings)
     );
     ask(rt, tc, proposal, correlation_id, &said, needs)?;

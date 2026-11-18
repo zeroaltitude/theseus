@@ -124,7 +124,9 @@ pub fn put_file(
     let said = format!(
         "Asked the owner:\n{question}Nothing changes until they say yes, from a private place, \
          with the second proof; the daemon then writes the file itself. If they decline, or do \
-         not answer in time, nothing is written."
+         not answer in time, nothing is written.\n{}\n{}",
+        crate::config_change::waiting::FILE_CHECKED,
+        crate::config_change::waiting::waiting(tc)
     );
     crate::config_change::ask(rt, tc, proposal, correlation_id, &said, Needs::Proof)?;
     Ok((
