@@ -34,7 +34,9 @@ for `config.propose`) the other settings that should read that name: a provider'
    its fields (by label or id; a section when two share a label).
 3. **builds the reference itself**, from the names it found, or from their ids where a name is shared with a sibling
    (the vault's program matches names ignoring case) or has a character a reference cannot carry (anything but letters, digits, space, `-`, `_`, `.`, so a `/`, a `?` or a `#` can never make the reference
-   mean another thing); and says on the card when ids were used.
+   mean another thing); and says on the card when ids were used. A field or a section is written only by a label or id
+   that it alone answers to, among the fields the reference reaches (a sectionless field's are all the item's fields);
+   when neither its label nor its id is, there is no card and the owner is told to rename one in the vault.
 4. **reads the reference once, as a start will, and keeps nothing**: the proof that the item and field are there, that the
    account can read them, and that the field holds something. A failure is told by class (`Failed`), never in the program's
    words, and makes no card.

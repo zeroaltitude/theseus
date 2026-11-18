@@ -165,8 +165,9 @@ pub async fn check(
         ),
     ];
     let unnamed = || {
-        "two fields of that item answer to the same name (a label or an id, in any case) and the \
-         vault gave no other plain name for one of them: the owner renames one in the vault"
+        "two fields or sections of that item answer to the same name (a label or an id, in any \
+         case), or a name has a character a reference cannot carry, and the vault gave no other \
+         plain name for it: the owner renames one in the vault"
             .to_string()
     };
     // The section, when the field has one: written by its label, or its id, only
