@@ -20,7 +20,7 @@ use theseus_protocol::ConfirmRequest;
 use super::confirms::Act;
 use super::Core;
 use crate::approval::{Answerer, Refusal};
-use crate::owner_proof::{marked, Answer, Proof};
+use crate::owner_proof::{marked, Answer, Footing, Proof};
 
 impl Core {
     /// `r` with the proof's marks: whether the asker marked it, and fresh.
@@ -42,18 +42,19 @@ impl Core {
     }
 
     /// The gate: an approval of `a` by `who`, with `code` if one came.
-    /// `Ok(true)` when the question is marked and the proof was given (a
-    /// code, or an open window of this place); `Ok(false)` when it asks for
-    /// none. A refusal changes nothing and is recorded.
+    /// The footing when the question is marked and the proof was given (a
+    /// code, or an open window of this place), kept for the settled card and
+    /// the echo; `None` when it asks for none. A refusal changes nothing and is
+    /// recorded.
     pub(crate) fn proof_gate(
         &self,
         a: &Action,
         who: &Answerer,
         code: Option<&ProofCode>,
         typed: bool,
-    ) -> Result<bool, Refusal> {
+    ) -> Result<Option<Footing>, Refusal> {
         let Some(fresh) = marked(&self.store, &a.correlation_id) else {
-            return Ok(false);
+            return Ok(None);
         };
         let place = who.via();
         // An agent's process is never the owner: the CLI's socket and the web
@@ -90,9 +91,16 @@ impl Core {
             code: code.map(ProofCode::expose),
             place: &place,
         };
-        let why = match self.proofs.judge(&a.correlation_id, true, fresh, &answer) {
-            Proof::NotRequired => return Ok(false),
-            Proof::Given | Proof::GivenEarlier { .. } => return Ok(true),
+        let proof = self.proofs.judge(&a.correlation_id, true, fresh, &answer);
+        let why = match proof {
+            Proof::NotRequired => return Ok(None),
+            Proof::Given | Proof::GivenEarlier { .. } => {
+                let footing = self.proofs.footing_of(&proof);
+                if let Some(f) = &footing {
+                    self.proofs.keep_footing(&a.correlation_id, f.clone());
+                }
+                return Ok(footing);
+            }
             Proof::Missing => format!(
                 "it needs your second proof: type the code your authenticator app shows into \
                  the card's form, or answer with `theseus answer {} approve --code <the six \
@@ -124,16 +132,29 @@ impl Core {
     }
 
     /// The words an answer that went through gives back about the proof:
-    /// which footing it went through on. `None` for a question that asks for
-    /// none.
+    /// which footing it went through on, as the gate kept it. `None` for a
+    /// question that asks for none.
     pub(crate) fn proof_detail(&self, a: &Action, who: &Answerer) -> Option<String> {
         let fresh = marked(&self.store, &a.correlation_id)?;
+        if let Some(footing) = self.proofs.take_footing(&a.correlation_id) {
+            return Some(footing.detail(fresh));
+        }
         let standing = self.proofs.standing(&who.via(), fresh);
         Some(match (fresh, standing.code_needed) {
             (true, _) => "second proof: a fresh code was needed and given".to_string(),
             (false, true) => "second proof: given".to_string(),
             (false, false) => standing.line,
         })
+    }
+
+    /// What an answer from `place` would be asked for, in the card's words:
+    /// for the Discord binding, which draws a card for the place it posts to.
+    pub fn proof_standing(
+        &self,
+        place: &str,
+        fresh: bool,
+    ) -> theseus_protocol::owner_proof::ProofStanding {
+        self.proofs.standing(place, fresh)
     }
 
     /// Why the chat's answer tool may not approve `correlation_id`: it asks

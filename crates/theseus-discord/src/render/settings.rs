@@ -145,6 +145,7 @@ pub fn needs_you(body: &Value) -> Option<(Vec<String>, String)> {
     let proof = approval::proof_clause_of(
         s.get("needs_proof") == Some(&Value::Bool(true)),
         s.get("needs_fresh_proof") == Some(&Value::Bool(true)),
+        None,
     );
     let text = format!(
         "{}{proof}\n-# Needs you{} · tap Approve or Decline, or `theseus answer {short} approve`",

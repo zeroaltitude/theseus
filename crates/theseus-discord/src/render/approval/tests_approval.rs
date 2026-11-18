@@ -184,26 +184,51 @@ fn a_card_without_plain_words_keeps_the_old_shape() {
     );
 }
 
-/// A question that needs the owner's second proof says so on its card (issue 22):
-/// that Approve opens a form, and what the form decides. One that asks for a
-/// fresh code every time says that; one that asks for none adds nothing.
+/// A question that needs the owner's second proof says so on its card (issue 22),
+/// before the press: with the daemon's words for the place it is answered in
+/// (whole), that Approve goes through on a proof given earlier or opens a form
+/// for a code. One that asks for a fresh code every time says that; one that
+/// asks for none adds nothing.
 #[test]
 fn a_card_that_needs_the_second_proof_says_so() {
     let ordinary = card(&request(json!({})), &Route::Here, "").content;
     assert!(!ordinary.contains("Second proof"), "{ordinary}");
-    let needs = card(&request(json!({"needs_proof": true})), &Route::Here, "").content;
+    let said = |v| card(&request(v), &Route::Here, "").content;
+    // The place's standing is not known: both are said.
+    let unknown = said(json!({"needs_proof": true}));
     assert!(
-        needs.contains(
-            "\n🔐 **Second proof:** **Approve** opens a form that says whether it needs the code \
-             from your authenticator app or goes through on the proof you gave here earlier"
+        unknown.contains(
+            "\n🔐 **Second proof:** **Approve** goes through if a proof you gave here earlier \
+             still covers it, and otherwise opens a form for the code from your authenticator app"
         ),
-        "{needs}"
+        "{unknown}"
     );
-    let fresh = card(
-        &request(json!({"needs_proof": true, "needs_fresh_proof": true})),
-        &Route::Here,
-        "",
-    )
-    .content;
+    // An open window covers it: the daemon's own words, whole, and Approve goes through.
+    let line = "second proof: given here 3 minutes ago, good for 23 hours more";
+    let covered = said(json!({"needs_proof": true,
+        "proof": {"code_needed": false, "line": line}}));
+    assert!(
+        covered.contains(&format!("\n🔐 {line}; **Approve** goes through")),
+        "{covered}"
+    );
+    assert!(!covered.contains("opens a form"), "{covered}");
+    // No window: a code is asked.
+    let needed = said(json!({"needs_proof": true,
+        "proof": {"code_needed": true, "line": "second proof: needed"}}));
+    assert!(
+        needed.contains("**Approve** opens a form for the code from your authenticator app"),
+        "{needed}"
+    );
+    assert!(!needed.contains("goes through"), "{needed}");
+    // Nothing enrolled: the daemon's words, whole, with no promise of a form.
+    let line = "second proof: needed, and no authenticator app is enrolled yet: run `theseus owner proof enroll` in your own terminal";
+    let none = said(json!({"needs_proof": true,
+        "proof": {"code_needed": true, "not_enrolled": true, "line": line}}));
+    assert!(none.contains(&format!("\n🔐 {line}")), "{none}");
+    assert!(!none.contains("opens a form"), "{none}");
+    // A fresh code every time, whatever window is open.
+    let fresh = said(json!({"needs_proof": true, "needs_fresh_proof": true,
+        "proof": {"code_needed": false, "line": line}}));
     assert!(fresh.contains("**Second proof, every time:**"), "{fresh}");
+    assert!(!fresh.contains("goes through"), "{fresh}");
 }

@@ -84,6 +84,11 @@ impl Core {
         if !owner_alone(self.runner.class_of(&m.session), place.as_deref()) {
             return Ok(Done::Nothing);
         }
+        // Words whose turn put a settings question to the owner are an act
+        // asked, not a rule to keep (`settled.rs`): whichever came first.
+        if self.runner.standing.expected.acted_on(&m.session, &m.node) {
+            return Ok(Done::Nothing);
+        }
         let Some(line) = words::line(&m.text) else {
             return Ok(Done::Nothing);
         };
@@ -196,6 +201,7 @@ impl Core {
             record: rec.id.clone(),
             judgment: v.judgment.clone(),
             at_ms: c.now,
+            by_owner: false,
         });
         let notice = kept_line(kind, &c.at, c.surface, &c.line);
         let added = fact::standing::StandingAdded {

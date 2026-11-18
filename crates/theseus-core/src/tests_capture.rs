@@ -253,6 +253,20 @@ async fn an_unsure_directive_is_asked_and_the_answer_keeps_it_or_not() {
     .await;
     let wide: StandingAnswerResult = serde_json::from_value(wide.result.unwrap()).unwrap();
     assert_eq!(wide.record.unwrap().scope, StandingScope::Everywhere);
+    // What the owner's answer kept is marked his own (a settings question for the
+    // same message does not end it).
+    let kept = r
+        .core
+        .runner
+        .standing
+        .capture
+        .peek(&r.core.store)
+        .unwrap()
+        .kept;
+    assert!(
+        !kept.is_empty() && kept.iter().all(|k| k.by_owner),
+        "{kept:?}"
+    );
     hears(&jev, "fact", 0.6, ("everywhere", 0.9));
     ask(&r.core, Some(&one.session_id), "I work nights").await;
     until("the third ask", || {

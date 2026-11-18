@@ -104,6 +104,7 @@ impl Core {
                 record: rec.id.clone(),
                 judgment: open.judgment.clone(),
                 at_ms: now,
+                by_owner: true,
             });
             kept = Some(rec);
         }

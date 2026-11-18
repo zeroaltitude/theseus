@@ -607,7 +607,12 @@ impl Core {
     }
 
     /// A question closed: its card's settle goes to the outbox (theseus-q4v).
-    pub(crate) fn card_closed(&self, question: &str, how: Closed) {
+    pub(crate) fn card_closed(&self, question: &str, mut how: Closed) {
+        // An approval that rested on the owner's second proof says which footing
+        // it went through (issue 22): a fresh code, or the proof given earlier.
+        if how.how == "approved" && how.note.is_none() {
+            how.note = self.proofs.footing_kept(question).map(|f| f.note());
+        }
         if let Err(e) = self.outbox.closed(question, how) {
             tracing::warn!(error = %format!("{e:#}"), question, "the card's settle was not written");
         }

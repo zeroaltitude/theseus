@@ -148,6 +148,8 @@ pub struct Proofs {
     /// under it, so two surfaces checking at once share one rate limit.
     pub(super) io: Mutex<()>,
     pub(super) pending: Mutex<Option<Pending>>,
+    /// What each approved answer rested on, until its echo reads it.
+    pub(super) footings: Mutex<Vec<(String, super::footing::Footing)>>,
 }
 
 impl std::fmt::Debug for Proofs {
@@ -175,6 +177,7 @@ impl Proofs {
             window_hours: window_hours.min(MAX_WINDOW_HOURS),
             io: Mutex::new(()),
             pending: Mutex::new(None),
+            footings: Mutex::default(),
         }
     }
 
