@@ -921,14 +921,16 @@ fn a_prompt_file_change_is_printed_whole_for_the_cli() {
         ..Default::default()
     });
     let out = tagged(event(&Event::ConfirmRequested(q), Show::default()));
-    let text: Vec<&str> = out.iter().map(|(_, t)| t.trim_start()).collect();
+    let text: Vec<&str> = out.iter().map(|(_, t)| t.as_str()).collect();
     assert!(
-        text[0].starts_with("? Theseus wants to change the prompt file"),
+        text[0].starts_with("  ? Theseus wants to change the prompt file"),
         "{text:?}"
     );
     for want in card.lines() {
+        // Each line of the card as the daemon wrote it, its marker and spaces kept.
+        let row = format!("      {want}");
         assert!(
-            text.contains(&want),
+            text.contains(&row.as_str()),
             "{want:?} is not a line of its own: {text:?}"
         );
     }

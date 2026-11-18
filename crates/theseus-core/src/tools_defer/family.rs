@@ -133,6 +133,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "read and change Theseus's own settings (a budget, a cap, a switch, a server) or restart it, on the owner's word; the settings file is never opened, so do not use the shell for it",
     ),
     (
+        "prompt-files",
+        "read and change the files that are Theseus's own prompt text (its context files and each persona's file), on the owner's word; the daemon writes them after the owner's yes, so do not use the shell or a file tool for them",
+    ),
+    (
         "self",
         "propose and inspect changes to Theseus itself, and list what is open on its own development",
     ),
@@ -160,6 +164,9 @@ pub fn of_wire(wire: &str) -> String {
         "card_observed" => CARD,
         "proc_run" => "commands",
         "owner_ask" => "ask",
+        // The files that are Theseus's own prompt text (issue 23) are a family
+        // of their own: the settings' family is held to a token bound.
+        "config_propose_file" | "config_read_file" => "prompt-files",
         "task_wait" | "task_fan_out" => HELPERS,
         _ => match wire.split('_').next().unwrap_or("") {
             "fs" | "git" | "text" => "files",
@@ -390,6 +397,8 @@ mod tests {
             ("extend_propose", "extensions"),
             ("config_propose", "settings"),
             ("config_show", "settings"),
+            ("config_propose_file", "prompt-files"),
+            ("config_read_file", "prompt-files"),
             ("daemon_restart", "settings"),
             ("mcp_attach", "settings"),
             ("mcp_detach", "settings"),
