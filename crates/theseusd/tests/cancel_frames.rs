@@ -253,7 +253,14 @@ fn a_cancel_of_a_running_job_writes_two_frames() {
         c["verdicts"][0]["state"], "termination_verified",
         "the job's tree was stopped: {c}"
     );
-    let written: Vec<Vec<String>> = frames(&r.path("state/store/wal"))[before..].to_vec();
+    // The memory labels of the turn that started the job are not the cancel's and land when the machine lets
+    // them (a window of quiet of any length has been outlasted by one under load, theseus-20): a frame of nothing
+    // but memory records is left out, and every other frame is compared as it was.
+    let written: Vec<Vec<String>> = frames(&r.path("state/store/wal"))[before..]
+        .iter()
+        .filter(|f| !f.iter().all(|r| r.starts_with("ledger:memory.")))
+        .cloned()
+        .collect();
     let want: Vec<Vec<String>> = CANCEL_FRAMES
         .iter()
         .map(|f| f.iter().map(|s| s.to_string()).collect())
