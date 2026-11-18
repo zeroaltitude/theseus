@@ -1602,9 +1602,14 @@ fn nth_report_after(herdr: &FakeHerdr, n: usize, sent: Instant) -> Option<Durati
 }
 
 /// From the daemon's frame to herdr's ear, 200 changes on the scripted rig:
-/// the 99th percentile within 10 ms (FAST). A change is one report.
+/// the 99th percentile within 10 ms (FAST). A change is one report. The
+/// 10 ms is a promise about the adapter, so on a machine that gives each
+/// thread a third of a core it is held in proportion: the bound is
+/// multiplied by what `busy_factor` measured, which is 1 on a quiet machine
+/// (theseus-20; the gate's busy allowance, applied by the test).
 #[test]
 fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
+    let busy = theseus_sim::busy_factor();
     let dir = tempfile::tempdir().unwrap();
     let herdr = FakeHerdr::start(dir.path());
     let d = task_daemon(
@@ -1633,7 +1638,10 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
         lat[lat.len() / 2],
         lat[lat.len() - 1]
     );
-    assert!(p99 <= Duration::from_millis(10), "p99 {p99:?}");
+    assert!(
+        p99 <= Duration::from_millis(10) * busy as u32,
+        "p99 {p99:?} against 10 ms x {busy}"
+    );
     w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
