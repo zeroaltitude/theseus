@@ -189,7 +189,7 @@ pub fn read(root: &Path) -> Result<Graph> {
         let deps = entries(&m, &workspace);
         let plain_lib = m
             .get("lib")
-            .map_or(true, |l| l.get("path").is_none() && l.get("name").is_none());
+            .is_none_or(|l| l.get("path").is_none() && l.get("name").is_none());
         found.push((
             Member {
                 name,
