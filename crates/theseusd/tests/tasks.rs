@@ -169,12 +169,18 @@ impl Rig {
 /// next turn then reads it, once.
 #[test]
 fn a_kill_mid_task_then_a_restart_finishes_it_and_reports_once() {
+    // The job's length is how long the test has to see the task waiting on it, so it is held in proportion on a
+    // busy machine (3 s on a quiet one, theseus-20): at 3 s a polling loop that stalled once never saw it.
+    let probe = format!(
+        "sleep {}; echo probe-done",
+        3 * theseus_sim::busy_factor().min(10)
+    );
     let r = Rig::new(vec![
         (
             "Run the probe job",
             vec![(
                 "proc_run",
-                json!({"argv": ["sh", "-c", "sleep 3; echo probe-done"], "timeout_secs": 30}),
+                json!({"argv": ["sh", "-c", probe], "timeout_secs": 60}),
             )],
         ),
         (
@@ -607,11 +613,14 @@ fn a_stopped_jobs_raw_output_goes_with_its_cancelled_result() {
 /// and it starts once, with the note that says so, and reports once.
 #[test]
 fn a_deferred_task_survives_a_kill_and_a_restart_and_starts_once() {
+    // How long the task sleeps is how long the test has to restart the daemon and see it still asleep, so it is
+    // held in proportion on a busy machine (6 s on a quiet one, theseus-20).
+    let start_after = format!("{}s", 6 * theseus_sim::busy_factor().min(10));
     let r = Rig::new(vec![(
         "Defer the notes",
         vec![(
             "task_create",
-            json!({"brief": "Draft the release notes and report.", "start_after": "6s",
+            json!({"brief": "Draft the release notes and report.", "start_after": start_after,
                    "arrangement": {"pieces": [{"quote": "Defer the notes as a task", "role": "objective"}]}}),
         )],
     )]);

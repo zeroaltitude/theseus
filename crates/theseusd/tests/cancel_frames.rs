@@ -160,10 +160,14 @@ impl Rig {
         });
         // What a turn's end leaves to write (its deferred rows) is written
         // before the cancel: wait for the log to be still.
+        // Still for 200 ms on a quiet machine, and in proportion on a busy one (theseus-20): the memory labels of
+        // the turn land when the machine lets them, and one that landed after a 200 ms look was counted as the
+        // cancel's.
+        let quiet = Duration::from_millis(200) * theseus_sim::busy_factor().min(10) as u32;
         let wal = self.path("state/store/wal");
         let mut before = frames(&wal).len();
         self.wait("the log still", || {
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(quiet);
             let now = frames(&wal).len();
             let still = now == before;
             before = now;
@@ -249,7 +253,14 @@ fn a_cancel_of_a_running_job_writes_two_frames() {
         c["verdicts"][0]["state"], "termination_verified",
         "the job's tree was stopped: {c}"
     );
-    let written: Vec<Vec<String>> = frames(&r.path("state/store/wal"))[before..].to_vec();
+    // The memory labels of the turn that started the job are not the cancel's and land when the machine lets
+    // them (a window of quiet of any length has been outlasted by one under load, theseus-20): a frame of nothing
+    // but memory records is left out, and every other frame is compared as it was.
+    let written: Vec<Vec<String>> = frames(&r.path("state/store/wal"))[before..]
+        .iter()
+        .filter(|f| !f.iter().all(|r| r.starts_with("ledger:memory.")))
+        .cloned()
+        .collect();
     let want: Vec<Vec<String>> = CANCEL_FRAMES
         .iter()
         .map(|f| f.iter().map(|s| s.to_string()).collect())

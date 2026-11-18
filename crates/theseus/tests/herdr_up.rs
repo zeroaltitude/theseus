@@ -665,8 +665,12 @@ fn a_finished_tab_closes_a_grace_after_it_is_seen_and_a_cancelled_one_at_once() 
     let herdr = FakeHerdr::start(dir.path(), Model::default());
     let daemon = FakeDaemon::start(dir.path(), three_tasks());
     let _f = follow(&daemon.sock, &herdr.sock, &[]);
+    // The fake records a request when it arrives and puts its panes in the model when it has handled it, so
+    // the count of requests is not yet the tabs (theseus-20: a loaded machine read the model between the two).
     until(10, "the layout", || {
         herdr.requests("layout.apply").len() == 3
+            && !herdr.tabs_of("ses_work01").is_empty()
+            && !herdr.tabs_of("ses_ask002").is_empty()
     });
     let tab_work = herdr.tabs_of("ses_work01")[0].clone();
     let tab_ask = herdr.tabs_of("ses_ask002")[0].clone();

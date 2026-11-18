@@ -346,11 +346,21 @@ fn the_work_board_and_the_cli_say_one_thing() {
     r.wait("the board holds it all", || {
         let held = w.held();
         let of = |k: &str| held.values().filter(|v| v["kind"] == k).count();
+        // And the attention the CLI is about to be compared with has settled: a task or a wake that is still
+        // changing the counts when the board is read on one connection and the CLI asks on another is the
+        // difference between them on a loaded machine (theseus-20).
+        let at = |level: &str| {
+            held.values()
+                .filter(|v| matches!(v["kind"].as_str(), Some("conversation" | "task")))
+                .filter(|v| v["attention"]["level"] == level)
+                .count()
+        };
         (of("conversation") == 3
             && of("task") == 2
             && of("job") >= 2
             && of("question") == 1
-            && of("wake") == 1)
+            && of("wake") == 1
+            && (at("needs_you"), at("working")) == (1, 1))
             .then_some(())
     });
     let held = w.held();

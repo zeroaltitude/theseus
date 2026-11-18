@@ -1106,6 +1106,17 @@ async fn a_call_that_nests_past_the_bound_is_held() {
     }
 }
 
+/// This thread's CPU time (`CLOCK_THREAD_CPUTIME_ID`), as the nightly loop's pace reads it.
+fn thread_cpu() -> std::time::Duration {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: clock_gettime writes the timespec it is given, nothing else.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    std::time::Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
 /// Reading a line costs the gate time on every `proc.run` that gives one,
 /// and the gate's budget is a millisecond a call (`policy::tests`'s FAST
 /// check). Canonicalising a path is syscalls, so the cost is the number of
@@ -1116,6 +1127,9 @@ async fn a_call_that_nests_past_the_bound_is_held() {
 /// The worst case's ceiling is loose on purpose — it is there to catch a
 /// tenfold regression, not to pin a debug build's arithmetic — and the
 /// number it prints is the one to read.
+///
+/// The cost is the thread's CPU time, not the wall clock (theseus-20): the work is the gate's, and the
+/// wait for a core on a machine crowded with other tests is not, so the same bounds hold on a busy one.
 #[tokio::test]
 async fn reading_a_line_stays_inside_the_gates_budget() {
     let r = own_files(Posture::Open, |_, _, _| vec![]);
@@ -1124,11 +1138,11 @@ async fn reading_a_line_stays_inside_the_gates_budget() {
     let per = |line: String| {
         let pl = t.plan(&json!({"command": line}), &rt.ctx).unwrap();
         let n = 200u32;
-        let t0 = std::time::Instant::now();
+        let t0 = thread_cpu();
         for _ in 0..n {
             std::hint::black_box(rt.policy.decide_with(t.as_ref(), &pl, None));
         }
-        t0.elapsed() / n
+        (thread_cpu() - t0) / n
     };
     let ordinary = per("cargo nextest run -p theseus-core -E 'test(/floor/)' | tail -20".into());
     let many = (0..200)

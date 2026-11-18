@@ -570,9 +570,16 @@ async fn a_gate_still_printing_past_its_limit_runs_to_its_end() {
     let t = tree::open(&f.place, "busy", NOW).unwrap();
     let log = f.place.state.join("busy.log");
     let script = f.place.state.join("busy.sh");
+    // The limit is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20): a printing
+    // script's 100 ms between lines stretches under load, and a stretch past the limit is silence. The
+    // script prints for half as long again as the limit, so it still outlives it at any factor.
+    let limit = std::time::Duration::from_millis(700) * (2 * theseus_tools::busy_factor() as u32);
+    let lines = limit.as_millis() * 3 / 2 / 100;
     std::fs::write(
         &script,
-        "#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo \"gate: phase $i\"; sleep 0.1; done\n",
+        format!(
+            "#!/bin/bash\nfor i in $(seq 1 {lines}); do echo \"gate: phase $i\"; sleep 0.1; done\n"
+        ),
     )
     .unwrap();
     let code = tree::run_niced(
@@ -580,7 +587,7 @@ async fn a_gate_still_printing_past_its_limit_runs_to_its_end() {
         &t,
         &script,
         &log,
-        tree::Bound::Silence(std::time::Duration::from_millis(700)),
+        tree::Bound::Silence(limit),
         false,
     )
     .await
