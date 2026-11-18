@@ -127,7 +127,7 @@ for k in $(seq 1 "$runs"); do
   made=$((made + 1))
   summary=$(grep -E '^ +Summary' "$log" | tail -1 | sed -E 's/^ +//; s/ +/ /g' | cut -c1-140)
   # The failed tests, as nextest names them in its final recap: `FAIL [ 1.2s] <binary> <test>` (also TIMEOUT, SIG...).
-  reds=$(grep -E '^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[' "$log" | sed -E 's/^ +[A-Z]+ +\[[^]]*\] +(\([0-9]+\/[0-9]+\) +)?//' | sort -u)
+  reds=$(grep -E '^ +(FAIL|TIMEOUT|SIG[A-Z]+) \[' "$log" | sed -E 's/^ +[A-Z]+ +\[[^]]*\] +(\( *[0-9]+\/[0-9]+\) +)?//' | sort -u)
   echo "HUNT run $k/$runs [$cond] exit=$rc $(( $(date +%s) - start ))s ${summary:-no summary line from nextest}"
   if [ -n "$reds" ]; then
     red_runs=$((red_runs + 1))

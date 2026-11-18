@@ -33,7 +33,7 @@ case " ${FAKE_FAIL_RUNS:-} " in
   *" $n "*)
     echo "------------"
     echo "     Summary [   1.0s] 5 tests run: 4 passed, 1 failed, 0 skipped"
-    echo "        FAIL [   0.1s] theseus-core term::tests::a_flaky_one"
+    echo "        FAIL [   0.1s] ($n/$((n + 4000))) theseus-core term::tests::a_flaky_one"
     echo "--- STDERR: theseus-core term::tests::a_flaky_one ---"
     echo "assertion failed: it ended by the other wording"
     exit 100 ;;
