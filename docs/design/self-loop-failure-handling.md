@@ -90,7 +90,13 @@ so a planted revert can prove it).
   "not running yet: the running build (<commit>) does not contain it, and no install of it has finished" and the docs pointer for the
   step; where an install's own row already says why it is not what runs and the one command, those words stand. Cannot tell (the build
   names no commit, or the clone lacks the running build's commit because it has not fetched main since) says so and why, and is not
-  kept; a yes or a no is kept, since history does not change. Nothing here writes the administrator's directory: that is a line of issue 22.
+  kept; a yes or a no is kept, since history does not change. **A join that was undone is never said to run:** a revert is a later
+  commit with the join as an ancestor, so ancestry alone would read it as contained. The words read the join's `self.reverted` or
+  `self.vetoed` row first and say the join was reverted; where the running build contains the revert (the same ancestry ask, on the
+  revert's commit) the revert is what runs, and where it does not, or the clone cannot tell, they say that. The residual: a revert
+  made by hand on main with no such row is invisible to ancestry, and the words would then still read the join as contained. Only an
+  install of the join's own commit, or a build that has it as an ancestor, ever counts: a build still waiting for its install's
+  confirmation does not. Nothing here writes the administrator's directory: that is a line of issue 22.
 
 ## What this does NOT do
 

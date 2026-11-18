@@ -145,3 +145,158 @@ async fn the_daemon_tells_from_its_own_clone_whether_the_running_build_has_the_j
         j.line
     );
 }
+
+// ---- a join that was undone is never said to run ---------------------------------------------------
+
+/// A revert is a later commit that has the join as an ancestor, so a build that holds the revert "contains" the join
+/// by ancestry; the words read the revert's own row and never say a reverted join runs.
+#[test]
+fn a_reverted_join_is_never_said_to_run() {
+    let (a, revert, running) = ("a".repeat(40), "d".repeat(40), "e".repeat(40));
+    let joined = row("self.joined", json!({"merge": a}));
+    for (kind, by) in [
+        ("self.reverted", "the loop's own revert after a red signal"),
+        ("self.vetoed", "the owner's revert"),
+    ] {
+        let undone = row(kind, json!({"merge": a, "revert": revert}));
+        // Even with a row that says the join's own install ran: it was undone.
+        let rows = [
+            joined.clone(),
+            row("self.installed", json!({"merge": a})),
+            undone.clone(),
+        ];
+        // The question is about the REVERT's commit, and the join's own is never asked.
+        let said = |c: Contained| {
+            last_join_in(&rows, &|asked| {
+                assert_eq!(
+                    asked, revert,
+                    "{kind}: asked about the join, not its revert"
+                );
+                Some(c.clone())
+            })
+            .unwrap()
+        };
+        let yes = said(Contained::Yes(running.clone()));
+        assert_eq!(yes.install, Install::Reverted, "{kind}");
+        assert!(
+            yes.line.contains(by)
+                && yes.line.contains("contains that revert")
+                && yes.line.contains("not what runs")
+                && !yes.line.contains("installed and running"),
+            "{}",
+            yes.line
+        );
+        let no = said(Contained::No(running.clone())).line;
+        assert!(
+            no.contains("does not contain that revert yet")
+                && !no.contains("installed and running"),
+            "{no}"
+        );
+        let unsure = said(Contained::CannotTell("it has not fetched".into())).line;
+        assert!(
+            unsure.contains(
+                "cannot tell whether the running build contains that revert (it has not fetched)"
+            ),
+            "{unsure}"
+        );
+        // Nothing asked (the plain words): still said to be undone.
+        let plain = last_join_in(&[joined.clone(), undone], &|_| None).unwrap();
+        assert_eq!(plain.install, Install::Reverted);
+        assert!(
+            plain.line.contains(&format!("reverted on main by {by}")),
+            "{}",
+            plain.line
+        );
+    }
+}
+
+/// The reviewer's probe, on a real clone: the join, a revert of it on top (main's tree from before the join), main
+/// moved there and fetched, and the running build the revert. With the row of either kind it says reverted, not running.
+#[tokio::test]
+async fn a_revert_of_the_join_in_the_running_build_is_said_as_a_revert() {
+    for kind in ["self.reverted", "self.vetoed"] {
+        let r = rig(SelfMode::Act);
+        r.seed("trim-the-sails", PROVED, SONNET);
+        r.core.self_join_pass(&r.seams()).await.unwrap();
+        let merge = r.upstream_main();
+        let before = git(&r.f.upstream, &["rev-parse", &format!("{merge}^1")]);
+        // The revert: a commit on the join with the tree from before it.
+        let tree = git(&r.f.upstream, &["rev-parse", &format!("{before}^{{tree}}")]);
+        let revert = git(
+            &r.f.upstream,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.invalid",
+                "commit-tree",
+                &tree,
+                "-p",
+                &merge,
+                "-m",
+                "Revert the join",
+            ],
+        );
+        git(&r.f.upstream, &["update-ref", "refs/heads/main", &revert]);
+        git(&r.f.place.repo, &["fetch", "-q", "origin"]);
+        // Premise: by ancestry alone the build with the revert contains the join, and would read as running.
+        let j = r.core.self_last_join_as(Some(&revert)).unwrap();
+        assert_eq!(j.install, Install::Running, "premise: {}", j.line);
+        r.core
+            .store
+            .append_ledger(&LedgerRow::named(
+                kind,
+                None,
+                None,
+                json!({"merge": merge, "revert": revert}),
+            ))
+            .unwrap();
+        let j = r.core.self_last_join_as(Some(&revert)).unwrap();
+        assert_eq!(j.install, Install::Reverted, "{kind}: {}", j.line);
+        assert!(
+            j.line.contains("contains that revert") && !j.line.contains("installed and running"),
+            "{}",
+            j.line
+        );
+        assert_eq!(r.core.self_joined_not_running(), None);
+        // A build from before the revert may still run the change: said so, not "running".
+        let j = r.core.self_last_join_as(Some(&merge)).unwrap();
+        assert!(
+            j.line.contains("does not contain that revert yet"),
+            "{}",
+            j.line
+        );
+    }
+}
+
+// ---- what a failed `merge-base` reads as -------------------------------------------------------------
+
+fn finished(raw: i32) -> anyhow::Result<std::process::Output> {
+    use std::os::unix::process::ExitStatusExt;
+    Ok(std::process::Output {
+        status: std::process::ExitStatus::from_raw(raw),
+        stdout: Vec::new(),
+        stderr: b"fatal: not a valid object name".to_vec(),
+    })
+}
+
+/// Only exit 0 is yes and only exit 1 is no. Any other code, a signal, or a command that did not run cannot tell.
+#[test]
+fn only_exit_zero_is_a_yes_and_only_exit_one_is_a_no() {
+    use super::contains::classify;
+    let run = "f".repeat(40);
+    assert_eq!(classify(finished(0), &run), Contained::Yes(run.clone()));
+    assert_eq!(classify(finished(1 << 8), &run), Contained::No(run.clone()));
+    for (what, result) in [
+        ("exit 128", finished(128 << 8)),
+        ("exit 2", finished(2 << 8)),
+        ("killed by SIGKILL", finished(9)),
+        ("dumped core on SIGSEGV", finished(11 | 0x80)),
+        ("could not run", Err(anyhow::anyhow!("git could not start"))),
+    ] {
+        match classify(result, &run) {
+            Contained::CannotTell(why) => assert!(!why.is_empty(), "{what}"),
+            other => panic!("{what} read as {other:?}"),
+        }
+    }
+}

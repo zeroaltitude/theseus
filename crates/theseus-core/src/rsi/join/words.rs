@@ -21,6 +21,8 @@ pub enum Install {
     DidNotTake,
     /// No row says: an install in flight, or installs are off.
     Unconfirmed,
+    /// The join was undone on main (`self.reverted`, or the owner's `self.vetoed`): it is never said to be running.
+    Reverted,
 }
 
 /// Whether the build that runs now contains a joined commit: the answer the daemon can give from its own clone.
@@ -92,6 +94,46 @@ fn utc(ms: u64) -> String {
     )
 }
 
+/// The words for a join that was undone on main. A revert is a later commit that has the join as an ancestor, so a build
+/// that contains the join may well contain its revert: the join is never said to run, and where the running build
+/// contains the revert, the revert is what runs. A revert made by hand on main, with no row, is not seen here.
+fn reverted(
+    merge: &str,
+    undo: &LedgerRow,
+    contained: &dyn Fn(&str) -> Option<Contained>,
+) -> LastJoin {
+    let by = if undo.kind == "self.vetoed" {
+        "the owner's revert"
+    } else {
+        "the loop's own revert after a red signal"
+    };
+    let said = match undo.data["revert"].as_str() {
+        None => format!("reverted: {by} undid it, so it is not what runs"),
+        Some(revert) => {
+            let r = short(revert);
+            match contained(revert) {
+                Some(Contained::Yes(running)) => format!(
+                    "reverted: {by} ({r}) undid it, and the running build ({}) contains that revert, so it is not what runs",
+                    short(&running)
+                ),
+                Some(Contained::No(running)) => format!(
+                    "reverted on main by {by} ({r}); the running build ({}) does not contain that revert yet, so it may still run the change",
+                    short(&running)
+                ),
+                Some(Contained::CannotTell(why)) => format!(
+                    "reverted on main by {by} ({r}); cannot tell whether the running build contains that revert ({why})"
+                ),
+                None => format!("reverted on main by {by} ({r})"),
+            }
+        }
+    };
+    LastJoin {
+        line: format!("joined at {}; {said}", short(merge)),
+        merge: merge.to_string(),
+        install: Install::Reverted,
+    }
+}
+
 /// The newest `self.joined` of `rows` (oldest first), with the install rows of its merge.
 #[cfg(test)]
 pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
@@ -113,6 +155,9 @@ pub(crate) fn last_join_in(
             .find(|r| r.kind == kind && r.data["merge"] == merge.as_str())
     };
     let at = short(&merge);
+    if let Some(undo) = ["self.reverted", "self.vetoed"].iter().find_map(|k| of(k)) {
+        return Some(reverted(&merge, undo, contained));
+    }
     let (install, said) = if of("self.installed").is_some() {
         (Install::Running, "installed and running".to_string())
     } else if let Some(m) = of("self.install.mismatch") {
@@ -196,6 +241,8 @@ impl Core {
                 "self.install.not_installed",
                 "self.install.mismatch",
                 "self.root_install",
+                "self.reverted",
+                "self.vetoed",
             ],
         )
         .ok()??;

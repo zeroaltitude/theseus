@@ -21,8 +21,16 @@ fn is_hex(c: &str) -> bool {
 
 /// Whether the commit `c` is in the clone.
 fn present(p: &Place, c: &str) -> bool {
-    p.git(&p.repo, &["cat-file", "-e", &format!("{c}^{{commit}}")])
-        .is_ok_and(|o| o.status.success())
+    p.git(
+        &p.repo,
+        &[
+            "--no-replace-objects",
+            "cat-file",
+            "-e",
+            &format!("{c}^{{commit}}"),
+        ],
+    )
+    .is_ok_and(|o| o.status.success())
 }
 
 /// The answer for `merge` against the build whose commit is `running`, from the clone `p`.
@@ -49,11 +57,30 @@ pub(super) fn contained_in(p: &Place, merge: &str, running: Option<&str>) -> Con
             short(running)
         ));
     }
-    match p.git(&p.repo, &["merge-base", "--is-ancestor", merge, running]) {
+    classify(
+        p.git(
+            &p.repo,
+            &[
+                "--no-replace-objects",
+                "merge-base",
+                "--is-ancestor",
+                merge,
+                running,
+            ],
+        ),
+        running,
+    )
+}
+
+/// What `git merge-base --is-ancestor <join> <running>` came to: exit 0 is yes and exit 1 is no, and anything else (any
+/// other code, a signal, a command that could not be run) is that it cannot tell, never a yes.
+pub(super) fn classify(result: anyhow::Result<std::process::Output>, running: &str) -> Contained {
+    match result {
         Ok(o) if o.status.success() => Contained::Yes(running.into()),
         Ok(o) if o.status.code() == Some(1) => Contained::No(running.into()),
         Ok(o) => Contained::CannotTell(format!(
-            "git could not compare them: {}",
+            "git could not compare them ({}): {}",
+            o.status,
             String::from_utf8_lossy(&o.stderr).trim()
         )),
         Err(e) => Contained::CannotTell(format!("git could not be run: {e:#}")),
@@ -66,6 +93,12 @@ impl Core {
         let Some(repo) = self.cfg.self_improve.repo.clone() else {
             return Contained::CannotTell("this daemon has no [self] repo to look in".into());
         };
+        // The build that is the join, while the install of it waits for the new daemon's confirmation, may yet go back.
+        if self.root_install_pending_for(merge) {
+            return Contained::CannotTell(
+                "its install is still waiting for the new daemon to confirm itself".into(),
+            );
+        }
         let place = self.tools.self_pr.place(&repo);
         let key = running.map(|r| (place.repo.clone(), merge.to_string(), r.to_string()));
         if let Some(k) = &key {

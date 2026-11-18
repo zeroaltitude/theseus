@@ -732,3 +732,18 @@ fn assert_transient_is_whole(transient: &str) {
 fn repoint_text(text: &str, old: &str, new: &str) -> String {
     super::unit::repoint(text, old, new).unwrap()
 }
+
+/// While the install of the join waits for the new daemon to confirm itself, a build that IS the join is not yet said
+/// to be running: it may still go back (`self_installed_as` holds its notice for the same reason).
+#[tokio::test]
+async fn a_build_that_is_the_join_is_not_said_to_run_before_its_install_confirms() {
+    let t = auto(&FakeUnits::new(OLD, false));
+    let merge = installed(&t).await;
+    let j = t.r.core.self_last_join_as(Some(&merge)).unwrap();
+    assert_ne!(j.install, Install::Running, "{}", j.line);
+    assert!(
+        j.line.contains("waiting for the new daemon to confirm"),
+        "{}",
+        j.line
+    );
+}
