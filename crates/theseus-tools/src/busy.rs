@@ -72,6 +72,13 @@ pub fn busy_factor() -> u64 {
 /// machine is not one a promise about milliseconds can be tested on, and the test fails and says so.
 pub const BOUND_CAP: u64 = 8;
 
+/// [`busy_factor`] held to [`BOUND_CAP`]: for a test whose limit is an INPUT it scales together with the
+/// bound that depends on it (a fake's latency and the margin under it), where [`Busy`] is for a bound
+/// alone. 1 on a quiet machine, so there the input is exactly what it was.
+pub fn bound_factor() -> u64 {
+    busy_factor().min(BOUND_CAP)
+}
+
 /// What a test that holds a speed promise asks the machine, and when. Take it with [`Busy::before`] just
 /// before the region the promise times (not at the top of a test whose setup takes seconds: the load then
 /// is not the load during the region), and ask [`Busy::keeps`] of every bound of that region. On a quiet

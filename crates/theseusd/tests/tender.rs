@@ -234,11 +234,12 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
     // A stop: SIGTERM, and the tender is gone.
     let third = *seen.0.last().unwrap();
     let _ = s.call("shutdown", Value::Null);
+    let busy = Busy::before();
     let t0 = Instant::now();
     while !ended(third) {
         assert!(
-            t0.elapsed() < Duration::from_secs(5),
-            "the tender outlived the stop"
+            busy.keeps(t0.elapsed(), Duration::from_secs(5)),
+            "the tender outlived the stop ({busy})"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -289,11 +290,12 @@ fn a_stop_does_not_wait_for_the_tender() {
     );
     assert_eq!(state(pid), Some('T'), "the tender is still stopped");
     signal(pid, libc::SIGCONT);
+    let busy = Busy::before();
     let t1 = Instant::now();
     while !ended(pid) {
         assert!(
-            t1.elapsed() < Duration::from_secs(5),
-            "the tender outlived its daemon"
+            busy.keeps(t1.elapsed(), Duration::from_secs(5)),
+            "the tender outlived its daemon ({busy})"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -470,11 +472,12 @@ fn a_restart_in_place_takes_the_running_tender_over() {
     let events = tender_events(&sock, 2);
     assert_eq!(events, ["started", "adopted"], "{}", logs());
     let _ = call_on(&sock, "shutdown");
+    let busy = Busy::before();
     let t0 = Instant::now();
     while !ended(pid) {
         assert!(
-            t0.elapsed() < Duration::from_secs(5),
-            "the tender outlived the stop"
+            busy.keeps(t0.elapsed(), Duration::from_secs(5)),
+            "the tender outlived the stop ({busy})"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
