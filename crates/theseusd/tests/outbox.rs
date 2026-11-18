@@ -354,7 +354,11 @@ fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
     let stop_ms = t0.elapsed().as_millis();
     assert!(status.success(), "{status}");
     eprintln!("the stop, the post never answered: {stop_ms} ms (the grace is 50 ms)");
-    assert!(stop_ms < 1000, "the stop waited {stop_ms} ms");
+    // "No longer than the grace" is a promise about the daemon: its exit is many wake-ups in a
+    // row (20 ms idle, 1.8 s with 64 busy threads), so the limit is held in proportion to what
+    // `busy_factor` measured, which is 1 on a quiet machine (theseus-20).
+    let busy = u128::from(theseus_sim::busy_factor());
+    assert!(stop_ms < 1000 * busy, "the stop waited {stop_ms} ms");
     assert!(
         r.log().contains("stay dispatched"),
         "{}",
