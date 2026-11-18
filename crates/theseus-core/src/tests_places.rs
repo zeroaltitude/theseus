@@ -151,16 +151,16 @@ fn script(req: &ProviderRequest) -> Scripted {
     if first.contains("count the files") {
         return Scripted::tools(
             "Counting.",
-            &[("k1", "proc_run", json!({"argv": ["cat", "notes.md"]}))],
+            &[("k1", "proc_run", json!({"argv": ["cat", "notes-copy.md"]}))],
         );
     }
     if last.contains("look around") {
         return Scripted::tools(
             "Looking.",
             &[
-                ("p1", "proc_run", json!({"argv": ["cat", "notes.md"]})),
-                ("p2", "fs_read", json!({"path": "notes.md"})),
-                ("p3", "fs_read", json!({"path": "open/README.md"})),
+                ("p1", "proc_run", json!({"argv": ["cat", "notes-copy.md"]})),
+                ("p2", "fs_read", json!({"path": "notes-copy.md"})),
+                ("p3", "fs_read", json!({"path": "open/README-copy.md"})),
             ],
         );
     }
@@ -276,6 +276,11 @@ fn rig_defer(
     let root = root.canonicalize().unwrap();
     std::fs::write(root.join("notes.md"), format!("{SECRET}\n")).unwrap();
     std::fs::write(root.join("open/README.md"), format!("{OPEN}\n")).unwrap();
+    // What the calls below read are copies: the two files above are the
+    // context files, which are on the floor, and these calls are judged by the
+    // place rule.
+    std::fs::write(root.join("notes-copy.md"), format!("{SECRET}\n")).unwrap();
+    std::fs::write(root.join("open/README-copy.md"), format!("{OPEN}\n")).unwrap();
     let mut cfg = config(&root, dir.path());
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();

@@ -34,6 +34,7 @@ pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};
 pub(crate) use question_waits::{held_past_life, waited_words};
 pub(crate) use undo_allow::Taken;
 mod config_history;
+mod config_whole;
 mod disk_watch;
 mod driver;
 mod exec_list;
@@ -1137,6 +1138,7 @@ impl Core {
         core.tools.self_file.attach(&core);
         core.tools.self_pause.attach(&core);
         core.tools.config_change.attach(&core);
+        core.tools.policy.prompt.attach(&core);
         core.tools.root_install.attach(&core);
         core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);

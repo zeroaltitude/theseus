@@ -103,10 +103,12 @@ pub(super) struct Rig {
 }
 
 pub(super) fn rig() -> Rig {
-    rig_with(|_| {})
+    rig_with(|_, _| {})
 }
 
-pub(super) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
+/// [`rig`], with `tweak` to say about the settings last: it is given them and
+/// the state directory.
+pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
@@ -119,7 +121,7 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
     // No index tender runs in a test, so a daemon that waits for it to answer
     // would never be healthy.
     cfg.index.enabled = false;
-    tweak(&mut cfg);
+    tweak(&mut cfg, &state);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         calls: Mutex::default(),
@@ -756,7 +758,7 @@ fn the_copies_and_the_marker_are_on_the_floor() {
 async fn a_card_never_cuts_what_it_cannot_show_whole() {
     let r = rig();
     let sid = r.session();
-    r.turn(&sid, change("model.system", json!("p".repeat(2_000))))
+    r.turn(&sid, change("model.system", json!("p".repeat(5_000))))
         .await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Error, "{text}");

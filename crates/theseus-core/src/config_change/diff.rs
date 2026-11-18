@@ -82,9 +82,7 @@ pub fn escaped(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if c.is_control()
-                || matches!(c, '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}') =>
-            {
+            c if super::shown::unseen(c) => {
                 out.push_str(&format!("\\u{{{:04x}}}", c as u32));
             }
             c => out.push(c),

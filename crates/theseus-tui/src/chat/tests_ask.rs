@@ -686,6 +686,61 @@ async fn a_commands_result_lines_stay_under_its_line_behind_a_gutter() {
     assert!(r.text().contains("⎿ test_tidal_range"), "{}", r.text());
 }
 
+/// The daemon's card for a changed prompt file, as the daemon words it (issue 23).
+const PROMPT_CARD: &str = "Change the prompt file /state/PERSONA.md?\nIt is Theseus's file of persona warm.\nBefore: 120 bytes, 4 lines, fingerprint 0123456789abcdef\nAfter: 131 bytes, 4 lines, fingerprint fedcba9876543210\n1 line added, 1 line removed.\nThe changed lines, whole (unseen characters are written \\u{..}; a backslash is doubled):\n```diff\n@@ -1,4 +1,4 @@\n You are Theseus.\n-Be brief.\n+Be brief and warm.\n Be honest.\n```\nTakes effect with the next message; no restart.\n";
+
+/// A change to a prompt file is a settings question: the dock holds a line and
+/// says to read the card first; `v` writes the daemon's card into the transcript
+/// with each line as a row of its own, its marker and spaces kept, nothing run
+/// together or cut; and only then is `y` taken (issue 23).
+#[tokio::test(start_paused = true)]
+async fn a_prompt_file_card_is_read_line_by_line_before_a_yes() {
+    let mut r = Rig::with(100, 40, script()).await;
+    r.ready().await;
+    r.starts_turn("trn_1");
+    let q = ConfirmRequest {
+        correlation_id: "act_99".into(),
+        session_id: SID.into(),
+        tool: "config.ack".into(),
+        input: json!({"whole": true, "kind": "prompt_file"}),
+        reason: PROMPT_CARD.into(),
+        by: "operator".into(),
+        requested_at_ms: T0,
+        expires_at_ms: T0 + 300_000,
+        needs_proof: true,
+        plain: Some(theseus_protocol::PlainWords {
+            who: "Theseus".into(),
+            what: "change the prompt file `/state/PERSONA.md` (1 line added, 1 line removed); no restart".into(),
+            yes: "has the daemon write the file itself; it takes effect with the next message.".into(),
+            no: "changes nothing.".into(),
+            detail: PROMPT_CARD.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    r.tell(Event::ConfirmRequested(q));
+    r.shows("v: read the whole card first").await;
+    r.press(KeyCode::Char('y')).await;
+    r.shows("press v to read the whole card first, then y")
+        .await;
+    assert!(r.daemon.asked("action.confirm").is_empty());
+    r.press(KeyCode::Char('v')).await;
+    r.shows("+Be brief and warm.").await;
+    let screen = lines_of(&r);
+    for want in PROMPT_CARD.lines() {
+        assert!(
+            screen
+                .iter()
+                .any(|l| l.trim_end() == format!("  {want}").trim_end()),
+            "{want:?} is not a row of its own:\n{}",
+            r.text()
+        );
+    }
+    assert!(!r.text().contains('…'), "{}", r.text());
+    r.press(KeyCode::Char('y')).await;
+    r.asked("action.confirm", 1).await;
+}
+
 fn settings_question() -> ConfirmRequest {
     let mut card = String::from("Change 2 settings?\n");
     for i in 0..2 {

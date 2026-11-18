@@ -22,6 +22,12 @@ fn confirm_head(c: &ConfirmRequest) -> String {
     }
 }
 
+/// The last eight characters of a question's id.
+fn tail8(id: &str) -> String {
+    let n = id.chars().count().saturating_sub(8);
+    id.chars().skip(n).collect()
+}
+
 /// Its risk, the model's reason and what Yes and No do, else the gate's reason.
 fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
     match &c.plain {
@@ -33,16 +39,16 @@ fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
             Tag::Dim,
             format!(
                 "  the whole card is {} lines, too long for this pane, so it is not answered here: \
-                 read and answer it in `theseus chat` (v), with `theseus answer {}`, or in the cockpit",
+                 read and answer it in `theseus chat` (v), with `theseus answer {}`, or in the cockpit{}",
                 p.detail_lines().len(),
-                c.correlation_id
-                    .chars()
-                    .rev()
-                    .take(8)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect::<String>()
+                tail8(&c.correlation_id),
+                match theseus_protocol::has_whole_text(c) {
+                    true => format!(
+                        " (the whole text, before and after: `theseus config show {}`)",
+                        c.correlation_id
+                    ),
+                    false => String::new(),
+                }
             ),
         )],
         Some(p) => p

@@ -34,6 +34,39 @@ pub fn is_settings(req: &ConfirmRequest) -> bool {
 /// drawn as it is, and not as italics that drop a wildcard's `*`, or a spoiler
 /// that hides the lines between two `||`.
 pub fn md(s: &str) -> String {
+    let lines: Vec<&str> = s.split_inclusive('\n').collect();
+    let mut out = String::with_capacity(s.len() + s.len() / 8);
+    let mut fence = false;
+    for (i, line) in lines.iter().enumerate() {
+        let bare = line.trim_end_matches('\n');
+        // The daemon's own block of changed lines (a prompt file's, a long
+        // value's) is drawn as it is: a code block shows its text literally,
+        // and no row of it can be a fence (the daemon makes a summary of any
+        // change whose row holds three backticks, `config_change::shown`). An
+        // opening line with no closing one is not a block and is escaped.
+        if fence {
+            fence = bare != FENCE;
+            out.push_str(line);
+        } else if bare == FENCE_OPEN
+            && lines[i + 1..]
+                .iter()
+                .any(|l| l.trim_end_matches('\n') == FENCE)
+        {
+            fence = true;
+            out.push_str(line);
+        } else {
+            out.push_str(&escaped(line));
+        }
+    }
+    out
+}
+
+/// The line that opens the daemon's block of changed lines, and the one that closes it.
+const FENCE_OPEN: &str = "```diff";
+const FENCE: &str = "```";
+
+/// One line, every character Discord reads as markdown with a backslash before it.
+fn escaped(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + s.len() / 8);
     for c in s.chars() {
         if matches!(
@@ -152,3 +185,5 @@ pub fn details(req: &ConfirmRequest) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_file;

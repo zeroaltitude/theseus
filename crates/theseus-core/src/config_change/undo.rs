@@ -77,7 +77,7 @@ pub fn input_of(input: &Value) -> Result<(Option<u32>, String), String> {
     Ok((i.change, super::card::reason_line(&i.reason)))
 }
 
-fn target(entries: &[Entry], number: Option<u32>) -> Result<&Entry, String> {
+pub(super) fn target(entries: &[Entry], number: Option<u32>) -> Result<&Entry, String> {
     let e = match number {
         Some(n) => entries.iter().find(|e| e.number == n).ok_or_else(|| {
             format!("there is no change #{n} in the history: ask for the history to see the numbers")
@@ -243,6 +243,14 @@ pub fn run(
     let w = &rt.config_change;
     let rows = history::rows(tc.store);
     let list = history::entries(&rows, &w.state, w.file.as_deref(), history::SHOWN);
+    // A change to a prompt file is undone by its own text (issue 23).
+    let e = target(&list, number)?;
+    if let Some(f) = e.file.as_ref() {
+        let core = w
+            .core()
+            .ok_or("Theseus is not ready to undo: try again in a moment")?;
+        return super::prompt_file::undo::run(rt, tc, &core, correlation_id, e, f, &reason);
+    }
     let planned = plan(&list, number, &base)?;
     let undoes = Some(&planned.undoes);
     super::put(

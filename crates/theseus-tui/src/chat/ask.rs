@@ -26,7 +26,7 @@ use super::dock::DockCtx;
 use super::keys::{self, Ask};
 use super::live::elapsed;
 use super::state::{call, Chat, Effect, Purpose, AUTHOR};
-use super::style::{one, span, wrap_words, Line, Sty};
+use super::style::{hard_wrap, one, span, wrap_words, Line, Sty};
 use super::tasks::TaskQ;
 use theseus_protocol::work::QuestionKind;
 
@@ -315,8 +315,13 @@ impl Chat {
         let preview = diffview::preview_lines(q);
         // A settings question: the daemon's own words, whole, not its raw call.
         if let Some(p) = q.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+            // Every row as the daemon wrote it, its spaces kept: a changed line's
+            // marker and indentation mean something, and words would run them
+            // together.
             for l in p.detail_lines() {
-                self.say_words(Sty::Dim, &format!("  {l}"));
+                for row in hard_wrap(&l, width.saturating_sub(4)) {
+                    self.say_plain(Sty::Dim, &format!("  {row}"));
+                }
             }
             self.ask.read = true;
             self.gap();

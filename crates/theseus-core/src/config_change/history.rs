@@ -69,6 +69,9 @@ pub struct Entry {
     pub undone_by: Option<u32>,
     /// The number of the change this one undid, if it is an undo.
     pub undoes: Option<u32>,
+    /// The prompt file it changed, when it changed one and no setting
+    /// (issue 23).
+    pub file: Option<super::prompt_file::history::FileEntry>,
 }
 
 impl Entry {
@@ -175,13 +178,16 @@ pub fn entries(rows: &[LedgerRow], state: &Path, file: Option<&Path>, limit: usi
     // Which copies exist is the ledger's record (every `config.changed` row
     // names the copy it kept, a plain restart's included), never a directory
     // listing: a file the daemon has no row for is not read.
-    let kept: Vec<u32> = rows
-        .iter()
-        .filter(|r| r.kind == LedgerKind::ConfigChanged.as_str())
-        .filter(|r| r.data["source"] == "owner")
-        .filter_map(|r| r.data["previous_copy"].as_u64())
-        .map(|n| n as u32)
-        .collect();
+    let kept_by = |file: bool| -> Vec<u32> {
+        rows.iter()
+            .filter(|r| r.kind == LedgerKind::ConfigChanged.as_str())
+            .filter(|r| r.data["source"] == "owner")
+            .filter(|r| r.data["file"].is_object() == file)
+            .filter_map(|r| r.data["previous_copy"].as_u64())
+            .map(|n| n as u32)
+            .collect()
+    };
+    let (kept, kept_files) = (kept_by(false), kept_by(true));
     let now = file.and_then(|f| std::fs::read_to_string(f).ok());
     let number = |r: &LedgerRow| r.data["previous_copy"].as_u64().unwrap_or_default() as u32;
     let by_question = |q: &str| {
@@ -228,6 +234,7 @@ pub fn entries(rows: &[LedgerRow], state: &Path, file: Option<&Path>, limit: usi
             restart: d["restart"].as_bool().unwrap_or(true),
             before_doc: before,
             after_doc: after,
+            file: super::prompt_file::history::entry_of(d, state, &kept_files),
             rolled_back: said(LedgerKind::ConfigRolledBack, "question")
                 .into_iter()
                 .find_map(|x| text(&x.data, "why")),
@@ -277,6 +284,28 @@ fn block(e: &Entry, now_ms: u64) -> String {
         e.number,
         theseus_protocol::human_time::ago(now_ms, e.at_ms)
     );
+    if let Some(f) = &e.file {
+        out.push_str(&super::prompt_file::history::lines(f));
+    } else {
+        out.push_str(&settings_lines(e));
+    }
+    if let Some(n) = e.undoes {
+        out.push_str(&format!("This put back the settings change #{n} made.\n"));
+    }
+    if let Some(n) = e.undone_by {
+        out.push_str(&format!("Undone since, by change #{n}.\n"));
+    }
+    if let Some(why) = &e.rolled_back {
+        out.push_str(&format!(
+            "Theseus went back to the settings before it after the restart: {why}.\n"
+        ));
+    }
+    out
+}
+
+/// The settings a change set, each before and after.
+fn settings_lines(e: &Entry) -> String {
+    let mut out = String::new();
     match e.settings() {
         Some(list) => {
             for s in list {
@@ -299,17 +328,6 @@ fn block(e: &Entry, now_ms: u64) -> String {
                 names.join(", ")
             ));
         }
-    }
-    if let Some(n) = e.undoes {
-        out.push_str(&format!("This put back the settings change #{n} made.\n"));
-    }
-    if let Some(n) = e.undone_by {
-        out.push_str(&format!("Undone since, by change #{n}.\n"));
-    }
-    if let Some(why) = &e.rolled_back {
-        out.push_str(&format!(
-            "Theseus went back to the settings before it after the restart: {why}.\n"
-        ));
     }
     out
 }

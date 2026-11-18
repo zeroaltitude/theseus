@@ -51,3 +51,12 @@ export function proofLine(c: ConfirmRequest): string | null {
 
 /** Whether the card shows the code field: the question needs the proof and no earlier one from this place covers it. */
 export const needsCode = (c: ConfirmRequest): boolean => Boolean(c.needs_proof) && c.proof?.code_needed !== false
+
+/** A change to Theseus's own settings or files (`config.ack`) is a card the daemon built to be read as it is: its lines
+ *  keep their breaks. */
+export const isSettingsChange = (c: ConfirmRequest): boolean => c.tool === 'config.ack'
+
+/** Whether the card has a whole text to read before the yes (`config.whole`): a prompt file's change, or a setting too
+ *  long for the card. The daemon says so in the question's own arguments. */
+export const hasWholeText = (c: ConfirmRequest): boolean =>
+  isSettingsChange(c) && (c.input as { whole?: unknown } | null)?.whole === true

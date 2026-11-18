@@ -76,6 +76,24 @@ pub fn change(settings: &[Setting], undoing: Option<u32>) -> String {
     }
 }
 
+/// What a change to a prompt file says (issue 23): the file, and how many lines
+/// it adds and removes; for an undo of change `undoing`, what it puts back. The
+/// path is written out so no character in it can hide, and goes between
+/// backticks.
+pub fn file(path: &str, added: usize, removed: usize, undoing: Option<u32>) -> String {
+    let path = super::shown::escape_line(path).0;
+    let n = |k: usize, one, many| crate::narrative::count(k as u64, one, many);
+    let lines = format!(
+        "{} added, {} removed",
+        n(added, "line", "lines"),
+        n(removed, "line", "lines")
+    );
+    match undoing {
+        Some(n) => format!("undo change #{n}, putting back the prompt file `{path}` ({lines})"),
+        None => format!("change the prompt file `{path}` ({lines}); no restart"),
+    }
+}
+
 /// What attaching or removing an MCP server says, from the marker the daemon
 /// keeps on the question: `op` and the server's `name`.
 pub fn mcp(marker: &Value, restart: bool) -> String {
@@ -148,12 +166,17 @@ pub fn plain_of(args: &Value) -> Option<PlainWords> {
     let said = args["settled"]
         .as_str()
         .map_or_else(|| first_line(&question), str::to_string);
+    let file = args["kind"] == super::prompt_file::KIND;
     let (risk, yes) = match (args.get("merge").is_some(), args["restart_only"] == true) {
         (true, _) => (
             "installs a program Theseus runs",
             "installs that build and restarts Theseus.",
         ),
         (_, true) => ("restarts Theseus", "restarts Theseus."),
+        _ if file => (
+            "changes the text that goes into every later prompt",
+            "has the daemon write the file itself; it takes effect with the next message.",
+        ),
         _ => (
             "changes Theseus's own settings",
             "has the daemon write these settings itself, and restart if it says so.",

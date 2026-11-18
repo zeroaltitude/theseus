@@ -271,6 +271,7 @@ fn policy(root: &Path, enforcement: Posture) -> ToolPolicy {
         aws: BTreeMap::new(),
         confirmer: "operator".into(),
         floor_paths: vec![root.join("state")],
+        prompt: Default::default(),
         floor_argv: floor_argv(),
         private_addresses: Default::default(),
     }
@@ -874,6 +875,7 @@ fn the_state_dirs_floor_holds_through_a_link_and_a_dotdot_and_the_rest_is_open()
     let p = ToolPolicy {
         roots: vec![root.clone(), trees.clone()],
         floor_paths: vec![state.join("store")],
+        prompt: Default::default(),
         ..policy(&root, Posture::Open)
     };
     let at = |path: PathBuf, access| plan(path, access, None);
@@ -961,6 +963,7 @@ fn a_self_sessions_soft_holds_fail_open_and_the_hard_ones_stay() {
     let keys = root.join("keys");
     let p = ToolPolicy {
         floor_paths: vec![state.join("store")],
+        prompt: Default::default(),
         ..policy(&root, Posture::Open)
     };
     let outside = tempfile::tempdir().unwrap();

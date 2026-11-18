@@ -45,10 +45,82 @@ pub(crate) fn state_dir_in_use(cfg: &crate::Config) -> PathBuf {
     theseus_tools::paths::canonical_best_effort(&cfg.state_dir())
 }
 
+/// The files that go into every prompt, as the config and the state layout
+/// name them (issue 23): what `[context] files` names, and the two homes a
+/// persona's soul has by default (`personas/soul.rs: soul_home`, and
+/// `persona/`, the older singular one), each as a whole directory so that a
+/// soul, the `.bak` copies a write keeps beside it and the temporary file it
+/// leaves are all in it. A soul the ontology puts anywhere else is not known
+/// from the config alone: [`prompt_souls`] names those from the book.
+pub(crate) struct PromptPaths {
+    /// The files `[context] files` names, canonical.
+    pub files: Vec<PathBuf>,
+    /// The default homes of a soul, canonical.
+    pub homes: Vec<PathBuf>,
+}
+
+/// [`PromptPaths`] for `cfg` over `state`.
+pub(crate) fn prompt_static(cfg: &crate::Config, state: &std::path::Path) -> PromptPaths {
+    let canon = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
+    PromptPaths {
+        files: cfg
+            .context
+            .files
+            .iter()
+            .map(|f| canon(crate::config::expand(f.path())))
+            .collect(),
+        homes: ["personas", "persona"]
+            .iter()
+            .map(|d| canon(state.join(d)))
+            .collect(),
+    }
+}
+
+/// Every file a live persona's soul can be, wherever the ontology puts it:
+/// each path [`crate::Config::context_paths`] returns for the book with every
+/// persona engaged, canonical. The book changes while Theseus runs, so the
+/// caller asks again whenever it has changed (`prompt_floor.rs`).
+pub(crate) fn prompt_souls(cfg: &crate::Config, book: &crate::personas::Book) -> Vec<PathBuf> {
+    cfg.context_paths(book, None, true)
+        .into_iter()
+        .map(|p| theseus_tools::paths::canonical_best_effort(&crate::config::expand(&p.path)))
+        .collect()
+}
+
+/// Whether `p` is a copy kept or left beside one of `files`: a file of the same
+/// directory named as one of them with a dot and more after it (`soul.md.1.bak`,
+/// the temporary `soul.md.new`).
+pub(crate) fn beside(p: &std::path::Path, files: &[PathBuf]) -> bool {
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name().and_then(|n| n.to_str())) else {
+        return false;
+    };
+    files.iter().any(|f| {
+        f.parent() == Some(dir)
+            && f.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                name.len() > n.len() + 1 && name.starts_with(n) && name[n.len()..].starts_with('.')
+            })
+    })
+}
+
 /// The workspace's roots and the floor's paths from `cfg` alone, over the
 /// state dir in use ([`state_dir_in_use`]): what the gate guards, and what no
-/// L1 view shows (M4 17b).
+/// L1 view shows (M4 17b). The prompt files are on it (issue 23).
 pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let (roots, mut floor) = base_paths(cfg);
+    let prompt = prompt_static(cfg, &state_dir_in_use(cfg));
+    floor.extend(prompt.files.into_iter().chain(prompt.homes));
+    (roots, floor)
+}
+
+/// The floor without the prompt files: what a prompt file may never be
+/// (`config_change::prompt_file`), since a file the settings name as prompt
+/// text is on the floor itself and must not make every such file forbidden.
+pub(crate) fn floor_without_prompt_files(cfg: &crate::Config) -> Vec<PathBuf> {
+    base_paths(cfg).1
+}
+
+/// [`guarded_paths`] before the prompt files.
+fn base_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let state = state_dir_in_use(cfg);
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
@@ -389,5 +461,65 @@ mod tests {
             assert!(hidden.contains(&path), "{name} is not hidden: {hidden:?}");
         }
         assert_eq!(crate::owner_proof::FILE, "owner-proof.json");
+    }
+
+    /// The files that go into every prompt are on the floor and hidden from
+    /// every L1 view (issue 23): the files `[context] files` names and both
+    /// homes a soul has by default, each by its own name, written as words on
+    /// purpose: a rename that moved a home off the floor reds here. The floor
+    /// that a prompt file is judged against (`floor_without_prompt_files`)
+    /// has none of them, or no prompt file could be changed by its card.
+    #[test]
+    fn the_prompt_files_are_floored_and_hidden() {
+        let state = std::path::Path::new("/nonexistent/theseus-guarded/prompt");
+        let mut cfg = cfg_over(state);
+        cfg.context.files = vec!["/nonexistent/theseus-guarded/ctx/CONTEXT.md"
+            .to_string()
+            .into()];
+        let floor = guarded_paths(&cfg).1;
+        let hidden = super::sandbox_for(&cfg).job_view().hidden;
+        let named = [
+            std::path::PathBuf::from("/nonexistent/theseus-guarded/ctx/CONTEXT.md"),
+            state.join("personas"),
+            state.join("persona"),
+        ];
+        let without = super::floor_without_prompt_files(&cfg);
+        for path in &named {
+            assert!(floor.contains(path), "{path:?} is not floored: {floor:?}");
+            assert!(hidden.contains(path), "{path:?} is not hidden: {hidden:?}");
+            assert!(
+                !without.contains(path),
+                "{path:?} is in the floor a prompt file is judged by"
+            );
+        }
+        assert!(
+            without.contains(&state.join("store")),
+            "the rest of the floor is"
+        );
+    }
+
+    /// A copy beside a prompt file is a file of its directory named as the file
+    /// with a dot and more after it, and nothing else is.
+    #[test]
+    fn a_copy_beside_a_prompt_file_is_one_named_after_it() {
+        let files = [std::path::PathBuf::from("/d/soul.md")];
+        let beside = |p: &str| super::beside(std::path::Path::new(p), &files);
+        for yes in [
+            "/d/soul.md.1794074842741.bak",
+            "/d/soul.md.new",
+            "/d/soul.md.x",
+        ] {
+            assert!(beside(yes), "{yes}");
+        }
+        for no in [
+            "/d/soul.md",
+            "/d/soul.mdx",
+            "/d/soul.m",
+            "/e/soul.md.bak",
+            "/d/sub/soul.md.bak",
+            "/d/other.md.bak",
+        ] {
+            assert!(!beside(no), "{no}");
+        }
     }
 }

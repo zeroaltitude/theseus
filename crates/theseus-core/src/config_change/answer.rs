@@ -154,6 +154,17 @@ impl Core {
                 );
             }
         }
+        // A prompt file is changed in its own way: no restart, its own copies.
+        if super::prompt_file::write::is_card(args) {
+            let (previous, before, after) = self.write_prompt_file(a, args)?;
+            return Ok(Applied {
+                previous,
+                before,
+                after,
+                restart: false,
+                pending: None,
+            });
+        }
         let file = w
             .file
             .clone()
@@ -275,6 +286,7 @@ impl Core {
                     "digest_before": d.before, "digest_after": d.after,
                     "previous_copy": d.previous, "restart": d.restart,
                     "restart_only": args["restart_only"].as_bool().unwrap_or(false),
+                    "file": args["file"],
                 }),
             ),
             None => LedgerRow::new(
@@ -283,7 +295,7 @@ impl Core {
                 None,
                 json!({
                     "question": corr, "paths": args["paths"], "asked_by": who,
-                    "answered_by": by, "via": via,
+                    "answered_by": by, "via": via, "file": args["file"],
                     "outcome": match answer { Answer::Yes => "refused", Answer::No(_) => "declined", Answer::Expired(_) => "expired" },
                     "why": note,
                 }),
@@ -329,6 +341,7 @@ impl Core {
         if let Some(sha) = args["candidate_sha256"].as_str() {
             write::drop_candidate(&state, sha);
         }
+        super::prompt_file::write::drop_kept(&state, &args);
         self.session_rec(&a.session_id).announce(&answered);
         self.card_closed(corr, answer.closed(applied.is_some(), by, note.as_deref()));
         // The board takes the server on, or lets it go, with no restart.

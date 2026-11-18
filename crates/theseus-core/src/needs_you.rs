@@ -373,9 +373,13 @@ pub fn header_body(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json::V
 /// `text` for anything that shows it as it is.
 pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value {
     let ask = crate::ask::input_of(a);
-    let prompt = match &ask {
-        Some(i) => i.question.clone(),
-        None => cut_marked(req.reason.trim(), 300),
+    // A settings question's card is whole in its own places and is never cut
+    // into this line: the line says what it changes and where the card is.
+    let settings = req.plain.as_ref().filter(|p| !p.detail.is_empty());
+    let prompt = match (&ask, settings) {
+        (Some(i), _) => i.question.clone(),
+        (None, Some(p)) => p.what.clone(),
+        (None, None) => cut_marked(req.reason.trim(), 300),
     };
     let choices = ask.as_ref().map(|i| i.choices()).unwrap_or_default();
     let kind = crate::rpc::answer::kind_of(req);
@@ -390,6 +394,9 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
         .collect();
     let how = match kind {
         QuestionKind::Ask => format!("answer with `theseus answer {short} <number>`"),
+        _ if settings.is_some() => "this changes Theseus's own text or settings: open Theseus to \
+            read the whole card, and answer it there"
+            .to_string(),
         _ => format!("answer with `theseus answer {short} approve` or `decline`, or open Theseus"),
     };
     let mut text = format!("● {who} needs you: {prompt}");

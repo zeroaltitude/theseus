@@ -244,7 +244,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   tail as before. Its words are pure functions of the answer (`lines`, `head_lines`), tested in the file.
 - `theseus config history` (`config_cmd.rs`, issue 22): the last changes the owner approved to Theseus's own settings,
   as the daemon words them (`config.history`, a read, the owner's alone; refused inside a job). It writes nothing: a
-  change, and an undo of one, are asked of Theseus in a conversation and answered on a card.
+  change, and an undo of one, are asked of Theseus in a conversation and answered on a card. `theseus config show [ID]`
+  (`config.whole`, issue 23) prints the whole text of a waiting prompt-file or long-setting change, every line.
 - `src/postmortem.rs` (theseus-m2tiu): `theseus postmortem [--since T] [--until T] [--session S | --task T] [--out FILE]`
   (`--json` the same facts as data; default window the last 12 hours; `T` is an age, a time of day, `yesterday 22:00`
   or an RFC 3339 time). It reads `ledger.window` a page at a time (read only: no frame, no lock) and hands the rows to

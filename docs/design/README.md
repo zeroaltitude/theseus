@@ -13,6 +13,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [m5-judgment.md](m5-judgment.md): M5, judgment: the Jev client, its packs in shadow, the learning ledger, and the ladder from shadow to live. Roadmap steps 23 to 28.
 - [m6-memory.md](m6-memory.md): M6, memory as an experiment: the memory exam, the index tender, recall, and the ablation harness. Roadmap steps 29 to 35.
 - [config-change.md](config-change.md): the owner asks Theseus to change a setting and the daemon writes it, then restarts itself with a way back (issue 22).
+- [prompt-file-change.md](prompt-file-change.md): the owner asks Theseus to change a prompt file, or a setting too long for a card, by the same door and the same proof (issue 23).
 - [config-undo.md](config-undo.md): the history of those changes, and undoing one by the same card, without writing the old file back (issue 22).
 - [mcp-attach.md](mcp-attach.md): the owner attaches an MCP server by asking (issue 22): the trial in the sandbox with no secret, the one card built from the table as it will be written, the yes that writes it and loads it live, detach, and what none of it can be made to do.
 - [self-install.md](self-install.md): what the root-owned program directory protects, and the one-purpose helper that lets Theseus install what its own loop joined (issue 22).

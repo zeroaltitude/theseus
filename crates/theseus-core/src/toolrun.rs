@@ -34,6 +34,8 @@ use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 
 mod guarded;
+pub(crate) mod prompt_floor;
+pub(crate) use guarded::floor_without_prompt_files;
 pub use guarded::sandbox_for;
 use guarded::{guarded_paths, state_dir_in_use};
 pub(crate) mod batch;
@@ -505,6 +507,7 @@ impl ToolRuntime {
                 aws: BTreeMap::new(),
                 confirmer: "operator".into(),
                 floor_paths: vec![],
+                prompt: Default::default(),
                 floor_argv: crate::policy::floor_argv(),
                 private_addresses: Default::default(),
             },
@@ -1180,6 +1183,9 @@ impl ToolRuntime {
         tool: &dyn Tool,
         call: &ToolUse,
     ) -> Result<Gated, Invalid> {
+        // The floor holds every file that goes into a prompt, a soul too, and
+        // the book that names the souls changes while Theseus runs.
+        self.refresh_prompt_floor();
         let ctx = self.ctx_in(tc);
         let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
         let planned = tool.plan(&call.input, &ctx);
@@ -1744,6 +1750,18 @@ impl ToolRuntime {
             crate::config_change::undo::UNDO => {
                 crate::config_change::undo::run(self, tc, &call.input, correlation_id)
             }
+            // A prompt file the settings name: read, or a change to it proposed (issue 23).
+            crate::config_change::prompt_file::PROPOSE => {
+                crate::config_change::prompt_file::tools::propose(
+                    self,
+                    tc,
+                    &call.input,
+                    correlation_id,
+                )
+            }
+            crate::config_change::prompt_file::READ => {
+                crate::config_change::prompt_file::tools::read(self, tc, &call.input)
+            }
             crate::rsi::pr::PROPOSE => Err(crate::rsi::pr::INTERRUPTED.into()),
             // Read-only, and for a self session alone (theseus-cudar).
             crate::rsi::evidence::EVIDENCE => {
@@ -2060,6 +2078,7 @@ pub fn build_runtime(
             aws: cfg.policy.aws.clone(),
             confirmer: crate::turn::OPERATOR.into(),
             floor_paths: floor_paths.clone(),
+            prompt: prompt_floor::PromptFloor::of(cfg, &state),
             floor_argv: crate::policy::floor_argv(),
             private_addresses: cfg.policy.private_addresses,
         },

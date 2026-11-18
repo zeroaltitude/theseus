@@ -225,9 +225,19 @@ fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
     }
 }
 
+/// The rule's clause for `req`: none for a settings question, whose reason is
+/// the daemon's card and not a rule's words (a changed line of a prompt file
+/// could hold the marker the reading looks for).
+fn clause_of(req: &ConfirmRequest) -> Option<String> {
+    match req.tool == crate::config_change::ACK {
+        true => None,
+        false => rule_clause(&req.reason),
+    }
+}
+
 /// The words of an approval question.
 pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
-    let clause = rule_clause(&req.reason);
+    let clause = clause_of(req);
     // The guard's question names both threads and the move; any other rule's
     // clause stands in when the model said nothing before the call.
     let why = match &clause {
@@ -248,7 +258,7 @@ pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
 
 /// Why a call waits (`held_of`), for the card words (`words.rs`).
 pub(super) fn held(req: &ConfirmRequest) -> String {
-    held_of(req, rule_clause(&req.reason).as_deref())
+    held_of(req, clause_of(req).as_deref())
 }
 
 #[cfg(test)]

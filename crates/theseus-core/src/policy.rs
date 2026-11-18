@@ -258,6 +258,9 @@ pub struct ToolPolicy {
     /// Paths that always wait for approval: Theseus's store, spool, and
     /// bindings file, and the 1Password CLI's credentials and token (canonical).
     pub floor_paths: Vec<PathBuf>,
+    /// The files that go into every prompt, which also always wait for
+    /// approval: their souls follow the book as it changes (issue 23).
+    pub prompt: crate::toolrun::prompt_floor::PromptFloor,
     /// Programs that always wait for approval (`theseusd`, `op`).
     pub floor_argv: Vec<Vec<String>>,
     /// A URL whose host is a private address: `Ask` waits for approval,
@@ -1261,7 +1264,8 @@ impl ToolPolicy {
     /// What of the call is on the floor: a resource, the program, or a path
     /// argument.
     fn floor(&self, v: &View) -> Option<String> {
-        let on = |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f));
+        let on =
+            |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f)) || self.prompt.holds(p);
         if let Some(p) = v.resources.iter().find(|p| on(p)) {
             return Some(format!("{} is {FLOOR_STATE}", p.display()));
         }
@@ -1302,7 +1306,8 @@ impl ToolPolicy {
     /// all. It decides nothing by itself: `rsi::own_tree::l1_instead_of_floor` is what reads it.
     pub(crate) fn floor_is_only_the_daemons_binary(&self, plan: &Plan) -> bool {
         let v = self.view(plan);
-        let on = |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f));
+        let on =
+            |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f)) || self.prompt.holds(p);
         if v.unread_lines > 0
             || v.resources.iter().any(|p| on(p))
             || v.floor_args.iter().any(|(_, p)| on(p))

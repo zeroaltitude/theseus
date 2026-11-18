@@ -118,6 +118,8 @@ export type * from './ConfigHistoryParams';
 export type * from './ConfigHistoryResult';
 export type * from './ConfigRestart';
 export type * from './ConfigStatus';
+export type * from './ConfigWholeParams';
+export type * from './ConfigWholeResult';
 export type * from './ConfirmListParams';
 export type * from './ConfirmListResult';
 export type * from './ConfirmPreview';

@@ -1,4 +1,4 @@
-//! `theseus config history` (issue 22, undo): the last changes the owner
+//! `theseus config history` (issue 22, undo) and `theseus config show` (issue 23): the last changes the owner
 //! approved to Theseus's own settings, with who asked and who approved each,
 //! as the daemon words them (`config.history`, a read).
 //!
@@ -10,7 +10,9 @@
 use anyhow::Result;
 use clap::Subcommand;
 use theseus_client::Conn;
-use theseus_protocol::{method, ConfigHistoryParams, ConfigHistoryResult};
+use theseus_protocol::{
+    method, ConfigHistoryParams, ConfigHistoryResult, ConfigWholeParams, ConfigWholeResult,
+};
 
 use crate::cmd::output;
 
@@ -23,6 +25,13 @@ pub enum ConfigCmd {
         /// How many changes, at most ten.
         #[arg(long)]
         limit: Option<u32>,
+    },
+    /// The whole text, before and after, of a change waiting for your yes: a prompt file's, or a setting
+    /// too long for its card. Every line, with any character you cannot see written out. Yours alone
+    /// (refused inside a job).
+    Show {
+        /// The waiting question's id; left out when only one such change is waiting.
+        question: Option<String>,
     },
 }
 
@@ -46,6 +55,21 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ConfigCmd) -> Result<()> {
                 .await?;
             output(json, v, |r: ConfigHistoryResult| {
                 println!("{}", r.words.trim_end());
+                Ok(())
+            })
+        }
+        ConfigCmd::Show { question } => {
+            let v = conn
+                .request(
+                    method::CONFIG_WHOLE,
+                    ConfigWholeParams {
+                        question,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            output(json, v, |r: ConfigWholeResult| {
+                print!("{}", r.words);
                 Ok(())
             })
         }

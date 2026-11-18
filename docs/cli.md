@@ -130,7 +130,8 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   (yours alone, refused inside a job). Saying "run the original" in the conversation does the same thing.
 - **`config`**: the changes made to Theseus's own settings on your word: who asked, who approved, and each setting
   before and after. `theseus config history`. A change, and the undo of one, are asked of Theseus in a conversation and
-  answered on a card; this only reads (yours alone, refused inside a job).
+  answered on a card; this only reads (yours alone, refused inside a job). `theseus config show [ID]` prints the whole
+  text, before and after, of a change waiting for your yes: a prompt file's, or a setting too long for its card.
 - **`ledger`**: recent ledger rows (every turn, loop, provider call, state change, error). `theseus ledger -n 20 -k provider.call`;
   `ledger verify`, `ledger head`.
 - **`postmortem`**: an incident's timeline from the ledger, as markdown. `theseus postmortem --since 6h`.

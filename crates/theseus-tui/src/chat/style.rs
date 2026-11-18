@@ -148,6 +148,26 @@ pub fn wrap_words(text: &str, cols: usize, indent: usize) -> Vec<String> {
     out
 }
 
+/// `text` as rows of at most `cols` columns, its spaces kept as they are, each
+/// continuation row beginning `↪ `. For text whose lines and indentation mean
+/// something, a card's changed lines, which `wrap_words` would run together.
+pub fn hard_wrap(text: &str, cols: usize) -> Vec<String> {
+    let cols = cols.max(8);
+    let mut out = Vec::new();
+    let (mut row, mut w) = (String::new(), 0);
+    for c in text.chars() {
+        let cw = c.width().unwrap_or(0);
+        if w + cw > cols {
+            out.push(std::mem::replace(&mut row, "↪ ".to_string()));
+            w = 2;
+        }
+        row.push(c);
+        w += cw;
+    }
+    out.push(row);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

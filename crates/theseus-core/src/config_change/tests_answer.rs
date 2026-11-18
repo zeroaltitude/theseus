@@ -29,7 +29,7 @@ pub(crate) fn owner_in_dm() -> Answerer {
 /// A yes through the tool is refused in words the model can pass on, by the
 /// tool and again where an answer becomes a decision; the question still waits;
 /// a no changes nothing and is allowed.
-fn held_against_words(r: &Rig, q: &ConfirmRequest) {
+pub(super) fn held_against_words(r: &Rig, q: &ConfirmRequest) {
     let e = r
         .core
         .answer_plain_act(q, "yes", None, owner_in_dm())
@@ -240,7 +240,7 @@ async fn a_floor_hold_is_not_approved_by_an_agents_process() {
 /// approved through the tool's own path, in the same rig as the refusals above.
 #[tokio::test]
 async fn an_ordinary_approval_is_still_approved_from_chat() {
-    let r = rig_with(|c| {
+    let r = rig_with(|c, _| {
         c.policy
             .tools
             .insert("fs.write".into(), crate::policy::Posture::Approve);

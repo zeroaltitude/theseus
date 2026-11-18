@@ -42,8 +42,9 @@ Say what you want. Theseus proposes it as a change to named settings, with their
 setting, what it is now and what it would be, in plain words. It also says whether Theseus has to restart for the change
 to take effect (today every change restarts it), what a restart cuts, and Theseus's own reason for the change in its own
 words. If, since your last message, the conversation read text from outside (a web page, a search, a tool's reply), the
-card says so: that text could have steered the request, so read it with care. A change too big to show whole is refused
-rather than shown cut.
+card says so: that text could have steered the request, so read it with care. A card never shows cut text as if it were
+whole. A setting whose value is long (more than 400 characters, up to 4,096 bytes) is shown on the same kind of card as a
+prompt file (see below); a value larger than that is refused, and you edit the file.
 
 Press **Approve** (or answer on the card from your terminal), or **Decline**. A card that is not answered in time writes
 nothing. In Discord a card that is longer than one message arrives as several, the buttons on the last, and none of it is
@@ -101,6 +102,38 @@ Say **"undo that change"** (or "undo change 3") and Theseus shows a card that pu
 touched, leaving later changes to other settings alone. It is a change like any other: the same card, the same code if
 the settings need it, the same restart and way back. To redo, undo the undo. Only the last ten changes are kept.
 
+## Changing a prompt file, or a long setting
+
+The files the settings name as Theseus's own prompt text (the context files every conversation gets, and each persona's
+file) go into every later prompt, so they are changed the same way as a setting, and no more loosely. Ask in a private
+place: "make the persona warmer", "add this rule to your context file". Theseus reads the file, proposes the change as
+exact replacements (or the whole new text), and the **daemon** builds the card from the file itself, never from what
+Theseus says about it:
+
+- the file's path, its size and a **fingerprint** (the first 16 hexadecimal digits of its SHA-256) before and after, and
+  the number of lines added and removed;
+- **the changed lines themselves**, whole, with two lines of context: a three-line change to a long persona shows those
+  three lines, not "+3 −1". When the changed lines do not fit the card, the card says plainly that it is a summary and
+  not the text, and says where the whole is;
+- the **whole text, before and after**, is always there to read before you answer: `theseus config show` in your
+  terminal, "Read the whole text" on the card in the cockpit. (Discord cannot attach a file to a card, so there the
+  card is the changed lines, or the summary and the command.)
+- a character you cannot see (a control character, a direction mark, a zero-width or hidden one) is written `\u{..}` and
+  counted, on the card and in the whole text; a backslash is shown doubled so a written `\u{..}` is never mistaken for one.
+
+Your yes needs **the second proof**, the same as for any setting that matters, with the same window: this is the
+highest-leverage text in the system. Theseus's own program writes the file (a temporary file beside it, then a rename;
+the same permissions), after checking that it is still byte for byte the file the card was built from: a file you or
+anything else edited meanwhile is not written, and you ask again. The text before is kept (the last ten), and
+`theseus config history` lists the change; "undo that" puts the text before back, exactly, by the same card and the
+same proof, and says so if the file changed again since.
+
+A prompt file is read again at every request, so **a change takes effect with Theseus's next message and nothing
+restarts**. Only a file the settings already name can be changed: this never makes a file or names a new path, never
+touches the settings file, the bindings, a secret or the proof's file, and a file larger than 256 KiB or a link is
+refused. A persona's file may not grow past the persona cap. Only the first 64 KiB of a context file reach a prompt, and
+the card says so when a new text is longer.
+
 ## Attaching and removing an MCP server
 
 Tell Theseus the command to run, or the address of the server. It first tries the server once, in the sandbox, with no
@@ -151,6 +184,13 @@ person or program answering a card. It does not protect against a program that r
   = "l1"`.
 - A program that can read your authenticator app, your phone, or what you type has the code.
 - Anyone with your account's shell can remove the proof's file and pair their own app.
+- The prompt files are on the same floor as the settings file: a file tool, a shell command naming one and a job
+  stop and wait for you at every setting, whatever the tool's posture. That is the files the settings name as context
+  files, both places a persona's file is kept by default (`personas/` and the older `persona/` in the state directory,
+  whole, with the copies kept beside a file), every file a persona's own record names as its file wherever it is, and a
+  copy kept beside any of them. Only Theseus's own program writes them, after your yes, and only your own turn reads
+  them, with `config.read_file`; a tool that reads one waits for you. A search over a directory that holds one is not
+  stopped, as it is not for the rest of the floor.
 - The window covers a place, not a person: while one is open, whoever is at that terminal or that cockpit can approve.
   `theseus owner proof lock` is the way to close it when you step away.
 
@@ -158,6 +198,7 @@ person or program answering a card. It does not protect against a program that r
 
 - [design/config-change.md](design/config-change.md): how the change, the write and the restart are built.
 - [design/owner-proof.md](design/owner-proof.md): how the code, the file and the windows are built.
+- [design/prompt-file-change.md](design/prompt-file-change.md): how a prompt file's change, its card and its undo are built.
 - [design/config-undo.md](design/config-undo.md), [design/mcp-attach.md](design/mcp-attach.md),
   [design/self-install.md](design/self-install.md).
 - [cli.md](cli.md) for every command named here.
