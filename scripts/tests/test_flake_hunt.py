@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..")
 
 FAKE_CARGO = """#!/usr/bin/env bash
-echo "cargo $* threads=${NEXTEST_TEST_THREADS:-unset}" >> "$FAKE_LOG"
+echo "cargo $* threads=${NEXTEST_TEST_THREADS:-unset} parent=$(cat /proc/$PPID/comm)" >> "$FAKE_LOG"
 case " $* " in
   *" --test self_build "*)
     # The view's own test: it runs the command a hunt handed it, the way the view would (here, plainly).
@@ -33,7 +33,7 @@ case " ${FAKE_FAIL_RUNS:-} " in
   *" $n "*)
     echo "------------"
     echo "     Summary [   1.0s] 5 tests run: 4 passed, 1 failed, 0 skipped"
-    echo "        FAIL [   0.1s] ($n/$((n + 4000))) theseus-core term::tests::a_flaky_one"
+    printf '        FAIL [   0.1s] (%5d/%d) theseus-core term::tests::a_flaky_one\n' "$n" "$((n + 4000))"
     echo "--- STDERR: theseus-core term::tests::a_flaky_one ---"
     echo "assertion failed: it ended by the other wording"
     exit 100 ;;
@@ -99,8 +99,8 @@ class FlakeHunt(unittest.TestCase):
         build = [c for c in self.calls() if "--no-run" in c]
         suite = [c for c in self.calls() if "--no-fail-fast" in c]
         self.assertEqual(len(build), 1)
-        self.assertTrue(build[0].endswith("threads=unset"), build)
-        self.assertTrue(suite[0].endswith("threads=96"), suite)
+        self.assertIn("threads=unset", build[0])
+        self.assertIn("threads=96", suite[0])
         self.assertIn("threads-96", r.stdout)
 
     def test_the_suite_command_is_the_gates_and_runs_in_the_default_profile(self):
@@ -115,6 +115,14 @@ class FlakeHunt(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("load-2-burners-nice-0", r.stdout)
         self.assertIn("1 of 2 runs failed", r.stdout)
+        # The suite is the rig's child (the rig is what keeps the burners from outliving the hunt); without --load it is not.
+        suite = [c for c in self.calls() if "--no-fail-fast" in c]
+        self.assertTrue(all("parent=python3" in c for c in suite), suite)
+
+    def test_without_load_the_suite_runs_with_no_rig(self):
+        self.hunt("1")
+        suite = [c for c in self.calls() if "--no-fail-fast" in c]
+        self.assertTrue(all("parent=bash" in c for c in suite), suite)
 
     def test_a_filter_narrows_the_suite_and_says_so(self):
         r = self.hunt("1", "--filter", "test(=one_of_them)")
@@ -149,7 +157,7 @@ class FlakeHunt(unittest.TestCase):
         self.assertIn("--run-ignored only", view[0])
         suite = [c for c in self.calls() if "--no-fail-fast" in c]
         self.assertEqual(len(suite), 2)
-        self.assertTrue(suite[0].endswith("threads=7"), suite)
+        self.assertIn("threads=7", suite[0])
 
     def test_a_clean_view_hunt_exits_zero(self):
         r = self.hunt("2", "--view")
