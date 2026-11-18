@@ -15,11 +15,31 @@ use anyhow::Result;
 use theseus_protocol::StandingRecord;
 
 use crate::fact;
+use crate::node::Origin;
 use crate::rpc::Core;
 use crate::standing;
+use crate::stub::{Kind, Stub};
+use crate::toolrun::TurnCtx;
 
 /// Why the daemon ended it, as the ledger and the narrative say.
 const VIA: &str = "a settings question for the same message";
+
+/// The message that STARTED the turn, when the owner wrote it: the words a
+/// settings question answers. Not the last message of the turn: one the owner
+/// steers in while it runs has its own capture, and may be a real order. A turn
+/// a wake or a job started has none.
+pub(crate) fn turn_input(tc: &TurnCtx<'_>) -> Option<String> {
+    first_input(&tc.store.transcript(tc.session_id).ok()?, tc.turn_id)
+}
+
+/// `turn_input`'s choice, from the session's nodes in order.
+fn first_input(nodes: &[(u64, Stub)], turn_id: &str) -> Option<String> {
+    nodes
+        .iter()
+        .find(|(_, n)| n.turn_id.as_deref() == Some(turn_id) && n.kind == Kind::UserMessage)
+        .filter(|(_, n)| n.origin == Origin::Operator)
+        .map(|(_, n)| n.id.clone())
+}
 
 impl Core {
     /// The turn of message `node` put a settings question to the owner: what
@@ -119,3 +139,6 @@ impl Core {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
