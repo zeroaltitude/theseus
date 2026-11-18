@@ -112,6 +112,13 @@ class FlakeHunt(unittest.TestCase):
         self.assertIn("load-2-burners-nice-0", r.stdout)
         self.assertIn("1 of 2 runs failed", r.stdout)
 
+    def test_a_filter_narrows_the_suite_and_says_so(self):
+        r = self.hunt("1", "--filter", "test(=one_of_them)")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        suite = [c for c in self.calls() if "--no-fail-fast" in c][0]
+        self.assertIn("-E test(=one_of_them)", suite)
+        self.assertIn("no-load+filtered", r.stdout)
+
     def test_a_build_that_fails_hunts_nothing(self):
         r = self.hunt("2", FAKE_NO_BUILD="1")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
@@ -128,7 +135,7 @@ class FlakeHunt(unittest.TestCase):
         self.assertNotIn("no test failed", r.stdout)
 
     def test_bad_arguments_are_refused(self):
-        for args in (["0"], ["x"], ["2", "--threads", "0"], ["2", "--spinners", "3"], ["2", "--what"], []):
+        for args in (["0"], ["x"], ["2", "--threads", "0"], ["2", "--spinners", "3"], ["2", "--what"], ["2", "--filter"], []):
             r = self.hunt(*args)
             self.assertEqual(r.returncode, 2, (args, r.stdout, r.stderr))
         self.assertEqual(self.calls(), [])
