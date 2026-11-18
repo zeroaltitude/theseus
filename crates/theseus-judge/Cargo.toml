@@ -43,5 +43,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 base64.workspace = true
 clap = { workspace = true, optional = true }
 
+[dev-dependencies]
+# The builders' cost is timed by this thread's CPU time (builders.rs tests), as theseus-core's tests time theirs.
+libc = "0.2"
+
 [lints]
 workspace = true

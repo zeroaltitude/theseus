@@ -15,7 +15,9 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use tokio::time::Instant;
 
 use crate::content::ContentFlags;
 #[cfg(test)]
@@ -89,7 +91,9 @@ impl Handle {
     /// none is out now. Zero never waits. Each read of the count is taken
     /// **after** the wait is registered, so a landing between the two is not
     /// slept through, and no single sleep is longer than [`SLICE`], so a
-    /// wake-up a stand-in lost costs a slice and not the wait.
+    /// wake-up a stand-in lost costs a slice and not the wait. The wait is
+    /// measured on tokio's clock, the one its sleeps run on, so a test can
+    /// move it.
     pub async fn drained(&self, session: &str, max: Duration) -> bool {
         let v = self.get();
         let deadline = Instant::now() + max;
@@ -338,7 +342,7 @@ mod tests {
 
     /// With nothing outstanding the wait is not even begun, and `Ready` (the
     /// stand-in) never has anything outstanding.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_session_with_no_ask_out_is_not_waited_for() {
         let handle = Handle::default();
         assert_eq!(handle.outstanding("ses_1"), 0);
@@ -350,7 +354,9 @@ mod tests {
     /// An ask that never lands is waited for as long as `max` and no longer,
     /// and then the answer is `false`: the caller goes on its labels. Zero
     /// never waits and never asks the judge to hurry (no waiter is counted).
-    #[tokio::test]
+    /// On tokio's paused clock: the wait is exactly `max` (two slices and a
+    /// part of one), whatever the machine is doing.
+    #[tokio::test(start_paused = true)]
     async fn an_ask_that_never_lands_is_waited_for_max_and_no_longer() {
         let handle = Handle::default();
         let silent = std::sync::Arc::new(judging::Silent::default());
@@ -368,7 +374,7 @@ mod tests {
 
     /// The count coming down ends the wait early, with the wake-up or, if a
     /// stand-in loses it, within one slice rather than the whole `max`.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_count_reaching_zero_ends_the_wait() {
         for woken in [true, false] {
             let handle = Handle::default();

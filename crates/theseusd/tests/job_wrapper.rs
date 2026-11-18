@@ -512,14 +512,15 @@ fn a_cancel_waits_out_a_command_that_ignores_sigterm_then_kills_it() {
     let rig = Rig::new();
     let wrapper = rig.start("act_stubborn", &stubborn(0));
     let main = rig.pid("main0.pid");
-    let grace = Duration::from_millis(400);
+    let busy = theseus_sim::busy_factor() as u32;
+    let grace = Duration::from_millis(400) * busy;
     let t0 = Instant::now();
     let v = job::terminate(&rig.spool, wrapper, "act_stubborn", grace);
     assert!(v.verified(), "{v:?}");
     let took = t0.elapsed();
     assert!(!alive(main), "the command is gone");
     assert!(took >= grace, "it waited out the grace: {took:?}");
-    assert!(took < grace + Duration::from_secs(1), "{took:?}");
+    assert!(took < grace + Duration::from_secs(1) * busy, "{took:?}");
 }
 
 /// Review 2's S2 (theseus-bzq): three jobs that ignore SIGTERM, stopped
@@ -535,7 +536,10 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
         jobs.push((rig.start(&id, &stubborn(i)), id));
         mains.push(rig.pid(&format!("main{i}.pid")));
     }
-    let grace = Duration::from_millis(600);
+    // The grace is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20): one grace
+    // against three is told apart by the stop's own overhead staying under a grace, and under 64 busy
+    // threads that overhead was 1 s against a 600 ms grace.
+    let grace = Duration::from_millis(600) * theseus_sim::busy_factor() as u32;
     let t0 = Instant::now();
     let mut stop = job::Stopping::start(&rig.spool, jobs, grace);
     while let Some(wait) = stop.poll() {

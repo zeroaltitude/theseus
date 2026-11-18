@@ -635,13 +635,15 @@ fn a_deferred_task_survives_a_kill_and_a_restart_and_starts_once() {
     drop(daemon);
     assert!(r.reports().is_empty(), "no report before it started");
     let _daemon = r.spawn();
-    let kept = r
-        .tasks()
-        .into_iter()
-        .find(|t| t["task_id"] == task["task_id"]);
+    // The daemon answers before its board is restored: the task is read again until it carries its
+    // start (a listing taken in that gap shows the task with none, under load).
+    let kept = r.wait("the restart's task with its start", || {
+        r.tasks()
+            .into_iter()
+            .find(|t| t["task_id"] == task["task_id"] && t["starts_at_ms"].is_u64())
+    });
     assert_eq!(
-        kept.as_ref().map(|t| &t["starts_at_ms"]),
-        Some(&task["starts_at_ms"]),
+        kept["starts_at_ms"], task["starts_at_ms"],
         "the restart kept its start"
     );
     r.wait("the task complete", || {

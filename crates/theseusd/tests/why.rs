@@ -58,6 +58,25 @@ fn ledger_end(dir: &std::path::Path) -> (u64, u64) {
     )
 }
 
+/// The ledger's end once the daemon has stopped writing after its turns: the rows a turn leaves
+/// behind (its judgments, its trace) are written off the turn's own path, a moment after, and on
+/// a busy machine that moment is long. Read again until two reads, a pause apart, agree (the
+/// pause scaled by what `busy_factor` measured), so the count taken as "before" is the turns' and
+/// not a later write that `why` is then blamed for (theseus-20).
+fn settled_ledger_end(dir: &std::path::Path) -> (u64, u64) {
+    let pause = std::time::Duration::from_millis(300) * theseus_sim::busy_factor() as u32;
+    let deadline = std::time::Instant::now() + pause * 20;
+    let mut last = ledger_end(dir);
+    loop {
+        std::thread::sleep(pause);
+        let now = ledger_end(dir);
+        if now == last || std::time::Instant::now() > deadline {
+            return now;
+        }
+        last = now;
+    }
+}
+
 /// A daemon on the stand-in model in a temp dir, `tweak` applied to its
 /// config first: the model reads `notes.txt` when asked to.
 struct Rig {
@@ -145,8 +164,7 @@ fn why_reads_the_last_turn_and_an_older_one_by_its_id_and_writes_nothing() {
         second["turn_id"].as_str().unwrap().to_string(),
     );
     assert_ne!(t1, t2);
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    let before = ledger_end(dir);
+    let before = settled_ledger_end(dir);
 
     // The last turn: its context, and that it called no tool.
     let (out, err, code) = cli(dir, &["why"]);

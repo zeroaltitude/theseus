@@ -204,6 +204,20 @@ The phases run in this order, and the first failure stops the gate:
   - One test at a time, never a blanket retry.
   - No retry is hidden: the gate prints and logs every test that passed only on a retry.
   - A flaky test that is not on the list fails the gate.
+- **The flake hunt: no test may fail by chance.** `scripts/flake-hunt.sh N [--load] [--threads T] [--view]` runs the
+  gate's own suite command N whole times and counts, per test, the runs it failed in. Run it on a build host, never on
+  the owner's machine: a run is minutes of every core. Before a release, ten of each:
+  `scripts/flake-hunt.sh 10 --load` (twice the cores in CPU burners beside the suite),
+  `scripts/flake-hunt.sh 10 --threads 96` (the suite crowding itself) and
+  `scripts/flake-hunt.sh 10 --view` (inside the sandbox the self loop's join runs the gate in).
+  - Every failed test is printed with its own output and kept under `target/flake-hunt/`, with a table at the end. A
+    test that fails once in ten runs is a finding: fix its cause (a real clock, a shared port or path, an order
+    dependence); never add a retry for it.
+  - `--filter EXPR` narrows the hunt to the tests of a nextest filterset, to run one test two hundred times.
+  - A test that measures real elapsed time against a short limit runs on tokio's paused clock when its timer is the
+    code's own (`#[tokio::test(start_paused = true)]` and `tokio::time::Instant`), or is given a limit load cannot
+    reach, or says why it is sound as it is.
+
 - **A gate at 0 % CPU is waiting on a lock**: this one, or cargo's package cache. The gate's log names the holder;
   find it before waiting longer.
 - **The gate's own cost has a history**: a per-phase timing table, printed at the end and appended to a CSV. Read it

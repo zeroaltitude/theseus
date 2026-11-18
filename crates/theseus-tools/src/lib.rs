@@ -15,6 +15,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod busy;
 pub mod change;
 pub mod docs;
 pub mod fit;
@@ -55,6 +56,7 @@ mod tests_stale;
 mod tests_window;
 pub mod text;
 
+pub use busy::busy_factor;
 /// Read, write, or run: the protocol's type, since a call's plan carries its
 /// own (an `aws.call` is a read or a write by its operation).
 pub use theseus_protocol::ToolClass;

@@ -667,13 +667,18 @@ wait
         panic!("the descendant in its own session survived the cancel: {c}");
     }
     let v = &c["verdicts"][0];
+    // Which way the whole tree was verified gone depends on when the job began: a daemon finds its
+    // delegated cgroup in a phase that runs two seconds after it serves (`cgroup::find_after_serving`),
+    // so a job begun before it is verified by its tree, and one begun after by its cgroup (and then
+    // what was left of the tree). On a quiet machine the test is quick enough to be first; on a busy
+    // one it is not, and it read `cgroup` for `tree` (theseus-20). The count stays exact either way.
+    assert!(
+        matches!(v["verified_by"].as_str(), Some("tree" | "cgroup")),
+        "{c}"
+    );
     assert_eq!(
-        (
-            v["verified_by"].as_str(),
-            v["killed"].as_u64(),
-            v["survivors"].as_u64()
-        ),
-        (Some("tree"), Some(3), Some(0)),
+        (v["killed"].as_u64(), v["survivors"].as_u64()),
+        (Some(3), Some(0)),
         "{c}"
     );
     let actions = r

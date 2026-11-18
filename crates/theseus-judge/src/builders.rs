@@ -1637,6 +1637,18 @@ pub(crate) mod tests {
         assert!(lp.state.truncated.is_empty());
     }
 
+    /// This thread's CPU time (`CLOCK_THREAD_CPUTIME_ID`), as theseus-core's
+    /// tests read theirs.
+    fn thread_cpu() -> std::time::Duration {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: clock_gettime writes the timespec it is given, nothing else.
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+        std::time::Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+    }
+
     #[test]
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn every_builder_stays_under_its_cap_on_huge_inputs() {
@@ -1810,9 +1822,9 @@ pub(crate) mod tests {
         ];
         for (pack, input) in inputs {
             let p = by_name(pack).unwrap();
-            let started = std::time::Instant::now();
+            let started = thread_cpu();
             let prepared = prepare(&p, &input, &NoScrub).unwrap();
-            let took = started.elapsed();
+            let took = thread_cpu() - started;
             let s = &prepared.state;
             assert!(
                 s.tokens <= p.state_cap_tokens,
@@ -1836,7 +1848,9 @@ pub(crate) mod tests {
                 }
             }
             // Bounded by the caps, not the input (generous, for a debug
-            // build; the release bench of under 1 ms is 23a's).
+            // build; the release bench of under 1 ms is 23a's). The work
+            // is timed by this thread's CPU time: a loaded machine that
+            // leaves the test waiting for a core does not count against it.
             assert!(
                 took < std::time::Duration::from_millis(500),
                 "{pack} took {took:?}"

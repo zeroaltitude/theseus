@@ -87,12 +87,18 @@ fn the_silence_window_runs_from_the_last_byte_not_from_the_start() {
 /// script prints every 10 ms, so at a 100 ms limit a loaded host that loses
 /// the scheduler for a tenth of a second delivers `Cut::Silent` instead of
 /// `Cut::Ceiling` and reds the test. There is no flaky list to catch that.
-/// 250 ms keeps the same assertions with 25 prints of margin.
+/// 250 ms keeps the same assertions with 25 prints of margin. (Held in proportion on a busy
+/// machine since: see the test's first lines, theseus-20.)
 #[test]
 fn a_job_that_never_stops_printing_is_stopped_at_the_ceiling() {
+    // The limit is an input, held in proportion on a busy machine (theseus-20): under 64 busy threads a
+    // stall of the script past 250 ms cut it as silent, 1768 ms in, and past 500 ms (twice what the
+    // probe read) once in fifteen runs. So it is twice the factor, which is 2 on a quiet machine, where
+    // the test then takes 12 s and not 6 s.
+    let busy = 2 * theseus_tools::busy_factor();
     let (outcome, detail, took) = run_sh(
         "act_ceiling",
-        250,
+        250 * busy,
         "while :; do echo line; sleep 0.01; done",
     );
     assert_eq!(outcome, Outcome::Failed, "{detail}");
@@ -100,7 +106,7 @@ fn a_job_that_never_stops_printing_is_stopped_at_the_ceiling() {
     assert_eq!(detail["ceiling_hit"], true, "{detail}");
     assert!(detail.get("silent_ms").is_none(), "{detail}");
     assert!(
-        took >= Duration::from_millis(250 * CEILING_FACTOR as u64),
+        took >= Duration::from_millis(250 * busy * CEILING_FACTOR as u64),
         "{took:?}"
     );
 }

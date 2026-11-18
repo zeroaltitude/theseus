@@ -74,8 +74,9 @@ async fn a_typed_turn_is_admitted_before_queued_task_turns() {
         (SessionKind::Conversation, "typed-marker"),
     ] {
         waiting.push(spawn_turn(&r.core, kind, input));
-        // Each joins the queue before the next arrives.
-        for _ in 0..50 {
+        // Each joins the queue before the next arrives: waited for as long as
+        // it takes (20 s), not for half a second of a busy machine's attention.
+        for _ in 0..2_000 {
             if r.core.tools.admission.load().1 == waiting.len() {
                 break;
             }
