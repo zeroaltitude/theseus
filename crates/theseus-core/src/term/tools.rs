@@ -368,16 +368,25 @@ fn unreachable_run() -> AsyncRun {
 /// bounded by `bound`, or the program's end. As before `idle`, a wait for a
 /// text is not ended by quiet.
 #[derive(Default)]
-struct Wait<'a> {
-    quiet: Option<Duration>,
-    until: Option<&'a str>,
-    idle: bool,
+pub(super) struct Wait<'a> {
+    pub(super) quiet: Option<Duration>,
+    pub(super) until: Option<&'a str>,
+    pub(super) idle: bool,
+    /// A test's hook, run once the wait has looked and before it waits for the next change: where a
+    /// program's end must not be lost (`tests_wait`).
+    #[cfg(test)]
+    pub(super) looked: Option<&'a (dyn Fn() + Sync)>,
 }
 
 /// Wait on a terminal for `w`, or until `bound` passes, or its program ends.
 /// What the wait found. A wait `idle` looks at the pty's front every
 /// `IDLE_LOOK`, a timer's wake, and at each change of the screen.
-async fn wait(t: &Terminal, w: Wait<'_>, bound: Duration, steer: &Watch) -> (String, bool) {
+pub(super) async fn wait(
+    t: &Terminal,
+    w: Wait<'_>,
+    bound: Duration,
+    steer: &Watch,
+) -> (String, bool) {
     let mut interrupted = false;
     let waited = wait_for(t, w, bound, steer, &mut interrupted).await;
     (waited, interrupted)
@@ -392,7 +401,11 @@ async fn wait_for(
     steer: &Watch,
     interrupted: &mut bool,
 ) -> String {
-    let Wait { quiet, until, idle } = w;
+    #[cfg(test)]
+    let looked = w.looked;
+    let Wait {
+        quiet, until, idle, ..
+    } = w;
     let t0 = Instant::now();
     let mut rx = t.pty.shared.version.subscribe();
     // The screen's rows as one text, so a text may span rows.
@@ -415,6 +428,10 @@ async fn wait_for(
     // Quiet is counted from the last change, as a timer reset at each.
     let mut quiet_from = Instant::now();
     loop {
+        // Armed before anything is looked at, so that a change after the look is seen by the wait
+        // below, and never erased by it: a hang-up or a text that lands between the look and the
+        // wait would otherwise be waited out in full, as a quiet.
+        rx.mark_unchanged();
         if let Some(u) = until {
             if shows(u) {
                 return format!("{u:?} appeared after {} ms", t0.elapsed().as_millis());
@@ -475,7 +492,10 @@ async fn wait_for(
         if idle {
             step = step.min(super::IDLE_LOOK);
         }
-        rx.mark_unchanged();
+        #[cfg(test)]
+        if let Some(hook) = looked {
+            hook();
+        }
         let changed = tokio::select! {
             got = tokio::time::timeout(step, rx.changed()) => got,
             () = steer.raised() => continue,
@@ -564,6 +584,7 @@ pub async fn run(
                         quiet: a.quiet_ms.map(Duration::from_millis),
                         until,
                         idle: a.until_idle,
+                        ..Wait::default()
                     };
                     let bound = bound_of(terms, a.timeout_ms, idle_alone);
                     let (waited, stopped) = wait(&t, w, bound, &steer).await;
