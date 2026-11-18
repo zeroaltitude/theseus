@@ -743,6 +743,11 @@ async fn a_turns_root_carries_its_wait_in_the_lane() {
         (4, method::TURN_SUBMIT, submit(&sid, "behind it")),
     ])
     .await;
+    // The lane's clock starts when the second request reaches the lane, which under load is later
+    // than this sleep's start (a sleep begun at the send could end 1 us before the wait did, failing
+    // "waited as long as the hold"): so give both requests the time to arrive first, then hold for
+    // the full 300 ms, which the input behind must have waited out.
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let hold = Duration::from_millis(300);
     tokio::time::sleep(hold).await;
     go.send(()).unwrap();

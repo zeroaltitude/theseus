@@ -65,6 +65,77 @@ pub fn busy_factor() -> u64 {
     (worst.round() as u64).clamp(1, CEILING)
 }
 
+/// The most a speed promise's bound is ever multiplied by ([`Busy::keeps`]). A bound scaled without a
+/// limit promises nothing: at 50 a two-second bound would pass a daemon that took a hundred seconds. Ten
+/// is a machine that gives a thread a tenth of a core. Measured on a 32-core box (40 samples each): idle,
+/// every one read 1; beside 64 CPU burners, 2 to 4; beside 64 burners and 96 more busy threads, 4 to 8,
+/// median 5. So ten holds the worst of those with room, and beyond it the machine is not one a promise
+/// about milliseconds can be tested on: the test fails and says so.
+pub const BOUND_CAP: u64 = 10;
+
+/// [`busy_factor`] held to [`BOUND_CAP`]: for a test whose limit is an INPUT it scales together with the
+/// bound that depends on it (a fake's latency and the margin under it), where [`Busy`] is for a bound
+/// alone. 1 on a quiet machine, so there the input is exactly what it was.
+pub fn bound_factor() -> u64 {
+    busy_factor().min(BOUND_CAP)
+}
+
+/// What a test that holds a speed promise asks the machine, and when. Take it with [`Busy::before`] just
+/// before the region the promise times (not at the top of a test whose setup takes seconds: the load then
+/// is not the load during the region), and ask [`Busy::keeps`] of every bound of that region. On a quiet
+/// machine the factor is 1 and every bound is exactly what it says.
+pub struct Busy {
+    before: u64,
+    seen: std::sync::atomic::AtomicU64,
+}
+
+impl Busy {
+    /// The factor now, before the timed region.
+    pub fn before() -> Busy {
+        Busy::with(busy_factor())
+    }
+
+    /// No reading before the region: the machine is asked only when a bound is passed, so a bound is held
+    /// at how slowly a thread got its turn then. For a region too long to sample at its start, or a test
+    /// that times many (an acceptance journey's steps).
+    pub fn when_late() -> Busy {
+        Busy::with(1)
+    }
+
+    fn with(before: u64) -> Busy {
+        Busy {
+            before,
+            seen: before.into(),
+        }
+    }
+
+    /// Whether `elapsed` keeps a promise of `bound` ("within": the bound itself is kept): always when it is
+    /// within the bound; when it is over, when it is within the bound times the busier of the factor before
+    /// the region and the factor right now (the machine is asked only then, so a loop that checks every few
+    /// milliseconds pays nothing), never above [`BOUND_CAP`] times.
+    pub fn keeps(&self, elapsed: Duration, bound: Duration) -> bool {
+        self.keeps_with(elapsed, bound, busy_factor)
+    }
+
+    fn keeps_with(&self, elapsed: Duration, bound: Duration, now: impl FnOnce() -> u64) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if elapsed <= bound {
+            return true;
+        }
+        let factor = self.before.max(now()).clamp(1, BOUND_CAP);
+        self.seen.fetch_max(factor, Relaxed);
+        elapsed <= bound * factor as u32
+    }
+}
+
+/// For a failure message: the factor a bound was held at (the busiest asked), and the cap.
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let seen = self.seen.load(std::sync::atomic::Ordering::Relaxed);
+        write!(f, "busy x{seen} of at most x{BOUND_CAP}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +170,48 @@ mod tests {
     #[test]
     fn the_factor_is_never_below_one() {
         assert!((1..=CEILING).contains(&busy_factor()));
+    }
+
+    const S: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn a_bound_kept_asks_nothing_of_the_machine() {
+        let busy = Busy::with(1);
+        assert!(busy.keeps_with(S / 2, S, || panic!("asked")));
+    }
+
+    #[test]
+    fn on_a_quiet_machine_the_bound_is_exactly_the_bound() {
+        let busy = Busy::with(1);
+        assert!(busy.keeps_with(S, S, || 1));
+        assert!(!busy.keeps_with(S + Duration::from_nanos(1), S, || 1));
+        assert!(!busy.keeps_with(S * 2, S, || 1));
+    }
+
+    #[test]
+    fn a_busy_machine_holds_the_bound_in_proportion_and_the_busier_reading_counts() {
+        let busy = Busy::with(3);
+        assert!(
+            busy.keeps_with(S * 2, S, || 1),
+            "the factor before the region counts"
+        );
+        assert!(busy.keeps_with(S * 3, S, || 1));
+        assert!(!busy.keeps_with(S * 3 + Duration::from_nanos(1), S, || 1));
+        let quiet_before = Busy::with(1);
+        assert!(
+            quiet_before.keeps_with(S * 4, S, || 5),
+            "the factor right now counts"
+        );
+        assert_eq!(
+            quiet_before.to_string(),
+            format!("busy x5 of at most x{BOUND_CAP}")
+        );
+    }
+
+    #[test]
+    fn the_factor_is_capped_so_a_real_slowdown_still_fails() {
+        let busy = Busy::with(50);
+        assert!(busy.keeps_with(S * BOUND_CAP as u32, S, || 50));
+        assert!(!busy.keeps_with(S * BOUND_CAP as u32 + Duration::from_nanos(1), S, || 50));
     }
 }

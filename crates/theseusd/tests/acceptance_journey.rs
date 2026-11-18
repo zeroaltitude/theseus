@@ -31,6 +31,7 @@ use serde_json::{json, Value};
 use theseus_sim::fake_discord::{
     FakeDiscord, FakeThread, Guild, Msg, Pressed, Typed, BOT_ID, DEFAULT_GUILD,
 };
+use theseus_sim::Busy;
 
 const ANA: u64 = 900_000_000_000_000_101;
 const LAB: u64 = 900_000_000_000_000_010;
@@ -145,28 +146,34 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// The factor `THESEUS_JOURNEY_SLOWDOWN` (default 1) puts on every time bound, so a run on a starved
-/// machine can show the order of things held while their latency did not. The bounds are the
-/// brief's; the multiplier is only for finding out which kind of failure a loaded run is.
-fn slack(ms: u64) -> u64 {
-    let k: u64 = std::env::var("THESEUS_JOURNEY_SLOWDOWN")
+/// Whether `elapsed` keeps a time bound of `limit_ms`. Every bound here is a latency promise about the
+/// product, so on a machine that gives each thread a third of a core it is held in proportion (`Busy`:
+/// asked how slowly a thread gets its turn when a bound is passed, at most 10 times), and on a quiet
+/// machine it is the brief's number exactly (theseus-20). `THESEUS_JOURNEY_SLOWDOWN` (default unset)
+/// replaces the measured factor with a given one, to show the order of things held while their latency
+/// did not.
+fn kept(busy: &Busy, elapsed: Duration, limit_ms: u64) -> bool {
+    let limit = Duration::from_millis(limit_ms);
+    match std::env::var("THESEUS_JOURNEY_SLOWDOWN")
         .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1);
-    ms * k
+        .and_then(|v| v.parse::<u32>().ok())
+    {
+        Some(k) => elapsed <= limit * k,
+        None => busy.keeps(elapsed, limit),
+    }
 }
 
 /// How long `f` took to become true, polled every 5 ms; it fails the test past `limit_ms`.
 fn within(what: &str, limit_ms: u64, mut f: impl FnMut() -> bool) -> u64 {
-    let limit_ms = slack(limit_ms);
+    let busy = Busy::when_late();
     let t0 = Instant::now();
     loop {
         if f() {
             return t0.elapsed().as_millis() as u64;
         }
         assert!(
-            t0.elapsed() < Duration::from_millis(limit_ms),
-            "no {what} within {limit_ms} ms"
+            kept(&busy, t0.elapsed(), limit_ms),
+            "no {what} within {limit_ms} ms ({busy})"
         );
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -678,7 +685,7 @@ impl Journey {
             let asked = r.view(short)["question"]["asked_at_ms"].as_u64().unwrap();
             let late = card.created_ms.saturating_sub(asked);
             assert!(
-                late <= slack(2000),
+                kept(&Busy::when_late(), Duration::from_millis(late), 2000),
                 "step 3: the card of {short} came {late} ms after the question"
             );
             let id = r.answer_id(short).unwrap_or_else(|| {
@@ -1060,7 +1067,7 @@ impl Journey {
         assert!(delays.len() >= 20, "h9tu1 6: {} changes seen", delays.len());
         let p = p95(&delays);
         assert!(
-            p <= slack(p95_limit_ms),
+            kept(&Busy::when_late(), Duration::from_millis(p), p95_limit_ms),
             "h9tu1 6: p95 {p} ms of {delays:?}"
         );
         json!({"frames": frames, "p95_ms": p, "changes": delays.len(), "max_ms": delays.last()})

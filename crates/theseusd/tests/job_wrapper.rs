@@ -519,6 +519,10 @@ fn stubborn_timed(i: usize) -> String {
 /// and a command that ignores SIGTERM ran on, orphaned. Since 18a the
 /// wrapper stops its tree: the grace passes, the freeze and SIGKILL end the
 /// command, and only then is the job gone, verified.
+///
+/// Its wrapper has `job::ANSWER_WAIT` (3 s, the product's) after the grace to kill and answer, and on a
+/// machine that starves it of a core it can miss that. Scaling the test's grace moves only where the window
+/// starts, not its 3 s, so the test is not scaled (theseus-20; the answer window is the product's).
 #[test]
 fn a_cancel_waits_out_a_command_that_ignores_sigterm_then_kills_it() {
     let rig = Rig::new();
