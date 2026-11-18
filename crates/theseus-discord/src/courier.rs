@@ -1365,10 +1365,6 @@ impl Lane {
         }
     }
 
-    /// Where a card goes (the place rule, theseus-zmgb): here when the place
-    /// is private (a DM with the owner, or a channel bound `private = true`),
-    /// where the owner's answer counts; else the owner's DM, with a note
-    /// here; else the note alone.
     /// The place the owner presses a card from, as the daemon names it for the
     /// second proof (`Answerer::via`): none when the card goes nowhere on
     /// Discord.
@@ -1383,6 +1379,10 @@ impl Lane {
         }
     }
 
+    /// Where a card goes (the place rule, theseus-zmgb): here when the place
+    /// is private (a DM with the owner, or a channel bound `private = true`),
+    /// where the owner's answer counts; else the owner's DM, with a note
+    /// here; else the note alone.
     async fn route(&mut self) -> Result<Route, SendErr> {
         let core = &self.shared.core;
         if core.runner.place_rule.class(&core.cfg, Some(&self.target)) == PlaceClass::Private {
