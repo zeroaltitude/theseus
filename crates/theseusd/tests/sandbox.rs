@@ -1313,9 +1313,13 @@ fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
         printf 'CONNECT %s HTTP/1.1\\r\\n\\r\\n' \"$1\" >&3\n\
         IFS= read -r status <&3\n\
         echo \"status=${status%$'\\r'}\"\n\
-        sleep 30\n";
-    let call =
-        json!({"argv": ["bash", "-c", held, "held", stand], "sandbox": true, "timeout_secs": 2});
+        sleep \"$2\"\n";
+    // The deadline is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20): the job must
+    // start in its sandbox and read the proxy's answer before it. It stops at 20 s, as nextest ends a test at two
+    // minutes, and the sleep outlives it.
+    let deadline = (2 * theseus_sim::busy_factor()).min(20);
+    let sleep = (10 * deadline).to_string();
+    let call = json!({"argv": ["bash", "-c", held, "held", stand, sleep], "sandbox": true, "timeout_secs": deadline});
     let (_, out) = r.turn_in("deadline", vec![("proc_run", call)]);
     let text = &out[0];
     assert!(text.contains("[timed out and killed]"), "{text}");
