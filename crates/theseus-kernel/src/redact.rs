@@ -837,6 +837,67 @@ mod tests {
         s.end();
     }
 
+    /// The same with the pipe still held open by a descendant: only the write in the copy's hands says it is
+    /// behind (nothing waits, and the pipe is not closed), and that alone is waited for.
+    #[test]
+    fn a_write_in_the_copys_hands_alone_makes_it_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let (release, gate) = mpsc::channel();
+        let sink = sink(dir.path());
+        let total = (sink.room + 4_464) as usize;
+        let mut s = stalled(sink, gate, total, 10 << 20, true);
+        until("the copy has taken it all", || {
+            s.copier.read.load(Ordering::Relaxed) == total as u64
+        });
+        assert_eq!(waiting(&s.copier.peek), 0);
+        assert!(!closed(&s.copier.peek), "the pipe is held open");
+        assert!(s.copier.handled.load(Ordering::Relaxed) < total as u64);
+        assert!(s.copier.behind());
+        let t0 = Instant::now();
+        let opener = open_after(release);
+        assert!(s.copier.wait_behind(BOUND).is_none());
+        assert!(
+            t0.elapsed() >= GATE,
+            "given up on while behind: {:?}",
+            t0.elapsed()
+        );
+        drop(s.holder.take());
+        let ended = s.copier.wait(Duration::from_secs(30));
+        assert!(matches!(ended, Some(Ok(_))), "{ended:?}");
+        opener.join().unwrap();
+        s.end();
+    }
+
+    /// Bytes that wait in the pipe alone make a copy behind: nothing is in its hands and a writer lives, as
+    /// when its thread waits for a core between two reads. Made by hand, since a real copy would read them.
+    #[test]
+    fn bytes_that_wait_alone_make_a_copy_behind() {
+        let (read, mut write) = std::io::pipe().unwrap();
+        write.write_all(b"printed, and not read yet").unwrap();
+        let (word, done) = mpsc::channel();
+        let mut copier = Copier {
+            done,
+            ended: None,
+            dropped: Arc::default(),
+            held: Arc::default(),
+            read: Arc::default(),
+            handled: Arc::default(),
+            peek: Arc::new(OwnedFd::from(read)),
+        };
+        assert!(!closed(&copier.peek));
+        assert!(copier.behind());
+        let t0 = Instant::now();
+        let late = std::thread::spawn(move || {
+            std::thread::sleep(GATE);
+            let _ = word.send(Ok(Copied::default()));
+        });
+        let ended = copier.wait_behind(BOUND);
+        assert!(matches!(ended, Some(Ok(_))), "{ended:?}");
+        assert!(t0.elapsed() >= GATE, "{:?}", t0.elapsed());
+        late.join().unwrap();
+        drop(write);
+    }
+
     /// A copy that has finished with every byte it read and is writing the end it kept (the pipe is empty and
     /// closed, nothing is in its hands) is behind too: without that end the file stops at the head, and the
     /// report would say the output is still open. Seen as a job past its cap reported with its end missing.
