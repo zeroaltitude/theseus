@@ -242,7 +242,14 @@ fn a_job_that_reads_the_daemons_environment_leaves_both_keys_in_the_record() {
     let dir = trial(&model, &jev, ROUTED_LIMIT);
     let (code, out, err) = theseus(dir.path(), &["ask", "read /proc environ"]);
     assert_eq!(code, 0, "{out}\n{err}");
-    let (_, hist, _) = theseus(dir.path(), &["history"]);
+    // The record is written a moment after the turn's answer, and on a busy machine that moment is
+    // long: read it again until it holds what the job read (30 s at most), then assert on it.
+    let t_hist = std::time::Instant::now();
+    let (_, mut hist, _) = theseus(dir.path(), &["history"]);
+    while !(hist.contains(KEY) && hist.contains(JEV)) && t_hist.elapsed().as_secs() < 30 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        hist = theseus(dir.path(), &["history"]).1;
+    }
     let seen = model.requests().last().unwrap().to_string();
     assert!(
         seen.contains("TYPESAFE_API_KEY"),
