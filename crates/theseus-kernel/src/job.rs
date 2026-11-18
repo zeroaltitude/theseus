@@ -404,10 +404,7 @@ fn run_command(
     (copier, t0): (&crate::redact::Copier, Instant),
     detail: &mut serde_json::Value,
 ) -> (Outcome, String) {
-    let printed = copier.read_counter();
-    let mut patience = crate::patience::Patience::silence(args.deadline_ms, t0, move || {
-        printed.load(std::sync::atomic::Ordering::Relaxed)
-    });
+    let mut patience = crate::patience::Patience::silence(args.deadline_ms, t0, copier.life());
     let ended = match &args.sandbox {
         Some(l1) => crate::job_l1::run(
             args,
