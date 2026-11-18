@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..")
 
 FAKE_CARGO = """#!/usr/bin/env bash
-echo "cargo $* threads=${NEXTEST_TEST_THREADS:-unset} parent=$(cat /proc/$PPID/comm)" >> "$FAKE_LOG"
+echo "cargo $* threads=${NEXTEST_TEST_THREADS:-unset} parent=$(cat /proc/$PPID/comm) jobsecs=${THESEUS_SELF_BUILD_JOB_SECS:-unset}" >> "$FAKE_LOG"
 case " $* " in
   *" --test self_build "*)
     # The view's own test: it runs the command a hunt handed it, the way the view would (here, plainly).
@@ -157,6 +157,7 @@ class FlakeHunt(unittest.TestCase):
         self.assertIn("--run-ignored only", view[0])
         # The one test is given hours, in a config of its own; the repository's config is not the one written.
         self.assertIn("--config-file", view[0])
+        self.assertIn("jobsecs=14400", view[0])
         cfg = os.path.join(self.tree, "target", "flake-hunt", "nextest-view.toml")
         with open(cfg) as f:
             self.assertIn("a_real_checkouts_command_runs_in_the_view", f.read())

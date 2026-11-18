@@ -73,7 +73,7 @@ if [ "$view" = yes ]; then
 filter = 'binary_id(theseusd::self_build) & test(=a_real_checkouts_command_runs_in_the_view)'
 slow-timeout = { period = "3600s", terminate-after = 24 }
 TOML
-  THESEUS_SELF_BUILD_TREE=$PWD THESEUS_SELF_BUILD_CMD=$inner \
+  THESEUS_SELF_BUILD_JOB_SECS=${FLAKE_HUNT_VIEW_SECS:-14400} THESEUS_SELF_BUILD_TREE=$PWD THESEUS_SELF_BUILD_CMD=$inner \
     cargo nextest run --config-file "$out/nextest-view.toml" -p theseusd --test self_build \
     --run-ignored only --no-capture -E 'test(=a_real_checkouts_command_runs_in_the_view)'
   [ -s "$out/hunt.log" ] || { echo "HUNT: the view ran no hunt (no $out/hunt.log); the view's own run is above" >&2; exit 2; }

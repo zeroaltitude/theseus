@@ -51,6 +51,15 @@ fn on_disk() -> tempfile::TempDir {
     tempfile::tempdir_in(base).unwrap()
 }
 
+/// How long a job of `run` may take: 600 s, and `THESEUS_SELF_BUILD_JOB_SECS` when it is set, for the
+/// flake hunt (`scripts/flake-hunt.sh --view`), whose one job is a cold build and then every suite run.
+fn job_secs() -> u64 {
+    std::env::var("THESEUS_SELF_BUILD_JOB_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(600)
+}
+
 fn root() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
@@ -196,13 +205,13 @@ impl Rig {
             argv: argv.iter().map(OsString::from).collect(),
             env: Vec::new(),
             log: &log,
-            limit: Duration::from_secs(600),
+            limit: Duration::from_secs(job_secs()),
         };
         let (view, env) = self.jail.prepare(&self.place, &job);
         let args = WrapperArgs {
             spool_dir: self.spool.dir().to_path_buf(),
             correlation_id: "self-build".into(),
-            deadline_ms: 600_000,
+            deadline_ms: job_secs() * 1000,
             notify_socket: None,
             argv: argv.iter().map(|s| (*s).to_string()).collect(),
             cwd: Some(self.tree.dir.clone()),
@@ -221,7 +230,7 @@ impl Rig {
                 return c.detail.unwrap_or_default();
             }
             assert!(
-                t0.elapsed() < Duration::from_secs(600),
+                t0.elapsed() < Duration::from_secs(job_secs()),
                 "no completion for {argv:?}"
             );
             std::thread::sleep(Duration::from_millis(20));
