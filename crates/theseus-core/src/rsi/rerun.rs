@@ -205,7 +205,7 @@ fn all_outside(p: &Place, tree: &Tree, failed: &[Failed], base: Option<&str>) ->
     Some(
         failed
             .iter()
-            .all(|f| reach::apart(&graph, &changed, f.package(), &f.test, &tree.dir)),
+            .all(|f| reach::apart(&graph, &changed, &f.binary, &f.test, &tree.dir)),
     )
 }
 
