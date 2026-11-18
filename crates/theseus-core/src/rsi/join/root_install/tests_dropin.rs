@@ -528,6 +528,19 @@ fn the_pipelines_words_say_why_the_install_did_not_take_and_the_step() {
         .unwrap()
         .line
         .contains("docs/setup.md"));
+    // An install never made says so, with the row's own words, not that it "did not take".
+    let declined = ledger(
+        "self.root_install",
+        at,
+        json!({"merge": a, "step": "declined", "what": "not installed: the owner declined", "why": "make the sails trim themselves"}),
+    );
+    let line = last_join(&[joined.clone(), declined]).unwrap().line;
+    assert!(
+        line.contains("it was not installed (")
+            && line.contains("the owner declined")
+            && !line.contains("did not take"),
+        "{line}"
+    );
     // A row of an install still under way says nothing of failure; a later install that took says it runs.
     let under_way = ledger(
         "self.root_install",

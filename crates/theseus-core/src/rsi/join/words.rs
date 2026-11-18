@@ -54,17 +54,22 @@ fn did_not_take(row: &LedgerRow) -> Option<(Install, String)> {
         return None;
     }
     let text = |k: &str| row.data[k].as_str().filter(|s| !s.is_empty());
-    let why = text("why")
-        .or_else(|| text("what"))
-        .unwrap_or("no reason was recorded");
     let by_hand = hand_words(row.data["numbers"]["step"].as_str());
-    Some((
-        Install::DidNotTake,
+    let when = utc(row.at_unix_ms);
+    // An install that was tried and did not take says why (the row's own); one that was never made (no card, no
+    // helper, a start command that is not Theseus's to change, a no from the owner) says what the row says.
+    let said = if ["failed", "rolled_back", "unhealthy"].contains(&step) {
+        let why = text("why").unwrap_or("no reason was recorded");
         format!(
-            "the service is not running it: the install of {when} did not take ({why}). {by_hand}",
-            when = utc(row.at_unix_ms)
-        ),
-    ))
+            "the service is not running it: the install of {when} did not take ({why}). {by_hand}"
+        )
+    } else {
+        let what = text("what")
+            .or_else(|| text("why"))
+            .unwrap_or("no reason was recorded");
+        format!("the service is not running it: it was not installed ({when}): {what}. {by_hand}")
+    };
+    Some((Install::DidNotTake, said))
 }
 
 /// A moment in UTC, `2026-11-18 07:36 UTC`: for a reader with no time zone of its own.
