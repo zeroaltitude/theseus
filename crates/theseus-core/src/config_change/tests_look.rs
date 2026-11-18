@@ -332,20 +332,34 @@ async fn the_shell_on_the_vaults_program_is_still_held_by_the_floor() {
     assert_eq!(asks[0].tool, "proc.run");
 }
 
+/// A core as a daemon has it: deferral on (a test's core has it off), started
+/// from a vault's note when `vault_note` (the looks and no settings tools) and
+/// from nothing when not.
+fn deferred_core(vault_note: bool) -> (Arc<crate::Core>, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.index.enabled = false;
+    if vault_note {
+        cfg.config_copy = Some("/var/lib/theseus/config.copy".into());
+    }
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![]));
+    let mut parts = crate::rpc::Parts::for_tests(cfg, fake, store);
+    // Tests build with deferral off; a daemon has it on.
+    parts.cfg.tools.defer.enabled = true;
+    (crate::Core::build(parts).unwrap(), dir)
+}
+
 /// What the family costs a private place's request, deferred as it is, and if a
 /// place loaded it by default. A bound, not a budget: the owner's rule is that a
 /// family is loaded by default only below 400 tokens, so the family stays
-/// deferred and this fails when it grows past what the rule would load.
+/// deferred and this fails when what it adds to a request grows past that.
 #[test]
 fn the_look_family_is_deferred_and_its_cost_is_measured() {
-    // A daemon started from the vault's note has the looks and no settings
-    // tools, so the difference between it and a bare config is the looks alone.
-    let with = rig_with(|cfg, _| {
-        cfg.config_file = None;
-        cfg.config_copy = Some("/var/lib/theseus/config.copy".into());
-    });
-    let without = rig_with(|cfg, _| cfg.config_file = None);
-    let d = with.core.tool_defer();
+    let (with, _a) = deferred_core(true);
+    let (without, _b) = deferred_core(false);
+    let d = with.tool_defer();
     let dm = d.places.iter().find(|p| p.place == "dm").expect("dm");
     let fam = dm
         .families
@@ -356,13 +370,13 @@ fn the_look_family_is_deferred_and_its_cost_is_measured() {
     assert!(!fam.loaded, "deferred in a direct message: {}", fam.why);
     let added = |place: &str| {
         let (a, b) = (
-            with.core.first_request(place).unwrap(),
-            without.core.first_request(place).unwrap(),
+            with.first_request(place).unwrap(),
+            without.first_request(place).unwrap(),
         );
-        let (mut x, mut y) = (a.loaded.clone(), b.loaded.clone());
-        x.sort();
-        y.sort();
-        assert_eq!(x, y, "{place}: the looks load nothing by default");
+        assert_eq!(
+            a.loaded, b.loaded,
+            "{place}: the looks load nothing by default"
+        );
         a.tokens - b.tokens
     };
     let (dm_added, cli_added) = (added("dm"), added("cli"));
@@ -370,6 +384,13 @@ fn the_look_family_is_deferred_and_its_cost_is_measured() {
         "MEASURED look family: loads at {} tokens; deferred adds {dm_added} to a dm request, {cli_added} to a cli one",
         fam.tokens
     );
-    assert!(dm_added > 0 && dm_added <= 400, "{dm_added}");
-    assert!(fam.tokens > 0 && fam.tokens <= 1_200, "{}", fam.tokens);
+    // Measured 2026-11-18: a deferred family adds nothing to the census's total
+    // (a deferred tool is counted at a constant, and its family's summary is read
+    // only in the answer to a search), and loading it would add 694 tokens: more
+    // than the 400 under which the owner's rule would load it, so it stays deferred.
+    assert!(
+        dm_added <= 400 && cli_added <= 400,
+        "{dm_added} {cli_added}"
+    );
+    assert!((401..=1_200).contains(&fam.tokens), "{}", fam.tokens);
 }

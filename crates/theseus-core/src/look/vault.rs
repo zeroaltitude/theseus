@@ -176,7 +176,7 @@ pub(super) async fn run(
             Some(Ok(v)) => {
                 let _ = writeln!(out, "Vaults ({}):", v.len());
                 for x in v {
-                    let _ = writeln!(out, "- {} (id {})", x.name, x.id);
+                    let _ = writeln!(out, "- {} (id {})", x.name, names::clean(&x.id));
                 }
             }
             Some(Err(f)) => {
@@ -294,31 +294,42 @@ fn settings(core: &Core, seen: Option<&[ItemName]>) -> String {
             Some(SecretState::Failed(_)) => "not resolved",
             None => "unknown",
         };
-        let from = match Source::of(reference) {
-            Source::Env => "read from the environment".to_string(),
-            Source::File => "read from a file".to_string(),
-            Source::Vault => match vault_and_item(reference) {
-                Some((v, i)) => {
-                    let listed = seen.map(|all| {
-                        all.iter().any(|x| {
-                            x.title.eq_ignore_ascii_case(&i) && x.vault.eq_ignore_ascii_case(&v)
-                        })
-                    });
-                    format!(
-                        "item \"{i}\" in vault \"{v}\"{}",
-                        match listed {
-                            Some(true) => " (in the vault's list)",
-                            Some(false) => " (not in the vault's list)",
-                            None => "",
-                        }
-                    )
-                }
-                None => "an item in the vault".to_string(),
-            },
-        };
-        let _ = writeln!(out, "- secrets.{name}: {from} · {state}");
+        out.push_str(&setting_line(name, reference, state, seen));
     }
     out
+}
+
+/// One setting's line: where its secret is read from, and its state.
+fn setting_line(name: &str, reference: &str, state: &str, seen: Option<&[ItemName]>) -> String {
+    let from = match Source::of(reference) {
+        Source::Env => "read from the environment".to_string(),
+        Source::File => "read from a file".to_string(),
+        Source::Vault => match vault_and_item(reference) {
+            Some((v, i)) => {
+                // Only said when the list covers the reference's vault by name:
+                // a list narrowed to another vault, or a reference written by
+                // vault id, says nothing either way.
+                let listed = seen
+                    .filter(|all| all.iter().any(|x| x.vault.eq_ignore_ascii_case(&v)))
+                    .map(|all| {
+                        all.iter().any(|x| {
+                            x.vault.eq_ignore_ascii_case(&v)
+                                && (x.title.eq_ignore_ascii_case(&i) || x.id == i)
+                        })
+                    });
+                format!(
+                    "item \"{i}\" in vault \"{v}\"{}",
+                    match listed {
+                        Some(true) => " (in the vault's list)",
+                        Some(false) => " (not in the vault's list)",
+                        None => "",
+                    }
+                )
+            }
+            None => "an item in the vault".to_string(),
+        },
+    };
+    format!("- secrets.{name}: {from} · {state}\n")
 }
 
 #[cfg(test)]

@@ -93,3 +93,34 @@ fn the_list_says_its_cap_and_how_many_it_left_out() {
         "{said}"
     );
 }
+
+/// The mark that says whether a setting's item is in the list is given only
+/// when the list covers the reference's vault by name, and an item is found by
+/// its id as well as its title: a reference written by vault id, or a list
+/// narrowed to another vault, says nothing either way.
+#[test]
+fn the_in_the_list_mark_is_only_given_where_the_list_covers_the_vault() {
+    use crate::secrets::look::ItemName;
+    let item = |id: &str, title: &str, vault: &str| ItemName {
+        id: id.into(),
+        title: title.into(),
+        category: "LOGIN".into(),
+        vault: vault.into(),
+    };
+    let all = [item("i1", "Lantern key", "Harbor")];
+    let line = |reference: &str, seen: Option<&[ItemName]>| {
+        setting_line("lantern_key", reference, "resolved", seen)
+    };
+    let said = line("op://Harbor/Lantern key/credential", Some(&all));
+    assert!(said.contains("(in the vault's list)"), "{said}");
+    let said = line("op://Harbor/i1/credential", Some(&all));
+    assert!(said.contains("(in the vault's list)"), "by item id: {said}");
+    let said = line("op://Harbor/Other key/credential", Some(&all));
+    assert!(said.contains("(not in the vault's list)"), "{said}");
+    let said = line("op://Dock/Lantern key/credential", Some(&all));
+    assert!(!said.contains("vault's list"), "another vault: {said}");
+    let said = line("op://vaultid00000000000000000001/Lantern key/f", Some(&all));
+    assert!(!said.contains("vault's list"), "by vault id: {said}");
+    let said = line("op://Harbor/Lantern key/credential", None);
+    assert!(!said.contains("vault's list"), "no list: {said}");
+}
