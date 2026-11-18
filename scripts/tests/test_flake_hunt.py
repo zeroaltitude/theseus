@@ -20,6 +20,10 @@ SCRIPTS = os.path.join(HERE, "..")
 FAKE_CARGO = """#!/usr/bin/env bash
 echo "cargo $* threads=${NEXTEST_TEST_THREADS:-unset}" >> "$FAKE_LOG"
 case " $* " in
+  *" --test self_build "*)
+    # The view's own test: it runs the command a hunt handed it, the way the view would (here, plainly).
+    sh -c "$THESEUS_SELF_BUILD_CMD" > "${FAKE_VIEW_LOG:-/dev/null}" 2>&1
+    exit $? ;;
   *" --no-run "*)
     [ -z "${FAKE_NO_BUILD:-}" ] || { echo "error: could not compile"; exit 101; }
     exit 0 ;;
@@ -119,10 +123,50 @@ class FlakeHunt(unittest.TestCase):
         self.assertIn("-E test(=one_of_them)", suite)
         self.assertIn("no-load+filtered", r.stdout)
 
+    def test_the_views_withheld_set_is_left_out_by_name_and_said(self):
+        r = self.hunt("1", THESEUS_VIEW_WITHHELD="theseus-sandbox::contract clause_04\ntheseusd::x a_test",
+                      THESEUS_VIEW_GRANTS="a self build's, granting pty")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        suite = [c for c in self.calls() if "--no-fail-fast" in c][0]
+        self.assertIn("-E not ((binary_id(=theseus-sandbox::contract) & test(=clause_04)) | "
+                      "(binary_id(=theseusd::x) & test(=a_test)))", suite)
+        self.assertIn("withheld set is EXCLUDED from every run, by name", r.stdout)
+        self.assertIn("clause_04", r.stdout)
+        self.assertIn("self-build-view", r.stdout)
+
+    def test_a_malformed_withheld_entry_is_refused_not_guessed(self):
+        r = self.hunt("1", THESEUS_VIEW_WITHHELD="no-test-name")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("is not '<binary id> <test name>'", r.stdout + r.stderr)
+        self.assertEqual([c for c in self.calls() if "--no-fail-fast" in c], [])
+
+    def test_view_hands_the_same_hunt_to_the_views_test_and_reads_its_verdict_back(self):
+        r = self.hunt("2", "--view", "--threads", "7", FAKE_FAIL_RUNS="2")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("1 of 2 runs failed: theseus-core term::tests::a_flaky_one", r.stdout)
+        view = [c for c in self.calls() if "--test self_build" in c]
+        self.assertEqual(len(view), 1, self.calls())
+        self.assertIn("--run-ignored only", view[0])
+        suite = [c for c in self.calls() if "--no-fail-fast" in c]
+        self.assertEqual(len(suite), 2)
+        self.assertTrue(suite[0].endswith("threads=7"), suite)
+
+    def test_a_clean_view_hunt_exits_zero(self):
+        r = self.hunt("2", "--view")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no test failed in 2 run(s)", r.stdout)
+
+    def test_a_view_that_ran_no_hunt_is_not_a_pass(self):
+        with open(os.path.join(self.bin, "cargo"), "w") as f:
+            f.write("#!/usr/bin/env bash\nexit 0\n")
+        r = self.hunt("1", "--view")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("the view ran no hunt", r.stderr)
+
     def test_a_build_that_fails_hunts_nothing(self):
         r = self.hunt("2", FAKE_NO_BUILD="1")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("did not build", r.stderr)
+        self.assertIn("did not build", r.stdout + r.stderr)
         self.assertEqual([c for c in self.calls() if "--no-fail-fast" in c], [])
 
     def test_a_run_that_exits_badly_with_no_test_named_is_not_a_pass(self):
