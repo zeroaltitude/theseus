@@ -170,29 +170,29 @@ mod tests {
     #[test]
     fn a_bound_kept_asks_nothing_of_the_machine() {
         let busy = Busy::with(1);
-        assert!(busy.keeps(S / 2, S, || panic!("asked")));
+        assert!(busy.keeps_with(S / 2, S, || panic!("asked")));
     }
 
     #[test]
     fn on_a_quiet_machine_the_bound_is_exactly_the_bound() {
         let busy = Busy::with(1);
-        assert!(busy.keeps(S, S, || 1));
-        assert!(!busy.keeps(S + Duration::from_nanos(1), S, || 1));
-        assert!(!busy.keeps(S * 2, S, || 1));
+        assert!(busy.keeps_with(S, S, || 1));
+        assert!(!busy.keeps_with(S + Duration::from_nanos(1), S, || 1));
+        assert!(!busy.keeps_with(S * 2, S, || 1));
     }
 
     #[test]
     fn a_busy_machine_holds_the_bound_in_proportion_and_the_busier_reading_counts() {
         let busy = Busy::with(3);
         assert!(
-            busy.keeps(S * 2, S, || 1),
+            busy.keeps_with(S * 2, S, || 1),
             "the factor before the region counts"
         );
-        assert!(busy.keeps(S * 3, S, || 1));
-        assert!(!busy.keeps(S * 3 + Duration::from_nanos(1), S, || 1));
+        assert!(busy.keeps_with(S * 3, S, || 1));
+        assert!(!busy.keeps_with(S * 3 + Duration::from_nanos(1), S, || 1));
         let quiet_before = Busy::with(1);
         assert!(
-            quiet_before.keeps(S * 4, S, || 5),
+            quiet_before.keeps_with(S * 4, S, || 5),
             "the factor right now counts"
         );
         assert_eq!(
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn the_factor_is_capped_so_a_real_slowdown_still_fails() {
         let busy = Busy::with(50);
-        assert!(busy.keeps(S * BOUND_CAP as u32, S, || 50));
-        assert!(!busy.keeps(S * BOUND_CAP as u32 + Duration::from_nanos(1), S, || 50));
+        assert!(busy.keeps_with(S * BOUND_CAP as u32, S, || 50));
+        assert!(!busy.keeps_with(S * BOUND_CAP as u32 + Duration::from_nanos(1), S, || 50));
     }
 }
