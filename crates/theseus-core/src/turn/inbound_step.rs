@@ -6,7 +6,7 @@
 
 use super::{Turn, TurnRunner};
 use crate::judge::inbound::{author_of, place_kind, Inbound};
-use crate::node::{AttachmentContent, Body, Node};
+use crate::node::{AttachmentContent, Body, Node, Origin};
 
 impl TurnRunner {
     /// A turn's id: the router's, minted when it began this message's inbound
@@ -38,6 +38,12 @@ impl TurnRunner {
         }
         // What the turn's tools are chosen by, with the judge off too.
         if !steered {
+            // The owner's own words that began this turn, for a settings question
+            // of it to put to rest (`capture::settled`): not a report or a wake
+            // the turn read first, not a message steered in.
+            if node.origin == Origin::Operator {
+                self.standing.expected.note_input(t.tc.turn_id, &node.id);
+            }
             t.route.ask = text
                 .chars()
                 .take(crate::tools_defer::want::ASK_CHARS)

@@ -46,6 +46,10 @@ pub struct Kept {
     pub record: String,
     pub judgment: String,
     pub at_ms: u64,
+    /// The owner pressed Keep on an ask: his own choice, which a settings
+    /// question for the same message does not end (`settled.rs`).
+    #[serde(default)]
+    pub by_owner: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

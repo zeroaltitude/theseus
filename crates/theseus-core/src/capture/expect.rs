@@ -12,6 +12,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const LIFE: Duration = Duration::from_secs(60);
+/// How long a message's settings question is remembered: past the longest an
+/// early judgment waits for its turn and then answers.
+const ACT_LIFE: Duration = Duration::from_secs(600);
 /// The owner's own message nodes kept, newest.
 const OWNED_KEPT: usize = 8192;
 
@@ -21,7 +24,12 @@ pub struct Expected(
     Mutex<Vec<(String, String, Instant)>>,
     Mutex<Vec<(String, String, Instant)>>,
     Mutex<Owned>,
+    Mutex<Vec<(String, String, Instant)>>,
+    Mutex<Vec<(String, String)>>,
 );
+
+/// The turns whose own input node is kept, newest.
+const INPUTS_KEPT: usize = 256;
 
 /// The nodes of the owner's own messages (theseus-6f8t0): a node does not say
 /// whether a job sent it, so the exchange-end observer reads only the ones
@@ -51,6 +59,43 @@ impl Expected {
             }
             None => false,
         }
+    }
+}
+
+impl Expected {
+    /// `node` is the owner's own message that began turn `turn` (written after
+    /// the turn's catch-up, never a message steered in while it ran): what a
+    /// settings question of that turn puts to rest (`settled.rs`). In memory.
+    pub fn note_input(&self, turn: &str, node: &str) {
+        let mut v = self.4.lock().unwrap_or_else(|e| e.into_inner());
+        v.retain(|(t, _)| t != turn);
+        v.push((turn.to_string(), node.to_string()));
+        if v.len() > INPUTS_KEPT {
+            v.remove(0);
+        }
+    }
+
+    /// The node of the owner's message that began `turn`, if it began with one.
+    pub fn input_of(&self, turn: &str) -> Option<String> {
+        let v = self.4.lock().unwrap_or_else(|e| e.into_inner());
+        v.iter().find(|(t, _)| t == turn).map(|(_, n)| n.clone())
+    }
+}
+
+impl Expected {
+    /// The turn of this message put a settings question to the owner (issue
+    /// 22): its words are an act asked, so capture leaves them be.
+    pub fn note_act(&self, session: &str, node: &str) {
+        let mut v = self.3.lock().unwrap_or_else(|e| e.into_inner());
+        v.retain(|(_, _, at)| at.elapsed() < ACT_LIFE);
+        v.push((session.to_string(), node.to_string(), Instant::now()));
+    }
+
+    /// Whether this message's turn put a settings question to the owner.
+    pub fn acted_on(&self, session: &str, node: &str) -> bool {
+        let mut v = self.3.lock().unwrap_or_else(|e| e.into_inner());
+        v.retain(|(_, _, at)| at.elapsed() < ACT_LIFE);
+        v.iter().any(|(s, n, _)| s == session && n == node)
     }
 }
 

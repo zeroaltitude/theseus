@@ -1181,13 +1181,18 @@ impl Lane {
             Ok(None) => return Ok(Plan::nothing("its question is not in the store")),
             Err(e) => return Err(SendErr::refused(format!("{e:#}"))),
         };
-        let req = match core.question_request(&question, body["node"].as_str()) {
+        let mut req = match core.question_request(&question, body["node"].as_str()) {
             Ok(Some(r)) => r,
             Ok(None) => return Ok(Plan::nothing("its question could not be read")),
             Err(e) => return Err(SendErr::refused(format!("{e:#}"))),
         };
         let channel = self.place_channel().await?;
         let route = self.route().await?;
+        // A question that needs the owner's second proof says, before the press,
+        // whether the place's earlier proof covers it or a code is asked.
+        if let (true, Some(place)) = (req.needs_proof, self.press_place(&route)) {
+            req.proof = Some(core.proof_standing(&place, req.needs_fresh_proof));
+        }
         let elsewhere = theseus_core::approval::elsewhere(core.cfg.web.enabled);
         let mut card = render::card(&req, &route, elsewhere);
         let mut note = render::card_note(&route, &card.line, elsewhere);
@@ -1357,6 +1362,20 @@ impl Lane {
         Plan {
             writes,
             extra: json!({"card": card_id, "closed": closed.how, "question": d["question"]}),
+        }
+    }
+
+    /// The place the owner presses a card from, as the daemon names it for the
+    /// second proof (`Answerer::via`): none when the card goes nowhere on
+    /// Discord.
+    fn press_place(&self, route: &Route) -> Option<String> {
+        match route {
+            Route::Dm { .. } => Some("discord:dm".into()),
+            Route::Elsewhere { .. } => None,
+            Route::Here => match self.kind {
+                "dm" | "operator" => Some("discord:dm".into()),
+                _ => self.channel.map(|c| format!("discord:{c}")),
+            },
         }
     }
 
