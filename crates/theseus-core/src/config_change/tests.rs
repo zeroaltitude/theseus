@@ -106,15 +106,14 @@ pub(super) fn rig() -> Rig {
     rig_with(|_, _| {})
 }
 
-/// [`rig`], with `more` to say about the settings first: it is given them and
+/// [`rig`], with `tweak` to say about the settings last: it is given them and
 /// the state directory.
-pub(super) fn rig_with(more: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
+pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
     std::fs::write(&file, FILE).unwrap();
     let mut cfg = Config::example();
-    more(&mut cfg, &state);
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.policy.enforcement = Posture::Notify;
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
@@ -122,6 +121,7 @@ pub(super) fn rig_with(more: impl FnOnce(&mut Config, &std::path::Path)) -> Rig 
     // No index tender runs in a test, so a daemon that waits for it to answer
     // would never be healthy.
     cfg.index.enabled = false;
+    tweak(&mut cfg, &state);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         calls: Mutex::default(),

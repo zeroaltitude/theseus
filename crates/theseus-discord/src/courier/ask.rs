@@ -48,6 +48,50 @@ fn line_of(body: &Value) -> String {
 }
 
 impl Lane {
+    /// A settings question's needs-you post (`render::settings::needs_you`): the
+    /// daemon's words whole, the earlier messages silent and plain, the last
+    /// with the buttons; none for any other post.
+    fn settings_post(&self, body: &Value, q: &str, channel: u64, place: &str) -> Option<Plan> {
+        let (before, last) = crate::render::settings::needs_you(body)?;
+        let key = format!("confirm:{q}");
+        self.shared.replies.asked().plan(
+            &key,
+            vec![answer::Entry {
+                question: q.to_string(),
+                choices: Vec::new(),
+            }],
+        );
+        let mut writes: Vec<Write> = before
+            .into_iter()
+            .enumerate()
+            .map(|(i, part)| Write {
+                key: format!("{}{q}:{i}", crate::render::settings::PART_KEY),
+                channel,
+                content: part,
+                buttons: Buttons::Keep,
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+                ping: false,
+            })
+            .collect();
+        writes.push(Write {
+            key,
+            channel,
+            content: last,
+            buttons: Buttons::Card(q.to_string(), Vec::new()),
+            reply_to: None,
+            message: None,
+            mentions: vec![],
+            ping: body["silent"] != true && self.pings(Event::NeedsYou),
+        });
+        Some(Plan {
+            writes,
+            // Escaped as the card's settled line is: a `*` in a value is drawn.
+            extra: json!({"place": place, "question": q, "line": crate::render::settings::md(&line_of(body))}),
+        })
+    }
+
     /// The post: to the owner's DM alone, never a shared place. A post with a
     /// `card` (`[notify] dm_cards`, theseus-suvpe) is a card of its own with
     /// Approve, Decline and Details (an ask's options and Details); a batch's
@@ -103,43 +147,8 @@ impl Lane {
             .collect();
         // A settings question's post: the daemon's words whole, as several
         // messages when longer than one, the buttons on the last.
-        if let Some((before, last)) = crate::render::settings::needs_you(body) {
-            let key = format!("confirm:{q}");
-            self.shared.replies.asked().plan(
-                &key,
-                vec![answer::Entry {
-                    question: q.clone(),
-                    choices: Vec::new(),
-                }],
-            );
-            let mut writes: Vec<Write> = before
-                .into_iter()
-                .enumerate()
-                .map(|(i, part)| Write {
-                    key: format!("{}{q}:{i}", crate::render::settings::PART_KEY),
-                    channel,
-                    content: part,
-                    buttons: Buttons::Keep,
-                    reply_to: None,
-                    message: None,
-                    mentions: vec![],
-                    ping: false,
-                })
-                .collect();
-            writes.push(Write {
-                key,
-                channel,
-                content: last,
-                buttons: Buttons::Card(q.clone(), Vec::new()),
-                reply_to: None,
-                message: None,
-                mentions: vec![],
-                ping: body["silent"] != true && self.pings(Event::NeedsYou),
-            });
-            return Ok(Plan {
-                writes,
-                extra: json!({"place": place, "question": q, "line": line_of(body)}),
-            });
+        if let Some(plan) = self.settings_post(body, &q, channel, &place) {
+            return Ok(plan);
         }
         let card = body["card"].is_object();
         let buttons = match (card, choices.is_empty()) {

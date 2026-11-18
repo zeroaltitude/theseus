@@ -80,12 +80,15 @@ impl Core {
         approve: bool,
         typed: bool,
     ) -> Result<()> {
-        if !(approve && typed) {
+        if !approve {
             return Ok(());
         }
-        let why = if crate::config_change::words::is_settings_action(a) {
+        // A settings question is refused to words; a floor hold to words and to
+        // an agent's process on the CLI or the web socket too (the owner's rule:
+        // the button, or their own terminal).
+        let why = if typed && crate::config_change::words::is_settings_action(a) {
             crate::config_change::words::BY_PRESS
-        } else if self.is_floor_hold(a) {
+        } else if (typed || who.agent.is_some()) && self.is_floor_hold(a) {
             crate::config_change::words::FLOOR_BY_PRESS
         } else {
             return Ok(());
@@ -101,9 +104,35 @@ impl Core {
 
     /// Whether `a` is a call the floor holds: the gate's decision on its node.
     fn is_floor_hold(&self, a: &Action) -> bool {
-        let nodes = self.store.session_nodes(&a.session_id).unwrap_or_default();
-        super::confirms::call_of(&nodes, &a.correlation_id)
+        floor_decided(self.store.session_nodes(&a.session_id), &a.correlation_id)
+    }
+}
+
+/// Whether the gate's decision on the call `correlation_id` is the floor, from
+/// its session's transcript. A transcript that cannot be read is a hold: it
+/// fails closed, so a question whose record is lost is the owner's press alone.
+fn floor_decided(
+    nodes: anyhow::Result<Vec<(u64, crate::node::Node)>>,
+    correlation_id: &str,
+) -> bool {
+    match nodes {
+        Ok(nodes) => super::confirms::call_of(&nodes, correlation_id)
             .0
-            .is_some_and(|d| d.floor)
+            .is_some_and(|d| d.floor),
+        Err(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::floor_decided;
+
+    #[test]
+    fn a_record_that_cannot_be_read_is_a_floor_hold_and_an_empty_one_is_not() {
+        assert!(floor_decided(
+            Err(anyhow::anyhow!("the store is gone")),
+            "act_1"
+        ));
+        assert!(!floor_decided(Ok(Vec::new()), "act_1"));
     }
 }

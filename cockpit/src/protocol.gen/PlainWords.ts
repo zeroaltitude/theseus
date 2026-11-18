@@ -40,4 +40,4 @@ no: string,
  * never cut, instead of the raw arguments. Left out of the wire when
  * empty, so an ordinary approval's record is as it was.
  */
-detail: string, };
+detail?: string, };

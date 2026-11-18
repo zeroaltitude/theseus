@@ -101,6 +101,12 @@ fn card_text(body: &serde_json::Value) -> String {
     }
     t.push_str("\n-# Needs you");
     t.push_str(&when_clause(body));
+    // A call the floor holds is approved by its own button or `theseus answer`
+    // only: a reply can decline, and a yes in a reply is refused.
+    if body["floor"] == true && body["choices"].as_array().is_none_or(Vec::is_empty) {
+        t.push_str(" · tap Approve or Decline, or `theseus answer` in your terminal; a reply can only decline");
+        return t;
+    }
     t.push_str(match body["choices"].as_array().is_none_or(Vec::is_empty) {
         true => " · tap, or reply yes or no",
         false => " · tap, or reply with its number",
@@ -385,5 +391,23 @@ mod tests {
         ] {
             assert!(t.contains(part), "{part}: {t}");
         }
+    }
+
+    /// A call the floor holds says its reply can only decline: a yes in a
+    /// reply is refused, so the post never offers one.
+    #[test]
+    fn a_floor_holds_post_does_not_offer_a_reply_yes() {
+        let body = |floor: bool| {
+            serde_json::json!({
+                "card": {"who": "Theseus", "what": "run `cat x`", "risk": "touches secrets", "yes": "y", "no": "n"},
+                "choices": [], "floor": floor, "held": false, "expires_at_ms": 0,
+            })
+        };
+        let held = super::needs_you(&body(true));
+        assert!(
+            held.contains("a reply can only decline") && !held.contains("reply yes"),
+            "{held}"
+        );
+        assert!(super::needs_you(&body(false)).contains("tap, or reply yes or no"));
     }
 }

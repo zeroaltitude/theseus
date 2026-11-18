@@ -66,50 +66,49 @@ pub(crate) fn effective(text: &str) -> Result<Value, String> {
         .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?;
     let mut v =
         serde_json::to_value(&cfg).map_err(|e| format!("the settings cannot be read: {e}"))?;
-    macro_rules! fill {
-        ($(($k:literal, $f:ident)),* $(,)?) => {
-            $( if v.get($k).is_none() {
-                if let Ok(x) = serde_json::to_value(&cfg.$f) {
-                    v[$k] = x;
-                }
-            } )*
-        };
+    let tables: Vec<(&str, serde_json::Result<Value>)> = vec![
+        ("context", serde_json::to_value(&cfg.context)),
+        ("broker", serde_json::to_value(&cfg.broker)),
+        ("voice", serde_json::to_value(&cfg.voice)),
+        ("aws", serde_json::to_value(&cfg.aws)),
+        ("google", serde_json::to_value(&cfg.google)),
+        ("memory", serde_json::to_value(&cfg.memory)),
+        ("routing", serde_json::to_value(&cfg.routing)),
+        ("privacy", serde_json::to_value(&cfg.privacy)),
+        (
+            "content_based_security",
+            serde_json::to_value(&cfg.content_based_security),
+        ),
+        ("mcp", serde_json::to_value(&cfg.mcp)),
+        ("mcp_server", serde_json::to_value(&cfg.mcp_server)),
+        ("lsp", serde_json::to_value(&cfg.lsp)),
+        ("sessions", serde_json::to_value(&cfg.sessions)),
+        ("routines", serde_json::to_value(&cfg.routines)),
+        ("route_bench", serde_json::to_value(&cfg.route_bench)),
+        ("persona_import", serde_json::to_value(&cfg.persona_import)),
+        ("project", serde_json::to_value(&cfg.project)),
+        ("projects", serde_json::to_value(&cfg.projects)),
+        ("standing", serde_json::to_value(&cfg.standing)),
+        ("threads", serde_json::to_value(&cfg.threads)),
+        ("initiative", serde_json::to_value(&cfg.initiative)),
+        ("watch_for", serde_json::to_value(&cfg.watch_for)),
+        ("cockpit", serde_json::to_value(&cfg.cockpit)),
+        ("prefix", serde_json::to_value(&cfg.prefix)),
+        ("notify", serde_json::to_value(&cfg.notify)),
+        ("cache", serde_json::to_value(&cfg.cache)),
+        ("people", serde_json::to_value(&cfg.people)),
+        ("card", serde_json::to_value(&cfg.card)),
+        ("ontology", serde_json::to_value(&cfg.ontology)),
+        ("import", serde_json::to_value(&cfg.import)),
+        ("self", serde_json::to_value(&cfg.self_improve)),
+        ("self_issues", serde_json::to_value(&cfg.self_issues)),
+        ("places", serde_json::to_value(&cfg.places)),
+    ];
+    for (k, x) in tables {
+        if let (None, Ok(x)) = (v.get(k), x) {
+            v[k] = x;
+        }
     }
-    fill!(
-        ("context", context),
-        ("broker", broker),
-        ("voice", voice),
-        ("aws", aws),
-        ("google", google),
-        ("memory", memory),
-        ("routing", routing),
-        ("privacy", privacy),
-        ("content_based_security", content_based_security),
-        ("mcp", mcp),
-        ("mcp_server", mcp_server),
-        ("lsp", lsp),
-        ("sessions", sessions),
-        ("routines", routines),
-        ("route_bench", route_bench),
-        ("persona_import", persona_import),
-        ("project", project),
-        ("projects", projects),
-        ("standing", standing),
-        ("threads", threads),
-        ("initiative", initiative),
-        ("watch_for", watch_for),
-        ("cockpit", cockpit),
-        ("prefix", prefix),
-        ("notify", notify),
-        ("cache", cache),
-        ("people", people),
-        ("card", card),
-        ("ontology", ontology),
-        ("import", import),
-        ("self", self_improve),
-        ("self_issues", self_issues),
-        ("places", places),
-    );
     Ok(v)
 }
 
