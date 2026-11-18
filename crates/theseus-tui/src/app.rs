@@ -1466,6 +1466,16 @@ impl App {
             self.mode = Mode::Note(id);
             return Vec::new();
         }
+        // A settings question's card does not fit this pane whole, and a yes is
+        // never taken under part of it (the card says where it is read).
+        if matches!(q, Question::Whole(c) if crate::chat::ask::is_settings(c)) {
+            self.flash = Some((
+                Tag::Bad,
+                "this changes Theseus's own settings: read the whole card in `theseus chat` (v), or answer with `theseus answer`"
+                    .to_string(),
+            ));
+            return Vec::new();
+        }
         vec![answer(&id, &yes, None)]
     }
 

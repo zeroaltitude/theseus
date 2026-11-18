@@ -236,7 +236,7 @@ impl Core {
         let proposal = Proposal {
             tool: ACK.into(),
             args: json!({
-                "question": question, "merge": go.merge, "branch": go.branch, "what": go.what,
+                "question": question, "settled": crate::config_change::words::install(&go.merge), "merge": go.merge, "branch": go.branch, "what": go.what,
                 "target": go.target, "old_program": go.old_program,
             }),
             resource: Some(format!("self-install:{}", short(&go.merge))),
@@ -304,6 +304,7 @@ pub fn confirm_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Conf
         .as_ref()
         .map(|p| p.args.clone())
         .unwrap_or_default();
+    let plain = crate::config_change::words::plain_of(&args);
     crate::rpc::offer(ConfirmRequest {
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
@@ -324,7 +325,7 @@ pub fn confirm_request(a: &Action, session: &SessionRecord, ttl_ms: u64) -> Conf
         may_answer: None,
         preview: None,
         grant_offer: None,
-        plain: None,
+        plain,
         // `confirm.list` reads the proof's marks onto it; the card asked says it in `ask_root_install`.
         needs_proof: false,
         needs_fresh_proof: false,

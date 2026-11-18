@@ -164,6 +164,28 @@ class RootInstall(unittest.TestCase):
         self.assertEqual(os.listdir(self.path("etc/sudoers.d")), [])
         self.assertFalse(os.path.exists(self.path("usr/local/lib/theseus")))
 
+    def test_a_dry_run_by_a_user_who_is_not_root_prints_every_step_and_writes_nothing(self):
+        """Found on the first live day: with no --root and no sudo, the rule's temporary file was made in the real
+        sudoers directory and the run died there, after six steps. It names the last step, and writes no file. (The
+        machine's own directories are only read; a machine without them skips the case.)"""
+        if os.geteuid() == 0:
+            self.skipTest("the case is about a user who is not root")
+        real = "/etc/sudoers.d"
+        if not os.path.isdir(real):
+            self.skipTest("no sudoers directory on this machine")
+        before = sorted(os.listdir(real))
+        out = subprocess.run(
+            ["bash", SCRIPT, "--dry-run", "install", "--user", ME, "--helper", self.helper, "--yes"],
+            capture_output=True,
+            text=True,
+        )
+        if out.returncode != 0 and "does not exist" in out.stderr + out.stdout:
+            self.skipTest("this machine lacks a directory the install names")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("-m 0440", out.stdout, "the last step is printed too")
+        self.assertIn("visudo -cf", out.stdout)
+        self.assertEqual(sorted(os.listdir(real)), before, "a dry run writes nothing")
+
 
 if __name__ == "__main__":
     unittest.main()

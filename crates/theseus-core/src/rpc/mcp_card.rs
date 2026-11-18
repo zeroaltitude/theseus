@@ -63,4 +63,78 @@ impl Core {
         self.refused(Act::Answer { action: a, approve }, who, &r)?;
         Err(r.into())
     }
+    /// `Err` when a yes typed or spoken as words (what the model's answer
+    /// tool carries, `Rides::typed`) answers a question that is only the
+    /// owner's own: a settings question (a change, an undo, an attached or
+    /// removed server, a restart, an install) or a call the floor holds (it
+    /// reaches a protected file or program, held for the moment a turn may have
+    /// been steered). Those are answered by the owner's own press, or their own
+    /// terminal, never by a conversation in their name, whoever's message
+    /// started the turn. A floor hold's yes is refused to an agent's process on
+    /// the CLI or the web socket too, and a transcript that cannot be read
+    /// counts as a floor hold. A no from words changes nothing and is allowed.
+    /// Held here, in the one place an answer becomes a decision, so it holds for
+    /// any future caller.
+    pub(super) fn judge_typed_settings(
+        &self,
+        who: &Answerer,
+        a: &Action,
+        approve: bool,
+        typed: bool,
+    ) -> Result<()> {
+        if !approve {
+            return Ok(());
+        }
+        // A settings question is refused to words; a floor hold to words and to
+        // an agent's process on the CLI or the web socket too (the owner's rule:
+        // the button, or their own terminal).
+        let why = if typed && crate::config_change::words::is_settings_action(a) {
+            crate::config_change::words::BY_PRESS
+        } else if (typed || who.agent.is_some()) && self.is_floor_hold(a) {
+            crate::config_change::words::FLOOR_BY_PRESS
+        } else {
+            return Ok(());
+        };
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why: why.to_string(),
+        };
+        self.refused(Act::Answer { action: a, approve }, who, &r)?;
+        Err(r.into())
+    }
+
+    /// Whether `a` is a call the floor holds: the gate's decision on its node.
+    fn is_floor_hold(&self, a: &Action) -> bool {
+        floor_decided(self.store.session_nodes(&a.session_id), &a.correlation_id)
+    }
+}
+
+/// Whether the gate's decision on the call `correlation_id` is the floor, from
+/// its session's transcript. A transcript that cannot be read is a hold: it
+/// fails closed, so a question whose record is lost is the owner's press alone.
+fn floor_decided(
+    nodes: anyhow::Result<Vec<(u64, crate::node::Node)>>,
+    correlation_id: &str,
+) -> bool {
+    match nodes {
+        Ok(nodes) => super::confirms::call_of(&nodes, correlation_id)
+            .0
+            .is_some_and(|d| d.floor),
+        Err(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::floor_decided;
+
+    #[test]
+    fn a_record_that_cannot_be_read_is_a_floor_hold_and_an_empty_one_is_not() {
+        assert!(floor_decided(
+            Err(anyhow::anyhow!("the store is gone")),
+            "act_1"
+        ));
+        assert!(!floor_decided(Ok(Vec::new()), "act_1"));
+    }
 }

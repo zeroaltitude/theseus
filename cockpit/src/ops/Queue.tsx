@@ -12,7 +12,7 @@ import { cn, short } from '@/lib/format'
 import { useCalm } from '@/lib/calm'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import { changeWords } from '@/lib/taskgraph'
-import { answerOf, grantKey, type Answer, type QueueItem } from './queue'
+import { answerOf, grantKey, settingsQuestion, type Answer, type QueueItem } from './queue'
 import type { ComingEvent } from './calendar'
 import { comingTimes, ITEM_LOOK, itemFacts, waitingFacts } from './facts'
 import type { OpsRow } from './board'
@@ -136,7 +136,7 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
           <ActBtn verb={i.kind === 'question' ? 'choice' : 'decline'} on={on} tone={i.kind === 'question' ? 'live' : 'fault'} onClick={() => {}}>{i.kind === 'question' ? 'Send' : 'Decline'}</ActBtn>
         </form>
       )}
-      {i.confirm && !whole && <span className="text-[10.5px] text-ink-faint">⏎ the whole card</span>}
+      {i.confirm && !whole && <span className={cn('text-[10.5px]', settingsQuestion(i.confirm) ? 'font-semibold text-wait' : 'text-ink-faint')}>{settingsQuestion(i.confirm) ? '⏎ read the whole card: it is answered there' : '⏎ the whole card'}</span>}
     </div>
   )
 }

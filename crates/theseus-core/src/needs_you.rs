@@ -323,7 +323,24 @@ pub fn card_body(
         "held": is_held(req),
         "requested_at_ms": req.requested_at_ms,
         "card": words::card_of(kind, &w, nth),
+        // A settings question: the daemon's own whole words, for the post that
+        // draws them (the card's `what` is the change in one line).
+        "settings": settings_of(a, req),
+        "floor": req.floor,
     })
+}
+
+/// A settings question's words for its needs-you post, or null for any other.
+fn settings_of(a: &Action, req: &ConfirmRequest) -> serde_json::Value {
+    match req.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+        Some(p) => json!({
+            "detail": p.detail,
+            "needs_proof": req.needs_proof,
+            "needs_fresh_proof": req.needs_fresh_proof,
+            "short": short_id(&a.correlation_id),
+        }),
+        None => serde_json::Value::Null,
+    }
 }
 
 /// Held, not expired, past its first life (theseus-v2dnc): the same

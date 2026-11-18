@@ -49,7 +49,7 @@ enabled = true   # turn it off to stop the import
 "#;
 
 /// FILE after change 1 (the notes import off) and after change 2 (narrative on).
-fn after_1() -> String {
+pub(super) fn after_1() -> String {
     FILE.replace("enabled = true", "enabled = false")
 }
 
@@ -199,7 +199,7 @@ impl Rig {
     }
 }
 
-fn undo(change: Option<u32>) -> Value {
+pub(super) fn undo(change: Option<u32>) -> Value {
     match change {
         Some(n) => json!({"change": n, "reason": "the owner wants it back"}),
         None => json!({"reason": "the owner wants it back"}),
@@ -285,6 +285,11 @@ async fn an_undo_goes_through_the_card_and_a_yes_puts_back_exactly_its_settings(
     r.turn(&sid, "config_undo", undo(None)).await;
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
+    super::tests::assert_worded(
+        &r.core,
+        &r.asked()[0],
+        "undo change #2, putting back `narrative` from on to off",
+    );
     let card = r.card();
     assert!(card.starts_with("Undo change #2?\n"), "{card}");
     assert!(

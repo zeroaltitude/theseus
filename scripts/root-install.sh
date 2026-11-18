@@ -107,7 +107,12 @@ check_install() {
   done
   require_plain_dir "$LIB"
   require_plain_dir "$STATE"
-  [ ! -e "$SUDOERS" ] || head -n1 "$SUDOERS" | grep -qxF "$HEADER" || die "$SUDOERS exists and is not this script's: refusing"
+  if [ -e "$SUDOERS" ] && [ ! -r "$SUDOERS" ] && [ $DRY = 1 ]; then
+    # The rule is mode 0440, root's: a dry run as another user cannot read its header, and says so rather than refusing.
+    say "+ (the rule at $SUDOERS is not readable by this user, so a dry run does not check whose it is)"
+  else
+    [ ! -e "$SUDOERS" ] || head -n1 "$SUDOERS" | grep -qxF "$HEADER" || die "$SUDOERS exists and is not this script's: refusing"
+  fi
 }
 
 rule_text() {
@@ -147,14 +152,21 @@ do_install() {
   # a sudoers file of the owner's own.
   local tmpdir=${TMPDIR:-/tmp}
   [ "$as_root" = 1 ] && tmpdir=$ROOT/etc/sudoers.d
-  tmp=$(mktemp "$tmpdir/theseus-root-install.sudoers.XXXXXX") || die "no temporary file"
-  rule_text >"$tmp"
-  if [ "$as_root" = 1 ]; then
-    command -v visudo >/dev/null || { rm -f "$tmp"; die "visudo is not installed: the rule is not written unchecked"; }
-    visudo -cf "$tmp" >/dev/null || { rm -f "$tmp"; die "visudo does not accept the rule: nothing written"; }
+  if [ $DRY = 1 ]; then
+    # A dry run writes nothing, not even the temporary file: it names the step and the rule it would check and install.
+    tmp="$tmpdir/theseus-root-install.sudoers.XXXXXX"
+    say "+ (write the rule below to $tmp, check it with visudo -cf, and install it)"
+    rule_text | sed 's/^/+   /'
+  else
+    tmp=$(mktemp "$tmpdir/theseus-root-install.sudoers.XXXXXX") || die "no temporary file"
+    rule_text >"$tmp"
+    if [ "$as_root" = 1 ]; then
+      command -v visudo >/dev/null || { rm -f "$tmp"; die "visudo is not installed: the rule is not written unchecked"; }
+      visudo -cf "$tmp" >/dev/null || { rm -f "$tmp"; die "visudo does not accept the rule: nothing written"; }
+    fi
   fi
   run install $(own root root) -m 0440 "$tmp" "$SUDOERS"
-  rm -f "$tmp"
+  [ $DRY = 1 ] || rm -f "$tmp"
   say "done. The daemon's health says the helper is installed once it has looked again."
   say "check it:  $0 check --user $USER_NAME      (and, as $USER_NAME: sudo -n -l)"
 }

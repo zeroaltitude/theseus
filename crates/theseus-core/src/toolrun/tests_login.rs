@@ -2,7 +2,7 @@
 //! the test writes, never the machine's own; the deadline is a duration given
 //! to tokio's timer beside a real child, so no test reads the wall clock.
 
-use super::login_env::{parse_env, pick_shell, LoginEnv};
+use super::login_env::{parse_env, pick_shell, warned, LoginEnv};
 use super::ToolRuntime;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -349,4 +349,16 @@ async fn the_captures_child_is_registered_and_is_no_orphan() {
         before.reaped_orphans,
         "no sweep took the capture's child"
     );
+}
+
+/// The warning that a name looks like a secret does not name the daemon's own
+/// variables, and still names every other one (a name that is a secret's, a
+/// `THESEUS` name that is not the daemon's own).
+#[test]
+fn the_secret_names_warning_skips_the_daemons_own_variables_only() {
+    let env = parse_env(
+        "THESEUS_CONFIG_CHANGE=/x\nTHESEUS_OPERATOR_UMASK=0077\nTHESEUS_RESTARTED_ONTO_VAULT=1\n\
+         GITHUB_TOKEN=a\nTHESEUS_SOMETHING_ELSE=b\nRUST_LOG=info\n",
+    );
+    assert_eq!(warned(&env), ["GITHUB_TOKEN", "THESEUS_SOMETHING_ELSE"]);
 }

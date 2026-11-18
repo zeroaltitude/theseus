@@ -100,21 +100,32 @@ fn card_text(body: &serde_json::Value) -> String {
         }
     }
     t.push_str("\n-# Needs you");
-    // Held, not expired, past its first life (theseus-la5oc): the same words
-    // `render::heldquestion::footer_clause` says for the card it posts at ask
-    // time, said here for the needs-you post that may still say so long after.
-    if body["held"] == true {
-        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
-            t.push_str(&format!(" · held since <t:{}:R> · still waiting", r / 1000));
-        }
-    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
-        t.push_str(&format!(" · expires <t:{}:R>", e / 1000));
+    t.push_str(&when_clause(body));
+    // A call the floor holds is approved by its own button or `theseus answer`
+    // only: a reply can decline, and a yes in a reply is refused.
+    if body["floor"] == true && body["choices"].as_array().is_none_or(Vec::is_empty) {
+        t.push_str(" · tap Approve or Decline, or `theseus answer` in your terminal; a reply can only decline");
+        return t;
     }
     t.push_str(match body["choices"].as_array().is_none_or(Vec::is_empty) {
         true => " · tap, or reply yes or no",
         false => " · tap, or reply with its number",
     });
     t
+}
+
+/// Held, not expired, past its first life (theseus-la5oc): the same words
+/// `render::heldquestion::footer_clause` says for the card it posts at ask
+/// time, said here for the needs-you post that may still say so long after.
+pub(super) fn when_clause(body: &serde_json::Value) -> String {
+    if body["held"] == true {
+        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
+            return format!(" · held since <t:{}:R> · still waiting", r / 1000);
+        }
+    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
+        return format!(" · expires <t:{}:R>", e / 1000);
+    }
+    String::new()
 }
 
 /// The mark that goes with a risk badge's words.
@@ -135,6 +146,9 @@ fn risk_mark(risk: &str) -> &'static str {
 /// asked, when it expires — or, for a held question, how long it has been
 /// waiting (`heldquestion`) — and the question's id.
 pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
+    if super::settings::is_settings(req) {
+        return super::settings::details(req);
+    }
     let mut t = format!(
         "**Details**\n**What:** {}",
         clip(
@@ -213,6 +227,7 @@ pub fn card(
         content,
         line: format!("{task}asks: {}", clip(question, 80)),
         budget: false,
+        more: Vec::new(),
     }
 }
 
@@ -376,5 +391,23 @@ mod tests {
         ] {
             assert!(t.contains(part), "{part}: {t}");
         }
+    }
+
+    /// A call the floor holds says its reply can only decline: a yes in a
+    /// reply is refused, so the post never offers one.
+    #[test]
+    fn a_floor_holds_post_does_not_offer_a_reply_yes() {
+        let body = |floor: bool| {
+            serde_json::json!({
+                "card": {"who": "Theseus", "what": "run `cat x`", "risk": "touches secrets", "yes": "y", "no": "n"},
+                "choices": [], "floor": floor, "held": false, "expires_at_ms": 0,
+            })
+        };
+        let held = super::needs_you(&body(true));
+        assert!(
+            held.contains("a reply can only decline") && !held.contains("reply yes"),
+            "{held}"
+        );
+        assert!(super::needs_you(&body(false)).contains("tap, or reply yes or no"));
     }
 }

@@ -25,6 +25,26 @@ fn confirm_head(c: &ConfirmRequest) -> String {
 /// Its risk, the model's reason and what Yes and No do, else the gate's reason.
 fn confirm_why(c: &ConfirmRequest) -> Vec<(Tag, String)> {
     match &c.plain {
+        // A settings question: this card is a few rows at the pane's foot and
+        // cannot hold the daemon's words whole (one setting is up to 800
+        // characters), and a yes is never taken under part of them. It says
+        // so, and where the whole card is.
+        Some(p) if !p.detail.is_empty() => vec![(
+            Tag::Dim,
+            format!(
+                "  the whole card is {} lines, too long for this pane, so it is not answered here: \
+                 read and answer it in `theseus chat` (v), with `theseus answer {}`, or in the cockpit",
+                p.detail_lines().len(),
+                c.correlation_id
+                    .chars()
+                    .rev()
+                    .take(8)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<String>()
+            ),
+        )],
         Some(p) => p
             .lines()
             .split_off(1)

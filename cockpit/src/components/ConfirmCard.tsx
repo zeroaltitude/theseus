@@ -103,11 +103,13 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
   const proof = proofLine(c)
   // The card leads with its decision (theseus-hnof.5): what pressing the first button does, in the daemon's own words.
   // It was the fourth line, after the tool, the policy's sentence and the path.
-  const d = budget || c.change ? null : decisionWords(c.tool, c.input, c.reason)
+  // A settings question: the daemon's own words, whole, in place of the call's raw arguments.
+  const detail = c.plain?.detail || ''
+  const d = budget || c.change || detail ? null : decisionWords(c.tool, c.input, c.reason)
   const verb = budget ? 'Reset to $0 and continue' : c.change ? 'Accept' : 'Approve'
   const what = budget
     ? `spent ${dollars(budget.spent_usd)} of its ${dollars(budget.limit_usd)} limit; the waiting call needs ${dollars(budget.needed_usd)} more`
-    : c.change ? lowerFirst(changeQuestion(c.change).split('? ')[0]) : d!.what
+    : detail ? c.plain!.what : c.change ? lowerFirst(changeQuestion(c.change).split('? ')[0]) : d!.what
   return (
     <motion.div layout initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, x: 40 }}
       className="mb-3 overflow-hidden rounded-xl bg-wait/[0.05] ring-1 ring-wait/30">
@@ -123,7 +125,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
               : waited ? <span className="num shrink-0 pt-0.5 text-[11.5px] text-ink-dim" title="held, not cancelled: it waits until you answer">{waited}</span> : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="num text-[12px] font-semibold text-tool">{budget ? 'budget' : c.tool}</span>
+            <span className="num text-[12px] font-semibold text-tool">{budget ? 'budget' : detail ? 'settings' : c.tool}</span>
             {budget && <span className="text-[12px] text-ink-dim">this session reached its spend limit</span>}
             {c.floor && <Pill tone="fault" title="the call touches Theseus's own state or secrets; it always asks">floor</Pill>}
             {c.task && <Pill tone="tool">task</Pill>}
@@ -131,8 +133,8 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             <span className="num text-[11px] text-ink-faint">asked {ago(c.requested_at_ms, now)}</span>
           </div>
           {c.change && <div className="mt-1.5 text-[12.5px] font-semibold text-wait">{changeQuestion(c.change)}</div>}
-          {!budget && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} daemon={c.preview} /></div>}
-          <div className="mt-2 text-[12px] text-ink-dim">{d && d.why !== c.reason ? <><span className="text-ink-faint">why it asks: </span>{d.why}</> : c.reason}</div>
+          {!budget && !detail && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} daemon={c.preview} /></div>}
+          <div className="mt-2 whitespace-pre-wrap break-words text-[12px] text-ink-dim">{detail || (d && d.why !== c.reason ? <><span className="text-ink-faint">why it asks: </span>{d.why}</> : c.reason)}</div>
           {c.resource && <div className="num mt-0.5 text-[11.5px] text-ink-faint">{c.resource}</div>}
           {budget && (
             <div className="mt-1 text-[12px]">
