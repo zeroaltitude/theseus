@@ -12,6 +12,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const LIFE: Duration = Duration::from_secs(60);
+/// How long a message's settings question is remembered: past the longest an
+/// early judgment waits for its turn and then answers.
+const ACT_LIFE: Duration = Duration::from_secs(600);
 /// The owner's own message nodes kept, newest.
 const OWNED_KEPT: usize = 8192;
 
@@ -21,6 +24,7 @@ pub struct Expected(
     Mutex<Vec<(String, String, Instant)>>,
     Mutex<Vec<(String, String, Instant)>>,
     Mutex<Owned>,
+    Mutex<Vec<(String, String, Instant)>>,
 );
 
 /// The nodes of the owner's own messages (theseus-6f8t0): a node does not say
@@ -51,6 +55,23 @@ impl Expected {
             }
             None => false,
         }
+    }
+}
+
+impl Expected {
+    /// The turn of this message put a settings question to the owner (issue
+    /// 22): its words are an act asked, so capture leaves them be.
+    pub fn note_act(&self, session: &str, node: &str) {
+        let mut v = self.3.lock().unwrap_or_else(|e| e.into_inner());
+        v.retain(|(_, _, at)| at.elapsed() < ACT_LIFE);
+        v.push((session.to_string(), node.to_string(), Instant::now()));
+    }
+
+    /// Whether this message's turn put a settings question to the owner.
+    pub fn acted_on(&self, session: &str, node: &str) -> bool {
+        let mut v = self.3.lock().unwrap_or_else(|e| e.into_inner());
+        v.retain(|(_, _, at)| at.elapsed() < ACT_LIFE);
+        v.iter().any(|(s, n, _)| s == session && n == node)
     }
 }
 

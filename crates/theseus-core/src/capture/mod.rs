@@ -27,8 +27,9 @@
 //!
 //! Layout: `words` (the line and the overlap), `state` (what is kept between
 //! messages: one META record), this file (the pure decision), `act` (the
-//! writes), `expect` (which messages are the owner's own); the owner's
-//! answers and the lists are `rpc/capture.rs`.
+//! writes), `expect` (which messages are the owner's own), `settled` (words
+//! whose turn asked a settings question are no record); the owner's answers
+//! and the lists are `rpc/capture.rs`.
 
 use theseus_judge::band::Band;
 use theseus_judge::client::Answer;
@@ -39,6 +40,7 @@ use crate::places::PlaceClass;
 
 pub mod act;
 pub mod expect;
+pub mod settled;
 pub mod state;
 #[cfg(test)]
 mod tests;

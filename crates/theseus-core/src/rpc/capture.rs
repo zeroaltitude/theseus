@@ -145,45 +145,6 @@ impl Core {
         })
     }
 
-    /// The asks still open for one message, withdrawn (issue 22): a turn that
-    /// puts a settings question to the owner for the words that began it has
-    /// asked, and a second question about the same words (keep them as a
-    /// standing order?) would offer a one-time act as a rule. The ask is
-    /// ended as `withdrawn`; a card the owner still holds for it answers
-    /// "no open ask". A failure is logged and changes nothing.
-    pub(crate) fn withdraw_capture_asks(&self, session: &str, node: &str) {
-        let done = theseus_store::blocking(|| -> anyhow::Result<()> {
-            let mut held = self.runner.standing.capture.lock(&self.store)?;
-            let mut next = (*held).clone();
-            let (gone, kept): (Vec<_>, Vec<_>) = next
-                .asks
-                .into_iter()
-                .partition(|o| o.session == session && o.ask.node == node);
-            if gone.is_empty() {
-                return Ok(());
-            }
-            next.asks = kept;
-            let mut rows = Vec::new();
-            for o in &gone {
-                let f = fact::capture::StandingAnswered {
-                    ask: &o.ask.id,
-                    answer: "withdrawn",
-                    record: None,
-                    who: "theseus",
-                    via: "a settings question for the same message",
-                };
-                rows.push(fact::row(&f, Some(session), None)?);
-            }
-            rows.push(next.row()?);
-            self.store.append(&rows)?;
-            held.set(next);
-            Ok(())
-        });
-        if let Err(e) = done {
-            tracing::warn!(error = %format!("{e:#}"), "capture: an ask was not withdrawn");
-        }
-    }
-
     /// A record was revoked: if `directive.v2` kept it, its judgment is
     /// labeled `wrong capture` (one a day-count away from the pack's
     /// rollback) and the record is forgotten as kept. The undo has already

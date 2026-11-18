@@ -610,9 +610,9 @@ fn ask(
         tc.outbox.posted(&post);
     }
     // The card is the question: the owner's words that began this turn are not
-    // also offered as a standing order (issue 22).
+    // also offered or kept as a standing record (issue 22).
     if let (Some(core), Ok(node)) = (rt.config_change.core(), crate::task_fan_out::input_node(tc)) {
-        core.withdraw_capture_asks(tc.session_id, &node);
+        core.settled_by_act(tc.session_id, &node);
     }
     if let Ok(Some(session)) = tc
         .store
