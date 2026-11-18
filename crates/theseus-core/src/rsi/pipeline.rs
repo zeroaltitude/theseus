@@ -89,6 +89,8 @@ mod tests_cap;
 #[cfg(test)]
 mod tests_fetch;
 #[cfg(test)]
+mod tests_jobs;
+#[cfg(test)]
 mod tests_lease;
 #[cfg(test)]
 mod tests_main_red;
