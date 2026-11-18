@@ -17,7 +17,7 @@ use crate::secrets::{OpReader, Secret};
 /// Invented, and never in any output.
 const KEY_VALUE: &str = "INVENTED-KEY-VALUE-0001";
 
-fn rig_with_a_vault(mode: &str) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
+pub(super) fn rig_with_a_vault(mode: &str) -> (Rig, std::path::PathBuf, tempfile::TempDir) {
     let r = rig_with(|cfg, _| {
         cfg.secrets.insert(
             "lantern_key".into(),
@@ -40,7 +40,7 @@ fn rig_with_a_vault(mode: &str) -> (Rig, std::path::PathBuf, tempfile::TempDir) 
 
 /// Everything the turn and the daemon wrote, as one string: the session's
 /// nodes and the ledger.
-fn everything(r: &Rig, sid: &str) -> String {
+pub(super) fn everything(r: &Rig, sid: &str) -> String {
     let nodes = format!("{:?}", r.core.store.session_nodes(sid).unwrap());
     let rows = format!(
         "{:?}",
