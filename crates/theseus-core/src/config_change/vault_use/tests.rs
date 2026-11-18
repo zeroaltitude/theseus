@@ -587,12 +587,17 @@ async fn a_shared_field_label_is_written_by_its_id() {
     // `password` is the id of the field labelled "keyword": it is that field, and its own
     // label is unique, so it is written by that; `f9` is labelled "password", which is
     // also an id, so it is written by its id.
-    for (asked, id) in [
-        ("credential", "credential"),
-        ("f2id", "f2id"),
-        ("password", "keyword"),
-        ("f9", "f9"),
-    ] {
+    // `credential` is A's label and id, and B's label: nothing that names A alone is
+    // left, so it is refused, not written as a segment B also answers to.
+    let (r, dir, _d) = rig_vault("dupfield");
+    let sid = r.session();
+    r.turn_with("vault_use", &sid, call(json!([]))).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("answer to the same name"), "{text}");
+    assert!(r.asked().is_empty());
+    assert!(!logged(&dir).iter().any(|l| l.starts_with("read")));
+    for (asked, id) in [("f2id", "f2id"), ("password", "keyword"), ("f9", "f9")] {
         let (r, dir, _d) = rig_vault("dupfield");
         let sid = r.session();
         let mut input = call(json!([]));
@@ -611,4 +616,38 @@ async fn a_shared_field_label_is_written_by_its_id() {
             "{asked}"
         );
     }
+}
+
+/// A field with no section is known among every field of the item, so a
+/// sectionless field that shares its label with a sectioned one is written by an
+/// id nothing else answers to; the sectioned one is written with its section.
+#[tokio::test]
+async fn a_sectionless_field_is_known_among_all_the_items_fields() {
+    let play = |field: &'static str, section: Option<&'static str>| async move {
+        let (r, dir, _d) = rig_vault("dupsection");
+        let sid = r.session();
+        let mut input = call(json!([]));
+        input["field"] = json!(field);
+        if let Some(s) = section {
+            input["section"] = json!(s);
+        }
+        r.turn_with("vault_use", &sid, input).await;
+        let (status, text) = r.result(&sid);
+        (status, text, logged(&dir))
+    };
+    let (status, text, _) = play("password", None).await;
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("has 2 fields called"), "{text}");
+    let (status, text, ran) = play("f7", None).await;
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert!(
+        ran.contains(&"read --no-newline op://Harbor/Lantern key/f7".to_string()),
+        "{ran:?}"
+    );
+    let (status, text, ran) = play("password", Some("Extra")).await;
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert!(
+        ran.contains(&"read --no-newline op://Harbor/Lantern key/Extra/password".to_string()),
+        "{ran:?}"
+    );
 }

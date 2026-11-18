@@ -164,26 +164,60 @@ pub async fn check(
             &mut by_id,
         ),
     ];
-    if let Some(s) = &field.section {
-        let sections: std::collections::BTreeSet<&str> = fields
-            .iter()
-            .filter(|f| f.section.as_deref().is_some_and(|x| same(x, s)))
-            .filter_map(|f| f.section_id.as_deref())
-            .collect();
-        parts.push(segment(
-            s,
-            field.section_id.as_deref().unwrap_or_default(),
-            sections.len() == 1,
-            &mut by_id,
-        ));
-    }
-    // A field is known among the fields of its own section, by label or id.
-    let siblings = fields
+    let unnamed = || {
+        "two fields of that item answer to the same name (a label or an id, in any case) and the \
+         vault gave no other plain name for one of them: the owner renames one in the vault"
+            .to_string()
+    };
+    // The section, when the field has one: written by its label, or its id, only
+    // when exactly one section answers to it.
+    let sections: Vec<(&str, &str)> = fields
         .iter()
-        .filter(|f| f.section_id == field.section_id)
-        .filter(|f| same(&f.label, &field.label) || same(&f.id, &field.label))
-        .count();
-    parts.push(segment(&field.label, &field.id, siblings == 1, &mut by_id));
+        .filter_map(|f| Some((f.section.as_deref()?, f.section_id.as_deref()?)))
+        .collect();
+    if let Some(s) = &field.section {
+        let sid = field.section_id.as_deref().unwrap_or_default();
+        let one = |c: &str| {
+            let hits: std::collections::BTreeSet<&str> = sections
+                .iter()
+                .filter(|(l, i)| same(l, c) || same(i, c))
+                .map(|(_, i)| *i)
+                .collect();
+            writable(c) && hits.len() == 1
+        };
+        match (one(s), one(sid)) {
+            (true, _) => parts.push(Some(s.clone())),
+            (false, true) => {
+                by_id = true;
+                parts.push(Some(sid.to_string()));
+            }
+            _ => return Err(unnamed()),
+        }
+    }
+    // The field: written by its label, or its id, only when exactly one field
+    // answers to it among the fields the reference reaches (the section's when a
+    // section is written, else every field of the item, since the vault's program
+    // is not assumed to look in the sectionless ones first).
+    let reached: Vec<&FieldName> = fields
+        .iter()
+        .filter(|f| field.section.is_none() || f.section_id == field.section_id)
+        .collect();
+    let one = |c: &str| {
+        writable(c)
+            && reached
+                .iter()
+                .filter(|f| same(&f.label, c) || same(&f.id, c))
+                .count()
+                == 1
+    };
+    match (one(&field.label), one(&field.id)) {
+        (true, _) => parts.push(Some(field.label.clone())),
+        (false, true) => {
+            by_id = true;
+            parts.push(Some(field.id.clone()));
+        }
+        _ => return Err(unnamed()),
+    }
     let Some(parts) = parts.into_iter().collect::<Option<Vec<String>>>() else {
         return Err(
             "a name in that path has a character a reference cannot carry (a slash, a question \
