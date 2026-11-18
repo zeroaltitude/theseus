@@ -56,9 +56,9 @@ mod tests_stale;
 mod tests_window;
 pub mod text;
 
+pub use busy::busy_factor;
 /// Read, write, or run: the protocol's type, since a call's plan carries its
 /// own (an `aws.call` is a read or a write by its operation).
-pub use busy::busy_factor;
 pub use theseus_protocol::ToolClass;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
