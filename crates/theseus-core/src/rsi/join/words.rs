@@ -21,6 +21,19 @@ pub enum Install {
     DidNotTake,
     /// No row says: an install in flight, or installs are off.
     Unconfirmed,
+    /// The join was undone on main (`self.reverted`, or the owner's `self.vetoed`): it is never said to be running.
+    Reverted,
+}
+
+/// Whether the build that runs now contains a joined commit: the answer the daemon can give from its own clone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Contained {
+    /// The running build's commit is the join or has it as an ancestor.
+    Yes(String),
+    /// Both commits are in the clone and the running build's does not have the join in its history.
+    No(String),
+    /// The clone cannot say, and why.
+    CannotTell(String),
 }
 
 /// The last join, and what the loop says of it.
@@ -81,8 +94,58 @@ fn utc(ms: u64) -> String {
     )
 }
 
+/// The words for a join that was undone on main. A revert is a later commit that has the join as an ancestor, so a build
+/// that contains the join may well contain its revert: the join is never said to run, and where the running build
+/// contains the revert, the revert is what runs. A revert made by hand on main, with no row, is not seen here.
+fn reverted(
+    merge: &str,
+    undo: &LedgerRow,
+    contained: &dyn Fn(&str) -> Option<Contained>,
+) -> LastJoin {
+    let by = if undo.kind == "self.vetoed" {
+        "the owner's revert"
+    } else {
+        "the loop's own revert after a red signal"
+    };
+    let said = match undo.data["revert"].as_str() {
+        None => format!("reverted: {by} undid it, so it is not what runs"),
+        Some(revert) => {
+            let r = short(revert);
+            match contained(revert) {
+                Some(Contained::Yes(running)) => format!(
+                    "reverted: {by} ({r}) undid it, and the running build ({}) contains that revert, so it is not what runs",
+                    short(&running)
+                ),
+                Some(Contained::No(running)) => format!(
+                    "reverted on main by {by} ({r}); the running build ({}) does not contain that revert yet, so it may still run the change",
+                    short(&running)
+                ),
+                Some(Contained::CannotTell(why)) => format!(
+                    "reverted on main by {by} ({r}); cannot tell whether the running build contains that revert ({why})"
+                ),
+                None => format!("reverted on main by {by} ({r})"),
+            }
+        }
+    };
+    LastJoin {
+        line: format!("joined at {}; {said}", short(merge)),
+        merge: merge.to_string(),
+        install: Install::Reverted,
+    }
+}
+
 /// The newest `self.joined` of `rows` (oldest first), with the install rows of its merge.
+#[cfg(test)]
 pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
+    last_join_in(rows, &|_| None)
+}
+
+/// [`last_join`], with `contained` asked (once, for the join) when no row says the join's own install is what runs: a
+/// build that came later, by hand or by another install, may contain the join, and then it runs.
+pub(crate) fn last_join_in(
+    rows: &[LedgerRow],
+    contained: &dyn Fn(&str) -> Option<Contained>,
+) -> Option<LastJoin> {
     let merge = rows.iter().rev().find(|r| r.kind == "self.joined")?.data["merge"]
         .as_str()?
         .to_string();
@@ -92,6 +155,9 @@ pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
             .find(|r| r.kind == kind && r.data["merge"] == merge.as_str())
     };
     let at = short(&merge);
+    if let Some(undo) = ["self.reverted", "self.vetoed"].iter().find_map(|k| of(k)) {
+        return Some(reverted(&merge, undo, contained));
+    }
     let (install, said) = if of("self.installed").is_some() {
         (Install::Running, "installed and running".to_string())
     } else if let Some(m) = of("self.install.mismatch") {
@@ -116,6 +182,38 @@ pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
     } else {
         (Install::Unconfirmed, "not confirmed running".to_string())
     };
+    // A row that says the join's own install runs is the answer: nothing is asked of the clone.
+    let asked = (install != Install::Running)
+        .then(|| contained(&merge))
+        .flatten();
+    let (install, said) = match (install, asked) {
+        (Install::Running, _) | (_, None) => (install, said),
+        (_, Some(Contained::Yes(running))) => (
+            Install::Running,
+            if running == merge {
+                "installed and running".to_string()
+            } else {
+                format!(
+                    "installed and running (inside the running build, {}, which contains it)",
+                    short(&running)
+                )
+            },
+        ),
+        (Install::Unconfirmed, Some(Contained::No(running))) => (
+            install,
+            format!(
+                "not running yet: the running build ({}) does not contain it, and no install of it has finished. {}",
+                short(&running),
+                hand_words(None)
+            ),
+        ),
+        (Install::Unconfirmed, Some(Contained::CannotTell(why))) => (
+            install,
+            format!("not confirmed running: cannot tell whether the running build contains it ({why})"),
+        ),
+        // An install row already says why it is not what runs, and the one command.
+        (_, Some(_)) => (install, said),
+    };
     Some(LastJoin {
         line: format!("joined at {at}; {said}"),
         merge,
@@ -127,6 +225,11 @@ impl Core {
     /// The last join and its install, from the ledger; none before any join, with the mode off,
     /// or while the index is built.
     pub fn self_last_join(&self) -> Option<LastJoin> {
+        self.self_last_join_as(crate::build().commit.as_deref())
+    }
+
+    /// [`Self::self_last_join`] for a daemon whose build is `running`.
+    pub(crate) fn self_last_join_as(&self, running: Option<&str>) -> Option<LastJoin> {
         if self.cfg.self_improve.mode == theseus_protocol::rsi::SelfMode::Off {
             return None;
         }
@@ -138,10 +241,12 @@ impl Core {
                 "self.install.not_installed",
                 "self.install.mismatch",
                 "self.root_install",
+                "self.reverted",
+                "self.vetoed",
             ],
         )
         .ok()??;
-        last_join(&rows)
+        last_join_in(&rows, &|merge| Some(self.running_contains(merge, running)))
     }
 
     /// The commit of a join that is not what the service runs, for `health`: the last join's,

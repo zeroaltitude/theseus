@@ -56,6 +56,7 @@
 //! The branch is `[self] remote`'s (`origin` when unset): its main is the
 //! base, and main is pushed there.
 
+mod contains;
 pub mod dependencies;
 pub mod git;
 pub mod guard;
@@ -74,6 +75,8 @@ mod sealing;
 mod tender;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_contains;
 #[cfg(test)]
 mod tests_dependencies;
 #[cfg(test)]
