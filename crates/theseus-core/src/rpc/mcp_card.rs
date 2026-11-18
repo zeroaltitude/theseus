@@ -70,9 +70,11 @@ impl Core {
     /// reaches a protected file or program, held for the moment a turn may have
     /// been steered). Those are answered by the owner's own press, or their own
     /// terminal, never by a conversation in their name, whoever's message
-    /// started the turn. A no from words changes nothing and is allowed. Held
-    /// here, in the one place an answer becomes a decision, so it holds for any
-    /// future caller.
+    /// started the turn. A floor hold's yes is refused to an agent's process on
+    /// the CLI or the web socket too, and a transcript that cannot be read
+    /// counts as a floor hold. A no from words changes nothing and is allowed.
+    /// Held here, in the one place an answer becomes a decision, so it holds for
+    /// any future caller.
     pub(super) fn judge_typed_settings(
         &self,
         who: &Answerer,

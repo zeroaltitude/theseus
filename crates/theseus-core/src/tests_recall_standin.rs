@@ -9,11 +9,12 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use theseus_protocol::index::{IndexQueryParams, IndexSourceRank};
 use theseus_protocol::{Request, Response};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::time::Instant;
 
 use crate::config::memory::MemoryArm;
 use crate::config::MemoryMode;

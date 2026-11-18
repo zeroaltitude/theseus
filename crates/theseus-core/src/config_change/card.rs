@@ -117,8 +117,9 @@ pub fn restart_question(f: &RestartFacts<'_>) -> String {
     if f.waiting > 0 {
         out.push_str(&format!(
             "{} waiting on a question to you (a self-improvement build parked on one is among them, \
-             and `theseus self pipeline` does not show it as building). A restart does not answer \
-             them or drop them: they stay waiting, but anything of theirs that was running is cut.\n",
+             and `theseus self pipeline` shows it as building, waiting on you). A restart does not \
+             answer them or drop them: they stay waiting, but anything of theirs that was running \
+             is cut.\n",
             crate::narrative::count(u64::from(f.waiting), "execution is", "executions are")
         ));
     }

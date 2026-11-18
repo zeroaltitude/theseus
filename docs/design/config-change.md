@@ -111,7 +111,9 @@ the daemon, and read by every place** (`config_change/words.rs`):
 **A settings question, and a call the floor holds, are answered only by the owner's own press or their own terminal.**
 `chat.answer_question` carries the owner's words as typed (`Rides::typed`); `judge_typed_settings` in `rpc/mcp_card.rs`
 refuses a yes that is typed for a settings question (`config.ack`, `self.install.ack`) or a call whose gate decision is
-the floor, in the one place an answer becomes a decision, so it holds for any future caller. The tool says so before
+the floor, in the one place an answer becomes a decision, so it holds for any future caller. A yes for a floor hold
+from an agent's process on the CLI or the web socket is refused too, as a settings card's is, and a call whose
+transcript cannot be read counts as a floor hold. The tool says so before
 asking (`words::by_press_only`) and is told, for such a question, that only a no is offered. A no from words changes
 nothing and is allowed. Every other kind (a spend limit, a task's question, a question with options, a reminder, an
 ordinary approval) is answered from chat as before.
