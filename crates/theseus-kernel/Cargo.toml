@@ -25,6 +25,8 @@ jiff = "0.2"
 [dev-dependencies]
 tempfile = "3"
 tokio.workspace = true
+# `busy_factor`: a test whose silence limit is an input holds it in proportion on a busy machine (theseus-20).
+theseus-tools.workspace = true
 
 [[test]]
 name = "tree"

@@ -1,4 +1,6 @@
-//! How busy the machine is, measured by the test that has to live with it (theseus-20).
+//! How busy the machine is, measured by the test that has to live with it (theseus-20). It lives in this
+//! crate because the tests of the core, the kernel, the simulator and the daemon all reach it (the
+//! simulator re-exports it as `theseus_sim::busy_factor`).
 //!
 //! A test whose bound is a latency the product promises (the brief's "within a second", a 99th
 //! percentile of ten milliseconds) holds on a quiet machine and cannot hold on one that gives each
@@ -30,7 +32,7 @@ fn thread_cpu() -> Duration {
 
 /// How many times longer than its own CPU time a short spin of this thread took on the wall clock:
 /// 1 when nothing else wanted the core, 3 when two others did.
-fn slowdown() -> f64 {
+fn spin_slowdown() -> f64 {
     let (wall, cpu) = (Instant::now(), thread_cpu());
     let mut x = 1u64;
     while thread_cpu() - cpu < PROBE_CPU {
@@ -41,11 +43,25 @@ fn slowdown() -> f64 {
     wall.elapsed().as_secs_f64() / (thread_cpu() - cpu).as_secs_f64()
 }
 
+/// How many times longer than asked twenty 1 ms sleeps in a row took: every wake-up waits for a
+/// core, and a job that is many wake-ups in a row (a process's exit, a daemon's stop) is slowed by
+/// far more than the share of a core it is given.
+fn wake_slowdown() -> f64 {
+    let t = Instant::now();
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    t.elapsed().as_secs_f64() / 0.020
+}
+
 /// How many times slower than a quiet machine this one is giving a thread its turn right now: the
-/// worst of three short spins' wall time over their CPU time, to the nearest whole number, never
-/// below 1 and never above 50. Multiply a latency promise's bound by it.
+/// worst of three short spins' wall time over their CPU time and three runs of twenty short
+/// sleeps over the time asked, to the nearest whole number, never below 1 and never above 50.
+/// Multiply a latency promise's bound by it.
 pub fn busy_factor() -> u64 {
-    let worst = (0..3).map(|_| slowdown()).fold(1.0, f64::max);
+    let worst = (0..3)
+        .flat_map(|_| [spin_slowdown(), wake_slowdown()])
+        .fold(1.0, f64::max);
     (worst.round() as u64).clamp(1, CEILING)
 }
 

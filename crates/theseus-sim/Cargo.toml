@@ -19,6 +19,7 @@ path = "src/main.rs"
 theseus-store.workspace = true
 theseus-kernel.workspace = true
 theseus-core.workspace = true
+theseus-tools.workspace = true
 theseus-protocol.workspace = true
 # `synth-store --categories` (theseus-mem-daemon-rest): the board's records.
 theseus-ontology = { path = "../theseus-ontology" }
