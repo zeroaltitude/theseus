@@ -47,6 +47,11 @@ impl Helper for FakeHelper {
         Ok(())
     }
 
+    fn unstage(&self) -> Result<()> {
+        self.calls.lock().unwrap().push("unstage".into());
+        Ok(())
+    }
+
     fn check_installed(&self, program: &Path) -> Result<()> {
         self.calls.lock().unwrap().push("check_installed".into());
         if let Some(why) = &self.not_root {

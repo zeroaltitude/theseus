@@ -186,7 +186,7 @@ In `auto` there is no card, which is why that setting needs the fresh proof.
    way to give the service its own arguments) both named the old build, the drop-in won, and the first install changed
    the unit's line, which did not.
 3. The programs the join's L1 build made are copied into the staging directory, and the helper runs through `sudo -n`.
-   A refusal ends the install with nothing changed. The program it made is then checked: a plain file of root's in a
+   A refusal ends the install with nothing changed. The staging directory is emptied as soon as the helper has answered, copied or refused (`Helper::unstage`), so no program of the owner's is left there; and the next stage replaces whatever is there whole, so a leftover of an earlier commit never meets the helper's check of what the directory holds. The program the helper made is then checked: a plain file of root's in a
    directory only root writes.
 4. The memory of the install is written to the **store** (META `self.install.pending`): the commit, the program the
    service ran, the file that held the start command and its text as it was. Then that file is written with its one

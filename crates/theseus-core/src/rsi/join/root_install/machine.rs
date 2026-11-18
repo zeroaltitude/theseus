@@ -114,44 +114,65 @@ impl Sudo {
     }
 }
 
+/// Remove the files of the staging directory `stage`: the helper refuses a directory with anything else in it, and an
+/// install leaves nothing there once the helper has copied it. A directory in it is refused, not removed.
+fn empty(stage: &Path) -> Result<()> {
+    let meta = std::fs::symlink_metadata(stage).with_context(|| {
+        format!("the staging directory {} is missing: the administrator's step makes it (docs/root-install.md)", stage.display())
+    })?;
+    if !meta.is_dir() {
+        bail!("{} is not a directory", stage.display());
+    }
+    for entry in std::fs::read_dir(stage)? {
+        let path = entry?.path();
+        if std::fs::symlink_metadata(&path)?.is_dir() {
+            bail!(
+                "{} is a directory: the staging directory holds only programs",
+                path.display()
+            );
+        }
+        std::fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
+/// Put the four programs of the build in `release` into the staging directory `stage`, replacing whatever it held
+/// (a leftover of any earlier commit goes first, so one never meets the next).
+pub(super) fn stage_into(stage: &Path, release: &Path) -> Result<()> {
+    empty(stage)?;
+    for name in BINARIES {
+        let from = release.join(name);
+        let meta = std::fs::symlink_metadata(&from)
+            .with_context(|| format!("{} is missing from the build", from.display()))?;
+        if !meta.is_file() {
+            bail!("{} is not a plain file", from.display());
+        }
+        let tmp = stage.join(format!(".{name}.new"));
+        std::fs::copy(&from, &tmp)
+            .with_context(|| format!("copying {name} into the staging directory"))?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::rename(&tmp, stage.join(name))?;
+    }
+    Ok(())
+}
+
+/// Remove the files of the staging directory `stage` (test seam of [`Sudo::unstage`]).
+#[cfg(test)]
+pub(super) fn unstage_from(stage: &Path) -> Result<()> {
+    empty(stage)
+}
+
 impl Helper for Sudo {
     fn presence(&self) -> Presence {
         self.cached()
     }
 
     fn stage(&self, release: &Path) -> Result<()> {
-        let stage = Path::new(STAGE_DIR);
-        let meta = std::fs::symlink_metadata(stage).with_context(|| {
-            format!("the staging directory {STAGE_DIR} is missing: the administrator's step makes it (docs/root-install.md)")
-        })?;
-        if !meta.is_dir() {
-            bail!("{STAGE_DIR} is not a directory");
-        }
-        // Whatever an earlier install left there goes first: the helper refuses a directory with anything else in it.
-        for entry in std::fs::read_dir(stage)? {
-            let path = entry?.path();
-            if std::fs::symlink_metadata(&path)?.is_dir() {
-                bail!(
-                    "{} is a directory: the staging directory holds only programs",
-                    path.display()
-                );
-            }
-            std::fs::remove_file(&path)?;
-        }
-        for name in BINARIES {
-            let from = release.join(name);
-            let meta = std::fs::symlink_metadata(&from)
-                .with_context(|| format!("{} is missing from the build", from.display()))?;
-            if !meta.is_file() {
-                bail!("{} is not a plain file", from.display());
-            }
-            let tmp = stage.join(format!(".{name}.new"));
-            std::fs::copy(&from, &tmp)
-                .with_context(|| format!("copying {name} into the staging directory"))?;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-            std::fs::rename(&tmp, stage.join(name))?;
-        }
-        Ok(())
+        stage_into(Path::new(STAGE_DIR), release)
+    }
+
+    fn unstage(&self) -> Result<()> {
+        empty(Path::new(STAGE_DIR))
     }
 
     fn check_installed(&self, program: &Path) -> Result<()> {

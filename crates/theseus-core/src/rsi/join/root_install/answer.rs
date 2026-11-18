@@ -363,9 +363,13 @@ impl Core {
             Value::Null,
         );
         let (helper, commit) = (board.helper(), go.merge.clone());
-        let said = blocking(move || helper.install(&commit))
-            .await
-            .map_err(|e| format!("the helper refused: {e:#}"))?;
+        let said = blocking(move || helper.install(&commit)).await;
+        // The helper has copied the programs, or refused them: either way they are not left in the staging directory.
+        let helper = board.helper();
+        if let Err(e) = blocking(move || helper.unstage()).await {
+            tracing::warn!(error = %format!("{e:#}"), "self-install: the staging directory was not emptied");
+        }
+        let said = said.map_err(|e| format!("the helper refused: {e:#}"))?;
         self.root_row(
             "helper",
             &go.merge,

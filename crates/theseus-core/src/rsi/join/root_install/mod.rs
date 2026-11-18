@@ -41,6 +41,8 @@ mod tests;
 #[cfg(test)]
 mod tests_dropin;
 #[cfg(test)]
+mod tests_stage;
+#[cfg(test)]
 mod tests_start;
 
 use std::path::{Path, PathBuf};
@@ -88,6 +90,9 @@ pub trait Helper: Send + Sync {
     fn presence(&self) -> Presence;
     /// Put the four programs of a build (`release`'s files) in the staging directory, replacing what it held.
     fn stage(&self, release: &Path) -> Result<()>;
+    /// Empty the staging directory: the helper has copied what was staged (or refused it), and the programs, a few
+    /// hundred megabytes of the owner's, are not left there.
+    fn unstage(&self) -> Result<()>;
     /// Run the helper for `commit` (through `sudo -n`): its one-line answer, or why it refused.
     fn install(&self, commit: &str) -> Result<String>;
     /// `program` is what the helper installs: a plain file, root's, that no one else can write. Checked before the
