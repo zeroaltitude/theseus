@@ -260,7 +260,13 @@ async fn a_file_watch_is_met_within_one_interval_of_the_change() {
     assert_eq!(pending(&l.core), 0, "met: the watch is gone");
     assert_eq!(rows(&l.core, "watch.met").len(), 1);
     assert!(l.core.watches.get(&id).is_none());
-    let n = noticed(&mut l);
+    // The notice rides the bus a moment after the post: read until it is there.
+    let t_notice = Instant::now();
+    let mut n = noticed(&mut l);
+    while n.is_empty() && t_notice.elapsed() < Duration::from_secs(20) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        n = noticed(&mut l);
+    }
     assert_eq!(n.len(), 1);
     assert_eq!(n[0].purpose, "watch.met");
     assert!(l.model.requests().is_empty(), "no model call, at all");
