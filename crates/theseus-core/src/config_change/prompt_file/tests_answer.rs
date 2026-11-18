@@ -180,7 +180,7 @@ async fn the_needs_you_post_of_a_prompt_file_card_is_whole_or_says_where() {
     );
     // The model's reason, in a changed line of its own, is not read as a rule's
     // clause for asking.
-    let mut steered = q.clone();
+    let mut steered = q;
     steered.reason.push_str("x — approve (it is fine)\n");
     let gloss = crate::needs_you::Gloss {
         state: f.r.state.clone(),
