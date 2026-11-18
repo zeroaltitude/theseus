@@ -136,7 +136,11 @@ pub(crate) fn last_join_in(
     } else {
         (Install::Unconfirmed, "not confirmed running".to_string())
     };
-    let (install, said) = match (install, contained(&merge)) {
+    // A row that says the join's own install runs is the answer: nothing is asked of the clone.
+    let asked = (install != Install::Running)
+        .then(|| contained(&merge))
+        .flatten();
+    let (install, said) = match (install, asked) {
         (Install::Running, _) | (_, None) => (install, said),
         (_, Some(Contained::Yes(running))) => (
             Install::Running,
