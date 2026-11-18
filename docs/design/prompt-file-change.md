@@ -121,7 +121,9 @@ fit, else a summary, and the whole value readable by `config.whole`. A short val
 ## What the floor holds (the floor commit)
 
 The prompt files are on the floor, `toolrun/guarded.rs` (a keel file: this is the owner's to sign), so no file tool,
-no shell naming one and no L1 job reaches them, and the issue's "no tool can write the file any other way" is true:
+no shell naming one and no L1 job reaches them. It holds a path a call NAMES, as it does for the settings file and the
+stores. A search over a directory that holds one, a shell glob (`sed -i dir/*.md`) and a parent directory moved or copied
+whole name no protected file, so they are not stopped; that is the floor's own model, not this commit's:
 
 - `prompt_static`: every file `[context] files` names, and both default homes of a soul, whole: `<state>/personas/`
   (`personas/soul.rs: soul_home`) and `<state>/persona/`, the older singular home some machines still have.

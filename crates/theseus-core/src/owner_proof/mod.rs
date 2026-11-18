@@ -12,16 +12,19 @@
 //!   paths the floor holds for it.
 //! - [`marks`]: a question marked as needing the proof, by the daemon's own code.
 //! - [`proofs`]: enrolment, status, reset, and the check with its rate limit.
+//! - [`footing`]: what an approved answer rested on, said on its settled card.
 //! - [`windows`]: a good code covers the place it came from for a while, and
 //!   the seam a question's answer is judged by (`Proofs::required_and_given`).
 
 pub mod file;
+pub mod footing;
 pub mod marks;
 pub mod proofs;
 pub mod totp;
 pub mod windows;
 
 pub use file::{floor_paths, FILE};
+pub use footing::Footing;
 pub use marks::{mark, marked};
 pub use proofs::{EnrolError, Offer, Proofs, Refused, Status, MAX_WINDOW_HOURS};
 pub use windows::{Answer, Proof};

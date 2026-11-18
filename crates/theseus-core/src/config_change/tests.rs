@@ -51,6 +51,9 @@ struct Model {
     /// next call, named `p1`, `p2`, ..., then the text.
     steps: Mutex<std::collections::VecDeque<(String, Value)>>,
     made: Mutex<usize>,
+    /// Run once, when the turn first asks the model: the turn has written its
+    /// input by then, as the judge that reads it has had it written.
+    first_request: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Provider for Model {
@@ -62,6 +65,9 @@ impl Provider for Model {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
+        if let Some(f) = self.first_request.lock().unwrap().take() {
+            f();
+        }
         let answers_a_call = req
             .messages
             .last()
@@ -127,6 +133,7 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         calls: Mutex::default(),
         steps: Mutex::default(),
         made: Mutex::default(),
+        first_request: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -194,6 +201,11 @@ impl Rig {
         let r = SessionRecord::new(SessionKind::Conversation, None);
         self.core.store.put_session(&r.session_id, &r).unwrap();
         r.session_id
+    }
+
+    /// Have `f` run when the next turn first asks the model.
+    pub(super) fn when_the_turn_asks_the_model(&self, f: impl FnOnce() + Send + 'static) {
+        *self.model.first_request.lock().unwrap() = Some(Box::new(f));
     }
 
     pub(super) async fn turn(&self, sid: &str, call: Value) {

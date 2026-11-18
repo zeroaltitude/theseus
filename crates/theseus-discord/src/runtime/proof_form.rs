@@ -1,12 +1,15 @@
 //! The owner's second proof on a card (issue 22). A child of `runtime`.
 //!
-//! A card's Approve for a question that needs the proof opens **a form**, a
-//! modal with one field for the code from the owner's authenticator app,
-//! instead of answering. The form's title line says which footing the answer
-//! goes through, from the daemon's own words for this place ("needed, enter the
-//! code" or "given here 3 hours ago, good for 21 hours more": leave it empty to
-//! use it). The submit is `work.answer` as the presser with the code, checked
-//! by the daemon.
+//! A card's Approve for a question that needs a code opens **a form**, a modal
+//! with one field for the code from the owner's authenticator app, instead of
+//! answering. When the daemon says no code is needed for this place (an open
+//! window of the place covers the question, never one that takes a fresh code
+//! every time), the press answers and no form opens: asking again would make
+//! the window worthless. The press decides by the daemon's answer at press
+//! time: a window that has run out since the card was drawn opens the form
+//! then, or, when it ran out between the list and the answer, the answer is
+//! refused with the daemon's words and the next press opens it. The submit is
+//! `work.answer` as the presser with the code, checked by the daemon.
 //!
 //! **The code goes from the form to the daemon and nowhere else**: it is not a
 //! message in any channel, not a content item, not a line of a transcript, and
@@ -17,9 +20,10 @@
 use serde_json::{json, Value};
 use theseus_protocol::answer::{ConfirmListParams, WorkAnswerParams, WorkAnswerResult};
 use theseus_protocol::owner_proof::ProofCode;
-use theseus_protocol::{method, ConfirmListResult, DiscordOrigin, LedgerKind};
+use theseus_protocol::{method, ConfirmListResult, ConfirmRequest, DiscordOrigin, LedgerKind};
 use twilight_model::application::interaction::modal::ModalInteractionData;
 use twilight_model::application::interaction::Interaction;
+use twilight_model::http::interaction::InteractionResponseType;
 
 use super::{origin_of, Shared};
 use crate::render::board_v2::short;
@@ -33,22 +37,42 @@ const CODE_FIELD: &str = "code";
 const TEXT_INPUT: u64 = 4;
 const LABEL: u64 = 18;
 
+/// The most characters a form field's description holds (Discord's limit).
+const DESCRIPTION: usize = 100;
+
+/// What the form says when the daemon's line does not fit a description: never
+/// a line cut in the middle of a sentence.
+const NEEDED: &str = "second proof: needed, enter the code from your authenticator app";
+
 /// The form: one short input for the code. `line` is the daemon's words for
-/// this place; `required` is false when an earlier proof from here still
-/// covers the answer, so an empty field uses it.
+/// this place, said whole or, when they are too long for a description, as
+/// [`NEEDED`]; `required` is false for a form that an earlier proof would
+/// cover (the press answers instead of opening one: `covered`).
 pub(crate) fn modal(question: &str, line: &str, required: bool) -> Value {
+    let said = if line.chars().count() <= DESCRIPTION {
+        line
+    } else {
+        NEEDED
+    };
     json!({"type": 9, "data": {
         "custom_id": format!("{MODAL}{question}"),
         "title": clip("Second proof", 45),
         "components": [{
             "type": LABEL,
             "label": "Code from your authenticator app",
-            "description": clip(line, 100),
+            "description": said,
             "component": {"type": TEXT_INPUT, "custom_id": CODE_FIELD, "style": 1,
                           "required": required, "min_length": if required { 6 } else { 0 },
                           "max_length": 7, "placeholder": "123456"},
         }],
     }})
+}
+
+/// Whether an open window of the presser's place covers this approval, so the
+/// press answers and no form opens: the daemon says no code is needed for the
+/// place, and the question does not take a fresh code every time.
+pub(super) fn covered(req: &ConfirmRequest) -> bool {
+    req.needs_proof && !req.needs_fresh_proof && req.proof.as_ref().is_some_and(|p| !p.code_needed)
 }
 
 /// The question a form is for, from its `custom_id`.
@@ -57,12 +81,13 @@ pub(super) fn question_of(custom_id: &str) -> Option<&str> {
 }
 
 impl Shared {
-    /// A press that approves `question`: when it needs the owner's second
-    /// proof, the form opens instead and this is true; the press is then
-    /// answered by the form's submit. Asked of the daemon as the presser, so
-    /// the words are for this place. Any failure to ask leaves the press to
-    /// answer as it always did, and the daemon's gate then refuses an
-    /// approval that carries no proof.
+    /// A press that approves `question`: when it needs a code the owner has
+    /// not given from here, the form opens instead and this is true; the press
+    /// is then answered by the form's submit. A question an open window covers
+    /// is answered by the press itself (`covered`: this is false). Asked of the
+    /// daemon as the presser, so the words are for this place. Any failure to
+    /// ask leaves the press to answer as it always did, and the daemon's gate
+    /// then refuses an approval that carries no proof.
     pub(super) async fn proof_form(
         &self,
         i: &Interaction,
@@ -83,14 +108,23 @@ impl Shared {
         else {
             return false;
         };
-        if !req.needs_proof {
+        if !req.needs_proof || covered(&req) {
             return false;
         }
-        let (line, required) = match &req.proof {
-            Some(p) => (p.line.clone(), p.code_needed),
-            None => ("second proof: needed".to_string(), true),
-        };
-        self.respond_modal(i, &modal(&req.correlation_id, &line, required))
+        // No authenticator is enrolled: a form could not be answered, so the
+        // daemon's words are said whole, to the presser alone.
+        if let Some(p) = req.proof.as_ref().filter(|p| p.not_enrolled) {
+            self.respond(
+                i,
+                InteractionResponseType::ChannelMessageWithSource,
+                Some(format!("🔐 {}", p.line)),
+                true,
+            )
+            .await;
+            return true;
+        }
+        let line = req.proof.as_ref().map_or(NEEDED, |p| p.line.as_str());
+        self.respond_modal(i, &modal(&req.correlation_id, line, true))
             .await;
         true
     }
@@ -170,6 +204,26 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use theseus_protocol::owner_proof::ProofStanding;
+
+    fn asked(needs: bool, fresh: bool, standing: Option<ProofStanding>) -> ConfirmRequest {
+        ConfirmRequest {
+            needs_proof: needs,
+            needs_fresh_proof: fresh,
+            proof: standing,
+            ..Default::default()
+        }
+    }
+
+    fn standing(code_needed: bool, line: &str) -> ProofStanding {
+        ProofStanding {
+            code_needed,
+            not_enrolled: false,
+            given_at_ms: None,
+            until_ms: None,
+            line: line.into(),
+        }
+    }
 
     /// The form is one input whose words are the daemon's, required when a
     /// code is needed and optional when an earlier proof covers it.
@@ -193,6 +247,49 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("given here 3 hours ago"));
+    }
+
+    /// A line too long for a description is never cut mid-sentence: the
+    /// standard whole sentence stands in for it.
+    #[test]
+    fn a_line_too_long_for_the_description_is_replaced_whole_never_cut() {
+        let long = "second proof: ".to_string() + &"word ".repeat(30);
+        let m = modal("act_0000reef", &long, true);
+        let said = m["data"]["components"][0]["description"].as_str().unwrap();
+        assert_eq!(said, NEEDED);
+        assert!(said.chars().count() <= DESCRIPTION);
+        let whole = modal("act_0000reef", &"x".repeat(DESCRIPTION), true);
+        assert_eq!(
+            whole["data"]["components"][0]["description"]
+                .as_str()
+                .unwrap()
+                .len(),
+            DESCRIPTION
+        );
+    }
+
+    /// An open window of the place covers an approval that takes no fresh code:
+    /// the press answers. Every other state opens the form (or, with no
+    /// standing known, leaves the daemon's gate to judge).
+    #[test]
+    fn a_press_inside_a_window_answers_and_every_other_state_asks() {
+        let window = standing(
+            false,
+            "second proof: given here 3 minutes ago, good for 23 hours more",
+        );
+        assert!(covered(&asked(true, false, Some(window.clone()))));
+        // A question that takes a fresh code every time is never covered.
+        assert!(!covered(&asked(true, true, Some(window))));
+        // No window: a code is needed.
+        assert!(!covered(&asked(
+            true,
+            false,
+            Some(standing(true, "second proof: needed"))
+        )));
+        // The standing was not given: the form is the safe side.
+        assert!(!covered(&asked(true, false, None)));
+        // A question that needs no proof is not this module's.
+        assert!(!covered(&asked(false, false, Some(standing(false, "")))));
     }
 
     #[test]

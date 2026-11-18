@@ -32,15 +32,23 @@ Lost your phone: stop the daemon and remove `owner-proof.json` from its state di
 enroll again. (There is no restart flag: your own account owns that file, so the shell that could pass a flag could
 remove the file too, and the daemon never takes the file's absence for anything but "not paired".)
 
-**Answer a change that needs it.** On a card, Approve opens a form with one field for the code. At the CLI,
-`theseus answer <id> approve --code 123456` (`--code -` reads the digits from standard input). In the cockpit, the card
-has a field. A code typed as an ordinary chat message counts for nothing.
+**Answer a change that needs it.** On a card, Approve opens a form with one field for the code, unless a window of
+this place already covers the question (below): then Approve goes through at once, with no form. At the CLI,
+`theseus answer <id> approve --code 123456` (`--code -` reads the digits from standard input; inside a window it needs
+no code and says on what footing it went through). In the cockpit, the card has a field only when a code is needed. A
+code typed as an ordinary chat message counts for nothing.
 
 **For a while, once is enough.** A good code opens a *window* over the place it was typed in (the terminal, the
 cockpit, a Discord DM): for `[owner_proof] window_hours` (24 by default; 0 asks every time; at most 24), a question
 that needs the proof, answered from that same place, goes through on the card's yes alone. Another place asks for its
-own code. A use does not extend the window: it ends 24 hours from the code. The card says which it is: "second proof:
-needed, enter the code from your authenticator app", or "second proof: given here 3 hours ago, good for 21 hours more".
+own code. A use does not extend the window: it ends 24 hours from the code. The card says, before the press, which it
+is: "Second proof: none given here earlier covers this: Approve opens a form for the code from your authenticator
+app", or "second proof: given here 3 hours ago, good for 21 hours more; Approve goes through". The words are fixed when
+the card is drawn; the press is decided by the daemon when it comes (a window that ended in between asks for the code
+then: the form opens, or, when it ended between the press and the answer, the answer is refused with the daemon's words
+and the next press opens the form).
+A question that needs a fresh code every time is never covered. The approved card's settled line says the footing: "on the
+second proof given here 3 minutes earlier", or "with a fresh code".
 `theseus owner proof lock` ends every window at once. Lowering `window_hours` shortens a window already open (its end
 is capped by the setting in force when it is read), and at 0 ends it.
 
@@ -92,9 +100,9 @@ decision**, so every surface meets it; a decline is never gated.
 
 | Surface | How the code is carried |
 |---|---|
-| Discord | Approve on a card for such a question opens a form (a modal) with one field. The form's own line says which footing it is, and the field is optional when a window of that DM covers the answer. The submit is `work.answer` as the presser; the code goes from the form to the daemon and nowhere else (not a message, not a content item, not a transcript line, not a binding ledger row). |
+| Discord | Approve on a card for such a question opens a form (a modal) with one required field, unless a window of that place (the DM, or a private channel) covers the answer: then the press answers and no form opens (`runtime/proof_form.rs`, `covered`). With nothing enrolled, the press says so and opens no form. The submit is `work.answer` as the presser; the code goes from the form to the daemon and nowhere else (not a message, not a content item, not a transcript line, not a binding ledger row). |
 | CLI | `theseus answer <id> approve --code 123456`. |
-| Cockpit | A field on the card. |
+| Cockpit | A field on the card, shown only when a code is needed; inside a window the card says Approve goes through. |
 
 ## Who may do what
 

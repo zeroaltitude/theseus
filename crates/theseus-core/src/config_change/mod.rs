@@ -43,6 +43,7 @@ pub mod restart;
 pub mod show;
 pub mod shown;
 pub mod undo;
+pub mod waiting;
 pub mod wall;
 pub mod whole;
 pub mod words;
@@ -378,7 +379,14 @@ pub fn restart(
         "Asked the owner:\n{question}Nothing restarts until they say yes, from a private place."
     );
     // A plain restart changes no setting: its own card, and the card's yes alone.
-    ask(tc, proposal, correlation_id, &said, proof_seam::Needs::Card)?;
+    ask(
+        rt,
+        tc,
+        proposal,
+        correlation_id,
+        &said,
+        proof_seam::Needs::Card,
+    )?;
     Ok((said, json!({})))
 }
 
@@ -546,14 +554,16 @@ pub(crate) fn put(
     let said = format!(
         "Asked the owner:\n{question}Nothing changes until they say yes, from a private place{}; \
          the daemon then writes the file itself. If they decline, or do not answer in time, \
-         nothing is written.\n{}",
+         nothing is written.\n{}\n{}\n{}",
         match needs {
             proof_seam::Needs::Card => "",
             _ => ", with the second proof",
         },
+        waiting::SETTINGS_CHECKED,
+        waiting::waiting(tc),
         show::before(base, &settings)
     );
-    ask(tc, proposal, correlation_id, &said, needs)?;
+    ask(rt, tc, proposal, correlation_id, &said, needs)?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -563,6 +573,7 @@ pub(crate) fn put(
 /// The question, its card, and the record that answers a call run again, in
 /// one frame on the proposing execution.
 fn ask(
+    rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
     proposal: Proposal,
     correlation_id: &str,
@@ -597,6 +608,13 @@ fn ask(
         .map_err(|e| format!("the question was not asked: {e:#}"))?;
     if let Some(post) = card {
         tc.outbox.posted(&post);
+    }
+    // The card is the question: the owner's words that began this turn are not
+    // also offered or kept as a standing record (issue 22).
+    if let Some(core) = rt.config_change.core() {
+        if let Some(node) = core.turn_input(tc.turn_id) {
+            core.settled_by_act(tc.session_id, &node);
+        }
     }
     if let Ok(Some(session)) = tc
         .store
@@ -672,6 +690,10 @@ pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) mod tests_answer;
 #[cfg(test)]
+mod tests_press;
+#[cfg(test)]
 mod tests_proof;
 #[cfg(test)]
 mod tests_undo;
+#[cfg(test)]
+mod tests_withdrawn;

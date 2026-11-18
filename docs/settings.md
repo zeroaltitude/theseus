@@ -185,8 +185,9 @@ person or program answering a card. It does not protect against a program that r
 - A program that can read your authenticator app, your phone, or what you type has the code.
 - Anyone with your account's shell can remove the proof's file and pair their own app.
 - The prompt files are on the same floor as the settings file: a file tool, a shell command naming one and a job
-  stop and wait for you at every setting, whatever the tool's posture. That is the files the settings name as context
-  files, both places a persona's file is kept by default (`personas/` and the older `persona/` in the state directory,
+  stop and wait for you at every setting, whatever the tool's posture (only a call that names the file is held: a glob,
+  or a whole directory moved or copied, names none and is not stopped, as for the rest of the floor). That is the files
+  the settings name as context files, both places a persona's file is kept by default (`personas/` and the older `persona/` in the state directory,
   whole, with the copies kept beside a file), every file a persona's own record names as its file wherever it is, and a
   copy kept beside any of them. Only Theseus's own program writes them, after your yes, and only your own turn reads
   them, with `config.read_file`; a tool that reads one waits for you. A search over a directory that holds one is not

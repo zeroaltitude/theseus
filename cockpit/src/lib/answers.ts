@@ -52,6 +52,9 @@ export function proofLine(c: ConfirmRequest): string | null {
 /** Whether the card shows the code field: the question needs the proof and no earlier one from this place covers it. */
 export const needsCode = (c: ConfirmRequest): boolean => Boolean(c.needs_proof) && c.proof?.code_needed !== false
 
+/** Whether an open window of this place covers the question, so Approve goes through with no code (issue 22). */
+export const goesThrough = (c: ConfirmRequest): boolean => Boolean(c.needs_proof) && c.proof?.code_needed === false
+
 /** A change to Theseus's own settings or files (`config.ack`) is a card the daemon built to be read as it is: its lines
  *  keep their breaks. */
 export const isSettingsChange = (c: ConfirmRequest): boolean => c.tool === 'config.ack'
