@@ -1602,15 +1602,9 @@ fn nth_report_after(herdr: &FakeHerdr, n: usize, sent: Instant) -> Option<Durati
 }
 
 /// From the daemon's frame to herdr's ear, 200 changes on the scripted rig:
-/// the 99th percentile within 10 ms (FAST). A change is one report. The budget
-/// is the adapter's own, so a batch that a busy machine disturbed (one stall
-/// of the process or of the rig is enough to put two of 200 over) is measured
-/// again, up to five batches: the test passes when one batch keeps the budget
-/// and fails, with every batch's figure, when none does. An adapter that
-/// takes longer than the budget takes longer in every batch.
+/// the 99th percentile within 10 ms (FAST). A change is one report.
 #[test]
 fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
-    const BATCHES: u64 = 5;
     let dir = tempfile::tempdir().unwrap();
     let herdr = FakeHerdr::start(dir.path());
     let d = task_daemon(
@@ -1619,39 +1613,27 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
     );
     let w = Watch::start(&d, Some(&herdr), &[]);
     herdr.wait_for("pane.report_metadata", 1);
-    let mut p99s = Vec::new();
-    for batch in 0..BATCHES {
-        let mut lat = Vec::new();
-        for i in batch * 200..(batch + 1) * 200 {
-            let seen = report_requests(&herdr.requests()).len();
-            let sent = Instant::now();
-            let label = format!("turn {}", i + 2);
-            d.push(
-                "execution.changed",
-                task_view(11 + i, "running", "working", &label, json!({})),
-            );
-            lat.push(wait_until("the report", || {
-                nth_report_after(&herdr, seen, sent)
-            }));
-        }
-        lat.sort();
-        let p99 = lat[lat.len() * 99 / 100];
-        eprintln!(
-            "frame to herdr, batch {}: p50 {:?}, p99 {p99:?}, max {:?}",
-            batch + 1,
-            lat[lat.len() / 2],
-            lat[lat.len() - 1]
+    let mut lat = Vec::new();
+    for i in 0..200u64 {
+        let seen = report_requests(&herdr.requests()).len();
+        let sent = Instant::now();
+        let label = format!("turn {}", i + 2);
+        d.push(
+            "execution.changed",
+            task_view(11 + i, "running", "working", &label, json!({})),
         );
-        p99s.push(p99);
-        if p99 <= Duration::from_millis(10) {
-            break;
-        }
+        lat.push(wait_until("the report", || {
+            nth_report_after(&herdr, seen, sent)
+        }));
     }
-    let best = p99s.iter().min().unwrap();
-    assert!(
-        *best <= Duration::from_millis(10),
-        "p99 in every batch: {p99s:?}"
+    lat.sort();
+    let p99 = lat[lat.len() * 99 / 100];
+    eprintln!(
+        "frame to herdr: p50 {:?}, p99 {p99:?}, max {:?}",
+        lat[lat.len() / 2],
+        lat[lat.len() - 1]
     );
+    assert!(p99 <= Duration::from_millis(10), "p99 {p99:?}");
     w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");
