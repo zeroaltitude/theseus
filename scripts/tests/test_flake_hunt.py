@@ -155,6 +155,11 @@ class FlakeHunt(unittest.TestCase):
         view = [c for c in self.calls() if "--test self_build" in c]
         self.assertEqual(len(view), 1, self.calls())
         self.assertIn("--run-ignored only", view[0])
+        # The one test is given hours, in a config of its own; the repository's config is not the one written.
+        self.assertIn("--config-file", view[0])
+        cfg = os.path.join(self.tree, "target", "flake-hunt", "nextest-view.toml")
+        with open(cfg) as f:
+            self.assertIn("a_real_checkouts_command_runs_in_the_view", f.read())
         suite = [c for c in self.calls() if "--no-fail-fast" in c]
         self.assertEqual(len(suite), 2)
         self.assertIn("threads=7", suite[0])

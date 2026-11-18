@@ -63,9 +63,19 @@ if [ "$view" = yes ]; then
   for f in "${flags[@]}"; do [ "$f" = --view ] || inner="$inner $(printf '%q' "$f")"; done
   case " ${flags[*]} " in *" --out "*) ;; *) inner="$inner --out $(printf '%q' "$out")" ;; esac
   rm -f "$out/hunt.log" "$out/failed-tests.tsv"
+  # The view's test runs the whole hunt (a cold build, then N suites): hours, where the profile ends a test
+  # at two minutes. Only for this one test, in a copy of the config beside the hunt's output, so
+  # .config/nextest.toml and what its timeouts guard are untouched.
+  cp .config/nextest.toml "$out/nextest-view.toml"
+  cat >> "$out/nextest-view.toml" <<'TOML'
+
+[[profile.default.overrides]]
+filter = 'binary_id(theseusd::self_build) & test(=a_real_checkouts_command_runs_in_the_view)'
+slow-timeout = { period = "3600s", terminate-after = 24 }
+TOML
   THESEUS_SELF_BUILD_TREE=$PWD THESEUS_SELF_BUILD_CMD=$inner \
-    cargo nextest run -p theseusd --test self_build --run-ignored only --no-capture \
-    -E 'test(=a_real_checkouts_command_runs_in_the_view)'
+    cargo nextest run --config-file "$out/nextest-view.toml" -p theseusd --test self_build \
+    --run-ignored only --no-capture -E 'test(=a_real_checkouts_command_runs_in_the_view)'
   [ -s "$out/hunt.log" ] || { echo "HUNT: the view ran no hunt (no $out/hunt.log); the view's own run is above" >&2; exit 2; }
   cat "$out/hunt.log"
   grep -q '^HUNT table' "$out/hunt.log" || { echo "HUNT: the hunt in the view ended with no table" >&2; exit 2; }
