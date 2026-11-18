@@ -226,7 +226,15 @@ async fn a_floor_hold_is_not_approved_by_an_agents_process() {
             .core
             .confirm_action(&q.correlation_id, true, None, agent(surface))
             .unwrap_err();
-        assert!(format!("{e:#}").contains("held by the floor"), "{e:#}");
+        let e = format!("{e:#}");
+        assert!(
+            e.contains("an agent's process cannot approve a call held by the floor")
+                && e.contains("the owner approves it by its own button")
+                && e.contains("theseus answer <id> approve")
+                && e.contains("Nothing ran"),
+            "{e}"
+        );
+        assert!(!e.contains("from a conversation"), "{e}");
     }
     assert_eq!(r.asked().len(), 1, "it still waits");
     r.core
