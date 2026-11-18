@@ -142,7 +142,7 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   among the task paths; the board, cards and pointers are created silent), a plain turn's frames, and each change's delay to a
   watching client. The model is `theseus-sim fake-model` as a child (build `-p theseus-sim` first), Discord the in-process
   stand-in. A working window is a job waiting at a gate file the test opens, never a timer. The steps another row builds are
-  ignored tests that assert that row's contract. every time bound is held in proportion to how slowly the machine gives a thread its turn (`theseus_sim::Busy`, at most 10 times; exact on a quiet machine); `THESEUS_JOURNEY_SLOWDOWN=k` sets that factor and
+  ignored tests that assert that row's contract. Every time bound is held in proportion to how slowly the machine gives a thread its turn (`theseus_sim::Busy`, at most 10 times; exact on a quiet machine); `THESEUS_JOURNEY_SLOWDOWN=k` sets that factor and
   `THESEUS_JOURNEY_REPORT=file` writes the measurements as JSON (`scripts/acceptance/journey.sh` reads it). The herdr steps are
   the script's.
 - `tests/user_service_script.rs` runs `scripts/user-service.sh` and the real `theseusd install --user` against stand-in

@@ -233,8 +233,8 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
     );
     // A stop: SIGTERM, and the tender is gone.
     let third = *seen.0.last().unwrap();
-    let _ = s.call("shutdown", Value::Null);
     let busy = Busy::before();
+    let _ = s.call("shutdown", Value::Null);
     let t0 = Instant::now();
     while !ended(third) {
         assert!(
@@ -289,8 +289,8 @@ fn a_stop_does_not_wait_for_the_tender() {
         "{took:?} ({busy})"
     );
     assert_eq!(state(pid), Some('T'), "the tender is still stopped");
-    signal(pid, libc::SIGCONT);
     let busy = Busy::before();
+    signal(pid, libc::SIGCONT);
     let t1 = Instant::now();
     while !ended(pid) {
         assert!(
@@ -471,8 +471,8 @@ fn a_restart_in_place_takes_the_running_tender_over() {
     // Its rows: the old image started it, the new one took it over.
     let events = tender_events(&sock, 2);
     assert_eq!(events, ["started", "adopted"], "{}", logs());
-    let _ = call_on(&sock, "shutdown");
     let busy = Busy::before();
+    let _ = call_on(&sock, "shutdown");
     let t0 = Instant::now();
     while !ended(pid) {
         assert!(
