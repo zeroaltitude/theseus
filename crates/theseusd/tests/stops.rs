@@ -246,6 +246,10 @@ fn alive(pid: u32) -> bool {
 /// It settles within one grace (2 s) and a margin, not three, every job's
 /// command is gone after it, and while it waits, `health` answers at once on
 /// the daemon's one worker.
+///
+/// The health bound below sits under the product's `STOP_GRACE` (2 s) to tell a health that waited on the
+/// stop from a slow one, so it is not scaled by the machine's slowness (theseus-20): a bound over the grace
+/// could not tell them apart.
 #[test]
 fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker() {
     let r = Rig::new();

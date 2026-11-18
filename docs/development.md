@@ -217,6 +217,19 @@ The phases run in this order, and the first failure stops the gate:
   - A test that measures real elapsed time against a short limit runs on tokio's paused clock when its timer is the
     code's own (`#[tokio::test(start_paused = true)]` and `tokio::time::Instant`), or is given a limit load cannot
     reach, or says why it is sound as it is.
+  - **A speed promise in a test** is a bound on how fast the product answers (a stop within a second, a change reaching
+    an adapter within 10 ms), as opposed to a mechanism (an order, a count, a timer the code owns) or a fixture's
+    patience (how long a test waits for something to happen at all). Write a promise with
+    `theseus_tools::Busy` (re-exported as `theseus_sim::Busy`): `let busy = Busy::before();` just before the timed
+    region, then `busy.keeps(elapsed, bound)` for each bound, and put `{busy}` in the message. On a quiet machine the
+    factor reads 1 and the bound is exactly the promise; on a machine that gives each thread a fraction of a core it is
+    held in proportion to how slowly a thread got its turn, before the region and when the bound is passed, never more
+    than `BOUND_CAP` (8) times, so a product that is really slower still fails. `Busy::when_late()` reads the machine
+    only when a bound is passed (a long region, or many). A limit that is an input (a fake's latency and the margin
+    under it) grows with its bound by `theseus_tools::bound_factor()`.
+  - What scaling cannot fix, and a test must not: a bound set just under a constant of the product (a backstop, a
+    grace, an answer window), because a scaled bound could then no longer tell the behaviour from a slow machine.
+    Those tests say so in their docs; the product's constants are never scaled.
 
 - **A gate at 0 % CPU is waiting on a lock**: this one, or cargo's package cache. The gate's log names the holder;
   find it before waiting longer.

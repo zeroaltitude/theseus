@@ -165,6 +165,10 @@ fn tasks(dir: &Path) -> usize {
 /// one in its own session and one double-forked, is stopped whole by its
 /// cgroup: SIGTERM, the grace, then no new process let in and SIGKILL to
 /// each, with none left. The wrapper then removes the job's cgroup.
+///
+/// The wrapper has `job::ANSWER_WAIT` (3 s, the product's) after the grace to kill all that and answer; a
+/// machine that starves it of a core can miss it, and the grace the test passes moves only where that
+/// window starts, so the test is not scaled (theseus-20; the answer window is the product's).
 #[test]
 fn a_fork_loop_that_ignores_sigterm_is_stopped_whole_by_its_cgroup() {
     let Some(scope) = Scope::start("stop") else {
