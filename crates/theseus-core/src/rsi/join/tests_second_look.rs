@@ -100,6 +100,18 @@ fn workspace(f: &Fixture) {
         );
         put(&format!("crates/{name}/src/lib.rs"), "\n");
     }
+    // `a` is the big package: modules in directories, as a core has them.
+    for module in [
+        "term/mod.rs",
+        "term/pty.rs",
+        "term/tests.rs",
+        "config/mod.rs",
+        "config/words.rs",
+        "config/tests_answer.rs",
+        "rpc/mcp_card.rs",
+    ] {
+        put(&format!("crates/a/src/{module}"), "// before\n");
+    }
     git(&other, &["add", "-A"]);
     git(&other, &["commit", "-q", "-m", "a workspace"]);
     git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
@@ -151,6 +163,22 @@ const EDITS_A: &[(&str, &str)] = &[
     ("crates/a/fix.txt", "fixed\n"),
     ("crates/a/tests/fix.sh", "test -f crates/a/fix.txt\n"),
 ];
+
+/// The change of the second self join: three files of the one package, in modules that are not
+/// the terminal's. The planted revert's stand-in runs a test file only as a script, which in `a`
+/// would be a file that is not Rust source and would reach the whole package, so the proof sits in
+/// the package beside it, which `a` does not depend on.
+const EDITS_WORDS: &[(&str, &str)] = &[
+    (
+        "crates/b/tests/words.sh",
+        "grep -q after crates/a/src/config/words.rs\n",
+    ),
+    ("crates/a/src/config/words.rs", "// after\n"),
+    ("crates/a/src/rpc/mcp_card.rs", "// after\n"),
+    ("crates/a/src/config/tests_answer.rs", "// after\n"),
+];
+
+const TERM_TEST: &str = "term::tests::cat_echoes_and_ctrl_c_ends_it";
 
 /// KEY: the gate's only failure is a test of a package the merge does not touch. That test alone
 /// is run once more and passes, and the join goes on: main's whole gate runs once more (what
@@ -330,4 +358,120 @@ fn a_hold_names_five_failed_tests_and_counts_them() {
             && !why.contains("b job::tests::t6"),
         "{why}"
     );
+}
+
+/// KEY, the case that was held on 2026-11-17: the change edits three files of the one package and
+/// the only failure is a terminal test of that same package, in a module the change does not edit.
+/// It is run once more alone, passes, main's whole gate runs once more, the join goes on and the
+/// row names the test.
+#[tokio::test]
+async fn an_unrelated_test_of_the_same_package_that_fails_once_is_run_again_and_the_change_joins() {
+    let (r, s) = scenario(
+        "red-once",
+        red_suite("a", TERM_TEST),
+        (passed_again("a", TERM_TEST), 0),
+    );
+    let (branch, _) = r.seed("trim-the-sails", EDITS_WORDS, SONNET);
+    let main = r.upstream_main();
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    assert_eq!(pass.joined[0].0, branch);
+    assert_ne!(r.upstream_main(), main, "it joined");
+    assert!(r.rows("self.join.stopped").is_empty());
+    let asked = std::fs::read_to_string(s.path.join("cargo.args")).unwrap();
+    assert!(
+        asked.contains(&format!("(binary_id(=a) & test(={TERM_TEST}))")),
+        "{asked}"
+    );
+    assert_eq!(s.runs("cargo.args"), 1, "one second look");
+    assert_eq!(s.runs("gate.runs"), 2, "the gate, and the gate once more");
+    let j = &r.rows("self.joined")[0];
+    assert_eq!(
+        j["numbers"]["reran"],
+        json!([format!("a {TERM_TEST}")]),
+        "{j}"
+    );
+    let said = j["gate"].as_str().unwrap();
+    assert!(
+        said.contains("passed on a second look") && said.contains(TERM_TEST),
+        "{said}"
+    );
+}
+
+/// KEY: a failed test in the module the change edits is held at once, with no second look and no
+/// second gate: whether the change edits a file of its subtree or the test's own file.
+#[tokio::test]
+async fn a_failed_test_in_a_module_the_change_edits_is_held_at_once() {
+    for edited in ["crates/a/src/term/pty.rs", "crates/a/src/term/tests.rs"] {
+        let (r, s) = scenario(
+            "red-always",
+            red_suite("a", TERM_TEST),
+            (passed_again("a", TERM_TEST), 0),
+        );
+        let mut files = EDITS_WORDS.to_vec();
+        files.push((edited, "// after\n"));
+        let (branch, _) = r.seed("trim-the-sails", &files, SONNET);
+        let main = r.upstream_main();
+        let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+        assert_eq!(
+            pass.stopped,
+            [(branch, "gate".to_string())],
+            "{edited}: {pass:?}"
+        );
+        assert_eq!(r.upstream_main(), main);
+        assert_eq!(s.runs("cargo.args"), 0, "{edited}: nothing was run again");
+        assert_eq!(s.runs("gate.runs"), 1, "{edited}");
+        let why = r.rows("self.join.stopped")[0]["why"].clone();
+        assert!(why.as_str().unwrap().contains(TERM_TEST), "{why}");
+    }
+}
+
+/// KEY: a change to a manifest of the package, or to a file in no package, with any failure: held
+/// at once, whatever module the test is in.
+#[tokio::test]
+async fn a_cargo_file_or_a_script_in_the_change_gives_no_second_look() {
+    for edited in ["crates/a/Cargo.toml", "scripts/helper.sh"] {
+        let (r, s) = scenario(
+            "red-always",
+            red_suite("a", TERM_TEST),
+            (passed_again("a", TERM_TEST), 0),
+        );
+        let mut files = EDITS_WORDS.to_vec();
+        let text = match edited.ends_with("Cargo.toml") {
+            true => "[package]\nname = \"a\"\nversion = \"1.0.1\"\n",
+            false => "changed\n",
+        };
+        files.push((edited, text));
+        let (branch, _) = r.seed("trim-the-sails", &files, SONNET);
+        let main = r.upstream_main();
+        let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+        assert_eq!(
+            pass.stopped,
+            [(branch, "gate".to_string())],
+            "{edited}: {pass:?}"
+        );
+        assert_eq!(r.upstream_main(), main);
+        assert_eq!(s.runs("cargo.args"), 0, "{edited}");
+        assert_eq!(s.runs("gate.runs"), 1, "{edited}");
+    }
+}
+
+/// KEY: a test of the same package that fails again on its second look is held, and the gate is
+/// not run once more.
+#[tokio::test]
+async fn an_unrelated_test_of_the_same_package_that_fails_twice_holds_the_change() {
+    let (r, s) = scenario(
+        "red-always",
+        red_suite("a", TERM_TEST),
+        (failed_again("a", TERM_TEST), 100),
+    );
+    let (branch, _) = r.seed("trim-the-sails", EDITS_WORDS, SONNET);
+    let main = r.upstream_main();
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.stopped, [(branch, "gate".to_string())], "{pass:?}");
+    assert_eq!(r.upstream_main(), main);
+    assert_eq!(s.runs("cargo.args"), 1, "once, and no more");
+    assert_eq!(s.runs("gate.runs"), 1);
+    let why = r.rows("self.join.stopped")[0]["why"].clone();
+    assert!(why.as_str().unwrap().contains(TERM_TEST), "{why}");
 }

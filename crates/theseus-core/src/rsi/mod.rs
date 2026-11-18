@@ -95,6 +95,8 @@ mod tests_pr;
 #[cfg(test)]
 mod tests_reach;
 #[cfg(test)]
+mod tests_reach_within;
+#[cfg(test)]
 mod tests_rerun;
 #[cfg(test)]
 pub(crate) mod tests_tree;

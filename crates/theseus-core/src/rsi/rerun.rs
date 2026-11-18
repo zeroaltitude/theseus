@@ -22,8 +22,9 @@
 //!   is what finally judges them);
 //! - the suite's log reads whole: one summary, every failed test named by a `FAIL` line, the count
 //!   of those lines the summary's, and no timeout, signal or leak line;
-//! - **every failed test's package is outside what the change reaches** (`reach`: the workspace's
-//!   own dependency graph, read from the manifests, conservatively: when in doubt it is inside);
+//! - **every failed test is outside what the change reaches** (`reach`: the workspace's own
+//!   dependency graph, read from the manifests, and inside a package the change edits, the test's
+//!   own module and what it is named for, conservatively: when in doubt it is inside);
 //! - those tests, alone, pass when run again (`tree::rerun_tests`), all of them.
 //!
 //! Then the build goes on as green, and the row says which tests were run again, so a flaky test
@@ -204,7 +205,7 @@ fn all_outside(p: &Place, tree: &Tree, failed: &[Failed], base: Option<&str>) ->
     Some(
         failed
             .iter()
-            .all(|f| reach::outside(&graph, &changed, f.package())),
+            .all(|f| reach::apart(&graph, &changed, f.package(), &f.test, &tree.dir)),
     )
 }
 
