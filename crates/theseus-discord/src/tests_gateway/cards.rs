@@ -260,6 +260,13 @@ async fn a_reply_answers_the_question_it_replies_to() {
     .await;
     r.until("the held call ran", || outside(r.dir.path()).exists())
         .await;
+    // The answered turn's continuation asks the model once more (its `t`): it must have taken
+    // its entry off the script before the next questions take theirs, or one of them is given
+    // the reply and its write does not wait.
+    r.until("the continuation's model call", || {
+        r.ledger("provider.call").len() >= 2
+    })
+    .await;
 
     // Three more, in one window: a header and three cards.
     let (ids, at) = asked(&r, 3).await;
