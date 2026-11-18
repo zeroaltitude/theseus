@@ -1134,6 +1134,7 @@ impl Core {
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
         core.tools.thread_read.attach(&core);
+        core.tools.look.attach(&core);
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
         core.tools.self_pause.attach(&core);

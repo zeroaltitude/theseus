@@ -34,6 +34,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 use zeroize::Zeroizing;
 
+pub mod look;
 pub mod write;
 
 pub const TOKEN_ENV: &str = "OP_SERVICE_ACCOUNT_TOKEN";

@@ -690,6 +690,8 @@ pub(crate) mod tests;
 #[cfg(test)]
 pub(crate) mod tests_answer;
 #[cfg(test)]
+mod tests_look;
+#[cfg(test)]
 mod tests_press;
 #[cfg(test)]
 mod tests_proof;

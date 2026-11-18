@@ -133,6 +133,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "read and change Theseus's own settings (a budget, a cap, a switch, a server) or restart it, on the owner's word; the settings file is never opened, so do not use the shell for it",
     ),
     (
+        "look",
+        "look at Theseus itself (models, provider keys, health, build) and at the vault's names, with no shell: a command naming Theseus's own program or the vault's is held, and the vault's has no session by design",
+    ),
+    (
         "prompt-files",
         "read and change the files that are Theseus's own prompt text (its context files and each persona's file), on the owner's word; the daemon writes them after the owner's yes, so do not use the shell or a file tool for them",
     ),
@@ -187,6 +191,7 @@ pub fn of_wire(wire: &str) -> String {
             "drive" | "sheets" | "slides" | "google" => "docs",
             "extend" => "extensions",
             "config" | "daemon" | "mcp" => "settings",
+            "look" => "look",
             "self" => "self",
             _ => OTHER,
         },
@@ -397,6 +402,8 @@ mod tests {
             ("extend_propose", "extensions"),
             ("config_propose", "settings"),
             ("config_show", "settings"),
+            ("look_theseus", "look"),
+            ("look_vault", "look"),
             ("config_propose_file", "prompt-files"),
             ("config_read_file", "prompt-files"),
             ("daemon_restart", "settings"),

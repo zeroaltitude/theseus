@@ -355,6 +355,8 @@ pub struct ToolRuntime {
     pub routines: crate::routine::Book,
     /// What `thread.read` reads (theseus-f2g0): the core, once built.
     pub thread_read: crate::thread_read::Board,
+    /// `look.theseus` and `look.vault` (issue 26): the core, and the daemon's vault reader.
+    pub look: crate::look::Board,
     /// What `card.observed` reads (theseus-6f8t0): the core, once built.
     pub card_observed: crate::card::tool::Board,
     /// `self.file` (theseus-cux0o): a person's finding, filed from a chat.
@@ -559,6 +561,7 @@ impl ToolRuntime {
             lookup: Default::default(),
             routines: Default::default(),
             thread_read: Default::default(),
+            look: Default::default(),
             card_observed: Default::default(),
             self_file: Default::default(),
             self_pause: Default::default(),
@@ -1202,6 +1205,8 @@ impl ToolRuntime {
         // A read of Theseus's own settings is asked when the turn read outside text.
         let planned =
             planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));
+        // So is a look at Theseus itself or at the vault's names (issue 26).
+        let planned = planned.map(|p| crate::look::ask_if_outside(tc, tool.name(), p));
         // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
         let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
         // A glide's places (38b): the one it names must be bound here.
@@ -1998,6 +2003,8 @@ pub fn build_runtime(
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         crate::config_change::register(cfg, &mut r);
+        // Theseus and its vault, looked at by name, with no shell (issue 26).
+        crate::look::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
@@ -2156,6 +2163,7 @@ pub fn build_runtime(
         lookup: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
         thread_read: Default::default(),
+        look: Default::default(),
         card_observed: Default::default(),
         self_file: Default::default(),
         self_pause: Default::default(),
