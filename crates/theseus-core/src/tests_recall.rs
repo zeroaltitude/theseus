@@ -6,7 +6,7 @@
 //! answers every node of the sessions it is given, so the filters decide.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use proptest::prelude::*;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
@@ -280,7 +280,8 @@ async fn a_shared_place_recalls_only_its_own_sessions() {
 
 /// A stalled index never holds the turn: it answers at its call's pace, and
 /// the row says `deadline`. With no tender running, `unavailable`, and why.
-#[tokio::test]
+/// On the paused clock: the bound on the turn's time is its own virtual time.
+#[tokio::test(start_paused = true)]
 async fn a_stalled_index_never_holds_the_turn() {
     let r = rig_with(MemoryMode::Shadow, |c| c.memory.recall_deadline_ms = 50);
     let c = &r.core;
@@ -290,7 +291,7 @@ async fn a_stalled_index_never_holds_the_turn() {
     c.runner.memory.set_ask(Arc::new(|_| -> AskFuture {
         Box::pin(std::future::pending())
     }));
-    let t0 = Instant::now();
+    let t0 = tokio::time::Instant::now();
     let res = turn(c, &here, "is anyone there?").await;
     assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
     assert_eq!(res.loops, 1);
