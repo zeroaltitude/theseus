@@ -19,6 +19,12 @@ use theseus_protocol::rsi::{
 use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::{Builder, Seams, Tick};
+
+// Registered here, in a test file, so the tests of `live()` stand with the tests and not with the
+// code they judge.
+#[path = "tests_jobs.rs"]
+mod tests_jobs;
+
 use crate::approval::Answerer;
 use crate::fact::rsi_join::SelfReviewVerdict;
 use crate::fact::rsi_pr::SelfBranchBuilt;
