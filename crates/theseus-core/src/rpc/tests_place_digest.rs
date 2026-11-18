@@ -248,7 +248,7 @@ async fn a_place_digest_never_shows_a_sealed_thread() {
 /// turn that waited for the answer from one that did not; on a machine that
 /// gives each thread a third of a core the turn's own work stretches, so the
 /// latency and the bound grow together, by what `bound_factor` measured (at
-/// most 8; 1 on a quiet machine, where they are 3 s and 2.9 s exactly).
+/// most 10; 1 on a quiet machine, where they are 3 s and 2.9 s exactly).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_thread_scope_and_a_late_answer_get_no_digest() {
     let k = theseus_tools::bound_factor();

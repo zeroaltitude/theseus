@@ -253,7 +253,7 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
 /// "At once" is a promise about the daemon: its exit is many wake-ups in a
 /// row (20 ms idle, up to 1.8 s with 64 busy threads), so the two limits are
 /// held in proportion to how slowly the machine gave a thread its turn
-/// around the stop (`Busy`, at most 8 times), which is exactly the limit on
+/// around the stop (`Busy`, at most 10 times), which is exactly the limit on
 /// a quiet machine (theseus-20).
 #[test]
 fn a_stop_does_not_wait_for_the_tender() {

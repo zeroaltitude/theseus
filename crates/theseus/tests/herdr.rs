@@ -1606,7 +1606,7 @@ fn nth_report_after(herdr: &FakeHerdr, n: usize, sent: Instant) -> Option<Durati
 /// 10 ms is a promise about the adapter, so on a machine that gives each
 /// thread a third of a core it is held in proportion: the bound is
 /// multiplied by how slowly the machine gave a thread its turn before the
-/// changes and after them (`Busy`, at most 8 times), which is 1 on a quiet
+/// changes and after them (`Busy`, at most 10 times), which is 1 on a quiet
 /// machine, so there it is 10 ms exactly (theseus-20).
 #[test]
 fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {

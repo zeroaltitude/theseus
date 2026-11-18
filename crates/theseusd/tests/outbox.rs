@@ -360,7 +360,7 @@ fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
     );
     // "No longer than the grace" is a promise about the daemon: its exit is many wake-ups in a
     // row (20 ms idle, 1.8 s with 64 busy threads), so the limit is held in proportion to how
-    // slowly the machine gave a thread its turn around the stop (`Busy`, at most 8 times), which
+    // slowly the machine gave a thread its turn around the stop (`Busy`, at most 10 times), which
     // is exactly 1000 ms on a quiet machine (theseus-20).
     assert!(
         busy.keeps(stopped_in, Duration::from_millis(1000)),

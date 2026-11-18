@@ -224,7 +224,7 @@ The phases run in this order, and the first failure stops the gate:
     region, then `busy.keeps(elapsed, bound)` for each bound, and put `{busy}` in the message. On a quiet machine the
     factor reads 1 and the bound is exactly the promise; on a machine that gives each thread a fraction of a core it is
     held in proportion to how slowly a thread got its turn, before the region and when the bound is passed, never more
-    than `BOUND_CAP` (8) times, so a product that is really slower still fails. `Busy::when_late()` reads the machine
+    than `BOUND_CAP` (10) times, so a product that is really slower still fails. `Busy::when_late()` reads the machine
     only when a bound is passed (a long region, or many). A limit that is an input (a fake's latency and the margin
     under it) grows with its bound by `theseus_tools::bound_factor()`.
   - What scaling cannot fix, and a test must not: a bound set just under a constant of the product (a backstop, a

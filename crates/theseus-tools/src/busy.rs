@@ -66,11 +66,12 @@ pub fn busy_factor() -> u64 {
 }
 
 /// The most a speed promise's bound is ever multiplied by ([`Busy::keeps`]). A bound scaled without a
-/// limit promises nothing: at 50 a two-second bound would pass a daemon that took a hundred seconds. Eight
-/// is a machine that gives a thread an eighth of a core, twice the worst the flake hunts met (64 busy
-/// threads beside 32 test threads on 32 cores read 3 to 4 while a promise was timed); beyond that the
-/// machine is not one a promise about milliseconds can be tested on, and the test fails and says so.
-pub const BOUND_CAP: u64 = 8;
+/// limit promises nothing: at 50 a two-second bound would pass a daemon that took a hundred seconds. Ten
+/// is a machine that gives a thread a tenth of a core. Measured on a 32-core box (40 samples each): idle,
+/// every one read 1; beside 64 CPU burners, 2 to 4; beside 64 burners and 96 more busy threads, 4 to 8,
+/// median 5. So ten holds the worst of those with room, and beyond it the machine is not one a promise
+/// about milliseconds can be tested on: the test fails and says so.
+pub const BOUND_CAP: u64 = 10;
 
 /// [`busy_factor`] held to [`BOUND_CAP`]: for a test whose limit is an INPUT it scales together with the
 /// bound that depends on it (a fake's latency and the margin under it), where [`Busy`] is for a bound

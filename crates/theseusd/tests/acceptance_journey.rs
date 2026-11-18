@@ -148,7 +148,7 @@ fn now_ms() -> u64 {
 
 /// Whether `elapsed` keeps a time bound of `limit_ms`. Every bound here is a latency promise about the
 /// product, so on a machine that gives each thread a third of a core it is held in proportion (`Busy`:
-/// asked how slowly a thread gets its turn when a bound is passed, at most 8 times), and on a quiet
+/// asked how slowly a thread gets its turn when a bound is passed, at most 10 times), and on a quiet
 /// machine it is the brief's number exactly (theseus-20). `THESEUS_JOURNEY_SLOWDOWN` (default unset)
 /// replaces the measured factor with a given one, to show the order of things held while their latency
 /// did not.
