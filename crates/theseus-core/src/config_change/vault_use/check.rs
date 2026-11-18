@@ -63,9 +63,11 @@ pub(crate) fn writable(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '-' | '.'))
 }
 
-/// The segment for one thing: its name when that can be written, else its id.
-fn segment(name: &str, id: &str, by_id: &mut bool) -> Option<String> {
-    if writable(name) {
+/// The segment for one thing: its name when that can be written and no sibling
+/// has it too (the vault's program matches names ignoring case, and needs the
+/// id when a name is shared), else its id.
+fn segment(name: &str, id: &str, unique: bool, by_id: &mut bool) -> Option<String> {
+    if unique && writable(name) {
         return Some(name.to_string());
     }
     if writable(id) {
@@ -142,19 +144,46 @@ pub async fn check(
         Err(f) => return Err(said(f)),
     };
     let field = pick_field(&fields, field, section, &found.title)?;
+    let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
     let mut by_id = false;
     let mut parts = vec![
-        segment(&v.name, &v.id, &mut by_id),
-        segment(&found.title, &found.id, &mut by_id),
+        segment(
+            &v.name,
+            &v.id,
+            vaults.iter().filter(|x| same(&x.name, &v.name)).count() == 1,
+            &mut by_id,
+        ),
+        segment(
+            &found.title,
+            &found.id,
+            items
+                .iter()
+                .filter(|x| same(&x.title, &found.title))
+                .count()
+                == 1,
+            &mut by_id,
+        ),
     ];
     if let Some(s) = &field.section {
+        let sections: std::collections::BTreeSet<&str> = fields
+            .iter()
+            .filter(|f| f.section.as_deref().is_some_and(|x| same(x, s)))
+            .filter_map(|f| f.section_id.as_deref())
+            .collect();
         parts.push(segment(
             s,
             field.section_id.as_deref().unwrap_or_default(),
+            sections.len() == 1,
             &mut by_id,
         ));
     }
-    parts.push(segment(&field.label, &field.id, &mut by_id));
+    // A field is known among the fields of its own section, by label or id.
+    let siblings = fields
+        .iter()
+        .filter(|f| f.section_id == field.section_id)
+        .filter(|f| same(&f.label, &field.label) || same(&f.id, &field.label))
+        .count();
+    parts.push(segment(&field.label, &field.id, siblings == 1, &mut by_id));
     let Some(parts) = parts.into_iter().collect::<Option<Vec<String>>>() else {
         return Err(
             "a name in that path has a character a reference cannot carry (a slash, a question \
@@ -199,6 +228,12 @@ fn pick_field<'a>(
             })
         })
         .collect();
+    // An id given exactly is the one field that has it, even when another's label is the same word.
+    let exact: Vec<&FieldName> = named.iter().copied().filter(|f| f.id == label).collect();
+    let named = match (named.len(), exact.len()) {
+        (n, 1) if n > 1 => exact,
+        _ => named,
+    };
     match named.as_slice() {
         [one] => Ok(one),
         [] => {

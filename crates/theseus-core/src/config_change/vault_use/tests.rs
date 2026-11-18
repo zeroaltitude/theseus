@@ -539,3 +539,76 @@ async fn a_card_names_the_settings_that_do_not_read_the_secret() {
         asks[0].reason
     );
 }
+
+/// Following the advice for two items of one title: called again with the id,
+/// the reference is written by that id, not by the shared title, and the daemon
+/// reads that.
+#[tokio::test]
+async fn a_shared_title_is_written_by_the_id_that_was_asked_for() {
+    let (r, dir, _d) = rig_vault("dup");
+    let sid = r.session();
+    let mut input = call(json!([]));
+    input["item"] = json!("itemid00000000000000000009");
+    r.turn_with("vault_use", &sid, input).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(
+        asks[0]
+            .reason
+            .contains("read from op://Harbor/itemid00000000000000000009/credential"),
+        "{}",
+        asks[0].reason
+    );
+    assert!(asks[0].reason.contains("written by the vault's own ids"));
+    assert!(logged(&dir).contains(
+        &"read --no-newline op://Harbor/itemid00000000000000000009/credential".to_string()
+    ));
+}
+
+/// A field label two fields share is not guessed between; named by its id it is
+/// written by that id. A field whose label is another field's id is told apart
+/// by the exact id, and either is written by its id.
+#[tokio::test]
+async fn a_shared_field_label_is_written_by_its_id() {
+    let (r, _, _d) = rig_vault("dupfield");
+    let sid = r.session();
+    let mut input = call(json!([]));
+    input["field"] = json!("CREDENTIAL");
+    r.turn_with("vault_use", &sid, input).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(
+        text.contains("has 2 fields called \"CREDENTIAL\""),
+        "{text}"
+    );
+    assert!(r.asked().is_empty());
+    // `password` is the id of the field labelled "keyword": it is that field, and its own
+    // label is unique, so it is written by that; `f9` is labelled "password", which is
+    // also an id, so it is written by its id.
+    for (asked, id) in [
+        ("credential", "credential"),
+        ("f2id", "f2id"),
+        ("password", "keyword"),
+        ("f9", "f9"),
+    ] {
+        let (r, dir, _d) = rig_vault("dupfield");
+        let sid = r.session();
+        let mut input = call(json!([]));
+        input["field"] = json!(asked);
+        r.turn_with("vault_use", &sid, input).await;
+        let (status, text) = r.result(&sid);
+        assert_eq!(status, ResultStatus::Ok, "{asked}: {text}");
+        let want = format!("read --no-newline op://Harbor/Lantern key/{id}");
+        assert!(logged(&dir).contains(&want), "{asked}: {:?}", logged(&dir));
+        let by_id = id != "keyword";
+        assert_eq!(
+            r.asked()[0]
+                .reason
+                .contains("written by the vault's own ids"),
+            by_id,
+            "{asked}"
+        );
+    }
+}

@@ -32,8 +32,8 @@ for `config.propose`) the other settings that should read that name: a provider'
    one it sees. The vault's maker does not let a service account into a personal vault.**
 2. finds the item among that vault's items (by id or title; two of one title are refused with both ids) and the field among
    its fields (by label or id; a section when two share a label).
-3. **builds the reference itself**, from the names it found, or from their ids where a name has a character a reference
-   cannot carry (anything but letters, digits, space, `-`, `_`, `.`, so a `/`, a `?` or a `#` can never make the reference
+3. **builds the reference itself**, from the names it found, or from their ids where a name is shared with a sibling
+   (the vault's program matches names ignoring case) or has a character a reference cannot carry (anything but letters, digits, space, `-`, `_`, `.`, so a `/`, a `?` or a `#` can never make the reference
    mean another thing); and says on the card when ids were used.
 4. **reads the reference once, as a start will, and keeps nothing**: the proof that the item and field are there, that the
    account can read them, and that the field holds something. A failure is told by class (`Failed`), never in the program's

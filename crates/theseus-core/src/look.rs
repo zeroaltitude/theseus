@@ -246,7 +246,7 @@ impl Board {
     }
 
     /// The daemon's reader of the vault, for the one other thing that checks an
-    /// item before it names it (`config.use_secret`): the daemon's own code,
+    /// item before it names it (`vault.use`): the daemon's own code,
     /// never a turn.
     pub(crate) fn reader(&self) -> Option<Arc<OpReader>> {
         self.vault.get().cloned()

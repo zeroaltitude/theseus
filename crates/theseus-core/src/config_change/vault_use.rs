@@ -77,8 +77,8 @@ impl Chosen {
             .map_or(String::new(), |s| format!(", in the section \"{s}\""));
         let by_id = match c.by_id {
             true => {
-                " Part of it is written by the vault's own ids, because a name has a character a \
-                 reference cannot carry."
+                " Part of it is written by the vault's own ids, because a name is shared or has a \
+                 character a reference cannot carry."
             }
             false => "",
         };

@@ -32,9 +32,9 @@ carries the injection label), the look is asked first** (`look::ask_if_outside` 
 asks for at every posture): titles are names, and a turn that was tricked must not list them, or map what Theseus runs on,
 unasked. Both tools are in `routine::grant::NEVER`.
 
-## Why no value, field or note can reach a turn
+## Why no value or note can reach a turn (field names: `vault-use.md`)
 
-1. **The command line is a closed set** (`secrets::look::Verb`): `whoami`, `vault list`, `item list` (optionally `--vault
+1. **The command line is a closed set** (`secrets::look::Verb`): `whoami`, `vault list`, `item list` (and, for field names, `item get` of a listed id: `vault-use.md`) (optionally `--vault
    <id>`), each with `--format json`. No string a model wrote is part of it. A vault is named to the program by the id the
    program itself listed (`VaultId`, letters and digits only), never by what the model typed, so a vault named like a flag
    or a reference is simply not found. A title filter is applied here, to what came back.
