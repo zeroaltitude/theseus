@@ -174,7 +174,7 @@ In `auto` there is no card, which is why that setting needs the fresh proof.
    type-level `service.d/*.conf`) of the user manager's unit path, sorted together by file name; an `ExecStart=` with
    nothing after it clears what came before; the commands left at the end are what runs, and Theseus changes the one
    file whose line is the only one left. Directories read, highest priority first: `$XDG_CONFIG_HOME/systemd/user.control`,
-   the runtime `transient` and `generator.early`, `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user`), each
+   the runtime `user.control`, `transient` and `generator.early`, `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user`), each
    `$XDG_CONFIG_DIRS/systemd/user`, `/etc/systemd/user`, the runtime `user`, `/run/systemd/user`, the runtime
    `generator`, `$XDG_DATA_HOME/systemd/user`, each `$XDG_DATA_DIRS/systemd/user`, `/usr/local/lib/systemd/user`,
    `/usr/lib/systemd/user`, the runtime `generator.late`. The user's own are the two under `$XDG_CONFIG_HOME` and the one
@@ -201,11 +201,12 @@ In `auto` there is no card, which is why that setting needs the fresh proof.
    restarting onto it), restarts the service, waits up to four minutes for the new daemon's confirmation, and otherwise
    writes the file's old text back (embedded in the script, from the store's copy, with the file's permissions) and
    restarts once more. A restart that fails goes back at once. At most two restarts, onto the build and back; never a
-   loop. **The script reaches systemd in one line.** systemd writes a transient unit's command into a file and reads
-   it back line by line at its next reload, so a newline inside an argument cuts the command: on the machine above,
-   the script's lines were read as settings of the unit ("Missing '=', ignoring line", "Unknown key name 'signal'")
-   and "the command vanished from the unit file". So the script is passed as base64, which has no newline, quote,
-   `$`, `%` or `;`, to a fixed command that decodes and runs it
+   loop. **The script reaches systemd in one line.** `systemd-run` names a transient unit by its command line unless it is
+   given a `--description`, and systemd 249 (the owner's) writes that description into the unit's `[Unit]` section with
+   its newlines, then reads the file back line by line at its next reload: on the machine above, the script's lines were
+   read as settings of the unit ("Missing '=', ignoring line", "Unknown key name 'signal'") and "the command vanished
+   from the unit file". So the description is given (a fixed sentence and the commit's first eight digits), and the
+   script is passed as base64, which has no newline, quote, `$`, `%` or `;`, to a fixed command that decodes and runs it
    (`bash -c 'eval "`echo <base64> | base64 -d`"'`, built in `machine.rs`, `restart_argv`). Nothing is written for it:
    a file for the restart could be replaced by the owner's other programs, and a job cannot replace an argument.
    What is not closed: a program running as the owner can still change the start command between the last check and

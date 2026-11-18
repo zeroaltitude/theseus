@@ -9,7 +9,7 @@
 //! runs. A service with one command has its winner in the last file that set it.
 //!
 //! The directories read, for a user service (`systemd.unit(5)`, "Unit File Load Path"), highest priority first:
-//! `$XDG_CONFIG_HOME/systemd/user.control`, the runtime `transient` and `generator.early`, `$XDG_CONFIG_HOME/systemd/user`
+//! `$XDG_CONFIG_HOME/systemd/user.control`, the runtime `user.control`, `transient` and `generator.early`, `$XDG_CONFIG_HOME/systemd/user`
 //! (`~/.config/systemd/user`), each `$XDG_CONFIG_DIRS/systemd/user`, `/etc/systemd/user`, the runtime `user`,
 //! `/run/systemd/user`, the runtime `generator`, `$XDG_DATA_HOME/systemd/user`, each `$XDG_DATA_DIRS/systemd/user`,
 //! `/usr/local/lib/systemd/user`, `/usr/lib/systemd/user`, and the runtime `generator.late`.
@@ -89,6 +89,7 @@ pub fn search_path() -> Result<Vec<Dir>> {
             .map(|r| dir(r.join("systemd").join(name), Place::Volatile))
     };
     let mut out = vec![dir(config.join("systemd/user.control"), Place::Own)];
+    out.extend(rt("user.control"));
     out.extend(rt("transient"));
     out.extend(rt("generator.early"));
     out.push(dir(config.join("systemd/user"), Place::Own));
@@ -144,11 +145,10 @@ pub fn pieces(dirs: &[Dir], unit: &str) -> Result<Vec<Piece>> {
         );
     }
     let mut out = vec![read(&main.0, main.1)?];
-    // Drop-ins: a name in a higher-priority directory hides the same name below it; the unit's own directory hides the
-    // type-level one of the same name; all of them are applied sorted by name.
+    // Drop-ins: a name in a higher-priority directory hides the same name below it; every `<unit>.d` is read before any type-level `service.d`, so the unit's own hides the type-level one of the same name; all of them are applied sorted by name.
     let mut found: Vec<(String, PathBuf, Place, bool)> = Vec::new();
-    for d in dirs {
-        for sub in [format!("{unit}.d"), "service.d".to_string()] {
+    for sub in [format!("{unit}.d"), "service.d".to_string()] {
+        for d in dirs {
             let Ok(entries) = std::fs::read_dir(d.path.join(&sub)) else {
                 continue;
             };

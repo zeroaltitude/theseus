@@ -411,30 +411,34 @@ impl Core {
                 pending.stage = Stage::RolledBack;
                 pending.why = Some(why.clone());
                 let _ = self.root_save(&pending);
-                Err(format!(
-                    "{why}, and {} is as it was{back}",
-                    unit.path.display()
-                ))
+                Err(format!("{why}, and {back}"))
             }
         }
     }
 
     /// The file that held the start command, back as it was and reloaded: how an install that has not restarted ends.
-    /// What to add to the words when the reload failed (the file is back either way), else nothing.
+    /// What to say of the file: that it is as it was, or that it could not be put back (it then still names the new
+    /// build), and whether systemd could be asked to reload.
     async fn root_put_back(&self, unit: &Unit) -> String {
-        let (units, at, before) = (
+        let at = unit.path.display();
+        let (units, to, before) = (
             self.tools.root_install.units(),
             unit.path.clone(),
             unit.text.clone(),
         );
-        let back = blocking(move || {
-            units.write(&at, &before)?;
-            units.will_run().map(drop)
-        })
-        .await;
-        back.err().map_or(String::new(), |e| {
-            format!(" (but systemd could not be asked to reload it: {e:#})")
-        })
+        let wrote = {
+            let units = units.clone();
+            blocking(move || units.write(&to, &before)).await
+        };
+        if let Err(e) = wrote {
+            return format!("{at} could NOT be put back ({e:#}): it still names the new build");
+        }
+        match blocking(move || units.will_run().map(drop)).await {
+            Ok(()) => format!("{at} is as it was"),
+            Err(e) => {
+                format!("{at} is as it was (but systemd could not be asked to reload it: {e:#})")
+            }
+        }
     }
 
     /// Change the one line, and ask systemd what it will run now: anything but the new build is an error (and the file
@@ -464,8 +468,7 @@ impl Core {
         if let Some(said) = said {
             let back = self.root_put_back(unit).await;
             return Err(format!(
-                "{said}, not the new build ({new}), so the service was not restarted, and {} is as it was{back}",
-                unit.path.display()
+                "{said}, not the new build ({new}), so the service was not restarted, and {back}"
             ));
         }
         self.root_row(

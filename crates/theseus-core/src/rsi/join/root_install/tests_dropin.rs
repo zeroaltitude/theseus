@@ -15,7 +15,7 @@ use crate::config::self_improve::SelfInstall;
 use crate::ledger::LedgerRow;
 use crate::rsi::join::words::{last_join, Install};
 
-const ARGS: &str = "--config /home/ada/theseus.toml --op-token-file /home/ada/tok";
+const ARGS: &str = "--config /home/u/theseus.toml --op-token-file /home/u/tok";
 const DROP: &str = "theseusd.service.d";
 
 /// What a drop-in that gives the service its own arguments says, as the documented way does.

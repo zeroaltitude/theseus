@@ -274,11 +274,13 @@ fn systemctl(args: &[&str]) -> Result<String> {
     Ok(said)
 }
 
-/// The argv of the `systemd-run` that restarts the service by `script`. systemd writes a transient unit's command into
-/// a file and reads it back line by line at its next reload, so a newline in an argument cuts the command (on the
-/// owner's machine, 2026-11-18, the script's lines were read as settings of the unit and its command vanished). So
-/// no argument has a newline, a quote, a `$` or a `%`: the script goes in as base64, which has none, to a fixed
-/// one-line command that decodes and runs it. Nothing is written for it, and none of it is read from a file.
+/// The argv of the `systemd-run` that restarts the service by `script`. On the owner's machine (2026-11-18) the
+/// script's lines were read back as settings of the transient unit ("Missing '=', ignoring line", "Unknown key name
+/// 'signal' in section 'Unit'", "the command vanished from the unit file"): `systemd-run` names the unit by the command
+/// line unless it is given a `--description`, and systemd 249 writes that description into `[Unit]` with its newlines.
+/// So the description is given, and no argument has a newline, a quote, a `$` or a `%` either: the script goes in as
+/// base64, which has none, to a fixed one-line command that decodes and runs it. Nothing is written for it, and none
+/// of it is read from a file.
 pub(super) fn restart_argv(script: &str, short: &str) -> Vec<String> {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
