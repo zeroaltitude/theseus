@@ -110,10 +110,9 @@ impl Busy {
     }
 
     /// Whether `elapsed` keeps a promise of `bound` ("within": the bound itself is kept): always when it is
-    /// within the bound; when it is over,
-    /// when it is within the bound times the busier of the factor before the region and the factor right
-    /// now (the machine is asked only then, so a loop that checks every few milliseconds pays nothing),
-    /// never above [`BOUND_CAP`] times.
+    /// within the bound; when it is over, when it is within the bound times the busier of the factor before
+    /// the region and the factor right now (the machine is asked only then, so a loop that checks every few
+    /// milliseconds pays nothing), never above [`BOUND_CAP`] times.
     pub fn keeps(&self, elapsed: Duration, bound: Duration) -> bool {
         self.keeps_with(elapsed, bound, busy_factor)
     }
