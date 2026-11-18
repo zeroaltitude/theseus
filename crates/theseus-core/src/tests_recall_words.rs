@@ -146,8 +146,9 @@ async fn a_slow_vector_search_still_yields_the_word_hits_within_the_deadline() {
 }
 
 /// A vector search in time: the whole answer, fused as today, and the word
-/// sources' answer beside it unused.
-#[tokio::test]
+/// sources' answer beside it unused. On the paused clock, so the bound on the
+/// turn's time is its own virtual time, which a busy machine cannot stretch.
+#[tokio::test(start_paused = true)]
 async fn a_fast_vector_search_yields_the_hybrid_answer() {
     for mode in [MemoryMode::Shadow, MemoryMode::Live] {
         let (m, asked, took, c, _r) = one_turn(mode, Vectors::Fast).await;

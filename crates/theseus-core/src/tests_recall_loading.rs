@@ -16,8 +16,9 @@ use crate::tests_recall_standin::{recalled, rig, rig_arm, two_on, Model, State};
 /// The owner's case: the model was unloaded, so a recall used to answer by
 /// words alone. A person's message loads it at its arrival, and recall's
 /// wait covers the load, so the recall has vectors, and the turn waited no
-/// longer than the load and the bound.
-#[tokio::test]
+/// longer than the load and the bound. On the paused clock, so the bound on
+/// the turn's time is its own virtual time, which a busy machine cannot stretch.
+#[tokio::test(start_paused = true)]
 async fn a_recall_after_an_idle_stretch_has_the_meaning_search() {
     let model = Model::new(State::Unloaded, Duration::from_millis(700));
     let (r, now, seen, _dir) = rig(&model, true, 250, MemoryMode::Live);
@@ -70,8 +71,8 @@ async fn a_recall_whose_load_began_with_its_own_query_waits_for_it_too() {
 
 /// A model that is loaded and slow to embed keeps the ordinary deadline: the
 /// extension is for a load, not for a slow embedding. The same holds when the
-/// tender does not answer the question.
-#[tokio::test]
+/// tender does not answer the question. On the paused clock, as above.
+#[tokio::test(start_paused = true)]
 async fn a_slow_embedding_or_a_tender_that_does_not_say_keeps_the_ordinary_deadline() {
     for warm_up in [true, false] {
         let model = Model::with(
@@ -94,7 +95,12 @@ async fn a_slow_embedding_or_a_tender_that_does_not_say_keeps_the_ordinary_deadl
 
 /// A load that never finishes costs the turn the bound and no more: the
 /// words alone answer, and the row says the bound, not the ordinary deadline.
-#[tokio::test]
+/// Run on tokio's paused clock: the recall's deadline and the stand-in's hold
+/// are both the bound, so on a real clock a busy machine decided which of the
+/// two answered first, and the row said "the model is loading" instead of the
+/// bound. Here the clock moves only when every task waits, so `took` is the
+/// turn's own virtual time and load cannot change it.
+#[tokio::test(start_paused = true)]
 async fn a_load_that_never_finishes_costs_the_turn_the_bound_and_no_more() {
     let model = Model::new(State::Unloaded, Duration::from_secs(3_600));
     let (r, now, _seen, _dir) = rig(&model, true, 250, MemoryMode::Live);
@@ -108,8 +114,8 @@ async fn a_load_that_never_finishes_costs_the_turn_the_bound_and_no_more() {
 }
 
 /// A model that will not load answers at once with its words, saying why,
-/// and a tender that is down is no wait at all.
-#[tokio::test]
+/// and a tender that is down is no wait at all. On the paused clock, as above.
+#[tokio::test(start_paused = true)]
 async fn a_load_that_fails_or_a_tender_that_is_down_never_holds_the_turn() {
     let model = Model::new(State::Refused, Duration::ZERO);
     let (r, now, _seen, _dir) = rig(&model, true, 250, MemoryMode::Live);
