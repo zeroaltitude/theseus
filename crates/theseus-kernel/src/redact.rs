@@ -562,18 +562,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (mut copier, writer, reader) = stalled_copy(dir.path(), Duration::from_millis(600));
         let life = copier.life();
+        // The copy has read what it could take before its write stalled, and the writer has filled the pipe
+        // behind it: bytes wait there, and the sign of life counts the copy's reads and those together.
         let t0 = Instant::now();
-        while life() < 300_000 {
+        while waiting(&copier.peek) == 0 {
             assert!(
                 t0.elapsed() < Duration::from_secs(10),
-                "{} bytes written",
-                life()
+                "nothing waits in the pipe"
             );
             std::thread::sleep(Duration::from_millis(5));
         }
+        let read = copier.read.load(Ordering::Relaxed);
+        assert!(read < 300_000, "the copy is behind: it has read {read}");
         assert!(
-            copier.read.load(Ordering::Relaxed) < 300_000,
-            "the copy is behind"
+            life() > read,
+            "the bytes that wait count: {} of {read} read",
+            life()
         );
         let ended = copier.wait(Duration::from_millis(100));
         assert!(matches!(ended, Some(Ok(_))), "{ended:?}");
