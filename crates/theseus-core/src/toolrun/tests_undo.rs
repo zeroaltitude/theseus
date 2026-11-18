@@ -132,8 +132,11 @@ fn rig_launched(
     cfg.self_improve.sealed.dir = Some(holdout.to_string_lossy().into_owned());
     cfg.judge.enabled = true;
     cfg.judge.api_base = jev.base();
-    cfg.judge.connect_secs = 1;
-    cfg.judge.total_secs = 3;
+    // A patience, not a promise: a call whose verdict has not come by `total_secs` goes ahead unjudged, and a
+    // loaded machine can keep the stand-in Jev waiting for its turn longer than three seconds (theseus-20), which
+    // made a held call run. No test here is about a Jev that is late.
+    cfg.judge.connect_secs = 10;
+    cfg.judge.total_secs = 60;
     // EVERY other pack off, so `seen()` counts `undo.v1`'s requests alone.
     // A new pack added to `WIRED` later is off here too, so this rig does
     // not go quietly wrong when one lands.
@@ -1277,8 +1280,11 @@ fn repo_rig(
     cfg.self_improve.sealed.dir = Some(holdout.to_string_lossy().into_owned());
     cfg.judge.enabled = true;
     cfg.judge.api_base = jev.base();
-    cfg.judge.connect_secs = 1;
-    cfg.judge.total_secs = 3;
+    // A patience, not a promise: a call whose verdict has not come by `total_secs` goes ahead unjudged, and a
+    // loaded machine can keep the stand-in Jev waiting for its turn longer than three seconds (theseus-20), which
+    // made a held call run. No test here is about a Jev that is late.
+    cfg.judge.connect_secs = 10;
+    cfg.judge.total_secs = 60;
     for p in crate::judge::inbound::PACKS {
         cfg.judge.packs.insert(p.into(), off());
     }
