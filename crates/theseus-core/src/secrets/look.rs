@@ -168,11 +168,14 @@ pub struct ItemName {
     pub vault: String,
 }
 
-/// One field of an item as a reference needs to name it: its label, the
-/// section it is in (if any) and what kind of field it is. Never its value.
+/// One field of an item as a reference needs to name it: its label and id,
+/// the section it is in (if any, by label and id) and what kind of field it
+/// is. Never its value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldName {
+    pub id: String,
     pub section: Option<String>,
+    pub section_id: Option<String>,
     pub label: String,
     pub kind: &'static str,
 }
@@ -291,10 +294,15 @@ pub fn parse_fields(raw: &str) -> Result<Vec<FieldName>, Failed> {
             let label = text(f, "label")
                 .filter(|l| !l.trim().is_empty())
                 .or_else(|| text(f, "id"))?;
+            let section = f.get("section");
             Some(FieldName {
-                section: f
-                    .get("section")
+                id: clean(text(f, "id").unwrap_or_default()),
+                section: section
                     .and_then(|s| text(s, "label"))
+                    .map(clean)
+                    .filter(|s| !s.is_empty()),
+                section_id: section
+                    .and_then(|s| text(s, "id"))
                     .map(clean)
                     .filter(|s| !s.is_empty()),
                 label: clean(label),
@@ -306,7 +314,7 @@ pub fn parse_fields(raw: &str) -> Result<Vec<FieldName>, Failed> {
 
 /// The class of a failed run, read from what the program said and never
 /// returned.
-fn class_of(stderr: &[u8]) -> Failed {
+pub(crate) fn class_of(stderr: &[u8]) -> Failed {
     let s = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
     if has(&[

@@ -150,6 +150,13 @@ pub fn question(f: &Facts<'_>) -> String {
     heading + &lines(f)
 }
 
+/// The question for a change that also gives a vault item to use (issue 26):
+/// its own heading and its `preface`, which names the item and field and what
+/// is given the secret, then the settings and the rest as every card says them.
+pub fn question_using(preface: &str, f: &Facts<'_>) -> String {
+    format!("Use a secret from the vault?\n{preface}{}", lines(f))
+}
+
 /// An undo's question (issue 22): its own heading and its `preface`, then the
 /// settings, the restart, the proof and the rest as every card says them. Call
 /// [`too_much`] first, as for a proposal.

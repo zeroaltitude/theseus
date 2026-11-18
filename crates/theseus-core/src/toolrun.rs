@@ -1207,6 +1207,9 @@ impl ToolRuntime {
             planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));
         // So is a look at Theseus itself or at the vault's names (issue 26).
         let planned = planned.map(|p| crate::look::ask_if_outside(tc, tool.name(), p));
+        // So is a use of a vault item, before the daemon reads anything from it (issue 26).
+        let planned =
+            planned.map(|p| crate::config_change::vault_use::ask_if_outside(tc, tool.name(), p));
         // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
         let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
         // A glide's places (38b): the one it names must be bound here.
@@ -1738,7 +1741,9 @@ impl ToolRuntime {
                 crate::config_change::propose(self, tc, &call.input, correlation_id)
             }
             // Run again after a restart: what the first run asked the owner.
-            crate::config_change::mcp_attach::ATTACH | crate::config_change::mcp_attach::DETACH => {
+            crate::config_change::mcp_attach::ATTACH
+            | crate::config_change::mcp_attach::DETACH
+            | crate::config_change::vault_use::USE => {
                 crate::config_change::proposed_by_call(tc, correlation_id)
             }
             crate::config_change::RESTART => {

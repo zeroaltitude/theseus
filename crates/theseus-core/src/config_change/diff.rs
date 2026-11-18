@@ -18,7 +18,7 @@ pub struct Setting {
     pub after: Option<Value>,
 }
 
-fn flatten(v: &Value, at: &mut Vec<String>, out: &mut BTreeMap<Vec<String>, Value>) {
+pub(super) fn flatten(v: &Value, at: &mut Vec<String>, out: &mut BTreeMap<Vec<String>, Value>) {
     match v {
         Value::Object(m) if !m.is_empty() => {
             for (k, v) in m {

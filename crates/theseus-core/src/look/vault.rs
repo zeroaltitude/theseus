@@ -141,7 +141,7 @@ fn vault_and_item(reference: &str) -> Option<(String, String)> {
 /// The vault `wanted` means among the ones `op` listed: by id, else by name
 /// (any case). The id is the one `op` gave, so no string of the model's
 /// reaches the command line.
-fn vault_named<'a>(vaults: &'a [Vault], wanted: &str) -> Option<&'a Vault> {
+pub(crate) fn vault_named<'a>(vaults: &'a [Vault], wanted: &str) -> Option<&'a Vault> {
     vaults
         .iter()
         .find(|v| v.id == wanted)

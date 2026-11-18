@@ -20,12 +20,16 @@ printf '%s\n' "$*" >> "$LOG"
 [ "$MODE" = fail-other ] && {{ echo '[ERROR] 2026/10/19 08:00:00 something with INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
 [ "$MODE" = junk ] && {{ echo 'not json'; exit 0; }}
 [ "$MODE" = fail-get ] && [ "$1 $2" = "item get" ] && {{ echo '[ERROR] 2026/10/19 08:00:00 you are not authorized to read INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
+[ "$MODE" = fail-read ] && [ "$1" = read ] && {{ echo '[ERROR] 2026/10/19 08:00:00 you are not authorized to read INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
+[ "$MODE" = slash ] && [ "$1 $2" = "item list" ] && {{ echo '[{{"id":"itemid00000000000000000001","title":"Lantern/key","vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL"}}]'; exit 0; }}
+[ "$MODE" = slash ] && [ "$1 $2" = "item get" ] && {{ echo '{{"id":"itemid00000000000000000001","fields":[{{"id":"apikey","type":"CONCEALED","label":"api/key","value":"INVENTED-FIELD-VALUE-9"}}]}}'; exit 0; }}
 [ "$MODE" = dup ] && [ "$1 $2" = "item list" ] && {{ echo '[{{"id":"itemid00000000000000000001","title":"Lantern key","vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL"}},{{"id":"itemid00000000000000000009","title":"Lantern key","vault":{{"id":"vaultid00000000000000000002","name":"Dock"}},"category":"LOGIN"}}]'; exit 0; }}
 [ "$MODE" = big ] && {{ head -c 5000000 /dev/zero | tr '\0' 'x'; exit 0; }}
 case "$1 $2" in
   "whoami --format") echo '{{"url":"https://harbor.example.test/path","account_uuid":"ACCT-UUID-1","user_uuid":"USER-UUID-1","user_type":"SERVICE_ACCOUNT"}}' ;;
   "vault list") echo '[{{"id":"vaultid00000000000000000001","name":"Harbor","content_version":3}},{{"id":"vaultid00000000000000000002","name":"Dock"}}]' ;;
   "item list") echo '[{{"id":"itemid00000000000000000001","title":"Lantern key","version":2,"vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL","additional_information":"INVENTED-USERNAME","urls":[{{"href":"https://invented.example.test/secret-path"}}],"tags":["invented-tag"],"fields":[{{"id":"credential","value":"INVENTED-VALUE-1234"}}],"notesPlain":"INVENTED-NOTE","last_edited_by":"INVENTED-PERSON"}}]' ;;
+  "read --no-newline") case "$3" in *Missing*) echo '[ERROR] 2026/10/19 08:00:00 could not read secret: item not found' >&2; exit 1 ;; *Empty*) printf '' ;; *) printf 'INVENTED-FIELD-VALUE-9' ;; esac ;;
   "item get") echo '{{"id":"itemid00000000000000000001","title":"Lantern key","category":"API_CREDENTIAL","urls":[{{"href":"https://invented.example.test/secret-path"}}],"notesPlain":"INVENTED-NOTE-TEXT","fields":[{{"id":"username","type":"STRING","purpose":"USERNAME","label":"username","value":"INVENTED-USER-VALUE"}},{{"id":"credential","type":"CONCEALED","label":"credential","value":"INVENTED-FIELD-VALUE-9","reference":"op://Harbor/Lantern key/credential"}},{{"id":"notesPlain","type":"STRING","purpose":"NOTES","label":"notesPlain","value":"INVENTED-NOTE-TEXT"}},{{"id":"f3","type":"CONCEALED","label":"backup code","section":{{"id":"sec1","label":"Recovery"}},"value":"INVENTED-SECTION-VALUE"}},{{"id":"f4","type":"A_TYPE_ADDED_TOMORROW","label":"odd","value":"INVENTED-ODD-VALUE"}}]}}' ;;
   *) echo "[ERROR] unexpected: $*" >&2; exit 1 ;;
 esac
@@ -297,21 +301,23 @@ fn a_fields_answer_is_rebuilt_from_labels_and_kinds_only() {
     ] {
         assert!(!shown.contains(leaked), "{leaked} in {shown}");
     }
-    let f = |section: Option<&str>, label: &str, kind: &'static str| FieldName {
+    let f = |id: &str, section: Option<&str>, label: &str, kind: &'static str| FieldName {
+        id: id.into(),
         section: section.map(str::to_string),
+        section_id: section.map(|_| "s".to_string()),
         label: label.into(),
         kind,
     };
     assert_eq!(
         got,
         vec![
-            f(None, "username", "text"),
-            f(None, "credential", "concealed"),
-            f(None, "notesPlain", "a note"),
-            f(Some("Recovery"), "backup code", "concealed"),
-            f(None, "odd line", "other"),
-            f(None, "f5", "text"),
-            f(None, "no id", "text"),
+            f("username", None, "username", "text"),
+            f("credential", None, "credential", "concealed"),
+            f("notesPlain", None, "notesPlain", "a note"),
+            f("f3", Some("Recovery"), "backup code", "concealed"),
+            f("f4", None, "odd line", "other"),
+            f("f5", None, "f5", "text"),
+            f("", None, "no id", "text"),
         ]
     );
     assert_eq!(parse_fields("not json"), Err(Failed::Unreadable));
