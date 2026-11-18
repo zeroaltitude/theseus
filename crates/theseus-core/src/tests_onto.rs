@@ -376,10 +376,13 @@ async fn off_the_batch_is_todays_and_on_its_state_is_todays_plus_the_fields() {
 /// onto.v1 (the batch, the sink and the filing are off its path).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
+    // "Waits for nothing" is a promise about the turn: its 1 s limit, and the 2.5 s the batch is
+    // held, are both held in proportion on a busy machine (theseus-20; 1 on a quiet one).
+    let busy = theseus_tools::busy_factor() as u32;
     let mut took = Vec::new();
     for on in [false, true] {
         let jev = FakeJev::start().unwrap();
-        jev.set_latency(Duration::ZERO, Duration::from_millis(2_500));
+        jev.set_latency(Duration::ZERO, Duration::from_millis(2_500) * busy);
         let r = rig_with(jev, Vec::new(), |c| {
             c.ontology.judge = on;
             // route.v6 asks, and the turn waits for its verdict beside its
@@ -394,11 +397,11 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
         took.push(t0.elapsed());
     }
     assert!(
-        took.iter().all(|t| *t < Duration::from_millis(1_000)),
+        took.iter().all(|t| *t < Duration::from_millis(1_000) * busy),
         "the turn did not wait for the batch: {took:?}"
     );
     assert!(
-        took[1] < took[0] + Duration::from_millis(500),
+        took[1] < took[0] + Duration::from_millis(500) * busy,
         "onto.v1 added no wait: {took:?}"
     );
 }

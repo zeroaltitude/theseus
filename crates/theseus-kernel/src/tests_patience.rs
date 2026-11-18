@@ -90,9 +90,12 @@ fn the_silence_window_runs_from_the_last_byte_not_from_the_start() {
 /// 250 ms keeps the same assertions with 25 prints of margin.
 #[test]
 fn a_job_that_never_stops_printing_is_stopped_at_the_ceiling() {
+    // The limit is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20):
+    // under 64 busy threads a stall of the script past 250 ms cut it as silent, 1768 ms in.
+    let busy = theseus_tools::busy_factor();
     let (outcome, detail, took) = run_sh(
         "act_ceiling",
-        250,
+        250 * busy,
         "while :; do echo line; sleep 0.01; done",
     );
     assert_eq!(outcome, Outcome::Failed, "{detail}");
@@ -100,7 +103,7 @@ fn a_job_that_never_stops_printing_is_stopped_at_the_ceiling() {
     assert_eq!(detail["ceiling_hit"], true, "{detail}");
     assert!(detail.get("silent_ms").is_none(), "{detail}");
     assert!(
-        took >= Duration::from_millis(250 * CEILING_FACTOR as u64),
+        took >= Duration::from_millis(250 * busy * CEILING_FACTOR as u64),
         "{took:?}"
     );
 }
