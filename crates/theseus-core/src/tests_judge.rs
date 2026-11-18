@@ -412,8 +412,17 @@ async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
         let d = &rows[0].1.data;
         assert_eq!(d["outcome"]["outcome"], "failed", "{mode:?}: {d}");
         assert_eq!(d["outcome"]["class"], class, "{mode:?}: {d}");
-        let h = r.core.health().judge.unwrap();
-        assert_eq!((h.calls_today, h.failed_today), (1, 1), "{mode:?}");
+        // The call is booked by `judge_loop`'s own task as it ends, so a row can be seen
+        // before the books say so: wait for them, as long as the judgment itself got.
+        let books = loop {
+            let h = r.core.health().judge.unwrap();
+            let books = (h.calls_today, h.failed_today);
+            if books == (1, 1) || t0.elapsed() >= Duration::from_secs(TOTAL_SECS + 30) {
+                break books;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        assert_eq!(books, (1, 1), "{mode:?}");
     }
 }
 
