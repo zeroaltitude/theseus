@@ -141,6 +141,10 @@ const BARE: &[(&str, &str)] = &[
         "theseus-core/src/rsi/join/root_install/tests.rs",
         "test-only",
     ),
+    (
+        "theseus-core/src/rsi/join/root_install/tests_dropin.rs",
+        "test-only: runs bash, and on a box with a user manager systemd-run, to read what systemd was given",
+    ),
     ("theseus-core/src/rsi/join/tests_sealed.rs", "test-only"),
     (
         "theseus-core/src/rsi/mint/validate/tests_dry.rs",

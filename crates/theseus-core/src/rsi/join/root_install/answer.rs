@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use theseus_kernel::Action;
 use theseus_store::{kinds, NewRecord};
 
+use super::hand::hand_words;
 use super::offer::release_of;
 use super::{
     exec_program, is_commit, program_of, repoint, rooted, short, Pending, Stage, Unit,
@@ -49,31 +50,39 @@ fn q(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// The restart's script: restart onto the new unit, wait for the new daemon's confirmation, and if it does not come
-/// (or the restart itself fails) put the unit as it was back and restart onto it. At most two restarts, in all
-/// cases. Everything it needs is in its text: it reads no file but the confirmation.
+/// The restart's script: reload, check that systemd will start the new program (and put the file back if it will not),
+/// restart onto it, wait for the new daemon's confirmation, and if it does not come (or the restart itself fails) put
+/// the file that held the start command back, as it was and with its permissions, and restart onto it. At most two
+/// restarts, in all cases. Everything it needs is in its text: it reads no file but the confirmation. `file` is the
+/// one that held the start command (the unit, or the drop-in that won), `want` the program it now names. It reaches
+/// systemd in one line (`machine::restart_argv`), which decodes it.
 pub(super) fn restart_script(
     signal: &Path,
-    unit: &Path,
+    file: &Path,
     before: &str,
     service: &str,
     merge: &str,
+    want: &str,
     wait_secs: u64,
 ) -> String {
     format!(
         "# Install of {merge} (issue 22): restart onto it, wait for the new daemon to confirm itself, else go back.\n\
          set -u\n\
-         signal={signal}\nunit={unit}\nservice={service}\n\
-         back() {{\n  printf '%s' {before} > \"$unit.back\" && mv -f \"$unit.back\" \"$unit\"\n  \
+         signal={signal}\nfile={file}\nservice={service}\nwant={want}\n\
+         back() {{\n  printf '%s' {before} > \"$file.back\" && {{ chmod --reference=\"$file\" \"$file.back\" || true; }} && \
+         mv -f \"$file.back\" \"$file\"\n  \
          systemctl --user daemon-reload\n  systemctl --user restart \"$service\"\n}}\n\
          systemctl --user daemon-reload\n\
+         got=$(systemctl --user show -p ExecStart \"$service\" | grep -o '{{ path=[^ ]*' | tr '\\n' ' ')\n\
+         if [ \"$got\" != \"{{ path=$want \" ]; then back; exit 1; fi\n\
          if ! systemctl --user restart \"$service\"; then back; exit 1; fi\n\
          end=$((SECONDS + {wait}))\n\
          while [ \"$SECONDS\" -lt \"$end\" ]; do\n  [ -e \"$signal\" ] && exit 0\n  sleep 2\ndone\n\
          back\nexit 1\n",
         signal = q(&signal.to_string_lossy()),
-        unit = q(&unit.to_string_lossy()),
+        file = q(&file.to_string_lossy()),
         service = q(service),
+        want = q(want),
         before = q(before),
         wait = wait_secs,
     )
@@ -251,11 +260,19 @@ impl Core {
                 json!({"new_program": program_of(&go.merge)}),
             ),
             Err(why) => {
-                self.root_row("failed", &go.merge, "the install did not happen", &why, Value::Null);
+                let step = self.root_hand_step(&go.merge, &go.old_program);
+                self.root_row(
+                    "failed",
+                    &go.merge,
+                    "the install did not happen",
+                    &why,
+                    json!({"step": step}),
+                );
                 self.root_tell(format!(
-                    "Theseus did not install the change it joined ({what}, {c8}): {why}. Nothing it runs has changed. \
-                     The change is joined to main; the manual step is in docs/setup.md, \"A root-owned install\".",
-                    what = go.what
+                    "The change Theseus joined ({what}, {c8}) is not what the service runs: the install did not take, and \
+                     {why}. Nothing it runs has changed: the service runs the build it ran before. {by_hand}",
+                    what = go.what,
+                    by_hand = hand_words(step.as_deref()),
                 ));
             }
         }
@@ -302,8 +319,11 @@ impl Core {
         let unit = blocking(move || units.read())
             .await
             .map_err(|e| format!("{e:#}"))?;
+        if let Some(why) = &unit.refusal {
+            return Err(why.clone());
+        }
         let old = exec_program(&unit.text)
-            .ok_or("the service's unit has no single ExecStart naming a program")?;
+            .ok_or("the service's start command is not a single ExecStart naming a program")?;
         if old != go.old_program || rooted(Path::new(&old)).is_none() {
             return Err("the service's program is not the one the card named".into());
         }
@@ -343,9 +363,13 @@ impl Core {
             Value::Null,
         );
         let (helper, commit) = (board.helper(), go.merge.clone());
-        let said = blocking(move || helper.install(&commit))
-            .await
-            .map_err(|e| format!("the helper refused: {e:#}"))?;
+        let said = blocking(move || helper.install(&commit)).await;
+        // The helper has copied the programs, or refused them: either way they are not left in the staging directory.
+        let helper = board.helper();
+        if let Err(e) = blocking(move || helper.unstage()).await {
+            tracing::warn!(error = %format!("{e:#}"), "self-install: the staging directory was not emptied");
+        }
+        let said = said.map_err(|e| format!("the helper refused: {e:#}"))?;
         self.root_row(
             "helper",
             &go.merge,
@@ -353,6 +377,11 @@ impl Core {
             &said,
             json!({"dir": program_of(&go.merge).parent()}),
         );
+        // The program the service will be pointed at is the helper's: root's, in a directory only root writes.
+        let (helper, program) = (board.helper(), PathBuf::from(&new));
+        blocking(move || helper.check_installed(&program))
+            .await
+            .map_err(|e| format!("what the helper installed is not as it should be: {e:#}"))?;
         // What a start must find, in the store, before anything the service runs changes.
         let mut pending = Pending {
             question: go.question.clone(),
@@ -371,43 +400,106 @@ impl Core {
             why: None,
         };
         self.root_save(&pending).map_err(say)?;
-        let signal = board.signal();
-        let _ = std::fs::remove_file(&signal);
-        let (units, at) = (board.units(), unit.path.clone());
-        blocking(move || units.write(&at, &new_text))
+        let _ = std::fs::remove_file(board.signal());
+        if let Err(why) = self.root_repoint(go, &unit, (&old, &new, &new_text)).await {
+            // Nothing restarted: the install ends here, with the file as it was.
+            pending.stage = Stage::RolledBack;
+            pending.why = Some(why.clone());
+            let _ = self.root_save(&pending);
+            return Err(why);
+        }
+        match self.root_restart(go, &unit, &new).await {
+            Ok(name) => Ok(name),
+            Err(why) => {
+                let back = self.root_put_back(&unit).await;
+                pending.stage = Stage::RolledBack;
+                pending.why = Some(why.clone());
+                let _ = self.root_save(&pending);
+                Err(format!("{why}, and {back}"))
+            }
+        }
+    }
+
+    /// The file that held the start command, back as it was and reloaded: how an install that has not restarted ends.
+    /// What to say of the file: that it is as it was, or that it could not be put back (it then still names the new
+    /// build), and whether systemd could be asked to reload.
+    async fn root_put_back(&self, unit: &Unit) -> String {
+        let at = unit.path.display();
+        let (units, to, before) = (
+            self.tools.root_install.units(),
+            unit.path.clone(),
+            unit.text.clone(),
+        );
+        let wrote = {
+            let units = units.clone();
+            blocking(move || units.write(&to, &before)).await
+        };
+        if let Err(e) = wrote {
+            return format!("{at} could NOT be put back ({e:#}): it still names the new build");
+        }
+        match blocking(move || units.will_run().map(drop)).await {
+            Ok(()) => format!("{at} is as it was"),
+            Err(e) => {
+                format!("{at} is as it was (but systemd could not be asked to reload it: {e:#})")
+            }
+        }
+    }
+
+    /// Change the one line, and ask systemd what it will run now: anything but the new build is an error (and the file
+    /// is put back), so no restart is ever issued onto another program.
+    async fn root_repoint(
+        &self,
+        go: &Go,
+        unit: &Unit,
+        (old, new, new_text): (&str, &str, &str),
+    ) -> Result<(), String> {
+        let board = &self.tools.root_install;
+        let (units, at, text) = (board.units(), unit.path.clone(), new_text.to_string());
+        blocking(move || units.write(&at, &text))
             .await
-            .map_err(|e| format!("the unit could not be pointed at the new build: {e:#}"))?;
+            .map_err(|e| {
+                format!("the start command could not be pointed at the new build: {e:#}")
+            })?;
+        let units = board.units();
+        let said = match blocking(move || units.will_run()).await {
+            Ok(runs) if runs.len() == 1 && runs[0] == new => None,
+            Ok(runs) if runs.is_empty() => Some("systemd says it will run nothing".to_string()),
+            Ok(runs) => Some(format!("systemd says it will run {}", runs.join(", "))),
+            Err(e) => Some(format!(
+                "systemd could not be asked what it will run: {e:#}"
+            )),
+        };
+        if let Some(said) = said {
+            let back = self.root_put_back(unit).await;
+            return Err(format!(
+                "{said}, not the new build ({new}), so the service was not restarted, and {back}"
+            ));
+        }
         self.root_row(
             "unit",
             &go.merge,
-            "the service's unit now names the new build",
-            &new,
-            json!({"was": old}),
+            "the service's start command now names the new build",
+            &format!("{new}, in {}", unit.path.display()),
+            json!({"was": old, "file": unit.path}),
         );
-        // The restart, which waits for the new daemon and goes back by itself.
-        let service = crate::rsi::join::install::SERVICE;
+        Ok(())
+    }
+
+    /// The restart, which waits for the new daemon and goes back by itself.
+    async fn root_restart(&self, go: &Go, unit: &Unit, new: &str) -> Result<String, String> {
+        let board = &self.tools.root_install;
         let script = restart_script(
-            &signal,
+            &board.signal(),
             &unit.path,
             &unit.text,
-            service,
+            crate::rsi::join::install::SERVICE,
             &go.merge,
+            new,
             CONFIRM_WITHIN_SECS,
         );
         let (units, c8) = (board.units(), short(&go.merge).to_string());
-        match blocking(move || units.restart(&script, &c8)).await {
-            Ok(name) => Ok(name),
-            Err(e) => {
-                // Nothing restarted: put the unit back, and end the install.
-                let (units, at, before) = (board.units(), unit.path.clone(), unit.text.clone());
-                let _ = blocking(move || units.write(&at, &before)).await;
-                pending.stage = Stage::RolledBack;
-                pending.why = Some(format!("{e:#}"));
-                let _ = self.root_save(&pending);
-                Err(format!(
-                    "the restart could not be started, and the unit is as it was: {e:#}"
-                ))
-            }
-        }
+        blocking(move || units.restart(&script, &c8))
+            .await
+            .map_err(|e| format!("the restart could not be started: {e:#}"))
     }
 }

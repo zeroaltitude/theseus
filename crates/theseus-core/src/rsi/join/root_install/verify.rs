@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
+use super::hand::hand_words;
 use super::{Pending, Stage, HEALTHY_WITHIN_SECS, LOOK_EVERY};
 use crate::config_change::restart::watch_health;
 use crate::rpc::Core;
@@ -64,21 +65,24 @@ impl Core {
         if let Err(e) = self.root_save(&p) {
             tracing::warn!(error = %format!("{e:#}"), "self-install: the marker could not be kept");
         }
+        let step = self.root_hand_step(&p.merge, &p.old_program);
         self.root_row(
             "rolled_back",
             &p.merge,
             "the install did not take: the service runs the build before",
             &why,
-            json!({"old_program": p.old_program, "new_program": p.new_program}),
+            json!({"old_program": p.old_program, "new_program": p.new_program, "file": p.unit, "step": step}),
         );
         self.root_tell(format!(
-            "Theseus tried to install the change it joined ({what}, {c8}), and the new build did not come up healthy \
-             within {mins} minutes, so the service is back on the build before ({old}) and is running that. The change \
-             is joined to main and not installed. Theseus will not try again by itself.",
+            "The change Theseus joined ({what}, {c8}) is not what the service runs: the install did not take. The \
+             service is running the build before ({old}), not the new one: the new build did not come up healthy \
+             within {mins} minutes, or the restart never started it. The change is joined to main and not installed. \
+             Theseus will not try again by itself. {by_hand}",
             what = p.what,
             c8 = super::short(&p.merge),
             mins = super::CONFIRM_WITHIN_SECS / 60,
             old = p.old_program,
+            by_hand = hand_words(step.as_deref()),
         ));
     }
 

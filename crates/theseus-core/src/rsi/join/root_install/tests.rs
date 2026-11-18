@@ -12,20 +12,22 @@ use crate::config::self_improve::SelfInstall;
 use crate::rsi::join::tests::{git, rig_with, Rig, PROVED, SONNET};
 use crate::rsi::join::{install, rows_of};
 
-const OLD: &str = "/usr/local/lib/theseus/aaaaaaaa/theseusd";
+pub(super) const OLD: &str = "/usr/local/lib/theseus/aaaaaaaa/theseusd";
 const OWNER: &str = "discord:123456789012345678";
 
-fn unit_text(program: &str) -> String {
+pub(super) fn unit_text(program: &str) -> String {
     format!("# Written by `theseusd install --user`.\n[Service]\nType=notify\nExecStart={program} --config /etc/theseus/theseus.toml\nRestart=on-failure\n")
 }
 
 #[derive(Default)]
-struct FakeHelper {
-    absent: Option<String>,
-    refuse: Option<String>,
-    calls: Mutex<Vec<String>>,
-    staged: Mutex<Vec<PathBuf>>,
-    installed: Mutex<Vec<String>>,
+pub(super) struct FakeHelper {
+    pub(super) absent: Option<String>,
+    pub(super) refuse: Option<String>,
+    /// What `check_installed` says of the program the helper made, when it is not as it should be.
+    pub(super) not_root: Option<String>,
+    pub(super) calls: Mutex<Vec<String>>,
+    pub(super) staged: Mutex<Vec<PathBuf>>,
+    pub(super) installed: Mutex<Vec<String>>,
 }
 
 impl Helper for FakeHelper {
@@ -45,6 +47,19 @@ impl Helper for FakeHelper {
         Ok(())
     }
 
+    fn unstage(&self) -> Result<()> {
+        self.calls.lock().unwrap().push("unstage".into());
+        Ok(())
+    }
+
+    fn check_installed(&self, program: &Path) -> Result<()> {
+        self.calls.lock().unwrap().push("check_installed".into());
+        if let Some(why) = &self.not_root {
+            anyhow::bail!("{} {why}", program.display());
+        }
+        Ok(())
+    }
+
     fn install(&self, commit: &str) -> Result<String> {
         self.calls.lock().unwrap().push("install".into());
         if let Some(why) = &self.refuse {
@@ -55,37 +70,119 @@ impl Helper for FakeHelper {
     }
 }
 
-struct FakeUnits {
-    unit: Mutex<Unit>,
-    restarts: Mutex<Vec<String>>,
+/// The user manager's unit files, on a real directory of the test's own (`UserUnit` reads and writes them, as it does a
+/// machine's), with a stand-in for systemd: its answer to "what will you run" is the files composed again, or what the
+/// test says it is. The restart is recorded, never run.
+pub(super) struct FakeUnits {
+    pub(super) root: tempfile::TempDir,
+    real: UserUnit,
+    pub(super) restarts: Mutex<Vec<String>>,
     fail_restart: bool,
+    /// What the stand-in systemd answers instead of what the files say.
+    pub(super) says: Mutex<Option<Vec<String>>>,
+    pub(super) reloads: Mutex<u32>,
 }
 
 impl FakeUnits {
-    fn new(program: &str, fail_restart: bool) -> Arc<Self> {
+    /// The layout every older test uses: a unit file in the user's own directory, no drop-in.
+    pub(super) fn new(program: &str, fail_restart: bool) -> Arc<Self> {
+        Self::layout(
+            &[("theseusd.service", &unit_text(program))],
+            &[],
+            fail_restart,
+        )
+    }
+
+    /// Files by their path under the user's config directory (`own`: `systemd/user/...`) and under the administrator's
+    /// (`admin`: `/etc/systemd/user/...`).
+    pub(super) fn layout(
+        own: &[(&str, &str)],
+        admin: &[(&str, &str)],
+        fail_restart: bool,
+    ) -> Arc<Self> {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = vec![
+            start::Dir {
+                path: root.path().join("config/systemd/user.control"),
+                place: start::Place::Own,
+            },
+            start::Dir {
+                path: root.path().join("config/systemd/user"),
+                place: start::Place::Own,
+            },
+            start::Dir {
+                path: root.path().join("etc/systemd/user"),
+                place: start::Place::Admin,
+            },
+            start::Dir {
+                path: root.path().join("data/systemd/user"),
+                place: start::Place::Own,
+            },
+        ];
+        for (base, files) in [("config/systemd/user", own), ("etc/systemd/user", admin)] {
+            for (name, text) in files {
+                let at = root.path().join(base).join(name);
+                std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+                std::fs::write(at, text).unwrap();
+            }
+        }
         Arc::new(Self {
-            unit: Mutex::new(Unit {
-                path: PathBuf::from("/home/ada/.config/systemd/user/theseusd.service"),
-                text: unit_text(program),
-            }),
+            root,
+            real: UserUnit::in_dirs(dirs),
             restarts: Mutex::default(),
             fail_restart,
+            says: Mutex::default(),
+            reloads: Mutex::default(),
         })
     }
 
-    fn text(&self) -> String {
-        self.unit.lock().unwrap().text.clone()
+    /// A file under the user's config directory, as it is now.
+    pub(super) fn own(&self, name: &str) -> String {
+        std::fs::read_to_string(self.root.path().join("config/systemd/user").join(name))
+            .unwrap_or_default()
+    }
+
+    /// The text of the file that holds the start command now.
+    pub(super) fn text(&self) -> String {
+        self.real.read().unwrap().text
+    }
+
+    /// Every file under the root, by relative path: what a change must leave byte for byte.
+    pub(super) fn files(&self) -> std::collections::BTreeMap<String, String> {
+        fn walk(dir: &Path, base: &Path, out: &mut std::collections::BTreeMap<String, String>) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, base, out);
+                } else {
+                    let rel = p.strip_prefix(base).unwrap().display().to_string();
+                    out.insert(rel, std::fs::read_to_string(&p).unwrap_or_default());
+                }
+            }
+        }
+        let mut out = std::collections::BTreeMap::new();
+        walk(self.root.path(), self.root.path(), &mut out);
+        out
     }
 }
 
 impl Units for FakeUnits {
     fn read(&self) -> Result<Unit> {
-        Ok(self.unit.lock().unwrap().clone())
+        self.real.read()
     }
 
-    fn write(&self, _at: &Path, text: &str) -> Result<()> {
-        self.unit.lock().unwrap().text = text.to_string();
-        Ok(())
+    fn write(&self, at: &Path, text: &str) -> Result<()> {
+        self.real.write(at, text)
+    }
+
+    fn will_run(&self) -> Result<Vec<String>> {
+        *self.reloads.lock().unwrap() += 1;
+        if let Some(said) = self.says.lock().unwrap().clone() {
+            return Ok(said);
+        }
+        let pieces = start::pieces(&self.real.dirs()?, crate::rsi::join::install::SERVICE)?;
+        let (_, program) = start::winner(&pieces)?;
+        Ok(vec![program])
     }
 
     fn restart(&self, script: &str, _short: &str) -> Result<String> {
@@ -105,13 +202,13 @@ fn fake_build(_: &crate::rsi::tree::Place, t: &crate::rsi::tree::Tree, _: &str) 
     Ok(())
 }
 
-struct Rooted {
-    r: Rig,
-    helper: Arc<FakeHelper>,
-    units: Arc<FakeUnits>,
+pub(super) struct Rooted {
+    pub(super) r: Rig,
+    pub(super) helper: Arc<FakeHelper>,
+    pub(super) units: Arc<FakeUnits>,
 }
 
-fn rooted_with(
+pub(super) fn rooted_with(
     mode: SelfInstall,
     proof: Option<bool>,
     helper: FakeHelper,
@@ -137,7 +234,7 @@ fn rooted_with(
     Rooted { r, helper, units }
 }
 
-fn rooted(mode: SelfInstall, proof: Option<bool>) -> Rooted {
+pub(super) fn rooted(mode: SelfInstall, proof: Option<bool>) -> Rooted {
     rooted_with(
         mode,
         proof,
@@ -148,13 +245,13 @@ fn rooted(mode: SelfInstall, proof: Option<bool>) -> Rooted {
 
 impl Rooted {
     /// A branch joined by the loop's own pass: the merge.
-    async fn join(&self) -> String {
+    pub(super) async fn join(&self) -> String {
         self.r.seed("trim-the-sails", PROVED, SONNET);
         self.r.core.self_join_pass(&self.r.seams()).await.unwrap();
         self.r.upstream_main()
     }
 
-    fn steps(&self) -> Vec<String> {
+    pub(super) fn steps(&self) -> Vec<String> {
         let rows = rows_of(&self.r.core.store, &["self.root_install"])
             .unwrap()
             .unwrap_or_default();
@@ -163,7 +260,7 @@ impl Rooted {
             .collect()
     }
 
-    fn why_of(&self, step: &str) -> String {
+    pub(super) fn why_of(&self, step: &str) -> String {
         let rows = rows_of(&self.r.core.store, &["self.root_install"])
             .unwrap()
             .unwrap_or_default();
@@ -173,7 +270,7 @@ impl Rooted {
             .unwrap_or_default()
     }
 
-    fn cards(&self) -> Vec<theseus_protocol::ConfirmRequest> {
+    pub(super) fn cards(&self) -> Vec<theseus_protocol::ConfirmRequest> {
         self.r
             .core
             .confirm_list()
@@ -183,7 +280,7 @@ impl Rooted {
             .collect()
     }
 
-    fn notices(&self) -> Vec<String> {
+    pub(super) fn notices(&self) -> Vec<String> {
         crate::tests_day_ceiling::posts(&self.r.core, "notice")
             .iter()
             .map(|b| b["text"].as_str().unwrap_or("").to_string())
@@ -191,7 +288,7 @@ impl Rooted {
     }
 
     /// Wait (the run is a task) until `done` holds.
-    async fn until(&self, what: &str, done: impl Fn(&Self) -> bool) {
+    pub(super) async fn until(&self, what: &str, done: impl Fn(&Self) -> bool) {
         for _ in 0..200 {
             if done(self) {
                 return;
@@ -201,7 +298,7 @@ impl Rooted {
         panic!("never: {what}; steps {:?}", self.steps());
     }
 
-    fn yes(&self, question: &str) {
+    pub(super) fn yes(&self, question: &str) {
         self.r
             .core
             .confirm_action(question, true, None, "cli")
@@ -647,7 +744,7 @@ async fn a_healthy_new_build_confirms_and_the_notice_says_installed_and_running(
 }
 
 impl Rooted {
-    fn posts_of(&self, kind: &str) -> Vec<String> {
+    pub(super) fn posts_of(&self, kind: &str) -> Vec<String> {
         crate::tests_day_ceiling::posts(&self.r.core, kind)
             .iter()
             .map(|b| b["text"].as_str().unwrap_or("").to_string())
@@ -741,7 +838,7 @@ fn the_restart_script_goes_back_unless_the_new_daemon_confirms() {
         let ctl = bin.join("systemctl");
         // The stand-in logs every call and, when asked, fails its first restart (a reload is logged either way).
         let body = format!(
-            "#!/bin/bash\necho \"$@\" >> {log}\nif [ \"$2\" = restart ] && [ {fail} = 1 ] && [ ! -e {once} ]; then : > {once}; exit 1; fi\n",
+            "#!/bin/bash\nif [ \"$2\" = show ]; then echo 'ExecStart={{ path=/usr/local/lib/theseus/bbbbbbbb/theseusd ; argv[]=x ; ignore_errors=no }}'; exit 0; fi\necho \"$@\" >> {log}\nif [ \"$2\" = restart ] && [ {fail} = 1 ] && [ ! -e {once} ]; then : > {once}; exit 1; fi\n",
             log = log.display(),
             fail = u8::from(fail_first),
             once = d.path().join("once").display()
@@ -759,6 +856,7 @@ fn the_restart_script_goes_back_unless_the_new_daemon_confirms() {
             &before,
             "theseusd.service",
             &"b".repeat(40),
+            "/usr/local/lib/theseus/bbbbbbbb/theseusd",
             2,
         );
         let out = std::process::Command::new("/bin/bash")
@@ -811,6 +909,7 @@ fn the_restart_script_quotes_what_it_embeds() {
         "a'b\n[Service]\n",
         "svc",
         &"c".repeat(40),
+        "/p/it's",
         5,
     );
     assert!(s.contains("signal='/s/it'\\''s'"), "{s}");

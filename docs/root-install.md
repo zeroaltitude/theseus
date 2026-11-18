@@ -62,6 +62,11 @@ vouches for them is the loop's own gate and the joined merge's signed commit, wh
 **Nothing on the machine may run a program from `/usr/local/lib/theseus/*/` as root or as another user.** The helper
 puts root-owned executables there on the owner's word alone.
 
+**Where the start command is.** Theseus changes the program's path in the one file whose `ExecStart=` wins: the unit, or a
+drop-in that clears and sets it (`docs/design/self-install.md`, "The daemon's side", step 2). It writes only the user's own
+files. If the start command wins from the administrator's directories (`/etc/systemd/user`, `/usr/lib/systemd/user`), from
+a runtime directory, or from a link, it does not install, says which file and why, and prints the step to run by hand.
+
 Old build directories pile up (the helper stops at twenty): remove the ones the unit does not name, as root. The daemon
 keeps the one before the current build, for the way back.
 
