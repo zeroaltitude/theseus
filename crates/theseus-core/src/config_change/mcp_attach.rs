@@ -513,12 +513,12 @@ async fn try_once(
 
 /// The question's proposal and its record.
 fn put(
+    rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
     correlation_id: &str,
-    question: &str,
+    (question, reason): (&str, &str),
     candidate: (&str, &str, &[diff::Setting]),
     restart: bool,
-    reason: &str,
     marker: Value,
 ) -> Result<(String, Value), String> {
     let (base, digest, settings) = candidate;
@@ -545,6 +545,7 @@ fn put(
          do not answer in time, nothing is written."
     );
     super::ask(
+        rt,
         tc,
         proposal,
         correlation_id,
@@ -661,12 +662,12 @@ pub async fn attach(
         "tools": tried.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
     });
     put(
+        rt,
         tc,
         correlation_id,
-        &question,
+        (&question, &spec.reason),
         (&g.base, &digest, &settings),
         false,
-        &spec.reason,
         marker,
     )
 }
@@ -714,12 +715,12 @@ pub fn detach(
         .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
     let marker = json!({"op": "detach", "name": i.name});
     put(
+        rt,
         tc,
         correlation_id,
-        &question,
+        (&question, &reason),
         (&g.base, &digest, &settings),
         restart,
-        &reason,
         marker,
     )
 }

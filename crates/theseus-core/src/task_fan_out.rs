@@ -311,7 +311,7 @@ fn wrapped(h: &HelperArg) -> String {
 /// The message of this turn that asked for the work, the objective each helper
 /// quotes by id: the operator's, or, in a turn a wake or a report started, the
 /// message that started it. Never an earlier exchange's.
-fn input_node(tc: &TurnCtx<'_>) -> Result<String, String> {
+pub(crate) fn input_node(tc: &TurnCtx<'_>) -> Result<String, String> {
     let nodes = tc
         .store
         .transcript(tc.session_id)

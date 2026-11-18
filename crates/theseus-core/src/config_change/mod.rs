@@ -378,7 +378,14 @@ pub fn restart(
         "Asked the owner:\n{question}Nothing restarts until they say yes, from a private place."
     );
     // A plain restart changes no setting: its own card, and the card's yes alone.
-    ask(tc, proposal, correlation_id, &said, proof_seam::Needs::Card)?;
+    ask(
+        rt,
+        tc,
+        proposal,
+        correlation_id,
+        &said,
+        proof_seam::Needs::Card,
+    )?;
     Ok((said, json!({})))
 }
 
@@ -553,7 +560,7 @@ pub(crate) fn put(
         },
         show::before(base, &settings)
     );
-    ask(tc, proposal, correlation_id, &said, needs)?;
+    ask(rt, tc, proposal, correlation_id, &said, needs)?;
     Ok((
         said,
         json!({"settings": settings.len(), "candidate": digest}),
@@ -563,6 +570,7 @@ pub(crate) fn put(
 /// The question, its card, and the record that answers a call run again, in
 /// one frame on the proposing execution.
 fn ask(
+    rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
     proposal: Proposal,
     correlation_id: &str,
@@ -597,6 +605,11 @@ fn ask(
         .map_err(|e| format!("the question was not asked: {e:#}"))?;
     if let Some(post) = card {
         tc.outbox.posted(&post);
+    }
+    // The card is the question: the owner's words that began this turn are not
+    // also offered as a standing order (issue 22).
+    if let (Some(core), Ok(node)) = (rt.config_change.core(), crate::task_fan_out::input_node(tc)) {
+        core.withdraw_capture_asks(tc.session_id, &node);
     }
     if let Ok(Some(session)) = tc
         .store
@@ -675,3 +688,5 @@ pub(crate) mod tests_answer;
 mod tests_proof;
 #[cfg(test)]
 mod tests_undo;
+#[cfg(test)]
+mod tests_withdrawn;

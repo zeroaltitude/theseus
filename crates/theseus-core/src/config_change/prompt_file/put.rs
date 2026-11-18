@@ -126,7 +126,7 @@ pub fn put_file(
          with the second proof; the daemon then writes the file itself. If they decline, or do \
          not answer in time, nothing is written."
     );
-    crate::config_change::ask(tc, proposal, correlation_id, &said, Needs::Proof)?;
+    crate::config_change::ask(rt, tc, proposal, correlation_id, &said, Needs::Proof)?;
     Ok((
         said,
         json!({"file": path, "candidate": new_sha, "shown_whole": whole}),
