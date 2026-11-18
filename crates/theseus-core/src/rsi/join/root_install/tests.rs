@@ -219,6 +219,11 @@ async fn ask_makes_the_card_and_the_yes_installs() {
     let cards = t.cards();
     assert_eq!(cards.len(), 1, "one card: {:?}", t.steps());
     let c8 = short(&merge);
+    crate::config_change::tests::assert_worded(
+        &t.r.core,
+        &cards[0],
+        &format!("install the build of commit `{c8}`"),
+    );
     assert!(
         cards[0]
             .reason
@@ -281,6 +286,30 @@ async fn ask_makes_the_card_and_the_yes_installs() {
         None,
         "not announced before it is confirmed"
     );
+}
+
+/// The install card is answered by its own press or the owner's terminal, not by
+/// words in their name: the model's answer tool leaves it waiting, and nothing
+/// is installed.
+#[tokio::test]
+async fn the_install_card_is_not_answered_by_words() {
+    let t = rooted(SelfInstall::Ask, Some(true));
+    t.join().await;
+    let cards = t.cards();
+    assert_eq!(cards.len(), 1);
+    let who = crate::config_change::tests_answer::owner_in_dm();
+    let e =
+        t.r.core
+            .answer_plain_act(&cards[0], "yes", None, who)
+            .unwrap_err();
+    // The install card needs the second proof, which chat's answer tool never
+    // carries: it says so first; the question is the owner's own press either way.
+    assert!(
+        e.contains("second proof") || e.contains("answered by its own button"),
+        "{e}"
+    );
+    assert_eq!(t.cards().len(), 1, "it still waits");
+    assert!(t.helper.installed.lock().unwrap().is_empty());
 }
 
 /// The owner's live config may already say `install = true`, written before any helper existed, when it meant "install

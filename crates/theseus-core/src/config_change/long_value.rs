@@ -84,7 +84,7 @@ pub fn blocks(settings: &[Setting], room: usize) -> String {
     out
 }
 
-/// The whole value of each long setting, before and after, for `config.show`.
+/// The whole value of each long setting, before and after, for `config.whole`.
 pub fn whole(settings: &[Setting]) -> String {
     let mut out = String::from("The settings with a value too long for the card, each whole:\n");
     for s in settings.iter().filter(|s| diff::too_long(s)) {

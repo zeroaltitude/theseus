@@ -63,4 +63,47 @@ impl Core {
         self.refused(Act::Answer { action: a, approve }, who, &r)?;
         Err(r.into())
     }
+    /// `Err` when a yes typed or spoken as words (what the model's answer
+    /// tool carries, `Rides::typed`) answers a question that is only the
+    /// owner's own: a settings question (a change, an undo, an attached or
+    /// removed server, a restart, an install) or a call the floor holds (it
+    /// reaches a protected file or program, held for the moment a turn may have
+    /// been steered). Those are answered by the owner's own press, or their own
+    /// terminal, never by a conversation in their name, whoever's message
+    /// started the turn. A no from words changes nothing and is allowed. Held
+    /// here, in the one place an answer becomes a decision, so it holds for any
+    /// future caller.
+    pub(super) fn judge_typed_settings(
+        &self,
+        who: &Answerer,
+        a: &Action,
+        approve: bool,
+        typed: bool,
+    ) -> Result<()> {
+        if !(approve && typed) {
+            return Ok(());
+        }
+        let why = if crate::config_change::words::is_settings_action(a) {
+            crate::config_change::words::BY_PRESS
+        } else if self.is_floor_hold(a) {
+            crate::config_change::words::FLOOR_BY_PRESS
+        } else {
+            return Ok(());
+        };
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why: why.to_string(),
+        };
+        self.refused(Act::Answer { action: a, approve }, who, &r)?;
+        Err(r.into())
+    }
+
+    /// Whether `a` is a call the floor holds: the gate's decision on its node.
+    fn is_floor_hold(&self, a: &Action) -> bool {
+        let nodes = self.store.session_nodes(&a.session_id).unwrap_or_default();
+        super::confirms::call_of(&nodes, &a.correlation_id)
+            .0
+            .is_some_and(|d| d.floor)
+    }
 }

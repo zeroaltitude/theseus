@@ -130,7 +130,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
     ("extensions", "propose a new extension of your own tools"),
     (
         "settings",
-        "change Theseus's own settings on the owner's word, which the owner then confirms",
+        "read and change Theseus's own settings (a budget, a cap, a switch, a server) or restart it, on the owner's word; the settings file is never opened, so do not use the shell for it",
     ),
     (
         "self",
@@ -389,6 +389,7 @@ mod tests {
             ("aws_hands_run", "aws-hands"),
             ("extend_propose", "extensions"),
             ("config_propose", "settings"),
+            ("config_show", "settings"),
             ("daemon_restart", "settings"),
             ("mcp_attach", "settings"),
             ("mcp_detach", "settings"),

@@ -85,8 +85,26 @@ impl Core {
         {
             return Err(why);
         }
-        self.confirm_action(&q.correlation_id, approve, note, who)
-            .map_err(|e| format!("the answer was not taken: {e:#}"))?;
+        // A settings card is answered by its own press or the owner's terminal,
+        // never by words in their name (`judge_typed_settings` holds it for
+        // every caller; this says it before anything is asked).
+        if let Some(why) = approve
+            .then(|| crate::config_change::words::by_press_only(q))
+            .flatten()
+        {
+            return Err(why.into());
+        }
+        self.confirm_action_with(
+            &q.correlation_id,
+            approve,
+            note,
+            who,
+            super::confirms::Rides {
+                typed: true,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| format!("the answer was not taken: {e:#}"))?;
         Ok(match approve {
             true => "Approved; it runs on its own, so do not ask for it again and do not do its \
                      work by hand"

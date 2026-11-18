@@ -344,6 +344,7 @@ async fn attaching_and_detaching_are_asked_with_the_second_proof() {
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let attach = r.asked().remove(0);
+    super::super::tests::assert_worded(&r.core, &attach, "attach the MCP server `wc`");
     assert!(
         attach.needs_proof && !attach.needs_fresh_proof,
         "{attach:?}"
@@ -357,6 +358,7 @@ async fn attaching_and_detaching_are_asked_with_the_second_proof() {
         .into_iter()
         .find(|c| c.correlation_id != attach.correlation_id)
         .expect("the detach's card");
+    super::super::tests::assert_worded(&r.core, &detach, "remove the MCP server `base`");
     assert!(detach.needs_proof, "{detach:?}");
     for q in [&attach, &detach] {
         let e = r

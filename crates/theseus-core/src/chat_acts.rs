@@ -126,7 +126,7 @@ mod items;
 pub mod judged;
 mod run;
 mod threads;
-mod tools;
+pub(crate) mod tools;
 
 #[cfg(test)]
 mod tests;

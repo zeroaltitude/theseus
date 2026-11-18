@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use theseus_client::Conn;
 use theseus_protocol::{
-    method, ConfigHistoryParams, ConfigHistoryResult, ConfigShowParams, ConfigShowResult,
+    method, ConfigHistoryParams, ConfigHistoryResult, ConfigWholeParams, ConfigWholeResult,
 };
 
 use crate::cmd::output;
@@ -61,14 +61,14 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ConfigCmd) -> Result<()> {
         ConfigCmd::Show { question } => {
             let v = conn
                 .request(
-                    method::CONFIG_SHOW,
-                    ConfigShowParams {
+                    method::CONFIG_WHOLE,
+                    ConfigWholeParams {
                         question,
                         ..Default::default()
                     },
                 )
                 .await?;
-            output(json, v, |r: ConfigShowResult| {
+            output(json, v, |r: ConfigWholeResult| {
                 print!("{}", r.words);
                 Ok(())
             })

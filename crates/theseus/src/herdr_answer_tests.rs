@@ -238,7 +238,8 @@ fn a_prompt_file_change_is_drawn_whole_on_the_card() {
         "act_0000aaaa11",
         "ses_aaaa11",
         1_000,
-        json!({"tool": "config.ack", "reason": reason, "input": {"whole": true}}),
+        json!({"tool": "config.ack", "reason": reason, "input": {"whole": true},
+            "plain": {"who": "Theseus", "what": "change the prompt file `/state/P.md`", "why": "", "held": "", "risk": "", "yes": "", "no": "", "detail": reason}}),
     );
     let text = card(&c, &Context::default(), 2_000).join("\n");
     for line in reason.lines() {

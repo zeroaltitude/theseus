@@ -48,6 +48,9 @@ pub struct AskState {
     pub focus: Option<String>,
     /// The id of the question the fields above are about.
     pub seen: Option<String>,
+    /// The whole card of a settings question has been written into the
+    /// transcript (`v`): only then is `y` taken for it.
+    pub read: bool,
 }
 
 /// A question that waits for you: this conversation's own, or a task's.
@@ -149,6 +152,15 @@ impl Chat {
 
     fn own_key(&mut self, q: &ConfirmRequest, key: char, which: Ask) -> Option<Vec<Effect>> {
         match which {
+            // A settings question is answered with a yes only after its whole
+            // card has been put in front of the person: the dock holds a line.
+            Ask::Yes if is_settings(q) && !self.ask.read => {
+                self.say_words(
+                    Sty::Yellow,
+                    "this changes Theseus's own settings: press v to read the whole card first, then y",
+                );
+                Some(Vec::new())
+            }
             Ask::Yes => Some(self.confirm(q, true, None, false)),
             Ask::Grant if q.grant_offer.as_ref().is_some_and(|o| o.key() == key) => {
                 Some(self.confirm(q, true, None, true))
@@ -301,6 +313,20 @@ impl Chat {
         self.say_plain(Sty::Bold, &format!("the whole call · {words}"));
         let width = usize::from(self.width);
         let preview = diffview::preview_lines(q);
+        // A settings question: the daemon's own words, whole, not its raw call.
+        if let Some(p) = q.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+            // Every row as the daemon wrote it, its spaces kept: a changed line's
+            // marker and indentation mean something, and words would run them
+            // together.
+            for l in p.detail_lines() {
+                for row in hard_wrap(&l, width.saturating_sub(4)) {
+                    self.say_plain(Sty::Dim, &format!("  {row}"));
+                }
+            }
+            self.ask.read = true;
+            self.gap();
+            return;
+        }
         if preview.is_empty() {
             let json = serde_json::to_string_pretty(&q.input).unwrap_or_default();
             for l in json.lines() {
@@ -311,13 +337,7 @@ impl Chat {
                 self.say(&l);
             }
         }
-        if theseus_protocol::has_whole_text(q) {
-            for l in q.reason.lines() {
-                for row in hard_wrap(l, usize::from(self.width).saturating_sub(4)) {
-                    self.say_plain(Sty::Dim, &format!("  {row}"));
-                }
-            }
-        } else if !q.reason.is_empty() {
+        if !q.reason.is_empty() {
             self.say_words(Sty::Dim, &format!("why: {}", q.reason));
         }
         self.gap();
@@ -382,6 +402,11 @@ fn expiry(q: &ConfirmRequest, now_ms: u64) -> Option<String> {
     })
 }
 
+/// Whether `q` is a settings question: the daemon sent its own whole words.
+pub(crate) fn is_settings(q: &ConfirmRequest) -> bool {
+    q.plain.as_ref().is_some_and(|p| !p.detail.is_empty())
+}
+
 /// The dock's rows for the question that has the keys.
 pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     let Some(cur) = chat.current() else {
@@ -431,19 +456,16 @@ pub fn rows(chat: &Chat, ctx: &DockCtx) -> Vec<Line> {
     // The plain words say risk, the model's reason and what Yes and No do
     // (theseus-cudar); the gate's own reason stands in for a daemon without.
     let said = match &q.plain {
+        // The whole card is a key away: the dock holds a line, not a card.
+        Some(p) if !p.detail.is_empty() && !chat.ask.read => {
+            "v: read the whole card first; y is taken after it".to_string()
+        }
+        Some(p) if !p.detail.is_empty() => format!("Yes: {} No: {}", p.yes, p.no),
         Some(p) => p.lines().split_off(1).join(" · "),
         None if q.reason.is_empty() => String::new(),
         None => format!("why: {}", q.reason),
     };
-    if theseus_protocol::has_whole_text(q) {
-        // A change to Theseus's own text or settings: the daemon's card, every
-        // line as it is, not run together (issue 23).
-        for line in q.reason.lines() {
-            for row in hard_wrap(line, ctx.width.saturating_sub(4)) {
-                out.push(one(Sty::Dim, format!("  {row}")));
-            }
-        }
-    } else if !said.is_empty() {
+    if !said.is_empty() {
         for row in wrap_words(&said, ctx.width.saturating_sub(2), 2) {
             out.push(one(Sty::Dim, format!("  {}", row.trim_start())));
         }

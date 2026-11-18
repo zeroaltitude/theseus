@@ -16,7 +16,7 @@
 //! - `screen.rs`: the bytes. `run.rs`: the loop. `guard.rs`: the terminal's
 //!   modes, put back on every way out.
 
-mod ask;
+pub(crate) mod ask;
 mod atfile;
 mod banner;
 mod commands;

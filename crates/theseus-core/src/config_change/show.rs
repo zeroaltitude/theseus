@@ -1,100 +1,409 @@
-//! The whole text of a change waiting for the owner's yes (issue 23): what
-//! `theseus config show` and the cockpit print, so that nothing is said yes
-//! to that was only summarised.
+//! `config.show`: the owner's own turn reads Theseus's settings by name (issue 22).
 //!
-//! Built by the daemon from the texts it kept when it made the card (the
-//! prompt file as the card was built from it, the text it would become; for
-//! a setting too long for its card, the settings file as it was and the
-//! candidate), every line of each, with the characters that cannot be seen
-//! written out and counted. Never from what the model said.
+//! Asked to change a setting, a turn used to go to the shell to find out what it
+//! was now, and the file is held by the floor, so the owner was asked about the
+//! look before the card. This is the look the daemon does itself: for each
+//! setting named, the value now, whether the file sets it or it is the default,
+//! whether a change to it is sensitive and why, and whether it restarts.
+//!
+//! **What it gives and what it does not.** It reads the file the daemon would
+//! start on, parsed and checked, with every default filled in, so it never
+//! shows text, comments or order, only settings. It never gives:
+//!
+//! - anything in `[secrets]` or `[broker]`: the names of vault items and where
+//!   each secret is read from. The card, which the daemon builds for the owner,
+//!   shows them; a turn has no need to have seen them;
+//! - a value under a key that names where a secret is read from (`env`,
+//!   `token`, `*_secret`, `credentials`, and the rest of
+//!   `sensitivity::key_reason`'s first class);
+//! - any value that is a vault reference (`op://`) or a URL that carries a
+//!   user, a password or a query;
+//! - a value longer than a card shows whole: it says how long, not its start.
+//!
+//! For each of these it still says whether the setting is set, whether a change
+//! is sensitive and whether it restarts. The wall is `config.history`'s: the
+//! owner, alone in a private place, in their own session. A turn that has read
+//! text from outside since the owner's last message is asked, not free: the
+//! gate puts the call to the owner (`ask_if_outside`), so a turn that was
+//! tricked cannot map the owner's permissions for nothing.
 
-use serde_json::Value;
-use theseus_kernel::Action;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
-use super::write::{self, Kept};
-use super::{diff, shown, ACK};
-use crate::config_copy::sha256;
-use crate::rpc::Core;
+use super::{diff, edit, history, wall};
+use crate::config::sensitivity;
+use crate::toolrun::{ToolRuntime, TurnCtx};
 
-fn args_of(a: &Action) -> Value {
-    a.proposal
-        .as_ref()
-        .map(|p| p.args.clone())
-        .unwrap_or_default()
+pub const SHOW: &str = "config.show";
+/// The most paths one call names.
+pub const MAX_PATHS: usize = 20;
+/// The most settings one call lists, a table's settings included.
+pub const MAX_LISTED: usize = 60;
+/// What a withheld value is said to be.
+const WITHHELD: &str = "its value is not shown to Theseus (it is where a secret is read from)";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Input {
+    paths: Vec<String>,
 }
 
-/// The questions waiting whose card has a text too long to show on it.
-fn waiting(core: &Core) -> Vec<Action> {
-    core.kernel
-        .pending_confirms()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|a| a.tool == ACK && args_of(a)["whole"].as_bool() == Some(true))
-        .collect()
+fn paths_of(input: &Value) -> Result<Vec<Vec<String>>, String> {
+    let i: Input = parse(input)?;
+    if i.paths.is_empty() || i.paths.len() > MAX_PATHS {
+        return Err(format!("name between 1 and {MAX_PATHS} settings to read"));
+    }
+    i.paths.iter().map(|p| edit::parse_path(p)).collect()
 }
 
-/// The question named by `id` (exactly, or by a prefix that names one), or the
-/// only one waiting.
-fn pick(mut all: Vec<Action>, id: Option<&str>) -> Result<Action, String> {
-    match (id.map(str::trim).filter(|i| !i.is_empty()), all.len()) {
-        (Some(i), _) => {
-            all.retain(|a| a.correlation_id == i || a.correlation_id.starts_with(i));
-            match all.len() {
-                1 => Ok(all.remove(0)),
-                0 => Err(format!("no change waiting for your yes has the id {i}")),
-                _ => Err(format!(
-                    "{i} names more than one waiting change: give more of its id"
-                )),
+/// The settings as Theseus holds them: the file's text, loaded and checked as
+/// a start loads it, as a tree with the defaults filled in. A table the loader
+/// leaves out of what it writes when it is all defaults is put back from the
+/// parsed config, so a default is always a value here.
+pub(crate) fn effective(text: &str) -> Result<Value, String> {
+    let (cfg, _) = crate::Config::parse(text)
+        .map_err(|e| format!("the settings file as it is now does not load: {e:#}"))?;
+    let mut v =
+        serde_json::to_value(&cfg).map_err(|e| format!("the settings cannot be read: {e}"))?;
+    macro_rules! fill {
+        ($(($k:literal, $f:ident)),* $(,)?) => {
+            $( if v.get($k).is_none() {
+                if let Ok(x) = serde_json::to_value(&cfg.$f) {
+                    v[$k] = x;
+                }
+            } )*
+        };
+    }
+    fill!(
+        ("context", context),
+        ("broker", broker),
+        ("voice", voice),
+        ("aws", aws),
+        ("google", google),
+        ("memory", memory),
+        ("routing", routing),
+        ("privacy", privacy),
+        ("content_based_security", content_based_security),
+        ("mcp", mcp),
+        ("mcp_server", mcp_server),
+        ("lsp", lsp),
+        ("sessions", sessions),
+        ("routines", routines),
+        ("route_bench", route_bench),
+        ("persona_import", persona_import),
+        ("project", project),
+        ("projects", projects),
+        ("standing", standing),
+        ("threads", threads),
+        ("initiative", initiative),
+        ("watch_for", watch_for),
+        ("cockpit", cockpit),
+        ("prefix", prefix),
+        ("notify", notify),
+        ("cache", cache),
+        ("people", people),
+        ("card", card),
+        ("ontology", ontology),
+        ("import", import),
+        ("self", self_improve),
+        ("self_issues", self_issues),
+        ("places", places),
+    );
+    Ok(v)
+}
+
+/// Whether a string is a vault reference, or a URL that carries a credential.
+fn credential_like(s: &str) -> bool {
+    if s.starts_with("op://") {
+        return true;
+    }
+    match reqwest::Url::parse(s) {
+        Ok(u) => !u.username().is_empty() || u.password().is_some() || u.query().is_some(),
+        Err(_) => false,
+    }
+}
+
+/// Why the value at `path` is not given, or `None` when it is. Judged by where
+/// the setting is, by what its key says and by what the value is, so a secret
+/// kept somewhere nobody classified is still not read out.
+fn withheld(path: &[String], v: &Value) -> Option<&'static str> {
+    if matches!(path.first().map(String::as_str), Some("secrets" | "broker")) {
+        return Some(WITHHELD);
+    }
+    if path
+        .iter()
+        .any(|k| sensitivity::key_reason(k) == Some("where a secret is read from"))
+    {
+        return Some(WITHHELD);
+    }
+    let carries = match v {
+        Value::String(s) => credential_like(s),
+        Value::Array(a) => a.iter().any(|x| x.as_str().is_some_and(credential_like)),
+        _ => false,
+    };
+    carries.then_some(WITHHELD)
+}
+
+/// A value as a line says it: whole, in words, or how long it is.
+fn shown(v: &Value) -> String {
+    let w = diff::words(Some(v));
+    match w.chars().count() > diff::SHOWN {
+        true => format!(
+            "a long value ({} characters; a change to it shows the owner all of it)",
+            w.chars().count()
+        ),
+        false => w,
+    }
+}
+
+/// The settings under `v` at `path`, as leaves (a leaf is a value, an empty
+/// table or a list), at most `room` of them; whether it stopped short.
+fn leaves(
+    v: &Value,
+    path: &mut Vec<String>,
+    out: &mut Vec<(Vec<String>, Value)>,
+    room: usize,
+) -> bool {
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            for (k, x) in m {
+                if out.len() >= room {
+                    return true;
+                }
+                path.push(k.clone());
+                let stopped = leaves(x, path, out, room);
+                path.pop();
+                if stopped {
+                    return true;
+                }
             }
+            false
         }
-        (None, 0) => Err("no change waiting for your yes has a long text to read".into()),
-        (None, 1) => Ok(all.remove(0)),
-        (None, _) => {
-            let ids: Vec<String> = all.iter().map(|a| a.correlation_id.clone()).collect();
-            Err(format!(
-                "more than one change is waiting: name one by its id: {}",
-                ids.join(", ")
-            ))
+        _ => {
+            out.push((path.clone(), v.clone()));
+            false
         }
     }
 }
 
-/// The whole of a prompt file's change.
-fn file_words(core: &Core, args: &Value) -> Result<String, String> {
-    let state = &core.tools.config_change.state;
-    let sha = |k: &str| args[k].as_str().unwrap_or_default();
-    let before = write::read_kept(state, Kept::FileBase, sha("base_sha256"))?;
-    let after = write::read_kept(state, Kept::FileNew, sha("candidate_sha256"))?;
-    let path = args["file"]["path"].as_str().unwrap_or_default();
-    let now = match super::prompt_file::read_text(std::path::Path::new(path)) {
-        Ok(t) if sha256(&t) == sha("base_sha256") => "It has not changed since the card was made.",
-        Ok(_) => "THE FILE HAS CHANGED since the card was made: a yes would write nothing.",
-        Err(_) => "The file cannot be read now: a yes would write nothing.",
+/// One setting's line: its value now, where it comes from, whether a change
+/// is sensitive, and whether it restarts.
+pub(crate) fn line(path: &[String], now: Option<&Value>, file: &Value) -> String {
+    let value = match now {
+        None => format!(
+            "not set (it has no default value), or no setting has this name: ask for the table `{}` to list what it holds",
+            path.first().map_or("", String::as_str)
+        ),
+        Some(v) => match withheld(path, v) {
+            Some(why) => why.to_string(),
+            None => shown(v),
+        },
     };
-    Ok(format!(
-        "The prompt file {}\n{now}\n\n{}\n{}",
-        shown::escape_line(path).0,
-        shown::whole("before (the file as it is now)", &before),
-        shown::whole("after (what the file would become)", &after),
-    ))
+    let from = match history::value_at(file, path) {
+        Some(_) => "set in the settings file",
+        None => "the default (the file does not set it)",
+    };
+    let change = match (sensitivity::reason(path), sensitivity::needs_fresh_proof(path, None)) {
+        (Some(why), true) => format!(
+            "a sensitive change ({why}): it asks for a fresh code from the authenticator app every time"
+        ),
+        (Some(why), false) => format!(
+            "a sensitive change ({why}): it needs the second proof as well as the owner's yes"
+        ),
+        (None, _) => "an ordinary change: the owner's yes on the card".to_string(),
+    };
+    let restart = match sensitivity::needs_restart(path) {
+        true => "takes effect after a restart",
+        false => "takes effect at once",
+    };
+    format!(
+        "- {}: {value} · {from} · {change} · {restart}",
+        edit::dotted(path)
+    )
 }
 
-/// The whole of each value too long for its card, in a settings change.
-fn settings_words(core: &Core, args: &Value) -> Result<String, String> {
-    let state = &core.tools.config_change.state;
-    let sha = |k: &str| args[k].as_str().unwrap_or_default();
-    let base = write::read_kept(state, Kept::SettingsBase, sha("base_sha256"))?;
-    let candidate = write::read_candidate(state, sha("candidate_sha256"))?;
-    Ok(super::long_value::whole(&diff::between(&base, &candidate)?))
+/// Whether `t` is one of the settings' tables.
+fn is_table(t: &str) -> bool {
+    sensitivity::SENSITIVE_TABLES.iter().any(|(x, _)| *x == t)
+        || sensitivity::ORDINARY_TABLES.contains(&t)
+        || sensitivity::ORDINARY_TABLES_MORE.contains(&t)
 }
 
-/// The question shown and its words, for `id` or the only change waiting.
-pub fn words(core: &Core, id: Option<&str>) -> Result<(String, String), String> {
-    let a = pick(waiting(core), id)?;
-    let args = args_of(&a);
-    let words = match super::prompt_file::write::is_card(&args) {
-        true => file_words(core, &args)?,
-        false => settings_words(core, &args)?,
-    };
-    Ok((a.correlation_id, words))
+/// What a name that is no setting says: the tables there are, so a typo finds
+/// its table.
+fn unknown(path: &[String]) -> String {
+    let tables: Vec<&str> = sensitivity::SENSITIVE_TABLES
+        .iter()
+        .map(|(t, _)| *t)
+        .chain(sensitivity::ORDINARY_TABLES)
+        .chain(sensitivity::ORDINARY_TABLES_MORE)
+        .collect();
+    format!(
+        "- {}: no such setting. The settings are in these tables: {}",
+        edit::dotted(path),
+        tables.join(", ")
+    )
 }
+
+/// The words for each path named, built from the settings text `base`.
+pub(crate) fn words(base: &str, paths: &[Vec<String>]) -> Result<String, String> {
+    let now = effective(base)?;
+    let file = history::doc_of(base).ok_or("the settings file does not parse")?;
+    let mut out = String::new();
+    let mut listed = 0usize;
+    let mut stopped = false;
+    for p in paths {
+        if listed >= MAX_LISTED {
+            stopped = true;
+            break;
+        }
+        let Some(v) = history::value_at(&now, p) else {
+            // Set in the file but unknown to the loader cannot happen (the file
+            // loads); a name nobody has is said so.
+            let known = p.first().is_some_and(|t| is_table(t));
+            match history::value_at(&file, p).is_some() || known {
+                true => out.push_str(&format!("{}\n", line(p, None, &file))),
+                false => out.push_str(&format!("{}\n", unknown(p))),
+            }
+            listed += 1;
+            continue;
+        };
+        let mut found = Vec::new();
+        let mut at = p.clone();
+        let room = MAX_LISTED.saturating_sub(listed).max(1);
+        stopped |= match v.is_object() {
+            true => leaves(&v, &mut at, &mut found, room),
+            false => {
+                found.push((p.clone(), v.clone()));
+                false
+            }
+        };
+        for (lp, lv) in found {
+            out.push_str(&format!("{}\n", line(&lp, Some(&lv), &file)));
+            listed += 1;
+        }
+    }
+    if stopped {
+        out.push_str(&format!(
+            "(stopped at {MAX_LISTED} settings: name fewer, or a narrower table)\n"
+        ));
+    }
+    Ok(out)
+}
+
+/// What a proposal's result says each setting was before it, as the daemon read
+/// the file: its value, set or default. Empty when the file cannot be read
+/// back (the proposal's own checks have said so).
+pub(crate) fn before(base: &str, settings: &[diff::Setting]) -> String {
+    let (Ok(now), Some(file)) = (effective(base), history::doc_of(base)) else {
+        return String::new();
+    };
+    let mut out = String::from("Before this change, as Theseus read the settings:\n");
+    for s in settings {
+        out.push_str(&line(
+            &s.path,
+            history::value_at(&now, &s.path).as_ref(),
+            &file,
+        ));
+        out.push('\n');
+    }
+    out
+}
+
+/// Run `config.show` in the turn `tc`: the owner's own turn gets the words,
+/// anything else is refused in its own words.
+pub fn run(rt: &ToolRuntime, tc: &TurnCtx<'_>, input: &Value) -> Result<(String, Value), String> {
+    if let Some(why) = refusal(tc) {
+        return Err(why);
+    }
+    let paths = paths_of(input)?;
+    let base = super::read_base(rt)?;
+    let said = words(&base, &paths)?;
+    Ok((said, json!({"settings": paths.len()})))
+}
+
+/// The gate's hold on a read that is not free: when the turn has read text
+/// from outside since the owner's last message, `config.show` is put to the
+/// owner as any call that asks is, whatever its posture.
+pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
+    if name != SHOW {
+        return plan;
+    }
+    let (outside, steered) = super::outside_text(tc);
+    held(name, outside, steered, plan)
+}
+
+/// [`ask_if_outside`], on the facts it reads.
+fn held(name: &str, outside: bool, steered: bool, mut plan: Plan) -> Plan {
+    if name == SHOW && (outside || steered) {
+        plan.authority = Some(
+            "read Theseus's own settings: this conversation has read text from outside since \
+             your last message, so the request may not be only yours"
+                .into(),
+        );
+    }
+    plan
+}
+
+/// `config.show`.
+pub struct Show;
+
+impl Tool for Show {
+    fn name(&self) -> &str {
+        SHOW
+    }
+
+    fn description(&self) -> &str {
+        "Read a Theseus setting by name: its value now, default or set, and whether it restarts; never open the settings \
+         file. The file is never opened, listed or searched, and the shell is not the way. Name each setting by its \
+         path (`discord.task_channel_cap`, or a table such as `kernel` to list its settings); the answer also says \
+         whether a change needs the second proof. A secret's value, and the names of vault items, are never given. To \
+         change a setting, call `config.propose`; its result says each value before, so a plain change needs no read \
+         first. Changes nothing. Offered only to the owner, in a private place."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "description": "The settings to read, at most 20, each by its path with keys joined by dots; a table lists its settings.",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["paths"],
+            "additionalProperties": false
+        })
+    }
+
+    fn class(&self) -> ToolClass {
+        ToolClass::Read
+    }
+
+    fn backend(&self) -> Backend {
+        Backend::Harness
+    }
+
+    fn retry(&self) -> Retry {
+        Retry::SafeToRepeat
+    }
+
+    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+        let paths = paths_of(input)?;
+        let names: Vec<String> = paths.iter().map(|p| edit::dotted(p)).collect();
+        Ok(Plan {
+            summary: format!("read Theseus's settings: {}", names.join(", ")),
+            ..Default::default()
+        })
+    }
+}
+
+/// The wall, before anything is read: `config.history`'s.
+pub(crate) fn refusal(tc: &TurnCtx<'_>) -> Option<String> {
+    wall::refusal_for(tc, SHOW)
+}
+
+#[cfg(test)]
+mod tests;

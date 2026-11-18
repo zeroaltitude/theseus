@@ -27,6 +27,13 @@ pub struct PlainWords {
     pub yes: String,
     /// What No does.
     pub no: String,
+    /// The daemon's own whole words for a question that is more than a
+    /// call: a settings card, with each setting's value before and after.
+    /// Empty for an ordinary approval. A surface that has it shows it whole,
+    /// never cut, instead of the raw arguments. Left out of the wire when
+    /// empty, so an ordinary approval's record is as it was.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
 }
 
 impl PlainWords {
@@ -42,6 +49,11 @@ impl PlainWords {
         out.push(badge);
         out.push(format!("Yes: {} No: {}", self.yes, self.no));
         out
+    }
+
+    /// The lines of [`Self::detail`], whole, for a text surface.
+    pub fn detail_lines(&self) -> Vec<String> {
+        self.detail.lines().map(str::to_string).collect()
     }
 
     /// One sentence that repeats the whole question: the settle's text keeps

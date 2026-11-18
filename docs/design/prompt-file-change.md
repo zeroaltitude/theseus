@@ -4,7 +4,7 @@ A second kind of change through issue 22's door (`config-change.md`), not a seco
 question (`config.ack`), the same second proof, the same kept copies, history and undo. What the daemon changes here
 is a file the settings name as **prompt text**, and what the owner sees is built from that file itself. Code:
 `crates/theseus-core/src/config_change/prompt_file/` (the tools, the card, the write, undo, history),
-`config_change/shown.rs` (the difference and the whole text), `config_change/show.rs` (`config.show`),
+`config_change/shown.rs` (the difference and the whole text), `config_change/words.rs` (the line a change settles into, shared with issue 22), `config_change/whole.rs` (`config.whole`),
 `crates/theseus/src/config_cmd.rs` (`theseus config show`), the cockpit's `ConfirmCard.tsx`.
 
 ## What prompt text is, and when it is read
@@ -59,10 +59,38 @@ zero-width, direction marks, hidden tag and variation characters: `shown::unseen
 the card and in the whole text; a backslash is doubled. The model's reason is shown as the model's, one line, with its
 unseen characters written out. A card says when the turn read outside text since the owner's last message.
 
-## The whole text (`config.show`, `theseus config show`)
+## One card, drawn once (issue 22's rules, issue 23's cards)
+
+A prompt file's change, its undo and a long setting's change are **settings questions** in issue 22's sense
+(`config-change.md`, "A settings question"): the daemon words each once, from the facts the card was built from.
+`PlainWords::detail` is the card whole, as `prompt_file/card.rs` or `card.rs` built it, and `PlainWords::what` is one
+line (`words::file`: which file and how many lines it adds and removes, no restart; `words::change` for a long setting).
+The model's reason is on the card as the model's and never in the line. A surface knows the kind by the `detail`, not by a
+tool name. So every place draws it with the settings form or says there is no yes there, and none has a second form of
+its own:
+
+| Place | Drawn by | What it shows |
+|---|---|---|
+| Discord card | `render/settings.rs` | the card whole; the block of changed lines as it is, everything else as text (`md`); several messages when longer, the buttons on the last |
+| Discord `/answer`, Details | `settings::words_here`, `details` | the card whole when one message holds it; else where to read it, and no buttons |
+| Discord needs-you post | `settings::needs_you` (the core's card body carries the words) | the card whole, in parts; `[notify] dm_cards = false` gives a line (what it changes) and says to open Theseus, never a cut card |
+| cockpit card, queue, bulk approve | `ConfirmCard.tsx`, `ops/queue.ts` | the card whole with its breaks; "Read the whole text" for before and after; no compact approve, never in a batch |
+| terminal board card | `theseus-tui/src/card.rs` | no part of the card: where to read it and `theseus config show`; `y` sends nothing |
+| terminal chat | `chat/ask.rs` | the dock says to press `v`; `v` writes every line of the card as a row of its own (spaces kept); `y` after |
+| `theseus answer`, the event print | `theseus/src/render/ask.rs` | the change in a line, the card whole, Yes and No |
+| herdr answer pane | `herdr_answer.rs` | the change in a line, the card whole |
+| the model's answer tool | `words::by_press_only` | only a no is offered; a yes is refused (below) |
+| voice | none | no card is read or offered |
+
+**A yes is the owner's own press.** `judge_typed_settings` (`rpc/mcp_card.rs`) refuses a yes typed for a question whose
+tool is `config.ack`, the one tool all of these kinds ask through, and not any tool name of issue 23's: so a new kind
+that asks through the same question is held without a new line. `prompt_file/tests_answer.rs` drives the answer tool
+against a prompt file's change, its undo and a long setting's change: each still waits, a no works.
+
+## The whole text (`config.whole`, `theseus config show`)
 
 While the question waits, the daemon keeps the file as the card was built from it and the text it would become, by their
-digests, in `<state>/store/config-changes/` (on the floor). `config.show` (owner only, judged as `config.history`) gives
+digests, in `<state>/store/config-changes/` (on the floor). `config.whole` (owner only, judged as `config.history`) gives
 both, every line, and says whether the file has changed since the card. The cockpit's card has a button for it. **The
 Discord binding has no outbound file upload**: there the card is the changed lines or the summary with the command.
 
@@ -88,7 +116,7 @@ shows those edits as the lines it removes.
 `config.propose` used to refuse a value whose shown form is over 400 characters (`diff::SHOWN`). Neither limit moved:
 a value between 400 characters and the proposal's 4,096 bytes (`MAX_VALUE_BYTES`) now goes on the same kind of card
 (`config_change/long_value.rs`): size and fingerprint of the value before and after, its changed lines whole when they
-fit, else a summary, and the whole value readable by `config.show`. A short value keeps today's card exactly.
+fit, else a summary, and the whole value readable by `config.whole`. A short value keeps today's card exactly.
 
 ## What the floor holds
 

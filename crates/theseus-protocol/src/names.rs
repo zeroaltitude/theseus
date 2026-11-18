@@ -126,7 +126,7 @@ pub mod method {
         /// The last changes the owner approved to Theseus's own settings, as words (issue 22).
         CONFIG_HISTORY = "config.history",
         /// The whole text, before and after, of a change waiting for the owner's yes: a prompt file, or a setting too long for its card (issue 23).
-        CONFIG_SHOW = "config.show",
+        CONFIG_WHOLE = "config.whole",
         UNDO_LIST = "undo.list", UNDO_ALLOW = "undo.allow", // the owner lets a call undo.v1 held run as it was first proposed (theseus-p5kln)
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",

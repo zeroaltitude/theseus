@@ -34,7 +34,7 @@ use crate::files::{self, FileMeta, Plan};
 use crate::render::answer_v2::{self as av2, FILE_FIELD, NOTE_FIELD, OTHER};
 use crate::render::board_v2::{ago, short};
 use crate::render::v2::{container, text};
-use crate::render::{card_v2, clip};
+use crate::render::{card_v2, clip, settings};
 
 /// How long a presser's list of questions is read from memory.
 pub(super) const TTL: Duration = Duration::from_secs(3);
@@ -71,6 +71,9 @@ fn options_of(r: &ConfirmRequest) -> Vec<AnswerOption> {
 /// The card's words for a request: who asks and what, an ask's own question
 /// with its options numbered, and when.
 fn words_of(r: &ConfirmRequest) -> String {
+    if settings::is_settings(r) {
+        return settings_words(r);
+    }
     let who = r
         .task
         .as_ref()
@@ -91,10 +94,6 @@ fn words_of(r: &ConfirmRequest) -> String {
             }
             s
         }
-        // A change to Theseus's own text or settings: the daemon built the card
-        // to fit, and the owner presses Approve under what is here, so it is
-        // drawn whole or not at all (issue 23).
-        None if theseus_protocol::has_whole_text(r) => crate::render::whole_change_words(&who, r),
         None => format!("🔔 **{}** · {}", clip(&who, 60), clip(&r.reason, 400)),
     };
     t.push_str(&format!(
@@ -103,6 +102,25 @@ fn words_of(r: &ConfirmRequest) -> String {
         ago(r.requested_at_ms)
     ));
     t
+}
+
+/// A settings question's words: the daemon's own, whole; or, when they do not
+/// fit one message, where to read them (the question is not answered here).
+fn settings_words(r: &ConfirmRequest) -> String {
+    let said =
+        match settings::words_here(r) {
+            Some(whole) => format!("🔔 {whole}"),
+            None => format!(
+            "🔔 {}\nThis is longer than one message can show whole, so it is not answered from \
+             here: read it on its own message, or with `theseus answer`, and answer it there.",
+            r.plain.as_ref().map_or_else(String::new, |p| settings::md(&p.what))
+        ),
+        };
+    format!(
+        "{said}\n-# `…{}` · asked {}",
+        short(&r.correlation_id),
+        ago(r.requested_at_ms)
+    )
 }
 
 /// A choice's name in the autocomplete.
@@ -120,7 +138,13 @@ fn name_of(r: &ConfirmRequest) -> String {
     format!(
         "{mark} {} · {} …{}",
         clip(&who, 30),
-        clip(&r.reason, 40),
+        clip(
+            r.plain
+                .as_ref()
+                .filter(|_| settings::is_settings(r))
+                .map_or(&r.reason, |p| &p.what),
+            40
+        ),
         short(&r.correlation_id)
     )
 }
@@ -144,6 +168,10 @@ pub(super) fn choices(open: &[ConfirmRequest], typed: &str) -> Vec<(String, Stri
 pub(super) fn view_of(r: &ConfirmRequest) -> Vec<Value> {
     let options = options_of(r);
     let mut inner = vec![text(words_of(r))];
+    // Words that do not fit are never answered from here.
+    if settings::is_settings(r) && settings::words_here(r).is_none() {
+        return vec![container(Some(0xE5_48_4D), inner)];
+    }
     inner.extend(av2::controls(&r.correlation_id, &options));
     inner.extend(av2::note_row(&r.correlation_id, &options));
     vec![container(Some(0xE5_48_4D), inner)]
@@ -369,61 +397,4 @@ fn fields_of(m: &ModalInteractionData) -> (String, Vec<String>) {
         .iter()
         .for_each(|c| walk(c, &mut note, &mut files));
     (note, files)
-}
-
-#[cfg(test)]
-mod tests_whole {
-    use super::*;
-    use serde_json::json;
-    use theseus_core::config_change::prompt_file::card::CARD_CHARS;
-
-    fn change(reason: &str) -> ConfirmRequest {
-        serde_json::from_value(json!({
-            "correlation_id": "act_9", "session_id": "ses_a", "execution_id": "exe_a",
-            "tool": "config.ack", "input": {"whole": true}, "reason": reason, "by": "operator",
-            "requested_at_ms": 1, "expires_at_ms": 0, "needs_proof": true,
-        }))
-        .unwrap()
-    }
-
-    /// Every character of the message `/answer` builds for a question, as text.
-    fn drawn(r: &ConfirmRequest) -> String {
-        serde_json::to_string(&view_of(r)).unwrap()
-    }
-
-    /// `/answer` shows the daemon's card whole, the changed lines included, with
-    /// Approve under it: it never clips a settings change to a line's length.
-    #[test]
-    fn answer_shows_a_prompt_file_card_whole_not_clipped_to_400() {
-        let body = "w".repeat(900);
-        let card = format!(
-            "Change the prompt file /state/P.md?\n```diff\n@@ -1,1 +1,1 @@\n-old\n+{body}\n```\nTakes effect with the next message.\n"
-        );
-        assert!(card.chars().count() > 400 && card.chars().count() <= CARD_CHARS);
-        let shown = drawn(&change(&card));
-        let json_card = serde_json::to_string(card.trim_end()).unwrap();
-        assert!(
-            shown.contains(&json_card[1..json_card.len() - 1]),
-            "{shown}"
-        );
-        assert!(
-            shown.contains(&body),
-            "every character of the changed line: {shown}"
-        );
-    }
-
-    /// A card past the room says where to read it, and shows none of the lines.
-    #[test]
-    fn answer_does_not_show_a_card_past_the_room_cut() {
-        let card = format!(
-            "Change the prompt file /state/P.md?\n+{}\n",
-            "z".repeat(CARD_CHARS)
-        );
-        let shown = drawn(&change(&card));
-        assert!(!shown.contains("zzzz"), "{shown}");
-        assert!(
-            shown.contains("not shown cut") && shown.contains("theseus config show"),
-            "{shown}"
-        );
-    }
 }

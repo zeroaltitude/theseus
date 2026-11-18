@@ -55,6 +55,15 @@ export interface QueueInput {
 const FAILED_VIEW = ['failed']
 const FAILED_EXEC = ['failed', 'blocked', 'budget_exhausted']
 
+/** A settings question (a change, an undo, a server, a restart, an install) carries the daemon's own whole words as
+ *  `plain.detail`. It is answered only on its whole card: no compact approve, no bulk approve, for a yes is never
+ *  taken under a line of its summary. */
+export const settingsQuestion = (c?: Pick<ConfirmRequest, 'plain'> | null): boolean => !!c?.plain?.detail
+
+/** The words a settings question is drawn with: the change in one line, and the daemon's card whole, never cut. */
+export const settingsWords = (c?: Pick<ConfirmRequest, 'plain'> | null): { what: string; detail: string } | null =>
+  c?.plain?.detail ? { what: c.plain.what, detail: c.plain.detail } : null
+
 function confirmKind(c: ConfirmRequest): ItemKind {
   return c.budget ? 'budget' : c.change ? 'change' : 'approval'
 }
@@ -197,12 +206,12 @@ export function answerOf(i: QueueItem, a: Answer): { method: string; params: Rec
   const qid = i.confirm?.correlation_id ?? i.proposal?.record.proposal?.card ?? i.view?.question?.id
   switch (a.verb) {
     case 'approve': {
-      if (!qid || i.kind === 'question') return null
+      if (!qid || i.kind === 'question' || settingsQuestion(i.confirm)) return null
       const yes = i.confirm ? (i.confirm.options?.[0]?.id ?? (i.confirm.budget ? 'reset' : i.confirm.change ? 'accept' : i.confirm.tool === 'extend.ack' ? 'ack' : 'approve')) : 'accept'
       return { method: 'work.answer', params: { question_id: qid, option: yes } }
     }
     case 'grant':
-      return i.confirm?.grant_offer ? { method: 'work.answer', params: { question_id: qid, option: 'approve_grant' } } : null
+      return i.confirm?.grant_offer && !settingsQuestion(i.confirm) ? { method: 'work.answer', params: { question_id: qid, option: 'approve_grant' } } : null
     case 'decline':
       if (!qid || i.kind === 'question') return null
       return { method: 'work.answer', params: { question_id: qid, option: 'decline', note: a.note?.trim() || undefined } }

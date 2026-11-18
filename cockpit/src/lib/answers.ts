@@ -56,7 +56,7 @@ export const needsCode = (c: ConfirmRequest): boolean => Boolean(c.needs_proof) 
  *  keep their breaks. */
 export const isSettingsChange = (c: ConfirmRequest): boolean => c.tool === 'config.ack'
 
-/** Whether the card has a whole text to read before the yes (`config.show`): a prompt file's change, or a setting too
+/** Whether the card has a whole text to read before the yes (`config.whole`): a prompt file's change, or a setting too
  *  long for the card. The daemon says so in the question's own arguments. */
 export const hasWholeText = (c: ConfirmRequest): boolean =>
   isSettingsChange(c) && (c.input as { whole?: unknown } | null)?.whole === true

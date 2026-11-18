@@ -32,4 +32,12 @@ yes: string,
 /**
  * What No does.
  */
-no: string, };
+no: string, 
+/**
+ * The daemon's own whole words for a question that is more than a
+ * call: a settings card, with each setting's value before and after.
+ * Empty for an ordinary approval. A surface that has it shows it whole,
+ * never cut, instead of the raw arguments. Left out of the wire when
+ * empty, so an ordinary approval's record is as it was.
+ */
+detail: string, };

@@ -420,6 +420,10 @@ impl Core {
         if approve {
             self.proof_gate(&a, &who, code, typed)?;
         }
+        // A settings question or a floor hold is not answered by words, in the
+        // owner's name (after the proof gate, which says its own words first
+        // for a question that needs a code).
+        self.judge_typed_settings(&who, &a, approve, typed)?;
         let via = who.via();
         if a.tool == BUDGET_TOOL {
             return self.answer_budget(&a, approve, note, by, &via);
@@ -1252,7 +1256,10 @@ impl Act<'_> {
 
 /// The gate's decision on the tool call `correlation_id` names, and the turn
 /// that made it, from its node in `nodes`, a session's transcript.
-fn call_of(nodes: &[(u64, Node)], correlation_id: &str) -> (Option<GateDecision>, Option<String>) {
+pub(super) fn call_of(
+    nodes: &[(u64, Node)],
+    correlation_id: &str,
+) -> (Option<GateDecision>, Option<String>) {
     nodes
         .iter()
         .rev()

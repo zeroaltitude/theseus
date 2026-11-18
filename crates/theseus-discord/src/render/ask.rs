@@ -100,21 +100,26 @@ fn card_text(body: &serde_json::Value) -> String {
         }
     }
     t.push_str("\n-# Needs you");
-    // Held, not expired, past its first life (theseus-la5oc): the same words
-    // `render::heldquestion::footer_clause` says for the card it posts at ask
-    // time, said here for the needs-you post that may still say so long after.
-    if body["held"] == true {
-        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
-            t.push_str(&format!(" · held since <t:{}:R> · still waiting", r / 1000));
-        }
-    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
-        t.push_str(&format!(" · expires <t:{}:R>", e / 1000));
-    }
+    t.push_str(&when_clause(body));
     t.push_str(match body["choices"].as_array().is_none_or(Vec::is_empty) {
         true => " · tap, or reply yes or no",
         false => " · tap, or reply with its number",
     });
     t
+}
+
+/// Held, not expired, past its first life (theseus-la5oc): the same words
+/// `render::heldquestion::footer_clause` says for the card it posts at ask
+/// time, said here for the needs-you post that may still say so long after.
+pub(super) fn when_clause(body: &serde_json::Value) -> String {
+    if body["held"] == true {
+        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
+            return format!(" · held since <t:{}:R> · still waiting", r / 1000);
+        }
+    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
+        return format!(" · expires <t:{}:R>", e / 1000);
+    }
+    String::new()
 }
 
 /// The mark that goes with a risk badge's words.
@@ -135,6 +140,9 @@ fn risk_mark(risk: &str) -> &'static str {
 /// asked, when it expires — or, for a held question, how long it has been
 /// waiting (`heldquestion`) — and the question's id.
 pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
+    if super::settings::is_settings(req) {
+        return super::settings::details(req);
+    }
     let mut t = format!(
         "**Details**\n**What:** {}",
         clip(
@@ -149,21 +157,7 @@ pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
         ));
     }
     t.push_str(&format!("\n**Tool:** `{}`", req.tool));
-    // A change to Theseus's own text or settings (issue 23): this view clips a
-    // rule to a line, and the needs-you card it hangs from shows only a summary,
-    // so it shows the heading and where the whole is, never part of the changed lines.
-    if theseus_protocol::has_whole_text(req) {
-        let heading = req.reason.lines().next().unwrap_or_default();
-        t.push_str(&format!(
-            "\n**Rule:** {}\nThe changed lines are not shown here, so no part of them is shown \
-             cut. To read the whole text, before and after: `theseus config show {}`, or the \
-             cockpit.",
-            clip(heading, 200),
-            req.correlation_id
-        ));
-    } else {
-        t.push_str(&format!("\n**Rule:** {}", clip(req.reason.trim(), 400)));
-    }
+    t.push_str(&format!("\n**Rule:** {}", clip(req.reason.trim(), 400)));
     let asker = match (&req.plain, &req.task) {
         (Some(p), _) => p.who.clone(),
         (_, Some(task)) => format!("task {}", task.short),
@@ -227,6 +221,7 @@ pub fn card(
         content,
         line: format!("{task}asks: {}", clip(question, 80)),
         budget: false,
+        more: Vec::new(),
     }
 }
 

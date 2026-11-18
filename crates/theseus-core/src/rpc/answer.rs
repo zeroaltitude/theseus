@@ -379,6 +379,14 @@ impl Core {
                 )
             })
             .or_else(|| approve.then(|| self.proof_detail(a, &proof_by)).flatten());
+        // A settings question says, in words, what was approved or declined.
+        let detail = match crate::config_change::words::echo(a, approve) {
+            Some(said) => Some(match detail {
+                Some(more) => format!("{said}\n{more}"),
+                None => said,
+            }),
+            None => detail,
+        };
         Ok(WorkAnswerResult {
             question_id: a.correlation_id.clone(),
             option: chosen.id.clone(),

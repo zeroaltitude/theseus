@@ -82,6 +82,11 @@ pub(crate) fn allow_args(input: &Value) -> Result<AllowArgs, String> {
 /// say back, never by the correlation id alone.
 pub(crate) fn named_question(q: &ConfirmRequest) -> String {
     let id = tail(&q.correlation_id, 8);
+    // A settings question is named by the change it asks, in the daemon's own
+    // words, so what the owner says yes to is what the model was told waits.
+    if let Some(p) = q.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+        return format!("`{}` — {} (…{id})", q.tool, p.what);
+    }
     match (&q.change, &q.task) {
         (Some(ch), _) => format!("`{}` — {} «{}» ({})", q.tool, ch.field, ch.title, ch.task),
         (None, Some(t)) => format!("`{}` for task «{}» (…{id})", q.tool, t.short),
@@ -104,6 +109,16 @@ fn tail(s: &str, n: usize) -> String {
 fn answers_of(q: &ConfirmRequest) -> String {
     if q.tool == crate::ask::OWNER_ASK {
         return "one of its options, by its number from 1 (or `other` with a note)".into();
+    }
+    if let Some(why) = crate::config_change::words::by_press_only(q) {
+        return match why == crate::config_change::words::FLOOR_BY_PRESS {
+            true => "`no` only: a yes to a call held by the floor is given by its own button, or \
+                     with `theseus answer` in the owner's own terminal, never in their name here"
+                .into(),
+            false => "`no` only: a yes to a settings card is given by its own button, or with \
+                      `theseus answer` in the owner's own terminal, never in their name here"
+                .into(),
+        };
     }
     "`yes` or `no`".into()
 }

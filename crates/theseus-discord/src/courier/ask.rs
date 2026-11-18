@@ -101,6 +101,46 @@ impl Lane {
             .flatten()
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect();
+        // A settings question's post: the daemon's words whole, as several
+        // messages when longer than one, the buttons on the last.
+        if let Some((before, last)) = crate::render::settings::needs_you(body) {
+            let key = format!("confirm:{q}");
+            self.shared.replies.asked().plan(
+                &key,
+                vec![answer::Entry {
+                    question: q.clone(),
+                    choices: Vec::new(),
+                }],
+            );
+            let mut writes: Vec<Write> = before
+                .into_iter()
+                .enumerate()
+                .map(|(i, part)| Write {
+                    key: format!("{}{q}:{i}", crate::render::settings::PART_KEY),
+                    channel,
+                    content: part,
+                    buttons: Buttons::Keep,
+                    reply_to: None,
+                    message: None,
+                    mentions: vec![],
+                    ping: false,
+                })
+                .collect();
+            writes.push(Write {
+                key,
+                channel,
+                content: last,
+                buttons: Buttons::Card(q.clone(), Vec::new()),
+                reply_to: None,
+                message: None,
+                mentions: vec![],
+                ping: body["silent"] != true && self.pings(Event::NeedsYou),
+            });
+            return Ok(Plan {
+                writes,
+                extra: json!({"place": place, "question": q, "line": line_of(body)}),
+            });
+        }
         let card = body["card"].is_object();
         let buttons = match (card, choices.is_empty()) {
             (true, _) => Buttons::Card(q.clone(), choices.clone()),

@@ -91,6 +91,12 @@ pub fn put_file(
         tool: crate::config_change::ACK.into(),
         args: json!({
             "question": question,
+            "settled": crate::config_change::words::file(
+                &path,
+                diff.added,
+                diff.removed,
+                a.undoes.as_ref().map(|(u, _)| u.number),
+            ),
             "kind": KIND,
             "whole": true,
             "file": {

@@ -263,19 +263,7 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
         Event::ConfirmRequested(c) if c.tool == theseus_protocol::work::ask::OWNER_ASK => {
             ask::lines(&mut out, c);
         }
-        Event::ConfirmRequested(c) => {
-            push(
-                &mut out,
-                Tag::Ask,
-                &format!(
-                    "  ? {} needs your confirmation{}: {}",
-                    c.tool,
-                    if c.floor { " (FLOOR)" } else { "" },
-                    c.reason
-                ),
-            );
-            answers(&mut out, c);
-        }
+        Event::ConfirmRequested(c) => confirm_event(&mut out, c),
         Event::PolicyNotified(n) => {
             push(
                 &mut out,
@@ -429,15 +417,42 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
     out
 }
 
+/// A tool's question as the event prints it. A settings question (a change to
+/// the settings or a prompt file, an undo, a server, a restart, an install) is
+/// the change in a line, the daemon's card whole, and what Yes and No do, as
+/// `theseus answer` lists it.
+fn confirm_event(out: &mut Vec<Line>, c: &ConfirmRequest) {
+    if is_settings(c) {
+        ask::plain_lines(out, c);
+    } else {
+        push(
+            out,
+            Tag::Ask,
+            &format!(
+                "  ? {} needs your confirmation{}: {}",
+                c.tool,
+                if c.floor { " (FLOOR)" } else { "" },
+                c.reason
+            ),
+        );
+    }
+    answers(out, c);
+}
+
+/// Whether the daemon worded `c` whole: a settings question.
+fn is_settings(c: &ConfirmRequest) -> bool {
+    c.plain.as_ref().is_some_and(|p| !p.detail.is_empty())
+}
+
 /// How to answer a tool's question, after its first line: its input, then
 /// the commands that approve it and decline it.
 fn answers(out: &mut Vec<Line>, c: &ConfirmRequest) {
     // What the call would do (an edit's hunk, a command with its directory)
     // stands in for its input, which holds the same text as JSON.
     let shown = diffview::preview_lines(c);
-    // A change to Theseus's own text or settings has its card in its reason; its
-    // arguments are the daemon's own bookkeeping (issue 23).
-    if shown.is_empty() && !theseus_protocol::has_whole_text(c) {
+    // A settings question has its card in its words and its reason; its
+    // arguments are the daemon's own bookkeeping.
+    if shown.is_empty() && !is_settings(c) {
         push(
             out,
             Tag::Dim,

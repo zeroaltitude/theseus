@@ -464,7 +464,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
           <Command.Group heading="Waiting for you" className={group}>
             {cl!.confirms.map((c) => [
               <Command.Item key={`y-${c.correlation_id}`} value={`approve ${c.tool} ${title(c.session_id)}`} className={item}
-                onSelect={() => act(`Approve ${c.tool} for ${title(c.session_id)}?\n\n${c.reason}`, 'action.confirm', { correlation_id: c.correlation_id, approve: true })}>
+                onSelect={() => act(`Approve ${c.tool} for ${title(c.session_id)}?\n\n${c.plain?.detail || c.reason}`, 'action.confirm', { correlation_id: c.correlation_id, approve: true })}>
                 <CircleCheck size={14} className="text-ok" /> Approve <span className="num text-tool">{c.tool}</span><span className="truncate text-ink-faint">· {title(c.session_id)}</span>
               </Command.Item>,
               <Command.Item key={`n-${c.correlation_id}`} value={`decline ${c.tool} ${title(c.session_id)}`} className={item}

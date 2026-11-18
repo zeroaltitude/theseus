@@ -323,14 +323,16 @@ pub fn card(c: &ConfirmRequest, ctx: &Context, now_ms: u64) -> Vec<String> {
     }
     out.push(facts.join(" · "));
     out.push(String::new());
-    match (&c.budget, &c.change) {
-        (Some(_), _) => out.push(format!("? {}", c.reason)),
-        (None, Some(ch)) => out.push(format!("? {}", ch.question())),
-        // A change to Theseus's own text or settings: the daemon's card, whole,
-        // its lines as they are (issue 23).
-        _ if theseus_protocol::has_whole_text(c) => {
-            out.push("? a change to Theseus's own text or settings waits for you".to_string());
-            out.extend(c.reason.lines().map(|l| format!("  {l}")));
+    let whole = c.plain.as_ref().filter(|p| !p.detail.is_empty());
+    match (&c.budget, &c.change, whole) {
+        (Some(_), ..) => out.push(format!("? {}", c.reason)),
+        (None, Some(ch), _) => out.push(format!("? {}", ch.question())),
+        // A settings question (a change to the settings or a prompt file, an
+        // undo, a server, a restart, an install): the daemon's card, whole, its
+        // lines as they are.
+        (None, None, Some(p)) => {
+            out.push(format!("? {} waits for you", p.what));
+            out.extend(p.detail_lines().into_iter().map(|l| format!("  {l}")));
         }
         _ => {
             out.push(format!("? {} waits for you", c.tool));

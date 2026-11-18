@@ -323,7 +323,23 @@ pub fn card_body(
         "held": is_held(req),
         "requested_at_ms": req.requested_at_ms,
         "card": words::card_of(kind, &w, nth),
+        // A settings question: the daemon's own whole words, for the post that
+        // draws them (the card's `what` is the change in one line).
+        "settings": settings_of(a, req),
     })
+}
+
+/// A settings question's words for its needs-you post, or null for any other.
+fn settings_of(a: &Action, req: &ConfirmRequest) -> serde_json::Value {
+    match req.plain.as_ref().filter(|p| !p.detail.is_empty()) {
+        Some(p) => json!({
+            "detail": p.detail,
+            "needs_proof": req.needs_proof,
+            "needs_fresh_proof": req.needs_fresh_proof,
+            "short": short_id(&a.correlation_id),
+        }),
+        None => serde_json::Value::Null,
+    }
 }
 
 /// Held, not expired, past its first life (theseus-v2dnc): the same
@@ -356,9 +372,13 @@ pub fn header_body(asks: &[(&Action, &ConfirmRequest, String)]) -> serde_json::V
 /// `text` for anything that shows it as it is.
 pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value {
     let ask = crate::ask::input_of(a);
-    let prompt = match &ask {
-        Some(i) => i.question.clone(),
-        None => cut_marked(req.reason.trim(), 300),
+    // A settings question's card is whole in its own places and is never cut
+    // into this line: the line says what it changes and where the card is.
+    let settings = req.plain.as_ref().filter(|p| !p.detail.is_empty());
+    let prompt = match (&ask, settings) {
+        (Some(i), _) => i.question.clone(),
+        (None, Some(p)) => p.what.clone(),
+        (None, None) => cut_marked(req.reason.trim(), 300),
     };
     let choices = ask.as_ref().map(|i| i.choices()).unwrap_or_default();
     let kind = crate::rpc::answer::kind_of(req);
@@ -373,6 +393,9 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
         .collect();
     let how = match kind {
         QuestionKind::Ask => format!("answer with `theseus answer {short} <number>`"),
+        _ if settings.is_some() => "this changes Theseus's own text or settings: open Theseus to \
+            read the whole card, and answer it there"
+            .to_string(),
         _ => format!("answer with `theseus answer {short} approve` or `decline`, or open Theseus"),
     };
     let mut text = format!("● {who} needs you: {prompt}");

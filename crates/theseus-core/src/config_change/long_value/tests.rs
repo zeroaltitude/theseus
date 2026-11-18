@@ -3,7 +3,7 @@
 //! whole value is readable before the yes, and a short value keeps its card.
 
 use serde_json::json;
-use theseus_protocol::ConfigShowParams;
+use theseus_protocol::ConfigWholeParams;
 
 use super::*;
 use crate::config_change::tests::{change, rig, FILE};
@@ -54,7 +54,7 @@ async fn a_long_value_goes_on_a_card_instead_of_being_refused() {
     // The whole value is readable before the yes, and nothing is written.
     let words = r
         .core
-        .config_show(&ConfigShowParams::default(), "cli")
+        .config_whole(&ConfigWholeParams::default(), "cli")
         .unwrap()
         .words;
     assert!(words.contains("===== model.system, after: "), "{words}");
@@ -113,8 +113,8 @@ async fn a_small_change_to_a_long_value_shows_its_changed_lines_and_a_big_one_is
     assert!(!q.reason.contains("Law 3:"), "{}", q.reason);
     let words = r
         .core
-        .config_show(
-            &ConfigShowParams {
+        .config_whole(
+            &ConfigWholeParams {
                 question: Some(q.correlation_id),
                 ..Default::default()
             },

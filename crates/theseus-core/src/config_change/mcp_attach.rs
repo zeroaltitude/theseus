@@ -526,6 +526,7 @@ fn put(
         tool: ACK.into(),
         args: json!({
             "question": question,
+            "settled": super::words::mcp(&marker, restart),
             "base_sha256": crate::config_copy::sha256(base),
             "candidate_sha256": digest,
             "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),

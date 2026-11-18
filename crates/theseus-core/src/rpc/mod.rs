@@ -20,6 +20,8 @@ mod calendar;
 mod chat_answer;
 mod cites;
 mod confirms;
+#[cfg(test)]
+pub(crate) use confirms::Rides;
 mod context;
 mod google;
 mod home_claim;
@@ -32,7 +34,7 @@ pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};
 pub(crate) use question_waits::{held_past_life, waited_words};
 pub(crate) use undo_allow::Taken;
 mod config_history;
-mod config_show;
+mod config_whole;
 mod disk_watch;
 mod driver;
 mod exec_list;

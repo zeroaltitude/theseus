@@ -1193,6 +1193,9 @@ impl ToolRuntime {
                 self.abandon_follows_posture(),
             )
         });
+        // A read of Theseus's own settings is asked when the turn read outside text.
+        let planned =
+            planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));
         // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
         let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
         // A glide's places (38b): the one it names must be bound here.
@@ -1733,6 +1736,10 @@ impl ToolRuntime {
             // The history of those changes, and the undo of one (issue 22).
             crate::config_change::history::HISTORY => {
                 crate::config_change::history::run(self, tc, &call.input)
+            }
+            // Its own settings, by name (issue 22): the gate asked first when the turn read outside text.
+            crate::config_change::show::SHOW => {
+                crate::config_change::show::run(self, tc, &call.input)
             }
             crate::config_change::undo::UNDO => {
                 crate::config_change::undo::run(self, tc, &call.input, correlation_id)

@@ -53,7 +53,7 @@ pub mod initiative;
 pub mod plain;
 pub use plain::PlainWords;
 pub mod config_history;
-pub mod config_show;
+pub mod config_whole;
 pub mod inspect;
 pub mod job_follow;
 pub mod jsonrpc;
@@ -145,7 +145,7 @@ pub use cancel::{
 pub use card::*;
 pub use check::{CheckOverlap, CheckPiece, TaskCheck};
 pub use config_history::{ConfigHistoryParams, ConfigHistoryResult};
-pub use config_show::{has_whole_text, ConfigShowParams, ConfigShowResult, CONFIG_ACK};
+pub use config_whole::{has_whole_text, ConfigWholeParams, ConfigWholeResult, CONFIG_ACK};
 pub use diff::{ConfirmPreview, ToolDiff};
 pub use events::*;
 pub use exec_list::{ExecutionListParams, ExecutionListResult};

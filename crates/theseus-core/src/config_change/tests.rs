@@ -47,6 +47,10 @@ enabled = true   # turn it off to stop the import
 /// Answers each turn's first request with the call its input names.
 struct Model {
     calls: Mutex<Vec<(String, Value)>>,
+    /// A turn of several steps (`Rig::steps`): each answer to a result is the
+    /// next call, named `p1`, `p2`, ..., then the text.
+    steps: Mutex<std::collections::VecDeque<(String, Value)>>,
+    made: Mutex<usize>,
 }
 
 impl Provider for Model {
@@ -63,6 +67,19 @@ impl Provider for Model {
             .last()
             .and_then(|m| m["content"].as_array())
             .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+        if let Some((tool, input)) = self.steps.lock().unwrap().pop_front() {
+            let id = format!("p{}", {
+                let mut n = self.made.lock().unwrap();
+                *n += 1;
+                *n
+            });
+            let answer = Scripted::tools("", &[(id.as_str(), tool.as_str(), input)]);
+            return Box::pin(async move {
+                FakeProvider::scripted(vec![answer])
+                    .stream_message(req, on_delta)
+                    .await
+            });
+        }
         let answer = match self.calls.lock().unwrap().pop() {
             Some((tool, input)) if !answers_a_call => {
                 Scripted::tools("", &[("p1", tool.as_str(), input)])
@@ -108,6 +125,8 @@ pub(super) fn rig_with(more: impl FnOnce(&mut Config, &std::path::Path)) -> Rig 
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         calls: Mutex::default(),
+        steps: Mutex::default(),
+        made: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -117,6 +136,53 @@ pub(super) fn rig_with(more: impl FnOnce(&mut Config, &std::path::Path)) -> Rig 
         state,
         _dir: dir,
     }
+}
+
+/// A settings question carries the daemon's words wherever it is read: what
+/// `confirm.list` returns and what the push and the ledger row carry both have
+/// the card whole as `plain.detail` and the change in words as `plain.what`.
+/// Planting `plain: None` back into `confirm_request` fails every use of this.
+pub(crate) fn assert_worded(
+    core: &Arc<Core>,
+    q: &theseus_protocol::ConfirmRequest,
+    what_starts: &str,
+) {
+    let p = q
+        .plain
+        .as_ref()
+        .expect("a settings question has plain words");
+    assert_eq!(p.detail, q.reason, "the card whole, not a cut of it");
+    assert!(
+        p.what.starts_with(what_starts),
+        "{} / {what_starts}",
+        p.what
+    );
+    assert!(
+        p.why.is_empty(),
+        "the model's reason is not in the words: {p:?}"
+    );
+    let listed = core.confirm_list().unwrap();
+    let listed = listed
+        .iter()
+        .find(|c| c.correlation_id == q.correlation_id)
+        .expect("listed");
+    assert_eq!(listed.plain.as_ref(), Some(p), "confirm.list carries it");
+    let pushed: Vec<Value> = core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == "tool.confirm_requested")
+        .map(|(_, r)| r.data)
+        .filter(|d| d["correlation_id"] == json!(q.correlation_id))
+        .collect();
+    assert_eq!(pushed.len(), 1, "one push: {pushed:?}");
+    assert_eq!(
+        pushed[0]["plain"]["detail"],
+        json!(p.detail),
+        "the push carries it"
+    );
+    assert_eq!(pushed[0]["plain"]["what"], json!(p.what));
 }
 
 pub(super) fn change(path: &str, value: Value) -> Value {
@@ -136,6 +202,18 @@ impl Rig {
 
     pub(super) async fn turn_with(&self, tool: &str, sid: &str, call: Value) {
         self.model.calls.lock().unwrap().push((tool.into(), call));
+        self.run_turn(sid).await;
+    }
+
+    /// One turn of several calls, in order, each made after the result of the
+    /// one before: `p1`, `p2`, ...; the owner's words are the turn's input.
+    pub(super) async fn steps(&self, sid: &str, steps: Vec<(&str, Value)>) {
+        *self.model.made.lock().unwrap() = 0;
+        *self.model.steps.lock().unwrap() = steps.into_iter().map(|(t, v)| (t.into(), v)).collect();
+        self.run_turn(sid).await;
+    }
+
+    async fn run_turn(&self, sid: &str) {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -164,6 +242,10 @@ impl Rig {
     }
 
     pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {
+        self.result_of(sid, "p1")
+    }
+
+    pub(super) fn result_of(&self, sid: &str, call: &str) -> (ResultStatus, String) {
         self.core
             .store
             .session_nodes(sid)
@@ -175,7 +257,7 @@ impl Rig {
                     status,
                     content,
                     ..
-                } if tool_use_id == "p1" => Some((*status, content.clone())),
+                } if tool_use_id == call => Some((*status, content.clone())),
                 _ => None,
             })
             .expect("the proposal's result")
@@ -236,6 +318,11 @@ async fn a_proposal_puts_one_card_built_from_the_two_configs() {
     assert_eq!(asks.len(), 1, "{asks:?}");
     let q = &asks[0];
     assert_eq!(q.tool, super::ACK);
+    assert_worded(
+        &r.core,
+        q,
+        "change `import.notes.enabled` from on to off; Theseus then restarts",
+    );
     assert!(q.reason.starts_with("Change 1 setting?\n"), "{}", q.reason);
     assert!(
         q.reason
@@ -782,6 +869,11 @@ async fn the_owners_word_restarts_with_one_card_and_says_it_is_back() {
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     let q = r.asked().remove(0);
+    assert_worded(
+        &r.core,
+        &q,
+        "restart Theseus, with no change to its settings",
+    );
     assert!(
         q.reason
             .starts_with("Restart Theseus?\nNo turn is running now."),

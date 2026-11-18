@@ -7,7 +7,7 @@
 //! - the card is the daemon's own difference of the two texts: the changed
 //!   lines whole with their context, the counts and the fingerprints, whatever
 //!   the turn says; too long to show and it is a summary that says so, and the
-//!   whole is readable by `config.show`; unseen characters are escaped and counted;
+//!   whole is readable by `config.whole`; unseen characters are escaped and counted;
 //! - no yes, and no proof, writes nothing; a file edited since the card is
 //!   not written; a yes writes atomically with the mode kept, keeps the copy,
 //!   and the history lists it; undo puts the text back exactly;
@@ -17,7 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use theseus_protocol::{method, ConfigShowParams};
+use theseus_protocol::{method, ConfigWholeParams};
 
 use crate::config_change::shown;
 use crate::config_change::tests::{rig_with, Rig};
@@ -27,21 +27,21 @@ use crate::tests_m3::{rpc_as, surface};
 const PROPOSE_CALL: &str = "config_propose_file";
 const READ_CALL: &str = "config_read_file";
 
-fn lines(n: usize) -> String {
+pub(super) fn lines(n: usize) -> String {
     (1..=n)
         .map(|i| format!("Rule {i}: be careful.\n"))
         .collect()
 }
 
-struct Files {
-    r: Rig,
+pub(super) struct Files {
+    pub(super) r: Rig,
     /// The file the settings name.
-    named: PathBuf,
+    pub(super) named: PathBuf,
 }
 
 /// A rig whose settings name one context file, 100 lines, mode 0640, and sit
 /// beside the files a test tries to name instead.
-fn files() -> Files {
+pub(super) fn files() -> Files {
     let mut named = PathBuf::new();
     let r = rig_with(|cfg, state| {
         named = state.join("CONTEXT.md");
@@ -61,7 +61,7 @@ fn files() -> Files {
     Files { r, named }
 }
 
-fn replace(file: &std::path::Path, old: &str, new: &str) -> Value {
+pub(super) fn replace(file: &std::path::Path, old: &str, new: &str) -> Value {
     json!({
         "file": file.to_string_lossy(),
         "replace": [{"old": old, "new": new}],
@@ -70,20 +70,20 @@ fn replace(file: &std::path::Path, old: &str, new: &str) -> Value {
 }
 
 impl Files {
-    async fn propose(&self, call: Value) -> (ResultStatus, String) {
+    pub(super) async fn propose(&self, call: Value) -> (ResultStatus, String) {
         let sid = self.r.session();
         self.r.turn_with(PROPOSE_CALL, &sid, call).await;
         self.r.result(&sid)
     }
 
     /// A proposal that made a card: its question.
-    async fn ask(&self, call: Value) -> theseus_protocol::ConfirmRequest {
+    pub(super) async fn ask(&self, call: Value) -> theseus_protocol::ConfirmRequest {
         let (status, text) = self.propose(call).await;
         assert_eq!(status, ResultStatus::Ok, "{text}");
         self.r.asked().pop().expect("a card is waiting")
     }
 
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         std::fs::read_to_string(&self.named).unwrap()
     }
 }
@@ -94,7 +94,7 @@ fn cli() -> crate::approval::Client {
     surface("sock#1", Surface::Cli).behind(Behind::Owner)
 }
 
-async fn answer(
+pub(super) async fn answer(
     r: &Rig,
     corr: &str,
     approve: bool,
@@ -229,7 +229,7 @@ async fn the_card_shows_the_daemons_own_difference_whole() {
 }
 
 /// A change too long for the card is a summary that says so, and the whole
-/// text, before and after, is readable by `config.show`.
+/// text, before and after, is readable by `config.whole`.
 #[tokio::test]
 async fn a_change_too_big_for_the_card_is_a_summary_and_the_whole_is_readable() {
     let f = files();
@@ -259,7 +259,7 @@ async fn a_change_too_big_for_the_card_is_a_summary_and_the_whole_is_readable() 
     assert!(card.contains("theseus config show"), "{card}");
     let shown =
         f.r.core
-            .config_show(&ConfigShowParams::default(), "cli")
+            .config_whole(&ConfigWholeParams::default(), "cli")
             .unwrap();
     assert_eq!(shown.question, q.correlation_id);
     assert!(
@@ -284,7 +284,7 @@ async fn a_change_too_big_for_the_card_is_a_summary_and_the_whole_is_readable() 
     std::fs::write(&f.named, "edited\n").unwrap();
     let shown =
         f.r.core
-            .config_show(&ConfigShowParams::default(), "cli")
+            .config_whole(&ConfigWholeParams::default(), "cli")
             .unwrap();
     assert!(
         shown.words.contains("THE FILE HAS CHANGED"),
@@ -301,7 +301,7 @@ async fn a_change_too_big_for_the_card_is_a_summary_and_the_whole_is_readable() 
     assert!(f
         .r
         .core
-        .config_show(&ConfigShowParams::default(), agent)
+        .config_whole(&ConfigWholeParams::default(), agent)
         .is_err());
 }
 
@@ -332,7 +332,7 @@ async fn unseen_characters_are_escaped_and_counted_everywhere() {
     );
     let whole =
         f.r.core
-            .config_show(&ConfigShowParams::default(), "cli")
+            .config_whole(&ConfigWholeParams::default(), "cli")
             .unwrap()
             .words;
     assert!(

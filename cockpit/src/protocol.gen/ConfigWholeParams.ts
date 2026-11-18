@@ -2,7 +2,7 @@
 import type { DiscordOrigin } from "./DiscordOrigin";
 
 /**
- * `config.show`'s params: the waiting question's id, or none when only one
+ * `config.whole`'s params: the waiting question's id, or none when only one
  * such change is waiting.
  */
-export type ConfigShowParams = { question?: string, author?: string, discord?: DiscordOrigin, };
+export type ConfigWholeParams = { question?: string, author?: string, discord?: DiscordOrigin, };

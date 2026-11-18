@@ -222,7 +222,7 @@ mod tests {
         method::LEDGER_WINDOW,
         method::LEDGER_VERIFY,
         method::CONFIG_HISTORY,
-        method::CONFIG_SHOW,
+        method::CONFIG_WHOLE,
         method::PROFILE_LIST,
         method::PROFILE_USE,
         method::PROFILE_RELEASE,

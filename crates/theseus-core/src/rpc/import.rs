@@ -71,7 +71,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::peek::OWN.contains(&name)
         || name == method::LEDGER_VERIFY
         || name == method::CONFIG_HISTORY
-        || name == method::CONFIG_SHOW
+        || name == method::CONFIG_WHOLE
         || name == method::TOOL_DEFER
         || name == method::FORECAST_CALIBRATION
         || name == method::TURN_INSPECT
@@ -243,7 +243,7 @@ impl Core {
                 serde_json::to_value(r)
             }
             method::CONFIG_HISTORY => return self.rpc_config_history(params, conn),
-            method::CONFIG_SHOW => return self.rpc_config_show(params, conn),
+            method::CONFIG_WHOLE => return self.rpc_config_whole(params, conn),
             method::IMPORT_EPISODES => return self.import_episodes(params, conn).await,
             method::IMPORT_ERASE => {
                 let p: ImportEraseParams = parse(params)?;

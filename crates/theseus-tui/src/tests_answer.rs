@@ -153,3 +153,55 @@ async fn a_number_answers_a_question_with_options() {
         [json!({"question_id": "cor_spec01", "option": "choice:1", "author": "the TUI"})]
     );
 }
+
+/// The longest settings card the daemon allows: twelve settings of 380
+/// characters before and after.
+fn longest_card() -> String {
+    let mut text = String::from("Change 12 settings?\n");
+    for i in 0..12 {
+        text.push_str(&format!(
+            "- memory.k{i}: \"{}\" → \"{}!\" (after a restart)\n",
+            "a".repeat(380),
+            "b".repeat(380)
+        ));
+    }
+    text.push_str("Theseus's reason, in its own words: \"x\"\n");
+    text
+}
+
+/// A settings question on the board's card: the card does not draw part of the
+/// daemon's words under `[y] approve`; it says it is too long for the pane and
+/// where to read it, and `y` sends nothing. A `n` still declines.
+#[tokio::test]
+async fn a_settings_question_is_not_answered_under_part_of_its_card() {
+    let card = longest_card();
+    let world = asking(|q| {
+        q.tool = "config.ack".into();
+        q.reason = card.clone();
+        q.plain = Some(theseus_protocol::PlainWords {
+            who: "Theseus".into(),
+            what: "change 12 settings (`memory.k0`, …); the values are on the card".into(),
+            detail: card.clone(),
+            yes: "has the daemon write these settings itself.".into(),
+            no: "changes nothing.".into(),
+            ..Default::default()
+        });
+    });
+    let mut rig = Rig::new(120, 24, script(world));
+    rig.shows("ready  DM +1").await;
+    rig.press(&[KeyCode::Tab]).await;
+    rig.shows("Theseus wants to change 12 settings").await;
+    rig.shows("the whole card is 14 lines, too long for this pane")
+        .await;
+    let text = rig.screen().join("\n");
+    assert!(
+        !text.contains("aaaaaaaa") && !text.contains("bbbbbbbb"),
+        "no part of a value: {text}"
+    );
+    rig.press(&[KeyCode::Char('y')]).await;
+    rig.shows("read the whole card in `theseus chat` (v)").await;
+    assert!(
+        rig.daemon().asked("work.answer").is_empty()
+            && rig.daemon().asked("action.confirm").is_empty()
+    );
+}

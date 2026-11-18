@@ -900,9 +900,9 @@ fn the_status_line_says_the_effort_jev_set() {
     assert!(status_line(&r).contains(" · Birch · \"CVE\" · 0.74 · sophisticated (verdict) · "));
 }
 
-/// A change to Theseus's own text or settings is printed whole: every line of
-/// the daemon's card, the changed lines as they are, and no clipped input
-/// (issue 23).
+/// A change to a prompt file is printed as a settings question: the change in
+/// a line, every line of the daemon's card (the changed lines as they are), what
+/// Yes and No do, and no clipped input (issue 23).
 #[test]
 fn a_prompt_file_change_is_printed_whole_for_the_cli() {
     let card = "Change the prompt file /state/P.md?\nBefore: 4 bytes, 1 line\n```diff\n@@ -1,2 +1,2 @@\n You are Theseus.\n-Be brief.\n+Be brief and warm.\n```\n";
@@ -911,20 +911,30 @@ fn a_prompt_file_change_is_printed_whole_for_the_cli() {
     q.reason = card.into();
     q.input =
         serde_json::json!({"whole": true, "file": {"path": "/state/P.md", "x": "y".repeat(400)}});
+    q.plain = Some(theseus_protocol::PlainWords {
+        who: "Theseus".into(),
+        what: "change the prompt file `/state/P.md` (1 line added, 1 line removed); no restart"
+            .into(),
+        yes: "has the daemon write the file itself.".into(),
+        no: "changes nothing.".into(),
+        detail: card.into(),
+        ..Default::default()
+    });
     let out = tagged(event(&Event::ConfirmRequested(q), Show::default()));
-    let text: Vec<&str> = out.iter().map(|(_, t)| t.as_str()).collect();
-    assert_eq!(
-        text[0],
-        "  ? config.ack needs your confirmation: Change the prompt file /state/P.md?"
+    let text: Vec<&str> = out.iter().map(|(_, t)| t.trim_start()).collect();
+    assert!(
+        text[0].starts_with("? Theseus wants to change the prompt file"),
+        "{text:?}"
     );
-    for want in card.lines().skip(1) {
+    for want in card.lines() {
         assert!(
             text.contains(&want),
             "{want:?} is not a line of its own: {text:?}"
         );
     }
     assert!(
-        !text.iter().any(|l| l.contains("input:") || l.contains('…')),
+        !out.iter()
+            .any(|(_, l)| l.contains("input:") || l.contains('…')),
         "{text:?}"
     );
     assert!(text
