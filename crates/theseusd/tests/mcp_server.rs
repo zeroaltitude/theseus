@@ -474,8 +474,14 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         "{sent}"
     );
     assert!(!out.exists(), "the call ran before the operator answered");
-    let st = r.ok(&c, "conversation_status", json!({"session_id": sid}));
+    // The send's two seconds end whether or not the turn has reached the operator yet, and a loaded machine
+    // can take longer than that to get there (theseus-20): the status says what it waits on once it waits.
+    let st = r.wait("the call waiting on the operator", || {
+        let (st, _) = r.tool(&c, "conversation_status", json!({"session_id": sid}));
+        (st["waiting_on"] == "confirm").then_some(st)
+    });
     assert_eq!(st["waiting_on"], "confirm", "{st}");
+    assert!(!out.exists(), "the call ran before the operator answered");
     let pending = r.call("confirm.list", json!({})).unwrap();
     let id = pending["confirms"]
         .as_array()
