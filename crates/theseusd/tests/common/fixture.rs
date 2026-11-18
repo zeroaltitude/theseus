@@ -37,15 +37,19 @@ pub trait Fixture {
         rpc::call(&self.sock(), method, params)
     }
 
+    /// Wait for `f` to give something: 40 s on a quiet machine, and in proportion to what
+    /// `busy_factor` measured on a busy one, up to 100 s (nextest ends a test at 120 s).
     fn wait<T>(&self, what: &str, mut f: impl FnMut() -> Option<T>) -> T {
+        static LIMIT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        let limit = *LIMIT.get_or_init(|| (40 * theseus_sim::busy_factor()).min(100));
         let t0 = Instant::now();
         loop {
             if let Some(v) = f() {
                 return v;
             }
             assert!(
-                t0.elapsed() < Duration::from_secs(40),
-                "no {what} in 40 s; the daemon's log ends:\n{}",
+                t0.elapsed() < Duration::from_secs(limit),
+                "no {what} in {limit} s; the daemon's log ends:\n{}",
                 tail(&self.log(), 30)
             );
             std::thread::sleep(Duration::from_millis(20));
