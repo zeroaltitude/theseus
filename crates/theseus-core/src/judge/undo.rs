@@ -91,6 +91,31 @@ pub const FINAL: &str = "irreversible_final";
 /// rollback bar. A verdict later than this acts on nothing.
 pub const WAIT: Duration = Duration::from_millis(300);
 
+/// What a rig of the tests gave the wait instead of [`WAIT`], in milliseconds (0: nothing, the wait is [`WAIT`]).
+#[cfg(test)]
+static WAIT_FOR_TESTS_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A rig about what the gate does with a verdict, not about how fast one comes, gives the verdict time to come: a
+/// stand-in Jev starved of a core on a crowded machine answers after [`WAIT`], and the call then goes ahead
+/// unjudged, which is the rule and not what such a rig is about (theseus-20). Each test is a process of its own
+/// under nextest, so the setting reaches no other test.
+#[cfg(test)]
+pub(crate) fn give_the_verdict_time() {
+    WAIT_FOR_TESTS_MS.store(60_000, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The wait the gate applies: [`WAIT`], or what a test rig set.
+fn wait() -> Duration {
+    #[cfg(test)]
+    {
+        let ms = WAIT_FOR_TESTS_MS.load(std::sync::atomic::Ordering::SeqCst);
+        if ms > 0 {
+            return Duration::from_millis(ms);
+        }
+    }
+    WAIT
+}
+
 /// What the pack said about one call, once the fail-open rule has been
 /// applied: [`Says::Reversible`] is also what a non-answer comes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,7 +316,7 @@ impl JudgeService {
         let rt = tokio::runtime::Handle::try_current().ok()?;
         let (tx, rx) = oneshot::channel();
         rt.spawn(judge_one(self.me.clone(), pack, call, tx));
-        tokio::time::timeout(WAIT, rx).await.ok()?.ok()
+        tokio::time::timeout(wait(), rx).await.ok()?.ok()
     }
 
     /// The blocking half: the tree probed for each target's recovery word,
