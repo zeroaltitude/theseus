@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use common::{Daemon, Served};
 use serde_json::{json, Value};
 use theseus_core::config_copy;
+use theseus_sim::Busy;
 
 /// Where the tender would find its model: nowhere, so no test loads one.
 const NO_MODELS: &str = "/nonexistent/theseus-test-models";
@@ -248,6 +249,11 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
 /// ends when it runs again. A SIGSTOP takes hold only once the tender is
 /// next scheduled, so the stop waits until it reads as stopped: before
 /// that, the stop's SIGTERM ends a tender still running (theseus-ux8g).
+/// "At once" is a promise about the daemon: its exit is many wake-ups in a
+/// row (20 ms idle, up to 1.8 s with 64 busy threads), so the two limits are
+/// held in proportion to how slowly the machine gave a thread its turn
+/// around the stop (`Busy`, at most 8 times), which is exactly the limit on
+/// a quiet machine (theseus-20).
 #[test]
 fn a_stop_does_not_wait_for_the_tender() {
     tender_bin();
@@ -265,18 +271,22 @@ fn a_stop_does_not_wait_for_the_tender() {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
+    let busy = Busy::before();
     let t0 = Instant::now();
     s.call("shutdown", Value::Null).unwrap();
     while s.daemon.try_wait().is_none() {
         assert!(
-            t0.elapsed() < Duration::from_secs(2),
-            "the daemon waited for its stopped tender:\n{}",
+            busy.keeps(t0.elapsed(), Duration::from_secs(2)),
+            "the daemon waited for its stopped tender ({busy}):\n{}",
             s.log()
         );
         std::thread::sleep(Duration::from_millis(5));
     }
     let took = t0.elapsed();
-    assert!(took < Duration::from_secs(1), "{took:?}");
+    assert!(
+        busy.keeps(took, Duration::from_secs(1)),
+        "{took:?} ({busy})"
+    );
     assert_eq!(state(pid), Some('T'), "the tender is still stopped");
     signal(pid, libc::SIGCONT);
     let t1 = Instant::now();

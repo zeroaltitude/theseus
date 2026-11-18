@@ -348,13 +348,25 @@ fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
     let r = Rig::new();
     let mut daemon = r.spawn();
     let (key, before) = reply_in_flight(&r);
+    let busy = theseus_sim::Busy::before();
     let t0 = Instant::now();
     r.call("shutdown", Value::Null).unwrap();
     let status = r.wait("the stop", || daemon.try_wait());
-    let stop_ms = t0.elapsed().as_millis();
+    let stopped_in = t0.elapsed();
     assert!(status.success(), "{status}");
-    eprintln!("the stop, the post never answered: {stop_ms} ms (the grace is 50 ms)");
-    assert!(stop_ms < 1000, "the stop waited {stop_ms} ms");
+    eprintln!(
+        "the stop, the post never answered: {} ms (the grace is 50 ms)",
+        stopped_in.as_millis()
+    );
+    // "No longer than the grace" is a promise about the daemon: its exit is many wake-ups in a
+    // row (20 ms idle, 1.8 s with 64 busy threads), so the limit is held in proportion to how
+    // slowly the machine gave a thread its turn around the stop (`Busy`, at most 8 times), which
+    // is exactly 1000 ms on a quiet machine (theseus-20).
+    assert!(
+        busy.keeps(stopped_in, Duration::from_millis(1000)),
+        "the stop waited {} ms ({busy})",
+        stopped_in.as_millis()
+    );
     assert!(
         r.log().contains("stay dispatched"),
         "{}",
