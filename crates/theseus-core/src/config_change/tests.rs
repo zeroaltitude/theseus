@@ -103,6 +103,10 @@ pub(super) struct Rig {
 }
 
 pub(super) fn rig() -> Rig {
+    rig_with(|_| {})
+}
+
+pub(super) fn rig_with(tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
@@ -115,6 +119,7 @@ pub(super) fn rig() -> Rig {
     // No index tender runs in a test, so a daemon that waits for it to answer
     // would never be healthy.
     cfg.index.enabled = false;
+    tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Model {
         calls: Mutex::default(),

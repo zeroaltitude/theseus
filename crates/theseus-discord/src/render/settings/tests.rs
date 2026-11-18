@@ -295,7 +295,7 @@ fn the_needs_you_post_draws_the_longest_card_whole() {
         "settings": {"detail": detail, "needs_proof": true, "needs_fresh_proof": false, "short": "0000feed"},
     });
     let (before, last) = render::settings::needs_you(&body).expect("a settings post");
-    let mut all = before.clone();
+    let mut all = before;
     all.push(last.clone());
     assert!(all.len() > 1);
     for p in &all {

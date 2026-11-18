@@ -5,7 +5,7 @@
 use serde_json::json;
 use theseus_protocol::ConfirmRequest;
 
-use super::tests::{change, rig, Rig};
+use super::tests::{change, rig, rig_with, Rig};
 use crate::approval::{Answerer, Surface};
 use crate::rpc::Rides;
 
@@ -143,7 +143,7 @@ async fn the_needs_you_post_carries_the_whole_words() {
         .as_str()
         .is_some_and(|s| !s.is_empty()));
     // An ordinary question carries none.
-    let mut other = q.clone();
+    let mut other = q;
     other.plain = None;
     assert!(crate::needs_you::card_body(&action, &other, "Theseus", None)["settings"].is_null());
 }
@@ -196,5 +196,68 @@ async fn a_floor_hold_is_not_approved_by_words() {
     r.core
         .answer_plain_act(&q, "no", None, owner_in_dm())
         .unwrap();
+    assert!(r.asked().is_empty());
+}
+
+/// A floor hold is not approved by an agent's process on the CLI or the web
+/// socket either: the owner's rule is the button or their own terminal. A no
+/// from it still works, and the owner's terminal is the owner's.
+#[tokio::test]
+async fn a_floor_hold_is_not_approved_by_an_agents_process() {
+    let r = rig();
+    let sid = r.session();
+    let file = r.file.display().to_string();
+    r.turn_with(
+        "proc_run",
+        &sid,
+        json!({"argv": ["bash", "-c", format!("cat {file}")]}),
+    )
+    .await;
+    let q = r.asked().remove(0);
+    assert!(q.floor);
+    let agent = |surface| Answerer {
+        label: "agent:claude".into(),
+        surface,
+        discord: None,
+        agent: Some("claude".into()),
+    };
+    for surface in [Surface::Cli, Surface::Web] {
+        let e = r
+            .core
+            .confirm_action(&q.correlation_id, true, None, agent(surface))
+            .unwrap_err();
+        assert!(format!("{e:#}").contains("held by the floor"), "{e:#}");
+    }
+    assert_eq!(r.asked().len(), 1, "it still waits");
+    r.core
+        .confirm_action(&q.correlation_id, false, None, agent(Surface::Cli))
+        .unwrap();
+    assert!(r.asked().is_empty(), "a no from it works");
+}
+
+/// Every other kind is answered from chat as before: an ordinary approval (a
+/// write the owner's posture asks for, not held by the floor) is driven to
+/// approved through the tool's own path, in the same rig as the refusals above.
+#[tokio::test]
+async fn an_ordinary_approval_is_still_approved_from_chat() {
+    let r = rig_with(|c| {
+        c.policy
+            .tools
+            .insert("fs.write".into(), crate::policy::Posture::Approve);
+    });
+    let sid = r.session();
+    let at = r.file.with_file_name("note.txt");
+    r.turn_with("fs_write", &sid, json!({"path": at, "content": "hi"}))
+        .await;
+    let q = r.asked().remove(0);
+    assert!(
+        !q.floor && q.plain.as_ref().is_none_or(|p| p.detail.is_empty()),
+        "{q:?}"
+    );
+    let said = r
+        .core
+        .answer_plain_act(&q, "yes", None, owner_in_dm())
+        .unwrap();
+    assert!(said.starts_with("Approved"), "{said}");
     assert!(r.asked().is_empty());
 }

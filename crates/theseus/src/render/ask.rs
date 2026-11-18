@@ -141,4 +141,44 @@ mod tests {
         );
         assert!(all.contains("theseus answer act_0000feed approve"), "{all}");
     }
+
+    /// A settings question's card is listed whole: every line of the daemon's
+    /// words, none cut, with the keys that answer it.
+    #[test]
+    fn a_settings_card_is_listed_whole() {
+        let mut card = String::from("Change 12 settings?\n");
+        for k in 0..12 {
+            card.push_str(&format!(
+                "- memory.k{k}: \"{}\" → \"{}!\" (after a restart)\n",
+                "a".repeat(380),
+                "b".repeat(380)
+            ));
+        }
+        let c = theseus_protocol::ConfirmRequest {
+            correlation_id: "act_0000feed".into(),
+            tool: "config.ack".into(),
+            plain: Some(theseus_protocol::PlainWords {
+                who: "Theseus".into(),
+                what: "change 12 settings".into(),
+                yes: "writes them.".into(),
+                no: "changes nothing.".into(),
+                detail: card.clone(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let lines: Vec<String> = super::super::confirm_lines(&c)
+            .iter()
+            .map(|l| l.text.clone())
+            .collect();
+        let all = lines.join("\n");
+        assert!(all.contains(&"a".repeat(380)) && all.contains(&format!("{}!", "b".repeat(380))));
+        assert_eq!(
+            all.matches("(after a restart)").count(),
+            12,
+            "every setting, whole"
+        );
+        assert!(all.contains("memory.k11"));
+        assert!(!all.contains("config.ack"), "{all}");
+    }
 }

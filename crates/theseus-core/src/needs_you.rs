@@ -326,6 +326,7 @@ pub fn card_body(
         // A settings question: the daemon's own whole words, for the post that
         // draws them (the card's `what` is the change in one line).
         "settings": settings_of(a, req),
+        "floor": req.floor,
     })
 }
 
