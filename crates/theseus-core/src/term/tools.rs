@@ -378,6 +378,18 @@ pub(super) struct Wait<'a> {
     pub(super) looked: Option<&'a (dyn Fn() + Sync)>,
 }
 
+impl<'a> Wait<'a> {
+    fn of(quiet: Option<Duration>, until: Option<&'a str>, idle: bool) -> Self {
+        Wait {
+            quiet,
+            until,
+            idle,
+            #[cfg(test)]
+            looked: None,
+        }
+    }
+}
+
 /// Wait on a terminal for `w`, or until `bound` passes, or its program ends.
 /// What the wait found. A wait `idle` looks at the pty's front every
 /// `IDLE_LOOK`, a timer's wake, and at each change of the screen.
@@ -464,24 +476,7 @@ async fn wait_for(
         }
         let left = bound.saturating_sub(t0.elapsed());
         if left.is_zero() {
-            let busy = || {
-                t.in_front()
-                    .map(|p| format!(" ({p} is in front)"))
-                    .unwrap_or_default()
-            };
-            return match (until, idle) {
-                (Some(u), _) => format!("{u:?} did not appear in {} ms", bound.as_millis()),
-                (None, true) => format!(
-                    "its program was not idle in {} ms{}",
-                    bound.as_millis(),
-                    busy()
-                ),
-                (None, false) => format!(
-                    "the screen was not quiet for {} ms in {} ms",
-                    quiet.unwrap_or_default().as_millis(),
-                    bound.as_millis()
-                ),
-            };
+            return not_in_time(t, (until, quiet, idle), bound);
         }
         // The next change, the quiet that ends the wait, or the next look.
         let mut step = match quiet {
@@ -512,6 +507,33 @@ async fn wait_for(
             }
             Err(_) => {}
         }
+    }
+}
+
+/// What a wait that reached its bound says: the text did not appear, the program was not idle, or
+/// the screen was not quiet.
+fn not_in_time(
+    t: &Terminal,
+    (until, quiet, idle): (Option<&str>, Option<Duration>, bool),
+    bound: Duration,
+) -> String {
+    let busy = || {
+        t.in_front()
+            .map(|p| format!(" ({p} is in front)"))
+            .unwrap_or_default()
+    };
+    match (until, idle) {
+        (Some(u), _) => format!("{u:?} did not appear in {} ms", bound.as_millis()),
+        (None, true) => format!(
+            "its program was not idle in {} ms{}",
+            bound.as_millis(),
+            busy()
+        ),
+        (None, false) => format!(
+            "the screen was not quiet for {} ms in {} ms",
+            quiet.unwrap_or_default().as_millis(),
+            bound.as_millis()
+        ),
     }
 }
 
@@ -580,12 +602,7 @@ pub async fn run(
             let waited = match waits {
                 true => {
                     let idle_alone = a.until_idle && a.quiet_ms.is_none() && until.is_none();
-                    let w = Wait {
-                        quiet: a.quiet_ms.map(Duration::from_millis),
-                        until,
-                        idle: a.until_idle,
-                        ..Wait::default()
-                    };
+                    let w = Wait::of(a.quiet_ms.map(Duration::from_millis), until, a.until_idle);
                     let bound = bound_of(terms, a.timeout_ms, idle_alone);
                     let (waited, stopped) = wait(&t, w, bound, &steer).await;
                     interrupted = stopped;
