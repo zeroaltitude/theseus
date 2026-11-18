@@ -145,19 +145,14 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// The factor every time bound is multiplied by: `THESEUS_JOURNEY_SLOWDOWN` when it is set (a run on a
-/// starved machine can show the order of things held while their latency did not), else what
-/// `busy_factor` measured the first time a bound was read, which is 1 on a quiet machine, so there the
-/// bounds are the brief's exactly. They are latency promises about the product, and on a machine that
-/// gives each thread a third of a core they are held in proportion (theseus-20).
+/// The factor `THESEUS_JOURNEY_SLOWDOWN` (default 1) puts on every time bound, so a run on a starved
+/// machine can show the order of things held while their latency did not. The bounds are the
+/// brief's; the multiplier is only for finding out which kind of failure a loaded run is.
 fn slack(ms: u64) -> u64 {
-    static K: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-    let k = *K.get_or_init(|| {
-        std::env::var("THESEUS_JOURNEY_SLOWDOWN")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(theseus_sim::busy_factor)
-    });
+    let k: u64 = std::env::var("THESEUS_JOURNEY_SLOWDOWN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
     ms * k
 }
 

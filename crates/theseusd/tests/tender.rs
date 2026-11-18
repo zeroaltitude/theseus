@@ -248,13 +248,8 @@ fn the_tender_starts_after_serving_and_a_kill_restarts_it_after_its_backoff() {
 /// ends when it runs again. A SIGSTOP takes hold only once the tender is
 /// next scheduled, so the stop waits until it reads as stopped: before
 /// that, the stop's SIGTERM ends a tender still running (theseus-ux8g).
-/// "At once" is a promise about the daemon: its exit is many wake-ups in a
-/// row (20 ms idle, up to 1.8 s with 64 busy threads), so the two limits are
-/// multiplied by what `busy_factor` measured, which is 1 on a quiet machine
-/// (theseus-20).
 #[test]
 fn a_stop_does_not_wait_for_the_tender() {
-    let busy = theseus_sim::busy_factor() as u32;
     tender_bin();
     let mut s = Served::start(|_| {}, index_on);
     let h = until(&s, "the tender", |h| running(h).is_some());
@@ -274,14 +269,14 @@ fn a_stop_does_not_wait_for_the_tender() {
     s.call("shutdown", Value::Null).unwrap();
     while s.daemon.try_wait().is_none() {
         assert!(
-            t0.elapsed() < Duration::from_secs(2) * busy,
+            t0.elapsed() < Duration::from_secs(2),
             "the daemon waited for its stopped tender:\n{}",
             s.log()
         );
         std::thread::sleep(Duration::from_millis(5));
     }
     let took = t0.elapsed();
-    assert!(took < Duration::from_secs(1) * busy, "{took:?}");
+    assert!(took < Duration::from_secs(1), "{took:?}");
     assert_eq!(state(pid), Some('T'), "the tender is still stopped");
     signal(pid, libc::SIGCONT);
     let t1 = Instant::now();
