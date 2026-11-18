@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use serde_json::Value;
-use theseus_kernel::ExecState;
+use theseus_kernel::{ExecState, Wake};
 use theseus_protocol::tasks::{TaskRecord, TaskState};
 
 use crate::rpc::Core;
@@ -419,14 +419,22 @@ impl Core {
             || place.targets().join(tree::slug(&t.id)).exists()
     }
 
-    /// Whether an execution's turn runs, queues, or waits on the owner.
+    /// Whether an execution's turn runs, queues, or waits on the owner, or waits on something
+    /// that will wake it by itself: a job or call it dispatched (a test run past its call's time
+    /// limit goes on as a background job), a child execution, or a due time. Such a build has not
+    /// ended; the same reading as health's parked-task invariant (`parked::blocker`).
     fn live(&self, exec: Option<&str>) -> bool {
         exec.and_then(|id| self.kernel.execution(id).ok().flatten())
-            .is_some_and(|e| {
-                matches!(
-                    e.state,
-                    ExecState::Running | ExecState::Queued | ExecState::Blocked
-                )
+            .is_some_and(|e| match e.state {
+                ExecState::Running | ExecState::Queued | ExecState::Blocked => true,
+                ExecState::Waiting => match &e.wake {
+                    Some(Wake::Actions { .. } | Wake::Execution { .. } | Wake::DueAt { .. }) => {
+                        true
+                    }
+                    Some(Wake::Input) => !e.wakes.is_empty(),
+                    _ => false,
+                },
+                _ => false,
             })
     }
 
