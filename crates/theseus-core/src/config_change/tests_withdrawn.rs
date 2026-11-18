@@ -226,3 +226,61 @@ async fn a_turn_that_proposes_nothing_leaves_the_capture_of_its_words() {
     assert!(r.rows("standing.answered").is_empty());
     assert!(r.rows("standing.revoked").is_empty());
 }
+
+/// The turn names its own input as it writes it: the node a settings question
+/// puts to rest is the owner's message, found by the turn's id, whatever else the
+/// turn read before it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_turn_names_the_owners_message_as_its_input() {
+    let r = rig();
+    let sid = r.session();
+    let (core, id) = (r.core.clone(), sid.clone());
+    r.when_the_turn_asks_the_model(move || {
+        let node = input_node(&core, &id);
+        let turn = core
+            .store
+            .session_nodes(&id)
+            .unwrap()
+            .into_iter()
+            .find_map(|(_, n)| (n.id == node).then_some(n.turn_id))
+            .flatten()
+            .expect("the input has a turn");
+        assert_eq!(core.turn_input(&turn), Some(node));
+        assert_eq!(core.turn_input("turn_other"), None);
+    });
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
+}
+
+/// A record the owner chose (Keep on an ask) is his answer, not capture's: a
+/// settings question for the same message leaves it standing. (The answer marks
+/// it his own: `tests_capture`'s answer test.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_the_owner_chose_is_left_standing() {
+    let r = rig();
+    let sid = r.session();
+    let (core, id) = (r.core.clone(), sid.clone());
+    r.when_the_turn_asks_the_model(move || {
+        let node = input_node(&core, &id);
+        let words = "from now on never install without asking me";
+        assert!(matches!(
+            hear(&core, &id, &node, words, Heard::Preference),
+            Done::Kept(_)
+        ));
+        let mut held = core.runner.standing.capture.lock(&core.store).unwrap();
+        let mut next = (*held).clone();
+        next.kept.iter_mut().for_each(|k| k.by_owner = true);
+        core.store.append(&[next.row().unwrap()]).unwrap();
+        held.set(next);
+    });
+    r.turn(&sid, change("import.notes.enabled", json!(false)))
+        .await;
+    assert_eq!(
+        held(&r),
+        (
+            vec![],
+            vec!["from now on never install without asking me".to_string()]
+        )
+    );
+    assert!(r.rows("standing.revoked").is_empty());
+}

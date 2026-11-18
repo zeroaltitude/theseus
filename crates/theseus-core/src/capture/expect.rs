@@ -25,7 +25,11 @@ pub struct Expected(
     Mutex<Vec<(String, String, Instant)>>,
     Mutex<Owned>,
     Mutex<Vec<(String, String, Instant)>>,
+    Mutex<Vec<(String, String)>>,
 );
+
+/// The turns whose own input node is kept, newest.
+const INPUTS_KEPT: usize = 256;
 
 /// The nodes of the owner's own messages (theseus-6f8t0): a node does not say
 /// whether a job sent it, so the exchange-end observer reads only the ones
@@ -55,6 +59,26 @@ impl Expected {
             }
             None => false,
         }
+    }
+}
+
+impl Expected {
+    /// `node` is the owner's own message that began turn `turn` (written after
+    /// the turn's catch-up, never a message steered in while it ran): what a
+    /// settings question of that turn puts to rest (`settled.rs`). In memory.
+    pub fn note_input(&self, turn: &str, node: &str) {
+        let mut v = self.4.lock().unwrap_or_else(|e| e.into_inner());
+        v.retain(|(t, _)| t != turn);
+        v.push((turn.to_string(), node.to_string()));
+        if v.len() > INPUTS_KEPT {
+            v.remove(0);
+        }
+    }
+
+    /// The node of the owner's message that began `turn`, if it began with one.
+    pub fn input_of(&self, turn: &str) -> Option<String> {
+        let v = self.4.lock().unwrap_or_else(|e| e.into_inner());
+        v.iter().find(|(t, _)| t == turn).map(|(_, n)| n.clone())
     }
 }
 

@@ -201,6 +201,7 @@ impl Core {
             record: rec.id.clone(),
             judgment: v.judgment.clone(),
             at_ms: c.now,
+            by_owner: false,
         });
         let notice = kept_line(kind, &c.at, c.surface, &c.line);
         let added = fact::standing::StandingAdded {

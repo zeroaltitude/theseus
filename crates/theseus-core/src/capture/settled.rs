@@ -15,33 +15,24 @@ use anyhow::Result;
 use theseus_protocol::StandingRecord;
 
 use crate::fact;
-use crate::node::Origin;
 use crate::rpc::Core;
 use crate::standing;
-use crate::stub::{Kind, Stub};
-use crate::toolrun::TurnCtx;
 
 /// Why the daemon ended it, as the ledger and the narrative say.
 const VIA: &str = "a settings question for the same message";
 
-/// The message that STARTED the turn, when the owner wrote it: the words a
-/// settings question answers. Not the last message of the turn: one the owner
-/// steers in while it runs has its own capture, and may be a real order. A turn
-/// a wake or a job started has none.
-pub(crate) fn turn_input(tc: &TurnCtx<'_>) -> Option<String> {
-    first_input(&tc.store.transcript(tc.session_id).ok()?, tc.turn_id)
-}
-
-/// `turn_input`'s choice, from the session's nodes in order.
-fn first_input(nodes: &[(u64, Stub)], turn_id: &str) -> Option<String> {
-    nodes
-        .iter()
-        .find(|(_, n)| n.turn_id.as_deref() == Some(turn_id) && n.kind == Kind::UserMessage)
-        .filter(|(_, n)| n.origin == Origin::Operator)
-        .map(|(_, n)| n.id.clone())
-}
-
 impl Core {
+    /// The owner's message that began turn `turn`: the words a settings question
+    /// of that turn answers. Not the last message of the turn (one the owner
+    /// steers in while it runs has its own capture, and may be a real order), and
+    /// not the first (a task's report or a due wake is read into the turn before
+    /// the input). The turn's inbound step names it (`Expected::note_input`);
+    /// none for a turn a wake, a job or a restart began, which puts nothing to
+    /// rest: the extra question stays, never a lost order.
+    pub(crate) fn turn_input(&self, turn: &str) -> Option<String> {
+        self.runner.standing.expected.input_of(turn)
+    }
+
     /// The turn of message `node` put a settings question to the owner: what
     /// capture made of those words is undone, and capture makes nothing more
     /// of them. A failure is logged and changes nothing else.
@@ -63,9 +54,12 @@ impl Core {
         next.asks = left;
         let source = format!("capture:{node}");
         let all = self.runner.standing.all(&self.store)?;
+        // Only what capture kept by itself: a record the owner chose (Keep on
+        // an ask) has the same source, and stays.
         let kept: Vec<StandingRecord> = standing::live(&all, None, now)
             .into_iter()
             .filter(|r| r.source == source)
+            .filter(|r| next.kept.iter().any(|k| k.record == r.id && !k.by_owner))
             .cloned()
             .collect();
         if gone.is_empty() && kept.is_empty() {

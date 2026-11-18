@@ -611,11 +611,10 @@ fn ask(
     }
     // The card is the question: the owner's words that began this turn are not
     // also offered or kept as a standing record (issue 22).
-    if let (Some(core), Some(node)) = (
-        rt.config_change.core(),
-        crate::capture::settled::turn_input(tc),
-    ) {
-        core.settled_by_act(tc.session_id, &node);
+    if let Some(core) = rt.config_change.core() {
+        if let Some(node) = core.turn_input(tc.turn_id) {
+            core.settled_by_act(tc.session_id, &node);
+        }
     }
     if let Ok(Some(session)) = tc
         .store
