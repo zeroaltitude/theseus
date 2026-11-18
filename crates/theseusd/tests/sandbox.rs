@@ -873,7 +873,13 @@ fn an_l1_jobs_own_pkill_f_does_not_kill_it_and_a_line_keeps_its_semantics() {
     };
     let out = [
         line(
-            &format!("sleep 30.{n} & pkill -f 'sleep 30.{n}'; wait; echo survived"),
+            // The sleeper is waited for to be `sleep` before it is killed: until its exec it
+            // carries the shell's command line, which `pkill` is not meant to find, and a
+            // `pkill` that scans first leaves it to run its 30 s.
+            &format!(
+                "sleep 30.{n} & until pgrep -f 'sleep 30.{n}' > /dev/null; do sleep 0.01; done; \
+                 pkill -f 'sleep 30.{n}'; wait; echo survived"
+            ),
             &[],
         ),
         line("exit 3", &[]),
