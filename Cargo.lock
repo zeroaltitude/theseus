@@ -6593,7 +6593,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "theseus-protocol",
- "theseus-sim",
+ "theseus-tools",
  "tokio",
  "toml",
  "unicode-width 0.2.2",

@@ -1618,7 +1618,7 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
     );
     let w = Watch::start(&d, Some(&herdr), &[]);
     herdr.wait_for("pane.report_metadata", 1);
-    let busy = theseus_sim::Busy::before();
+    let busy = theseus_tools::Busy::before();
     let mut lat = Vec::new();
     for i in 0..200u64 {
         let seen = report_requests(&herdr.requests()).len();

@@ -220,7 +220,7 @@ The phases run in this order, and the first failure stops the gate:
   - **A speed promise in a test** is a bound on how fast the product answers (a stop within a second, a change reaching
     an adapter within 10 ms), as opposed to a mechanism (an order, a count, a timer the code owns) or a fixture's
     patience (how long a test waits for something to happen at all). Write a promise with
-    `theseus_tools::Busy` (re-exported as `theseus_sim::Busy`): `let busy = Busy::before();` just before the timed
+    `theseus_tools::Busy` (and `theseus_sim::Busy`): `let busy = Busy::before();` just before the timed
     region, then `busy.keeps(elapsed, bound)` for each bound, and put `{busy}` in the message. On a quiet machine the
     factor reads 1 and the bound is exactly the promise; on a machine that gives each thread a fraction of a core it is
     held in proportion to how slowly a thread got its turn, before the region and when the bound is passed, never more
