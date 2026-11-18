@@ -1475,7 +1475,7 @@ mod tests_receipt;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     /// Which bytes of `src` are code: not inside a line or block comment, a
     /// string, a raw string, or a char literal. A literal's delimiters count
@@ -2017,8 +2017,9 @@ mod tests {
 
     /// A clean stop's wait (theseus-pfv): once the stop begins no post is
     /// dispatched; a post already sent is waited for until it settles; with
-    /// none in flight there is no wait.
-    #[tokio::test]
+    /// none in flight there is no wait. On tokio's paused clock, so the waits
+    /// are exact whatever the machine is doing.
+    #[tokio::test(start_paused = true)]
     async fn a_stop_waits_for_the_posts_already_sent_and_dispatches_no_more() {
         let dir = tempfile::tempdir().unwrap();
         let o = outbox(&dir);
@@ -2033,7 +2034,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(30)).await;
             drop(sending);
         });
-        let t0 = Instant::now();
+        let t0 = tokio::time::Instant::now();
         let r = o.settle_in_flight(Duration::from_secs(10)).await;
         assert_eq!(
             r,
@@ -2048,7 +2049,7 @@ mod tests {
 
         let other = tempfile::tempdir().unwrap();
         let idle = outbox(&other);
-        let t0 = Instant::now();
+        let t0 = tokio::time::Instant::now();
         let r = idle.settle_in_flight(Duration::from_secs(10)).await;
         assert_eq!(
             r,
@@ -2062,15 +2063,16 @@ mod tests {
     }
 
     /// The grace counts from the stop's start, not from the wait's: a post
-    /// that never settles is left, and the stop takes no longer for it.
-    #[tokio::test]
+    /// that never settles is left, and the stop takes no longer for it. On
+    /// tokio's paused clock: the wait is exactly what is left of the grace.
+    #[tokio::test(start_paused = true)]
     async fn a_post_that_never_settles_is_left_when_the_grace_since_the_stop_ends() {
         let dir = tempfile::tempdir().unwrap();
         let o = outbox(&dir);
         let _sending = o.sending().unwrap();
         o.stop_sending();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let t0 = Instant::now();
+        let t0 = tokio::time::Instant::now();
         let r = o.settle_in_flight(Duration::from_millis(400)).await;
         assert_eq!(
             r,
