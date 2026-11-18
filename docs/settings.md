@@ -184,10 +184,13 @@ person or program answering a card. It does not protect against a program that r
   = "l1"`.
 - A program that can read your authenticator app, your phone, or what you type has the code.
 - Anyone with your account's shell can remove the proof's file and pair their own app.
-- Theseus's own tools do not write a prompt file, and this adds none. But the floor that holds the settings file, the
-  stores and the proof's file does not yet hold the prompt files themselves, so a file tool that writes there is judged
-  by its ordinary rule (a notice, at the usual setting). The yes above protects the daemon's own write, not those files
-  from every other writer.
+- The prompt files are on the same floor as the settings file: a file tool, a shell command naming one and a job
+  stop and wait for you at every setting, whatever the tool's posture. That is the files the settings name as context
+  files, both places a persona's file is kept by default (`personas/` and the older `persona/` in the state directory,
+  whole, with the copies kept beside a file), every file a persona's own record names as its file wherever it is, and a
+  copy kept beside any of them. Only Theseus's own program writes them, after your yes, and only your own turn reads
+  them, with `config.read_file`; a tool that reads one waits for you. A search over a directory that holds one is not
+  stopped, as it is not for the rest of the floor.
 - The window covers a place, not a person: while one is open, whoever is at that terminal or that cockpit can approve.
   `theseus owner proof lock` is the way to close it when you step away.
 

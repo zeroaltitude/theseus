@@ -58,6 +58,7 @@ fn policy(aws: &[(&str, Posture)], tools: &[(&str, Posture)]) -> ToolPolicy {
         aws: aws.iter().map(|(k, p)| (k.to_string(), *p)).collect(),
         confirmer: "operator".into(),
         floor_paths: vec![],
+        prompt: Default::default(),
         floor_argv: crate::policy::floor_argv(),
         private_addresses: Default::default(),
     }

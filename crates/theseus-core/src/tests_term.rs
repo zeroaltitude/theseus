@@ -147,6 +147,7 @@ fn policy_in(root: &Path) -> ToolPolicy {
         aws: Default::default(),
         confirmer: "operator".into(),
         floor_paths: vec![],
+        prompt: Default::default(),
         floor_argv: crate::policy::floor_argv(),
         private_addresses: Default::default(),
     }

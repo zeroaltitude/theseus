@@ -44,6 +44,16 @@ impl ToolRuntime {
     /// in its session's directory.
     pub(crate) fn ctx_in(&self, tc: &TurnCtx<'_>) -> Cow<'_, ToolCtx> {
         let mut ctx = Cow::Borrowed(&self.ctx);
+        // A soul the book names outside the floor's directories (issue 23).
+        for p in self.policy.prompt.paths() {
+            if !ctx
+                .floor
+                .iter()
+                .any(|f| theseus_tools::paths::within(&p, f))
+            {
+                ctx.to_mut().floor.push(p);
+            }
+        }
         if let Some(d) = tc.dir {
             ctx.to_mut().cwd = self.cwd_for(Some(d));
         }

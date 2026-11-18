@@ -39,7 +39,7 @@ A request is accepted only when all of these hold:
 2. It is, written that way, the path a named file is spelled as or its canonical path. A second name for the same
    file (a link, a hard link, another case, a path through a mount) is not the file.
 3. `lstat` says a regular file: no link at its end, never a directory.
-4. It is not on the floor (`ToolRuntime::ctx.floor`: the settings file and its copies, the bindings file, the
+4. It is not on the floor (`floor_without_prompt_files`: the settings file and its copies, the bindings file, the
    authenticator's file, the stores, the token file, the sealed sets) and not a secret kept in a file
    (`[secrets] … = "file:…"`), whatever the settings name.
 5. It is a text file of at most 256 KiB (`MAX_FILE_BYTES`), before and after.
@@ -118,8 +118,23 @@ a value between 400 characters and the proposal's 4,096 bytes (`MAX_VALUE_BYTES`
 (`config_change/long_value.rs`): size and fingerprint of the value before and after, its changed lines whole when they
 fit, else a summary, and the whole value readable by `config.whole`. A short value keeps today's card exactly.
 
-## What the floor holds
+## What the floor holds (the floor commit)
 
-The floor does not name the files a config's prompt text lives in (see `docs/settings.md`, "What this does not protect
-against"): a file tool that writes one is judged by its posture, as outside the project folder. Naming them is an edit
-to `toolrun/guarded.rs`, a keel file, and is the owner's to sign.
+The prompt files are on the floor, `toolrun/guarded.rs` (a keel file: this is the owner's to sign), so no file tool,
+no shell naming one and no L1 job reaches them, and the issue's "no tool can write the file any other way" is true:
+
+- `prompt_static`: every file `[context] files` names, and both default homes of a soul, whole: `<state>/personas/`
+  (`personas/soul.rs: soul_home`) and `<state>/persona/`, the older singular home some machines still have.
+- `prompt_souls`: every path `Config::context_paths` returns for the book with every persona engaged: a soul the
+  ontology puts anywhere. The book changes while Theseus runs and the floor's lists are built once at a start, so
+  `toolrun/prompt_floor.rs` keeps these and reads the book again before each question the floor answers (a comparison
+  of the book's address when it is the one it knew); the gate, `policy.explain`, the tools' own context (`ctx_in`) and
+  L1's views (`Sandbox::hide`, which only adds) all ask it, so none can disagree.
+- `beside`: a file of the same directory named as one of those with a dot and more after it, which is what `persona.soul`
+  keeps (`soul.md.<ms>.bak`) and leaves (`soul.md.new`).
+
+Not on the gate: the daemon's own readers and writers (the context compile, `persona.soul`, the card's write, the import
+and the persona migration), which are code and not calls, and `config.read_file`, which the owner's own turn uses. A
+tool's read of a prompt file waits. A search over a directory that holds one is not stopped (the call names the directory,
+as for the rest of the floor); `git` tools skip a floor path they walk. `forbidden()` in `prompt_file/mod.rs` reads the
+floor without these entries (`floor_without_prompt_files`), or no named file could be changed.

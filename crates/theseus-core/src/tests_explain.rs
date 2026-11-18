@@ -88,12 +88,12 @@ fn store_mcp_list(store: &crate::store::Store) {
 /// An input for a tool, inside the roots and the public paths (`open/`):
 /// its required properties, each from its name or its type.
 fn input_for(tool: &dyn Tool, open: &Path) -> Value {
-    let readme = open.join("README.md");
+    let readme = open.join("README-copy.md");
     // The tools whose input a name or a type cannot make valid.
     match tool.name() {
         "fs.edit" => return json!({"path": readme, "old_string": "tide", "new_string": "ebb"}),
         "fs.patch" => {
-            return json!({"patch": "--- a/open/README.md\n+++ b/open/README.md\n@@ -1 +1 @@\n-the open tide table\n+the open ebb table\n"})
+            return json!({"patch": "--- a/open/README-copy.md\n+++ b/open/README-copy.md\n@@ -1 +1 @@\n-the open tide table\n+the open ebb table\n"})
         }
         "task.create" => {
             return json!({"brief": "read the tide table", "arrangement":
@@ -150,7 +150,7 @@ fn input_for(tool: &dyn Tool, open: &Path) -> Value {
         let prop = &schema["properties"][&name];
         let v = match (name.as_str(), prop["type"].as_str()) {
             ("argv", _) => json!(["wc", "-l"]),
-            ("path" | "file" | "dir" | "cwd", _) => json!(open.join("README.md")),
+            ("path" | "file" | "dir" | "cwd", _) => json!(open.join("README-copy.md")),
             ("url", _) => json!("https://example.com/"),
             ("query" | "text" | "content" | "brief" | "note" | "symbol" | "keys", _) => {
                 json!("the open tide table")
@@ -369,8 +369,8 @@ fn recorded(core: &Core, sid: &str) -> Vec<(String, String)> {
 /// Through whole turns: each call the gate recorded agrees with the
 /// session's explanation of its tool, in a floored place, the owner's DM,
 /// and a shared place, before and after a tightening. The calls
-/// are `proc.run` (`cat notes.md`) and two `fs.read`s; the one of
-/// `notes.md` in the shared place is outside its public paths, which
+/// are `proc.run` (`cat notes-copy.md`) and two `fs.read`s; the one of
+/// `notes-copy.md` in the shared place is outside its public paths, which
 /// explain lists as a condition, so it is left out there.
 #[tokio::test]
 async fn each_call_a_turn_records_agrees_with_its_sessions_explanation() {
@@ -385,7 +385,7 @@ async fn each_call_a_turn_records_agrees_with_its_sessions_explanation() {
         let calls = recorded(&core, sid);
         assert!(!calls.is_empty(), "{sid}");
         for (i, (tool, result)) in calls.iter().enumerate() {
-            // The calls run three to a turn: p1, p2 (notes.md), p3.
+            // The calls run three to a turn: p1, p2 (notes-copy.md), p3.
             if skip_private_read && i % 3 == 1 {
                 continue;
             }

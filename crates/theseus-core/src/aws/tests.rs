@@ -821,6 +821,7 @@ fn policy_aws_gives_each_call_its_posture() {
         aws: aws.iter().map(|(k, p)| (k.to_string(), *p)).collect(),
         confirmer: "operator".into(),
         floor_paths: vec![],
+        prompt: Default::default(),
         floor_argv: crate::policy::floor_argv(),
         private_addresses: Default::default(),
     };

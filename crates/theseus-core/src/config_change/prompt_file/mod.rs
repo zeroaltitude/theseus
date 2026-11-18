@@ -122,9 +122,10 @@ pub fn named(core: &Core) -> Vec<Named> {
 /// The paths a prompt file may never be, whatever the settings name: what the
 /// floor holds (the settings file and its copies, the bindings file, the
 /// authenticator's file, the stores, the token file, the sealed sets) and every
-/// secret kept in a file.
+/// secret kept in a file. The prompt files are on the floor too, and are what
+/// this accepts, so the floor is read without them.
 fn forbidden(core: &Core, path: &Path) -> bool {
-    let floor = &core.tools.ctx.floor;
+    let floor = crate::toolrun::floor_without_prompt_files(&core.cfg);
     let secret = core
         .cfg
         .secrets
@@ -132,8 +133,7 @@ fn forbidden(core: &Core, path: &Path) -> bool {
         .filter_map(|r| r.strip_prefix("file:"))
         .map(|p| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p)));
     floor
-        .iter()
-        .cloned()
+        .into_iter()
         .chain(secret)
         .any(|f| theseus_tools::paths::within(path, &f))
 }
@@ -211,3 +211,5 @@ pub fn read_text(path: &Path) -> Result<String, String> {
 mod tests;
 #[cfg(test)]
 mod tests_answer;
+#[cfg(test)]
+mod tests_floor;
