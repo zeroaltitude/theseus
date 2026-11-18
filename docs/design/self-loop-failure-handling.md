@@ -82,7 +82,15 @@ so a planted revert can prove it).
   command (`layout::step`), and the owner gets one action note (`verify::not_installed_notice`), once for the merge. A revert's
   install goes the same way. `self pipeline`, `self log` (`last_join`) and `health` (`joined_not_running`) read the ledger
   (`words::last_join`) and say joined and installed and running, or joined but not installed with the step, or that the install
-  did not take. Nothing here writes the administrator's directory: that is a line of issue 22.
+  did not take. **A later build that contains the join counts as running it** (`join/contains.rs`): when no row says the join's own
+  install is what runs, the words ask this daemon's own clone whether the running build's commit (its build stamp) is the join or has
+  it as an ancestor (`git merge-base --is-ancestor`), so a hand install of a later commit of main, built after the join, no longer
+  leaves "not confirmed running". Yes reads "installed and running (inside the running build, <commit>, which contains it)", and
+  `health` stops calling it not running. No (both commits are in the clone and the join is not in the running build's history) reads
+  "not running yet: the running build (<commit>) does not contain it, and no install of it has finished" and the docs pointer for the
+  step; where an install's own row already says why it is not what runs and the one command, those words stand. Cannot tell (the build
+  names no commit, or the clone lacks the running build's commit because it has not fetched main since) says so and why, and is not
+  kept; a yes or a no is kept, since history does not change. Nothing here writes the administrator's directory: that is a line of issue 22.
 
 ## What this does NOT do
 

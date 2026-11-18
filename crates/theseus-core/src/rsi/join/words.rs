@@ -23,6 +23,17 @@ pub enum Install {
     Unconfirmed,
 }
 
+/// Whether the build that runs now contains a joined commit: the answer the daemon can give from its own clone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Contained {
+    /// The running build's commit is the join or has it as an ancestor.
+    Yes(String),
+    /// Both commits are in the clone and the running build's does not have the join in its history.
+    No(String),
+    /// The clone cannot say, and why.
+    CannotTell(String),
+}
+
 /// The last join, and what the loop says of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LastJoin {
@@ -83,6 +94,15 @@ fn utc(ms: u64) -> String {
 
 /// The newest `self.joined` of `rows` (oldest first), with the install rows of its merge.
 pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
+    last_join_in(rows, &|_| None)
+}
+
+/// [`last_join`], with `contained` asked (once, for the join) when no row says the join's own install is what runs: a
+/// build that came later, by hand or by another install, may contain the join, and then it runs.
+pub(crate) fn last_join_in(
+    rows: &[LedgerRow],
+    contained: &dyn Fn(&str) -> Option<Contained>,
+) -> Option<LastJoin> {
     let merge = rows.iter().rev().find(|r| r.kind == "self.joined")?.data["merge"]
         .as_str()?
         .to_string();
@@ -116,6 +136,34 @@ pub(crate) fn last_join(rows: &[LedgerRow]) -> Option<LastJoin> {
     } else {
         (Install::Unconfirmed, "not confirmed running".to_string())
     };
+    let (install, said) = match (install, contained(&merge)) {
+        (Install::Running, _) | (_, None) => (install, said),
+        (_, Some(Contained::Yes(running))) => (
+            Install::Running,
+            if running == merge {
+                "installed and running".to_string()
+            } else {
+                format!(
+                    "installed and running (inside the running build, {}, which contains it)",
+                    short(&running)
+                )
+            },
+        ),
+        (Install::Unconfirmed, Some(Contained::No(running))) => (
+            install,
+            format!(
+                "not running yet: the running build ({}) does not contain it, and no install of it has finished. {}",
+                short(&running),
+                hand_words(None)
+            ),
+        ),
+        (Install::Unconfirmed, Some(Contained::CannotTell(why))) => (
+            install,
+            format!("not confirmed running: cannot tell whether the running build contains it ({why})"),
+        ),
+        // An install row already says why it is not what runs, and the one command.
+        (_, Some(_)) => (install, said),
+    };
     Some(LastJoin {
         line: format!("joined at {at}; {said}"),
         merge,
@@ -127,6 +175,11 @@ impl Core {
     /// The last join and its install, from the ledger; none before any join, with the mode off,
     /// or while the index is built.
     pub fn self_last_join(&self) -> Option<LastJoin> {
+        self.self_last_join_as(crate::build().commit.as_deref())
+    }
+
+    /// [`Self::self_last_join`] for a daemon whose build is `running`.
+    pub(crate) fn self_last_join_as(&self, running: Option<&str>) -> Option<LastJoin> {
         if self.cfg.self_improve.mode == theseus_protocol::rsi::SelfMode::Off {
             return None;
         }
@@ -141,7 +194,7 @@ impl Core {
             ],
         )
         .ok()??;
-        last_join(&rows)
+        last_join_in(&rows, &|merge| Some(self.running_contains(merge, running)))
     }
 
     /// The commit of a join that is not what the service runs, for `health`: the last join's,
