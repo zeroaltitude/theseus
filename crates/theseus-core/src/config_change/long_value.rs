@@ -7,7 +7,7 @@
 //! prompt file's (`shown.rs`): each such setting names its size and fingerprint
 //! before and after, and shows its changed lines, whole, when they fit, else
 //! says it is a summary; and its whole value, before and after, is readable
-//! before the yes (`show.rs`). A short value keeps exactly the line it had.
+//! before the yes (`whole.rs`). A short value keeps exactly the line it had.
 
 use serde_json::Value;
 
