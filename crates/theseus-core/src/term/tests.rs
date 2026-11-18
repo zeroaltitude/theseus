@@ -586,15 +586,17 @@ async fn cat_echoes_and_ctrl_c_ends_it() {
         d.path(),
     )
     .await;
-    let (o, _) = call(
-        &terms,
-        "s1",
-        READ,
-        json!({"terminal": id, "quiet_ms": 5_000, "timeout_ms": 10_000}),
-        d.path(),
-    )
-    .await;
-    assert!(o.text.contains("its program ended"), "{}", o.text);
+    // The interrupt ended it: its state is what is asked, polled until it shows. How a read worded
+    // its own wait says nothing of the program (`tests_wait` holds that wait on its own).
+    let t0 = Instant::now();
+    loop {
+        let (o, _) = call(&terms, "s1", READ, json!({"terminal": id}), d.path()).await;
+        if o.text.contains("its program was ended by signal 2") {
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "{}", o.text);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert_eq!(terms.close_session("s1", BY_SESSION_END).len(), 1);
 }
 

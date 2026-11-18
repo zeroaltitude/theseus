@@ -70,6 +70,8 @@ mod tests_idle;
 mod tests_keep;
 #[cfg(test)]
 mod tests_slots;
+#[cfg(test)]
+mod tests_wait;
 
 /// The tools' family, and their names: the one place they are spelt.
 pub const FAMILY: &str = "term";
