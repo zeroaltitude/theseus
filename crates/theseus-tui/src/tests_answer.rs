@@ -205,3 +205,32 @@ async fn a_settings_question_is_not_answered_under_part_of_its_card() {
             && rig.daemon().asked("action.confirm").is_empty()
     );
 }
+
+/// A call the floor holds is drawn with the daemon's own words for which
+/// program or path and where the look is (issue 26), under "why": the card a
+/// text surface prints from `PlainWords::lines`, for a hold and for nothing else.
+#[test]
+fn a_floor_hold_card_carries_the_daemons_words() {
+    use crate::board::Question;
+    let held = "it names a program the daemon words, which always asks; a look has a tool";
+    let mut q = gate_question("ses_spec01", "cor_spec01", 98, 98 + 252);
+    q.floor = true;
+    q.plain = Some(theseus_protocol::PlainWords {
+        who: "the session".into(),
+        what: "run `x`".into(),
+        why: held.into(),
+        held: held.into(),
+        risk: "touches secrets".into(),
+        yes: "runs this one call.".into(),
+        no: "refuses it.".into(),
+        detail: String::new(),
+    });
+    let said: Vec<String> = crate::card::lines(Question::Whole(&q), 100, None, 0)
+        .into_iter()
+        .map(|(_, l)| l)
+        .collect();
+    assert!(
+        said.iter().any(|l| l.contains(&format!("why: {held}"))),
+        "{said:?}"
+    );
+}

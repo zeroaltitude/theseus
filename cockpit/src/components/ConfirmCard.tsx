@@ -14,7 +14,7 @@ import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
 import { answerParams, buttonsOf, goesThrough, hasWholeText, needsCode, proofLine } from '@/lib/answers'
-import { deadlineOf, waitedLabel } from '@/lib/heldquestion'
+import { deadlineOf, floorWords, waitedLabel } from '@/lib/heldquestion'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
 
@@ -152,6 +152,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
           {c.change && <div className="mt-1.5 text-[12.5px] font-semibold text-wait">{changeQuestion(c.change)}</div>}
           {!budget && !detail && <div className="mt-2"><Preview tool={c.tool} input={c.input} here={here} daemon={c.preview} /></div>}
           <div className="mt-2 whitespace-pre-wrap break-words text-[12px] text-ink-dim">{detail || (d && d.why !== c.reason ? <><span className="text-ink-faint">why it asks: </span>{d.why}</> : c.reason)}</div>
+          {floorWords(c) && <div className="mt-1 text-[12px] text-ink-dim">{floorWords(c)}</div>}
           {hasWholeText(c) && <WholeText question={c.correlation_id} />}
           {c.resource && <div className="num mt-0.5 text-[11.5px] text-ink-faint">{c.resource}</div>}
           {budget && (

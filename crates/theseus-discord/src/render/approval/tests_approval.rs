@@ -232,3 +232,40 @@ fn a_card_that_needs_the_second_proof_says_so() {
     assert!(fresh.contains("**Second proof, every time:**"), "{fresh}");
     assert!(!fresh.contains("goes through"), "{fresh}");
 }
+
+/// A shell command the floor holds because it names the vault's program or
+/// Theseus's own (issue 26) is drawn with which program it names and that a
+/// look has a tool: the daemon's own words, from the floor's own reason, as the
+/// card draws them.
+#[test]
+fn a_floor_hold_names_its_program_and_says_where_the_look_is() {
+    let gloss = theseus_core::needs_you::Gloss {
+        state: std::path::PathBuf::from("/state"),
+        who: "the session".into(),
+        own_task: None,
+        model_why: Some("Checking whether the key is in the vault.".into()),
+    };
+    for (program, tool) in [("op", "look.vault"), ("theseusd", "look.theseus")] {
+        let mut req = request(json!({
+            "floor": true, "task": null, "tool": "proc.run",
+            "input": {"argv": ["bash", "-c", format!("{program} whoami")]},
+            "reason": format!("run `bash -c {program} whoami` in /w: proc.run — approve (floor: `{program}` is Theseus's own binary or the 1Password CLI)"),
+        }));
+        req.task = None;
+        req.plain = Some(theseus_core::needs_you::plain(&req, &gloss));
+        let c = card(&req, &Route::Here, "");
+        assert!(c.content.starts_with("🔒 **Approve?** "), "{}", c.content);
+        assert!(
+            c.content.contains(&format!("(`{program}`)"))
+                && c.content.contains(&format!("`{tool}`")),
+            "{}",
+            c.content
+        );
+        assert!(
+            !c.content
+                .contains("touches Theseus's own state or a secret"),
+            "{}",
+            c.content
+        );
+    }
+}
