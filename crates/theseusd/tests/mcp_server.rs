@@ -506,7 +506,7 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         let (st, _) = r.tool(&c, "conversation_status", json!({"session_id": sid}));
         (st["state"] == "waiting" && st["waiting_on"] == "input").then_some(st)
     });
-    assert_eq!(st["last_reply"], "Done.", "{st}");
+    assert_eq!(st["last_reply"], "Done.", "{st}\n{}", r.log());
 }
 
 /// A wrong key gets 401, twice, with one `mcp_server.refused` row for the
