@@ -1308,27 +1308,14 @@ fn a_job_with_no_list_has_no_proxy() {
 fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
     let port = stand_in();
     let stand = format!("stand.test:{port}");
-    // The turn waits for the job past its deadline: a minute and a half, where the rig's 30 s is a start, a
-    // deadline and a kill that a crowded machine can stretch past it (theseus-20).
-    let r = Rig::start(|t| {
-        let tools = t.get_mut("tools").and_then(|v| v.as_table_mut()).unwrap();
-        tools.insert("proc_sync_secs".into(), 90.into());
-        let list = vec![toml::Value::String(stand.clone())];
-        let mut s = toml::Table::new();
-        s.insert("egress".into(), toml::Value::Array(list));
-        t.insert("sandbox".into(), toml::Value::Table(s));
-    });
+    let r = egress_rig(std::slice::from_ref(&stand));
     let held = "exec 3<>/dev/tcp/127.0.0.1/3128\n\
         printf 'CONNECT %s HTTP/1.1\\r\\n\\r\\n' \"$1\" >&3\n\
         IFS= read -r status <&3\n\
         echo \"status=${status%$'\\r'}\"\n\
-        sleep \"$2\"\n";
-    // The deadline is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20): the job must
-    // start in its sandbox and read the proxy's answer before it. It stops at 20 s, as nextest ends a test at two
-    // minutes, and the sleep outlives it.
-    let deadline = (2 * theseus_sim::busy_factor()).min(20);
-    let sleep = (10 * deadline).to_string();
-    let call = json!({"argv": ["bash", "-c", held, "held", stand, sleep], "sandbox": true, "timeout_secs": deadline});
+        sleep 30\n";
+    let call =
+        json!({"argv": ["bash", "-c", held, "held", stand], "sandbox": true, "timeout_secs": 2});
     let (_, out) = r.turn_in("deadline", vec![("proc_run", call)]);
     let text = &out[0];
     assert!(text.contains("[timed out and killed]"), "{text}");
