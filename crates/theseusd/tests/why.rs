@@ -60,17 +60,21 @@ fn ledger_end(dir: &std::path::Path) -> (u64, u64) {
 
 /// The ledger's end once the daemon has stopped writing after its turns: the rows a turn leaves
 /// behind (its judgments, its trace) are written off the turn's own path, a moment after, and on
-/// a busy machine that moment is long. Read again until two reads, a pause apart, agree (the
+/// a busy machine that moment is long. Read again until three reads, a pause apart, agree (the
 /// pause scaled by what `busy_factor` measured), so the count taken as "before" is the turns' and
 /// not a later write that `why` is then blamed for (theseus-20).
 fn settled_ledger_end(dir: &std::path::Path) -> (u64, u64) {
     let pause = std::time::Duration::from_millis(300) * theseus_sim::busy_factor() as u32;
     let deadline = std::time::Instant::now() + pause * 20;
     let mut last = ledger_end(dir);
+    let mut agreed = 0;
     loop {
         std::thread::sleep(pause);
         let now = ledger_end(dir);
-        if now == last || std::time::Instant::now() > deadline {
+        // Three reads in a row the same: two did agree while ten rows were still to come (105 rows against
+        // 95 at the end, one run in twenty under 64 burners).
+        agreed = if now == last { agreed + 1 } else { 0 };
+        if agreed >= 2 || std::time::Instant::now() > deadline {
             return now;
         }
         last = now;

@@ -474,8 +474,20 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         "{sent}"
     );
     assert!(!out.exists(), "the call ran before the operator answered");
+    // The send's two seconds end whether or not the turn has reached the operator yet, and a loaded machine
+    // can take longer than that to get there (theseus-20): the daemon is asked until the confirmation is
+    // pending (its own socket, which has no rate limit), and the status, which the MCP server counts against
+    // its sixty requests a minute, is read once it is.
+    r.wait("the call waiting on the operator", || {
+        let pending = r.call("confirm.list", json!({})).ok()?;
+        let held = pending["confirms"].as_array()?;
+        held.iter()
+            .any(|p| p["session_id"] == sid.as_str())
+            .then_some(())
+    });
     let st = r.ok(&c, "conversation_status", json!({"session_id": sid}));
     assert_eq!(st["waiting_on"], "confirm", "{st}");
+    assert!(!out.exists(), "the call ran before the operator answered");
     let pending = r.call("confirm.list", json!({})).unwrap();
     let id = pending["confirms"]
         .as_array()
@@ -500,7 +512,7 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         let (st, _) = r.tool(&c, "conversation_status", json!({"session_id": sid}));
         (st["state"] == "waiting" && st["waiting_on"] == "input").then_some(st)
     });
-    assert_eq!(st["last_reply"], "Done.", "{st}");
+    assert_eq!(st["last_reply"], "Done.", "{st}\n{}", r.log());
 }
 
 /// A wrong key gets 401, twice, with one `mcp_server.refused` row for the

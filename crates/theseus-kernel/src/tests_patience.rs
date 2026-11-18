@@ -10,6 +10,15 @@ use crate::spool::Spool;
 use crate::types::Outcome;
 
 fn run_sh(id: &str, deadline_ms: u64, script: &str) -> (Outcome, serde_json::Value, Duration) {
+    run_in("sh", id, deadline_ms, script)
+}
+
+fn run_in(
+    shell: &str,
+    id: &str,
+    deadline_ms: u64,
+    script: &str,
+) -> (Outcome, serde_json::Value, Duration) {
     let d = tempfile::tempdir().unwrap();
     let spool = Spool::open(d.path()).unwrap();
     let args = WrapperArgs {
@@ -17,7 +26,7 @@ fn run_sh(id: &str, deadline_ms: u64, script: &str) -> (Outcome, serde_json::Val
         correlation_id: id.into(),
         deadline_ms,
         notify_socket: None,
-        argv: vec!["sh".into(), "-c".into(), script.into()],
+        argv: vec![shell.into(), "-c".into(), script.into()],
         cwd: None,
         env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
         umask: None,
@@ -96,10 +105,13 @@ fn a_job_that_never_stops_printing_is_stopped_at_the_ceiling() {
     // probe read) once in fifteen runs. So it is twice the factor, which is 2 on a quiet machine, where
     // the test then takes 12 s and not 6 s.
     let busy = 2 * theseus_tools::busy_factor();
-    let (outcome, detail, took) = run_sh(
+    // It pauses with bash's own `read -t` on a pipe nobody writes to, not with a `sleep` of its own: a fork and
+    // an exec every 10 ms for 24 limits is where a crowded machine stalls it for seconds.
+    let (outcome, detail, took) = run_in(
+        "bash",
         "act_ceiling",
         250 * busy,
-        "while :; do echo line; sleep 0.01; done",
+        "exec 3<> <(:); while :; do echo line; read -t 0.01 -u 3; done",
     );
     assert_eq!(outcome, Outcome::Failed, "{detail}");
     assert_eq!(detail["timed_out"], true, "{detail}");

@@ -258,7 +258,7 @@ pub fn run_wrapper_process(args: &WrapperArgs) -> Result<()> {
     linger(&spool, &args.correlation_id, marked);
     // What a descendant printed after the report goes through the copy too,
     // to the pipe's end, which comes once the last descendant has gone.
-    copier.wait(crate::redact::DRAIN);
+    copier.wait_behind(crate::redact::DRAIN);
     if let Some(cg) = CGROUP.get() {
         cg.remove();
     }
@@ -404,10 +404,7 @@ fn run_command(
     (copier, t0): (&crate::redact::Copier, Instant),
     detail: &mut serde_json::Value,
 ) -> (Outcome, String) {
-    let printed = copier.read_counter();
-    let mut patience = crate::patience::Patience::silence(args.deadline_ms, t0, move || {
-        printed.load(std::sync::atomic::Ordering::Relaxed)
-    });
+    let mut patience = crate::patience::Patience::silence(args.deadline_ms, t0, copier.life());
     let ended = match &args.sandbox {
         Some(l1) => crate::job_l1::run(
             args,
@@ -469,6 +466,8 @@ fn run(
     // cancel that asked, and no completion, as a cancelled job wrote none
     // before; once the copy has ended, since the stop left no writer.
     if detail.get("stopped").is_some() {
+        // The plain wait, not `wait_behind`: the daemon kills a wrapper that has not answered within a few seconds
+        // of the grace (`ANSWER_WAIT`), and a stop's verdict carries no output to wait for.
         let _ = copier.wait(crate::redact::DRAIN);
         let marked = mark_if_lingering(&spool, &args.correlation_id, reap);
         // What the job reached on the network ends with the wrapper unless it is left: first, so that
@@ -488,7 +487,7 @@ fn run(
     // report: the copy goes on after it, and the report says what was
     // dropped so far, and what of the output's end the ring still holds
     // (`held`, theseus-gsn9), which the file takes only at the pipe's end.
-    let (dropped, held) = match copier.wait(crate::redact::DRAIN) {
+    let (dropped, held) = match copier.wait_behind(crate::redact::DRAIN) {
         Some(Ok(c)) => {
             if let Some(e) = c.write_error {
                 detail["output_error"] = serde_json::Value::String(e);

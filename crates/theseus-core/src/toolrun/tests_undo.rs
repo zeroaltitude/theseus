@@ -110,6 +110,7 @@ fn rig_launched(
     script: impl FnOnce(&Path) -> Vec<Scripted>,
     launcher: Option<Arc<dyn crate::toolrun::JobLauncher>>,
 ) -> Rig {
+    crate::judge::undo::give_the_verdict_time();
     let jev = says(verdict, confidence);
     let dir = crate::scratch::tempdir();
     let base = dir.path().canonicalize().unwrap();
@@ -1235,6 +1236,7 @@ fn repo_rig(
     confidence: f64,
     script: impl FnOnce(&Path) -> Vec<Scripted>,
 ) -> Rig {
+    crate::judge::undo::give_the_verdict_time();
     let jev = says(verdict, confidence);
     let dir = crate::scratch::tempdir();
     let base = dir.path().canonicalize().unwrap();

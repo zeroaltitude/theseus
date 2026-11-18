@@ -502,6 +502,18 @@ fn stubborn(i: usize) -> String {
     format!("trap '' TERM; echo $$ > main{i}.pid; while [ -d \"$1\" ]; do sleep 0.05; done")
 }
 
+/// [`stubborn`], and it writes the time (microseconds since the epoch) at which its trap took the SIGTERM to
+/// `term<i>`, read with no fork, as the trap began: the order of the signals, which no load changes.
+fn stubborn_timed(i: usize) -> String {
+    format!(
+        "exec bash -s \"$1\" <<'BASH'\n\
+         trap 't=$EPOCHREALTIME; trap \"\" TERM; printf \"%s\\n\" \"${{t/[.,]/}}\" > term{i}.tmp && mv term{i}.tmp term{i}' TERM\n\
+         echo $$ > main{i}.pid\n\
+         while [ -d \"$1\" ]; do sleep 0.05; done\n\
+         BASH\n"
+    )
+}
+
 /// What review 2's S2 hid (theseus-bzq): the wrapper died at SIGTERM, so a
 /// cancel that waited on the wrapper alone said the job was gone at once,
 /// and a command that ignores SIGTERM ran on, orphaned. Since 18a the
@@ -533,12 +545,10 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
     let (mut jobs, mut mains) = (vec![], vec![]);
     for i in 0..3 {
         let id = format!("act_stubborn_{i}");
-        jobs.push((rig.start(&id, &stubborn(i)), id));
+        jobs.push((rig.start(&id, &stubborn_timed(i)), id));
         mains.push(rig.pid(&format!("main{i}.pid")));
     }
-    // The grace is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20): one grace
-    // against three is told apart by the stop's own overhead staying under a grace, and under 64 busy
-    // threads that overhead was 1 s against a 600 ms grace.
+    // The grace is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20).
     let grace = Duration::from_millis(600) * theseus_sim::busy_factor() as u32;
     let t0 = Instant::now();
     let mut stop = job::Stopping::start(&rig.spool, jobs, grace);
@@ -551,7 +561,23 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
         assert!(!alive(main), "command {main} is gone");
     }
     assert!(took >= grace, "{took:?}");
-    assert!(took < grace * 2, "one grace, not three: {took:?}");
+    // One grace, not three, by order and not by a stopwatch (as `stops.rs` does): every command had its SIGTERM
+    // before any command's grace was out. Stopped one after another, each next one is signalled only after the
+    // last one's grace, however fast the machine; stopped together, they are signalled at once, however slow.
+    let terms: Vec<u128> = (0..3)
+        .map(|i| {
+            let t = std::fs::read_to_string(rig.path(&format!("term{i}"))).unwrap_or_default();
+            t.trim()
+                .parse()
+                .unwrap_or_else(|_| panic!("command {i} had no SIGTERM: {t:?}"))
+        })
+        .collect();
+    let spread =
+        Duration::from_micros((terms.iter().max().unwrap() - terms.iter().min().unwrap()) as u64);
+    assert!(
+        spread < grace,
+        "one grace, not three: the SIGTERMs came {spread:?} apart, the grace {grace:?}"
+    );
 }
 
 /// A cancel ends the whole job (M4 18a; theseus-hcc): the command, the

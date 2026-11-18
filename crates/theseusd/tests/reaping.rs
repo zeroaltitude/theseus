@@ -276,7 +276,11 @@ fn two_hundred_jobs_leave_no_zombie_behind() {
     for e in &executions {
         let states = r.job_states(e);
         assert_eq!(states.len(), 50, "{e}: {states:?}");
-        assert!(states.iter().all(|s| s == "succeeded"), "{e}: {states:?}");
+        assert!(
+            states.iter().all(|s| s == "succeeded"),
+            "{e}: {states:?}\n{}",
+            r.log_tail()
+        );
     }
     // Each wrapper had written its completion before it exited; give the last
     // ones the moment they take to exit and be reaped.
