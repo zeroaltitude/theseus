@@ -380,9 +380,9 @@ pub fn blocked(f: &Facts<'_>) -> Result<String, String> {
     let mut out = format!("Not attached yet: {} needs a secret first.\n", lit(f.name));
     if !f.missing.is_empty() {
         out.push_str(&format!(
-            "The settings have no [secrets] entry named {}. Add each as a vault reference (a \
-             change to [secrets], which needs the second proof too), then ask for the server \
-             again. Its value is never typed into this conversation.\n",
+            "The settings have no [secrets] entry named {}. Add each from the vault with \
+             `vault.use` (a change to [secrets], which needs the second proof too), then ask for \
+             the server again. Its value is never typed into this conversation.\n",
             lits(f.missing)
         ));
     }

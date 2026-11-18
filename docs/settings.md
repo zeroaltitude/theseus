@@ -60,8 +60,9 @@ other call.)
 
 To look at Theseus itself (its models, whether each provider's key resolved, its health and build) or at the names in
 its vault, a turn has `look.theseus` and `look.vault`, on the same terms: free in a clean turn of yours, asked first after
-outside text, never a value, a field or a note (`docs/design/look-tools.md`). A shell command that names Theseus's own
-program or the vault's is still held for you, and its card now says which program and where the look is.
+outside text, never a value or a note's text (for one item, the names and kinds of its fields;
+`docs/design/look-tools.md`). A shell command that names Theseus's own program or the vault's is still held for you, and
+its card now says which program and where the look is.
 
 To use a secret that is in the vault, tell Theseus where it is in words ("the key is in the vault, in the item Lantern key,
 field credential"); `look.vault` can list an item's field names (never a value). Theseus's own code finds the item and the
