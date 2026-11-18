@@ -397,7 +397,8 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
         took.push(t0.elapsed());
     }
     assert!(
-        took.iter().all(|t| *t < Duration::from_millis(1_000) * busy),
+        took.iter()
+            .all(|t| *t < Duration::from_millis(1_000) * busy),
         "the turn did not wait for the batch: {took:?}"
     );
     assert!(

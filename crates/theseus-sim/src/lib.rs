@@ -3,12 +3,9 @@
 //! `theseus-sim` binary serves them too (`theseus-sim fake-discord`), for
 //! scratch daemons.
 
-pub mod busy;
 pub mod discord_proof;
 pub mod fake_discord;
 pub mod fake_gateway;
-
-pub use busy::busy_factor;
 
 pub use theseus_tools::busy_factor;
 
