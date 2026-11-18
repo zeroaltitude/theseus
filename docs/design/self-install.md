@@ -168,19 +168,48 @@ In `auto` there is no card, which is why that setting needs the fresh proof.
 
 1. The commit must be one the loop's own `self.joined` row names (the ledger) **and** main's head on the remote after a
    fetch, at that moment. Else: nothing, and a ledger row says which.
-2. The unit must still be what the card named: the same single `ExecStart` program, in a per-commit directory of the
-   program directory, not already the new one.
+2. The start command in force must still be what the card named: the same single program, in a per-commit directory of
+   the program directory, not already the new one. **Where the command is set** is found the way systemd composes it
+   (`rsi/join/root_install/start.rs`): the unit file, then every drop-in (`theseusd.service.d/*.conf` and the
+   type-level `service.d/*.conf`) of the user manager's unit path, sorted together by file name; an `ExecStart=` with
+   nothing after it clears what came before; the commands left at the end are what runs, and Theseus changes the one
+   file whose line is the only one left. Directories read, highest priority first: `$XDG_CONFIG_HOME/systemd/user.control`,
+   the runtime `transient` and `generator.early`, `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user`), each
+   `$XDG_CONFIG_DIRS/systemd/user`, `/etc/systemd/user`, the runtime `user`, `/run/systemd/user`, the runtime
+   `generator`, `$XDG_DATA_HOME/systemd/user`, each `$XDG_DATA_DIRS/systemd/user`, `/usr/local/lib/systemd/user`,
+   `/usr/lib/systemd/user`, the runtime `generator.late`. The user's own are the two under `$XDG_CONFIG_HOME` and the one
+   under `$XDG_DATA_HOME`. **A winner anywhere else is refused**, with the file named and plain words (it belongs to the
+   administrator; it is gone at the next boot; it is a link; this user cannot write it), before a card, a build or the
+   helper: a line written in another place would not be the one that wins. A start command that is not a single plain
+   absolute path (a `-` or `@` prefix, a quote, a `%h`, two commands left) is refused the same way. This is the one
+   machine on which this was found (2026-11-18): the unit and a drop-in that clears and sets the command (the documented
+   way to give the service its own arguments) both named the old build, the drop-in won, and the first install changed
+   the unit's line, which did not.
 3. The programs the join's L1 build made are copied into the staging directory, and the helper runs through `sudo -n`.
-   A refusal ends the install with nothing changed.
+   A refusal ends the install with nothing changed. The program it made is then checked: a plain file of root's in a
+   directory only root writes.
 4. The memory of the install is written to the **store** (META `self.install.pending`): the commit, the program the
-   service ran, the unit's text as it was. Then the unit is written with its one `ExecStart` program changed and not a byte
-   else. (The brief said "by the same code the setup's install uses": re-running `theseusd install --user` from the
-   transient unit would rebuild the whole unit from that unit's environment and could change its `PATH` and flags, so
-   only the program path is changed, with a test that the rest is untouched.)
+   service ran, the file that held the start command and its text as it was. Then that file is written with its one
+   program changed and not a byte else (the line's arguments, its spacing, the clearing line and every other line stay,
+   and so do the file's permissions). (The brief said "by the same code the setup's install uses": re-running
+   `theseusd install --user` from the transient unit would rebuild the whole unit from that unit's environment and
+   could change its `PATH` and flags, so only the program path is changed, with a test that the rest is untouched.)
+   **Then systemd is asked** (`systemctl --user daemon-reload`, then `show -p ExecStart`): unless it will run exactly
+   the new program, nothing is restarted, the file is put back, and the install ends saying what systemd said instead.
 5. A transient `systemd-run --user` unit, whose script is its argument (no file is written for it and none read back),
-   restarts the service, waits up to four minutes for the new daemon's confirmation, and otherwise writes the unit's old
-   text back (embedded in the script, from the store's copy) and restarts once more. A restart that fails goes back at
-   once. At most two restarts, onto the build and back; never a loop.
+   checks once more, just before it restarts, that systemd will run the new program (else it goes back without
+   restarting onto it), restarts the service, waits up to four minutes for the new daemon's confirmation, and otherwise
+   writes the file's old text back (embedded in the script, from the store's copy, with the file's permissions) and
+   restarts once more. A restart that fails goes back at once. At most two restarts, onto the build and back; never a
+   loop. **The script reaches systemd in one line.** systemd writes a transient unit's command into a file and reads
+   it back line by line at its next reload, so a newline inside an argument cuts the command: on the machine above,
+   the script's lines were read as settings of the unit ("Missing '=', ignoring line", "Unknown key name 'signal'")
+   and "the command vanished from the unit file". So the script is passed as base64, which has no newline, quote,
+   `$`, `%` or `;`, to a fixed command that decodes and runs it
+   (`bash -c 'eval "`echo <base64> | base64 -d`"'`, built in `machine.rs`, `restart_argv`). Nothing is written for it:
+   a file for the restart could be replaced by the owner's other programs, and a job cannot replace an argument.
+   What is not closed: a program running as the owner can still change the start command between the last check and
+   the restart, as it could always point the unit anywhere (the first section); the checks narrow that to moments.
 
 **The start after.** The daemon that finds the install's record and is the build it names waits up to two minutes for
 health (it serves its socket, its store is open, and the index tender is off or not `down` or `stalled`), writes the
