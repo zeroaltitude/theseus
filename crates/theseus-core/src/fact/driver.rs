@@ -202,6 +202,35 @@ impl Fact for JobsLeft<'_> {
     }
 }
 
+/// A turn that a stop counted as reached (it waited to be admitted) ended
+/// before admission for a reason of its own: the stop did not end it. Said
+/// after the stop's answer and its `execution.stopped` row, which said a turn
+/// was reached, had gone.
+pub struct StopNotTaken<'a> {
+    pub execution_id: &'a str,
+    pub by: &'a str,
+    pub why: &'a str,
+}
+
+impl Fact for StopNotTaken<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ExecutionStopNotTaken);
+
+    fn row(&self) -> Value {
+        json!({"execution_id": self.execution_id, "by": self.by, "why": self.why})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "The stop by {} had reached a turn that was waiting to be admitted, and that \
+                 turn ended before it was, for its own reason, not the stop's: {}.",
+                self.by, self.why
+            ),
+        );
+    }
+}
+
 /// A stop that also cancelled the conversation's tasks (theseus-cdcwr, `execution.stop { tasks }`): the tasks it
 /// cancelled, deepest first. The conversation's wakes stay.
 pub struct ExecutionStoppedAll<'a> {

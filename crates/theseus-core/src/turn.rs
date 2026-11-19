@@ -1011,22 +1011,63 @@ impl TurnRunner {
     /// (a turn's was 160 KiB), so this returns a box, not the future.
     pub fn run(
         &self,
-        req: TurnRequest,
+        mut req: TurnRequest,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<TurnSubmitResult>> + Send + '_>>
     {
-        Box::pin(self.run_body(req))
+        Box::pin(async move {
+            let arrived = *req.arrived.get_or_insert_with(Instant::now);
+            // Listed from its start until it holds its execution: a `/stop`
+            // that lands while this input's turn waits for its secrets, or
+            // for admission, reaches it (`AdmitWaiting`).
+            let session = req.session.session_id.clone();
+            let waiting = req
+                .input
+                .is_some()
+                .then(|| self.admit_waiting.enter(&session, arrived));
+            let execution = req.session.execution_id.clone();
+            let ran = self.run_body(req, waiting.as_ref()).await;
+            if let (Err(e), Some(w)) = (&ran, &waiting) {
+                // It failed before it held its execution: a stop that
+                // counted it was not what ended it.
+                if !w.is_held() && w.withdraw() {
+                    self.stop_not_taken(&session, execution.as_deref(), arrived, e);
+                }
+            }
+            ran
+        })
+    }
+
+    /// A turn a stop counted as reached ended before admission for a reason
+    /// of its own (its secrets refused, its execution not runnable). The
+    /// stop's answer and the kernel's row had gone by then, and said a turn
+    /// was reached: the ledger and the session say what in fact ended it.
+    fn stop_not_taken(
+        &self,
+        session_id: &str,
+        execution_id: Option<&str>,
+        arrived: Instant,
+        error: &anyhow::Error,
+    ) {
+        let by = execution_id
+            .and_then(|x| self.stopped_since(x, arrived))
+            .map_or_else(|| "a stop".to_string(), |n| n.by);
+        self.session_rec(session_id, To::Nobody)
+            .record(&fact::driver::StopNotTaken {
+                execution_id: execution_id.unwrap_or_default(),
+                by: &by,
+                why: &failure_reason(error),
+            });
     }
 
     #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-    async fn run_body(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
+    async fn run_body(
+        &self,
+        mut req: TurnRequest,
+        waiting: Option<&admit_wait::Waiting<'_>>,
+    ) -> Result<TurnSubmitResult> {
         let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
-        // Listed from its start until it holds its execution: a `/stop` that
-        // lands while this input's turn waits for its secrets, or for
-        // admission, reaches it (`AdmitWaiting`).
-        let waiting =
-            (!continuation).then(|| self.admit_waiting.enter(&req.session.session_id, arrived));
         // A person's message: Jev's connections open now, beside the
         // admission's frames, for the judgments its input node will ask
         // (theseus-otny). A slash command asks none.
@@ -1140,7 +1181,9 @@ impl TurnRunner {
                 }
             },
         };
-        drop(waiting);
+        if let Some(w) = waiting {
+            w.held();
+        }
         let steer = self
             .tools
             .job_waits
