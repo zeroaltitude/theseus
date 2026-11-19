@@ -97,3 +97,26 @@ card shows how it ended", and the worker brings the card to its end. The answer 
 **Choices** (decided, not asked): the worker writes the cards itself, not through the lane; a card that is deleted is made again while
 its item stands; cancelled-by is the presser's name, and a cancel from the CLI says "Cancelled" alone.
 
+## A task set to start later is `scheduled` (issue 30, the owner's addition)
+
+"Asking it to schedule the task results in a task in the forum in status 'running'; it should be 'scheduled' until it runs, then
+running when it runs, then done." A task that is set to start later is a task whose execution is asleep on its time with no turn
+taken (the core's `task_start::starts_at`); its work view is `Waiting` with `doing.what = Sleeping`, `doing.turn = 0` and
+`next_at_ms` its start. `render::task_view::waits_to_start` is that test, in the binding, and every place that words a task's state
+asks it (no protocol or core change):
+
+- **The forum tag** (`forum::Tag::of`): `needs you` first, then the ends, then `paused`, then **`scheduled`** while it waits, else
+  `running`. The one edit that leaves `scheduled` (the start) is not paced by `TAGS_EVERY`, as an end is not; it is one more edit.
+- **The post's card and the `/tasks` card** (`task_view::state_words`): `🕒 scheduled · starts <t> · <in N>`, no "started ...", no
+  "Doing" line. **`/tasks`' text line** (`render/deferred.rs`): `🕒 scheduled · starts Fri 09:00`.
+- **The pinned board**: such a task is listed under its own `🕒 Scheduled` heading, apart from `⚙️ Now`, as `🕒 **title** `…id` ·
+  scheduled · starts <t>`; the headline counts it as `🕒 1 scheduled`, never as running (and the status line's running count leaves it
+  out, `counts_of`); the `/task` choices mark it 🕒.
+- **One card, and no second post.** It is a scheduled item like the reminders: one card of its own in the task home, `Task · from DM
+  @ana`, with Cancel (`task.cancel`) and Snooze 1 h (`task.reschedule` with `start_when = "in 1h"`: a task's start CAN be moved by an
+  existing call) as the presser, by the same ids `hq:cancel:<id>` and `hq:snooze:<id>` (a task's id is no `wak_` id, which tells
+  `Shared::card_press` which call). At its start the same card is edited to `▶️ **title** / Started <t>` with no buttons; if it is
+  cancelled first, `Cancelled by <who>`. The post on the board is the task's OWN (the one it already had), not one made for the card.
+- **Where the pinned board's Coming up keeps what has no card**: only a reminder or check-in, a routine's run and a task's start are
+  taken off it (`parts_for`); a watch's give-up and a milestone stay. (The first version cleared the whole section.)
+

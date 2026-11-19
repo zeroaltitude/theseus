@@ -155,6 +155,12 @@ impl Shared {
         self.task_posts.home.target()
     }
 
+    /// The name of the conversation a task was set in: its root's session.
+    fn task_from(&self, v: &WorkView, names: &HashMap<String, String>) -> Option<String> {
+        let root = self.tasks.view(&v.root)?;
+        names.get(root.session_id.as_deref()?).cloned()
+    }
+
     /// The items now: the pending wakes and the routines the future's
     /// snapshot holds, and the wakes the work model holds in any state (a
     /// fired one is `Done`, a cancelled one `Cancelled`). None before the
@@ -193,6 +199,24 @@ impl Shared {
                 paused: false,
                 routine: None,
             });
+        }
+        // A task set to start later is a scheduled item too: one card of its
+        // own, and no second post (the task has its own). One that began or
+        // was cancelled has its card brought to that.
+        for v in self.tasks.waiting_to_start() {
+            let rec = recs.iter().find(|r| r.id == v.id);
+            out.push(task_face(&v, rec, self.task_from(&v, &names), sched));
+        }
+        for r in recs
+            .iter()
+            .filter(|r| r.kind == "task" && r.ended_ms.is_none())
+        {
+            if out.iter().any(|f| f.id == r.id) {
+                continue;
+            }
+            if let Some(v) = self.tasks.view(&r.id) {
+                out.push(task_face(&v, Some(r), self.task_from(&v, &names), sched));
+            }
         }
         for r in &snap.routines {
             out.push(Face {
@@ -267,6 +291,41 @@ fn wake_face(
     }
 }
 
+/// A task's face: scheduled while it waits for its start, else how its start
+/// went (it began, or it was cancelled before it).
+fn task_face(v: &WorkView, rec: Option<&Rec>, from: Option<String>, sched: &Sched) -> Face {
+    let due = v.next_at_ms.or(rec.and_then(|r| r.due_ms));
+    let ended = v.ended_at_ms.unwrap_or(v.state_since_ms);
+    let life = if crate::render::task_view::waits_to_start(v) {
+        Life::Scheduled {
+            snoozed: rec.is_some_and(|r| {
+                r.snoozed
+                    || matches!((r.due_ms, v.next_at_ms), (Some(was), Some(now)) if now.abs_diff(was) > 1_000)
+            }),
+        }
+    } else if matches!(v.state, WorkState::Cancelled | WorkState::Expired) {
+        Life::Cancelled(
+            ended,
+            sched
+                .who_cancelled(&v.id)
+                .or_else(|| rec.and_then(|r| r.by.clone())),
+        )
+    } else {
+        Life::Started(due.map_or_else(now_unix_ms, |d| d.min(now_unix_ms())))
+    };
+    Face {
+        id: v.id.clone(),
+        kind: Kind::Task,
+        title: v.title.clone(),
+        due_ms: due,
+        life,
+        from: from.or_else(|| rec.and_then(|r| r.from.clone())),
+        every: None,
+        paused: v.paused,
+        routine: None,
+    }
+}
+
 /// The work view the forum worker takes a face for: a wake or a routine, its
 /// state the item's life.
 fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
@@ -289,6 +348,7 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
         state: match f.life {
             Life::Scheduled { .. } => WorkState::Waiting,
             Life::Fired(_) => WorkState::Done,
+            Life::Started(_) => WorkState::Running,
             Life::Cancelled(..) | Life::Removed(_) => WorkState::Cancelled,
         },
         previous: None,
@@ -300,7 +360,7 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
         started_at_ms: created_ms,
         state_since_ms: created_ms,
         ended_at_ms: match f.life {
-            Life::Scheduled { .. } => None,
+            Life::Scheduled { .. } | Life::Started(_) => None,
             Life::Fired(at) | Life::Cancelled(at, _) | Life::Removed(at) => Some(at),
         },
         doing: None,
@@ -471,7 +531,9 @@ impl Worker {
         let dig = digest(&card);
         let Some(i) = self.recs.iter().position(|r| r.id == f.id) else {
             let late = match f.life {
-                Life::Fired(t) | Life::Cancelled(t, _) | Life::Removed(t) => now < t + LATE_MS,
+                Life::Fired(t) | Life::Started(t) | Life::Cancelled(t, _) | Life::Removed(t) => {
+                    now < t + LATE_MS
+                }
                 Life::Scheduled { .. } => true,
             };
             return !late || self.post(f, &card, dig, home, now, None).await;
@@ -636,7 +698,13 @@ impl Worker {
             let mut faces = s.task_posts.sched.faces.lock().unwrap();
             faces.clear();
             for f in shown {
-                let Some(r) = self.recs.iter().find(|r| r.id == f.id) else {
+                // A task has its own post; only the other items are made one.
+                let Some(r) = self
+                    .recs
+                    .iter()
+                    .find(|r| r.id == f.id)
+                    .filter(|_| f.kind != Kind::Task)
+                else {
                     continue;
                 };
                 faces.insert(f.id.clone(), f.clone());
@@ -660,10 +728,12 @@ fn gone_face(r: &Rec, now: u64, sched: &Sched) -> Face {
     let kind = match r.kind.as_str() {
         "routine" => Kind::Routine,
         "check-in" => Kind::CheckIn,
+        "task" => Kind::Task,
         _ => Kind::Reminder,
     };
     let life = match (kind, r.due_ms) {
         (Kind::Routine, _) => Life::Removed(now),
+        (Kind::Task, Some(due)) if due <= now + 5_000 => Life::Started(due),
         (_, Some(due)) if due <= now + 5_000 => Life::Fired(due),
         _ => Life::Cancelled(now, sched.who_cancelled(&r.id).or_else(|| r.by.clone())),
     };
@@ -692,6 +762,9 @@ impl Shared {
             .strip_prefix(CANCEL_PREFIX)
             .or_else(|| custom_id.strip_prefix(crate::render::horizon::SNOOZE_PREFIX))
             .unwrap_or_default();
+        if !wake.starts_with("wak_") {
+            return self.task_card_press(i, cancel, wake, who).await;
+        }
         let over = self
             .tasks
             .scheduled()
@@ -711,6 +784,33 @@ impl Shared {
         }
         if !self.reminder_pick(i, custom_id, who).await && cancel {
             self.task_posts.sched.not_cancelled(wake);
+        }
+    }
+}
+
+impl Shared {
+    /// The press of the card of a task set to start later: `task.cancel` or
+    /// `task.reschedule` an hour on, as the presser. A task that has started
+    /// or ended says so, and its card is brought to that.
+    async fn task_card_press(&self, i: &Interaction, cancel: bool, task: &str, who: &str) {
+        let waits = self
+            .tasks
+            .view(task)
+            .is_some_and(|v| crate::render::task_view::waits_to_start(&v));
+        if !waits {
+            self.tasks.future.dirty();
+            return self
+                .reply_ephemeral(
+                    i,
+                    "That task has started or ended already: its card shows how.".into(),
+                )
+                .await;
+        }
+        if cancel {
+            self.task_posts.sched.will_cancel(task, who);
+        }
+        if !self.task_pick(i, cancel, task, who).await && cancel {
+            self.task_posts.sched.not_cancelled(task);
         }
     }
 }

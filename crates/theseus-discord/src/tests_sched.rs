@@ -9,6 +9,7 @@ use std::time::Duration;
 use theseus_core::approval::{Client, Surface};
 use theseus_core::provider::Scripted;
 use theseus_protocol::routines::{RoutineCreateParams, RoutineEditResult};
+use theseus_protocol::task_start::TaskStartParams;
 use theseus_protocol::wakes::{WakeCreateParams, WakeEditResult};
 use theseus_protocol::{WakeCancelParams, WakeCancelResult};
 use theseus_sim::fake_discord::{Msg, Pressed};
@@ -18,7 +19,9 @@ use crate::tests_default_forum::{forum_up, last_name, last_tags, post_with, post
 use crate::tests_gateway::{Rig, ANA, ANA_DM, BEN, CY, LAB};
 use crate::tests_task_home::{
     boards, card_in, cards_in, home_record, home_up, no_dm, rig, session_of_place, two_places,
+    two_places_with,
 };
+use crate::tests_task_threads::{answers, gate, open_gate, BUOY};
 
 const V2: u64 = 1 << 15;
 const SILENT: u64 = 1 << 12;
@@ -620,4 +623,195 @@ async fn a_card_whose_item_vanished_while_the_daemon_was_down_is_brought_to_its_
         n,
         "brought to its end once"
     );
+}
+
+// ---- a task set to start later (issue 30, the owner's addition) ---------------
+
+fn owner() -> theseus_core::approval::Answerer {
+    crate::tests_default_forum::cli()
+}
+
+/// The briefs of the tests below: held at a gate while it runs, then done.
+fn buoy(dir: &std::path::Path) -> Vec<(&'static str, Vec<Scripted>)> {
+    vec![(BUOY, [vec![gate(dir)], answers("Buoy painted.")].concat())]
+}
+
+/// A task for the DM's conversation, to start `when` (none: at once).
+fn start_task(r: &Rig, when: Option<&str>) -> String {
+    r.core
+        .task_start(
+            &TaskStartParams {
+                brief: BUOY.into(),
+                home: Some(session_of_place(r, &format!("dm:{ANA}"))),
+                start_when: when.map(str::to_string),
+                ..Default::default()
+            },
+            owner(),
+        )
+        .unwrap()
+        .session_id
+        .replacen("ses_", "exe_", 1)
+}
+
+/// A task set to start later is `scheduled` in its post (tag and card words),
+/// has one card of its own in the task home (Cancel and Snooze 1 h) and no second
+/// post, is on the pinned board as scheduled and not running; at its start the
+/// card says it started, and the post is `running`; at its end `done`.
+#[tokio::test]
+async fn a_task_set_for_later_is_scheduled_then_running_then_done_with_one_card_and_one_post() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let task = start_task(&r, Some("in 6s"));
+    r.until("its card in the task home", || {
+        card(&r, home, "Buoy-paint").is_some()
+    })
+    .await;
+    let c = card(&r, home, "Buoy-paint").unwrap();
+    assert_eq!(
+        ids(&c),
+        [format!("hq:cancel:{task}"), format!("hq:snooze:{task}")]
+    );
+    assert!(c.content.contains("Task · from DM @ana"), "{}", c.content);
+    assert!(c.content.starts_with("🕒"), "{}", c.content);
+    r.until("its post says scheduled", || {
+        post_with(&r, forum, "scheduled · starts").is_some()
+    })
+    .await;
+    let post = post_with(&r, forum, "scheduled · starts").unwrap();
+    assert_eq!(
+        posts(&r, forum).len(),
+        1,
+        "the task's own post, and no second"
+    );
+    assert_eq!(last_tags(&r, post.id), [tag_id(&r, forum, "scheduled")]);
+    let first = r.fake.messages(post.id).remove(0).content;
+    assert!(
+        !first.contains("running") && !first.contains("started"),
+        "{first}"
+    );
+    r.until("the pinned board lists it as scheduled", || {
+        boards(&r, home).first().is_some_and(|b| {
+            b.content.contains("scheduled · starts") && b.content.contains("1 scheduled")
+        })
+    })
+    .await;
+    let b = boards(&r, home).remove(0).content;
+    assert!(!b.contains("running") && !b.contains("Coming up"), "{b}");
+    // Its start: the card says so and loses its buttons; the post is running.
+    r.until("the card says it started", || {
+        card(&r, home, "Buoy-paint")
+            .is_some_and(|m| m.content.contains("Started") && m.buttons.is_empty())
+    })
+    .await;
+    assert_eq!(
+        card(&r, home, "Buoy-paint").unwrap().id,
+        c.id,
+        "the same card"
+    );
+    r.until("the post is running", || {
+        last_tags(&r, post.id) == [tag_id(&r, forum, "running")]
+    })
+    .await;
+    assert_eq!(cards(&r, home).len(), 1, "no second card for the task");
+    open_gate(&r);
+    r.until("the post is done", || {
+        last_tags(&r, post.id) == [tag_id(&r, forum, "done")]
+    })
+    .await;
+}
+
+/// A task started at once is never drawn `scheduled`: no card of its own, no
+/// scheduled tag on its post, no such word on its card.
+#[tokio::test]
+async fn a_task_started_at_once_is_never_scheduled() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    start_task(&r, None);
+    r.until("its post", || post_with(&r, forum, "Buoy-paint").is_some())
+        .await;
+    let post = post_with(&r, forum, "Buoy-paint").unwrap();
+    r.until("it is running", || {
+        last_tags(&r, post.id) == [tag_id(&r, forum, "running")]
+    })
+    .await;
+    assert!(
+        !r.fake
+            .forum_tags(forum)
+            .iter()
+            .any(|t| t.name == "scheduled"),
+        "no scheduled tag was made for it"
+    );
+    assert!(!r.fake.messages(post.id)[0].content.contains("scheduled"));
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(cards(&r, home).is_empty(), "{:#?}", cards(&r, home));
+    open_gate(&r);
+}
+
+/// The owner's Cancel on the task's card cancels the task as the owner and ends
+/// the card and the post; a person who is no owner is refused; Snooze 1 h moves
+/// its start on the same card.
+#[tokio::test]
+async fn the_owners_cancel_and_snooze_on_a_scheduled_tasks_card_act_on_the_task() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let task = start_task(&r, Some("in 90m"));
+    r.until("its card", || card(&r, home, "Buoy-paint").is_some())
+        .await;
+    let c = card(&r, home, "Buoy-paint").unwrap();
+    let refused = press(&r, &c, &format!("hq:cancel:{task}"), BEN, "ben");
+    r.until("ben is refused", || told(&r, &refused).is_some())
+        .await;
+    assert!(told(&r, &refused).unwrap().0.contains("Only the people"));
+    let snoozed = press(&r, &c, &format!("hq:snooze:{task}"), ANA, "ana");
+    r.until("the card says snoozed", || {
+        card(&r, home, "Buoy-paint").is_some_and(|m| m.content.contains("Snoozed"))
+    })
+    .await;
+    let (said, alone) = told(&r, &snoozed).unwrap();
+    assert!(alone && said.contains("will start at"), "{said}");
+    assert_eq!(card(&r, home, "Buoy-paint").unwrap().id, c.id);
+    let pressed = press(&r, &c, &format!("hq:cancel:{task}"), ANA, "ana");
+    r.until("the card says cancelled by ana", || {
+        card(&r, home, "Buoy-paint")
+            .is_some_and(|m| m.content.contains("Cancelled by ana") && m.buttons.is_empty())
+    })
+    .await;
+    let (said, alone) = told(&r, &pressed).unwrap();
+    assert!(alone && said.contains("will not start"), "{said}");
+    let post = post_with(&r, forum, "Buoy-paint").unwrap();
+    r.until("the post is stopped", || {
+        last_tags(&r, post.id) == [tag_id(&r, forum, "stopped")]
+    })
+    .await;
+}
+
+/// A restart while the task waits: a fresh pass over the list makes no second
+/// card and edits none, and the task's view still draws as scheduled.
+#[tokio::test]
+async fn a_restart_while_a_task_waits_keeps_it_scheduled_and_makes_no_second_card() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    start_task(&r, Some("in 90m"));
+    r.until("its card and its scheduled post", || {
+        card(&r, home, "Buoy-paint").is_some()
+            && post_with(&r, forum, "scheduled · starts").is_some()
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let before = cards(&r, home);
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let mut again = crate::runtime::sched::Worker::fresh(shared);
+    assert!(again.sync().await);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let after = cards(&r, home);
+    assert_eq!(after.len(), 1, "{after:#?}");
+    assert_eq!(
+        (after[0].id.clone(), after[0].edits),
+        (before[0].id.clone(), before[0].edits)
+    );
+    assert_eq!(posts(&r, forum).len(), 1);
 }

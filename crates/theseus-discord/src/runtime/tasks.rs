@@ -131,7 +131,8 @@ fn counts_of(m: &Model) -> Counts {
     for v in m.views.values().filter(|v| counted(v)) {
         if v.state == WorkState::NeedsYou {
             c.needs_you += 1;
-        } else if v.state.working() {
+        } else if v.state.working() && !crate::render::task_view::waits_to_start(v) {
+            // A task set to start later is scheduled, not running.
             c.running += 1;
         }
     }
@@ -318,6 +319,16 @@ impl Tasks {
         m.views
             .values()
             .filter(|v| v.kind == WorkKind::Wake)
+            .cloned()
+            .collect()
+    }
+
+    /// The tasks set to start later that have not (`task_view::waits_to_start`).
+    pub fn waiting_to_start(&self) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        m.views
+            .values()
+            .filter(|v| crate::render::task_view::waits_to_start(v))
             .cloned()
             .collect()
     }
@@ -1075,6 +1086,31 @@ mod tests {
                 reminder: None
             }
         );
+    }
+
+    #[test]
+    fn a_task_set_for_later_is_not_a_running_task_in_the_counts() {
+        let t = Tasks::default();
+        let mut rx = t.counts();
+        let mut later = crate::render::task_view::tests::deferred(1_790_003_600_000);
+        later.id = "exe_later".into();
+        later.root = "exe_chat".into();
+        t.changed(changed_of(
+            vec![
+                view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    1,
+                ),
+                view("exe_b", WorkKind::Task, "exe_chat", WorkState::Running, 2),
+                later,
+            ],
+            &[],
+        ));
+        assert_eq!(rx.borrow_and_update().running, 1, "only the one that runs");
+        assert_eq!(t.waiting_to_start().len(), 1);
     }
 
     #[test]
