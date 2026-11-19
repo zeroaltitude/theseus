@@ -53,6 +53,64 @@ pub(super) fn is_self(author: &str) -> bool {
     author.starts_with("self:")
 }
 
+/// `tools` with the chat acts `more` in it, each once, sorted by wire name with the rest, so the
+/// request's tool list is deterministic byte for byte (`Registry::definitions_of`'s order).
+///
+/// **Each once**: the tools of a turn settle twice when a verdict that lands after the first settle
+/// makes the turn deep (`tier`'s `tools_behind`, theseus-a2kh6), on the spec the first settle left.
+/// The acts offered then are in it already, and the offer for the same turn is the same acts again.
+/// A request that names a tool twice is refused whole by the provider (400, "Tool names must be
+/// unique"), and the turn with it: seen on the owner's machine, 2026-11-18. So an act offered now
+/// replaces the one of its name that is there, and never joins it.
+fn with_offered(
+    tools: &[serde_json::Value],
+    more: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    let offered: BTreeSet<String> = more
+        .iter()
+        .filter_map(|d| d["name"].as_str().map(str::to_string))
+        .collect();
+    let mut defs: Vec<serde_json::Value> = tools
+        .iter()
+        .filter(|d| d["name"].as_str().is_none_or(|n| !offered.contains(n)))
+        .cloned()
+        .chain(more)
+        .collect();
+    defs.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    defs
+}
+
+/// The last word before a spec's tools settle: no name twice. Nothing reaches here with one today
+/// ([`with_offered`] is why); if something ever does, the first of a name is kept, the fault is
+/// logged as the error it is, and the turn is sent rather than refused whole.
+fn named_once(spec: &mut RequestSpec) {
+    if let Some((kept, twice)) = once(&spec.tools) {
+        tracing::error!(
+            tools = ?twice,
+            "a request's tools named a tool twice; the first of each is kept (this is a fault: say so)"
+        );
+        spec.tools = kept.into();
+    }
+}
+
+/// `tools` with the first of each name, and the names that came twice; `None` when none did.
+fn once(tools: &[serde_json::Value]) -> Option<(Vec<serde_json::Value>, Vec<String>)> {
+    let mut seen = BTreeSet::new();
+    let mut twice = Vec::new();
+    let kept: Vec<serde_json::Value> = tools
+        .iter()
+        .filter(|d| match d["name"].as_str() {
+            Some(n) if !seen.insert(n.to_string()) => {
+                twice.push(n.to_string());
+                false
+            }
+            _ => true,
+        })
+        .cloned()
+        .collect();
+    (!twice.is_empty()).then_some((kept, twice))
+}
+
 impl TurnRunner {
     /// The kind of place a session's turn speaks in, for the loaded set.
     pub(crate) fn place_kind(&self, session_id: &str, task: bool) -> PlaceKind {
@@ -75,6 +133,7 @@ impl TurnRunner {
     pub(super) fn defer_tools(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
         self.chat_acts_offered(t, spec);
         self.flows_in_scope(t, spec);
+        named_once(spec);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
         let ceiling = t.route.injection.as_ref().map(|b| b.admit_ceiling);
         let said = Said {
@@ -122,11 +181,7 @@ impl TurnRunner {
         if more.is_empty() {
             return;
         }
-        // Sorted by wire name with the rest, so the request's tool list is
-        // deterministic byte for byte (`Registry::definitions_of`'s order).
-        let mut defs: Vec<serde_json::Value> = spec.tools.iter().cloned().chain(more).collect();
-        defs.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
-        spec.tools = defs.into();
+        spec.tools = with_offered(&spec.tools, more).into();
     }
 
     /// A loaded flow's tool stays in the request only where the flow is
@@ -502,5 +557,88 @@ impl TurnRunner {
             });
         }
         turn.raised
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::{once, with_offered};
+
+    fn names(tools: &[Value]) -> Vec<&str> {
+        tools.iter().filter_map(|d| d["name"].as_str()).collect()
+    }
+
+    fn act(name: &str, says: &str) -> Value {
+        json!({"name": name, "description": says, "input_schema": {"type": "object"}})
+    }
+
+    /// The tools of a turn settle twice when a late verdict makes it deep, on the spec the first
+    /// settle left: the acts offered the second time are the same acts, and each is in the request
+    /// once. Before this the second settle added them again, and the provider refused the whole
+    /// request ("Tool names must be unique").
+    #[test]
+    fn the_acts_offered_at_a_second_settle_are_in_the_request_once() {
+        let kept = vec![act("fs_read", "read"), act("proc_run", "run")];
+        let offer = || {
+            vec![
+                act("chat_import_sync", "sync"),
+                act("chat_move_to_thread", "move"),
+                act("project_item_add", "add"),
+                act("project_item_list", "list"),
+            ]
+        };
+        let first = with_offered(&kept, offer());
+        let second = with_offered(&first, offer());
+        assert_eq!(first, second, "a second settle changes nothing");
+        assert_eq!(
+            names(&second),
+            [
+                "chat_import_sync",
+                "chat_move_to_thread",
+                "fs_read",
+                "proc_run",
+                "project_item_add",
+                "project_item_list"
+            ]
+        );
+        assert!(once(&second).is_none());
+    }
+
+    /// An act offered again with other words (what waits here has changed) takes the place of the
+    /// one of its name; an act no longer offered stays as the first settle left it, which is the
+    /// request the turn's first call was already made with.
+    #[test]
+    fn an_act_offered_again_replaces_the_one_of_its_name() {
+        let first = with_offered(
+            &[act("fs_read", "read")],
+            vec![
+                act("chat_answer_question", "one waits"),
+                act("chat_import_sync", "sync"),
+            ],
+        );
+        let second = with_offered(&first, vec![act("chat_answer_question", "two wait")]);
+        assert_eq!(
+            names(&second),
+            ["chat_answer_question", "chat_import_sync", "fs_read"]
+        );
+        assert_eq!(second[0]["description"], "two wait");
+    }
+
+    /// The last word: a list that names a tool twice keeps the first of each and says which.
+    #[test]
+    fn a_name_twice_keeps_its_first_and_is_named() {
+        let tools = vec![
+            act("a", "first"),
+            act("b", "only"),
+            act("a", "second"),
+            json!({"type": "tool_search_tool_regex_20251119"}),
+        ];
+        let (kept, twice) = once(&tools).unwrap();
+        assert_eq!(twice, ["a"]);
+        assert_eq!(kept.len(), 3);
+        assert_eq!(kept[0]["description"], "first");
+        assert!(once(&kept).is_none());
     }
 }
