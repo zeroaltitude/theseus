@@ -407,10 +407,24 @@ pub fn short(f: &Frame) -> String {
 }
 
 fn tagged(f: &Frame) -> String {
-    match is_judges(f) {
-        true => format!("judge {}", short(f)),
-        false => format!("turn {}", f.label()),
+    match (is_judges(f), is_memory_pass(f)) {
+        (true, _) => format!("judge {}", short(f)),
+        (_, true) => format!("memory pass {}", f.label()),
+        _ => format!("turn {}", f.label()),
     }
+}
+
+/// The frames of a window that are the turn's: not the judge's, and not a
+/// memory pass's. A pass labels an earlier turn's nodes in a frame of its own,
+/// between turns, or when a turn starts and waits for it, so beside a loaded
+/// machine it falls inside this turn's window and in none of its trace's
+/// count (issue 20, the third pass: 9 frames in the WAL against the trace's 8,
+/// the extra one `memory.labeled` and `memory.gated`). `bench turn` sets
+/// these aside the same way.
+fn the_turns(all: &[Frame]) -> Vec<&Frame> {
+    all.iter()
+        .filter(|f| !is_judges(f) && !is_memory_pass(f))
+        .collect()
 }
 
 /// One judged run (theseus-v2ru): `all` is every frame the WAL held from
@@ -420,7 +434,7 @@ fn tagged(f: &Frame) -> String {
 /// a judge's frame inside the turn reads as the judge's.
 fn judged_run(n: usize, answer: &Value, wall_ms: f64, all: &[Frame], placed: Placed) -> Run {
     Run {
-        frames: all.iter().filter(|f| !is_judges(f)).count() as u64,
+        frames: the_turns(all).len() as u64,
         judge: Some(placed),
         ..Run::naming(n, answer, wall_ms, all, tagged)
     }
@@ -479,7 +493,7 @@ fn kind(
             );
         }
         let all: Vec<Frame> = answered.into_iter().chain(after).collect();
-        let turns: Vec<&Frame> = all.iter().filter(|f| !is_judges(f)).collect();
+        let turns = the_turns(&all);
         let counted = r["trace"]["attrs"]["frames"].as_u64();
         if counted != Some(turns.len() as u64) {
             bail!(
@@ -733,6 +747,25 @@ mod tests {
             first: 1,
             records: records.iter().map(|r| (*r).to_string()).collect(),
         }
+    }
+
+    /// A window holds a turn's frames, the judge's, and a memory pass's (the
+    /// labels of an earlier turn's nodes, written when the machine lets it): only
+    /// the first are the turn's, as its trace counts them. A turn's own frame
+    /// that carries a memory row beside its records stays the turn's.
+    #[test]
+    fn a_memory_pass_in_the_window_is_not_the_turns_frame() {
+        let window = [
+            frame(&["ledger:execution.running", "ledger:turn.started", "node"]),
+            frame(&["ledger:memory.labeled", "ledger:memory.gated"]),
+            frame(&["ledger:judge.call", "meta:judge.budget"]),
+            frame(&["ledger:turn.ended", "ledger:memory.arm"]),
+        ];
+        let counted: Vec<String> = the_turns(&window).iter().map(|f| f.label()).collect();
+        assert_eq!(counted, [window[0].label(), window[3].label()]);
+        assert!(is_memory_pass(&window[1]) && !is_memory_pass(&window[3]));
+        assert!(!is_memory_pass(&frame(&[])), "an empty frame is no pass");
+        assert!(tagged(&window[1]).starts_with("memory pass "));
     }
 
     /// The sink's frame, a budget block, and the ladder's rows are the

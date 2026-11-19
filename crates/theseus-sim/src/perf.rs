@@ -330,9 +330,12 @@ fn after_serving(tail: &mut Tail) -> Result<()> {
 /// `memory.gated`) is a pass that ran between turns. A turn's frame that also
 /// holds a memory row stays the turn's. Returns (the turn's, the passes).
 fn split_memory_passes(frames: Vec<Frame>) -> (Vec<Frame>, Vec<Frame>) {
-    frames.into_iter().partition(|f| {
-        f.records.is_empty() || !f.records.iter().all(|r| r.starts_with("ledger:memory."))
-    })
+    frames.into_iter().partition(|f| !is_memory_pass(f))
+}
+
+/// Whether a frame is a memory pass alone: every record a `ledger:memory.*` row.
+pub(crate) fn is_memory_pass(f: &Frame) -> bool {
+    !f.records.is_empty() && f.records.iter().all(|r| r.starts_with("ledger:memory."))
 }
 
 fn labels(frames: &[Frame]) -> Vec<String> {
