@@ -212,9 +212,14 @@ impl OpReader {
                 // changed or added: nothing else of the item is left out. Its text holds
                 // the item's other values: the text read and the body sent are zeroized
                 // on drop (the parsed form between them is not), and it goes nowhere else.
+                // `--reveal`: what is read here is written back whole, so every value must
+                // be in it. A version of the program that left concealed values out of
+                // its answer without the flag would otherwise have this edit empty them.
                 let got = zeroize::Zeroizing::new(
                     self.run(
-                        &["item", "get", item, "--vault", vault, "--format", "json"],
+                        &[
+                            "item", "get", item, "--vault", vault, "--format", "json", "--reveal",
+                        ],
                         None,
                     )
                     .await

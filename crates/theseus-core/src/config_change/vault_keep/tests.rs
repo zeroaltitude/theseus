@@ -45,7 +45,9 @@ case "$1 $2" in
   "item get")
     case "$3" in
       itemid00000000000000000004) echo '{"id":"itemid00000000000000000004","fields":[{"id":"username","type":"STRING","label":"username","value":"x"}]}' ;;
-      *) echo '{"id":"x","fields":[{"id":"username","type":"STRING","label":"username","value":"INVENTED-OLD-USER"},{"id":"credential","type":"CONCEALED","label":"credential","value":"INVENTED-OLD-VALUE"}]}' ;;
+      *) OLD=''
+         case " $* " in *" --reveal "*) OLD='INVENTED-OLD-VALUE' ;; esac
+         echo '{"id":"x","fields":[{"id":"username","type":"STRING","label":"username","value":"INVENTED-OLD-USER"},{"id":"credential","type":"CONCEALED","label":"credential","value":"'"$OLD"'"}]}' ;;
     esac ;;
   "item create"|"item edit")
     [ "$MODE" = fail-write ] && { echo '[ERROR] 2026/10/19 08:00:00 you are not authorized: INVENTED-WORDS-IN-STDERR' >&2; exit 1; }
@@ -822,8 +824,10 @@ async fn an_existing_item_is_edited_whole_and_keeps_its_other_fields() {
             .unwrap();
         assert_eq!(said["replaced"], old_gone, "{field}");
         let lines = argv(dir.path());
-        let get =
-            "item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json";
+        // Asked for with its values: the stand-in, like a program that conceals them in its
+        // answer unless asked, leaves a concealed value empty without `--reveal`, and an item
+        // written back from that would lose it.
+        let get = "item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json --reveal";
         assert!(lines.iter().any(|l| l == get), "{field}: {lines:?}");
         let sent: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join("op.stdin")).unwrap())

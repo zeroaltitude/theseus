@@ -50,7 +50,7 @@ can quote the value it found).
 
 `OpReader::keep_field` is the path that keeps the Google token: the item as JSON on the program's **stdin**, never argv; read
 back with `read`; compared by sha256. A new item is made with `item create -`. An existing one is edited by the ids the vault gave
-and as a whole: the item is read (`item get`), only the one field (found by its id) is changed or added, and the whole item is
+and as a whole: the item is read with its values (`item get --reveal`: what is read is what is written back), only the one field (found by its id) is changed or added, and the whole item is
 piped back to `item edit`, the program's own round trip, so none of its other fields is lost. Its answer is a class and never
 the program's words:
 
