@@ -397,10 +397,17 @@ fn the_work_board_and_the_cli_say_one_thing() {
             .is_some_and(|v| v["state"] == "done" || v["state"] == "cancelled")
             .then_some(())
     });
-    let retracted = w
-        .notes("work.notice")
-        .iter()
-        .any(|n| n["why"] == "answered" && n["retracts"] == json!(corr));
+    // The frame's notice is its own line after the `work.changed` that ended the question (`publish_work`
+    // sends the change, then each notice), so a client that has seen the view end has not yet seen the
+    // notice: wait for it, then read (a read taken at the view's end missed it in one whole run of four
+    // beside 64 busy loops, theseus-20).
+    let retracted = || {
+        w.notes("work.notice")
+            .iter()
+            .any(|n| n["why"] == "answered" && n["retracts"] == json!(corr))
+    };
+    r.wait("the answer retracts the ping", || retracted().then_some(()));
+    let retracted = retracted();
     assert!(
         retracted,
         "the answer retracts the ping: {:?}",
