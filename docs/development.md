@@ -246,6 +246,13 @@ The phases run in this order, and the first failure stops the gate:
     execution (`StopNotice`) and the kernel's own stop can come in either order; the test lands the notice between the
     turn's hold and its admission with `admit_hook`, and calls the stop's second half (`Core::stop_after_landing`)
     after the turn has ended, so the order is the test's and no clock is read.
+  - **A test never picks a port and then hands it to a daemon.** Binding `127.0.0.1:0`, dropping the listener and
+    passing the number is a promise the kernel does not keep: the port is free for whoever asks next, another test's
+    daemon among them, and the test then talks to that one, which serves the same pages and goes away with its own
+    test (an empty status line, `its own page at localhost: `, 1 gate in many). Configure `port = 0` and read the port
+    from the daemon's log (`Served::web_port`). To see the fault, narrow the ephemeral range in a namespace of your
+    own (`unshare -Urn`, then `/proc/sys/net/ipv4/ip_local_port_range` to `40000 43999`) and hammer the old and the new
+    code: 65 of 1000 against 0 of 1000.
   - **A hammer finds a 3 % race in minutes.** Whole hunts of one test (`--filter`, one run after another) found the
     stop test 4 times in 150; the test's own binary run 600 times, 16 at a time, beside the burners (`cargo test
     --no-run --message-format=json` names the binary; `xargs -P 16`; each run's output kept) found it 17 times in
