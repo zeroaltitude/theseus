@@ -266,3 +266,4 @@ pub mod model;
 pub mod rpc;
 pub mod stdio;
 pub mod terminal;
+pub mod vault;
