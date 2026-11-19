@@ -89,9 +89,20 @@ pub struct Parts<'a> {
 /// The header line: the counts, `0`s left out. The tasks that ended are
 /// counted by how, so a failure is never "done": `✅ 2 done · ❌ 1 failed since
 /// you looked`.
+/// The tasks `working` holds, as (running, scheduled): a task set to start
+/// later is scheduled, and is no running task.
+pub fn running_and_scheduled(working: &[WorkView]) -> (usize, usize) {
+    let later = working
+        .iter()
+        .filter(|v| super::task_view::waits_to_start(v) && !v.paused)
+        .count();
+    (working.len() - later, later)
+}
+
 pub fn headline(
     needs: usize,
     running: usize,
+    scheduled: usize,
     ended: impl IntoIterator<Item = WorkState>,
 ) -> String {
     let mut parts = Vec::new();
@@ -100,6 +111,9 @@ pub fn headline(
     }
     if running > 0 {
         parts.push(format!("{} {running} running", state(WorkState::Running)));
+    }
+    if scheduled > 0 {
+        parts.push(format!("🕒 {scheduled} scheduled"));
     }
     let ended: Vec<WorkState> = ended.into_iter().collect();
     let mut gone = Vec::new();
@@ -168,6 +182,18 @@ pub(super) fn ask_line(v: &WorkView) -> String {
 /// line's step, spend and time left (theseus-ypnxt.2). A paused task shows
 /// `⏸️` and `paused` first. `turn N` stays only when there is no plan.
 pub(super) fn working_line(v: &WorkView, now_ms: u64) -> String {
+    if super::task_view::waits_to_start(v) && !v.paused {
+        // Set to start later: scheduled, with its time, never running.
+        let when = v
+            .next_at_ms
+            .map(|at| format!(" · starts <t:{0}:f> · <t:{0}:R>", at / 1000))
+            .unwrap_or_default();
+        return format!(
+            "🕒 **{}** `…{}` · scheduled{when}",
+            title_of(v),
+            short(&v.id)
+        );
+    }
     let mark = if v.paused {
         "⏸️".to_string()
     } else {
@@ -276,17 +302,54 @@ fn picks(p: &Parts<'_>, [cn, cw, cd]: [usize; 3]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The board's working tasks, the newest first: the running ones under `Now`,
+/// the ones set to start later under `Scheduled`, at most `cw` lines in all
+/// and a fold line for the rest.
+fn working_lines(p: &Parts<'_>, cw: usize) -> String {
+    let (later, now): (Vec<&WorkView>, Vec<&WorkView>) = p
+        .working
+        .iter()
+        .rev()
+        .partition(|v| super::task_view::waits_to_start(v) && !v.paused);
+    let mut lines = Vec::new();
+    let mut room = cw;
+    for (head, group) in [
+        (format!("**{} Now**", state(WorkState::Running)), now),
+        ("**🕒 Scheduled**".to_string(), later),
+    ] {
+        if group.is_empty() || room == 0 {
+            continue;
+        }
+        lines.push(head);
+        lines.extend(
+            group
+                .iter()
+                .take(room)
+                .map(|v| format!("{}{}", working_line(v, p.now_ms), link_of(p, v))),
+        );
+        room = room.saturating_sub(group.len());
+    }
+    if p.working.len() > cw {
+        lines.push(more(p.working.len() - cw));
+    }
+    lines.join("\n")
+}
+
 /// The board's components, within Discord's limits. `caps` are the most of
 /// each part to show; `render` lowers them until the message fits.
 fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     let [cn, cw, cd, cc, cr, cp] = caps;
     let mut inner = vec![text(format!(
         "📋 **Tasks** · {}{}",
-        headline(
-            p.needs.len(),
-            p.working.len(),
-            p.done.iter().map(|v| v.state)
-        ),
+        {
+            let (running, scheduled) = running_and_scheduled(p.working);
+            headline(
+                p.needs.len(),
+                running,
+                scheduled,
+                p.done.iter().map(|v| v.state),
+            )
+        },
         match p.quiet_until_ms {
             Some(t) => format!(" · 🔕 quiet until {}", format_args!("<t:{}:t>", t / 1000)),
             None => String::new(),
@@ -317,18 +380,7 @@ fn build(p: &Parts<'_>, caps: [usize; 6]) -> Vec<Value> {
     if !p.working.is_empty() {
         inner.push(separator());
         // The newest first; the oldest fold.
-        let mut lines = vec![format!("**{} Now**", state(WorkState::Running))];
-        lines.extend(
-            p.working
-                .iter()
-                .rev()
-                .take(cw)
-                .map(|v| format!("{}{}", working_line(v, p.now_ms), link_of(p, v))),
-        );
-        if p.working.len() > cw {
-            lines.push(more(p.working.len() - cw));
-        }
-        inner.push(text(lines.join("\n")));
+        inner.push(text(working_lines(p, cw)));
     }
     if !p.done.is_empty() {
         inner.push(separator());
@@ -841,16 +893,44 @@ mod tests {
     fn a_failed_task_is_not_counted_done() {
         use WorkState::{Cancelled, Done, Expired, Failed};
         assert_eq!(
-            headline(0, 0, [Done, Failed]),
+            headline(0, 0, 0, [Done, Failed]),
             "✅ 1 done · ❌ 1 failed since you looked"
         );
         assert_eq!(
-            headline(1, 2, [Done, Done, Cancelled, Expired, Failed]),
+            headline(1, 2, 0, [Done, Done, Cancelled, Expired, Failed]),
             "🔴 1 needs you · ⚙️ 2 running · ✅ 2 done · ❌ 1 failed · ⛔ 1 cancelled · ⌛ 1 expired since you looked"
         );
-        assert_eq!(headline(0, 0, [Failed]), "❌ 1 failed since you looked");
-        assert_eq!(headline(0, 0, [Done]), "✅ 1 done since you looked");
-        assert_eq!(headline(0, 0, []), "all clear");
+        assert_eq!(headline(0, 0, 0, [Failed]), "❌ 1 failed since you looked");
+        assert_eq!(headline(0, 0, 0, [Done]), "✅ 1 done since you looked");
+        assert_eq!(headline(0, 0, 0, []), "all clear");
+    }
+
+    #[test]
+    fn a_task_set_for_later_is_a_scheduled_line_apart_from_the_running_ones_and_counted_so() {
+        use crate::render::task_view::tests::deferred;
+        let at = 1_790_003_600_000;
+        let later = deferred(at);
+        let line = working_line(&later, 0);
+        assert!(
+            line.starts_with(
+                "🕒 **Rename the modules** `…task01` · scheduled · starts <t:1790003600:f>"
+            ),
+            "{line}"
+        );
+        assert!(!line.contains("since"), "{line}");
+        let now = working(1);
+        let all = [now, later];
+        assert_eq!(running_and_scheduled(&all), (1, 1));
+        assert_eq!(headline(0, 1, 1, []), "⚙️ 1 running · 🕒 1 scheduled");
+        let board = render(&parts(&[], &all, &[]));
+        let t = crate::render::v2::texts(&board).join("\n");
+        let (a, b) = t.split_once("**🕒 Scheduled**").expect("a scheduled part");
+        assert!(
+            a.contains("**⚙️ Now**") && !a.contains("scheduled ·"),
+            "{t}"
+        );
+        assert!(b.contains("scheduled · starts"), "{t}");
+        assert!(t.contains("⚙️ 1 running · 🕒 1 scheduled"), "{t}");
     }
 
     #[test]

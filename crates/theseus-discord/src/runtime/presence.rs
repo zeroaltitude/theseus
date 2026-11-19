@@ -1,6 +1,9 @@
 //! The bot's status line (theseus-2j2ka): its presence reads the counts of
 //! what needs the owner and what runs, `🔴 1 needs you · ⚙️ 3 running`, and is
-//! cleared when nothing works or waits. A child of `runtime`.
+//! cleared when nothing works or waits. A task set to start later is not
+//! running (`tasks::counts_of`): with nothing else going the line is cleared,
+//! and only the next reminder's time shows of what is coming. A child of
+//! `runtime`.
 //!
 //! - **Counts only.** Everyone who can see the bot in any guild it is in sees
 //!   its status, so it carries a number and a word, never a title, a place or
