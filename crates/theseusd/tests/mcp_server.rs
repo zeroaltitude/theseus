@@ -297,7 +297,9 @@ fn config(theseusd: &std::path::Path, projects: &std::path::Path, base: &str) ->
             .insert("api_base".into(), base.into());
     }
     table(&mut t, "policy").insert("enforcement".into(), "notify".into());
-    table(&mut t, "tools").insert("proc_sync_secs".into(), 1.into());
+    // No `proc_sync_secs` of its own: a call here ends in milliseconds, and the product's own wait for it is
+    // never reached. A one second wait was passed in 14 of 600 runs beside 64 busy loops, before the job's end
+    // got to the daemon; the call then answered "still running" and its result came in a turn of its own.
     table(&mut t, "secrets").insert(
         "mcp_server_key".into(),
         "op://Test/mcp_server_key/credential".into(),
