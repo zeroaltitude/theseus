@@ -310,6 +310,18 @@ impl Tasks {
             .collect()
     }
 
+    /// Every wake view the model holds, whatever its state: a fired one is
+    /// `Done`, a cancelled one `Cancelled`. A routine is not in this model; its
+    /// facts are the future's snapshot's (`runtime/sched.rs`).
+    pub fn scheduled(&self) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        m.views
+            .values()
+            .filter(|v| v.kind == WorkKind::Wake)
+            .cloned()
+            .collect()
+    }
+
     /// The projects the model holds, the soonest next step first.
     pub fn projects(&self) -> Vec<WorkView> {
         let m = self.model.lock().unwrap();
@@ -707,6 +719,7 @@ fn project(
 /// places' sessions change. It ends with the daemon's stop.
 pub(super) fn watch_loop(shared: &Arc<Shared>) {
     super::horizon::start(shared);
+    super::sched::start(shared);
     let s = shared.clone();
     tokio::spawn(async move {
         let stopped = s.core.outbox.stopped();

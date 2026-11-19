@@ -115,7 +115,7 @@ pub(crate) struct SendErr {
 }
 
 impl SendErr {
-    fn refused(message: impl Into<String>) -> Self {
+    pub(crate) fn refused(message: impl Into<String>) -> Self {
         Self {
             away: false,
             unsure: false,

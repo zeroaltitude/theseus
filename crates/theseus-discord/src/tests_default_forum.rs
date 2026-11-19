@@ -175,7 +175,7 @@ pub(crate) fn post_with(r: &Rig, forum: u64, needle: &str) -> Option<FakeThread>
     })
 }
 
-fn tag_id(r: &Rig, forum: u64, name: &str) -> String {
+pub(crate) fn tag_id(r: &Rig, forum: u64, name: &str) -> String {
     r.fake
         .forum_tags(forum)
         .into_iter()
@@ -184,7 +184,7 @@ fn tag_id(r: &Rig, forum: u64, name: &str) -> String {
         .id
 }
 
-fn last_tags(r: &Rig, post: u64) -> Vec<String> {
+pub(crate) fn last_tags(r: &Rig, post: u64) -> Vec<String> {
     r.fake
         .threads()
         .into_iter()
@@ -194,7 +194,7 @@ fn last_tags(r: &Rig, post: u64) -> Vec<String> {
 }
 
 /// The name a post carries now.
-fn last_name(r: &Rig, post: u64) -> String {
+pub(crate) fn last_name(r: &Rig, post: u64) -> String {
     r.fake
         .threads()
         .into_iter()
