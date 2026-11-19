@@ -106,7 +106,11 @@ impl Future {
     /// conversation's reminder or check-in is a line only when that
     /// conversation is one of `own` (a routine's run, a task's start and a
     /// watch are not a conversation's).
-    pub fn parts(&self, own: Option<&HashSet<String>>) -> Option<FutureParts> {
+    pub fn parts(
+        &self,
+        own: Option<&HashSet<String>>,
+        names: HashMap<String, String>,
+    ) -> Option<FutureParts> {
         let s = self.snapshot();
         let lines: Vec<AgendaLine> = s
             .lines
@@ -126,6 +130,7 @@ impl Future {
             routines,
             projects: s.projects,
             records: s.records,
+            names,
         };
         (!p.is_empty()).then_some(p)
     }
@@ -507,7 +512,35 @@ impl Shared {
     }
 }
 
-/// What a place's board shows of the future (issue 30). Private places only.
+impl Shared {
+    /// The name of each conversation by its session, as health lists the
+    /// places: a place's own, Home's by the place that adopts it, a thread's
+    /// by the place it answers at.
+    pub(super) fn conversation_names(&self) -> HashMap<String, String> {
+        let mut names: HashMap<String, String> = self
+            .board
+            .st
+            .lock()
+            .unwrap()
+            .places
+            .iter()
+            .filter_map(|p| {
+                Some((
+                    p.session_id.clone().filter(|s| !s.is_empty())?,
+                    p.label.clone(),
+                ))
+            })
+            .collect();
+        for (session, place) in self.tasks.adopted() {
+            if let Some(name) = names.get(&place).cloned() {
+                names.insert(session, name);
+            }
+        }
+        names
+    }
+}
+
+/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`). Private places only.
 /// While the task channel stands, or is being looked for, the whole future is
 /// on the board the owner's DM place draws into it, and on no other place's.
 /// Without one, a place shows the reminders and check-ins of its own
@@ -516,13 +549,14 @@ pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<
     if !shared.is_private(target) {
         return None;
     }
+    let names = shared.conversation_names();
     if shared.task_posts.home.expected() {
         return (shared.owner_dm_place().as_deref() == Some(target))
-            .then(|| shared.tasks.future.parts(None))
+            .then(|| shared.tasks.future.parts(None, names))
             .flatten();
     }
     let own = shared.tasks.sessions_shown(session);
-    shared.tasks.future.parts(Some(&own))
+    shared.tasks.future.parts(Some(&own), names)
 }
 
 #[cfg(test)]
