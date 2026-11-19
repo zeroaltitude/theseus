@@ -782,6 +782,17 @@ impl Worker {
             if index {
                 self.reopen_for_link(&key, link.as_deref());
             }
+            // A scheduled item set again after it ended (a fired reminder
+            // snoozed from its notice, under its own id): its post is opened
+            // again, `scheduled`, as it was.
+            if is_scheduled(&view) && !ended {
+                if let Err(e) = self.reopen_rearmed(&key, &view).await {
+                    self.shared
+                        .board
+                        .error("task forum reopen", None, format!("{e:#}"));
+                    return Some(self.backed_off(&key));
+                }
+            }
             // A post the last run made (the list has it): taken up again.
             if let Some(held) = self.adopt(&key) {
                 return held;
@@ -819,6 +830,18 @@ impl Worker {
         };
         if index {
             self.keep_index(&key, link.as_deref(), id);
+        }
+        // A scheduled item set again before its end was fully shown: the name
+        // its end gave the post is taken off.
+        if is_scheduled(&view) && !ended && self.slots.get(&key).is_some_and(|s| s.named) {
+            let name = post_name(&view.id, &view.title);
+            if self.set_name(&key, &name).await {
+                if let Some(s) = self.slots.get_mut(&key) {
+                    s.named = false;
+                }
+            } else {
+                earliest(Some(self.backed_off(&key)));
+            }
         }
         // The card.
         let card = self.card_of(&view, link.as_deref());
@@ -921,6 +944,38 @@ impl Worker {
             .find(|p| p.task == key.0 && p.forum == key.1)
             .ok_or_else(|| anyhow::anyhow!("the task's post is gone"))?;
         Ok((post.post, f.guild.parse().ok()))
+    }
+
+    /// The post of a scheduled item that ended and stands again: it leaves the
+    /// archive and is unlocked, takes the item's name back (its end's mark off),
+    /// and its row is open again (not ended, not read, not archived), so
+    /// `adopt` takes it up and its card and tag are sent anew. Nothing is done
+    /// for a post that is not over.
+    async fn reopen_rearmed(&mut self, key: &(String, u64), view: &WorkView) -> anyhow::Result<()> {
+        let post = {
+            let posts = self.shared.task_posts.posts.lock().unwrap();
+            posts
+                .iter()
+                .find(|p| p.task == key.0 && p.forum == key.1 && p.ended_ms.is_some())
+                .map(|p| p.post)
+        };
+        let Some(post) = post else {
+            return Ok(());
+        };
+        let req = Request::builder(&HttpRoute::UpdateChannel { channel_id: post })
+            .json(&json!({"name": post_name(&view.id, &view.title), "archived": false, "locked": false}))
+            .build()?;
+        self.shared.http.request::<Value>(req).await?;
+        let s = &self.shared;
+        for p in s.task_posts.posts.lock().unwrap().iter_mut() {
+            if p.task == key.0 && p.forum == key.1 {
+                p.ended_ms = None;
+                p.read_ms = None;
+                p.archived_ms = None;
+            }
+        }
+        s.task_posts.save(&s.core.store);
+        Ok(())
     }
 
     /// A finished index card that never had its link, and has it now, is

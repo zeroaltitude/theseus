@@ -193,6 +193,8 @@ async fn two_items_set_together_are_two_cards_and_two_posts_none_doubled() {
 /// the DM's own replies do not wait for them.
 #[tokio::test]
 async fn a_burst_of_twenty_reminders_is_twenty_cards_and_no_reply_waits() {
+    // The catch-up gap shortened (15 cards after the first five, a gap apart).
+    crate::runtime::sched::space_for_tests(Duration::from_millis(200));
     let r = two_places("theseus-tasks").await;
     let home = home_up(&r).await;
     for n in 0..20 {
@@ -916,4 +918,377 @@ async fn a_fired_reminders_post_is_archived_with_a_done_tasks_by_the_same_press_
         !archived("waiting tide check"),
         "a reminder that waits stays"
     );
+}
+
+// ---- a fired reminder set again, and the review's notes (issue 30) -------------
+
+/// What the delivered reminder's Snooze buttons call: `wake.snooze` on a fired
+/// wake, which sets it again under its own id.
+async fn snooze_fired(r: &Rig, wake: &str, when: &str) {
+    let _: WakeEditResult = rpc(r)
+        .call(
+            theseus_protocol::method::WAKE_SNOOZE,
+            theseus_protocol::wakes::WakeSnoozeParams {
+                wake: wake.into(),
+                when: Some(when.into()),
+                fired: true,
+                author: None,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+/// The fired reminder's post and card, once it has fired.
+async fn fired(r: &Rig, home: u64, forum: u64, note: &str) -> (Msg, u64) {
+    r.until("the card says it fired", || {
+        card(r, home, note).is_some_and(|m| m.content.contains("Fired") && m.buttons.is_empty())
+    })
+    .await;
+    r.until("the post is done", || {
+        post_with(r, forum, note).is_some_and(|p| last_tags(r, p.id) == [tag_id(r, forum, "done")])
+    })
+    .await;
+    (
+        card(r, home, note).unwrap(),
+        post_with(r, forum, note).unwrap().id,
+    )
+}
+
+/// A reminder that fired and is set again from its notice (Snooze under its own
+/// id) is the SAME card, with its buttons and the new time, and its post is
+/// `scheduled` again with its mark off; a later pass makes no second card and no
+/// edit.
+#[tokio::test]
+async fn a_fired_reminder_snoozed_from_its_notice_stands_again_on_the_same_card_and_post() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    let (first, post) = fired(&r, home, forum, "tide check").await;
+    snooze_fired(&r, &wake, "in 90m").await;
+    r.until("the card stands again", || {
+        card(&r, home, "tide check")
+            .is_some_and(|m| !m.content.contains("Fired") && m.buttons.len() == 2)
+    })
+    .await;
+    let again = card(&r, home, "tide check").unwrap();
+    assert_eq!(again.id, first.id, "the same card");
+    assert!(again.content.contains("Snoozed"), "{}", again.content);
+    assert_eq!(
+        ids(&again),
+        [format!("hq:cancel:{wake}"), format!("hq:snooze:{wake}")]
+    );
+    r.until("the post is scheduled again", || {
+        last_tags(&r, post) == [tag_id(&r, forum, "scheduled")]
+            && !last_name(&r, post).contains('✅')
+    })
+    .await;
+    // Later passes: no second card, no edit.
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let mut pass = crate::runtime::sched::Worker::fresh(shared);
+    assert!(pass.sync().await);
+    assert!(pass.sync().await);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let after = cards(&r, home);
+    assert_eq!(after.len(), 1, "{after:#?}");
+    assert_eq!(
+        (after[0].id.clone(), after[0].edits),
+        (again.id, again.edits)
+    );
+}
+
+/// The sweep may have archived and locked the post of the fired reminder before
+/// it was set again: it is opened, unlocked and `scheduled` again.
+#[tokio::test]
+async fn a_post_the_sweep_archived_is_opened_again_when_its_reminder_is_set_again() {
+    const KEY: &str = "discord.task_posts";
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    let (_, post) = fired(&r, home, forum, "tide check").await;
+    r.until("its row ended", || {
+        r.core
+            .store
+            .get_meta::<Vec<serde_json::Value>>(KEY)
+            .ok()
+            .flatten()
+            .is_some_and(|l| l.iter().any(|p| p["ended_ms"].is_u64()))
+    })
+    .await;
+    let now = theseus_protocol::now_unix_ms();
+    let mut list: Vec<serde_json::Value> = r.core.store.get_meta(KEY).unwrap().unwrap();
+    for p in &mut list {
+        if p["ended_ms"].is_u64() {
+            p["ended_ms"] = serde_json::json!(now - 25 * 3_600_000);
+            p["read_ms"] = serde_json::json!(now - 1_000);
+        }
+    }
+    r.core.store.put_meta(KEY, &list).unwrap();
+    crate::runtime::shared_for_tests(&r.core).sweep_once().await;
+    let thread = |r: &Rig| r.fake.threads().into_iter().find(|t| t.id == post).unwrap();
+    assert!(
+        thread(&r).archived && thread(&r).locked,
+        "the sweep took it"
+    );
+    snooze_fired(&r, &wake, "in 90m").await;
+    r.until("the post is open and scheduled again", || {
+        let t = thread(&r);
+        !t.archived && !t.locked && last_tags(&r, post) == [tag_id(&r, forum, "scheduled")]
+    })
+    .await;
+}
+
+/// A series that fired goes on under its id: its card stays a scheduled one
+/// (never "Fired") and its post stays `scheduled`.
+#[tokio::test]
+async fn a_series_that_fired_stays_a_scheduled_card_and_post() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let _: WakeEditResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_CREATE,
+            WakeCreateParams {
+                when: "in 3s".into(),
+                note: "water the ferns".into(),
+                every: Some("1h".into()),
+                session_id: Some(session_of_place(&r, &format!("dm:{ANA}"))),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    r.until("the card", || card(&r, home, "water the ferns").is_some())
+        .await;
+    let first = card(&r, home, "water the ferns").unwrap();
+    r.until("its time has moved on", || {
+        card(&r, home, "water the ferns").is_some_and(|m| m.content != first.content)
+    })
+    .await;
+    let c = card(&r, home, "water the ferns").unwrap();
+    assert_eq!(c.id, first.id);
+    assert!(
+        !c.content.contains("Fired") && c.buttons.len() == 2,
+        "{}",
+        c.content
+    );
+    let post = post_with(&r, forum, "water the ferns").unwrap();
+    assert_eq!(last_tags(&r, post.id), [tag_id(&r, forum, "scheduled")]);
+}
+
+/// A routine's next run moved (its wake snoozed): the same card, its time on,
+/// its acts kept, its post `scheduled`.
+#[tokio::test]
+async fn a_routines_next_run_moving_edits_its_card_and_leaves_its_post_scheduled() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    routine(&r, "Tide digest").await;
+    r.until("its card and post", || {
+        card(&r, home, "Tide digest").is_some() && post_with(&r, forum, "Tide digest").is_some()
+    })
+    .await;
+    let first = card(&r, home, "Tide digest").unwrap();
+    let wakes: serde_json::Value = rpc(&r)
+        .call(theseus_protocol::method::WAKE_LIST, serde_json::json!({}))
+        .await
+        .unwrap();
+    let w = wakes["wakes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["purpose"] == "routine")
+        .expect("the routine's wake")["short"]
+        .clone();
+    let _: WakeEditResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_SNOOZE,
+            theseus_protocol::wakes::WakeSnoozeParams {
+                wake: w.as_str().unwrap().into(),
+                when: Some("in 5h".into()),
+                fired: false,
+                author: None,
+            },
+        )
+        .await
+        .unwrap();
+    r.until("its time is on", || {
+        card(&r, home, "Tide digest").is_some_and(|m| m.content != first.content)
+    })
+    .await;
+    let c = card(&r, home, "Tide digest").unwrap();
+    assert_eq!((c.id.clone(), c.buttons.len()), (first.id, 2));
+    let post = post_with(&r, forum, "Tide digest").unwrap();
+    assert_eq!(last_tags(&r, post.id), [tag_id(&r, forum, "scheduled")]);
+}
+
+/// Twelve items set at once: the first few cards at once, the rest a gap apart,
+/// so a task's report to the task home is not behind all of them.
+#[tokio::test]
+async fn a_catch_up_makes_its_first_cards_at_once_and_the_rest_a_gap_apart() {
+    crate::runtime::sched::space_for_tests(Duration::from_millis(400));
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    for n in 0..12 {
+        remind(&r, &format!("catch up {n:02}"), "in 90m").await;
+    }
+    r.until("twelve cards", || cards(&r, home).len() == 12)
+        .await;
+    let mut at: Vec<u64> = cards(&r, home).iter().map(|m| m.created_ms).collect();
+    at.sort_unstable();
+    assert!(
+        at[11] - at[0] >= 1_200,
+        "paced: the last is at least three gaps after the first: {at:?}"
+    );
+    assert!(at[4] - at[0] < 1_200, "the first five at once: {at:?}");
+}
+
+/// A card the owner deleted by hand: one whose item has ended is not made again;
+/// one whose item stands is.
+#[tokio::test]
+async fn a_card_deleted_by_hand_is_made_again_only_while_its_item_stands() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let shared = crate::runtime::shared_for_tests(&r.core);
+    let delete = |m: &Msg| {
+        let (c, id) = (
+            m.channel.parse::<u64>().unwrap(),
+            m.id.parse::<u64>().unwrap(),
+        );
+        let http = shared.http.clone();
+        async move {
+            http.delete_message(
+                twilight_model::id::Id::new(c),
+                twilight_model::id::Id::new(id),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    // Stands: deleted, then set again (its card needs an edit): made again.
+    let stands = remind(&r, "standing check", "in 90m").await;
+    // Ended: deleted, then cancelled: not made again.
+    let ends = remind(&r, "ending check", "in 91m").await;
+    r.until("both cards", || {
+        card(&r, home, "standing check").is_some() && card(&r, home, "ending check").is_some()
+    })
+    .await;
+    delete(&card(&r, home, "standing check").unwrap()).await;
+    delete(&card(&r, home, "ending check").unwrap()).await;
+    let _: WakeEditResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_SNOOZE,
+            theseus_protocol::wakes::WakeSnoozeParams {
+                wake: stands,
+                when: Some("in 2h".into()),
+                fired: false,
+                author: None,
+            },
+        )
+        .await
+        .unwrap();
+    let _: WakeCancelResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_CANCEL,
+            WakeCancelParams {
+                wake: ends,
+                author: None,
+            },
+        )
+        .await
+        .unwrap();
+    r.until("the standing item has a card again", || {
+        card(&r, home, "standing check").is_some_and(|m| m.buttons.len() == 2)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(cards(&r, home).len(), 1, "{:#?}", cards(&r, home));
+    assert!(
+        card(&r, home, "ending check").is_none(),
+        "the owner deleted it"
+    );
+}
+
+/// A press on a card whose item the model no longer holds does nothing and says
+/// so; it never sets a long-fired reminder again.
+#[tokio::test]
+async fn a_press_on_a_card_whose_item_is_no_longer_held_does_nothing_and_says_so() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind(&r, "tide check", "in 4s").await;
+    r.until("the card", || card(&r, home, "tide check").is_some())
+        .await;
+    let c = card(&r, home, "tide check").unwrap();
+    // Discord is slow, so the card still has its buttons after the reminder fired.
+    r.fake.set_delay_ms(3000);
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    r.until("the model has it fired", || {
+        shared
+            .tasks
+            .scheduled()
+            .iter()
+            .any(|v| v.id == wake && v.state.ended())
+    })
+    .await;
+    // Long over: the model has let it go.
+    shared.tasks.changed(theseus_protocol::WorkChanged {
+        position: u64::MAX / 2,
+        at_ms: 0,
+        views: vec![],
+        gone: vec![wake.clone()],
+        threads: vec![],
+    });
+    // The agenda's last read, which listed it before it fired, is read again.
+    shared.read_future().await;
+    let pressed = press(&r, &c, &format!("hq:snooze:{wake}"), ANA, "ana");
+    r.until("the presser is told", || told(&r, &pressed).is_some())
+        .await;
+    let (said, alone) = told(&r, &pressed).unwrap();
+    assert!(alone && said.contains("no longer on the board"), "{said}");
+    r.fake.set_delay_ms(0);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        !pending(&r, &wake),
+        "a long-fired reminder was not set again"
+    );
+}
+
+/// Before the work model is loaded an item missing from it is not an item gone:
+/// the pass leaves its card as it was; once the model is loaded it is brought to
+/// its end.
+#[tokio::test]
+async fn an_item_missing_from_a_model_that_is_not_loaded_is_not_cancelled() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    remind(&r, "tide check", "in 90m").await;
+    r.until("the card", || card(&r, home, "tide check").is_some())
+        .await;
+    let c = card(&r, home, "tide check").unwrap();
+    let mut list: Vec<crate::runtime::sched::Rec> = r
+        .core
+        .store
+        .get_meta("discord.sched")
+        .unwrap()
+        .expect("the list");
+    // A second entry on the list, due in two hours, that nothing holds: its
+    // card is the first one's message.
+    let mut ghost = list[0].clone();
+    ghost.id = "wak_01J0ghostghostghostghost0002".into();
+    ghost.title = "ghost check".into();
+    ghost.due_ms = Some(theseus_protocol::now_unix_ms() + 7_200_000);
+    ghost.digest = 0;
+    list.push(ghost);
+    r.core.store.put_meta("discord.sched", &list).unwrap();
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    shared.tasks.loaded_for_tests(false);
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(pass.sync().await);
+    let held = card(&r, home, "tide check").expect("the card is as it was");
+    assert_eq!((held.id.clone(), held.edits), (c.id.clone(), c.edits));
+    shared.tasks.loaded_for_tests(true);
+    assert!(pass.sync().await);
+    let ended = card(&r, home, "ghost check").expect("brought to its end once loaded");
+    assert!(ended.content.contains("Cancelled"), "{}", ended.content);
 }

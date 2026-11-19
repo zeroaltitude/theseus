@@ -29,6 +29,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 use theseus_protocol::{WorkChanged, WorkWatchParams, WorkWatchResult};
@@ -143,6 +144,18 @@ impl Tasks {
     /// The next ask's ticket: later than every ticket taken before.
     fn ticket(&self) -> u64 {
         self.tickets.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// A test says the model is, or is not, loaded.
+    #[cfg(test)]
+    pub fn loaded_for_tests(&self, loaded: bool) {
+        self.model.lock().unwrap().applied = u64::from(loaded);
+    }
+
+    /// Whether a `work.watch` answer has been applied: before it the model
+    /// knows of nothing, and an item missing from it is not an item gone.
+    pub fn loaded(&self) -> bool {
+        self.model.lock().unwrap().applied > 0
     }
 
     /// Ask for the watch again, once for a burst of reasons.
@@ -747,10 +760,24 @@ pub(super) fn watch_loop(shared: &Arc<Shared>) {
     tokio::spawn(async move {
         let stopped = s.core.outbox.stopped();
         tokio::pin!(stopped);
+        let mut retry = Duration::ZERO;
         loop {
-            ask(&s).await;
+            retry = if ask(&s).await {
+                Duration::ZERO
+            } else {
+                ask_again_after(retry)
+            };
             tokio::select! {
                 () = s.tasks.again.notified() => {}
+                // A failed ask (the engine not ready at the start) is not left
+                // until a rebind or a lost stream: it is asked again.
+                () = async {
+                    if retry.is_zero() {
+                        std::future::pending::<()>().await;
+                    } else {
+                        tokio::time::sleep(retry).await;
+                    }
+                } => {}
                 () = &mut stopped => return,
             }
             // A burst of binds is one ask.
@@ -812,12 +839,13 @@ fn turn_started(shared: &Arc<Shared>, sid: &str) {
 }
 
 /// Read the watch now: the roots the places have, as `work.watch` names them, and what the board holds.
-pub(super) async fn ask(shared: &Arc<Shared>) {
+/// False when the call failed (the loop asks again after a wait).
+pub(super) async fn ask(shared: &Arc<Shared>) -> bool {
     shared.tasks.set_home(home_of(shared));
     shared.tasks.set_shown(shown_of(shared));
     let roots = Tasks::roots(shared);
     if roots.is_empty() {
-        return;
+        return true;
     }
     let p = WorkWatchParams {
         limit: Some(20),
@@ -835,8 +863,22 @@ pub(super) async fn ask(shared: &Arc<Shared>) {
             // Every place draws again: a board pinned before a restart is
             // brought up to date, or says all clear.
             shared.broadcast(|| PlaceMsg::Tasks);
+            true
         }
-        Err(e) => shared.board.error("work.watch", None, e),
+        Err(e) => {
+            shared.board.error("work.watch", None, e);
+            false
+        }
+    }
+}
+
+/// How long to wait before asking again after a failed ask: 2 s, doubling to a
+/// minute.
+fn ask_again_after(was: Duration) -> Duration {
+    if was.is_zero() {
+        Duration::from_secs(2)
+    } else {
+        (was * 2).min(Duration::from_secs(60))
     }
 }
 
@@ -1098,6 +1140,27 @@ mod tests {
                 reminder: None
             }
         );
+    }
+
+    /// The model is loaded once a watch's answer is applied, and a failed ask
+    /// is asked again after 2 s, doubling to a minute.
+    #[test]
+    fn the_model_is_loaded_by_a_snapshot_and_a_failed_ask_is_asked_again_with_backoff() {
+        let t = Tasks::default();
+        assert!(!t.loaded());
+        let r: WorkWatchResult = serde_json::from_value(serde_json::json!({
+            "position": 1, "views": [], "total": 0
+        }))
+        .unwrap_or_else(|e| panic!("a watch answer: {e}"));
+        t.snapshot(1, r);
+        assert!(t.loaded());
+        let mut wait = Duration::ZERO;
+        let mut seen = Vec::new();
+        for _ in 0..8 {
+            wait = ask_again_after(wait);
+            seen.push(wait.as_secs());
+        }
+        assert_eq!(seen, [2, 4, 8, 16, 32, 60, 60, 60]);
     }
 
     #[test]
