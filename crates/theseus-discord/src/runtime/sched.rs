@@ -26,7 +26,8 @@
 //!   place draws its board (`Shared::sched_target`). Elsewhere the place's own
 //!   board shows its own reminders, as before.
 //! - **A press** on a card is `wake.cancel` or `wake.snooze` as the presser
-//!   (`Shared::card_press`), after the gate every press on a place passes: the
+//!   (`Shared::card_press`), or `task.cancel` or `task.reschedule` for a task
+//!   set to start later, after the gate every press on a place passes: the
 //!   home's people are the owners. A routine's buttons are the board's.
 
 use std::collections::HashMap;
@@ -67,6 +68,35 @@ const KEPT_MS: u64 = 24 * 3_600_000;
 /// How many of the newest cancel rows are read to find who cancelled an item.
 const ROWS_READ: usize = 500;
 
+/// The first cards of a pass are made at once; each after them waits this long
+/// after the one before. Discord gives a channel five new messages in five
+/// seconds and a task's report is one of them: 20 items at once are the first 5
+/// now and the other 15 over 30 s, one every 2 s, leaving the channel half its
+/// bucket.
+const BURST: usize = 5;
+const SPACE: Duration = Duration::from_secs(2);
+
+#[cfg(test)]
+thread_local! {
+    static GAP: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
+/// A test shortens the gap for its thread.
+#[cfg(test)]
+pub(crate) fn space_for_tests(d: Duration) {
+    GAP.with(|g| g.set(Some(d)));
+}
+
+/// The gap now, read where the worker starts (a test's override is the calling
+/// thread's, not the task's).
+fn space() -> Duration {
+    #[cfg(test)]
+    if let Some(d) = GAP.with(std::cell::Cell::get) {
+        return d;
+    }
+    SPACE
+}
+
 /// An item that ended this recently, with no card yet, is given one in its
 /// final state: the owner must be able to see that it was set.
 const LATE_MS: u64 = 3_600_000;
@@ -75,7 +105,7 @@ const LATE_MS: u64 = 3_600_000;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Rec {
     pub id: String,
-    /// `reminder`, `check-in` or `routine`.
+    /// `reminder`, `check-in`, `routine` or `task`.
     pub kind: String,
     pub title: String,
     #[serde(default)]
@@ -92,7 +122,7 @@ pub(crate) struct Rec {
     pub snoozed: bool,
     #[serde(default)]
     pub ended_ms: Option<u64>,
-    /// Who cancelled it, when a press did.
+    /// Who cancelled it, from a press or the item's own record.
     #[serde(default)]
     pub by: Option<String>,
     /// The digest of the card as last sent.
@@ -105,7 +135,7 @@ pub(crate) struct Rec {
 pub(crate) struct Sched {
     /// Each item's face as last drawn, for the forum post's card.
     faces: Mutex<HashMap<String, Face>>,
-    /// Who cancelled a wake by a press, until its card says so.
+    /// Who cancelled a wake or a task by a press, until its card says so.
     cancelled_by: Mutex<HashMap<String, String>>,
 }
 
@@ -177,28 +207,57 @@ impl Shared {
         let names = self.conversation_names();
         let sched = &self.task_posts.sched;
         let mut out: Vec<Face> = Vec::new();
+        let item_line = |l: &theseus_protocol::work::horizon::AgendaLine| {
+            l.kind == WorkKind::Wake
+                && l.id.starts_with("wak_")
+                && !matches!(l.purpose.as_deref(), Some("watch" | "routine"))
+        };
+        // What the agenda says is pending is pending, whatever the model's
+        // view of the id says: a fired reminder set again under its own id is
+        // the agenda's line, not the `Done` a stale view may still hold. Only
+        // a line read AFTER the view ended counts: one read before it fired
+        // is the old truth, not a set-again.
+        let pending: std::collections::HashSet<&str> = snap
+            .lines
+            .iter()
+            .filter(|l| item_line(l))
+            .map(|l| l.id.as_str())
+            .collect();
         for v in self.tasks.scheduled().iter().filter(|v| is_item(v)) {
+            let ended_at = v.ended_at_ms.unwrap_or(v.state_since_ms);
+            if v.state.ended() && pending.contains(v.id.as_str()) && snap.at_ms >= ended_at {
+                continue;
+            }
             let rec = recs.iter().find(|r| r.id == v.id);
             out.push(wake_face(v, rec, &names, sched));
         }
-        // A wake the snapshot holds and the model does not (yet): its line.
+        // A wake the snapshot holds and the model does not (yet, or not as
+        // pending): its line.
         let mut lines = snap.lines.clone();
         lines.sort_by_key(|l| l.at_ms);
         for l in lines {
             let known = out.iter().any(|f| f.id == l.id);
-            let item = l.kind == WorkKind::Wake
-                && l.id.starts_with("wak_")
-                && !matches!(l.purpose.as_deref(), Some("watch" | "routine"));
-            if known || !item {
+            if known || !item_line(&l) {
                 continue;
             }
+            let rec = recs.iter().find(|r| r.id == l.id);
+            let moved = rec.is_some_and(|r| {
+                r.snoozed
+                    || (l.occurrence.is_none()
+                        && r.due_ms.is_some_and(|was| was.abs_diff(l.at_ms) > 1_000))
+            });
             out.push(Face {
                 id: l.id.clone(),
                 kind: kind_of(l.purpose.as_deref()),
                 title: l.title.clone(),
                 due_ms: Some(l.at_ms),
-                life: Life::Scheduled { snoozed: false },
-                from: l.session_id.as_ref().and_then(|s| names.get(s)).cloned(),
+                life: Life::Scheduled { snoozed: moved },
+                from: l
+                    .session_id
+                    .as_ref()
+                    .and_then(|s| names.get(s))
+                    .cloned()
+                    .or_else(|| rec.and_then(|r| r.from.clone())),
                 every: None,
                 paused: false,
                 routine: None,
@@ -398,6 +457,10 @@ pub(crate) struct Worker {
     recs: Vec<Rec>,
     retry: Duration,
     loaded: bool,
+    /// Cards made in this pass, and the gap kept between those after the first
+    /// `BURST`.
+    made: usize,
+    space: Duration,
 }
 
 /// Start the worker, once. It ends with the daemon's stop.
@@ -411,6 +474,8 @@ pub(super) fn start(shared: &Arc<Shared>) {
             recs: Vec::new(),
             retry: Duration::ZERO,
             loaded: false,
+            made: 0,
+            space: space(),
         };
         let mut wait = IDLE;
         loop {
@@ -443,6 +508,8 @@ impl Worker {
             recs: Vec::new(),
             retry: Duration::ZERO,
             loaded: false,
+            made: 0,
+            space: space(),
         }
     }
 
@@ -490,6 +557,7 @@ impl Worker {
             label,
         };
         self.retry = Duration::ZERO;
+        self.made = 0;
         let now = now_unix_ms();
         let Some(mut faces) = s.schedule_now(&self.recs) else {
             return true;
@@ -509,7 +577,10 @@ impl Worker {
             }
             shown.push(f.clone());
         }
-        if ok {
+        // Only once the work model has been read: before it, an item that is
+        // not in it is an item it has not told of (a task set for later, a
+        // reminder over 30 days out, the Home conversation's), not one gone.
+        if ok && s.tasks.loaded() {
             // An item that is nowhere any more: fired or cancelled while the
             // daemon was down, or a routine removed.
             let gone: Vec<Rec> = self
@@ -527,8 +598,14 @@ impl Worker {
                 shown.push(f);
             }
         }
+        // An entry stays while its item stands, whenever it ended before.
+        let standing: std::collections::HashSet<&str> = faces
+            .iter()
+            .filter(|f| !f.is_over())
+            .map(|f| f.id.as_str())
+            .collect();
         self.recs
-            .retain(|r| r.ended_ms.is_none_or(|at| now < at + KEPT_MS));
+            .retain(|r| kept(r, now, standing.contains(r.id.as_str())));
         self.save();
         self.tell_the_forum(&shown, &home, now);
         ok
@@ -624,17 +701,30 @@ impl Worker {
                     r.by = by.clone();
                     self.shared.task_posts.sched.not_cancelled(&f.id);
                 }
-                if f.is_over() && r.ended_ms.is_none() {
+                // An item that stands again (a fired reminder set again under
+                // its id) is no ended entry: no edit every pass, and the list
+                // keeps it.
+                if !f.is_over() {
+                    r.ended_ms = None;
+                } else if r.ended_ms.is_none() {
                     r.ended_ms = Some(now);
                 }
                 self.log(&home.label, rec.card, f, "edited");
                 true
             }
             Err(e) if e.gone => {
-                // Its card was deleted: forgotten, and made again if the item
-                // stands, under a nonce of its own.
+                // Its card was deleted by hand. An item that stands gets a new
+                // one, under a nonce of its own; one that has ended is left
+                // without (the owner deleted it): its entry stays, at its end,
+                // until its day is over.
+                if f.is_over() {
+                    let r = &mut self.recs[i];
+                    r.digest = dig;
+                    r.ended_ms.get_or_insert(now);
+                    return true;
+                }
                 self.recs.remove(i);
-                f.is_over() || self.post(f, &card, dig, home, now, Some(rec.card)).await
+                self.post(f, &card, dig, home, now, Some(rec.card)).await
             }
             Err(e) => {
                 self.failed("schedule card", &e.message);
@@ -654,6 +744,13 @@ impl Worker {
         now: u64,
         after: Option<u64>,
     ) -> bool {
+        // A catch-up (a first start, many items set at once) leaves the task
+        // home's channel room for a task's report: after the first few, one
+        // card in each `SPACE`.
+        if self.made >= BURST {
+            tokio::time::sleep(self.space).await;
+        }
+        self.made += 1;
         match self.create(home.channel, &f.id, card, after).await {
             Ok(message) => {
                 self.recs.push(Rec {
@@ -792,6 +889,13 @@ impl Worker {
     }
 }
 
+/// Whether the list keeps an entry: while its item stands, whenever it ended
+/// before (no second card, no orphan with live buttons), else a day after its
+/// end.
+fn kept(r: &Rec, now: u64, standing: bool) -> bool {
+    standing || r.ended_ms.is_none_or(|at| now < at + KEPT_MS)
+}
+
 /// The face of an item that is nowhere any more: a wake that was due fired,
 /// one that was not due was cancelled, a routine was removed.
 fn gone_face(r: &Rec, now: u64, sched: &Sched) -> Face {
@@ -820,6 +924,21 @@ fn gone_face(r: &Rec, now: u64, sched: &Sched) -> Face {
     }
 }
 
+/// Who a card says cancelled it, for a press: the presser's display name when
+/// Discord gives them one, else their user name (`who`, `discord:<name>`). The
+/// cancel call's own author, and so its record, is `who`: a user name and no
+/// id, so a cancel from elsewhere can only be named by that.
+fn presser_name(i: &Interaction, who: &str) -> String {
+    display_of(i.author().and_then(|u| u.global_name.as_deref()), who)
+}
+
+fn display_of(global_name: Option<&str>, who: &str) -> String {
+    global_name
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map_or_else(|| who.to_string(), str::to_string)
+}
+
 impl Shared {
     /// A press of a card's Cancel or Snooze: the call of `/cancel` or
     /// `/snooze` as the presser, told to the presser alone. The press has
@@ -835,11 +954,39 @@ impl Shared {
         if !wake.starts_with("wak_") {
             return self.task_card_press(i, cancel, wake, who).await;
         }
-        let over = self
+        // Held: the model has the wake, or the agenda lists it pending. A card
+        // whose item neither does (long fired, or gone) is nothing to act on:
+        // `wake.snooze` would set a long-fired reminder again from its record.
+        let held = self.tasks.scheduled().iter().any(|v| v.id == wake)
+            || self
+                .tasks
+                .future
+                .snapshot()
+                .lines
+                .iter()
+                .any(|l| l.id == wake);
+        if !held {
+            self.tasks.future.dirty();
+            return self
+                .reply_ephemeral(
+                    i,
+                    "That reminder is no longer on the board: nothing was changed.".into(),
+                )
+                .await;
+        }
+        let pending = self
             .tasks
-            .scheduled()
+            .future
+            .snapshot()
+            .lines
             .iter()
-            .any(|v| v.id == wake && v.state.ended());
+            .any(|l| l.id == wake);
+        let over = !pending
+            && self
+                .tasks
+                .scheduled()
+                .iter()
+                .any(|v| v.id == wake && v.state.ended());
         if over {
             self.tasks.future.dirty();
             return self
@@ -850,7 +997,9 @@ impl Shared {
                 .await;
         }
         if cancel {
-            self.task_posts.sched.will_cancel(wake, who);
+            self.task_posts
+                .sched
+                .will_cancel(wake, &presser_name(i, who));
         }
         if !self.reminder_pick(i, custom_id, who).await && cancel {
             self.task_posts.sched.not_cancelled(wake);
@@ -877,7 +1026,9 @@ impl Shared {
                 .await;
         }
         if cancel {
-            self.task_posts.sched.will_cancel(task, who);
+            self.task_posts
+                .sched
+                .will_cancel(task, &presser_name(i, who));
         }
         if !self.task_pick(i, cancel, task, who).await && cancel {
             self.task_posts.sched.not_cancelled(task);
@@ -1009,5 +1160,30 @@ mod tests {
             Life::Scheduled { snoozed: false },
             "a series moves on by itself"
         );
+    }
+
+    #[test]
+    fn a_press_is_named_by_its_display_name_else_its_user_name() {
+        assert_eq!(display_of(Some("Ana B"), "discord:ana"), "Ana B");
+        assert_eq!(display_of(Some("  "), "discord:ana"), "discord:ana");
+        assert_eq!(display_of(None, "discord:ana"), "discord:ana");
+        let sched = Sched::default();
+        sched.will_cancel("wak_x", &display_of(None, "discord:ana"));
+        assert_eq!(sched.who_cancelled("wak_x").as_deref(), Some("ana"));
+        sched.will_cancel("wak_y", &display_of(Some("Ana B"), "discord:ana"));
+        assert_eq!(sched.who_cancelled("wak_y").as_deref(), Some("Ana B"));
+    }
+
+    #[test]
+    fn the_list_keeps_an_entry_whose_item_stands_whenever_it_ended_before() {
+        let now = 1_790_000_000_000;
+        let mut r = rec("reminder", Some(now + 3_600_000));
+        r.ended_ms = Some(now - 2 * KEPT_MS);
+        assert!(!kept(&r, now, false), "ended long ago and gone");
+        assert!(kept(&r, now, true), "set again: its card is its card");
+        r.ended_ms = Some(now - KEPT_MS / 2);
+        assert!(kept(&r, now, false), "ended today: kept for a late press");
+        r.ended_ms = None;
+        assert!(kept(&r, now, false));
     }
 }
