@@ -449,7 +449,7 @@ async fn a_routines_failure_posts_with_buttons_once_a_day_and_the_buttons_act() 
     .await;
     r.until("the post settled", || {
         r.fake.replies().iter().any(|x| {
-            x.response_type == Some(7)
+            x.kind == "original"
                 && x.content.as_deref().is_some_and(|c| {
                     c.contains("⚠️ Alert · Morning digest") && c.ends_with("⏸ Paused")
                 })

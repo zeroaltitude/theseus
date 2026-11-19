@@ -402,8 +402,9 @@ async fn an_expired_card_offers_ask_again_and_the_owners_press_asks_it() {
 
     r.press(&card.id, "Ask again", (ANA, "ana"));
     r.until("the press answers by clearing the button", || {
+        // Acknowledged at once (a deferred update), then the card is edited.
         r.fake.replies().iter().any(|p| {
-            p.response_type == Some(7)
+            p.kind == "original"
                 && p.content
                     .as_deref()
                     .is_some_and(|c| c.contains("asked again"))

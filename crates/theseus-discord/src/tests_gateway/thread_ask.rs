@@ -91,10 +91,10 @@ async fn the_owners_press_wakes_the_message_and_the_card_becomes_the_answer() {
         .unwrap();
     assert_eq!(got.choice, Choice::Thread("security-fix".into()));
     assert_eq!(got.who.label, "discord:ana");
-    // The card becomes the answer: an update-message callback (type 7).
+    // The card becomes the answer: acknowledged at once (a deferred update), then edited.
     r.until("the card settled", || {
         r.fake.replies().iter().any(|a| {
-            a.response_type == Some(7)
+            a.kind == "original"
                 && a.content
                     .as_deref()
                     .is_some_and(|c| c.starts_with("\u{2705}"))
@@ -105,7 +105,7 @@ async fn the_owners_press_wakes_the_message_and_the_card_becomes_the_answer() {
 
 /// A pick on the card's `other` select answers the ask as a button's press does
 /// (theseus-ma3g8): the thread picked is the answer, by the presser, and the
-/// card settles as an update-message.
+/// card settles by an edit after an acknowledgement.
 #[tokio::test]
 async fn the_others_select_answers_like_a_press() {
     let model = |_: &std::path::Path, _| -> Arc<dyn Provider> {
@@ -176,7 +176,7 @@ async fn the_others_select_answers_like_a_press() {
     assert_eq!(got.who.label, "discord:ana");
     r.until("the card settled", || {
         r.fake.replies().iter().any(|a| {
-            a.response_type == Some(7)
+            a.kind == "original"
                 && a.content
                     .as_deref()
                     .is_some_and(|c| c.starts_with("\u{2705}"))
