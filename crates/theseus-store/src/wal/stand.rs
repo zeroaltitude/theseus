@@ -76,3 +76,14 @@ impl super::Wal {
         gate
     }
 }
+
+impl Writer {
+    /// Where a test holds the writer inside a frame's write: its gate, or a FIFO a test makes (`crate::hold`).
+    #[cfg(any(test, debug_assertions))]
+    pub(super) fn hold_here(&self) {
+        #[cfg(test)]
+        self.planted.hold.iter().for_each(|g| g.pass());
+        #[cfg(debug_assertions)]
+        crate::hold::hold_by_fifo("THESEUS_TEST_WAL_HOLD");
+    }
+}
