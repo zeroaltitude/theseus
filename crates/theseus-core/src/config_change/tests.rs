@@ -81,6 +81,9 @@ struct Model {
     asked: Mutex<Vec<ProviderRequest>>,
     /// Run once, when a model with no tool offered is asked (a stop that lands during the call).
     on_asked: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The turn's own model call fails once it has read a tool's result (a turn that faults after
+    /// a successful ask).
+    fails_after_a_result: std::sync::atomic::AtomicBool,
     /// Every request's model and how many tools it offered (`profile.run`: an agent has tools).
     seen: Mutex<Vec<(String, usize)>>,
     /// What an agent (a request whose first message holds `AGENT:`) reports, and the gate that holds
@@ -89,6 +92,17 @@ struct Model {
     gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     /// A call the agent makes before it reports (`Rig::agents_call`).
     agent_call: Mutex<Option<(String, Value)>>,
+}
+
+/// A call the provider cannot take: it is busy.
+fn busy<'a>() -> ProviderFuture<'a> {
+    Box::pin(async {
+        Err(anyhow::Error::new(
+            crate::provider::ProviderError::Overloaded {
+                message: "the lighthouse is busy".into(),
+            },
+        ))
+    })
 }
 
 impl Provider for Model {
@@ -134,6 +148,14 @@ impl Provider for Model {
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
         }
+        if self
+            .fails_after_a_result
+            .load(std::sync::atomic::Ordering::SeqCst)
+            && !req.tools.is_empty()
+            && tool_result_text(req).is_some()
+        {
+            return busy();
+        }
         if let Some(said) = self.plain.lock().unwrap().clone() {
             if req.tools.is_empty() {
                 self.asked.lock().unwrap().push(req.clone());
@@ -141,13 +163,7 @@ impl Provider for Model {
                     f();
                 }
                 if said == FAILS {
-                    return Box::pin(async {
-                        Err(anyhow::Error::new(
-                            crate::provider::ProviderError::Overloaded {
-                                message: "the lighthouse is busy".into(),
-                            },
-                        ))
-                    });
+                    return busy();
                 }
                 let answer = Scripted::text(&said);
                 return Box::pin(async move {
@@ -242,6 +258,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         plain: Mutex::default(),
         asked: Mutex::default(),
         on_asked: Mutex::default(),
+        fails_after_a_result: Default::default(),
         seen: Mutex::default(),
         agent: Mutex::default(),
         gate: Mutex::default(),
@@ -410,6 +427,13 @@ impl Rig {
         self.run_turn(sid).await;
     }
 
+    /// The turn's own model call fails once it has read a tool's result.
+    pub(super) fn the_turn_fails_after_a_result(&self) {
+        self.model
+            .fails_after_a_result
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// [`steps`](Self::steps), for a turn that may fail (a day's ceiling reached): its result.
     pub(super) async fn try_steps(
         &self,
@@ -418,14 +442,69 @@ impl Rig {
     ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
         *self.model.made.lock().unwrap() = 0;
         *self.model.steps.lock().unwrap() = steps.into_iter().map(|(t, v)| (t.into(), v)).collect();
-        self.try_run_turn(sid).await
+        self.try_turn(sid).await
     }
 
     pub(super) async fn run_turn(&self, sid: &str) -> theseus_protocol::TurnSubmitResult {
-        self.try_run_turn(sid).await.unwrap()
+        self.try_turn(sid).await.unwrap()
     }
 
-    async fn try_run_turn(&self, sid: &str) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+    /// The call the next turn's model makes.
+    pub(super) fn call_next(&self, tool: &str, call: Value) {
+        self.model.calls.lock().unwrap().push((tool.into(), call));
+    }
+
+    /// [`Rig::turn_with`], for a turn that may end in an error.
+    pub(super) async fn try_turn_with(
+        &self,
+        tool: &str,
+        sid: &str,
+        call: Value,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.model.calls.lock().unwrap().push((tool.into(), call));
+        self.try_turn(sid).await
+    }
+
+    /// The turn the driver runs after an answer: no input, the call that was waiting.
+    pub(super) async fn try_continue(
+        &self,
+        sid: &str,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run(sid, None).await
+    }
+
+    /// One turn, as `run_turn` runs it, and what it ended with.
+    pub(super) async fn try_turn(
+        &self,
+        sid: &str,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run(sid, Some("change a setting".into())).await
+    }
+
+    /// [`Rig::try_turn`], for a turn that answers in another place (`answer_at`).
+    pub(super) async fn try_turn_answering_at(
+        &self,
+        sid: &str,
+        answer_at: &str,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run_at(sid, Some("change a setting".into()), Some(answer_at.into()))
+            .await
+    }
+
+    async fn run(
+        &self,
+        sid: &str,
+        input: Option<String>,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run_at(sid, input, None).await
+    }
+
+    async fn run_at(
+        &self,
+        sid: &str,
+        input: Option<String>,
+        answer_at: Option<String>,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -439,7 +518,7 @@ impl Rig {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: Some("change a setting".into()),
+                input,
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None),
                 author: "test".into(),
@@ -447,7 +526,7 @@ impl Rig {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
-                answer_at: None,
+                answer_at,
             })
             .await
     }

@@ -494,9 +494,11 @@ async fn two_profiles_asked_in_one_turn_post_two_messages_in_order() {
     assert_ne!(posts[0].1["answer"]["call"], posts[1].1["answer"]["call"]);
 }
 
-/// A turn that was stopped while its profile was being asked posts no subagent message.
+/// A turn that was stopped while its profile was being asked still shows the answer it was given
+/// (it was produced and paid for, and its live message is already in the place): the post is its
+/// one message, and its footer says the turn that asked was stopped.
 #[tokio::test]
-async fn a_stopped_turn_posts_no_subagent_message() {
+async fn a_stopped_turn_posts_its_subagent_message_marked_as_stopped() {
     let r = rig();
     r.answers_plain(HELLO);
     let sid = r.session_at(PLACE);
@@ -514,8 +516,18 @@ async fn a_stopped_turn_posts_no_subagent_message() {
     )
     .await;
     assert_eq!(r.asked_plain().len(), 1, "the call was made");
-    let kinds: Vec<String> = posts(&r).into_iter().map(|(k, _)| k).collect();
-    assert!(!kinds.contains(&"subagent".to_string()), "{kinds:?}");
+    let said: Vec<serde_json::Value> = posts(&r)
+        .into_iter()
+        .filter(|(k, _)| k == "subagent")
+        .map(|(_, b)| b)
+        .collect();
+    assert_eq!(
+        said.iter()
+            .map(|b| b["turn_ended"].clone())
+            .collect::<Vec<_>>(),
+        [json!("stopped")],
+        "{said:?}"
+    );
 }
 
 /// A session that posts nowhere (the CLI's) stages no post; its answer is in the result node,

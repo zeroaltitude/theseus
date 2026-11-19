@@ -278,6 +278,18 @@ impl Tool for ProfileHold {
     }
 }
 
+/// The META key that says how the turn that asked ended, for the answer of the call `call` (issue
+/// 28): written when it did not end well, read by the node list, which gives it to every surface
+/// that draws the answer from its result node.
+pub(crate) fn ended_key(call: &str) -> String {
+    format!("subagent.ended.{call}")
+}
+
+/// The record of it: `ended` is `stopped` or `failed`.
+pub(crate) fn ended_record(call: &str, ended: &str) -> anyhow::Result<theseus_store::NewRecord> {
+    theseus_store::NewRecord::json(theseus_store::kinds::META, Some(&ended_key(call)), &ended)
+}
+
 /// What the tools reach: the core, given once it exists.
 #[derive(Default)]
 pub struct Board {
@@ -301,7 +313,36 @@ struct Held {
 /// A yes kept for a hold's call: who answered, and when.
 struct Pressed {
     who: Answerer,
+    session: String,
+    execution: String,
+    /// The confirm the yes answers has been bound (`bind_yes`): until then a turn that arrives
+    /// after the yes may not have seen the confirm, so it does not drop the yes.
+    bound: bool,
     at: std::time::Instant,
+}
+
+/// A yes kept for a hold's call, until its confirm is bound (`Board::keep_yes_until_bound`): drops
+/// the yes unless it was bound, so an unwind drops it as an error does.
+pub(crate) struct KeptYes<'a> {
+    board: &'a Board,
+    call: String,
+    bound: bool,
+}
+
+impl KeptYes<'_> {
+    /// The confirm is bound: the yes stays, for the call to take.
+    pub(crate) fn bind(mut self) {
+        self.board.bind_yes(&self.call);
+        self.bound = true;
+    }
+}
+
+impl Drop for KeptYes<'_> {
+    fn drop(&mut self) {
+        if !self.bound {
+            self.board.drop_yes(&self.call);
+        }
+    }
 }
 
 /// How long a yes that no call took is kept: past it the entry is dropped, as the next yes is kept.
@@ -333,14 +374,64 @@ impl Board {
             .unwrap_or_default()
     }
 
-    /// A turn of `session` has ended: what it was given and did not post (it stopped, it
-    /// faulted, it was a task's) is dropped, not kept until a restart. One turn runs in a
-    /// session at a time, so none of what is dropped belongs to a later turn.
-    pub(crate) fn forget(&self, session: &str) {
-        self.answers
+    /// A turn of `session`, which arrived at `arrived`, has resumed the calls the owner's answers
+    /// let run. A yes kept before it arrived that no call took is dropped: this turn was the one
+    /// to take it, and nothing will. Only after the resume: a turn that erred before it left
+    /// the confirmed call waiting, and the next turn takes the yes. A yes kept while the turn ran
+    /// is a later turn's and stays, and so is one whose confirm was not yet bound when the turn
+    /// arrived (the owner's answer was mid-write).
+    pub(crate) fn drop_untaken(&self, session: &str, arrived: std::time::Instant) {
+        self.yes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .retain(|_, h| h.session != session);
+            .retain(|_, p| p.session != session || p.at >= arrived || !p.bound);
+    }
+
+    /// A turn of `session` has ended. What it was given and did not post is handed back (a
+    /// faulted turn's answers, which the end of the turn posts as the answers of a turn that
+    /// failed; a task's, which are dropped), not kept until a restart; one turn runs in a session
+    /// at a time, so none of it belongs to a later turn.
+    pub(crate) fn sweep(&self, session: &str) -> Vec<SubagentAnswer> {
+        let mut answers = self
+            .answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let turns: Vec<String> = answers
+            .iter()
+            .filter(|(_, h)| h.session == session)
+            .map(|(t, _)| t.clone())
+            .collect();
+        turns
+            .into_iter()
+            .filter_map(|t| answers.remove(&t))
+            .flat_map(|h| h.answers)
+            .collect()
+    }
+
+    /// A `/stop` of `execution` landed: no call of it runs on a yes kept before, so none is kept.
+    pub(crate) fn drop_yes_of(&self, execution: &str) {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, p| p.execution != execution);
+    }
+
+    /// The driver's tick: a yes older than [`YES_KEPT`] that nothing took (its execution ended some
+    /// other way) is dropped, whether or not another is kept.
+    pub(crate) fn prune_yes(&self) {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, p| p.at.elapsed() < YES_KEPT);
+    }
+
+    /// How many yes entries are kept (a test reads it).
+    #[cfg(test)]
+    pub(crate) fn held_yes(&self) -> usize {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     /// How many turns have answers kept (a test reads it).
@@ -353,7 +444,7 @@ impl Board {
     }
 
     /// The owner's yes to the card of the hold `call` was pressed by `who`: kept for the call.
-    pub(crate) fn keep_yes(&self, call: &str, who: &Answerer) {
+    pub(crate) fn keep_yes(&self, call: &str, session: &str, execution: &str, who: &Answerer) {
         let mut yes = self
             .yes
             .lock()
@@ -363,9 +454,42 @@ impl Board {
             call.to_string(),
             Pressed {
                 who: who.clone(),
+                session: session.to_string(),
+                execution: execution.to_string(),
+                bound: false,
                 at: std::time::Instant::now(),
             },
         );
+    }
+
+    /// [`keep_yes`](Self::keep_yes), held by a guard: from here until [`KeptYes::bind`] the yes goes
+    /// when the guard does, whether the answer returned an error, a panic unwound through it, or
+    /// the caller simply let go. It only ever removes a yes sooner.
+    pub(crate) fn keep_yes_until_bound(
+        &self,
+        call: &str,
+        session: &str,
+        execution: &str,
+        who: &Answerer,
+    ) -> KeptYes<'_> {
+        self.keep_yes(call, session, execution, who);
+        KeptYes {
+            board: self,
+            call: call.to_string(),
+            bound: false,
+        }
+    }
+
+    /// The confirm the yes answers is bound: a turn that arrives from now on has seen it.
+    pub(crate) fn bind_yes(&self, call: &str) {
+        if let Some(p) = self
+            .yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(call)
+        {
+            p.bound = true;
+        }
     }
 
     /// The yes was not taken (its answer failed): it is not kept.

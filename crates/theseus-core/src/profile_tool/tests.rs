@@ -127,6 +127,8 @@ fn what_acts_after_a_yes_is_the_plan_the_card_showed() {
     ] {
         let why = hold::kept_plan(&kept, &call).unwrap_err();
         assert!(why.contains("not what its card showed"), "{why}");
+        assert!(!why.contains("not done"), "said once: {why}");
+        assert!(why.ends_with("Nothing was done."), "{why}");
     }
 }
 
@@ -136,11 +138,11 @@ fn what_acts_after_a_yes_is_the_plan_the_card_showed() {
 fn a_yes_is_kept_for_its_call_and_taken_once() {
     let board = Board::default();
     let who = crate::test_support::owner_cli();
-    board.keep_yes("act_1", &who);
+    board.keep_yes("act_1", "ses_a", "exe_a", &who);
     assert!(board.take_yes("act_2").is_none(), "another call's");
     assert_eq!(board.take_yes("act_1").map(|w| w.label), Some(who.label));
     assert!(board.take_yes("act_1").is_none(), "one hold's: taken once");
-    board.keep_yes("act_3", &crate::test_support::owner_cli());
+    board.keep_yes("act_3", "ses_a", "exe_a", &crate::test_support::owner_cli());
     board.drop_yes("act_3");
     assert!(
         board.take_yes("act_3").is_none(),
@@ -166,7 +168,8 @@ fn a_turns_unposted_answers_are_dropped_with_its_session() {
     let board = Board::default();
     board.give("ses_a", "turn_a", answer());
     board.give("ses_b", "turn_b", answer());
-    board.forget("ses_a");
+    let left = board.sweep("ses_a");
+    assert_eq!(left.len(), 1, "handed back, for a faulted turn to post");
     assert!(board.take("turn_a").is_empty());
     assert_eq!(board.take("turn_b").len(), 1);
 }

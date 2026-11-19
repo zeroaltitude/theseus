@@ -229,6 +229,9 @@ pub struct Chat {
     /// What the router's placements brought in (`thread_ask.rs`).
     pub(super) placed: super::thread_ask::Placed,
     pub(super) ended: HashSet<String>,
+    /// The answers another profile gave the calls of a turn, by its id, until the turn ends: a turn
+    /// that was stopped or failed says so under each (issue 28).
+    pub(super) answers: std::collections::HashMap<String, Vec<theseus_protocol::SubagentAnswer>>,
     pub(super) answered_text: HashSet<String>,
     pub(super) proposed: std::collections::HashMap<String, (String, Value)>,
     pub(super) unsent: Vec<(String, Vec<theseus_protocol::Attachment>)>,
@@ -316,6 +319,7 @@ impl Chat {
             mine: HashSet::new(),
             placed: Default::default(),
             ended: HashSet::new(),
+            answers: Default::default(),
             answered_text: HashSet::new(),
             proposed: Default::default(),
             unsent: Vec::new(),

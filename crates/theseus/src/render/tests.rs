@@ -720,6 +720,40 @@ fn a_history_draws_a_subagents_answer_as_a_message_of_its_own() {
     );
 }
 
+/// An answer whose turn was stopped or failed says so in a history, in the words every surface
+/// says; one whose turn ended well says nothing more.
+#[test]
+fn a_history_says_when_the_turn_that_asked_was_stopped_or_failed() {
+    let node = |ended: Option<&str>| -> NodeInfo {
+        let mut v = serde_json::json!({"node_id": "nod_1",
+            "kind": "tool_result", "session_id": "ses_a", "position": 1, "at_unix_ms": 1_000,
+            "text": "haiku answered", "bytes": 14,
+            "detail": {"tool": "profile.ask", "status": "ok", "meta": {"subagent": {
+                "profile": "haiku", "provider": "anthropic", "model": "claude-haiku-5-5",
+                "asked_by": "sonnet", "text": "Hello.", "cost_usd": 0.0031, "elapsed_ms": 1300,
+                "output_tokens": 12, "cut": false, "call": "act_1"}}}});
+        if let Some(e) = ended {
+            v["detail"]["subagent_ended"] = serde_json::json!(e);
+        }
+        serde_json::from_value(v).unwrap()
+    };
+    assert_eq!(tagged(node_lines(&node(None), false)).len(), 3);
+    for (ended, words) in [
+        (
+            "stopped",
+            "haiku · claude-haiku-5-5 · the turn that asked was stopped",
+        ),
+        (
+            "failed",
+            "haiku · claude-haiku-5-5 · the turn that asked then failed",
+        ),
+    ] {
+        let lines = tagged(node_lines(&node(Some(ended)), false));
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert!(lines[3].1.ends_with(words), "{lines:?}");
+    }
+}
+
 /// A row that carries a pill is tagged with its level, and one from a
 /// daemon that sends none is `Plain`.
 #[test]

@@ -583,6 +583,10 @@ impl Chat {
             self.say_reply(&a.opening());
             self.say_plain(Sty::Dim, &format!("  {}", a.footer()));
             self.gap();
+            self.answers
+                .entry(t.turn_id.clone())
+                .or_default()
+                .push(a.clone());
         }
     }
 
@@ -652,7 +656,23 @@ impl Chat {
         self.ask_sync();
     }
 
+    /// A turn that was stopped or failed says so under the answers it was given (issue 28).
+    fn say_answers_ended(&mut self, turn_id: Option<&str>, ended: &str) {
+        let seen = turn_id
+            .and_then(|id| self.answers.remove(id))
+            .unwrap_or_default();
+        for a in seen {
+            self.say_plain(Sty::Dim, &format!("  {}", a.ended_line(ended)));
+        }
+    }
+
     fn turn_failed(&mut self, f: &TurnFailed) {
+        // A stop that aborted the turn is told as a failure of class `stopped`.
+        let ended = match f.class.as_deref() {
+            Some("stopped") => "stopped",
+            _ => "failed",
+        };
+        self.say_answers_ended(f.turn_id.as_deref(), ended);
         self.live.turn = None;
         let class = f
             .class
@@ -692,6 +712,10 @@ impl Chat {
     pub(super) fn turn_ended(&mut self, r: &TurnSubmitResult) {
         if !self.ended.insert(r.turn_id.clone()) {
             return;
+        }
+        match r.stop_reason == "stopped" {
+            true => self.say_answers_ended(Some(&r.turn_id), "stopped"),
+            false => drop(self.answers.remove(&r.turn_id)),
         }
         if self.ended.len() > KEPT {
             self.ended.clear();

@@ -54,8 +54,9 @@ pub struct ToolCalled {
     pub gate: Option<String>,
     /// The gate's reason for it.
     pub reason: Option<String>,
-    /// The profiles a `profile.ask` of the turn asked (issue 28), in the order asked: each
-    /// answer is a subagent's, drawn as a message of its own from the model that gave it.
+    /// The profiles a `profile.ask` of the turn asked (issue 28), in the order asked, each with
+    /// the model that answered when its result says (`haiku (claude-haiku-5-5)`): each answer is
+    /// a subagent's, drawn as a message of its own from the model that gave it.
     pub asked: Vec<String>,
     /// The profiles a `profile.run` of the turn handed work to (issue 28), in the order handed, each
     /// with the model that ran when the call's result says (`haiku (claude-haiku-5-5)`): the work
@@ -72,6 +73,19 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
         .filter(|n| n.kind == "tool_call" && n.turn_id.as_deref() == Some(turn))
         .collect();
     calls.sort_by_key(|n| n.position);
+    // The result of each call, by the call's id in its session: it names the model that answered
+    // a `profile.ask` (`meta.subagent`) or ran a `profile.run` (`meta.handed`). The result of a
+    // call the owner confirmed lands in a later turn than the call, so the results are not limited
+    // to this turn's.
+    let results: std::collections::HashMap<(&str, &str), &crate::NodeInfo> = nodes
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "tool_result")
+        .filter_map(|n| {
+            let id = n.detail.get("tool_use_id")?.as_str()?;
+            Some(((n.session_id.as_str(), id), n))
+        })
+        .collect();
     let mut out: Vec<ToolCalled> = Vec::new();
     for n in calls {
         let Some(name) = n.detail.get("tool").and_then(Value::as_str) else {
@@ -97,27 +111,27 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
             }
         };
         t.calls += 1;
-        if name.replace('.', "_") == "profile_ask" {
-            t.asked.extend(
-                n.detail
-                    .pointer("/input/profile")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-            );
-        }
-        if name.replace('.', "_") == "profile_run" {
-            let profile = n.detail.pointer("/input/profile").and_then(Value::as_str);
-            let model = nodes
-                .nodes
-                .iter()
-                .filter(|r| r.kind == "tool_result" && r.turn_id.as_deref() == Some(turn))
-                .find(|r| r.detail.get("tool_use_id") == n.detail.get("tool_use_id"))
-                .and_then(|r| r.detail.pointer("/meta/handed/model"))
-                .and_then(Value::as_str);
-            t.handed.extend(profile.map(|p| match model {
-                Some(m) => format!("{p} ({m})"),
-                None => p.to_string(),
-            }));
+        // The profile a call named, with the model its result says answered or ran it.
+        let result = n
+            .detail
+            .get("tool_use_id")
+            .and_then(Value::as_str)
+            .and_then(|id| results.get(&(n.session_id.as_str(), id)));
+        let named = |model_at: &str| {
+            let profile = n.detail.pointer("/input/profile").and_then(Value::as_str)?;
+            let model = result
+                .and_then(|r| r.detail.pointer(model_at))
+                .and_then(Value::as_str)
+                .filter(|m| !m.is_empty());
+            Some(match model {
+                Some(m) => format!("{profile} ({m})"),
+                None => profile.to_string(),
+            })
+        };
+        match name.replace('.', "_").as_str() {
+            "profile_ask" => t.asked.extend(named("/meta/subagent/model")),
+            "profile_run" => t.handed.extend(named("/meta/handed/model")),
+            _ => {}
         }
         t.gate = gate.map(str::to_string).or(t.gate.take());
         t.reason = reason.map(str::to_string).or(t.reason.take());
@@ -730,7 +744,7 @@ fn tools(i: &WhyInput) -> Vec<String> {
         out.push(tool_line(c, found));
         if !c.asked.is_empty() {
             out.push(format!(
-                "    asked as subagents: {} (each answer is a message of its own, from the model that gave it, with a footer that says so)",
+                "    asked as subagents: {} (each answer is shown as a message of its own after its call, with a footer naming the model that gave it: in Discord in the place the turn answers, and under the call in the terminal, the terminal UI, the cockpit and the history; when the turn that asked was stopped or failed it is shown the same, and says so)",
                 c.asked.join(", ")
             ));
         }
