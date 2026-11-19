@@ -395,6 +395,49 @@ async fn a_failed_run_needs_you_until_the_next_run_goes_well() {
     .await;
 }
 
+/// A reminder that fired and is set again under its own id (the delivered
+/// reminder's Snooze buttons, `wake.snooze { fired: true }`) is on the board as
+/// pending with its new time, not the `Done` its fire left (issue 30).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fired_reminder_set_again_under_its_id_is_pending_on_the_board_not_done() {
+    let r = rig();
+    let mut w = Watcher::start(&r.core).await;
+    let made = rpc(
+        &r.core,
+        "wake.create",
+        json!({"when": "in 2s", "note": "Call the harbour master"}),
+    )
+    .await
+    .unwrap();
+    let id = made["wake"]["wake_id"].as_str().unwrap().to_string();
+    let view = |w: &mut Watcher| w.held().get(&id).cloned();
+    until("the reminder fired", 30, || {
+        view(&mut w).is_some_and(|v| v.state == WorkState::Done)
+    })
+    .await;
+    let now = theseus_protocol::now_unix_ms();
+    rpc(
+        &r.core,
+        "wake.snooze",
+        json!({"wake": id, "when": "in 90m", "fired": true}),
+    )
+    .await
+    .unwrap();
+    until("the reminder is pending again", 30, || {
+        view(&mut w).is_some_and(|v| v.state == WorkState::Waiting)
+    })
+    .await;
+    let v = view(&mut w).unwrap();
+    let at = v.next_at_ms.expect("its new time");
+    assert!(
+        (now + 90 * 60_000 - 60_000..now + 90 * 60_000 + 60_000).contains(&at),
+        "{at}"
+    );
+    assert!(snapshot(&r.core)
+        .iter()
+        .any(|s| s.id == id && s.state == WorkState::Waiting));
+}
+
 /// The owner's own `routine.skip` does not count toward the routine's 30-day
 /// skipped tally: that count is for skips the routine made for cause (an
 /// overlapping run, a spent month, catching up), not a skip the owner asked
