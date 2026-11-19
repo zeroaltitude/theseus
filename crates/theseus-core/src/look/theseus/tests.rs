@@ -22,3 +22,18 @@ fn the_parts_are_all_by_default_and_checked_when_named() {
         "no other key is taken"
     );
 }
+
+/// The ontology is a part that may be named and is not part of "everything".
+#[test]
+fn the_ontology_is_askable_and_not_in_the_default() {
+    assert!(!PARTS.contains(&"ontology"));
+    assert_eq!(
+        parts_of(&json!({"what": ["ontology", "build"]})).unwrap(),
+        ["build", "ontology"]
+    );
+    assert_eq!(
+        parts_of(&json!({"what": ["ontology"]})).unwrap(),
+        ["ontology"]
+    );
+    assert_eq!(parts_of(&json!({})).unwrap(), PARTS.to_vec());
+}

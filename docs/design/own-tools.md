@@ -128,3 +128,13 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
   changed, so the always-loaded text is not longer.
 - **`shell.answered`** (a ledger row): the verb, the tool named and the kind of place of each shell command the daemon answered, with no command text, so the
   count over a week says whether the habit is fading.
+
+## The ontology read (issue 28, part 3, step 5)
+
+- **`look.theseus` takes a fifth part, `ontology`, read only when named** (the default four are unchanged): the kinds (12 at most), the categories as a
+  tree (40 at most, with member counts and whether one has guidance), the people held (30 at most, by name with a session count; handles are not shown) and
+  the pending proposals (10 at most: the topic, or "a person" or "a new topic", with confidence and band). Never a handle, the guidance text, a session's
+  memberships or its title; a cut list says what it left out. The same wall as the other looks.
+- The shell answer maps `theseus ontology` (bare), `kinds`, `categories` and `proposals` to it. `member` and `never` are reads with no tool and run as
+  they did; `topic`, `undo`, `kind`, `guide`, `accept`, `person` and `reject` are acts and run as they did. The table's test holds every one of them bare, so
+  a row that moves an act into the looks fails there and not only on a line with an operand.
