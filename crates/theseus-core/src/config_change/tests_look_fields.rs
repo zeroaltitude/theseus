@@ -137,8 +137,9 @@ async fn two_items_of_one_title_are_not_guessed_between() {
         json!({"fields_of": "itemid00000000000000000009"}),
     )
     .await;
+    // The second of the two is in the other vault, and is asked for there.
     assert!(logged(&dir).contains(
-        &"item get itemid00000000000000000009 --vault vaultid00000000000000000001 --format json"
+        &"item get itemid00000000000000000009 --vault vaultid00000000000000000002 --format json"
             .to_string()
     ));
 }
