@@ -456,19 +456,19 @@ impl Rig {
             .runner
             .resolve_target(&live, None, None, None)
             .unwrap();
+        let input = self
+            .said
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "change a setting".into());
         self.core
             .runner
             .run(TurnRequest {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: Some(
-                    self.said
-                        .lock()
-                        .unwrap()
-                        .clone()
-                        .unwrap_or_else(|| "change a setting".into()),
-                ),
+                input: Some(input),
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None),
                 author: "test".into(),
