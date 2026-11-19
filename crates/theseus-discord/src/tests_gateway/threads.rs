@@ -133,7 +133,7 @@ async fn slash(
         r.fake
             .replies()
             .into_iter()
-            .find(|x| x.interaction.as_deref() == Some(id.as_str()))
+            .find(|x| x.interaction.as_deref() == Some(id.as_str()) && x.content.is_some())
             .and_then(|x| x.content)
     };
     r.until("the command's answer", || answer(r).is_some())

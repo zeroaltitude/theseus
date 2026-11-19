@@ -308,6 +308,48 @@ pub struct Reply {
     pub modal: Option<Value>,
 }
 
+impl State {
+    /// The message an interaction's response shows after an edit of it: its words, and its buttons when the edit
+    /// names components. One the interaction never had (a deferral) is made.
+    fn complete_view(&mut self, id: &str, content: &str, components: &Value, flags: Option<u64>) {
+        if !self.ephemerals.contains_key(id) {
+            self.next_id += 1;
+            let channel = self.pressed.get(id).copied().unwrap_or(1);
+            let m = Msg {
+                id: self.next_id.to_string(),
+                channel: channel.to_string(),
+                content: String::new(),
+                nonce: None,
+                components: 0,
+                reply_to: None,
+                edits: 0,
+                created_ms: now_ms(),
+                allowed_mentions: Value::Null,
+                mentions: vec![],
+                author: BOT_ID.to_string(),
+                versions: vec![],
+                buttons: vec![],
+                components_json: Value::Null,
+                pinned: false,
+                flags: flags.unwrap_or(0),
+                hook: None,
+            };
+            self.ephemerals.insert(id.to_string(), m);
+        }
+        let m = self.ephemerals.get_mut(id).expect("just made");
+        if !content.is_empty() || components.is_array() {
+            m.content = content.to_string();
+            m.versions.push(content.to_string());
+            m.edits += 1;
+        }
+        if components.is_array() {
+            m.components = rows(components);
+            m.buttons = buttons(components);
+            m.components_json = components.clone();
+        }
+    }
+}
+
 /// A guild, as the binding's viewer check reads it (theseus-ck0k): its
 /// owner, its roles (`@everyone`'s id is the guild's), its members, and its
 /// channels with their overwrites. Ids are numbers; permissions are bits.
@@ -553,6 +595,8 @@ struct State {
     /// the interaction is unknown (10062) and the person sees "Something went wrong".
     arrived: BTreeMap<String, std::time::Instant>,
     acked: BTreeSet<String>,
+    /// The interactions whose first response was ephemeral: what completes them is ephemeral too.
+    ephemeral_acks: BTreeSet<String>,
     /// The three seconds, or what a test sets (`set_ack_limit_ms`).
     ack_limit_ms: Option<u64>,
     /// The messages the binding answered an interaction with (an ephemeral
@@ -1915,7 +1959,7 @@ impl FakeDiscord {
         } else {
             body
         };
-        let r = Reply {
+        let mut r = Reply {
             at_ms: now_ms(),
             interaction: interaction.map(str::to_string),
             kind: kind.to_string(),
@@ -1944,6 +1988,22 @@ impl FakeDiscord {
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();
+            // A deferral that was ephemeral makes what completes it ephemeral, as Discord does.
+            if let Some(id) = interaction {
+                match (kind, r.ephemeral) {
+                    ("callback", true) => {
+                        st.ephemeral_acks.insert(id.to_string());
+                    }
+                    ("original", false) if st.ephemeral_acks.contains(id) => r.ephemeral = true,
+                    _ => {}
+                }
+            }
+            // An edit of the response an interaction was answered with: the view the person sees follows it.
+            if kind == "original" {
+                if let Some(id) = interaction {
+                    st.complete_view(id, &content, &data["components"], data["flags"].as_u64());
+                }
+            }
             if kind == "callback"
                 && matches!(r.response_type, Some(4 | 7))
                 && data["components"].is_array()
