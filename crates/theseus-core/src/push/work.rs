@@ -997,6 +997,11 @@ impl WorkBoard {
                     .collect();
                 ei.wakes = e.wakes.clone();
                 for w in e.wakes.iter().filter(|w| !old.contains(&w.id)) {
+                    // A fired or cancelled one-shot that is pending again under
+                    // its own id (a snooze of a fired reminder, `wake.snooze
+                    // { fired: true }`) has not ended: its view is the pending
+                    // one, not the `Done` the fire left.
+                    self.ended_wakes.remove(&w.id);
                     d.wakes.insert(w.id.clone());
                 }
                 for w in e.wakes.iter().filter(|w| w.id.is_empty()) {
