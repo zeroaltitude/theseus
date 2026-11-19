@@ -187,7 +187,8 @@ pub struct TurnRunner {
     /// who sent it (theseus-hmwv): an input that arrived before it, and
     /// whose turn is admitted after it, is stopped as its turn starts.
     pub latest_stops: std::sync::Mutex<std::collections::HashMap<String, StopNotice>>,
-    /// The input turns waiting in `admit()`: a stop reaches them
+    /// The input turns that have not yet taken their execution's hold
+    /// (waiting for their secrets, or in `admit()`): a stop reaches them
     /// (`AdmitWaiting`).
     pub admit_waiting: AdmitWaiting,
     /// Each place's class (the place rule, theseus-nbsh): the places the

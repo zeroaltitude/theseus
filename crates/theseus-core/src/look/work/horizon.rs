@@ -3,11 +3,11 @@
 //! the same views (`Core::projects_upto`, which is `project_list`'s with a limit, `routine_list`, `wakes`). Names, states, times and counts.
 //!
 //! A routine's, a project's and a reminder's words were written when it was made, in some
-//! conversation: each part says so, and a routine's or a reminder's are held back when the
-//! conversation they belong to holds data marked anything but open (`Reader::words`). A project's own
-//! title is the owner's; its next milestone's title may have been written in another conversation (the
-//! milestone record names the session), and is that conversation's words. Each short field is clipped
-//! by itself (`reader::field`).
+//! conversation: each part says so, and a routine's or a reminder's are held back from a turn whose
+//! model the labels could keep off when the conversation they belong to holds data marked anything but
+//! open (`Reader::words`). A project's own title is the owner's; its next milestone's title may have
+//! been written in another conversation (the milestone record names the session), and is that
+//! conversation's words. Each short field is clipped by itself (`reader::field`).
 
 use std::fmt::Write;
 
