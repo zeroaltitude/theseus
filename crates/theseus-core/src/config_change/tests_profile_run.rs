@@ -239,6 +239,38 @@ async fn an_unknown_profile_opens_nothing() {
     );
 }
 
+/// A conversation whose labels keep a model of restricted origin off it may not hand work to one:
+/// the floor's refusal is the one a turn on that profile meets, said before any task opens.
+#[tokio::test]
+async fn a_profile_the_labels_forbid_is_refused_before_a_task_opens() {
+    use crate::content::{ContentFlags, Flag, ItemKind, Label};
+    let r = rig_with(|cfg, _| cfg.vouch_zai(crate::catalog::ModelOrigin::Cn));
+    r.agents_report(REPORT, None);
+    let mut flags = ContentFlags::default();
+    flags.raise(Label {
+        flag: Flag::Confidential,
+        node: Some("nod_earlier".into()),
+        kind: ItemKind::ToolResult,
+        source: "fs.read /srv/notes.txt".into(),
+        confidence: 0.8,
+        band: theseus_judge::band::Band::Confirm,
+        at_ms: 1,
+        judgment: String::new(),
+    });
+    let sid = r.session_at(PLACE);
+    let mut rec: crate::session::SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
+    rec.data = Some(Box::new(flags));
+    r.core.store.put_session(&sid, &rec).unwrap();
+    r.steps(&sid, vec![("profile_run", work("glm"))]).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(
+        text.contains("keeps a model of restricted origin off it"),
+        "{text}"
+    );
+    assert!(tasks(&r, &sid).is_empty());
+}
+
 /// What a model may not set is not there to set: a budget, a wake, a start time, a profile of
 /// its own under another name, the tools: each is refused as an unknown field, and no task opens.
 #[tokio::test]
