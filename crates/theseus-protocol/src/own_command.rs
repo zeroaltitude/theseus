@@ -450,6 +450,9 @@ mod tests {
     fn what_has_no_tool_or_asks_for_more_than_the_tool_gives_runs() {
         for line in [
             "theseus profile use glm",
+            "theseus profile use",
+            "theseus profile unpin",
+            "theseus profile unpin glm",
             "theseus profile release",
             "theseus profile pins",
             "theseus ask hello",
