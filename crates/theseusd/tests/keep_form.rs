@@ -503,8 +503,20 @@ fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
             .collect();
         (t.len() == 2).then_some(t)
     });
-    assert!(told[0].contains("a key is at most 4096 bytes"), "{told:?}");
-    assert!(told[1].contains("no value was given"), "{told:?}");
+    // (The replies come back in either order.)
+    assert!(
+        told.iter()
+            .any(|t| t.contains("a key is at most 4096 bytes")),
+        "{told:?}"
+    );
+    assert!(
+        told.iter().any(|t| t.contains("no value was given")),
+        "{told:?}"
+    );
+    assert!(
+        told.iter().all(|t| !t.contains('é') && !t.contains(VALUE)),
+        "{told:?}"
+    );
     assert!(common::vault::stored(r.vault.path()).is_none());
     assert_eq!(r.cards().len(), 1, "the card still waits");
     r.value_nowhere();
