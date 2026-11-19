@@ -173,7 +173,10 @@ impl Rig {
 
     /// The daemon, on one runtime worker.
     fn spawn(&self) -> Daemon {
-        let log = std::fs::File::create(self.path("theseusd.log")).unwrap();
+        // The daemon's log is in memory too (`evidence_dir`): a write to a log on a disk whose journal is full
+        // blocked the daemon's one runtime worker, and `health` with it, for seconds (found with the daemon's threads
+        // listed at each stall: the thread in the write, its descriptor this file).
+        let log = std::fs::File::create(self.evidence.path().join("theseusd.log")).unwrap();
         let d = Daemon::spawn(
             std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
                 .arg("--config")
@@ -232,7 +235,8 @@ impl Rig {
             }
             Err(e) => out.push(format!("action.list failed: {e}")),
         }
-        let log = self.log();
+        let log =
+            std::fs::read_to_string(self.evidence.path().join("theseusd.log")).unwrap_or_default();
         let stop = log.lines().filter(|l| {
             ["stop", "cancel", "job", "wrapper", "verdict"]
                 .iter()
