@@ -17,6 +17,16 @@ use serde_json::{json, Value};
 /// limits: a one-hour limit has a day's ceiling.
 pub const CEILING_FACTOR: u32 = 24;
 
+/// The longest the wrapper sleeps between looks at what the job has printed, in
+/// limits, and its bounds. The silence is counted from the look that sees a
+/// byte, not from the byte: a look a whole limit away made a job that printed
+/// once, early, a quiet one only a limit after that look, up to twice its limit
+/// from the start. So a job is cut after at least its limit of silence, and
+/// after at most its limit and one look.
+const LOOK_DIVISOR: u32 = 8;
+const LOOK_MIN: Duration = Duration::from_millis(10);
+const LOOK_MAX: Duration = Duration::from_secs(1);
+
 /// Why a job's limit stopped it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cut {
@@ -67,6 +77,11 @@ impl Patience {
         }
     }
 
+    /// The longest between two looks at the output.
+    pub fn look(&self) -> Duration {
+        (self.limit / LOOK_DIVISOR).clamp(LOOK_MIN, LOOK_MAX)
+    }
+
     pub fn limit_ms(&self) -> u64 {
         self.limit.as_millis() as u64
     }
@@ -103,8 +118,9 @@ impl Patience {
     }
 
     /// How long the wrapper may sleep before it must look again: to the
-    /// quiet limit counted from the last byte, or the ceiling, or the limit's
-    /// notice, whichever is first.
+    /// quiet limit counted from the last look that saw a byte, or the ceiling,
+    /// or the limit's notice, or one look (`look`), whichever is first. A
+    /// limit on the clock needs no look of the output.
     pub fn sleep(&self) -> Duration {
         let elapsed = self.t0.elapsed();
         let left = if self.bytes.is_none() {
@@ -117,7 +133,7 @@ impl Patience {
             if self.noticed.is_none() {
                 left = left.min(self.limit.saturating_sub(elapsed));
             }
-            left
+            left.min(self.look())
         };
         left.max(Duration::from_millis(1))
     }

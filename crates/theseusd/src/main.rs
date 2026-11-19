@@ -37,6 +37,7 @@ use tokio::net::UnixListener;
 
 mod change_back;
 mod install;
+mod logq;
 mod mcp;
 mod stdio;
 mod systemd;
@@ -189,6 +190,13 @@ fn build_commit() -> &'static str {
 }
 
 fn main() -> Result<()> {
+    let ended = run();
+    // What was logged reaches stderr before an error that ends the start is printed, and before the process ends.
+    logq::flush(logq::STOP_WAIT);
+    ended
+}
+
+fn run() -> Result<()> {
     // An L1 job's init (17b): pid 1 of the job, started by its wrapper with
     // its spec on fd 3. First, before anything else: it stays one thread,
     // its stderr is the job's, and it keeps the umask its wrapper gave it.
@@ -227,15 +235,24 @@ fn main() -> Result<()> {
     // files in the workspace.
     theseus_kernel::umask::private();
     let cli = Cli::parse();
-    // Logs go to stderr always; stdout may be the protocol stream.
-    tracing_subscriber::fmt()
+    // Logs go to stderr always; stdout may be the protocol stream. A daemon that serves hands each line to a queue
+    // that a thread of its own writes (`logq`): the log never blocks the daemon, whatever stderr is. The commands
+    // that run and end write it themselves, as they did.
+    let logs = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("THESEUS_LOG")
                 .unwrap_or_else(|_| "info".into()),
         )
-        .with_writer(std::io::stderr)
-        .with_target(false)
-        .init();
+        .with_target(false);
+    match cli
+        .cmd
+        .is_none()
+        .then(logq::start_on_stderr)
+        .and_then(Result::ok)
+    {
+        Some(queue) => logs.with_writer(queue).init(),
+        None => logs.with_writer(std::io::stderr).init(),
+    }
 
     if let Some(Cmd::ExampleConfig { for_this_host }) = cli.cmd {
         if !for_this_host {
@@ -555,6 +572,11 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd)
     // (Review 2's consideration 1). Each mode of a state dir has its own file.
     let mode = if cli.stdio { "stdio" } else { "socket" };
     theseus_core::crash::install(&state_dir, mode);
+    // The panic hook writes the log's queue first: the lines before a crash are the ones that say why.
+    if let Some(queue) = logq::handle() {
+        let before = std::panic::take_hook();
+        std::panic::set_hook(logq::flushing(before, queue));
+    }
     // The store is single-process. A spawned stdio server must not fight a
     // running daemon for the same directory, so stdio mode uses its own.
     // The name comes from `rpc::STORE_DIR_NAMES`, which is also what the
@@ -936,6 +958,8 @@ fn exec_self(var: &str, value: &str) -> Result<()> {
     if let Some(u) = theseus_kernel::umask::operator() {
         cmd.env(theseus_kernel::umask::ENV, theseus_kernel::umask::format(u));
     }
+    // The queue is this process's: what it holds is written before the image is replaced.
+    logq::flush(logq::STOP_WAIT);
     let err = cmd.exec();
     Err(anyhow::Error::new(err).context("restarting: exec of /proc/self/exe failed"))
 }
