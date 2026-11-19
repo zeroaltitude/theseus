@@ -389,7 +389,7 @@ fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
         stopped_in.as_millis()
     );
     // "No longer than the grace" is a promise about the wait for the post, and the daemon times that
-    // wait itself (`waited_ms` on its "stopping:" line, the stop's began to the posts' settling). The
+    // wait itself (`waited_ms` on its "stopping:" line, the wait's start to the posts' settling). The
     // wall clock from the request to the exit is not that wait: it holds the client's connect, this
     // harness's polling and the process's teardown too, and beside 64 busy loops it read 1 s to 3.5 s
     // while the daemon's own stop took 74 ms and its wait 51 ms (theseus-20, the third pass). So the
