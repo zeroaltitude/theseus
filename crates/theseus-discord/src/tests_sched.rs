@@ -846,3 +846,74 @@ async fn a_restart_while_a_task_waits_keeps_it_scheduled_and_makes_no_second_car
     );
     assert_eq!(posts(&r, forum).len(), 1);
 }
+
+/// A fired reminder's post is read by the same Clear done as a done task's and
+/// archived by the same sweep, a day after its end; a reminder still waiting is
+/// left in the forum.
+#[tokio::test]
+async fn a_fired_reminders_post_is_archived_with_a_done_tasks_by_the_same_press_and_sweep() {
+    const KEY: &str = "discord.task_posts";
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    remind(&r, "waiting tide check", "in 90m").await;
+    remind(&r, "fired tide check", "in 3s").await;
+    start_task(&r, None);
+    r.until("the three posts", || posts(&r, forum).len() == 3)
+        .await;
+    let rows = |r: &Rig| -> Vec<serde_json::Value> {
+        r.core
+            .store
+            .get_meta::<Vec<serde_json::Value>>(KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    r.until("the reminder's post is done", || {
+        post_with(&r, forum, "fired tide check")
+            .is_some_and(|p| last_tags(&r, p.id) == [tag_id(&r, forum, "done")])
+    })
+    .await;
+    open_gate(&r);
+    r.until("the task's and the reminder's rows ended", || {
+        rows(&r).iter().filter(|p| p["ended_ms"].is_u64()).count() == 2
+    })
+    .await;
+    r.until("a board with Clear done", || !boards(&r, home).is_empty())
+        .await;
+    let board = boards(&r, home).remove(0);
+    r.press(&board.id, "✓ Clear done", (ANA, "ana"));
+    r.until("both finished rows read", || {
+        rows(&r)
+            .iter()
+            .filter(|p| p["ended_ms"].is_u64() && p["read_ms"].is_u64())
+            .count()
+            == 2
+    })
+    .await;
+    // They ended a day and an hour ago.
+    let now = theseus_protocol::now_unix_ms();
+    let mut list = rows(&r);
+    for p in &mut list {
+        if p["ended_ms"].is_u64() {
+            p["ended_ms"] = serde_json::json!(now - 25 * 3_600_000);
+        }
+    }
+    r.core.store.put_meta(KEY, &list).unwrap();
+    crate::runtime::shared_for_tests(&r.core).sweep_once().await;
+    let archived = |name: &str| {
+        let p = post_with(&r, forum, name).unwrap();
+        r.fake
+            .threads()
+            .into_iter()
+            .find(|t| t.id == p.id)
+            .unwrap()
+            .archived
+    };
+    assert!(archived("fired tide check"), "the fired reminder's post");
+    assert!(archived("Buoy-paint"), "the done task's post");
+    assert!(
+        !archived("waiting tide check"),
+        "a reminder that waits stays"
+    );
+}

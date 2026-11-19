@@ -98,6 +98,13 @@ pub(crate) enum Tag {
     Scheduled,
 }
 
+/// Whether `task` is a scheduled item's id (a reminder's or a check-in's wake,
+/// or a routine's session), not a task's: its post is read by the same Clear
+/// done as a task's (`archive`).
+pub(crate) fn is_item_id(task: &str) -> bool {
+    task.starts_with("wak_") || task.starts_with("ses_")
+}
+
 /// Whether `view` is a scheduled item (a reminder, a check-in or a routine)
 /// that `runtime/sched.rs` made up for its post, not a task.
 pub(crate) fn is_scheduled(view: &WorkView) -> bool {
