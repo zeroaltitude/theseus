@@ -65,6 +65,7 @@ mod not_started;
 pub(crate) mod note;
 mod operands;
 pub(crate) mod order;
+mod own_command;
 mod parallel;
 mod peek;
 mod proc_cap;
@@ -988,6 +989,10 @@ impl ToolRuntime {
             return self
                 .invalid_json(tc, call, tool.name(), raw)
                 .map(Admitted::Answered);
+        }
+        // Theseus's own look, run in a shell, is answered with the tool that does it (issue 28).
+        if let Some(done) = self.answer_own_command(tc, tool.name(), call)? {
+            return Ok(Admitted::Answered(done));
         }
         match self.gate(tc, tool.as_ref(), call).await {
             Err(bad) => self

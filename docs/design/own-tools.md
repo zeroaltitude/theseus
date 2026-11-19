@@ -90,3 +90,29 @@ model's request has no tool and one message, its words and model are the result 
 is a `provider.call` action of the turn's execution settled as `ask_profile`; an unknown profile, a bad question, a
 task's session are refused and call no model; the hold needs the owner's own message and a real profile, writes the
 `session.profile_set` row the command writes, and is let go the same way.
+
+## The shell is answered with the tool that does it (issue 28, part 3, step 1)
+
+A turn asked to look at Theseus ran `theseus health` and `theseus profile` in a shell although `look_theseus` was installed.
+The daemon now answers such a command **before it runs**, with the tool's name, in code and in no prompt:
+`Not run: this is `look_theseus`: use it.` The rule is `theseus_protocol::own_command` (the table and the parse); it is applied
+in the gate's admission by `toolrun/own_command.rs`. It is not the floor and touches no part of `policy.rs`.
+
+- **What is answered, and nothing else.** A call whose one program is exactly `theseus` (not a path, not `theseusd`, not `op`,
+  no environment, no `cd x &&`); whose verb and sub-verb is a **look that has a tool** in the table; that names no operand and
+  no flag but `--json`, `--plain`, `--no-stream`; and that is alone or piped into **pure filters of its output**. The line is
+  drawn narrow: `head` and `tail` with a count, `wc`, `sort`, `uniq` (flags only), and `grep` with exactly one pattern and flags
+  that read nothing (no `-r`, `-f`, `-e`), none naming a file. A second command (`;`, `&&`, `||`, `&`), a redirection but
+  `2>&1` and `2>/dev/null`, a substitution, a glob, a `~`, a comment, or any other program in the pipe: the line is not read and
+  runs as it did.
+- **What runs as it did.** An act (`theseus ask`, `profile use`), a look with no tool yet (`history`, `tasks`, …), a verb the table
+  does not know, and a command that asks for more than the tool gives (an operand, a stream flag).
+- **Where it is not answered.** Only where the tool can be called: it is registered (a daemon started from a config), and the
+  turn is the owner's own conversation (`config.show`'s wall). A job, a task, the self loop, an MCP session and a shared place
+  keep the command, since the tool is refused them and the command is the only look they have.
+- **The table cannot forget a verb.** It is checked against the command tree by a test of the CLI crate
+  (`help_cmd::tests::the_verb_table_of_the_answer_is_the_command_tree`): a new verb fails it until it is classified, and a verb that
+  has a look with a tool must name every one of its sub-verbs, so a new act under it is never answered as a look. A row that
+  names a verb or sub-verb the tree does not have fails too.
+- **The record** is the call's result node: status declined, `meta.answered_with` the tool, `meta.command` the verb. No job
+  starts and no card is made.

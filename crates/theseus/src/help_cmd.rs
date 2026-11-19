@@ -152,6 +152,87 @@ mod tests {
         assert_eq!(have.len(), names.len(), "{page}");
     }
 
+    /// Theseus's own look, answered with its tool (issue 28): the verbs the answer reads
+    /// (`theseus_protocol::own_command::VERBS`) are the command tree's, so **a new verb cannot be
+    /// forgotten silently**. Every verb of the tree has a row; every row names a verb of the tree;
+    /// a verb with a look that has a tool names each of its sub-verbs (a new act under it must not
+    /// be answered as a look); and the sub-verbs a row names are the tree's.
+    #[test]
+    fn the_verb_table_of_the_answer_is_the_command_tree() {
+        use theseus_protocol::own_command::{Way, VERBS};
+        let tree = Cli::command();
+        let verbs: Vec<&Command> = tree.get_subcommands().collect();
+        for v in &verbs {
+            let name = v.get_name();
+            assert!(
+                VERBS.iter().any(|r| r.verb == name && r.subs.is_empty()),
+                "`theseus {name}` has no row in `own_command::VERBS`: say whether it is a look with a tool, \
+                 a look with none, or an act"
+            );
+        }
+        for r in VERBS {
+            let Some(v) = verbs.iter().find(|v| v.get_name() == r.verb) else {
+                panic!(
+                    "`own_command::VERBS` names `{}`, which is not a verb",
+                    r.verb
+                );
+            };
+            let subs: Vec<&str> = v.get_subcommands().map(Command::get_name).collect();
+            for s in r.subs.iter().filter(|s| !s.is_empty()) {
+                assert!(
+                    subs.contains(s),
+                    "`own_command::VERBS` names `{} {s}`, which is not a sub-verb (the tree has {subs:?})",
+                    r.verb
+                );
+            }
+        }
+        for v in &verbs {
+            let name = v.get_name();
+            if !VERBS
+                .iter()
+                .any(|r| r.verb == name && matches!(r.way, Way::Look(_)))
+            {
+                continue;
+            }
+            for sub in v.get_subcommands().map(Command::get_name) {
+                assert!(
+                    VERBS
+                        .iter()
+                        .any(|r| r.verb == name && r.subs.contains(&sub)),
+                    "`theseus {name}` has a look with a tool, so `{name} {sub}` must be named in \
+                     `own_command::VERBS`: a new act is not a look"
+                );
+            }
+        }
+    }
+
+    /// Each look the answer names is a command the line takes (it parses), and answers with the tool the
+    /// table gives; an act of the same verb is not answered.
+    #[test]
+    fn each_answered_look_is_a_command_that_parses() {
+        use clap::Parser;
+        use theseus_protocol::own_command::{answer_words, Way, VERBS};
+        for r in VERBS.iter().filter(|r| matches!(r.way, Way::Look(_))) {
+            let Way::Look(tool) = r.way else { continue };
+            for sub in r
+                .subs
+                .iter()
+                .copied()
+                .chain(r.subs.is_empty().then_some(""))
+            {
+                let mut line = vec!["theseus", r.verb];
+                line.extend(Some(sub).filter(|s| !s.is_empty()));
+                assert!(
+                    Cli::try_parse_from(&line).is_ok(),
+                    "`{}` is not a command",
+                    line.join(" ")
+                );
+                let words: Vec<String> = line.iter().map(|w| w.to_string()).collect();
+                assert_eq!(answer_words(&words).map(|a| a.tool), Some(tool), "{line:?}");
+            }
+        }
+    }
+
     #[test]
     fn a_hidden_command_still_has_its_page() {
         assert_eq!(run(&["ledger"]), 0);
