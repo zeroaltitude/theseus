@@ -2082,6 +2082,21 @@ mod tests {
             "stopped session ses_a1b2c3's work · 1 action(s) told to stop · 0 declined · the \
              conversation goes on · 1 task(s) and 0 wake(s) go on (theseus cancel <id>)"
         );
+        // A task the stopped turn handed to a profile is said to be an agent still working, with its cancel.
+        let mut handed = r.clone();
+        handed.agents_running = vec![theseus_protocol::StopAgent {
+            profile: "haiku".into(),
+            model: "claude-haiku-5-5".into(),
+            task: "d4e5f6".into(),
+        }];
+        assert_eq!(
+            stop_line(&handed),
+            format!(
+                "{} · The agent haiku was handed work (claude-haiku-5-5) is still working: \
+                 `theseus cancel d4e5f6` stops it.",
+                stop_line(&r)
+            )
+        );
     }
 
     /// Health's executions say what the waiting ones wait on, and keep every
