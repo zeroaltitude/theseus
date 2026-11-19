@@ -374,10 +374,12 @@ async fn off_the_batch_is_todays_and_on_its_state_is_todays_plus_the_fields() {
 /// answer) held until the test releases it, the turn's route verdict, which
 /// rides a request of its own, comes at once and the turn finishes with the
 /// batch still out (the batch, the sink and the filing are off its path).
-/// The promise is an order, not a time: a turn that waited for the batch
-/// would never finish, so it is seen with no clock to compare and no load to
-/// scale (it failed once in ten whole runs as a comparison of two timed
-/// turns). The turn's own limit here is the fixture's patience.
+/// The promise is an order, not a time: the batch never answers until the
+/// test says so, so a turn that waited for it would give up at its own bound
+/// with the verdict missed (`late` on its route row), and no clock of the
+/// test's is compared against another (it failed once in ten whole runs as a
+/// comparison of two timed turns). The turn's limit here is the fixture's
+/// patience.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
     for on in [false, true] {
@@ -386,7 +388,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
         let r = rig_with(jev, Vec::new(), |c| {
             c.ontology.judge = on;
             // route.v6 asks, and the turn waits for its verdict beside its
-            // first compile.
+            // first compile (a slow one up to this long).
             c.judge.packs.remove(crate::judge::inbound::ROUTE_PACK);
             c.routing.max_wait_ms = 5_000;
             crate::tests_route::glm_placements(c);
@@ -398,6 +400,13 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
             .unwrap_or_else(|_| {
                 panic!("onto = {on}: the turn waited for the batch, which is held")
             });
+        // The verdict came in time: the turn did not miss it, which it does
+        // when something on its path waits for the held batch (it then gives
+        // up at its bound and the row says `late`).
+        let rows = crate::tests_route::decided(&r.core.store);
+        assert_eq!(rows.len(), 1, "onto = {on}: {rows:?}");
+        assert_eq!(rows[0]["late"], false, "onto = {on}: {}", rows[0]);
+        assert!(rows[0]["answered_ms"].is_u64(), "onto = {on}: {}", rows[0]);
         // The batch was asked, and is still out: the turn did not wait for it.
         let t0 = Instant::now();
         while !r
