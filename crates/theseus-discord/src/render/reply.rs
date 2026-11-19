@@ -3,7 +3,7 @@
 
 use theseus_protocol::TurnSubmitResult;
 
-use super::{cite, clip, footer, split_text, DISCORD_LIMIT, PART_LIMIT};
+use super::{cite, clip, footer_in, split_text, DISCORD_LIMIT, PART_LIMIT};
 
 /// A reply's messages, in order: each loop's text in its final form, under
 /// the keys the stream used, and the footer riding on the last part when it
@@ -14,6 +14,17 @@ pub fn reply_parts(
     turn_id: &str,
     texts: &[(u32, String)],
     result: Option<&TurnSubmitResult>,
+) -> Vec<(String, String)> {
+    reply_parts_in(turn_id, texts, result, false)
+}
+
+/// [`reply_parts`], for a reply that may be a task's own (issue 28): a task is a subagent, so the footer
+/// of what it says in a channel of its own says so, after the model it ran on.
+pub fn reply_parts_in(
+    turn_id: &str,
+    texts: &[(u32, String)],
+    result: Option<&TurnSubmitResult>,
+    task: bool,
 ) -> Vec<(String, String)> {
     let cites = result.map_or(&[][..], |r| r.cites.as_slice());
     let (texts, order) = cite::marked(texts, cites);
@@ -32,7 +43,7 @@ pub fn reply_parts(
             _ => out.push((format!("{turn_id}:cites"), notes)),
         }
     }
-    if let Some(f) = result.map(footer) {
+    if let Some(f) = result.map(|r| footer_in(r, task)) {
         match out.last_mut() {
             Some((_, c)) if c.len() + f.len() < DISCORD_LIMIT => {
                 c.push('\n');

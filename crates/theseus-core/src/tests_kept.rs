@@ -538,6 +538,7 @@ async fn a_task_reports_kept_copy_is_the_report_as_written() {
         elapsed_ms: 1,
         target: None,
         check: None,
+        ran_on: None,
         joined: 0,
     };
     let (_, cut, kept) = crate::task_wait::fit(&r.core, &sid, &report, 200);
