@@ -368,7 +368,7 @@ fn restart(lane: &mut Lane) {
     lane.msgs.clear();
     lane.sent.clear();
     lane.board_sought = false;
-    lane.v2.board_at = None;
+    lane.v2.restarted();
 }
 
 fn creates(fake: &FakeDiscord) -> usize {
@@ -488,6 +488,7 @@ async fn a_recorded_v2_board_is_not_taken_for_the_text_board() {
     lane.apply_live().await;
     let v2 = boards(&fake)[0].id.clone();
     restart(&mut lane);
+    fake.set_nonce_window_ms(0);
     lane.take(LaneMsg::Live(Op::Upsert {
         key: render::BOARD_KEY.into(),
         content: format!("{} · 1 open", render::BOARD_HEAD),

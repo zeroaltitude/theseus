@@ -75,6 +75,13 @@ pub(crate) struct State {
 }
 
 impl State {
+    /// A restart: the pace the board was written at went with the process.
+    #[cfg(test)]
+    pub(super) fn restarted(&mut self) {
+        self.board_at = None;
+        self.board_due = None;
+    }
+
     /// The next time the lane should wake with nothing new from its place.
     pub fn due(&self) -> Option<Instant> {
         [self.board_due, self.summary_due]
