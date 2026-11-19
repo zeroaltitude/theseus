@@ -210,8 +210,8 @@ impl OpReader {
                 // The vault's program takes what is piped to `item edit` as the item
                 // itself, so the edit is the item's own JSON with this one field
                 // changed or added: nothing else of the item is left out. Its text holds
-                // the item's other values, so it is read and sent in zeroizing memory
-                // and goes nowhere else.
+                // the item's other values: the text read and the body sent are zeroized
+                // on drop (the parsed form between them is not), and it goes nowhere else.
                 let got = zeroize::Zeroizing::new(
                     self.run(
                         &["item", "get", item, "--vault", vault, "--format", "json"],

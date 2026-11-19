@@ -33,10 +33,12 @@ An item that a `[secrets]` entry or the settings note reads is never replaced by
 Two requests, one value each (`theseus_protocol::vault_keep`; the value is a `SecretText`, which prints as nothing):
 
 - `vault.keep.answer {question_id, value, code?}`: the card's. Judged as every answer is (`judge_act`, the place rule; no
-  agent's process; the second proof through `proof_gate`), after the value is checked (not blank, at most 4,096 bytes, no NUL:
-  a bad value spends no code), then the target is **re-found**: the card was a yes to this item and field, so a vault that
-  changed meanwhile writes nothing. A plain Approve of the card (`action.confirm`, `work.answer`) is refused before the proof
-  gate with the words that say where to type, so no code is spent on it.
+  agent's process), then the value is checked (not blank, at most 4,096 bytes, no NUL), one answer at a time per question,
+  then the target is **re-found** by the ids the card recorded: the card was a yes to this item and field, so a vault that
+  changed meanwhile writes nothing, and a vault that cannot be asked just now keeps the card waiting. Only then the second
+  proof through `proof_gate`, so no code is spent on a write that will not be tried. A plain Approve of the card
+  (`action.confirm`, `work.answer`) is refused before the proof gate with the words that say where to type, so no code is
+  spent on it.
 - `vault.keep {vault, title, field, value, code}`: from the owner's own terminal with no card, the one way to replace an item
   the settings read. The terminal alone (not a job's shell, not an agent's process, not the web port, not Discord, not MCP),
   and always a fresh code.
@@ -47,13 +49,15 @@ can quote the value it found).
 ## The write
 
 `OpReader::keep_field` is the path that keeps the Google token: the item as JSON on the program's **stdin**, never argv; read
-back with `read`; compared by sha256. A new item is made with `item create -`, an existing one edited by the ids the vault gave
-(its own field id and label, so a label is never renamed). Its answer is a class and never the program's words:
+back with `read`; compared by sha256. A new item is made with `item create -`. An existing one is edited by the ids the vault gave
+and as a whole: the item is read (`item get`), only the one field (found by its id) is changed or added, and the whole item is
+piped back to `item edit`, the program's own round trip, so none of its other fields is lost. Its answer is a class and never
+the program's words:
 
 | ended | told | the card |
 |---|---|---|
 | written, read back | "Kept in the vault V, item T, field F: it reads back as written." | approved |
-| not written | "Nothing was kept ...: <class>. The vault was not changed." | declined, with the reason |
+| not written | "Nothing was kept ...: <class>. The vault was not changed." (on a timeout: "The vault may have been changed anyway: check the item before asking again.") | declined, with the reason |
 | written, read-back failed | "... reading it back failed (<class>). The item exists or was changed: check it in the vault before relying on it." | approved |
 | written, read back differently | "... did NOT read back as written. ... check it" | approved |
 | the target changed since the card | "... is not what the card showed any more ... nothing was written. Ask for the keep again." | declined |
