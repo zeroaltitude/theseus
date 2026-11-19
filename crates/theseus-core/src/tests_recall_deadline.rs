@@ -68,9 +68,13 @@ impl Stalls {
     }
 
     fn say(&self) -> String {
-        let cpu = cpu_time().zip(self.began.1).map(|(now, then)| now - then);
+        let cpu = cpu_time()
+            .zip(self.began.1)
+            .map_or("an unknown time".to_string(), |(now, then)| {
+                format!("{:?}", now - then)
+            });
         format!(
-            "the test's runtime was silent for at most {} ms; its process used {cpu:?} of CPU in {:?}",
+            "the test's runtime was silent for at most {} ms; its process used {cpu} of CPU in {:?}",
             self.longest.load(Ordering::SeqCst),
             self.began.0.elapsed()
         )
