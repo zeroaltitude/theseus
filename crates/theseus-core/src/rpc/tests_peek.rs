@@ -451,12 +451,22 @@ async fn a_follow_from_far_behind_skips_to_the_newest_four_mib() {
 /// A job's `last_line` is sampled, scrubbed, and said at most once a second
 /// however much it prints (10,000 lines a second here): no two samples are
 /// less than 900 ms apart, and none holds what the scrubber knows.
+///
+/// The job prints until the test has seen three samples and says enough (a
+/// file), where it once printed for four seconds and the test read what had
+/// arrived by then: beside 64 busy loops the sampler's first passes came late
+/// and one sample was all the four seconds held (theseus-20, the third pass).
+/// A sampler that is slow is patience; one that never samples fails at the
+/// deadline, and one that samples faster than once a second fails the spacing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
+    let said = tempfile::tempdir().unwrap();
+    let enough = said.path().join("enough");
     let r = rig_with(&format!(
-        "end=$(( $(date +%s) + 4 )); i=0; while [ $(date +%s) -lt $end ]; do \
+        "end=$(( $(date +%s) + 120 )); i=0; while [ ! -e {} ] && [ $(date +%s) -lt $end ]; do \
          j=0; while [ $j -lt 500 ]; do echo \"chatty $i {PLANTED}\"; j=$((j+1)); i=$((i+1)); done; \
-         done"
+         done",
+        enough.display()
     ));
     r.core.sample_last_lines_after_serving();
     r.core.push.ensure(&r.core).await.unwrap();
@@ -465,8 +475,15 @@ async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
     let (job, _) = start_job(&r).await;
     let mut seen: Vec<(u64, String)> = Vec::new();
     let mut frames_with_a_job = 0;
-    let until = Instant::now() + Duration::from_secs(7);
-    while Instant::now() < until {
+    let mut stopped = false;
+    let mut ended = false;
+    let until = Instant::now() + Duration::from_secs(90);
+    while !ended {
+        assert!(
+            Instant::now() < until,
+            "no end after {} samples ({stopped}): {seen:?}",
+            seen.len()
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
         while let Ok(m) = rx.try_recv() {
             let Message::Notification(n) = m else {
@@ -478,10 +495,17 @@ async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
             let c: WorkChanged = serde_json::from_value(n.params).unwrap();
             for v in c.views.into_iter().filter(|v| v.id == job) {
                 frames_with_a_job += 1;
+                ended |= stopped && !matches!(v.state, theseus_protocol::work::WorkState::Running);
                 if let Some(l) = v.doing.and_then(|d| d.last_line) {
                     seen.push((v.at_ms, l));
                 }
             }
+        }
+        let mut distinct = seen.clone();
+        distinct.dedup_by(|later, first| later.1 == first.1);
+        if !stopped && distinct.len() >= 3 {
+            std::fs::write(&enough, "").unwrap();
+            stopped = true;
         }
     }
     assert!(frames_with_a_job > 0);
@@ -491,10 +515,7 @@ async fn last_line_goes_out_at_most_once_a_second_under_a_chatty_job() {
     // (`settle`'s stale views): the same line, not another sample (theseus-1b2zm).
     seen.dedup_by(|later, first| later.1 == first.1);
     assert!(seen.len() >= 2, "it was sampled while it ran: {seen:?}");
-    assert!(
-        seen.len() <= 6,
-        "about one a second for four seconds: {seen:?}"
-    );
+    assert!(seen.len() <= 6, "about one a second while it ran: {seen:?}");
     for w in seen.windows(2) {
         assert!(
             w[1].0 >= w[0].0 + 900,
