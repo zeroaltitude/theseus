@@ -807,3 +807,5 @@ mod tests_source;
 mod tests_undo;
 #[cfg(test)]
 mod tests_withdrawn;
+#[cfg(test)]
+mod tests_work;

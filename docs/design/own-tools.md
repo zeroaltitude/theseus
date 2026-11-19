@@ -116,3 +116,15 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
   names a verb or sub-verb the tree does not have fails too.
 - **The record** is the call's result node: status declined, `meta.answered_with` the tool, `meta.command` the verb. No job
   starts and no card is made.
+
+## `look.work`; the count of answered commands (issue 28, part 3, step 4)
+
+- **`look.work`** (family `look`, `look/work.rs`): this conversation's tasks (`Core::tasks` of this session), the questions that wait here
+  (`chat_acts::waiting_here`: this session's and the place's own, never another conversation's) and its last messages (6 by default, at most 20, 600
+  characters each, 8,000 in all, with what was left out said). The wall of `look.theseus`; refused to a job, a task, the self loop, an MCP session and a
+  shared place; asked first after outside text. It answers nothing and takes no session or place to read: `theseus history SESSION` is another read
+  and runs as it did. The shell answer maps `tasks`, `status` and `history` (bare) to it.
+- **It is deferred, in the `look` family, and costs a request nothing** (a deferred tool is counted at a constant); the family's summary line is not
+  changed, so the always-loaded text is not longer.
+- **`shell.answered`** (a ledger row): the verb, the tool named and the kind of place of each shell command the daemon answered, with no command text, so the
+  count over a week says whether the habit is fading.

@@ -414,6 +414,7 @@ mod tests {
             ("config_show", "settings"),
             ("look_theseus", "look"),
             ("look_vault", "look"),
+            ("look_work", "look"),
             ("profile_ask", "profile"),
             ("profile_hold", "profile"),
             ("vault_use", "vault"),

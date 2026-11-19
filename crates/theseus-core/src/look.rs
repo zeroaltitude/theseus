@@ -42,15 +42,17 @@ use crate::Core;
 
 mod theseus;
 mod vault;
+mod work;
 
 pub(crate) use vault::vault_named;
 
 pub const THESEUS: &str = "look.theseus";
 pub const VAULT: &str = "look.vault";
+pub const WORK: &str = "look.work";
 /// The family the tools' names give them, and the deferred family's name.
 pub const FAMILY: &str = "look";
 /// The tools' names, as the config's `[policy.tools]` checks them.
-pub const NAMES: [&str; 2] = [THESEUS, VAULT];
+pub const NAMES: [&str; 3] = [THESEUS, VAULT, WORK];
 
 /// Register both tools, in a daemon that was started from a config: a file
 /// (`config_file`) or the vault's note (`config_copy`), either of which a start
@@ -64,6 +66,7 @@ pub fn register(cfg: &crate::Config, r: &mut Registry) {
     if cfg.config_file.is_some() || cfg.config_copy.is_some() {
         r.register(Arc::new(LookTheseus));
         r.register(Arc::new(LookVault));
+        r.register(Arc::new(LookWork));
     }
 }
 
@@ -71,6 +74,7 @@ pub fn register(cfg: &crate::Config, r: &mut Registry) {
 fn about(tool: &str) -> &'static str {
     match tool {
         VAULT => "read the names in Theseus's vault",
+        WORK => "read this conversation's tasks, questions and messages",
         _ => "look at what Theseus runs as",
     }
 }
@@ -218,6 +222,51 @@ impl Tool for LookVault {
     }
 }
 
+/// `look.work`.
+pub struct LookWork;
+
+impl Tool for LookWork {
+    fn name(&self) -> &str {
+        WORK
+    }
+
+    fn description(&self) -> &str {
+        "This conversation's work: the tasks it started (state, spend, what each asks), what waits on \
+         the owner, and its last messages. Only this conversation's. Answers Theseus's own tasks, status \
+         and history commands. Changes nothing. Offered only to the owner, in a private place."
+    }
+
+    fn input_schema(&self) -> Value {
+        work::schema()
+    }
+
+    fn class(&self) -> ToolClass {
+        ToolClass::Read
+    }
+
+    fn backend(&self) -> Backend {
+        Backend::Async
+    }
+
+    fn retry(&self) -> Retry {
+        Retry::SafeToRepeat
+    }
+
+    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
+        let ask = work::ask_of(input)?;
+        Ok(Plan {
+            summary: format!("look at this conversation's work: {}", ask.summary()),
+            ..Default::default()
+        })
+    }
+
+    fn run_async(&self, _input: &Value, _ctx: &ToolCtx) -> theseus_tools::AsyncRun {
+        Box::pin(std::future::ready(Err(ToolFailure::new(
+            "look.work runs through the runtime, which reads this conversation",
+        ))))
+    }
+}
+
 /// What a look gives the model: its words, and which look it was.
 fn output(text: String, look: &str) -> ToolOutput {
     ToolOutput {
@@ -277,6 +326,17 @@ impl Board {
                 Box::pin(async move {
                     let said = theseus::words(&core, target.as_ref(), &parts);
                     Ok((output(said, THESEUS), None, None))
+                })
+            }
+            WORK => {
+                let ask = match work::ask_of(input) {
+                    Ok(a) => a,
+                    Err(e) => return fail(e),
+                };
+                let session = tc.session_id.to_string();
+                Box::pin(async move {
+                    let said = work::words(&core, &session, &ask);
+                    Ok((output(said, WORK), None, None))
                 })
             }
             _ => {

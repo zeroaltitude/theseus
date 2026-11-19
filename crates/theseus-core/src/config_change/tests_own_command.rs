@@ -55,7 +55,7 @@ async fn an_act_a_look_with_no_tool_and_anything_else_run_as_they_did() {
     for input in [
         json!({"command": "theseus ask hello"}),
         json!({"command": "theseus profile use glm"}),
-        json!({"command": "theseus history"}),
+        json!({"command": "theseus judge log"}),
         json!({"command": "theseus health; echo more"}),
         json!({"command": "theseus health | tee out.txt"}),
         json!({"command": "echo hello"}),

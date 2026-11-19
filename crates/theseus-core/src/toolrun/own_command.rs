@@ -52,6 +52,18 @@ impl ToolRuntime {
         let Some(a) = answer_for(self, tc, call) else {
             return Ok(None);
         };
+        // The count of these over a week says whether the habit is fading: the verb, the tool and the
+        // kind of place, no command text.
+        let place = crate::tools_defer::family::PlaceKind::of(
+            tc.task.is_some(),
+            tc.outbox.target(tc.session_id).as_deref(),
+            false,
+        );
+        tc.record(&crate::fact::tool::ShellAnswered {
+            verb: &a.verb,
+            tool: a.tool,
+            place: place.as_str(),
+        });
         let wire = theseus_tools::wire_name(a.tool);
         let text = format!(
             "Not run: this is `{wire}`: use it. `theseus {}` in a shell is the same look as text \
