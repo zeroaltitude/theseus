@@ -141,7 +141,8 @@ pub async fn check(
         return Err(not_seen(vault, &vaults));
     };
     let scope = VaultId::parse(&v.id).ok_or_else(|| said(Failed::Unreadable))?;
-    let items = parse_items(&list(Verb::Items(Some(scope))).await.map_err(said)?).map_err(said)?;
+    let items =
+        parse_items(&list(Verb::Items(Some(scope.clone()))).await.map_err(said)?).map_err(said)?;
     let Some(found) = find_item(&items, &v.name, item)? else {
         return Err(format!(
             "the vault \"{}\" has no item of that title: look at its items first",
@@ -149,7 +150,7 @@ pub async fn check(
         ));
     };
     let item_id = ItemId::parse(&found.id).ok_or_else(|| said(Failed::Unreadable))?;
-    let fields = match reader.look_item(&item_id).await {
+    let fields = match reader.look_item(&scope, &item_id).await {
         Ok(text) => parse_fields(&text).map_err(said)?,
         Err(f) => return Err(said(f)),
     };

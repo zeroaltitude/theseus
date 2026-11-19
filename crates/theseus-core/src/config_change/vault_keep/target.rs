@@ -138,8 +138,13 @@ pub async fn resolve(
         return Err(not_seen(vault, &vaults));
     };
     let scope = VaultId::parse(&v.id).ok_or_else(|| said(Failed::Unreadable))?;
-    let items =
-        parse_items(&reader.look(&Verb::Items(Some(scope))).await.map_err(said)?).map_err(said)?;
+    let items = parse_items(
+        &reader
+            .look(&Verb::Items(Some(scope.clone())))
+            .await
+            .map_err(said)?,
+    )
+    .map_err(said)?;
     let mut target = Target {
         vault: v.name.clone(),
         vault_id: v.id.clone(),
@@ -157,7 +162,7 @@ pub async fn resolve(
     target.title = item.title.clone();
     target.item_id = Some(item.id.clone());
     let id = ItemId::parse(&item.id).ok_or_else(|| said(Failed::Unreadable))?;
-    let fields = match reader.look_item(&id).await {
+    let fields = match reader.look_item(&scope, &id).await {
         Ok(text) => parse_fields(&text).map_err(said)?,
         Err(f) => return Err(said(f)),
     };
