@@ -235,7 +235,7 @@ impl Tool for LookWork {
     }
 
     fn description(&self) -> &str {
-        "Theseus's work, whole: tasks, what waits on the owner, projects, routines, reminders; `scope: \
+        "Theseus's work, whole: what runs, tasks, what waits on the owner, projects, routines, reminders; `scope: \
          here` for this conversation's. Messages: this one's only (another's: `theseus history \
          SESSION`). Owner only, private place."
     }
@@ -338,8 +338,13 @@ impl Board {
                     Err(e) => return fail(e),
                 };
                 let session = tc.session_id.to_string();
+                // Whether this turn's own model is one the labels could keep off (the data gate's
+                // predicate); a turn with no target is read as one.
+                let restricted = target
+                    .as_ref()
+                    .is_none_or(|t| core.runner.restricted_profile(&t.profile));
                 Box::pin(async move {
-                    let said = work::words(&core, &session, &ask);
+                    let said = work::words(&core, &session, &ask, restricted).await;
                     Ok((output(said, WORK), None, None))
                 })
             }
