@@ -1804,27 +1804,42 @@ fn tightened_reply(tool: &str, r: &Result<TightenResult, CallError>) -> String {
     }
 }
 
+/// One button of a confirm card, answering `verb` for `corr`.
+fn confirm_button(corr: &str, verb: &str, label: &str, style: ButtonStyle) -> Component {
+    Component::Button(Button {
+        id: None,
+        custom_id: Some(format!("confirm:{verb}:{corr}")),
+        disabled: false,
+        emoji: None,
+        label: Some(label.to_string()),
+        style,
+        url: None,
+        sku_id: None,
+    })
+}
+
 /// Approve and Decline, for a call that waits.
 pub(crate) fn confirm_buttons(corr: &str) -> Vec<Component> {
-    let button = |verb: &str, label: &str, style| {
-        Component::Button(Button {
-            id: None,
-            custom_id: Some(format!("confirm:{verb}:{corr}")),
-            disabled: false,
-            emoji: None,
-            label: Some(label.to_string()),
-            style,
-            url: None,
-            sku_id: None,
-        })
-    };
     let components = vec![
-        button("approve", "Approve", ButtonStyle::Success),
-        button("decline", "Decline", ButtonStyle::Danger),
+        confirm_button(corr, "approve", "Approve", ButtonStyle::Success),
+        confirm_button(corr, "decline", "Decline", ButtonStyle::Danger),
     ];
     vec![Component::ActionRow(ActionRow {
         id: None,
         components,
+    })]
+}
+
+/// Decline alone, for a question the daemon offers no yes to (issue 29).
+pub(crate) fn decline_buttons(corr: &str) -> Vec<Component> {
+    vec![Component::ActionRow(ActionRow {
+        id: None,
+        components: vec![confirm_button(
+            corr,
+            "decline",
+            "Decline",
+            ButtonStyle::Danger,
+        )],
     })]
 }
 

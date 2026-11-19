@@ -136,15 +136,47 @@ pub fn words(t: &Target, o: Outcome) -> String {
 }
 
 /// The ledger row `vault.keep`: who, where, which target by name, and how it
-/// ended. Never the value, and not its digest.
-pub fn row(t: &Target, o: Outcome, by: &str, via: &str, question: Option<&str>) -> Value {
+/// ended. Never the value, and not its digest. `pid` is the client's process,
+/// as the daemon logs it for the connection.
+pub fn row(
+    t: &Target,
+    o: Outcome,
+    who: (&str, &str, Option<u32>),
+    question: Option<&str>,
+) -> Value {
+    let (by, via, pid) = who;
     let mut row = json!({
         "outcome": o.name(), "state": t.state.as_str(),
         "vault": t.vault, "title": t.title, "field": t.field,
-        "protected": t.protected, "approved_by": by, "via": via,
+        "protected": t.protected, "approved_by": by, "via": via, "pid": pid,
     });
     if let Some(q) = question {
         row["question"] = q.into();
+    }
+    row
+}
+
+/// The ledger row of an attempt that stopped before the vault was asked to
+/// write, or that only asked what waits: the class of what stopped it (a
+/// closed set of words: `blank`, `proof`, `no_card`, ...), who, where, from
+/// which process, and the card when there was one. Never the value, its length
+/// or its digest: nothing of what was typed is an input here.
+pub fn attempt_row(
+    outcome: &str,
+    why: &str,
+    who: (&str, &str, Option<u32>),
+    question: Option<&str>,
+    cards: Option<usize>,
+) -> Value {
+    let (by, via, pid) = who;
+    let mut row = json!({
+        "outcome": outcome, "why": why, "approved_by": by, "via": via, "pid": pid,
+    });
+    if let Some(q) = question {
+        row["question"] = q.into();
+    }
+    if let Some(n) = cards {
+        row["cards"] = n.into();
     }
     row
 }

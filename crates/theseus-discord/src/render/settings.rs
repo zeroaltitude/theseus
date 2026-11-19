@@ -27,6 +27,17 @@ pub fn is_settings(req: &ConfirmRequest) -> bool {
     req.plain.as_ref().is_some_and(|p| !p.detail.is_empty())
 }
 
+/// Whether the daemon offers this question no yes (a secret to keep takes a
+/// value, which no button carries): its card draws no Approve and no
+/// sentence about one, only where the value is typed and a Decline (issue 29).
+pub fn offers_no_yes(req: &ConfirmRequest) -> bool {
+    !req.options.is_empty()
+        && !req
+            .options
+            .iter()
+            .any(|o| theseus_protocol::answer::approves(&o.id))
+}
+
 /// Text as Discord draws it, literally: every character that Discord reads as
 /// markdown (emphasis, strike, a spoiler, a masked link, a quote, a heading or a
 /// list at a line's start, a code span, a timestamp or channel in angle
@@ -113,10 +124,13 @@ pub fn card(req: &ConfirmRequest, route: &Route, elsewhere: &str) -> CardText {
         "" => String::new(),
         e => format!(" · you can also answer {e}"),
     };
+    let proof = match offers_no_yes(req) {
+        true => String::new(),
+        false => approval::proof_clause(req),
+    };
     let text = format!(
-        "{}{}\n-# {asked_for}{}{also}",
+        "{}{proof}\n-# {asked_for}{}{also}",
         md(&p.detail),
-        approval::proof_clause(req),
         heldquestion::footer_clause(req)
     );
     let mut parts = messages(&text);
@@ -147,8 +161,18 @@ pub fn needs_you(body: &Value) -> Option<(Vec<String>, String)> {
         s.get("needs_fresh_proof") == Some(&Value::Bool(true)),
         None,
     );
+    let how = match s.get("no_yes") == Some(&Value::Bool(true)) {
+        true => {
+            "tap Decline, or type the value in your terminal with `theseus vault keep`".to_string()
+        }
+        false => format!("tap Approve or Decline, or `theseus answer {short} approve`"),
+    };
+    let proof = match s.get("no_yes") == Some(&Value::Bool(true)) {
+        true => String::new(),
+        false => proof,
+    };
     let text = format!(
-        "{}{proof}\n-# Needs you{} · tap Approve or Decline, or `theseus answer {short} approve`",
+        "{}{proof}\n-# Needs you{} · {how}",
         md(detail),
         ask::when_clause(body)
     );

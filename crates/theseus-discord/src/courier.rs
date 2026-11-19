@@ -248,6 +248,7 @@ fn asks(w: &Write) -> bool {
     matches!(
         w.buttons,
         Buttons::Confirm(_)
+            | Buttons::Decline(_)
             | Buttons::Card(..)
             | Buttons::Ask(..)
             | Buttons::ConfirmGrant(..)
@@ -1971,6 +1972,7 @@ impl Lane {
         }
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr),
+            Buttons::Decline(corr) => crate::runtime::decline_buttons(corr),
             Buttons::Ask(corr, choices) => crate::runtime::ask_buttons(corr, choices),
             Buttons::Card(corr, choices) => crate::runtime::card_buttons(corr, choices),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
@@ -2028,7 +2030,7 @@ impl Lane {
             LedgerKind::DiscordMessageOut,
             None,
             json!({"place": self.label, "target": self.target, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "ping": ping, "held": wants && !ping,
-                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::Accept(_)),
+                   "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::Decline(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
         Ok((m.id.get(), m.content))
@@ -2047,6 +2049,7 @@ impl Lane {
         let none = AllowedMentions::default();
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
+            Buttons::Decline(corr) => Some(crate::runtime::decline_buttons(corr)),
             Buttons::Ask(corr, choices) => Some(crate::runtime::ask_buttons(corr, choices)),
             Buttons::Card(corr, choices) => Some(crate::runtime::card_buttons(corr, choices)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
