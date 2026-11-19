@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use crate::config_change::vault_use::check::{find_item, not_seen, writable};
 use crate::secrets::look::{
-    parse_fields, parse_items, parse_vaults, Failed, FieldName, ItemId, ItemName, Vault, VaultId,
-    Verb,
+    parse_fields, parse_items, parse_vaults, Failed, FieldName, ItemId, ItemName, Permission,
+    Vault, VaultId, Verb,
 };
 use crate::secrets::{OpReader, SecretRef, Source};
 
@@ -115,6 +115,56 @@ fn said(f: Failed) -> String {
     f.words().to_string()
 }
 
+/// Whether the daemon's account may write in `v`: the vault's own program is
+/// asked which vaults hold `p` for it, each time (nothing is remembered, so a
+/// permission taken away since a card was put is found at the answer). An
+/// answer that cannot be had is no yes.
+async fn may_write(reader: &OpReader, v: &Vault, p: Permission) -> Result<(), String> {
+    let held = parse_vaults(&reader.look(&Verb::VaultsWith(p)).await.map_err(|f| {
+        format!(
+            "could not check whether Theseus may write in the vault \"{}\": {}",
+            v.name,
+            f.words()
+        )
+    })?)
+    .map_err(said)?;
+    match held.iter().any(|h| h.id == v.id) {
+        true => Ok(()),
+        false => Err(cannot_write(&v.name, p)),
+    }
+}
+
+/// How the words begin when the account may not write in a vault.
+pub const CANNOT_WRITE: &str = "Theseus's vault account may not";
+
+/// Whether the account may still write where `t` says, asked of the vault's
+/// program now: the words that say so when it may not.
+pub async fn still_writable(reader: &OpReader, t: &Target) -> Result<(), String> {
+    let v = Vault {
+        id: t.vault_id.clone(),
+        name: t.vault.clone(),
+    };
+    let p = match t.state {
+        State::New => Permission::CreateItems,
+        _ => Permission::EditItems,
+    };
+    may_write(reader, &v, p).await
+}
+
+/// What the owner is told when the account may not write in a vault, and what
+/// they can do.
+pub fn cannot_write(vault: &str, p: Permission) -> String {
+    let may = match p {
+        Permission::CreateItems => "make a new item",
+        Permission::EditItems => "change an item",
+    };
+    format!(
+        "{CANNOT_WRITE} {may} in the vault \"{vault}\". Nothing was \
+         kept. Give the account write access to that vault in the vault's own \
+         settings, or choose another vault"
+    )
+}
+
 /// Find the target of a keep: what the names mean in the vault, or why they
 /// mean nothing. A vault the account cannot see is told with what the owner
 /// can do; two items of one title are not guessed between.
@@ -156,8 +206,10 @@ pub async fn resolve(
         protected: false,
     };
     let Some(item) = find_item(&items, &v.name, title)? else {
+        may_write(reader, v, Permission::CreateItems).await?;
         return Ok(target);
     };
+    may_write(reader, v, Permission::EditItems).await?;
     target.protected = is_read(refs, v, item);
     target.title = item.title.clone();
     target.item_id = Some(item.id.clone());

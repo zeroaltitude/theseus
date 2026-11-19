@@ -338,6 +338,10 @@ fn settings_of(a: &Action, req: &ConfirmRequest) -> serde_json::Value {
             "needs_proof": req.needs_proof,
             "needs_fresh_proof": req.needs_fresh_proof,
             "short": short_id(&a.correlation_id),
+            // No yes is offered (a secret to keep takes a value no button carries): the post
+            // says where the value is typed and offers a Decline alone.
+            "no_yes": !req.options.is_empty()
+                && !req.options.iter().any(|o| theseus_protocol::answer::approves(&o.id)),
         }),
         None => serde_json::Value::Null,
     }

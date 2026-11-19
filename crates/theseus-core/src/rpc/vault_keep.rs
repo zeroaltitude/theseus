@@ -63,25 +63,89 @@ fn failure(e: anyhow::Error) -> RpcFailure {
     }
 }
 
-/// The two methods, for `rpc_prefixed`'s one arm.
-pub(super) const OWN: [&str; 2] = [method::VAULT_KEEP_ANSWER, method::VAULT_KEEP];
+/// The three methods, for `rpc_prefixed`'s one arm.
+pub(super) const OWN: [&str; 3] = [
+    method::VAULT_KEEP_ANSWER,
+    method::VAULT_KEEP,
+    method::VAULT_KEEP_WAITING,
+];
+
+/// An attempt that stopped: what the client reads, and the class its row is
+/// written with. `None` when the settlement has written its own row.
+pub(super) struct Stop {
+    pub failure: RpcFailure,
+    pub class: Option<&'static str>,
+}
+
+/// `map_err` for a failure of `class`.
+fn stop(class: &'static str) -> impl Fn(RpcFailure) -> Stop {
+    move |failure| Stop {
+        failure,
+        class: Some(class),
+    }
+}
 
 impl Core {
-    /// The two methods.
+    /// The three methods. An attempt to give a value that stops writes a row
+    /// saying what stopped it (a class, never a value) before the client is told.
     pub(super) async fn rpc_vault_keep(
         self: &Arc<Self>,
         m: &str,
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        match m {
-            method::VAULT_KEEP_ANSWER => reply(self.keep_answer(parse_quiet(params)?, conn).await?),
-            _ => reply(self.keep_direct(parse_quiet(params)?, conn).await?),
+        let pid = conn.pid;
+        let (question, done) = match m {
+            method::VAULT_KEEP_WAITING => {
+                return reply(self.keep_waiting(parse_quiet(params)?, &conn).await?)
+            }
+            method::VAULT_KEEP_ANSWER => match parse_quiet::<VaultKeepAnswerParams>(params) {
+                Ok(p) => {
+                    let q = Some(p.question_id.clone());
+                    (q, self.keep_answer(p, &conn).await.map(reply))
+                }
+                Err(f) => (None, Err(stop("bad_request")(f))),
+            },
+            _ => match parse_quiet::<VaultKeepParams>(params) {
+                Ok(p) => (None, self.keep_direct(p, &conn).await.map(reply)),
+                Err(f) => (None, Err(stop("bad_request")(f))),
+            },
+        };
+        match done {
+            Ok(r) => r,
+            Err(Stop { failure, class }) => {
+                if let Some(class) = class {
+                    let who = conn.answerer(None, None);
+                    self.keep_stopped(class, &who, pid, question.as_deref());
+                }
+                Err(failure)
+            }
         }
     }
 
+    /// The row of an attempt that stopped: its class, who, where, which process,
+    /// and the card when there was one.
+    pub(super) fn keep_stopped(
+        &self,
+        class: &str,
+        who: &Answerer,
+        pid: Option<u32>,
+        question: Option<&str>,
+    ) {
+        let data = done::attempt_row(
+            "stopped",
+            class,
+            (&who.label, &who.via(), pid),
+            question,
+            None,
+        );
+        let _ = self
+            .store
+            .append_ledger(&LedgerRow::new(LedgerKind::VaultKeep, None, None, data));
+    }
+
     /// The vault's reader, or why this daemon has none.
-    fn keep_reader(&self) -> Result<Arc<crate::secrets::OpReader>, RpcFailure> {
+    pub(super) fn keep_reader(&self) -> Result<Arc<crate::secrets::OpReader>, RpcFailure> {
         self.tools
             .look
             .reader()
@@ -98,25 +162,108 @@ impl Core {
     async fn keep_answer(
         self: &Arc<Self>,
         p: VaultKeepAnswerParams,
-        conn: Conn<'_>,
-    ) -> Result<VaultKept, RpcFailure> {
+        conn: &Conn<'_>,
+    ) -> Result<VaultKept, Stop> {
         let who = conn.answerer(None, None);
         if let Some(job) = p.from_job.as_deref() {
-            return Err(refused(format!(
+            return Err(stop("job")(refused(format!(
                 "this shell is a Theseus job's (THESEUS_SESSION={job} is set), so it would give \
                  a secret in the owner's name: run it from your own terminal"
-            )));
+            ))));
         }
+        let (a, recorded) = self.keep_card(&p.question_id)?;
+        self.judge_act(
+            &who,
+            Act::Answer {
+                action: &a,
+                approve: true,
+            },
+        )
+        .map_err(|e| stop("place")(failure(e)))?;
+        self.keep_wall(&a, &who).map_err(stop("agent"))?;
+        let value = done::checked(p.value.expose()).map_err(|why| {
+            let class = if p.value.is_blank() {
+                "blank"
+            } else {
+                "not_a_value"
+            };
+            stop(class)(RpcFailure::invalid_text(why))
+        })?;
+        // One answer at a time for a question: two surfaces answering at once must not both write.
+        let _one = InFlight::take(&a.correlation_id).ok_or_else(|| {
+            stop("in_flight")(refused(
+                "another answer to this question is being kept right now: wait for it",
+            ))
+        })?;
+        let reader = self.keep_reader().map_err(stop("no_vault"))?;
+        // The target is re-found BEFORE a code is spent: the card is the owner's yes to THIS
+        // item and field, and a vault that did not answer is no reason to use a code up. The
+        // account's permission to write there is asked again, here: it may have been taken away
+        // since the card was put.
+        let refs = target::readers(self);
+        let names = (
+            recorded.vault_id.as_str(),
+            recorded.item_id.as_deref().unwrap_or(&recorded.title),
+            recorded.field_id.as_deref().unwrap_or(&recorded.field),
+        );
+        let now = target::resolve(&reader, &refs, names)
+            .await
+            .map_err(|why| {
+                let class = if why.starts_with(target::CANNOT_WRITE) {
+                    "not_writable"
+                } else {
+                    "vault"
+                };
+                stop(class)(refused(format!(
+                    "the vault could not be checked just now, so nothing was written and no code \
+                 was spent: {why}. It keeps waiting for a value"
+                )))
+            })?;
+        let outcome = match same_place(&now, &recorded) {
+            true => (
+                {
+                    // Only now the proof: a code is spent on a write that will be tried.
+                    self.proof_gate(&a, &who, p.code.as_ref(), false)
+                        .map_err(|r| {
+                            let enrolled = !self.proofs.standing(&who.via(), false).not_enrolled;
+                            let class = if enrolled {
+                                "proof"
+                            } else {
+                                "no_authenticator"
+                            };
+                            stop(class)(failure(r.into()))
+                        })?;
+                    done::perform(&reader, &recorded, &value).await
+                },
+                recorded.clone(),
+            ),
+            false => (Outcome::Changed, recorded.clone()),
+        };
+        drop(value);
+        self.keep_settle(&a, &outcome.1, outcome.0, &who, conn.pid)
+            .map_err(|e| Stop {
+                failure: failure(e),
+                class: None,
+            })?;
+        Self::keep_told(&outcome.1, outcome.0).map_err(|failure| Stop {
+            failure,
+            class: None,
+        })
+    }
+
+    /// The question a value is given to, and the target its card recorded: or why it is
+    /// not a keep card that waits.
+    fn keep_card(&self, question_id: &str) -> Result<(Action, Target), Stop> {
         let a = self
             .kernel
-            .action(&p.question_id)
-            .map_err(RpcFailure::invalid)?
+            .action(question_id)
+            .map_err(|e| stop("no_card")(RpcFailure::invalid(e)))?
             .filter(|a| a.tool == crate::config_change::ACK)
             .ok_or_else(|| {
-                RpcFailure::new(
+                stop("no_card")(RpcFailure::new(
                     error_code::NOT_FOUND,
                     "no such question waiting for a value",
-                )
+                ))
             })?;
         let args = a
             .proposal
@@ -127,83 +274,53 @@ impl Core {
             .then(|| Target::of_args(&args[ARG]))
             .flatten()
         else {
-            return Err(RpcFailure::invalid(anyhow::anyhow!(
-                "that question is not a secret to keep: it takes no value"
+            return Err(stop("not_a_keep_card")(RpcFailure::invalid(
+                anyhow::anyhow!("that question is not a secret to keep: it takes no value"),
             )));
         };
         if a.state != ActionState::Planned {
-            return Err(RpcFailure::invalid(anyhow::anyhow!(
+            return Err(stop("not_waiting")(RpcFailure::invalid(anyhow::anyhow!(
                 "that question is {}, not waiting for a value",
                 a.state.as_str()
-            )));
+            ))));
         }
-        self.judge_act(
-            &who,
-            Act::Answer {
-                action: &a,
-                approve: true,
-            },
-        )
-        .map_err(failure)?;
-        self.keep_wall(&a, &who)?;
-        let value = done::checked(p.value.expose()).map_err(RpcFailure::invalid_text)?;
-        // One answer at a time for a question: two surfaces answering at once must not both write.
-        let _one = InFlight::take(&a.correlation_id).ok_or_else(|| {
-            refused("another answer to this question is being kept right now: wait for it")
-        })?;
-        let reader = self.keep_reader()?;
-        // The target is re-found BEFORE a code is spent: the card is the owner's yes to THIS
-        // item and field, and a vault that did not answer is no reason to use a code up.
-        let refs = target::readers(self);
-        let names = (
-            recorded.vault_id.as_str(),
-            recorded.item_id.as_deref().unwrap_or(&recorded.title),
-            recorded.field_id.as_deref().unwrap_or(&recorded.field),
-        );
-        let now = target::resolve(&reader, &refs, names)
-            .await
-            .map_err(|why| {
-                refused(format!(
-                    "the vault could not be checked just now, so nothing was written and no code \
-                 was spent: {why}. It keeps waiting for a value"
-                ))
-            })?;
-        let outcome = match same_place(&now, &recorded) {
-            true => (
-                {
-                    // Only now the proof: a code is spent on a write that will be tried.
-                    self.proof_gate(&a, &who, p.code.as_ref(), false)
-                        .map_err(|r| failure(r.into()))?;
-                    done::perform(&reader, &recorded, &value).await
-                },
-                recorded.clone(),
-            ),
-            false => (Outcome::Changed, recorded.clone()),
-        };
-        drop(value);
-        self.keep_settle(&a, &outcome.1, outcome.0, &who)
-            .map_err(failure)?;
-        Self::keep_told(&outcome.1, outcome.0)
+        Ok((a, recorded))
     }
 
     /// The owner keeps a secret from their own terminal.
     async fn keep_direct(
         self: &Arc<Self>,
         p: VaultKeepParams,
-        conn: Conn<'_>,
-    ) -> Result<VaultKept, RpcFailure> {
-        let who = self.owners_shell(
-            &conn,
-            p.from_job.as_deref(),
-            "keep a secret in the vault",
-            "`theseus vault keep --vault V --item T --field F`",
-        )?;
-        let value = done::checked(p.value.expose()).map_err(RpcFailure::invalid_text)?;
-        let reader = self.keep_reader()?;
+        conn: &Conn<'_>,
+    ) -> Result<VaultKept, Stop> {
+        let who = self
+            .owners_shell(
+                conn,
+                p.from_job.as_deref(),
+                "keep a secret in the vault",
+                "`theseus vault keep --vault V --item T --field F`",
+            )
+            .map_err(stop("not_owners_shell"))?;
+        let value = done::checked(p.value.expose()).map_err(|why| {
+            let class = if p.value.is_blank() {
+                "blank"
+            } else {
+                "not_a_value"
+            };
+            stop(class)(RpcFailure::invalid_text(why))
+        })?;
+        let reader = self.keep_reader().map_err(stop("no_vault"))?;
         let refs = target::readers(self);
         let t = target::resolve(&reader, &refs, (&p.vault, &p.title, &p.field))
             .await
-            .map_err(refused)?;
+            .map_err(|why| {
+                let class = if why.starts_with(target::CANNOT_WRITE) {
+                    "not_writable"
+                } else {
+                    "vault"
+                };
+                stop(class)(refused(why))
+            })?;
         // Always a fresh code: from the terminal the owner may replace what a
         // turn may not, and nothing here is a card a window could cover.
         let id = format!("vault.keep:{}/{}", t.vault_id, t.title);
@@ -214,14 +331,14 @@ impl Core {
         };
         match self.proofs.judge(&id, true, true, &answer) {
             Proof::Given | Proof::GivenEarlier { .. } => {}
-            Proof::Missing | Proof::NotRequired => return Err(RpcFailure {
+            Proof::Missing | Proof::NotRequired => return Err(stop("proof")(RpcFailure {
                 code: error_code::REFUSED,
                 message:
                     "it needs a fresh code from your authenticator app: `--code <the six digits>`"
                         .into(),
                 data: json!({"proof": "needed"}),
-            }),
-            Proof::Refused(why) => return Err(refused(why.to_string())),
+            })),
+            Proof::Refused(why) => return Err(stop("proof")(refused(why.to_string()))),
         }
         let outcome = done::perform(&reader, &t, &value).await;
         drop(value);
@@ -229,10 +346,13 @@ impl Core {
             LedgerKind::VaultKeep,
             None,
             None,
-            done::row(&t, outcome, &who.label, &place, None),
+            done::row(&t, outcome, (&who.label, &place, conn.pid), None),
         );
         let _ = self.store.append_ledger(&row);
-        Self::keep_told(&t, outcome)
+        Self::keep_told(&t, outcome).map_err(|failure| Stop {
+            failure,
+            class: None,
+        })
     }
 
     /// What no keep card may be answered from: an agent's process.
@@ -266,12 +386,13 @@ impl Core {
         t: &Target,
         o: Outcome,
         who: &Answerer,
+        pid: Option<u32>,
     ) -> anyhow::Result<()> {
         let row = LedgerRow::new(
             LedgerKind::VaultKeep,
             Some(a.session_id.as_str()),
             None,
-            done::row(t, o, &who.label, &who.via(), Some(&a.correlation_id)),
+            done::row(t, o, (&who.label, &who.via(), pid), Some(&a.correlation_id)),
         );
         self.store.append_ledger(&row)?;
         self.settle_keep(a, t, o, &who.label, &who.via())

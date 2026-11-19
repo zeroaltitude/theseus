@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::secrets::look::{
-    self as names, Failed, FieldName, ItemId, ItemName, Vault, VaultId, Verb,
+    self as names, Failed, FieldName, ItemId, ItemName, Permission, Vault, VaultId, Verb,
 };
 use crate::secrets::{OpReader, SecretState, Source};
 use crate::Core;
@@ -198,8 +198,22 @@ pub(super) async fn run(
         match &vaults {
             Some(Ok(v)) => {
                 let _ = writeln!(out, "Vaults ({}):", v.len());
+                // The program's own answer to "may this account make items there": a read-only
+                // account sees a vault it cannot keep a secret in.
+                let makes = match reader {
+                    Some(r) => r
+                        .look(&Verb::VaultsWith(Permission::CreateItems))
+                        .await
+                        .and_then(|r| names::parse_vaults(&r)),
+                    None => Err(Failed::NoVault),
+                };
                 for x in v {
-                    let _ = writeln!(out, "- {} (id {})", x.name, names::clean(&x.id));
+                    let writes = match &makes {
+                        Ok(m) if m.iter().any(|w| w.id == x.id) => "Theseus may write here",
+                        Ok(_) => "Theseus may not write here (read only)",
+                        Err(_) => "whether Theseus may write here could not be checked",
+                    };
+                    let _ = writeln!(out, "- {} (id {}; {writes})", x.name, names::clean(&x.id));
                 }
             }
             Some(Err(f)) => {

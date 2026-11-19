@@ -745,7 +745,8 @@ pub fn confirm_request(
         .map(|p| p.args.clone())
         .unwrap_or_default();
     let plain = words::plain_of(&args);
-    crate::rpc::offer(ConfirmRequest {
+    let keep = vault_keep::is_card(&args);
+    let mut request = crate::rpc::offer(ConfirmRequest {
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),
@@ -771,7 +772,15 @@ pub fn confirm_request(
         needs_proof: false,
         needs_fresh_proof: false,
         proof: None,
-    })
+    });
+    // A secret to keep takes a value, which a yes does not carry, and no place's buttons do
+    // either (the cockpit has a field, the terminal a hidden prompt, Discord nothing yet): the
+    // daemon states it by offering only the decline, so no surface can draw an Approve that
+    // could only be refused (issue 29).
+    if keep {
+        request.options.retain(|o| o.id == "decline");
+    }
+    request
 }
 
 #[cfg(test)]

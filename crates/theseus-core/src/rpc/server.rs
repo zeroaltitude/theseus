@@ -24,6 +24,9 @@ pub(super) struct Conn<'a> {
     pub surface: Surface,
     /// The process behind the connection (theseus-5rvss).
     pub peer: &'a crate::peer_proc::Peer,
+    /// The socket peer's pid, as the daemon logs it for the connection: what a
+    /// row of the vault's keeping says about which run it was (issue 29).
+    pub pid: Option<u32>,
     /// The connection's one queue, with the backlog cap (theseus-in3).
     pub tx: &'a Outbound,
     /// Closed when the connection's reader ends: a parked `session.wait`
@@ -89,11 +92,16 @@ pub(super) struct Link {
     label: String,
     surface: Surface,
     peer: crate::peer_proc::Peer,
+    pid: Option<u32>,
 }
 
 impl Link {
     /// `agents` is `[policy] agent_processes`, which says who is an agent.
     fn new(client: Client, agents: &[String]) -> Self {
+        let pid = match &client.peer {
+            crate::peer_proc::Source::Pid(pid) => Some(*pid),
+            _ => None,
+        };
         let peer = crate::peer_proc::Peer::new(client.peer, agents.into());
         #[cfg(test)]
         let peer = client.behind.map_or(peer, crate::peer_proc::Peer::known);
@@ -101,6 +109,7 @@ impl Link {
             label: client.label,
             surface: client.surface,
             peer,
+            pid,
         }
     }
 }
@@ -116,6 +125,7 @@ impl Link {
             client: &self.label,
             surface: self.surface,
             peer: &self.peer,
+            pid: self.pid,
             tx,
             closed,
             arrived,

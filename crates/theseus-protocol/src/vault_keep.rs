@@ -89,6 +89,108 @@ pub struct VaultKept {
     pub words: String,
 }
 
+/// `vault.keep.waiting`: the first thing `theseus vault keep` asks, before it
+/// prompts for anything: which keep cards wait for the owner's terminal and,
+/// when there is none, why. The daemon answers in words; the terminal filters
+/// nothing of its own. It is also how a run that ends before a value reaches
+/// the daemon says so (`ended`), so that every run leaves a row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct VaultKeepWaitingParams {
+    /// A card's id, or the end of one, when the terminal was given one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub question: Option<String>,
+    /// Keep with no card: the vault, item and field typed in the command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub vault: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub field: Option<String>,
+    /// The shell's `THESEUS_SESSION`: set inside a Theseus job, which is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+    /// Standard input and standard error are both a terminal: the prompts are
+    /// seen and the value is typed where only the owner sees it.
+    #[serde(default = "yes")]
+    pub terminal: bool,
+    /// How the run ended before a value was sent, when this reports an end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub ended: Option<ClientEnd>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// How a terminal's run ended without sending a value, as it reports it: a
+/// closed set, so a row says what stopped it and holds nothing typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ClientEnd {
+    /// Nothing was typed, twice.
+    NoValue,
+    /// The terminal gave end of input before a line.
+    EndOfInput,
+    /// The terminal could not be read.
+    Unreadable,
+    /// The terminal's echo could not be turned off, so nothing was asked.
+    NoEcho,
+}
+
+impl ClientEnd {
+    pub fn name(self) -> &'static str {
+        match self {
+            ClientEnd::NoValue => "no_value",
+            ClientEnd::EndOfInput => "end_of_input",
+            ClientEnd::Unreadable => "unreadable",
+            ClientEnd::NoEcho => "no_echo",
+        }
+    }
+}
+
+/// One keep the terminal may answer: a card that waits, or the target typed in
+/// the command. By name; never a value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct KeepCard {
+    /// The card's id; none for a keep with no card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub question_id: Option<String>,
+    pub vault: String,
+    pub title: String,
+    pub field: String,
+    /// `new`, `adds` or `replaces`.
+    pub state: String,
+    /// A code from the authenticator app is asked with the value.
+    pub code_needed: bool,
+    /// The daemon's heading: what is kept where, and that the value is typed.
+    pub heading: String,
+}
+
+/// What `vault.keep.waiting` answers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct VaultKeepWaiting {
+    pub cards: Vec<KeepCard>,
+    /// When there is no card: why, in plain words (none asked, expired,
+    /// declined, answered, kept).
+    pub none: String,
+    /// When something stops a prompt from being useful (no authenticator app
+    /// enrolled, a vault the account cannot write to): said before any prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub blocked: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -67,7 +67,26 @@ impl ItemId {
     }
 }
 
-/// What may be asked of `op`: three list verbs and one get of an item by the
+/// What an account may do in a vault, as the vault's program names it
+/// (`op vault list --permission`): the two a keep needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permission {
+    /// Make an item.
+    CreateItems,
+    /// Change an item that is there.
+    EditItems,
+}
+
+impl Permission {
+    fn name(self) -> &'static str {
+        match self {
+            Permission::CreateItems => "create_items",
+            Permission::EditItems => "edit_items",
+        }
+    }
+}
+
+/// What may be asked of `op`: four list verbs and one get of an item by the
 /// id `op` listed, and nothing else exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verb {
@@ -75,6 +94,10 @@ pub enum Verb {
     Whoami,
     /// The vaults the token sees.
     Vaults,
+    /// The vaults the token sees AND holds a permission in: the program's own
+    /// answer to "may this account write there", asked by name and never
+    /// guessed from the plain list.
+    VaultsWith(Permission),
     /// The items of one vault, or of every vault the token sees.
     Items(Option<VaultId>),
     /// One item, by its id in the vault of that id, for the labels of its
@@ -93,6 +116,14 @@ impl Verb {
         match self {
             Verb::Whoami => lit(&["whoami", "--format", "json"]),
             Verb::Vaults => lit(&["vault", "list", "--format", "json"]),
+            Verb::VaultsWith(p) => lit(&[
+                "vault",
+                "list",
+                "--permission",
+                p.name(),
+                "--format",
+                "json",
+            ]),
             Verb::Items(None) => lit(&["item", "list", "--format", "json"]),
             Verb::Items(Some(v)) => {
                 let mut a = lit(&["item", "list", "--format", "json", "--vault"]);

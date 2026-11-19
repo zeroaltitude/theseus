@@ -34,9 +34,13 @@ const SCRIPT: &str = r#"#!/bin/sh
 D='@D@'; MODE='@MODE@'; LOG="$D/op.argv"
 printf '%s\n' "$*" >> "$LOG"
 case "$1 $2" in "item get"|"item edit"|"item create"|"item delete") case " $* " in *" --vault "*) ;; *) echo '[ERROR] 2026/10/19 08:00:00 a vault query must be provided when this command is called by a service account. Please specify one either through the --vault flag or through piped input' >&2; exit 1 ;; esac ;; esac
-[ "$MODE" = flaky ] && [ "$1 $2" = "vault list" ] && [ "$(grep -c '^vault list' "$LOG")" -gt 1 ] && { echo '[ERROR] 2026/10/19 08:00:00 dial tcp: network is unreachable' >&2; exit 1; }
+[ "$MODE" = flaky ] && [ "$1 $2" = "vault list" ] && [ "$(grep -c '^vault list --format' "$LOG")" -gt 1 ] && { echo '[ERROR] 2026/10/19 08:00:00 dial tcp: network is unreachable' >&2; exit 1; }
 case "$1 $2" in
-  "vault list") echo '[{"id":"vaultid00000000000000000001","name":"Harbor"},{"id":"vaultid00000000000000000002","name":"Dock"}]' ;;
+  "vault list")
+    case " $* " in
+      *" --permission "*) { [ "$MODE" = readonly ] || [ -f "$D/op.readonly" ]; } && echo '[]' || echo '[{"id":"vaultid00000000000000000001","name":"Harbor"}]' ;;
+      *) echo '[{"id":"vaultid00000000000000000001","name":"Harbor"},{"id":"vaultid00000000000000000002","name":"Dock"}]' ;;
+    esac ;;
   "item list")
     n=$(grep -c '^item list' "$LOG")
     EXTRA=''
@@ -444,7 +448,10 @@ async fn a_replace_says_so_and_needs_a_fresh_code_every_time() {
         "{lines:?}"
     );
     assert!(lines.iter().any(|l| l == "read --no-newline op://vaultid00000000000000000001/itemid00000000000000000001/credential"), "{lines:?}");
-    assert_eq!(r.rows("vault.keep")[0]["state"], "replaces");
+    // The attempts that stopped before this one left rows of their own; the keep is the last.
+    let rows = r.rows("vault.keep");
+    assert_eq!(rows.last().unwrap()["outcome"], "kept", "{rows:?}");
+    assert_eq!(rows.last().unwrap()["state"], "replaces");
 }
 
 /// An item Theseus's own settings read is never replaced by a turn: the tool
@@ -596,9 +603,17 @@ async fn the_terminal_keeps_with_no_card_and_may_replace_what_the_settings_read(
         .unwrap();
     assert_eq!(said["replaced"], true);
     assert!(wrote(dir.path()));
-    let rows = r.rows("vault.keep");
-    assert_eq!(rows.len(), 1);
+    // The attempts that stopped before this one each left a row of their own (a window did not
+    // cover it, so it was refused for a code); the keep itself is one more.
+    let all = r.rows("vault.keep");
+    let rows: Vec<_> = all.iter().filter(|x| x["outcome"] != "stopped").collect();
+    assert_eq!(rows.len(), 1, "{all:?}");
     assert_eq!(rows[0]["protected"], true);
+    assert!(
+        all.iter()
+            .any(|x| x["outcome"] == "stopped" && x["why"] == "proof"),
+        "{all:?}"
+    );
     let sid = r.session();
     assert_value_nowhere(&r, &sid, dir.path(), &[&said.to_string()], &log);
 }
@@ -879,7 +894,13 @@ async fn a_vault_that_does_not_answer_at_the_value_spends_no_code_and_keeps_the_
     assert_eq!(checks(&r), before, "no code was checked");
     assert!(waiting(&r, &q), "the card keeps waiting");
     assert!(!wrote(dir.path()));
-    assert!(r.rows("vault.keep").is_empty());
+    // Nothing was written, and the attempt says what stopped it: the vault did not answer.
+    let rows = r.rows("vault.keep");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0]["outcome"].as_str(), rows[0]["why"].as_str()),
+        (Some("stopped"), Some("vault"))
+    );
 }
 
 /// A second answer to a question that is being kept waits; the turn is given
@@ -895,4 +916,244 @@ fn a_second_answer_to_the_same_question_waits() {
     );
     drop(first);
     assert!(in_flight("act_keep_race").is_some(), "given back on drop");
+}
+
+/// The owner's terminal lists the card whatever place it was asked in: a card
+/// put in a direct message is in what `confirm.list` gives a terminal, with
+/// its keep marker, as it is for the binding that drew it (issue 29).
+#[tokio::test]
+async fn a_card_asked_in_a_direct_message_is_in_the_terminals_list() {
+    let (r, _dir) = rig_vault("ok");
+    let sid = r.session();
+    r.core
+        .outbox
+        .bind_place(&format!("dm:{}", crate::config_change::tests::OWNER), &sid)
+        .unwrap();
+    r.turn_with("vault_keep", &sid, input("Lantern new", "credential"))
+        .await;
+    let (status, text) = r.result(&sid);
+    let q = r
+        .asked()
+        .pop()
+        .unwrap_or_else(|| panic!("no card waits: {status:?} {text}"))
+        .correlation_id;
+    for (label, p) in [
+        ("the terminal", json!({})),
+        (
+            "the binding",
+            json!({"discord": {"user_id": crate::config_change::tests::OWNER.to_string(), "channel_id": "7"}}),
+        ),
+    ] {
+        let listed = rpc_as(&r.core, cli(), method::CONFIRM_LIST, p)
+            .await
+            .unwrap();
+        let card = listed["confirms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["correlation_id"] == q.as_str())
+            .unwrap_or_else(|| panic!("{label}: the card is not listed: {listed}"));
+        assert_eq!(card["tool"], "config.ack", "{label}");
+        assert!(card["input"]["keep"].is_object(), "{label}: {card}");
+        // The daemon offers no yes to a card that takes a value: a decline alone, in every listing.
+        let ids: Vec<&str> = card["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["decline"], "{label}: {card}");
+        assert!(
+            card["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with("Type the value in your own terminal: run `theseus vault keep`"),
+            "{label}: {card}"
+        );
+    }
+}
+
+/// A vault the account may not write in gets no card, and the words say what the
+/// owner can do; nothing was written and the vault's program was only listed.
+#[tokio::test]
+async fn a_vault_the_account_may_not_write_in_gets_no_card() {
+    let (r, dir) = rig_vault("readonly");
+    let sid = r.session();
+    r.turn_with("vault_keep", &sid, input("Lantern new", "credential"))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(
+        text.contains("vault account may not make a new item")
+            && text.contains("Give the account write access"),
+        "{text}"
+    );
+    assert!(r.asked().is_empty(), "no card");
+    assert!(!wrote(dir.path()));
+    // An item that is there is edited, which is another permission asked of the program.
+    let (r, dir) = rig_vault("readonly");
+    let sid = r.session();
+    r.turn_with("vault_keep", &sid, input("Lantern key", "extra"))
+        .await;
+    let (_, text) = r.result(&sid);
+    assert!(text.contains("may not change an item"), "{text}");
+    assert!(argv(dir.path())
+        .iter()
+        .any(|l| l.starts_with("vault list --permission edit_items")));
+}
+
+/// The permission is asked again at the value: one taken away since the card was
+/// put is found there, before a code is spent, and the card keeps waiting; the
+/// attempt leaves a row that says so.
+#[tokio::test]
+async fn a_permission_taken_away_since_the_card_is_found_at_the_value() {
+    let (r, dir) = rig_vault("ok");
+    let secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    std::fs::write(dir.path().join("op.readonly"), "").unwrap();
+    let before = checks(&r);
+    let e = give(&r, cli(), &q, VALUE, Some(&code(&secret, 0)))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::REFUSED, "{e:?}");
+    assert!(
+        e.message.contains("may not make a new item") && e.message.contains("no code was spent"),
+        "{e:?}"
+    );
+    assert_eq!(checks(&r), before, "no code was checked");
+    assert!(waiting(&r, &q) && !wrote(dir.path()));
+    let stopped = r.rows("vault.keep");
+    assert_eq!(stopped.len(), 1, "{stopped:?}");
+    assert_eq!(stopped[0]["outcome"], "stopped");
+    assert_eq!(stopped[0]["why"], "not_writable");
+}
+
+/// Every attempt that stops leaves a row with the class of what stopped it, and
+/// never the value, its length or its digest.
+#[tokio::test]
+async fn every_attempt_that_stops_leaves_a_row_with_its_class() {
+    let (r, dir) = rig_vault("ok");
+    let secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    // A blank value, a wrong code, an agent's process, and a request that does not parse.
+    let blank = rpc_as(
+        &r.core,
+        cli(),
+        method::VAULT_KEEP_ANSWER,
+        json!({"question_id": q, "value": "  "}),
+    )
+    .await;
+    assert!(blank.is_err());
+    let wrong = give(&r, cli(), &q, VALUE, Some("000000")).await;
+    assert!(wrong.is_err());
+    let agent = surface("sock#8", Surface::Cli).behind(Behind::Agent("an-agent".into()));
+    assert!(give(&r, agent, &q, VALUE, Some(&code(&secret, 0)))
+        .await
+        .is_err());
+    let bad = rpc_as(
+        &r.core,
+        cli(),
+        method::VAULT_KEEP_ANSWER,
+        json!({"question_id": q, "value": 7}),
+    )
+    .await;
+    assert!(bad.is_err());
+    let why: Vec<String> = r
+        .rows("vault.keep")
+        .iter()
+        .filter(|row| row["outcome"] == "stopped")
+        .map(|row| row["why"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(why.len(), 4, "{why:?}");
+    assert_eq!(
+        (why[0].as_str(), why[1].as_str()),
+        ("blank", "proof"),
+        "{why:?}"
+    );
+    // An agent's process is stopped by the place rule or by the keep's own wall: either is a class.
+    assert!(["place", "agent"].contains(&why[2].as_str()), "{why:?}");
+    assert_eq!(why[3], "bad_request", "{why:?}");
+    // The rows hold names and classes, and the question: no value, no length, no digest.
+    let all = format!("{:?}", r.rows("vault.keep"));
+    assert!(!all.contains(VALUE), "{all}");
+    assert!(!wrote(dir.path()));
+}
+
+/// The card expired: the terminal's question says so, in the daemon's words,
+/// naming the card, and the row says what was told.
+#[tokio::test]
+async fn a_card_that_expired_is_said_to_have_expired() {
+    let (r, _dir) = rig_vault("ok");
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    let asked = r.asked().pop().unwrap();
+    let ttl = r.core.kernel.config().confirm_ttl_ms;
+    assert_eq!(r.core.expire_questions(asked.requested_at_ms + ttl + 1), 1);
+    assert!(!waiting(&r, &q));
+    let told = rpc_as(&r.core, cli(), method::VAULT_KEEP_WAITING, json!({}))
+        .await
+        .unwrap();
+    assert_eq!(told["cards"].as_array().unwrap().len(), 0, "{told}");
+    let none = told["none"].as_str().unwrap();
+    assert!(
+        none.contains("expired") && none.contains("Lantern new") && none.contains("ago"),
+        "{none}"
+    );
+    let listed: Vec<_> = r
+        .rows("vault.keep")
+        .into_iter()
+        .filter(|row| row["outcome"] == "listed")
+        .collect();
+    assert_eq!(listed[0]["why"], "expired", "{listed:?}");
+}
+
+/// What the cockpit's field sends is a file its own test also checks
+/// (`cockpit/test/answers.test.ts`): the daemon takes exactly that, through the
+/// web port's surface, and keeps the value.
+#[tokio::test]
+async fn what_the_cockpits_field_sends_is_what_the_daemon_takes() {
+    let (r, dir) = rig_vault("ok");
+    let secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    let mut sent: Value = serde_json::from_str(include_str!(
+        "../../../../../cockpit/test/fixtures/keep_answer.json"
+    ))
+    .unwrap();
+    sent["question_id"] = q.clone().into();
+    sent["code"] = code(&secret, 0).into();
+    let told = rpc_as(
+        &r.core,
+        owner("web#1", Surface::Web),
+        method::VAULT_KEEP_ANSWER,
+        sent.clone(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        told["words"].as_str().unwrap().starts_with("Kept in"),
+        "{told}"
+    );
+    let stdin = std::fs::read_to_string(dir.path().join("op.stdin")).unwrap();
+    assert!(stdin.contains(sent["value"].as_str().unwrap()));
+    assert!(!waiting(&r, &q), "the card is settled");
+}
+
+/// The look at the vault's names says, for each vault, whether Theseus may write
+/// there: the program's own answer, so a read-only vault is seen before a keep.
+#[tokio::test]
+async fn the_look_says_for_each_vault_whether_theseus_may_write_there() {
+    let (r, _dir) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("look_vault", &sid, json!({"what": ["vaults"]}))
+        .await;
+    let (_, text) = r.result(&sid);
+    assert!(
+        text.contains("Harbor (id vaultid00000000000000000001; Theseus may write here)"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "Dock (id vaultid00000000000000000002; Theseus may not write here (read only))"
+        ),
+        "{text}"
+    );
 }
