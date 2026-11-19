@@ -37,9 +37,31 @@ impl Rig {
     /// dir and sleeps `job_secs`; `Wake me soon` gets a wake two seconds
     /// ahead; anything else gets text.
     fn new(proc_sync_secs: u64, job_secs: u64) -> Self {
+        Self::with_job(
+            proc_sync_secs,
+            format!("touch started; sleep {job_secs}; echo the job is done"),
+        )
+    }
+
+    /// As `new`, but the job ends when the test creates `release` in the
+    /// projects dir (`release`), not after a time: a job that must outlive a
+    /// restart of the daemon, whatever the restart costs.
+    fn held(proc_sync_secs: u64) -> Self {
+        Self::with_job(
+            proc_sync_secs,
+            "touch started; while [ ! -e release ]; do sleep 0.1; done; echo the job is done"
+                .into(),
+        )
+    }
+
+    fn release(&self) {
+        std::fs::write(self.path("projects/release"), "").unwrap();
+    }
+
+    fn with_job(proc_sync_secs: u64, script: String) -> Self {
         let model = FakeModel::start(move |prompt| {
             if prompt.contains("Run the job") {
-                let script = format!("touch started; sleep {job_secs}; echo the job is done");
+                let script = script.clone();
                 vec![("proc_run", json!({"argv": ["sh", "-c", script]}))]
             } else if prompt.contains("Wake me soon") {
                 vec![("wake_at", json!({"after": "2s", "note": "check the job"}))]
@@ -165,7 +187,10 @@ fn a_late_results_turn_runs_on_the_profile_that_started_the_job() {
 /// result's turn both run on `glm`, and the late result is answered.
 #[test]
 fn a_restarts_continuation_runs_on_the_profile_of_the_turn_it_cut() {
-    let r = Rig::new(30, 4);
+    // The job is held until the restart's continuation has ended: it was a four-second sleep, and a restart
+    // that took longer than that under load (a daemon starts in 0.1 s quiet) found the job done, so its
+    // result came inside the continuation and no late result's turn ever followed (theseus-20, the third pass).
+    let r = Rig::held(30);
     let daemon = r.spawn();
     let sock = r.path("sock");
     let asking = std::thread::spawn(move || ask_glm(&sock, "Run the job"));
@@ -176,6 +201,10 @@ fn a_restarts_continuation_runs_on_the_profile_of_the_turn_it_cut() {
     // The connection closes with the daemon, unanswered.
     assert!(asking.join().unwrap().is_err());
     let _daemon = r.spawn();
+    r.wait("the restart's continuation", || {
+        (r.rows("turn.started").len() >= 2 && !r.rows("turn.ended").is_empty()).then_some(())
+    });
+    r.release();
     r.late_result_answered(1);
     r.all_on_glm(2);
     let placeholder = r.model.requests().iter().any(|q| {
