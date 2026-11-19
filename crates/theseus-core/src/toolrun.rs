@@ -356,7 +356,8 @@ pub struct ToolRuntime {
     pub routines: crate::routine::Book,
     /// What `thread.read` reads (theseus-f2g0): the core, once built.
     pub thread_read: crate::thread_read::Board,
-    /// `look.theseus` and `look.vault` (issue 26): the core, and the daemon's vault reader.
+    /// `look.theseus`, `look.vault` and `look.work` (issues 26 and 28): the core, and the
+    /// daemon's vault reader.
     pub look: crate::look::Board,
     /// `profile.ask` and `profile.hold` (issue 28): the core.
     pub profile: crate::profile_tool::Board,
