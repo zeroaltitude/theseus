@@ -365,6 +365,9 @@ async fn a_question_answered_on_its_own_connection_lets_the_turn_run_on() {
 /// moment of the stop**: `["first"]` names the lane, `["first",
 /// "hold-model, please"]` names the handoff. Nothing here is retried or
 /// loosened — a red is a finding, and it now arrives with its cause.
+/// The handoff was the one found (issue 20, the third pass): the input's turn
+/// took the stop's notice at its admission and ended before the stop's own
+/// kernel step, and the answer now counts that turn (`stop_taken_by_a_turn`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_after_an_input_reaches_its_running_turn() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("too late")]);
