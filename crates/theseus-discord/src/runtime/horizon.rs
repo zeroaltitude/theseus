@@ -227,12 +227,19 @@ impl Shared {
                 return false;
             }
         };
-        let watches = self
+        // A read that fails keeps the last snapshot: an empty answer made of an
+        // error would be stamped as read and take the watches off the board.
+        let watches = match self
             .rpc
             .call::<_, WatchListResult>(method::WATCH_LIST, WatchListParams::default())
             .await
-            .map(|r| r.watches)
-            .unwrap_or_default();
+        {
+            Ok(r) => r.watches,
+            Err(e) => {
+                self.board.error("watch.list", None, e);
+                return false;
+            }
+        };
         let roots: Vec<String> = {
             let r = self.routes.lock().unwrap();
             r.by_session
@@ -244,7 +251,8 @@ impl Shared {
         let lines = if roots.is_empty() {
             vec![]
         } else {
-            self.rpc
+            match self
+                .rpc
                 .call::<_, AgendaResult>(
                     method::WORK_AGENDA,
                     AgendaParams {
@@ -254,8 +262,13 @@ impl Shared {
                     },
                 )
                 .await
-                .map(|r| r.lines)
-                .unwrap_or_default()
+            {
+                Ok(r) => r.lines,
+                Err(e) => {
+                    self.board.error("work.agenda", None, e);
+                    return false;
+                }
+            }
         };
         let records = self.read_records(&routines, now).await;
         let projects = self.tasks.projects();

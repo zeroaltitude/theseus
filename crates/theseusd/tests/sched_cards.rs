@@ -127,14 +127,33 @@ impl Rig {
             })
             .collect::<Vec<_>>()
             .join("\n")
+            + &self
+                .fake
+                .threads()
+                .iter()
+                .map(|t| {
+                    format!(
+                        "\nthread {} names={:?} tag_sets={:?} archived={}",
+                        t.id, t.names, t.tag_sets, t.archived
+                    )
+                })
+                .collect::<String>()
+            + &format!("\nforums made: {}", self.fake.forums_made().len())
     }
 
-    /// The task home's channel: where the pinned board is.
+    /// The task home's channel: where Components V2 messages are made outside
+    /// the forum's posts (a thread's id is its first message's).
     fn home(&self) -> Option<String> {
+        let threads: Vec<String> = self
+            .fake
+            .threads()
+            .iter()
+            .map(|t| t.id.to_string())
+            .collect();
         self.fake
             .all_messages()
             .into_iter()
-            .find(|m| m.content.starts_with("📋 **Tasks**"))
+            .find(|m| m.flags & V2 != 0 && !threads.contains(&m.channel))
             .map(|m| m.channel)
     }
 
@@ -205,19 +224,21 @@ fn a_restart_keeps_one_card_and_one_post_each_in_their_true_states() {
     });
     assert_eq!(r.posts("tide check")[0].1, ["scheduled"]);
     assert_eq!(r.posts("Paint the buoy")[0].1, ["scheduled"]);
+    // The stand-in shows a post the moment it is made, before the daemon has
+    // recorded it in its list: a kill that close would lose the row (as it would
+    // for a task's post), so the daemon is given a second to write it.
+    std::thread::sleep(Duration::from_secs(1));
     // Killed before the reminder is due, and down for nine seconds.
     drop(daemon);
     std::thread::sleep(Duration::from_secs(9));
     let _daemon = r.spawn();
-    r.wait("the reminder's card says it fired", || {
+    r.settle("the reminder's card says it fired", || {
         r.cards("tide check")
             .first()
             .is_some_and(|m| m.content.contains("Fired") && m.buttons.is_empty())
-            .then_some(())
     });
-    r.wait("the reminder's post is done", || {
-        (r.posts("tide check").first().map(|p| p.1.clone()) == Some(vec!["done".to_string()]))
-            .then_some(())
+    r.settle("the reminder's post is done", || {
+        r.posts("tide check").first().map(|p| p.1.clone()) == Some(vec!["done".to_string()])
     });
     // Time for a second pass to make anything twice.
     std::thread::sleep(Duration::from_secs(5));
@@ -237,4 +258,43 @@ fn a_restart_keeps_one_card_and_one_post_each_in_their_true_states() {
         task.content
     );
     assert_eq!(r.posts("Paint the buoy")[0].1, ["scheduled"]);
+}
+
+/// A reminder that fired and is set again from its notice (`wake.snooze` on the
+/// fired wake, as the notice's Snooze buttons call it) stands again on the same
+/// card, with its acts, and its post is `scheduled` again.
+#[test]
+fn a_fired_reminder_set_again_stands_again_on_its_card_and_post() {
+    let r = Rig::new();
+    let _daemon = r.spawn();
+    let sid = r.session();
+    let made = r
+        .call(
+            "wake.create",
+            json!({"when": "in 3s", "note": "tide check", "session_id": sid}),
+        )
+        .unwrap();
+    let wake = made["wake"]["wake_id"].as_str().unwrap().to_string();
+    r.settle("the card says it fired and the post is done", || {
+        r.cards("tide check")
+            .first()
+            .is_some_and(|m| m.content.contains("Fired") && m.buttons.is_empty())
+            && r.posts("tide check").first().map(|p| p.1.clone()) == Some(vec!["done".to_string()])
+    });
+    let first = r.cards("tide check")[0].id.clone();
+    r.call(
+        "wake.snooze",
+        json!({"wake": wake, "when": "in 90m", "fired": true}),
+    )
+    .unwrap();
+    r.settle("the card stands again and the post is scheduled", || {
+        r.cards("tide check")
+            .first()
+            .is_some_and(|m| !m.content.contains("Fired") && m.buttons.len() == 2)
+            && r.posts("tide check").first().map(|p| p.1.clone())
+                == Some(vec!["scheduled".to_string()])
+    });
+    assert_eq!(r.cards("tide check").len(), 1);
+    assert_eq!(r.cards("tide check")[0].id, first, "the same card");
+    assert_eq!(r.posts("tide check").len(), 1);
 }
