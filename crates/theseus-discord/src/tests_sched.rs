@@ -366,6 +366,37 @@ async fn a_press_on_a_card_whose_item_is_over_says_so_and_the_card_comes_to_its_
             .is_some_and(|m| m.content.contains("Cancelled") && m.buttons.is_empty())
     })
     .await;
+    // Cancelled by the call of the command line, so it says so: the record of
+    // the cancel names its author.
+    let ended = card(&r, home, "tide check").unwrap().content;
+    assert!(ended.contains("Cancelled from the terminal"), "{ended}");
+}
+
+/// A task set for later and cancelled by the call of the command line: its
+/// card says `Cancelled from the terminal`, the post is `stopped`.
+#[tokio::test]
+async fn a_task_cancelled_from_the_terminal_says_so_on_its_card() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let task = start_task(&r, Some("in 90m"));
+    r.until("its card", || card(&r, home, "Buoy-paint").is_some())
+        .await;
+    let _: theseus_protocol::TaskCancelResult = rpc(&r)
+        .call(
+            theseus_protocol::method::TASK_CANCEL,
+            theseus_protocol::TaskCancelParams {
+                task: task.clone(),
+                author: None,
+            },
+        )
+        .await
+        .unwrap();
+    r.until("the card says who cancelled it", || {
+        card(&r, home, "Buoy-paint").is_some_and(|m| {
+            m.content.contains("Cancelled from the terminal") && m.buttons.is_empty()
+        })
+    })
+    .await;
 }
 
 /// A routine's card has the board line's words and its acts (Run now, Pause);
