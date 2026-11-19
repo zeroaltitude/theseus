@@ -74,7 +74,10 @@ pub(super) fn render_turn(
     let mut groups: BTreeMap<u32, Vec<&ToolLine>> = BTreeMap::new();
     for (li, lv) in &t.loops {
         if !t.ended {
-            for (i, part) in split_text(&lv.text, PART_LIMIT).into_iter().enumerate() {
+            for (i, part) in split_text(&super::fence_tables(&lv.text), PART_LIMIT)
+                .into_iter()
+                .enumerate()
+            {
                 out.push(Rendered::text(format!("{}:L{li}:p{i}", t.turn_id), part));
             }
         }
