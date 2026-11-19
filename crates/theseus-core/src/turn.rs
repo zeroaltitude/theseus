@@ -1272,6 +1272,9 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
+        // An asked profile's answer this turn did not post (it stopped, faulted, or was a task's)
+        // is dropped, not kept until a restart (issue 28).
+        self.tools.profile.forget(&failure_sink.session_id);
         self.keep_warm.turn_ended(&failure_sink.session_id);
         clock_step::turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {

@@ -58,7 +58,9 @@ pub const VERBS: &[Entry] = &[
     e("profile", &["use", "release", "unpin"], Act),
     e("profile", &["pins"], Unserved),
     e("profile", &[], Unserved),
-    e("config", &["show"], Look("config.show")),
+    // `config show` prints a waiting change whole; the tool `config.show` reads settings by name.
+    // They are different looks, so the command runs as before.
+    e("config", &["show"], Unserved),
     e("config", &["", "history"], Look("config.history")),
     e("config", &[], Unserved),
     // The looks no tool does yet.
@@ -390,10 +392,9 @@ mod tests {
             said("theseus profile list"),
             Some(("look.theseus", "profile list".into()))
         );
-        assert_eq!(
-            said("theseus config show"),
-            Some(("config.show", "config show".into()))
-        );
+        // The command prints a waiting change whole; the tool `config.show` reads settings by name.
+        // It is not that look, so it is not answered with that tool and runs as it did.
+        assert_eq!(said("theseus config show"), None);
         assert_eq!(
             said("theseus config history"),
             Some(("config.history", "config history".into()))
