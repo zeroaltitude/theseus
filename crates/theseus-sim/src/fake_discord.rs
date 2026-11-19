@@ -1868,6 +1868,27 @@ impl FakeDiscord {
         }
     }
 
+    /// Discord's rule: an interaction's first response comes within three seconds, or Discord no longer knows it
+    /// (10062) and the person sees "Something went wrong" whatever the binding then says. A first response in
+    /// time is noted, and what follows it (an edit, a follow-up) is accepted. An interaction the fake was not
+    /// told of (a reply to nothing it sent) is let through.
+    fn first_response_is_late(&self, interaction: Option<&str>) -> bool {
+        let Some(id) = interaction else {
+            return false;
+        };
+        let mut st = self.state.lock().unwrap();
+        let limit = st.ack_limit_ms.unwrap_or(3_000);
+        let late = !st.acked.contains(id)
+            && st
+                .arrived
+                .get(id)
+                .is_some_and(|at| at.elapsed() > Duration::from_millis(limit));
+        if !late {
+            st.acked.insert(id.to_string());
+        }
+        late
+    }
+
     /// An answer to an interaction: kept, and answered as Discord does. The
     /// token stays out of the recorded path.
     fn interaction_reply(
@@ -1879,29 +1900,13 @@ impl FakeDiscord {
         kind: &str,
         body: &Value,
     ) -> std::io::Result<()> {
-        // The first response to an interaction comes within three seconds, or Discord no longer knows it
-        // (10062): the person sees "Something went wrong" whatever the binding then says. An interaction the
-        // fake was not told of (a reply to nothing it sent) is let through.
-        if kind == "callback" {
-            if let Some(id) = interaction {
-                let mut st = self.state.lock().unwrap();
-                let limit = st.ack_limit_ms.unwrap_or(3_000);
-                let late = st
-                    .arrived
-                    .get(id)
-                    .is_some_and(|at| at.elapsed() > Duration::from_millis(limit))
-                    && !st.acked.contains(id);
-                if late {
-                    drop(st);
-                    self.record(seen(method, path, "unknown interaction"));
-                    return reply(
-                        stream,
-                        404,
-                        &json!({"message": "Unknown interaction", "code": 10062}),
-                    );
-                }
-                st.acked.insert(id.to_string());
-            }
+        if kind == "callback" && self.first_response_is_late(interaction) {
+            self.record(seen(method, path, "unknown interaction"));
+            return reply(
+                stream,
+                404,
+                &json!({"message": "Unknown interaction", "code": 10062}),
+            );
         }
         self.record(seen(method, path, kind));
         // A callback's message is in `data`; an edit's and a follow-up's is the body.
