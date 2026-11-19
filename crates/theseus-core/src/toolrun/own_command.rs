@@ -37,6 +37,23 @@ fn answer_for(rt: &ToolRuntime, tc: &TurnCtx<'_>, call: &ToolUse) -> Option<Answ
         .then_some(answered)
 }
 
+/// What a tool gives, in words that are true of it: the answer to a command is a look that covers it,
+/// and says where it covers less.
+fn gives(tool: &str, verb: &str) -> &'static str {
+    match tool {
+        crate::look::THESEUS if verb.starts_with("ontology") => {
+            "the ontology only when the call names it: `{\"what\": [\"ontology\"]}`; a call with no \
+             `what` gives profiles, providers, health and the build, not the ontology"
+        }
+        crate::look::WORK => {
+            "what it shows of Theseus's work (every conversation's tasks, what waits on the owner, \
+             projects, routines and what is coming, this conversation's first; not a running job, a \
+             watch or the daemon's own work)"
+        }
+        _ => "the same look",
+    }
+}
+
 impl ToolRuntime {
     /// A `proc.run` that is Theseus's own look, answered with the tool's name and not run; none for
     /// any other call.
@@ -72,10 +89,10 @@ impl ToolRuntime {
             _ => "tools_find",
         };
         let text = format!(
-            "Not run: this is `{wire}`: use it. `theseus {}` in a shell is the same look as text \
-             to read; the tool gives it as a result, and `{loads}` loads it if it is not in \
-             your tools.",
-            a.verb
+            "Not run: this is `{wire}`: use it. `theseus {}` in a shell is terminal text; the \
+             tool gives {} as a result, and `{loads}` loads it if it is not in your tools.",
+            a.verb,
+            gives(a.tool, &a.verb)
         );
         let r = ResultNode {
             meta: json!({"answered_with": a.tool, "command": format!("theseus {}", a.verb)}),

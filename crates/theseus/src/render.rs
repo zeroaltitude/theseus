@@ -1362,7 +1362,7 @@ pub fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
         r.stopped_actions.len(),
         r.declined.len(),
         if r.turn_running {
-            " · its running turn ends at its next step"
+            " · the turn it reached stops at its next step, or already has"
         } else {
             ""
         }
