@@ -6,7 +6,7 @@
 use serde_json::Value;
 use theseus_protocol::usd;
 use theseus_protocol::work::progress_line::aged_said;
-use theseus_protocol::work::{AnswerOption, Question, WorkState, WorkView};
+use theseus_protocol::work::{AnswerOption, DoingKind, Question, WorkKind, WorkState, WorkView};
 
 use super::board_v2::{ago, short};
 use super::card_v2;
@@ -55,9 +55,35 @@ pub fn failure_row(v: &WorkView, named: bool) -> Option<Value> {
     (!buttons.is_empty()).then(|| row(buttons))
 }
 
+/// A task that was set to start later and has not: asleep until its time, no
+/// turn taken (the core's `task_start::starts_at`, as the work view shows it).
+/// It is `scheduled`, not running, wherever the binding words its state.
+pub(crate) fn waits_to_start(v: &WorkView) -> bool {
+    v.kind == WorkKind::Task
+        && v.state == WorkState::Waiting
+        && v.doing
+            .as_ref()
+            .is_some_and(|d| d.what == DoingKind::Sleeping && d.turn == 0)
+}
+
+/// `🕒 scheduled · starts <t> · <in N>` for a task that waits to start.
+pub(crate) fn scheduled_words(v: &WorkView) -> String {
+    match v.next_at_ms {
+        Some(at) => format!(
+            "🕒 scheduled · starts <t:{}:f> · <t:{}:R>",
+            at / 1000,
+            at / 1000
+        ),
+        None => "🕒 scheduled".to_string(),
+    }
+}
+
 fn state_words(v: &WorkView) -> String {
     if v.paused && !v.state.ended() {
         return "⏸ paused".to_string();
+    }
+    if waits_to_start(v) {
+        return scheduled_words(v);
     }
     let (word, mark) = match v.state {
         WorkState::Queued => ("queued", Some("⏳".to_string())),
@@ -156,7 +182,7 @@ fn body(v: &WorkView, calls: &[String], now_ms: u64) -> Vec<Value> {
         short(&v.id),
         state_words(v)
     );
-    if v.started_at_ms > 0 {
+    if v.started_at_ms > 0 && !waits_to_start(v) {
         head.push_str(&format!(" · started {}", ago(v.started_at_ms)));
     }
     if let Some(c) = v.cost.filter(|c| c.spent_usd > 0.0 || c.limit_usd > 0.0) {
@@ -171,7 +197,11 @@ fn body(v: &WorkView, calls: &[String], now_ms: u64) -> Vec<Value> {
         ));
     }
     let mut inner = vec![text(head)];
-    if let Some(d) = v.doing.as_ref().filter(|d| !d.label.is_empty()) {
+    if let Some(d) = v
+        .doing
+        .as_ref()
+        .filter(|d| !d.label.is_empty() && !waits_to_start(v))
+    {
         inner.push(text(format!(
             "**Doing** · {} · turn {}",
             clip(&d.label, 80),
@@ -255,13 +285,13 @@ pub fn confirm_stop(v: &WorkView) -> Vec<Value> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::render::v2::{custom_ids, texts, validate};
     use theseus_protocol::work::{Doing, DoingKind, Progress, WorkKind};
     use theseus_protocol::{Attention, Level};
 
-    fn task() -> WorkView {
+    pub(crate) fn task() -> WorkView {
         WorkView {
             moved_to: None,
             forum_url: None,
@@ -380,5 +410,57 @@ mod tests {
                 "tb:no:exe_01J000000000000000task01"
             ]
         );
+    }
+
+    /// A task set to start at `at`: asleep on its time, no turn taken.
+    pub(crate) fn deferred(at: u64) -> WorkView {
+        let mut v = task();
+        v.state = WorkState::Waiting;
+        v.next_at_ms = Some(at);
+        v.progress = None;
+        v.doing = Some(Doing {
+            what: DoingKind::Sleeping,
+            label: "waiting for its time".into(),
+            since_ms: 0,
+            turn: 0,
+            loop_index: 0,
+            last_line: None,
+        });
+        v
+    }
+
+    #[test]
+    fn a_task_set_for_later_says_scheduled_with_its_time_and_never_running_or_started() {
+        let at = 1_790_003_600_000;
+        let v = deferred(at);
+        assert!(waits_to_start(&v));
+        let t = texts(&detail(&v, &[], None, &Comments::default(), 0)).join("\n");
+        assert!(
+            t.contains("🕒 scheduled · starts <t:1790003600:f> · <t:1790003600:R>"),
+            "{t}"
+        );
+        for word in ["running", "started", "Doing"] {
+            assert!(!t.contains(word), "{word} in {t}");
+        }
+        let c = post_card(&v, &[], Some("https://example.test/t"), 0);
+        assert!(!texts(&c).join(" ").contains("running"));
+    }
+
+    #[test]
+    fn only_a_task_asleep_on_its_time_with_no_turn_waits_to_start() {
+        let at = 1_790_003_600_000;
+        assert!(waits_to_start(&deferred(at)));
+        let mut slept = deferred(at);
+        slept.doing.as_mut().unwrap().turn = 3;
+        assert!(!waits_to_start(&slept), "a task that worked then slept");
+        let mut calls = deferred(at);
+        calls.doing.as_mut().unwrap().what = DoingKind::WaitingOnTasks;
+        assert!(!waits_to_start(&calls), "waiting on its calls");
+        let mut started = deferred(at);
+        started.state = WorkState::Running;
+        assert!(!waits_to_start(&started));
+        let mut reminder = deferred(at);
+        reminder.kind = WorkKind::Wake;
+        assert!(!waits_to_start(&reminder), "a wake is not a task");
     }
 }

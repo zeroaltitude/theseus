@@ -633,10 +633,18 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
 /// A rig whose DM and `#lab` each have a conversation (a word said in each),
 /// `#lab` and `#reel` private beside the DM, the home as `home` says.
 pub(crate) async fn two_places(home: &str) -> Rig {
+    two_places_with(home, |_| vec![]).await
+}
+
+/// `two_places` with tasks the model runs for the briefs `kids` names.
+pub(crate) async fn two_places_with(
+    home: &str,
+    kids: impl FnOnce(&Path) -> Vec<(&'static str, Vec<Scripted>)>,
+) -> Rig {
     let home = home.to_string();
     let r = rig(
         vec![Scripted::text("Hello."), Scripted::text("Hello.")],
-        |_| vec![],
+        kids,
         &bindings(true, ""),
         |_| {},
         move |c| c.discord.task_home = home,
