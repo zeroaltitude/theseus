@@ -339,6 +339,36 @@ fn a_clean_stop_lets_the_reply_in_flight_settle_before_it_exits() {
     );
 }
 
+/// The wait the daemon logged for the posts in flight at its clean stop, in ms: its own clock around
+/// that wait alone (the "stopping:" line's `waited_ms`; the log is coloured, so the escapes go first).
+fn stop_wait_ms(log: &str) -> f64 {
+    let mut plain = String::new();
+    let mut chars = log.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            chars.by_ref().find(|c| *c == 'm');
+        } else {
+            plain.push(c);
+        }
+    }
+    let line = plain
+        .lines()
+        .find(|l| l.contains("stopping: ") && l.contains("waited_ms="))
+        .unwrap_or_else(|| {
+            panic!(
+                "no wait for a post in the daemon's log:\n{}",
+                tail(&plain, 20)
+            )
+        });
+    let from = line.find("waited_ms=").unwrap() + "waited_ms=".len();
+    let num: String = line[from..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    num.parse()
+        .unwrap_or_else(|_| panic!("waited_ms is not a number in: {line}"))
+}
+
 /// A post whose answer does not come holds a clean stop no longer than its
 /// grace, the default (theseus-pfv): the post stays dispatched, as after a
 /// crash, and the next start sends it again under the same nonce, so the
@@ -358,13 +388,18 @@ fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
         "the stop, the post never answered: {} ms (the grace is 50 ms)",
         stopped_in.as_millis()
     );
-    // "No longer than the grace" is a promise about the daemon: its exit is many wake-ups in a
-    // row (20 ms idle, 1.8 s with 64 busy threads), so the limit is held in proportion to how
-    // slowly the machine gave a thread its turn around the stop (`Busy`, at most 10 times), which
-    // is exactly 1000 ms on a quiet machine (theseus-20).
+    // "No longer than the grace" is a promise about the wait for the post, and the daemon times that
+    // wait itself (`waited_ms` on its "stopping:" line, the stop's began to the posts' settling). The
+    // wall clock from the request to the exit is not that wait: it holds the client's connect, this
+    // harness's polling and the process's teardown too, and beside 64 busy loops it read 1 s to 3.5 s
+    // while the daemon's own stop took 74 ms and its wait 51 ms (theseus-20, the third pass). So the
+    // limit is the daemon's clock, held in proportion to how slowly the machine gave a thread its turn
+    // (`Busy`, at most 10 times), which is exactly 1000 ms on a quiet machine.
+    let waited = Duration::from_secs_f64(stop_wait_ms(&r.log()) / 1000.0);
     assert!(
-        busy.keeps(stopped_in, Duration::from_millis(1000)),
-        "the stop waited {} ms ({busy})",
+        busy.keeps(waited, Duration::from_millis(1000)),
+        "the post held the stop {} ms ({busy}); the whole stop took {} ms",
+        waited.as_millis(),
         stopped_in.as_millis()
     );
     assert!(
