@@ -131,6 +131,36 @@ impl Fact for UnknownTool<'_> {
     }
 }
 
+/// A shell command that is Theseus's own look was answered with the tool that does it, and not run
+/// (`shell.answered`, issue 28): the verb, the tool named and the kind of place, never the command's
+/// text. The count of these over a week says whether the habit is fading.
+pub struct ShellAnswered<'a> {
+    /// The verb as the command line names it (`health`, `config show`).
+    pub verb: &'a str,
+    /// The tool named, by its dotted name.
+    pub tool: &'a str,
+    /// The kind of place the turn is in (`cli`, `dm`, …).
+    pub place: &'a str,
+}
+
+impl Fact for ShellAnswered<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ShellAnswered);
+
+    fn row(&self) -> Value {
+        json!({"verb": self.verb, "tool": self.tool, "place": self.place})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "A shell `theseus {}` was answered with {}, and not run.",
+                self.verb, self.tool
+            ),
+        );
+    }
+}
+
 /// A call's input was not valid JSON, so it does not run
 /// (`tool.invalid_input`).
 pub struct InvalidJson<'a> {

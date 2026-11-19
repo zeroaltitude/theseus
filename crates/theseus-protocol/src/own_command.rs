@@ -62,9 +62,11 @@ pub const VERBS: &[Entry] = &[
     e("config", &["", "history"], Look("config.history")),
     e("config", &[], Unserved),
     // The looks no tool does yet.
-    e("history", &[], Unserved),
+    e("history", &[], Look("look.work")),
     e("watch", &[], Unserved),
-    e("status", &[], Unserved),
+    e("status", &[], Look("look.work")),
+    e("tasks", &[""], Look("look.work")),
+    e("tasks", &["forecast"], Unserved),
     e("tasks", &[], Unserved),
     e("agenda", &[], Unserved),
     e("digest", &[], Unserved),
@@ -76,6 +78,19 @@ pub const VERBS: &[Entry] = &[
     e("ledger", &[], Unserved),
     e("memory", &[], Unserved),
     e("model", &[], Unserved),
+    e(
+        "ontology",
+        &["", "kinds", "categories", "proposals"],
+        Look("look.theseus"),
+    ),
+    e("ontology", &["member", "never"], Unserved),
+    e(
+        "ontology",
+        &[
+            "topic", "undo", "kind", "guide", "accept", "person", "reject",
+        ],
+        Act,
+    ),
     e("ontology", &[], Unserved),
     e("packs", &[], Unserved),
     e("persona", &[], Unserved),
@@ -382,6 +397,21 @@ mod tests {
         ] {
             assert_eq!(said(line), health, "{line}");
         }
+        for (line, verb) in [
+            ("theseus ontology", "ontology"),
+            ("theseus ontology kinds", "ontology kinds"),
+            ("theseus ontology categories", "ontology categories"),
+            ("theseus ontology proposals", "ontology proposals"),
+        ] {
+            assert_eq!(
+                said(line),
+                Some(("look.theseus", verb.to_string())),
+                "{line}"
+            );
+        }
+        for line in ["theseus tasks", "theseus status", "theseus history"] {
+            assert_eq!(said(line).map(|a| a.0), Some("look.work"), "{line}");
+        }
         assert_eq!(
             said("theseus profile"),
             Some(("look.theseus", "profile".into()))
@@ -425,10 +455,25 @@ mod tests {
             "theseus ask hello",
             "theseus ask -P mythos hello",
             "theseus health --watch",
+            "theseus tasks forecast",
+            "theseus history ses_other",
+            "theseus ontology proposals --each",
+            "theseus ontology person add Ada",
+            "theseus ontology member ses_x +topic:y",
+            "theseus ontology accept jdg_1",
+            "theseus ontology topic",
+            "theseus ontology undo",
+            "theseus ontology kind",
+            "theseus ontology guide",
+            "theseus ontology accept",
+            "theseus ontology person",
+            "theseus ontology reject",
+            "theseus ontology member",
+            "theseus ontology never",
             "theseus health extra",
             "theseus profile list x",
             "theseus config show x",
-            "theseus history",
+            "theseus judge log",
             "theseus nonsense",
             "theseus",
             "theseus --json",

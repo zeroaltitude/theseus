@@ -369,7 +369,12 @@ fn the_look_family_is_deferred_and_its_cost_is_measured() {
         .iter()
         .find(|f| f.family == "look")
         .expect("the look family");
-    assert_eq!(fam.tools, ["look_theseus", "look_vault"], "{:?}", fam.tools);
+    assert_eq!(
+        fam.tools,
+        ["look_theseus", "look_vault", "look_work"],
+        "{:?}",
+        fam.tools
+    );
     assert!(!fam.loaded, "deferred in a direct message: {}", fam.why);
     let added = |place: &str| {
         let (a, b) = (
