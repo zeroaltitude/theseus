@@ -392,9 +392,9 @@ fn the_look_family_is_deferred_and_its_cost_is_measured() {
         "MEASURED look family: loads at {} tokens; deferred adds {dm_added} to a dm request, {cli_added} to a cli one",
         fam.tokens
     );
-    // Measured 2026-11-18: a deferred family adds nothing to the census's total
+    // Measured 2026-11-18, and again 2026-11-19: a deferred family adds nothing to the census's total
     // (a deferred tool is counted at a constant, and its family's summary is read
-    // only in the answer to a search), and loading it would add 694 tokens: more
+    // only in the answer to a search), and loading it would add 1,184 tokens (re-measured 2026-11-19, with `look_work`): more
     // than the 400 under which the owner's rule would load it, so it stays deferred.
     assert!(
         dm_added <= 400 && cli_added <= 400,

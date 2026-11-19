@@ -148,25 +148,27 @@ async fn a_proposed_standing_record_is_counted_and_not_called_a_wait() {
     assert!(!text.contains("tarred"), "its words are not given: {text}");
 }
 
-/// The conversations that are working now, where each is and since when: this one is named as this one.
+/// The conversations that are working now, where each is and since when: the asking conversation is
+/// working (this turn is under way) and is named as this one; `scope: here` is this one alone.
 #[tokio::test]
 async fn running_names_the_conversations_that_are_working_now() {
     let r = rig();
     let (here, other) = (conversation(&r).await, conversation(&r).await);
-    // A conversation with a turn under way: its execution holds a turn.
-    let rec: SessionRecord = r.core.store.get_session(&other).unwrap().unwrap();
-    r.core
-        .kernel
-        .wake_input(rec.execution_id.as_ref().unwrap())
-        .unwrap();
     let text = said(&r, &here, json!({"what": ["running"]})).await;
     assert!(
-        text.contains("Running: conversations working now (")
-            || text.contains("Running: no conversation is working just now."),
+        text.starts_with("Running: conversations working now ("),
         "{text}"
     );
+    let mine = text
+        .lines()
+        .find(|l| l.contains("· this conversation ·"))
+        .unwrap();
+    assert!(
+        mine.starts_with(&format!("- {} ·", crate::task::short(&here))) && mine.contains(" turn"),
+        "{mine}"
+    );
     let alone = said(&r, &here, json!({"what": ["running"], "scope": "here"})).await;
-    assert!(alone.starts_with("Running: "), "{alone}");
+    assert!(alone.contains("· this conversation ·"), "{alone}");
     assert!(!alone.contains(&crate::task::short(&other)), "{alone}");
 }
 
