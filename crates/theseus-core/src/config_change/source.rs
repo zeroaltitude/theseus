@@ -5,11 +5,12 @@
 //! address and protocol, a server's command) instead of asking the owner for
 //! it, and say where it found it. That text is **the model's word and nothing
 //! more**: the daemon fetched nothing and checked nothing, and the card says so
-//! in the same line. It is one line of at most [`SOURCE_CHARS`] characters, drawn
-//! after a fixed label inside quotes that it cannot close, so it can end no line,
-//! begin none and pass for none of the card's own. It never replaces the card's
-//! other lines: the value itself, the line that a turn read outside text, the
-//! second proof and the reason are built as they were.
+//! in the same line. It is one line, cut at [`SOURCE_CHARS`] characters before
+//! its unseen characters are written out, drawn after a fixed label inside
+//! quotes that it cannot close, so it can end no line, begin none and pass for
+//! none of the card's own. It never replaces the card's other lines: the value
+//! itself, the line that a turn read outside text, the second proof and the
+//! reason are built as they were.
 
 use super::diff::{self, Setting};
 use crate::config::sensitivity;
