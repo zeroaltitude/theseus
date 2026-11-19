@@ -452,7 +452,7 @@ impl Writer {
     /// One frame's bytes, at the end of the segment.
     fn write_frame(&mut self, frame: &[u8]) -> io::Result<()> {
         #[cfg(any(test, debug_assertions))]
-        self.hold_here();
+        stand::hold_here(self);
         #[cfg(test)]
         if let Some(n) = self.short_write.take() {
             self.file.write_all(&frame[..n.min(frame.len())])?;
