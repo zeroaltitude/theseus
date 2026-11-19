@@ -77,6 +77,7 @@ pub mod learning;
 pub mod ledger;
 pub mod ledger_gap;
 pub mod ledger_pin;
+pub mod look;
 pub mod lsp;
 pub mod mcp;
 pub mod mcp_server;

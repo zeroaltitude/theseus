@@ -58,6 +58,11 @@ since your last message, it asks you first. It never gives a secret's value, the
 is read from. (Reading is free at the default `notify` posture; at `[policy] enforcement = "approve"` it is asked like every
 other call.)
 
+To look at Theseus itself (its models, whether each provider's key resolved, its health and build) or at the names in
+its vault, a turn has `look.theseus` and `look.vault`, on the same terms: free in a clean turn of yours, asked first after
+outside text, never a value, a field or a note (`docs/design/look-tools.md`). A shell command that names Theseus's own
+program or the vault's is still held for you, and its card now says which program and where the look is.
+
 ## Which settings need the code
 
 An **ordinary** change needs the card's yes and nothing else: the notes import, a theme, a model's name, a count.

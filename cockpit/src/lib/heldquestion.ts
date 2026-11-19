@@ -26,3 +26,7 @@ export function waitedLabel(c: ConfirmRequest, now: number): string | null {
   const waited = ms >= 3_600_000 ? `${Math.round(ms / 3_600_000)} h` : ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`
   return `waiting ${waited}`
 }
+
+/** Why the floor holds a call, in the daemon's own words (`needs_you::plain`): which program or path, and where the look is.
+ *  None for a question the floor did not hold, or one from a daemon that sent no words. */
+export const floorWords = (c: ConfirmRequest): string | null => (c.floor ? c.plain?.held || null : null)

@@ -435,8 +435,19 @@ fn confirm_event(out: &mut Vec<Line>, c: &ConfirmRequest) {
                 c.reason
             ),
         );
+        floor_line(out, c);
     }
     answers(out, c);
+}
+
+/// Why the floor holds a call, in the daemon's words: which program or path,
+/// and where the look is (`needs_you::plain`). The event's raw reason names a
+/// program and no way out; this is the line that does. (A list of the waiting
+/// questions has it already, in `why` beside the risk: `ask::plain_lines`.)
+fn floor_line(out: &mut Vec<Line>, c: &ConfirmRequest) {
+    if let Some(p) = c.plain.as_ref().filter(|_| c.floor) {
+        push(out, Tag::Dim, &format!("      held: {}", p.held));
+    }
 }
 
 /// Whether the daemon worded `c` whole: a settings question.

@@ -215,7 +215,7 @@ pub fn rule_clause(reason: &str) -> Option<String> {
 /// guard's doubt, the rule's own clause, else the tool's posture.
 fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
     if req.floor {
-        "it touches Theseus's own state or a secret, which always asks".into()
+        floor::words(&req.reason)
     } else if clause.is_some_and(misroute::is_question) {
         "it may belong in another thread, so it waits for you".into()
     } else if let Some(c) = clause {
@@ -242,6 +242,17 @@ pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
     // clause stands in when the model said nothing before the call.
     let why = match &clause {
         Some(c) if misroute::is_question(c) => Some(c.clone()),
+        // A floor hold says which program or path, and where the look is, beside
+        // the model's own words (issue 26): a surface that prints `why` and not
+        // `held` still tells the owner what to do.
+        _ if req.floor => Some(match &g.model_why {
+            Some(m) => format!(
+                "{} ({})",
+                m.trim_end_matches('.'),
+                floor::words(&req.reason)
+            ),
+            None => floor::words(&req.reason),
+        }),
         _ => g.model_why.clone().or(clause.clone()),
     };
     PlainWords {
@@ -260,6 +271,8 @@ pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
 pub(super) fn held(req: &ConfirmRequest) -> String {
     held_of(req, clause_of(req).as_deref())
 }
+
+mod floor;
 
 #[cfg(test)]
 mod tests;

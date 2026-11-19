@@ -2,7 +2,7 @@
 // theseus-lrc3m), run by `npm test`. Pure: no DOM.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { deadlineOf, isHeld, waitedLabel } from '../src/lib/heldquestion.ts'
+import { deadlineOf, floorWords, isHeld, waitedLabel } from '../src/lib/heldquestion.ts'
 import { EXPIRING_TOOLS } from '../src/protocol.gen/ExpiringTools.ts'
 
 const MIN = 60_000
@@ -43,4 +43,14 @@ test('a budget question holds as it says: no deadline, and no wait label', () =>
   assert.equal(isHeld(c), false)
   assert.equal(deadlineOf(c), 0)
   assert.equal(waitedLabel(c, c.requested_at_ms + HOUR), null)
+})
+
+// A floor hold names its program and says where the look is (issue 26): the card shows the daemon's words, and nothing for
+// a call the floor did not hold.
+test('a floor hold shows the daemon\'s words, and only a floor hold', () => {
+  const held = "it names the vault's program (`op`), which always asks, and a shell has no vault session by design. To look, Theseus has tools"
+  assert.equal(floorWords(ask({ floor: true, plain: { held } })), held)
+  assert.equal(floorWords(ask({ floor: false, plain: { held } })), null)
+  assert.equal(floorWords(ask({ floor: true })), null, 'a daemon that sent no words')
+  assert.equal(floorWords(ask({ floor: true, plain: { held: '' } })), null)
 })

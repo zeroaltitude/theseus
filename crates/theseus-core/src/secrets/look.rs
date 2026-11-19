@@ -1,0 +1,278 @@
+//! The vault's names, read by the daemon (issue 26): who the token is, which
+//! vaults it sees, and the title of each item in one. Never a value, a field,
+//! a note or a document.
+//!
+//! **What keeps a value out.** Three things, each enough to be tested alone:
+//!
+//! - The command line is built from [`Verb`], a closed set of list verbs. No
+//!   string a model wrote is ever part of it: a vault is named to `op` by the
+//!   id `op` itself listed ([`VaultId`], letters and digits only), and a title
+//!   filter is applied here, to what came back.
+//! - What comes back is parsed and rebuilt from the named keys only
+//!   ([`Account`], [`Vault`], [`ItemName`]), so a key `op` adds tomorrow, or a
+//!   field it already lists (an item's username, its web addresses, its tags),
+//!   does not ride through.
+//! - A failure is a [`Failed`] class, never `op`'s own stderr.
+//!
+//! The token is the daemon's: `OpReader::op` hands it to the child, and the
+//! child's answer is read here and nowhere a turn's process can reach.
+
+use std::process::Stdio;
+
+use serde_json::Value;
+
+use super::{OpReader, OP_TIMEOUT};
+
+/// The most output of one list this reads, in bytes: a vault of many
+/// thousands of items is asked for by a narrower look, not read whole.
+pub const MAX_OUTPUT: usize = 4 * 1024 * 1024;
+/// The longest a name is kept, in characters.
+const MAX_NAME: usize = 120;
+
+/// A vault's id as `op` lists it: letters and digits, never a flag, a path, a
+/// reference or a space. Made only from what `op` itself answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultId(String);
+
+impl VaultId {
+    /// The id, or `None` for anything that is not one.
+    pub fn parse(s: &str) -> Option<Self> {
+        let ok = (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric());
+        ok.then(|| Self(s.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// What may be asked of `op`: three list verbs, and nothing else exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verb {
+    /// Which account the token is.
+    Whoami,
+    /// The vaults the token sees.
+    Vaults,
+    /// The items of one vault, or of every vault the token sees.
+    Items(Option<VaultId>),
+}
+
+impl Verb {
+    /// The arguments, in full. Every one is a literal here but a vault's id.
+    pub fn argv(&self) -> Vec<String> {
+        let lit = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        match self {
+            Verb::Whoami => lit(&["whoami", "--format", "json"]),
+            Verb::Vaults => lit(&["vault", "list", "--format", "json"]),
+            Verb::Items(None) => lit(&["item", "list", "--format", "json"]),
+            Verb::Items(Some(v)) => {
+                let mut a = lit(&["item", "list", "--format", "json", "--vault"]);
+                a.push(v.as_str().to_string());
+                a
+            }
+        }
+    }
+}
+
+/// Why a look gave nothing, by class: what the model is told, in place of
+/// `op`'s own words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failed {
+    /// No token and no vault program: an install that keeps its secrets in the
+    /// environment or in files.
+    NoVault,
+    /// The program could not be started.
+    NotStarted,
+    /// It did not answer within `OP_TIMEOUT`.
+    TimedOut,
+    /// It answered that the token is not allowed, or has no session.
+    Denied,
+    /// It could not reach the vault's service.
+    Unreachable,
+    /// It failed, for a reason this does not name.
+    Failed,
+    /// Its answer was larger than this reads.
+    TooLarge,
+    /// Its answer was not the list it was asked for.
+    Unreadable,
+}
+
+impl Failed {
+    /// The class, in words for the model: it says what to do, and never why.
+    pub fn words(self) -> &'static str {
+        match self {
+            Failed::NoVault => "this Theseus has no vault session (its secrets come from the environment or from files)",
+            Failed::NotStarted => "the vault's program could not be started",
+            Failed::TimedOut => "the vault did not answer in time",
+            Failed::Denied => "the vault refused the daemon's token, or it has no session",
+            Failed::Unreachable => "the vault could not be reached",
+            Failed::Failed => "the vault's program failed",
+            Failed::TooLarge => "the vault's answer was too large to list: name one vault and a part of a title",
+            Failed::Unreadable => "the vault's program answered in a form Theseus does not read",
+        }
+    }
+}
+
+/// Who the token is: where, and what kind. Not an identifier of the account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub host: String,
+    pub kind: String,
+}
+
+/// One vault: its id and its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Vault {
+    pub id: String,
+    pub name: String,
+}
+
+/// One item as the list shows it: nothing but these five.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemName {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub vault: String,
+}
+
+/// A name as a line may carry it: control characters and line breaks gone,
+/// whitespace folded, cut at [`MAX_NAME`] characters.
+pub fn clean(s: &str) -> String {
+    let one: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let folded = one.split_whitespace().collect::<Vec<_>>().join(" ");
+    match folded.chars().count() > MAX_NAME {
+        true => format!("{}…", folded.chars().take(MAX_NAME).collect::<String>()),
+        false => folded,
+    }
+}
+
+fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(Value::as_str)
+}
+
+fn list(raw: &str) -> Result<Vec<Value>, Failed> {
+    match serde_json::from_str::<Value>(raw) {
+        Ok(Value::Array(a)) => Ok(a),
+        _ => Err(Failed::Unreadable),
+    }
+}
+
+/// `whoami`'s answer: the account's host and the kind of token.
+pub fn parse_account(raw: &str) -> Result<Account, Failed> {
+    let v: Value = serde_json::from_str(raw).map_err(|_| Failed::Unreadable)?;
+    let url = text(&v, "url").ok_or(Failed::Unreadable)?;
+    let host = url.split("://").last().unwrap_or(url);
+    let host = host.split(['/', '?', '#']).next().unwrap_or("");
+    let kind = match text(&v, "user_type") {
+        Some("SERVICE_ACCOUNT") => "a service account",
+        Some("MEMBER") => "a person's account",
+        _ => "an account",
+    };
+    Ok(Account {
+        host: clean(host),
+        kind: kind.into(),
+    })
+}
+
+/// `vault list`'s answer: each vault's id and name.
+pub fn parse_vaults(raw: &str) -> Result<Vec<Vault>, Failed> {
+    Ok(list(raw)?
+        .iter()
+        .filter_map(|v| {
+            Some(Vault {
+                id: text(v, "id")?.to_string(),
+                name: clean(text(v, "name")?),
+            })
+        })
+        .collect())
+}
+
+/// `item list`'s answer: each item's id, title, category and vault's name.
+pub fn parse_items(raw: &str) -> Result<Vec<ItemName>, Failed> {
+    Ok(list(raw)?
+        .iter()
+        .filter_map(|v| {
+            Some(ItemName {
+                id: clean(text(v, "id")?),
+                title: clean(text(v, "title")?),
+                category: clean(text(v, "category").unwrap_or("")),
+                vault: clean(
+                    v.get("vault")
+                        .and_then(|x| text(x, "name"))
+                        .unwrap_or_default(),
+                ),
+            })
+        })
+        .collect())
+}
+
+/// The class of a failed run, read from what the program said and never
+/// returned.
+fn class_of(stderr: &[u8]) -> Failed {
+    let s = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
+    if has(&[
+        "unauthorized",
+        "not authorized",
+        "not signed in",
+        "no session",
+        "401",
+        "403",
+        "token",
+        "forbidden",
+        "sign in",
+        "signed in",
+    ]) {
+        Failed::Denied
+    } else if has(&[
+        "dial",
+        "no such host",
+        "network",
+        "connection",
+        "unreachable",
+        "lookup ",
+        "tls",
+    ]) {
+        Failed::Unreachable
+    } else {
+        Failed::Failed
+    }
+}
+
+impl OpReader {
+    /// Whether this reader has no vault behind it.
+    pub fn has_no_vault(&self) -> bool {
+        self.absent.is_some()
+    }
+
+    /// One list verb, run under the daemon's token with the same time limit as
+    /// every other `op` call here; its output as text, or the class of its
+    /// failure.
+    pub async fn look(&self, verb: &Verb) -> Result<String, Failed> {
+        if self.absent.is_some() {
+            return Err(Failed::NoVault);
+        }
+        let mut cmd = self.op();
+        cmd.args(verb.argv()).stdin(Stdio::null());
+        let child = Self::start(&mut cmd).map_err(|_| Failed::NotStarted)?;
+        let out = match tokio::time::timeout(OP_TIMEOUT, child.wait_with_output()).await {
+            Err(_) => return Err(Failed::TimedOut),
+            Ok(Err(_)) => return Err(Failed::Failed),
+            Ok(Ok(o)) => o,
+        };
+        if !out.status.success() {
+            return Err(class_of(&out.stderr));
+        }
+        if out.stdout.len() > MAX_OUTPUT {
+            return Err(Failed::TooLarge);
+        }
+        String::from_utf8(out.stdout).map_err(|_| Failed::Unreadable)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests;

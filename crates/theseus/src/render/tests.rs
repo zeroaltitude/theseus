@@ -943,3 +943,42 @@ fn a_prompt_file_change_is_printed_whole_for_the_cli() {
         .iter()
         .any(|l| l.contains("theseus answer act_q approve")));
 }
+
+/// A question the floor holds is drawn with the daemon's own words for which
+/// program or path and where the look is (issue 26): beside the risk in the list
+/// `theseus answer` and `history` print, and on a line of its own under the raw
+/// reason in the event stream.
+#[test]
+fn a_floor_hold_is_drawn_with_the_daemons_words() {
+    let held = "it names a program the daemon words, which always asks; a look has a tool";
+    let c: ConfirmRequest = serde_json::from_value(serde_json::json!({
+        "correlation_id": "act_1", "session_id": "ses_1", "execution_id": "e",
+        "tool": "proc.run", "input": {"argv": ["x"]},
+        "reason": "run `x` in /w: proc.run — approve (floor: `x` is Theseus's own binary or the 1Password CLI)",
+        "by": "operator", "requested_at_ms": 1, "expires_at_ms": 2, "floor": true,
+        "plain": {"who": "the session", "what": "run `x`", "why": held, "held": held,
+                  "risk": "touches secrets", "yes": "runs it.", "no": "refuses it."},
+    }))
+    .unwrap();
+    let said = |lines: Vec<Line>| lines.into_iter().map(|l| l.text).collect::<Vec<_>>();
+    let listed = said(confirm_lines(&c));
+    assert!(
+        listed.iter().any(|l| l.contains(&format!("why: {held}"))),
+        "{listed:?}"
+    );
+    let mut out = Vec::new();
+    confirm_event(&mut out, &c);
+    let event = said(out);
+    assert!(
+        event
+            .iter()
+            .any(|l| l.trim_start() == format!("held: {held}")),
+        "{event:?}"
+    );
+    // A call the floor did not hold draws no such line in the event.
+    let mut open = c.clone();
+    open.floor = false;
+    let mut out = Vec::new();
+    confirm_event(&mut out, &open);
+    assert!(!said(out).iter().any(|l| l.contains("held:")));
+}
