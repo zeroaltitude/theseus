@@ -17,8 +17,8 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use theseus_protocol::method;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
+use theseus_protocol::method;
 use theseus_sim::fake_discord::commands::Sender;
 use theseus_sim::fake_discord::Reply;
 
@@ -69,43 +69,228 @@ use Fire::{Modal, ModalFromMessage, Press, Select, Slash, Sub};
 
 /// Every handler the sweep changed that a person can reach by an interaction with the stand-ins.
 const TABLE: &[Row] = &[
-    Row { handler: "keep form's submit", fire: Modal("kf:act_0000feed", &[("value", "x")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "proof form's submit, from a command", fire: Modal("pf:act_0000feed", &[("code", "123456")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "proof form's submit, from a card", fire: ModalFromMessage("pf:act_0000feed", &[("code", "123456")]), ack: Card, was: "an update of the card (type 7); a refusal an ephemeral message" },
-    Row { handler: "an ask card's option", fire: Press("ask:1:act_0000feed"), ack: Card, was: "an update of the card; a refusal ephemeral" },
-    Row { handler: "an expired card's Ask again", fire: Press("again:act_0000feed"), ack: Card, was: "an update of the card; a refusal ephemeral" },
-    Row { handler: "a thread ask's answer", fire: Press("thr:ask_0001:new"), ack: Card, was: "an update of the card; a refusal ephemeral" },
-    Row { handler: "a new persona's soul", fire: Modal("psoul:m:pilot", &[("soul", "words")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "the answer modal, from a command", fire: Modal("wm:00feed:decline", &[("note", "no")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "the answer modal, from a card", fire: ModalFromMessage("wm:00feed:decline", &[("note", "no")]), ack: Card, was: "an update of the card; a refusal ephemeral" },
-    Row { handler: "a routine post's Details", fire: Press("hz:details:wak_0000feed"), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a routine post's answer", fire: Press("hz:done:wak_0000feed"), ack: Card, was: "an update of the post; a refusal ephemeral" },
-    Row { handler: "the board's reminder select", fire: Select("hq:pick", &["hq:cancel:wak_0000feed"]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a scheduled reminder card's Cancel", fire: Press("hq:cancel:wak_0000feed"), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/agenda", fire: Slash("agenda", &[]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/routine list", fire: Sub("routine", "list", &[]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/routine pause", fire: Sub("routine", "pause", &[("name", "nothing")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/snooze", fire: Slash("snooze", &[("wake", "wak_0000feed"), ("when", "in 1h")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/watch list", fire: Sub("watch", "list", &[]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a routine's button, not on the list", fire: Press("hr:pause:rtn_0000feed"), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "the routine form's submit", fire: Modal("hzm:routine", ROUTINE_FORM), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "the watch form's submit", fire: Modal("hzm:watch:fetch", WATCH_FORM), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a command watch's approval", fire: Press("hw:no:0000feed"), ack: Card, was: "an update of the approval message" },
-    Row { handler: "/orders", fire: Slash("orders", &[]), ack: Private, was: "an ephemeral list" },
-    Row { handler: "an order's Revoke", fire: Press("orders-revoke:nothing"), ack: Card, was: "an update of the list message" },
-    Row { handler: "/extensions", fire: Slash("extensions", &[]), ack: Private, was: "an ephemeral list" },
-    Row { handler: "an extension's Revoke", fire: Press("ext-revoke:nothing"), ack: Card, was: "an update of the list message" },
-    Row { handler: "/project", fire: Sub("project", "trusted", &[]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/thread", fire: Sub("thread", "list", &[]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/remind", fire: Slash("remind", &[("when", "in 1h"), ("what", "stretch")]), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a reminder's button", fire: Press("wake:done:wak_0000feed"), ack: Card, was: "an update of the reminder; a refusal ephemeral" },
-    Row { handler: "a cited source's Show source", fire: Press("src:ses_0000feed:[1]"), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "/tasks done", fire: Slash("tasks", &[("show", "done")]), ack: Private, was: "an ephemeral view" },
-    Row { handler: "the tasks view's refresh (done)", fire: Press("tb:refresh:done"), ack: Card, was: "an update of the view" },
-    Row { handler: "a failed task's Retry", fire: Press("tb:retry:exe_0000feed"), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a failed task's Dismiss", fire: Press("tb:dismiss:exe_0000feed"), ack: Private, was: "an ephemeral reply" },
-    Row { handler: "a task's confirmed Stop", fire: Press("tb:yes:exe_0000feed"), ack: Card, was: "an update of the view" },
-    Row { handler: "/prompt's argument form", fire: Modal("prompt:srv/greet", &[]), ack: Private, was: "an ephemeral reply for every refusal (the run's line public)" },
+    Row {
+        handler: "keep form's submit",
+        fire: Modal("kf:act_0000feed", &[("value", "x")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "proof form's submit, from a command",
+        fire: Modal("pf:act_0000feed", &[("code", "123456")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "proof form's submit, from a card",
+        fire: ModalFromMessage("pf:act_0000feed", &[("code", "123456")]),
+        ack: Card,
+        was: "an update of the card (type 7); a refusal an ephemeral message",
+    },
+    Row {
+        handler: "an ask card's option",
+        fire: Press("ask:1:act_0000feed"),
+        ack: Card,
+        was: "an update of the card; a refusal ephemeral",
+    },
+    Row {
+        handler: "an expired card's Ask again",
+        fire: Press("again:act_0000feed"),
+        ack: Card,
+        was: "an update of the card; a refusal ephemeral",
+    },
+    Row {
+        handler: "a thread ask's answer",
+        fire: Press("thr:ask_0001:new"),
+        ack: Card,
+        was: "an update of the card; a refusal ephemeral",
+    },
+    Row {
+        handler: "a new persona's soul",
+        fire: Modal("psoul:m:pilot", &[("soul", "words")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "the answer modal, from a command",
+        fire: Modal("wm:00feed:decline", &[("note", "no")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "the answer modal, from a card",
+        fire: ModalFromMessage("wm:00feed:decline", &[("note", "no")]),
+        ack: Card,
+        was: "an update of the card; a refusal ephemeral",
+    },
+    Row {
+        handler: "a routine post's Details",
+        fire: Press("hz:details:wak_0000feed"),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a routine post's answer",
+        fire: Press("hz:done:wak_0000feed"),
+        ack: Card,
+        was: "an update of the post; a refusal ephemeral",
+    },
+    Row {
+        handler: "the board's reminder select",
+        fire: Select("hq:pick", &["hq:cancel:wak_0000feed"]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a scheduled reminder card's Cancel",
+        fire: Press("hq:cancel:wak_0000feed"),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/agenda",
+        fire: Slash("agenda", &[]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/routine list",
+        fire: Sub("routine", "list", &[]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/routine pause",
+        fire: Sub("routine", "pause", &[("name", "nothing")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/snooze",
+        fire: Slash("snooze", &[("wake", "wak_0000feed"), ("when", "in 1h")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/watch list",
+        fire: Sub("watch", "list", &[]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a routine's button, not on the list",
+        fire: Press("hr:pause:rtn_0000feed"),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "the routine form's submit",
+        fire: Modal("hzm:routine", ROUTINE_FORM),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "the watch form's submit",
+        fire: Modal("hzm:watch:fetch", WATCH_FORM),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a command watch's approval",
+        fire: Press("hw:no:0000feed"),
+        ack: Card,
+        was: "an update of the approval message",
+    },
+    Row {
+        handler: "/orders",
+        fire: Slash("orders", &[]),
+        ack: Private,
+        was: "an ephemeral list",
+    },
+    Row {
+        handler: "an order's Revoke",
+        fire: Press("orders-revoke:nothing"),
+        ack: Card,
+        was: "an update of the list message",
+    },
+    Row {
+        handler: "/extensions",
+        fire: Slash("extensions", &[]),
+        ack: Private,
+        was: "an ephemeral list",
+    },
+    Row {
+        handler: "an extension's Revoke",
+        fire: Press("ext-revoke:nothing"),
+        ack: Card,
+        was: "an update of the list message",
+    },
+    Row {
+        handler: "/project",
+        fire: Sub("project", "trusted", &[]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/thread",
+        fire: Sub("thread", "list", &[]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/remind",
+        fire: Slash("remind", &[("when", "in 1h"), ("what", "stretch")]),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a reminder's button",
+        fire: Press("wake:done:wak_0000feed"),
+        ack: Card,
+        was: "an update of the reminder; a refusal ephemeral",
+    },
+    Row {
+        handler: "a cited source's Show source",
+        fire: Press("src:ses_0000feed:[1]"),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "/tasks done",
+        fire: Slash("tasks", &[("show", "done")]),
+        ack: Private,
+        was: "an ephemeral view",
+    },
+    Row {
+        handler: "the tasks view's refresh (done)",
+        fire: Press("tb:refresh:done"),
+        ack: Card,
+        was: "an update of the view",
+    },
+    Row {
+        handler: "a failed task's Retry",
+        fire: Press("tb:retry:exe_0000feed"),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a failed task's Dismiss",
+        fire: Press("tb:dismiss:exe_0000feed"),
+        ack: Private,
+        was: "an ephemeral reply",
+    },
+    Row {
+        handler: "a task's confirmed Stop",
+        fire: Press("tb:yes:exe_0000feed"),
+        ack: Card,
+        was: "an update of the view",
+    },
+    Row {
+        handler: "/prompt's argument form",
+        fire: Modal("prompt:srv/greet", &[]),
+        ack: Private,
+        was: "an ephemeral reply for every refusal (the run's line public)",
+    },
 ];
 
 fn ana() -> Sender<'static> {
@@ -178,23 +363,41 @@ async fn every_handler_the_sweep_changed_acknowledges_as_its_answer_was_before()
                 row.handler, row.ack, row.was
             ));
         }
-        assert_eq!(got.content, None, "{}: the acknowledgement says nothing", row.handler);
+        assert_eq!(
+            got.content, None,
+            "{}: the acknowledgement says nothing",
+            row.handler
+        );
     }
-    assert!(wrong.is_empty(), "{} of {} handlers:\n{}", wrong.len(), TABLE.len(), wrong.join("\n"));
+    assert!(
+        wrong.is_empty(),
+        "{} of {} handlers:\n{}",
+        wrong.len(),
+        TABLE.len(),
+        wrong.join("\n")
+    );
     // `/task share` is one more: a command that goes through the place's own loop.
     let shared = r
         .fake
         .slash_with(&ana(), "task", &[("name", "nothing")], &[("share", BEN)])
         .unwrap();
     let got = first_of(&r, "/task share", &shared).await;
-    assert_eq!((got.response_type, got.ephemeral), (Some(5), true), "{got:?}");
+    assert_eq!(
+        (got.response_type, got.ephemeral),
+        (Some(5), true),
+        "{got:?}"
+    );
     // And a new task's submit, the other handler of that loop: private.
     let started = r
         .fake
         .submit_modal(&ana(), "nt:", &[("brief", "Count the gulls.")], &[], None)
         .unwrap();
     let got = first_of(&r, "a new task's submit", &started).await;
-    assert_eq!((got.response_type, got.ephemeral), (Some(5), true), "{got:?}");
+    assert_eq!(
+        (got.response_type, got.ephemeral),
+        (Some(5), true),
+        "{got:?}"
+    );
 }
 
 /// A routine's button on the routine LIST, which is an ephemeral view, edits that view: a deferred update, and the
@@ -204,7 +407,9 @@ async fn a_routines_button_on_the_list_updates_the_private_list() {
     let r = rig().await;
     let list = r.fake.slash_sub(&ana(), "routine", "list", &[]).unwrap();
     r.until("the list", || {
-        r.fake.reply_message(&list).is_some_and(|m| m.flags & 64 != 0)
+        r.fake
+            .reply_message(&list)
+            .is_some_and(|m| m.flags & 64 != 0)
     })
     .await;
     let view = r.fake.reply_message(&list).unwrap().id;
@@ -265,7 +470,11 @@ async fn a_prompt_forms_refusal_in_a_guild_place_is_private_and_the_typed_line_i
         .submit_modal(&lab(), "prompt:srv/big", &[("args", typed)], &[], None)
         .unwrap();
     let got = first_of(&r, "the acknowledgement", &iid).await;
-    assert_eq!((got.response_type, got.ephemeral), (Some(5), true), "{got:?}");
+    assert_eq!(
+        (got.response_type, got.ephemeral),
+        (Some(5), true),
+        "{got:?}"
+    );
     r.until("the refusal", || {
         r.fake
             .replies()
@@ -279,11 +488,26 @@ async fn a_prompt_forms_refusal_in_a_guild_place_is_private_and_the_typed_line_i
         .into_iter()
         .find(|x| x.interaction.as_deref() == Some(iid.as_str()) && x.kind == "original")
         .unwrap();
-    assert!(done.ephemeral, "the refusal completes the private response: {done:?}");
-    assert!(done.content.as_deref().unwrap_or("").contains("not name=value"), "{done:?}");
+    assert!(
+        done.ephemeral,
+        "the refusal completes the private response: {done:?}"
+    );
+    assert!(
+        done.content
+            .as_deref()
+            .unwrap_or("")
+            .contains("not name=value"),
+        "{done:?}"
+    );
     // The refusal quotes the typed line, privately: no one else is shown it.
-    assert!(done.content.as_deref().unwrap_or("").contains(typed), "{done:?}");
-    assert!(!public_text(&r).contains(typed), "in what the place can see");
+    assert!(
+        done.content.as_deref().unwrap_or("").contains(typed),
+        "{done:?}"
+    );
+    assert!(
+        !public_text(&r).contains(typed),
+        "in what the place can see"
+    );
 }
 
 /// A prompt that runs from the form: the presser gets a short private line, the place gets ONE public line of its
@@ -298,7 +522,11 @@ async fn a_prompt_that_runs_from_the_form_posts_one_public_line_and_none_of_its_
         .submit_modal(&lab(), "prompt:srv/greet", &[("who", typed)], &[], None)
         .unwrap();
     let got = first_of(&r, "the acknowledgement", &iid).await;
-    assert_eq!((got.response_type, got.ephemeral), (Some(5), true), "{got:?}");
+    assert_eq!(
+        (got.response_type, got.ephemeral),
+        (Some(5), true),
+        "{got:?}"
+    );
     r.until("the public line", || {
         r.fake.replies().iter().any(|x| {
             x.interaction.as_deref() == Some(iid.as_str()) && x.kind == "followup" && !x.ephemeral
@@ -314,10 +542,17 @@ async fn a_prompt_that_runs_from_the_form_posts_one_public_line_and_none_of_its_
     let public: Vec<&Reply> = mine.iter().filter(|x| !x.ephemeral).collect();
     assert_eq!(public.len(), 1, "one public line: {mine:?}");
     assert!(
-        public[0].content.as_deref().unwrap_or("").contains("Running the prompt `srv/greet`"),
+        public[0]
+            .content
+            .as_deref()
+            .unwrap_or("")
+            .contains("Running the prompt `srv/greet`"),
         "{public:?}"
     );
     let private = mine.iter().find(|x| x.kind == "original").unwrap();
     assert!(private.ephemeral, "{private:?}");
-    assert!(!format!("{mine:?}").contains(typed), "the arguments are in neither line");
+    assert!(
+        !format!("{mine:?}").contains(typed),
+        "the arguments are in neither line"
+    );
 }

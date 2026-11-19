@@ -496,15 +496,7 @@ impl Shared {
         }
     }
 
-    /// How a prompt's run was acknowledged: not yet (it is, publicly, as the command always did), or privately by the
-/// form's submit, which then posts the place's line as a message of its own.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Acked {
-    Not,
-    Privately,
-}
-
-/// Run it in the place, and say so where the command was typed. The
+    /// Run it in the place, and say so where the command was typed. The
     /// arguments are not echoed: they may be private.
     async fn prompt_run(
         &self,
@@ -551,12 +543,24 @@ enum Acked {
             // The acknowledgement was private (the form's submit): the presser is told so privately, and the place's
             // line is its own message. The arguments are in neither.
             Acked::Privately => {
-                self.finish_command(i, &format!("▶️ `{name}` is running in this place."), "command reply")
-                    .await;
+                self.finish_command(
+                    i,
+                    &format!("▶️ `{name}` is running in this place."),
+                    "command reply",
+                )
+                .await;
                 self.followup_public(i, &text).await;
             }
         }
     }
+}
+
+/// How a prompt's run was acknowledged: not yet (it is, publicly, as the command always did), or privately by the
+/// form's submit, which then posts the place's line as a message of its own.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Acked {
+    Not,
+    Privately,
 }
 
 /// The turn a prompt run makes: the prompt as its input, in `sid`, by `by`.
