@@ -50,7 +50,23 @@ pub struct SubagentAnswer {
     pub outcome: String,
 }
 
+/// What every surface says of an answer whose turn did not end well (`stopped` or `failed`): the
+/// one place the words are chosen, as the footer's bits are. The cockpit's `lib/subagent.ts` holds
+/// the same two, and a test here holds them together.
+pub fn ended_words(ended: &str) -> &'static str {
+    match ended {
+        "stopped" => "the turn that asked was stopped",
+        _ => "the turn that asked then failed",
+    }
+}
+
 impl SubagentAnswer {
+    /// The line a surface adds under an answer whose turn ended `ended` (`stopped` or `failed`):
+    /// the model part, then the words.
+    pub fn ended_line(&self, ended: &str) -> String {
+        format!("{} · {} · {}", self.profile, self.model, ended_words(ended))
+    }
+
     /// The answer a result node's `meta` holds, when it holds one.
     pub fn from_meta(meta: &Value) -> Option<Self> {
         serde_json::from_value(meta.get("subagent")?.clone()).ok()
@@ -136,6 +152,16 @@ mod tests {
         for used in ["💭", "✅", "🔔", "🧠"] {
             assert_ne!(SUBAGENT_ICON, used);
         }
+        for ended in ["stopped", "failed"] {
+            assert!(
+                ts.contains(&format!("'{}'", ended_words(ended))),
+                "cockpit/src/lib/subagent.ts says another of {ended}"
+            );
+        }
+        assert_eq!(
+            answer().ended_line("stopped"),
+            "haiku · claude-haiku-5-5 · the turn that asked was stopped"
+        );
     }
 
     /// The model part is the asked profile and the model that answered, the footer says it is a

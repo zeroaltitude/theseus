@@ -425,10 +425,10 @@ impl TurnRunner {
         });
         t.ended = true;
         // A task's turns post nothing to the place: its report does, once,
-        // when it ends (DD7). A stopped turn posts nothing either (W1): the
-        // stop's answer says what stopped.
-        if t.tc.task.is_none() && result.stop_reason != "stopped" {
-            if let Err(e) = self.stage_turn_post(&t, &result, session.failing.as_ref()) {
+        // when it ends (DD7). A stopped turn posts nothing of its own either (W1): the
+        // stop's answer says what stopped; an answer another profile gave it is still shown.
+        if t.tc.task.is_none() {
+            if let Err(e) = self.stage_end_post(&t, &result, session.failing.as_ref()) {
                 return Err(Self::fault(t, session, e));
             }
         }

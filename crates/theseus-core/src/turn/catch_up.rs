@@ -37,6 +37,8 @@ impl TurnRunner {
                 })
         });
         let resumed = self.tools.resume(&t.tc, has_input).await?;
+        // A hold's yes that no call of this turn's resume took is dropped (issue 28).
+        self.tools.profile.drop_untaken(t.tc.session_id, t.arrived);
         // The reports of this session's tasks that ended since its last turn
         // (DD7), after the calls above and before the new input.
         let reported = self.read_reports(t)?;

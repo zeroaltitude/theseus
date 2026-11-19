@@ -23,19 +23,29 @@ use serde_json::{json, Value};
 /// `sleep` the signal ends is followed by the next), so only SIGKILL ends
 /// it. The trap takes the signal's time in the shell itself, with no fork
 /// (bash's `$EPOCHREALTIME`, in microseconds), ignores SIGTERM from then
-/// on, and writes the time to `job-<i>.term.tmp`, renamed `job-<i>.term`
-/// once whole (theseus-y0lm). Its wrapper's stop SIGTERMs every process it
-/// meets in the tree through the grace, one born after the first signal
-/// too: the trap's `date` once was, and its file was left empty. The `mv`
-/// now inherits the ignored signal. It writes its pid to `job-<i>.pid`,
-/// and ends by itself within 30 s should a failing test leave it.
-fn stubborn(i: usize) -> Value {
+/// on, and writes the time with the shell's own `printf` to `job-<i>.term`
+/// in `evidence`, a directory of memory (`evidence_dir`): its wrapper's stop
+/// SIGTERMs every process it meets in the tree through the grace, one born
+/// after the first signal too (the trap's `date` once was, theseus-y0lm), so
+/// the trap forks nothing, and a file made on the test's disk waits on the
+/// disk's journal when a loaded machine's journal is full: the trap was
+/// found blocked in that `write` (state D, `__jbd2_log_wait_for_space`) with
+/// its file created and empty when the grace ended. It writes its pid to
+/// `job-<i>.pid`, and ends by itself within 30 s should a failing test leave
+/// it.
+fn stubborn(i: usize, evidence: &str) -> Value {
     json!({
         "argv": ["bash", "-c", format!(
-            "trap 't=$EPOCHREALTIME; trap \"\" TERM; printf \"%s\\n\" \"${{t/[.,]/}}\" > job-{i}.term.tmp && mv job-{i}.term.tmp job-{i}.term' TERM; echo $$ > job-{i}.pid; n=0; while [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done"
+            "trap 't=$EPOCHREALTIME; trap \"\" TERM; printf \"%s\\n\" \"${{t/[.,]/}}\" > {evidence}/job-{i}.term' TERM; echo $$ > job-{i}.pid; n=0; while [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done"
         )],
         "timeout_secs": 60,
     })
+}
+
+/// A directory of memory for what a job's trap writes at the moment of a signal: `/dev/shm` where the host has
+/// it, the test's own temp directory where it has not.
+fn evidence_dir() -> tempfile::TempDir {
+    tempfile::tempdir_in("/dev/shm").unwrap_or_else(|_| tempfile::tempdir().unwrap())
 }
 
 /// A job that reports and leaves something running (theseus-7kha): its
@@ -86,6 +96,8 @@ fn gone_soon(pid: u32) -> bool {
 
 struct Rig {
     dir: tempfile::TempDir,
+    /// What the jobs' traps wrote, in memory (`evidence_dir`).
+    evidence: tempfile::TempDir,
     _model: FakeModel,
 }
 
@@ -109,9 +121,11 @@ impl Rig {
     }
 
     fn with_floor(floor: bool) -> Self {
-        let model = FakeModel::start(|prompt| {
+        let evidence = evidence_dir();
+        let shm = evidence.path().display().to_string();
+        let model = FakeModel::start(move |prompt| {
             if prompt.contains("Start the three builds") {
-                (0..3).map(|i| ("proc_run", stubborn(i))).collect()
+                (0..3).map(|i| ("proc_run", stubborn(i, &shm))).collect()
             } else if prompt.contains("Leave something running in the background") {
                 let mut job = leftover();
                 job["background"] = json!(true);
@@ -150,7 +164,11 @@ impl Rig {
         }
         table(&mut t, "tools").insert("proc_sync_secs".into(), 1.into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
-        Self { dir, _model: model }
+        Self {
+            dir,
+            evidence,
+            _model: model,
+        }
     }
 
     /// The daemon, on one runtime worker.
@@ -192,9 +210,9 @@ impl Rig {
     /// for the stop.
     fn stop_seen(&self, eid: &str, took: Duration, answer: &Value) -> String {
         let mut out = vec![format!("the stop took {took:?} and answered {answer}")];
-        let mut files: Vec<_> = std::fs::read_dir(self.path("projects"))
-            .unwrap()
-            .flatten()
+        let mut files: Vec<_> = [self.path("projects"), self.evidence.path().to_path_buf()]
+            .iter()
+            .flat_map(|d| std::fs::read_dir(d).unwrap().flatten())
             .map(|e| e.path())
             .filter(|p| {
                 p.file_name()
@@ -328,7 +346,7 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
     // failure, printed with what tells its cause apart (theseus-y0lm).
     let terms: Vec<u128> = (0..3)
         .map(|i| {
-            let t = std::fs::read_to_string(r.path("projects").join(format!("job-{i}.term")))
+            let t = std::fs::read_to_string(r.evidence.path().join(format!("job-{i}.term")))
                 .unwrap_or_default();
             t.lines()
                 .next()

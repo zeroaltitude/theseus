@@ -25,7 +25,7 @@ import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { authorWord } from '@/ship/words'
 import { ReplyMarkdown } from '@/components/Cites'
 import { replySpeaker } from '@/lib/speaker'
-import { subagentFooter, subagentOf, subagentOpening } from '@/lib/subagent'
+import { subagentBits, subagentOf, subagentOpening } from '@/lib/subagent'
 
 type D = Record<string, any>
 
@@ -355,7 +355,7 @@ function SubagentItem({ n }: { n: NodeInfo }) {
         <ReplyMarkdown text={subagentOpening(a)} />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
           <span className="font-medium text-model">{replySpeaker(a.model).name}</span>
-          {subagentFooter(a).map((bit, i) => <span key={bit} className={cn('num', i === 1 && 'text-model')} title={i === 1 ? 'the model that answered' : undefined}>{bit}</span>)}
+          {subagentBits(a, n.detail).map((bit, i) => <span key={bit} className={cn('num', i === 1 && 'text-model')} title={i === 1 ? 'the model that answered' : undefined}>{bit}</span>)}
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+unicode-width = "0.2"
 theseus-core.workspace = true
 theseus-kernel.workspace = true
 theseus-protocol.workspace = true

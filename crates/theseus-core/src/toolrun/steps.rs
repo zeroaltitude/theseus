@@ -170,7 +170,13 @@ impl ToolRuntime {
                     if let Some(status) = self.look_at_job(tc, &look)? {
                         return Ok(CallOutcome::Done { status });
                     }
-                    return self.steps_background(tc, job, &look, &launched, spec, interrupted);
+                    return self.steps_background(
+                        tc,
+                        job,
+                        (&look, &launched),
+                        spec,
+                        (interrupted, bound),
+                    );
                 }
                 let mut nap = left.min(super::waits::LOOK);
                 if steer.pending() {
@@ -248,20 +254,16 @@ impl ToolRuntime {
         &self,
         tc: &TurnCtx<'_>,
         job: &Job<'_>,
-        look: &Look<'_>,
-        launched: &Launched<'_>,
+        (look, launched): (&Look<'_>, &Launched<'_>),
         spec: &JobSpec,
-        interrupted: bool,
+        (interrupted, waited): (bool, Duration),
     ) -> Result<CallOutcome> {
         let id = job.correlation_id;
         // The step runs on, and stays listed on `sandbox.usage` until it ends.
         if let Some(running) = &launched.running {
             running.keep();
         }
-        let ran = match interrupted {
-            true => "because a message arrived, early".to_string(),
-            false => format!("after {} seconds", self.proc_sync_secs),
-        };
+        let ran = ran_for(interrupted, waited);
         let mut text = format!(
             "{}Still running as background job {id} {ran} (timeout {} seconds). Its result will arrive in a later message; you can keep working or tell the operator you are waiting. A batch stops at a step that goes on in the background: the steps after it will not run.{}",
             look.before, spec.timeout_secs, look.after
@@ -292,9 +294,29 @@ impl ToolRuntime {
     }
 }
 
+/// How long the batch's step ran before it went on in the background: the wait the batch had (the configured one, or
+/// the batch's limits and five seconds when that is shorter), or that a message ended it early.
+fn ran_for(interrupted: bool, waited: Duration) -> String {
+    match interrupted {
+        true => "because a message arrived, early".to_string(),
+        false => format!("after {} seconds", waited.as_secs()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The words say the wait the batch had, not the configured one: steps whose limits add up to 2 s are waited
+    /// for 7 s, whatever `proc_sync_secs` is.
+    #[test]
+    fn a_step_that_runs_on_says_how_long_the_batch_waited() {
+        assert_eq!(ran_for(false, Duration::from_secs(7)), "after 7 seconds");
+        assert_eq!(
+            ran_for(true, Duration::from_secs(7)),
+            "because a message arrived, early"
+        );
+    }
 
     /// theseus-v18k: a step's wrapper that will linger writes its marker
     /// before its report, then removes its pid file. The next step's launch

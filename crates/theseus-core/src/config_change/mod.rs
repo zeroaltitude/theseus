@@ -804,6 +804,8 @@ mod tests_profile;
 #[cfg(test)]
 mod tests_profile_asked;
 #[cfg(test)]
+mod tests_profile_ended;
+#[cfg(test)]
 mod tests_profile_notes;
 #[cfg(test)]
 mod tests_profile_run;

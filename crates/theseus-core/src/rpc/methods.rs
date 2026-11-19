@@ -1400,7 +1400,7 @@ impl Core {
             nodes: page
                 .nodes
                 .iter()
-                .map(|(pos, n)| self.marked_moved(Self::node_info(*pos, n)))
+                .map(|(pos, n)| self.marked_answer(self.marked_moved(Self::node_info(*pos, n))))
                 .map(|i| match withhold {
                     true => withheld_node(i),
                     false => i,
@@ -1602,6 +1602,30 @@ impl Core {
         self.node_list_for(p, surface.reads_private())
     }
 
+    /// A result node that holds another profile's answer says how the turn that asked ended when
+    /// it did not end well (`detail.subagent_ended`, `stopped` or `failed`): the history and the
+    /// cockpit draw the answer from the node, so they can say what the other surfaces do.
+    pub(crate) fn marked_answer(
+        &self,
+        mut info: theseus_protocol::NodeInfo,
+    ) -> theseus_protocol::NodeInfo {
+        let call = info
+            .detail
+            .pointer("/meta/subagent/call")
+            .and_then(serde_json::Value::as_str);
+        if let Some(call) = call {
+            let ended: Option<String> = self
+                .store
+                .get_meta(&crate::profile_tool::ended_key(call))
+                .ok()
+                .flatten();
+            if let (Some(ended), Some(d)) = (ended, info.detail.as_object_mut()) {
+                d.insert("subagent_ended".into(), serde_json::json!(ended));
+            }
+        }
+        info
+    }
+
     pub(crate) fn node_list_for(
         &self,
         p: theseus_protocol::NodeListParams,
@@ -1640,7 +1664,7 @@ impl Core {
             nodes: nodes
                 .iter()
                 .map(|(pos, node)| {
-                    let info = Self::node_info(*pos, node);
+                    let info = self.marked_answer(Self::node_info(*pos, node));
                     match !private && crate::import::is_imported(&node.session_id) {
                         true => withheld_node(info),
                         false => info,

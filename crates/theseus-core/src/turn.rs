@@ -962,6 +962,8 @@ impl TurnRunner {
     /// (`stop_taken_by_a_turn`).
     pub fn stop_landed(&self, execution_id: &str, by: &str) -> Instant {
         let at = Instant::now();
+        // A hold's yes kept for a call of this execution is moot: nothing runs on it now.
+        self.tools.profile.drop_yes_of(execution_id);
         self.latest_stops.lock().unwrap().insert(
             execution_id.to_string(),
             StopNotice {
@@ -1232,6 +1234,7 @@ impl TurnRunner {
         };
         // A task (DD7): where it reports, and its title, for its report.
         let task_of = req.session.task.clone();
+        let answer_at = req.answer_at.clone();
         let task_title = req.session.title.clone();
         let task_session = req.session.session_id.clone();
         // The turn's session write waits for its last frame, under the
@@ -1354,9 +1357,10 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
-        // An asked profile's answer this turn did not post (it stopped, faulted, or was a task's)
-        // is dropped, not kept until a restart (issue 28).
-        self.tools.profile.forget(&failure_sink.session_id);
+        // What an asked profile answered this turn and the turn did not post is not kept until a
+        // restart (issue 28): a faulted turn's is posted below, as the answer of a turn that
+        // failed; a task's is dropped.
+        let unposted = self.tools.profile.sweep(&failure_sink.session_id);
         self.keep_warm.turn_ended(&failure_sink.session_id);
         clock_step::turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
@@ -1461,6 +1465,25 @@ impl TurnRunner {
                 if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
                     tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
                 }
+            }
+            // An answer that was produced and paid for is shown, though its turn then failed or
+            // was stopped: it was staged in no frame, so it is posted here, marked as such
+            // (issue 28). A task's turn posts none.
+            if task_of.is_none() {
+                self.post_unposted_answers(
+                    (
+                        &failure_sink.session_id,
+                        &exec_id,
+                        failed.turn_id.as_deref().unwrap_or_default(),
+                        answer_at,
+                    ),
+                    unposted,
+                    if stopped.is_some() {
+                        "stopped"
+                    } else {
+                        "failed"
+                    },
+                );
             }
             rec.record(&fact::turn::TurnFailureTold { failed: &failed });
         }

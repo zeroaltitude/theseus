@@ -89,6 +89,7 @@ use std::time::{Duration, Instant};
 
 use crate::record::{now_unix_ms, NewRecord, Record, FROZEN_SCHEMA};
 
+mod stand;
 mod window;
 use window::{cut_by_window, WINDOW_BYTES};
 
@@ -349,6 +350,7 @@ struct Writer {
     /// Each cut a failed sync made: the first position it cut. A frame
     /// written before a cut is gone when the cut began at or before it.
     cuts: Vec<u64>,
+    stand: Arc<stand::Stand>,
     /// A test's way to cut the next write short after this many bytes, as a
     /// full disk would.
     #[cfg(test)]
@@ -365,6 +367,7 @@ struct Writer {
 struct Planted {
     sync: bool,
     cut: bool,
+    hold: Option<std::sync::Arc<stand::Gate>>,
 }
 
 /// Where the log stood when a sync last returned Ok (theseus-ljgm): the end
@@ -386,6 +389,7 @@ struct Durable {
 
 pub struct Wal {
     w: Mutex<Writer>,
+    stand: Arc<stand::Stand>,
     dir: PathBuf,
     recovery: Recovery,
     /// Counters for visibility: frames appended, fdatasync calls made.
@@ -447,6 +451,8 @@ impl Writer {
 
     /// One frame's bytes, at the end of the segment.
     fn write_frame(&mut self, frame: &[u8]) -> io::Result<()> {
+        #[cfg(any(test, debug_assertions))]
+        stand::hold_here(self);
         #[cfg(test)]
         if let Some(n) = self.short_write.take() {
             self.file.write_all(&frame[..n.min(frame.len())])?;
@@ -497,6 +503,7 @@ fn cut_back(w: &mut Writer, durable: &mut Durable, e: &io::Error) {
             w.total_len = to.total;
             w.next_position = to.next;
             w.cuts.push(to.next);
+            w.stand.publish(w);
         }
         Err(cut) => {
             w.broken = Some(format!(
@@ -747,6 +754,7 @@ impl Wal {
             next_position: expected_pos,
             broken: None,
             cuts: Vec::new(),
+            stand: Arc::default(),
             #[cfg(test)]
             short_write: None,
             #[cfg(test)]
@@ -756,7 +764,9 @@ impl Wal {
             found_unsynced: recovery.last_position > synced,
             ..writer.reached()
         };
+        writer.stand.publish(&writer);
         let wal = Self {
+            stand: writer.stand.clone(),
             w: Mutex::new(writer),
             dir: dir.to_path_buf(),
             recovery,
@@ -810,6 +820,11 @@ impl Wal {
 
     pub fn last_position(&self) -> u64 {
         self.w.lock().unwrap().next_position - 1
+    }
+
+    /// Position, bytes and segments as the writer last set them: no lock (`stand`).
+    pub fn stood(&self) -> (u64, u64, u32) {
+        self.stand.read()
     }
 
     pub fn dir(&self) -> &Path {
@@ -937,6 +952,7 @@ impl Wal {
         w.segment_len += frame.len() as u64;
         w.total_len += frame.len() as u64;
         w.next_position = first + batch.len() as u64;
+        w.stand.publish(&w);
         let (seg, cuts) = (w.segment, w.cuts.len());
         self.frames
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1007,6 +1023,7 @@ impl Wal {
             .open(&path)?;
         w.segment = next;
         w.segment_len = 0;
+        w.stand.publish(w);
         *durable = w.reached();
         // Its name is synced with its first frame (`sync`, theseus-xprd).
         let mut dirs = self.unsynced_dirs.lock().unwrap();
