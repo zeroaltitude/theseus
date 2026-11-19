@@ -278,6 +278,27 @@ impl Tasks {
         project(&m.views, &roots, cleared, theseus_protocol::now_unix_ms())
     }
 
+    /// The sessions of the conversations the place whose session is
+    /// `session_id` shows the work of: its own, Home's when it adopts them,
+    /// and the threads that answer there.
+    pub fn sessions_shown(&self, session_id: &str) -> HashSet<String> {
+        let m = self.model.lock().unwrap();
+        let mut own: HashSet<String> = HashSet::from([session_id.to_string()]);
+        own.extend(
+            m.home
+                .iter()
+                .filter(|h| h.1 == session_id)
+                .map(|h| h.0.clone()),
+        );
+        own.extend(
+            m.shown
+                .iter()
+                .filter(|(_, place)| place.as_str() == session_id)
+                .map(|(thread, _)| thread.clone()),
+        );
+        own
+    }
+
     /// The projects the model holds, the soonest next step first.
     pub fn projects(&self) -> Vec<WorkView> {
         let m = self.model.lock().unwrap();

@@ -651,3 +651,46 @@ async fn a_sectionless_field_is_known_among_all_the_items_fields() {
         "{ran:?}"
     );
 }
+
+/// A provider's address and protocol that the maker publishes may come with
+/// their source on the same one card as the secret, and the source is the
+/// model's word: the vault's own lines of the card are the daemon's, as before.
+#[tokio::test]
+async fn a_published_address_beside_a_vault_secret_is_on_the_one_card_with_its_source() {
+    let (r, _dir, _d) = rig_vault("ok");
+    let sid = r.session();
+    let mut also = provider();
+    also[0]["source"] =
+        json!("https://docs.lantern.example.test says the address is lantern.example.test");
+    r.turn_with("vault_use", &sid, call(also)).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    let asks = r.asked();
+    assert_eq!(asks.len(), 1, "one card: {asks:?}");
+    let card = &asks[0].reason;
+    let lines: Vec<&str> = card.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.starts_with("- providers.lantern.api_base: "))
+        .expect("the address is on the card");
+    assert!(
+        lines[at + 1]
+            .starts_with("  Theseus's source for this, in its own words (nothing here checked it)")
+            && lines[at + 1].contains("docs.lantern.example.test"),
+        "{card}"
+    );
+    assert!(
+        at < lines
+            .iter()
+            .position(|l| l.starts_with("- secrets.lantern_key"))
+            .unwrap(),
+        "an address a secret is sent to, with a source, comes first: {card}"
+    );
+    assert!(card.contains("Theseus read it just now to check"), "{card}");
+    assert!(asks[0].needs_proof, "the second proof stays");
+    assert_eq!(
+        card.matches("Theseus's source for this").count(),
+        2,
+        "under each setting of the table (the address and the key's name): {card}"
+    );
+}

@@ -280,7 +280,7 @@ pub async fn run(
     if reason.is_empty() {
         return Err("give a reason in the owner's words, one line".into());
     }
-    let also = super::changes_of(i.also)?;
+    let (also, sources) = super::changes_of(i.also)?;
     if also
         .iter()
         .any(|c| c.path().first().map(String::as_str) == Some("secrets"))
@@ -327,8 +327,9 @@ pub async fn run(
         &changes,
         &reason,
         super::Extra {
-            undoes: None,
             secret: Some(&used),
+            sources: &sources,
+            ..super::Extra::default()
         },
     )
 }
@@ -377,8 +378,10 @@ impl Tool for VaultUse {
          the owner ONE card that says so; only their yes (and the second proof) changes anything. A secret is \
          used by its name: its value is never asked for, never shown, and never passes through you. Never write an \
          `op://` reference in `config.propose`, and the vault's program in a shell has no session by design. If the \
-         account cannot see a vault, the result says what the owner can do. Offered only to the owner, in a \
-         private place."
+         account cannot see a vault, the result says what the owner can do. A fact the provider publishes (its \
+         address, its protocol) may be looked up with the web tools rather than asked for: put it in `also` with \
+         a `source`, never a guess. The owner still confirms, on the card, where the secret is sent. Offered only \
+         to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -398,7 +401,8 @@ impl Tool for VaultUse {
                         "properties": {
                             "path": {"type": "string"},
                             "value": {},
-                            "remove": {"type": "boolean"}
+                            "remove": {"type": "boolean"},
+                            "source": {"type": "string", "description": "A published fact's source: a page's address and what it says. Shown on the card as your word."}
                         },
                         "required": ["path"],
                         "additionalProperties": false

@@ -106,6 +106,9 @@ pub const ORDINARY_KEYS: &[&str] = &[
     "memory.mode",
 ];
 
+/// Why a key that holds an address is sensitive (`key_reason`).
+pub const ADDRESS_REASON: &str = "an address Theseus listens on or sends to";
+
 /// What the settings' own words say about a key, whatever its table: the
 /// reason it is sensitive, or `None`.
 pub fn key_reason(key: &str) -> Option<&'static str> {
@@ -190,7 +193,7 @@ pub fn key_reason(key: &str) -> Option<&'static str> {
         || is("port")
         || has("headers")
     {
-        return Some("an address Theseus listens on or sends to");
+        return Some(ADDRESS_REASON);
     }
     if ends("_channel") || is("channel") || has("forum") || is("task_home") || is("thread") {
         return Some("where Theseus posts and reads");

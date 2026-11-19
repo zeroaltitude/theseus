@@ -70,12 +70,13 @@ use theseus_protocol::Usage;
 
 use crate::config::Effort;
 
+mod mythos;
 mod peak;
 pub use peak::price_period_at;
 mod switch;
 pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
 
-pub const BUILTIN_VERSION: &str = "2026-11-14.3";
+pub const BUILTIN_VERSION: &str = "2026-11-18.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -975,8 +976,8 @@ fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
     }
 }
 
-/// The Fable rows, newest first. Fable 5.2 (published 2026-11-09) is Fable
-/// 5.1's shape at 0.8 × its prices: its window, output cap, always-on
+/// The Fable rows, newest first (Mythos 5.2's, built by `mythos`, goes with them).
+/// Fable 5.2 (published 2026-11-09) is Fable 5.1's shape at 0.8 × its prices: its window, output cap, always-on
 /// thinking, effort levels, vision, PDF and `us` origin are 5.1's, so it takes
 /// every rule 5.1 takes — no forced `tool_choice`, no `thinking` that turns
 /// thinking off, the family's tokenizer, and the server's own refusal
@@ -1011,6 +1012,7 @@ fn fable_rows(e: &mut BTreeMap<String, CatalogEntry>) {
         "claude-fable-5".into(),
         claude(m, 128_000, 10.0, 50.0, 1.00, 12.50, Always, false, 512),
     );
+    mythos::rows(e);
 }
 
 /// Kimi's two rows, the model and its faster variant at double the price.
@@ -1913,7 +1915,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-11-14.3");
+        assert_eq!(c.version, "2026-11-18.1");
         // Sonnet 5.5's cache read is $0.10, the page's 0.05x of input.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,

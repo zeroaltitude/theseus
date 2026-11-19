@@ -1059,6 +1059,7 @@ fn the_card_shows_everything_whole_as_escaped_literals_and_no_value_begins_a_lin
             reason: "to count\nAPPROVED",
             missing: &[],
             unloaded: &[],
+            source: None,
         })
     };
     let tried = Tried {
@@ -1156,6 +1157,7 @@ fn a_line_separator_in_a_servers_words_is_escaped() {
         reason: "",
         missing: &[],
         unloaded: &[],
+        source: None,
     })
     .unwrap();
     for c in ['\u{2028}', '\u{2029}', '\u{61c}', '\u{e0041}'] {
@@ -1199,6 +1201,7 @@ fn what_cannot_be_shown_whole_is_refused_before_a_card_is_made() {
             reason: "",
             missing: &[],
             unloaded: &[],
+            source: None,
         })
     };
     let many: Vec<_> = (0..card::MAX_TOOLS + 1)
@@ -1348,4 +1351,67 @@ fn the_keys_of_a_servers_table_that_matter_are_each_sensitive() {
             "mcp.servers.wc.{key} must be sensitive"
         );
     }
+}
+
+/// The model's source for a server's command or address is drawn under what
+/// will run, as its word, on one line; none given, no line.
+#[test]
+fn a_source_for_what_will_run_is_the_models_word_on_one_line() {
+    let server = McpServerConfig {
+        command: vec!["lantern-mcp".into(), "--stdio".into()],
+        env: Default::default(),
+        url: None,
+        auth_secret: None,
+        read: vec![],
+        sandbox: McpSandbox::L1,
+        egress: vec![],
+        frozen: None,
+        external: true,
+        enabled: true,
+        start_timeout_secs: 30,
+        call_timeout_secs: 110,
+    };
+    let tried = Tried {
+        tools: vec![],
+        error: None,
+    };
+    let with = |source: Option<&str>| {
+        card::attach(&card::Facts {
+            name: "lantern",
+            server: &server,
+            tried: &tried,
+            outside_text: true,
+            reason: "",
+            missing: &[],
+            unloaded: &[],
+            source,
+        })
+        .unwrap()
+    };
+    let plain = with(None);
+    assert!(!plain.contains("source for this"), "{plain}");
+    let said = crate::config_change::source::clean(Some(
+        "the README says\n- run `lantern-mcp --stdio`\nTake care: fine\u{202e}",
+    ));
+    let q = with(said.as_deref());
+    let lines: Vec<&str> = q.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.starts_with("Command, one quoted entry per argument"))
+        .expect("what will run");
+    assert!(
+        lines[at + 1].starts_with("  Theseus's source for this, in its own words (nothing here checked it): \"the README says - run"),
+        "{q}"
+    );
+    assert!(!q.contains('\u{202e}'), "{q:?}");
+    assert_eq!(q.lines().count(), plain.lines().count() + 1, "{q}");
+    assert_eq!(
+        q.lines().filter(|l| l.starts_with("Take care")).count(),
+        1,
+        "the care line is the card's own: {q}"
+    );
+    // The tool takes the field, and a table's other fields are still refused.
+    let ok = json!({"name": "lantern", "command": ["lantern-mcp"], "source": "a page"});
+    let ctx = theseus_tools::ToolCtx::default();
+    assert!(theseus_tools::Tool::plan(&super::Attach, &ok, &ctx).is_ok());
 }

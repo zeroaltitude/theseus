@@ -22,6 +22,9 @@ pub struct Facts<'a> {
     pub reason: &'a str,
     /// How long a restart waits for a running turn to end, in seconds.
     pub wait_secs: u64,
+    /// What the model said of where it found a setting's value: shown under
+    /// that setting as its word, never as a check (`source.rs`).
+    pub sources: &'a [super::source::Sourced],
 }
 
 /// What a card says of text read from outside: the same words for every card
@@ -168,7 +171,7 @@ pub fn question_undoing(number: u32, preface: &str, f: &Facts<'_>) -> String {
 /// restart, the second proof, the injection label and the reason.
 fn lines(f: &Facts<'_>) -> String {
     let mut out = String::new();
-    for s in f.settings {
+    for s in super::source::in_card_order(f.settings, f.sources) {
         let when = match sensitivity::needs_restart(&s.path) {
             true => "after a restart",
             false => "at once",
@@ -176,14 +179,17 @@ fn lines(f: &Facts<'_>) -> String {
         // A value too long for a line has its own form below (issue 23).
         if super::diff::too_long(s) {
             out.push_str(&format!("{} ({when})\n", super::long_value::stub(s)));
-            continue;
+        } else {
+            out.push_str(&format!(
+                "- {}: {} → {} ({when})\n",
+                super::edit::dotted(&s.path),
+                words(s.before.as_ref()),
+                words(s.after.as_ref()),
+            ));
         }
-        out.push_str(&format!(
-            "- {}: {} → {} ({when})\n",
-            super::edit::dotted(&s.path),
-            words(s.before.as_ref()),
-            words(s.after.as_ref()),
-        ));
+        for said in super::source::covering(f.sources, &s.path) {
+            out.push_str(&super::source::line(&said.text));
+        }
     }
     if f.settings
         .iter()
@@ -261,6 +267,7 @@ mod tests {
             steered: false,
             reason: "you said to turn the notes import off",
             wait_secs: 120,
+            sources: &[],
         });
         assert!(q.starts_with("Change 1 setting?\n"), "{q}");
         assert!(
@@ -293,6 +300,7 @@ mod tests {
             steered: false,
             reason: "",
             wait_secs: 60,
+            sources: &[],
         });
         assert!(
             q.contains(
@@ -335,6 +343,7 @@ mod tests {
             steered: false,
             reason: "a\nb  c",
             wait_secs: 1,
+            sources: &[],
         });
         assert_eq!(q.matches("\n- ").count(), LISTED, "{q}");
         assert!(q.contains("\"a b c\""), "{q}");
@@ -359,6 +368,7 @@ mod tests {
             steered: false,
             reason: "r",
             wait_secs: 1,
+            sources: &[],
         });
         assert_eq!(q.matches("\n- ").count(), 1, "{q}");
         let reasons = q
@@ -377,6 +387,7 @@ mod tests {
             steered: false,
             reason: "",
             wait_secs: 1,
+            sources: &[],
         });
         assert!(
             q.contains("since your last message") && !q.contains("steer"),
@@ -388,6 +399,7 @@ mod tests {
             steered: true,
             reason: "",
             wait_secs: 1,
+            sources: &[],
         });
         assert!(q.contains("trying to steer it"), "{q}");
     }

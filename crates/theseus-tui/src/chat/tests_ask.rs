@@ -797,3 +797,36 @@ async fn y_on_a_settings_question_waits_for_v() {
     r.asked("action.confirm", 1).await;
     assert_eq!(r.daemon.asked("action.confirm")[0]["approve"], true);
 }
+
+/// A source the model gave is a row of the card `v` writes into the transcript,
+/// under its setting, as one row with the care line after it as it was.
+#[tokio::test(start_paused = true)]
+async fn a_source_is_a_row_of_the_card_read_with_v() {
+    let source = "  Theseus's source for this, in its own words (nothing here checked it): \"the docs say it\"";
+    let card = format!(
+        "Change 1 setting?\n- providers.lantern.api_base: not set (its default) \u{2192} \"https://lantern.example.test\" (after a restart)\n{source}\nTake care: since your last message this conversation has read text from outside (a page, a search or a server), so the request may not be only yours.\nTheseus's reason, in its own words: \"x\"\n"
+    );
+    let mut q = settings_question();
+    q.reason = card.clone();
+    if let Some(p) = q.plain.as_mut() {
+        p.detail = card;
+    }
+    let mut r = Rig::with(140, 40, script()).await;
+    r.ready().await;
+    r.starts_turn("trn_1");
+    r.tell(Event::ConfirmRequested(q));
+    r.shows("v: read the whole card first").await;
+    r.press(KeyCode::Char('v')).await;
+    r.shows("nothing here checked it").await;
+    let screen = lines_of(&r);
+    let at = screen
+        .iter()
+        .position(|l| l.contains("- providers.lantern.api_base"))
+        .expect("the setting's row");
+    assert_eq!(screen[at + 1].trim(), source.trim(), "{}", r.text());
+    assert!(
+        screen[at + 2].contains("Take care: since your last message"),
+        "{}",
+        r.text()
+    );
+}

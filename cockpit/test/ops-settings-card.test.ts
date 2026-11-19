@@ -44,3 +44,26 @@ test('bulk approve never sends it and lists it as asking one by one', () => {
   assert.deepEqual(approve.items.map((i) => i.key), ['q:act_o1:approve'], 'only the ordinary approval is in the batch')
   assert.deepEqual((approve.oneByOne ?? []).map((i) => i.key), ['q:act_s1'], 'the settings question is listed, one by one')
 })
+
+test('a source line is part of the card the cockpit draws, whole, as one line under its setting', () => {
+  const card = [
+    'Change 1 setting?',
+    '- providers.lantern.api_base: not set (its default) → "https://lantern.example.test" (after a restart)',
+    '  Theseus\'s source for this, in its own words (nothing here checked it): "the docs say <b>it</b> \\"quoted\\" \\u{202e}"',
+    'Take care: since your last message this conversation has read text from outside (a page, a search or a server), so the request may not be only yours.',
+    'Theseus\'s reason, in its own words: "x"',
+    '',
+  ].join('\n')
+  const c = confirm('act_s2', {
+    tool: 'config.ack', input: { question: card }, reason: card, requested_at_ms: NOW - MIN, expires_at_ms: NOW + 10 * MIN,
+    plain: { who: 'Theseus', what: 'change `providers.lantern.api_base`', why: '', held: 'x', risk: 'changes Theseus’s own settings', yes: 'y', no: 'n', detail: card },
+  })
+  const w = settingsWords(c)!
+  assert.equal(w.detail, card, 'every line, as the daemon wrote it')
+  const rows = w.detail.split('\n')
+  const at = rows.findIndex((r) => r.startsWith('- providers.lantern.api_base'))
+  assert.match(rows[at + 1], /^ {2}Theseus's source for this, in its own words \(nothing here checked it\): "/)
+  assert.ok(rows[at + 2].startsWith('Take care: since your last message'), 'the care line is as it was, after it')
+  // The cockpit draws the card as a text node, so a tag in a source is text: the card is not parsed as markup.
+  assert.ok(rows[at + 1].includes('<b>it</b>'))
+})

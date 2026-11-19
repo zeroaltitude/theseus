@@ -312,6 +312,83 @@ async fn a_late_verdict_that_folds_deep_settles_the_tools_again() {
     );
 }
 
+/// A chat act offered to a turn whose late verdict folds deep is in the call's request once (issue
+/// 20). The second settle (`stays_on_its_own`) runs on the spec the first settle left, which holds
+/// the acts already, and the offer for the same turn is the same acts again: before the fix they
+/// were added twice, and the provider refused the whole request ("Tool names must be unique"). The
+/// rig is `admitted_late`'s with the import configured, which offers its sync tool to any turn of
+/// a private place that a message of the owner's own started.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_act_offered_at_a_second_settle_is_in_the_request_once() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "sonnet", "high", 0.95);
+    work(&jev, "coding", 0.95);
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("openclaw").display().to_string();
+    let r = crate::tests_route::rig_parts(
+        Some(&jev),
+        1,
+        |c| {
+            c.serve_deepseek_flash();
+            c.routing.max_wait_ms = 5_000;
+            c.judge.total_secs = 30;
+            crate::tests_detour::owner_shape(c, dir.path());
+            c.context.files = vec![];
+            c.routing.cold_switch_tokens = 1_000_000;
+            c.tools.defer.judge_families = false;
+            for model in ["claude-sonnet-5-5", "claude-opus-5-5"] {
+                c.catalog.entry(model.into()).or_default().tool_search = Some(false);
+            }
+            c.import.openclaw.state_dir = Some(state);
+        },
+        |parts| parts.cfg.tools.defer.enabled = true,
+    );
+    act_open(&r);
+    let rec = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    // What `turn.submit` stages for a message of the owner's own (`hear_for_chat_acts`).
+    r.core.runner.tools.chat_acts.heard.stage(
+        &rec.session_id,
+        crate::chat_acts::Said {
+            text: ASK.into(),
+            who: crate::approval::Answerer::from("owner"),
+            owner_input: true,
+        },
+    );
+    jev.set_mode(FakeMode::Held);
+    let held = jev.clone();
+    tokio::spawn(async move {
+        let t0 = std::time::Instant::now();
+        while held.seen().is_empty() {
+            assert!(t0.elapsed() < Duration::from_secs(20), "no route call");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        held.set_mode(FakeMode::Up);
+        held.release();
+    });
+    let res = turn(&r.core, Some(&rec.session_id), ASK, None).await;
+    assert_eq!(res.profile, "sonnet", "{:?}", res.route);
+    // The tools did settle twice: the verdict was the turn's own and raised its ceiling.
+    let row = decided(&r.core.store).pop().unwrap();
+    assert_eq!(row["late"], false, "{row}");
+    assert_eq!(row["injection"]["admit_ceiling"], 3.0, "{row}");
+    let q = r.claude.requests();
+    let names: Vec<&str> = q[0]
+        .tools
+        .iter()
+        .filter_map(|d| d["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"chat_import_sync"),
+        "the act was offered: {names:?}"
+    );
+    let mut once = names.clone();
+    once.sort_unstable();
+    once.dedup();
+    assert_eq!(once.len(), names.len(), "a tool named twice: {names:?}");
+}
+
 /// `theseus why` names the tier and its recall pack in one line, from the turn's route row, for
 /// a turn `work.v1` made deep; and says why a turn fell back to ordinary when it did.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
