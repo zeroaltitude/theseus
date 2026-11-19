@@ -285,7 +285,7 @@ impl ToolRuntime {
             running.keep();
         }
         let kind = (background, was_interrupted);
-        let text = self.placeholder(&name, spec, kind, &output, note.as_deref());
+        let text = self.placeholder(&name, spec, kind, bound, &output, note.as_deref());
         self.answer(
             tc,
             ResultNode {
@@ -301,12 +301,14 @@ impl ToolRuntime {
 
     /// The words of a job that went on in the background: it was asked to
     /// (`background`), or a message ended the wait (`interrupted`,
-    /// theseus-qu1lc), or its bound passed.
+    /// theseus-qu1lc), or its bound passed: the wait it had, which is the
+    /// configured one or the job's limit and five seconds, whichever is shorter.
     fn placeholder(
         &self,
         name: &str,
         spec: &JobSpec,
         (background, interrupted): (bool, bool),
+        waited: Duration,
         output: &std::path::Path,
         note: Option<&str>,
     ) -> String {
@@ -318,11 +320,7 @@ impl ToolRuntime {
                  itself when it ends.",
                 spec.timeout_secs
             ),
-            (false, false) => format!(
-                "Still running as job {name} after {} s (timeout {} s). job_read, job_wait or \
-                 job_stop it; its result also arrives by itself when it ends.",
-                self.proc_sync_secs, spec.timeout_secs
-            ),
+            (false, false) => still_running(name, waited, spec.timeout_secs),
         };
         if let Some(n) = note {
             text.push_str(&format!("\n{n}"));
@@ -1237,9 +1235,31 @@ fn job_path_refusal(name: &str) -> Option<String> {
     })
 }
 
+/// What a blocking call answers when its job is still running at the end of its wait: the wait the call
+/// had, not the configured one (a job with a short limit is waited for its limit and five seconds only).
+fn still_running(name: &str, waited: Duration, timeout_secs: u64) -> String {
+    format!(
+        "Still running as job {name} after {} s (timeout {timeout_secs} s). job_read, job_wait or \
+         job_stop it; its result also arrives by itself when it ends.",
+        waited.as_secs()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The words say how long the call waited: a 2 s limit's job is waited for 7 s, whatever `proc_sync_secs`
+    /// is, and the words said the configured 30 s (the sandbox test's "after 30 s (timeout 2 s)", where the
+    /// job had ended at its limit and its result was a few seconds behind).
+    #[test]
+    fn a_job_still_running_says_how_long_the_call_waited() {
+        assert_eq!(
+            still_running("j1", Duration::from_secs(7), 2),
+            "Still running as job j1 after 7 s (timeout 2 s). job_read, job_wait or job_stop it; its result \
+             also arrives by itself when it ends."
+        );
+    }
 
     /// Part 3 of theseus-v4cj: a per-call `PATH` is refused with a named
     /// reason, and no other variable is caught by that refusal.

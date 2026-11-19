@@ -122,3 +122,81 @@ fn a_job_that_never_stops_printing_is_stopped_at_the_ceiling() {
         "{took:?}"
     );
 }
+
+/// The wrapper's sleep between two looks at the output is never longer than one look, whatever the limit: an
+/// hour's limit is still looked at every second. (Its schedule alone, no clock: a sleep as long as the limit
+/// was what let a byte that came early wait a whole limit to be seen.)
+#[test]
+fn the_wrapper_never_sleeps_longer_than_one_look_of_the_output() {
+    use crate::patience::Patience;
+    for limit_ms in [50, 400, 2_000, 3_600_000] {
+        let p = Patience::silence(limit_ms, Instant::now(), || 0);
+        assert!(
+            p.look() <= Duration::from_secs(1),
+            "{limit_ms}: {:?}",
+            p.look()
+        );
+        assert!(
+            p.sleep() <= p.look(),
+            "a {limit_ms} ms limit: it sleeps {:?}, a look is {:?}",
+            p.sleep(),
+            p.look()
+        );
+    }
+    let clock = Patience::clock(3_600_000, Instant::now());
+    assert!(
+        clock.sleep() > Duration::from_secs(3_000),
+        "a limit on the clock needs no look of the output"
+    );
+}
+
+/// The silence runs from the byte, not from the look that saw it: a job that prints once, half way to its
+/// limit, is cut one limit after that byte and one look at most, never a whole limit later. The window is held
+/// open by hand: the byte lands at a moment the test chooses, the loop is the wrapper's own (`check`, then
+/// sleep as long as `sleep` says), and the cut is read against the byte's own instant. Before the look was
+/// bounded the first look came a whole limit in, saw the byte there, and the cut came a limit after THAT: half
+/// a limit late, 300 ms of 600.
+#[test]
+fn a_byte_printed_early_starts_the_silence_at_the_byte_not_at_the_next_look() {
+    use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+    use std::sync::{Arc, Mutex};
+
+    use crate::patience::Patience;
+
+    let limit = Duration::from_millis(600);
+    let bytes = Arc::new(AtomicU64::new(0));
+    let counted = bytes.clone();
+    let mut p = Patience::silence(600, Instant::now(), move || counted.load(SeqCst));
+    let look = p.look();
+    let printed: Arc<Mutex<Option<Instant>>> = Arc::default();
+    let (when, put) = (printed.clone(), bytes.clone());
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        *when.lock().unwrap() = Some(Instant::now());
+        put.store(1, SeqCst);
+    });
+    let busy = theseus_tools::Busy::before();
+    let cut = loop {
+        if let Some(cut) = p.check() {
+            break cut;
+        }
+        std::thread::sleep(p.sleep());
+    };
+    let seen_at = Instant::now();
+    writer.join().unwrap();
+    let byte = printed
+        .lock()
+        .unwrap()
+        .expect("the byte was written before the cut");
+    assert!(matches!(cut, crate::patience::Cut::Silent(_)), "{cut:?}");
+    let quiet = seen_at - byte;
+    assert!(
+        quiet >= limit,
+        "cut after {quiet:?} of silence, under its {limit:?}"
+    );
+    let late = quiet - limit;
+    assert!(
+        busy.keeps(late, 2 * look),
+        "cut {late:?} past the limit counted from the byte; a look is {look:?}: {busy}"
+    );
+}
