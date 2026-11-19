@@ -234,6 +234,9 @@ fn a_keep_goes_from_the_card_through_the_real_program_into_the_vault() {
         "\n",
     );
     assert_eq!(code, 0, "{out}\n{}", r.s.log());
+    // The newline that was already waiting was thrown away: it was not taken for an empty code or
+    // an empty value (which would have been asked for once more).
+    assert!(!out.contains("Nothing was typed"), "{out}");
     // Nothing that reads as a result comes before the daemon says it: the heading, then the end.
     let heading = out.find("To keep a new item \"Lantern new\"").expect(&out);
     let kept = out.find("Kept in the vault \"Harbor\"").expect(&out);

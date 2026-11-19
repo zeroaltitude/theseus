@@ -106,7 +106,7 @@ pub mod method {
         TASK_RESCHEDULE = "task.reschedule",
         /// The owner's second proof (issue 22, `owner_proof`): a code from their authenticator app. Pairing, its first code, the status, a reset, and ending every open window. The owner's own shell alone.
         OWNER_PROOF_ENROLL = "owner.proof.enroll", OWNER_PROOF_CONFIRM = "owner.proof.confirm", OWNER_PROOF_STATUS = "owner.proof.status", OWNER_PROOF_RESET = "owner.proof.reset", OWNER_PROOF_LOCK = "owner.proof.lock",
-        /// Keeping a new secret in the vault (issue 26, `vault_keep`): the owner gives the value in a surface's own form for a card a turn's `vault.keep` put to them, or from their own terminal with no card. The value is in these two requests and nowhere else.
+        /// Keeping a new secret in the vault (issue 26, `vault_keep`): the owner gives the value in a surface's own form for a card a turn's `vault.keep` put to them, or from their own terminal with no card. The value is in `vault.keep.answer` and `vault.keep` and nowhere else; `vault.keep.waiting` (which cards wait, and why none) carries none.
         VAULT_KEEP_ANSWER = "vault.keep.answer", VAULT_KEEP = "vault.keep", VAULT_KEEP_WAITING = "vault.keep.waiting",
         /// The owner starts a task with no model turn (theseus-7oq0w, `task_start::TaskStartParams`).
         TASK_START = "task.start",
