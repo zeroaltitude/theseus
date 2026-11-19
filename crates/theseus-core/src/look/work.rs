@@ -15,9 +15,9 @@
 //! messages; another conversation's are `theseus history SESSION`, which runs as it does. A call may
 //! say `scope: here` for this conversation alone.
 //!
-//! **Another conversation's words** are marked as such in the answer, and held back when that
-//! conversation holds data marked anything but open (`reader.rs`); the answer is then judged as every
-//! tool's result is.
+//! **Another conversation's words** are marked as such in the answer, and held back from a turn whose
+//! model the labels could keep off when that conversation holds data marked anything but open
+//! (`reader.rs`); the answer is then judged as every tool's result is.
 //!
 //! **The wall is unchanged** (`look::refusal`): the owner's own turn in a private place, nobody else.
 //!
