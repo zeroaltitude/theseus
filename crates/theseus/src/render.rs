@@ -728,7 +728,7 @@ pub fn result_word(status: &str, stopped_by: Option<&str>) -> String {
 /// model part of the footer is the profile and model that answered, never the asking turn's.
 pub fn subagent_lines(a: &theseus_protocol::SubagentAnswer) -> Vec<Line> {
     vec![
-        Line::new(Tag::Reply, format!("{}\n", a.text.trim())),
+        Line::new(Tag::Reply, format!("{}\n", a.opening())),
         Line::new(Tag::Dim, a.status_line()),
     ]
 }
@@ -929,7 +929,8 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
                     &mut out,
                     Tag::Reply,
                     &format!(
-                        "[{t}] {} · subagent: {}",
+                        "[{t}] {} {} · subagent: {}",
+                        theseus_protocol::subagent::SUBAGENT_ICON,
                         theseus_protocol::surface::reply_label(&a.model),
                         a.text.trim()
                     ),

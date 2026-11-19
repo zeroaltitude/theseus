@@ -47,6 +47,7 @@ pub(crate) mod settings;
 pub(crate) mod snapshot;
 mod step;
 mod subagent;
+mod tables;
 pub(crate) mod task_view;
 #[cfg(test)]
 mod tests_pin;
@@ -58,6 +59,7 @@ pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, reply_parts_in, thread_tag, wake_header};
 use step::{render_turn, step_loop, STEP_ROLL};
 pub use subagent::subagent_parts;
+pub use tables::fence_tables;
 pub use wakes::wakes;
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
@@ -580,6 +582,16 @@ impl Renderer {
                     });
                 }
                 self.update_tool(turn_id, use_id, |l| l.end(t));
+                // Another profile's answer is shown when its call settles (issue 28), as it
+                // happened: after the words and the call's line before it, before the words the
+                // turn writes after it. The turn's post (`subagent:<call>:...`, the same keys)
+                // comes at its end and finds these messages.
+                if let Some(a) = &t.subagent {
+                    ops.extend(self.tick());
+                    for (key, content) in subagent_parts(a) {
+                        ops.push(self.upsert(&key, content, Buttons::Keep));
+                    }
+                }
                 ops
             }
             // A notified call's score (M5 step 24): its tool line gains it,
