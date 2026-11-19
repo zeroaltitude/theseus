@@ -145,7 +145,10 @@ pub const HOLD_BY_AGENT: &str = "an agent's process cannot answer the card that 
 /// task's question, a question with options, a reminder, an ordinary approval)
 /// is answered from chat as it always was.
 pub fn by_press_only(q: &theseus_protocol::ConfirmRequest) -> Option<&'static str> {
-    if q.plain.as_ref().is_some_and(|p| !p.detail.is_empty()) {
+    if super::vault_keep::is_keep_request(q) {
+        // A secret to keep takes a value, not a yes: `BY_PRESS` would send the owner to an Approve it refuses.
+        Some(super::vault_keep::KEEP_BY_PRESS)
+    } else if q.plain.as_ref().is_some_and(|p| !p.detail.is_empty()) {
         Some(BY_PRESS)
     } else if q.tool == crate::profile_tool::HOLD {
         Some(HOLD_BY_PRESS)

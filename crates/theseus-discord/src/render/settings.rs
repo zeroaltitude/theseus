@@ -162,6 +162,9 @@ pub fn needs_you(body: &Value) -> Option<(Vec<String>, String)> {
         None,
     );
     let how = match s.get("no_yes") == Some(&Value::Bool(true)) {
+        true if s.get("form") == Some(&Value::Bool(true)) => {
+            "tap Type the value here, or Decline, or type the value in your terminal with `theseus vault keep`".to_string()
+        }
         true => {
             "tap Decline, or type the value in your terminal with `theseus vault keep`".to_string()
         }

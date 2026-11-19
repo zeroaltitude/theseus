@@ -20,12 +20,16 @@ use crate::runtime::reply::answer;
 /// change's Accept and Decline, a decline alone when the daemon offers no yes
 /// (a secret to keep takes a value, and no button carries one), else Approve and
 /// Decline.
-pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> Buttons {
+pub(crate) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> Buttons {
     if req.tool == theseus_protocol::work::ask::OWNER_ASK {
         return Buttons::Ask(
             q.to_string(),
             theseus_protocol::work::ask::choices_of(&req.input),
         );
+    }
+    // A secret to keep, in the owner's direct messages: a decline and the form (issue 29).
+    if crate::runtime::keep_form::has_form(&req.options) {
+        return Buttons::KeepForm(q.to_string());
     }
     // A settings question the daemon offers no yes to takes a value no button carries.
     if req.tool == theseus_core::config_change::ACK
@@ -60,10 +64,41 @@ fn line_of(body: &Value) -> String {
 }
 
 impl Lane {
+    /// The card as this place draws it. A question that needs the owner's second proof says,
+    /// before the press, whether the place's earlier proof covers it or a code is asked. A secret
+    /// to keep, in the owner's direct messages with `[vault] keep_by_discord` on, says the form
+    /// exists and what it costs, and draws its button (issue 29).
+    pub(super) fn prepare(
+        &self,
+        req: &mut theseus_protocol::ConfirmRequest,
+        route: &crate::render::Route,
+    ) {
+        let place = self.press_place(route);
+        if let (true, Some(place)) = (req.needs_proof, &place) {
+            req.proof = Some(
+                self.shared
+                    .core
+                    .proof_standing(place, req.needs_fresh_proof),
+            );
+        }
+        let on = self.shared.core.cfg.vault.keep_by_discord;
+        crate::runtime::keep_form::offer(req, place.as_deref() == Some("discord:dm"), on);
+    }
+
     /// A settings question's needs-you post (`render::settings::needs_you`): the
     /// daemon's words whole, the earlier messages silent and plain, the last
     /// with the buttons; none for any other post.
     fn settings_post(&self, body: &Value, q: &str, channel: u64, place: &str) -> Option<Plan> {
+        // A secret to keep, in the owner's direct messages with the setting on, draws the form (issue 29).
+        let form = self
+            .shared
+            .core
+            .cfg
+            .vault
+            .keep_by_discord
+            .then(|| crate::runtime::keep_form::needs_you_body(body))
+            .flatten();
+        let body = form.as_ref().unwrap_or(body);
         let (before, last) = crate::render::settings::needs_you(body)?;
         let key = format!("confirm:{q}");
         self.shared.replies.asked().plan(
@@ -93,9 +128,10 @@ impl Lane {
             key,
             channel,
             content: last,
-            buttons: match no_yes {
-                true => Buttons::Decline(q.to_string()),
-                false => Buttons::Card(q.to_string(), Vec::new()),
+            buttons: match (no_yes, form.is_some()) {
+                (true, true) => Buttons::KeepForm(q.to_string()),
+                (true, false) => Buttons::Decline(q.to_string()),
+                (false, _) => Buttons::Card(q.to_string(), Vec::new()),
             },
             reply_to: None,
             message: None,

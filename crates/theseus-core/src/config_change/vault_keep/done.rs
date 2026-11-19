@@ -7,6 +7,7 @@
 //! built from the target's names and the outcome's class and nothing else.
 
 use serde_json::{json, Value};
+use theseus_protocol::vault_keep::ValueRefusal;
 
 use super::target::{State, Target};
 use crate::secrets::look::Failed;
@@ -53,15 +54,31 @@ impl Outcome {
 pub fn checked(raw: &str) -> Result<Secret, String> {
     let v = raw.trim();
     if v.is_empty() {
-        return Err("no value was given: type it where only you see it".into());
+        return Err(refusal_words(ValueRefusal::Blank));
     }
     if v.len() > MAX_VALUE || v.contains('\0') {
-        return Err(format!(
-            "that is not a secret's value (a key is at most {MAX_VALUE} bytes, and no document): \
-             nothing was written"
-        ));
+        return Err(refusal_words(ValueRefusal::NotAValue));
     }
     Ok(Secret::new(v.to_string()))
+}
+
+/// The class of what [`checked`] refuses, or none for a value it takes.
+pub fn refusal_of(raw: &str) -> Option<ValueRefusal> {
+    checked(raw).err().map(|_| match raw.trim().is_empty() {
+        true => ValueRefusal::Blank,
+        false => ValueRefusal::NotAValue,
+    })
+}
+
+/// The words for a refused value, by class: the same whoever refuses it.
+pub fn refusal_words(r: ValueRefusal) -> String {
+    match r {
+        ValueRefusal::Blank => "no value was given: type it where only you see it".into(),
+        ValueRefusal::NotAValue => format!(
+            "that is not a secret's value (a key is at most {MAX_VALUE} bytes, and no document): \
+             nothing was written"
+        ),
+    }
 }
 
 /// What reads the field back: by the ids the vault gave for an item that is
