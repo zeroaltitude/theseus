@@ -24,6 +24,9 @@ use crate::Core;
 
 /// The parts of the look, in the order they are given.
 const PARTS: [&str; 4] = ["profiles", "providers", "health", "build"];
+/// What may be asked for: the four, and the ontology, which only a call that names it gets (it lists
+/// the owner's topics and people, so it is not part of "everything").
+const ASKABLE: [&str; 5] = ["profiles", "providers", "health", "build", "ontology"];
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,17 +43,17 @@ pub(super) fn parts_of(input: &Value) -> Result<Vec<&'static str>, String> {
     };
     let mut out = Vec::new();
     for w in &what {
-        let part = PARTS.iter().find(|p| **p == w.trim()).ok_or_else(|| {
+        let part = ASKABLE.iter().find(|p| **p == w.trim()).ok_or_else(|| {
             format!(
                 "`{w}` is not a part of the look: choose from {}",
-                PARTS.join(", ")
+                ASKABLE.join(", ")
             )
         })?;
         if !out.contains(part) {
             out.push(*part);
         }
     }
-    out.sort_by_key(|p| PARTS.iter().position(|x| x == p));
+    out.sort_by_key(|p| ASKABLE.iter().position(|x| x == p));
     Ok(out)
 }
 
@@ -62,12 +65,120 @@ pub(super) fn words(core: &Core, target: Option<&Target>, parts: &[&str]) -> Str
             "profiles" => profiles(core, target),
             "providers" => providers(core),
             "health" => health(core),
+            "ontology" => ontology(core),
             _ => build(core),
         };
         out.push_str(&part);
         out.push('\n');
     }
     out
+}
+
+/// The most of each list the ontology part gives.
+const KINDS_MAX: usize = 12;
+const CATEGORIES_MAX: usize = 40;
+const PEOPLE_MAX: usize = 30;
+const PROPOSALS_MAX: u32 = 10;
+
+/// The ontology (issue 28, step 5), as `theseus ontology kinds|categories|proposals` read it: the kinds
+/// table, the category tree, the people the ontology holds, and Jev's unanswered proposals.
+///
+/// **What it never gives**: a person's handles (their Discord ids, addresses and names in other
+/// places), a session's memberships (which conversation is in which category), a proposal's session
+/// or its title, and the guidance text. A category is its name, kind, depth and how many sessions it
+/// holds; a person is their name and how many; a proposal is the topic and Jev's confidence and band.
+/// Every list is bounded and says what it left out.
+fn ontology(core: &Core) -> String {
+    use theseus_protocol::{OntologyListParams, OntologyProposalsParams};
+    let list = match core.ontology_list(&OntologyListParams {
+        session_id: None,
+        memberships: Some(false),
+    }) {
+        Ok(l) => l,
+        Err(_) => return "Ontology: it could not be read just now.\n".into(),
+    };
+    let mut out = format!("Ontology: {} kinds.\n", list.kinds.len());
+    for k in list.kinds.iter().take(KINDS_MAX) {
+        let _ = writeln!(
+            out,
+            "- kind {} · {} · {} per session · precedence {} · rule {}",
+            clean(&k.name),
+            k.basis,
+            k.per_session,
+            k.precedence,
+            k.rule
+        );
+    }
+    let (people, topics): (Vec<_>, Vec<_>) =
+        list.categories.iter().partition(|c| c.kind == "person");
+    let _ = writeln!(out, "Categories ({}, in their tree):", topics.len());
+    for c in topics.iter().take(CATEGORIES_MAX) {
+        let _ = writeln!(
+            out,
+            "{}- {} {} · {} session{}{}",
+            "  ".repeat(c.depth.saturating_sub(1) as usize),
+            clean(&c.kind),
+            clean(&c.name),
+            c.members,
+            if c.members == 1 { "" } else { "s" },
+            if c.guidance.is_some() {
+                " · has guidance"
+            } else {
+                ""
+            }
+        );
+    }
+    if topics.len() > CATEGORIES_MAX {
+        let _ = writeln!(out, "… and {} more", topics.len() - CATEGORIES_MAX);
+    }
+    let _ = writeln!(
+        out,
+        "People held ({}; handles are not shown):",
+        people.len()
+    );
+    for c in people.iter().take(PEOPLE_MAX) {
+        let _ = writeln!(
+            out,
+            "- {} · {} session{}",
+            clean(&c.name),
+            c.members,
+            if c.members == 1 { "" } else { "s" }
+        );
+    }
+    if people.len() > PEOPLE_MAX {
+        let _ = writeln!(out, "… and {} more", people.len() - PEOPLE_MAX);
+    }
+    match core.ontology_proposals(&OntologyProposalsParams {
+        limit: Some(PROPOSALS_MAX),
+        ..Default::default()
+    }) {
+        Err(_) => out.push_str("Proposals: they could not be read just now.\n"),
+        Ok(r) if r.proposals.is_empty() => out.push_str("Proposals: none wait.\n"),
+        Ok(r) => {
+            let _ = writeln!(
+                out,
+                "Proposals of Jev's that wait for the owner ({} shown, {} more, {} hidden); only they accept or reject:",
+                r.proposals.len(),
+                r.more,
+                r.hidden
+            );
+            for p in &r.proposals {
+                let what = match (&p.person, &p.topic_name, p.new_topic) {
+                    (Some(_), _, _) => "a person".to_string(),
+                    (_, Some(t), _) => clean(t),
+                    (_, _, true) => "a new topic".to_string(),
+                    _ => "a topic".to_string(),
+                };
+                let _ = writeln!(out, "- {what} · {:.2} · {}", p.confidence, p.band);
+            }
+        }
+    }
+    out
+}
+
+/// A name as one short line (a title or a name is the owner's own words, and may hold newlines).
+fn clean(s: &str) -> String {
+    crate::secrets::look::clean(s)
 }
 
 fn profiles(core: &Core, target: Option<&Target>) -> String {
@@ -192,8 +303,8 @@ pub(super) fn schema() -> Value {
         "properties": {
             "what": {
                 "type": "array",
-                "description": "Which parts: profiles, providers, health, build. Omit for all.",
-                "items": {"type": "string", "enum": PARTS}
+                "description": "Which parts: profiles, providers, health, build, ontology. Omit for all but ontology.",
+                "items": {"type": "string", "enum": ASKABLE}
             }
         },
         "additionalProperties": false

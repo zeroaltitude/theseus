@@ -969,3 +969,147 @@ async fn a_listing_that_says_warmed_has_the_counts_the_read_applied() {
     assert!(after.warmed);
     assert_eq!(after.turns, ROWS);
 }
+
+const DM: &str = "dm:271828182845904523";
+
+/// A search the provider runs for `want`, and the call that follows it in the same blocks.
+fn searched_and_called(n: u8, want: &str, id: &str, input: Value) -> Scripted {
+    Scripted::Blocks {
+        blocks: vec![
+            json!({"type": "server_tool_use", "id": format!("srvtoolu_{n}"), "name": SEARCH_TOOL,
+                   "input": {"query": want}}),
+            json!({"type": "tool_search_tool_result", "tool_use_id": format!("srvtoolu_{n}"),
+                   "content": {"type": "tool_search_tool_search_result",
+                               "tool_references": [{"type": "tool_reference", "tool_name": want}]}}),
+            json!({"type": "tool_use", "id": id, "name": want, "input": input}),
+        ],
+        stop_reason: "tool_use".into(),
+    }
+}
+
+/// A stand-in for the owner's model in a daemon started from a settings file: it shells `theseus
+/// health` (reaching the shell first where the place defers it), and when the answer names
+/// `look_theseus` it calls the tool the way the request lets it: loaded, the call; `tools_find`
+/// offered, find and then the call; the provider's search, search and then the call. It ends on what
+/// the call gave.
+fn shelled(req: &ProviderRequest) -> Scripted {
+    let loaded = |name: &str| offered(req).contains(&name.to_string()) && !deferred(req, name);
+    let searches = offered(req).contains(&SEARCH_TOOL.to_string());
+    let last = serde_json::to_string(&req.messages.last()).unwrap_or_default();
+    let shell = json!({"command": "theseus health"});
+    let find = |id: &str, q: &str| Scripted::tools("", &[(id, "tools_find", json!({"query": q}))]);
+    if !answers_a_call(req) || last.contains("\"f0\"") {
+        return match (loaded("proc_run"), searches, loaded("tools_find")) {
+            (true, _, _) => Scripted::tools("", &[("s1", "proc_run", shell)]),
+            (false, true, _) => searched_and_called(1, "proc_run", "s1", shell),
+            (false, false, true) if !last.contains("\"f0\"") => find("f0", "run a command"),
+            _ => Scripted::text("No shell."),
+        };
+    }
+    let call = || Scripted::tools("", &[("l1", "look_theseus", json!({}))]);
+    if last.contains("\"s1\"") {
+        return match (loaded("look_theseus"), searches, loaded("tools_find")) {
+            (true, _, _) => call(),
+            (false, true, _) => searched_and_called(2, "look_theseus", "l1", json!({})),
+            (false, false, true) => find("f1", "look at theseus"),
+            _ => Scripted::text("No way to reach it."),
+        };
+    }
+    if last.contains("\"f1\"") && loaded("look_theseus") {
+        return call();
+    }
+    if last.contains("\"l1\"") {
+        return Scripted::text("Done.");
+    }
+    Scripted::text("Not callable.")
+}
+
+fn started_from_a_file(c: &mut crate::Config) {
+    c.config_file = Some("/nonexistent/theseus.toml".into());
+}
+
+fn without_search(c: &mut crate::Config) {
+    c.catalog.insert(
+        "claude-sonnet-5-5".into(),
+        CatalogRow {
+            tool_search: Some(false),
+            ..Default::default()
+        },
+    );
+}
+
+/// What the owner's shell look is answered with can be called in the turn that was answered: where the
+/// provider has a search, the model searches for it; where it has none, `tools_find` loads it. Either
+/// way the call runs and is not counted a miss. The terminal has the shell; the direct message
+/// defers it and the model reaches it first.
+#[tokio::test]
+async fn a_shell_look_answered_with_a_deferred_tool_can_call_it_in_the_same_turn() {
+    for (place, search) in [(None, true), (None, false), (Some(DM), true)] {
+        let r = rig_deferring(
+            |c| {
+                started_from_a_file(c);
+                if !search {
+                    without_search(c);
+                }
+            },
+            shelled,
+        );
+        let sid = session(&r.core, place);
+        let first = say(&r.core, &sid, "how is Theseus doing").await;
+        let reqs = r.requests();
+        let at = format!("{place:?}, search={search}");
+        assert!(
+            !offered(&reqs[0]).contains(&"look_theseus".to_string())
+                || deferred(&reqs[0], "look_theseus"),
+            "{at}: the look is not loaded in the first request"
+        );
+        let answer = result_of(&r.core, &sid, "s1");
+        assert!(answer.contains("`look_theseus`: use it"), "{at}: {answer}");
+        // The answer names the way to load it that this request has: the provider's search, or
+        // `tools_find` where it has none (the other is not offered).
+        let loads = if search { SEARCH_TOOL } else { "tools_find" };
+        assert!(
+            answer.contains(&format!("`{loads}` loads it")),
+            "{at}: {answer}"
+        );
+        let called = result_of(&r.core, &sid, "l1");
+        assert!(
+            !called.contains("Not run") && !called.contains("is not loaded"),
+            "{at}: the call reached the tool: {called}"
+        );
+        assert!(first.tool_calls >= 2, "{at}: {}", first.tool_calls);
+        assert_eq!(rows(&r.core, "shell.answered").len(), 1, "{at}");
+        assert!(rows(&r.core, "tools.missed").is_empty(), "{at}");
+    }
+}
+
+/// The call is what the ledger counts, and a family called in most of a place's turns loads for the
+/// next conversation: in the direct message, which has the room (the terminal, at 7,754 of 8,000, has
+/// none, and a learned family that would not fit stays deferred, `tools_defer/fit.rs`).
+#[tokio::test]
+async fn a_look_called_after_the_shell_answer_is_counted_used_and_the_family_loads_next_time() {
+    let r = rig_deferring(started_from_a_file, shelled);
+    let sid = session(&r.core, Some(DM));
+    say(&r.core, &sid, "how is Theseus doing").await;
+    let used = rows(&r.core, "tools.used");
+    assert_eq!(used.len(), 1, "{used:?}");
+    let said: Vec<&str> = used[0]["used"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(said.contains(&"look"), "{used:?}");
+    assert_eq!(used[0]["place"], "dm");
+    // The ledger then shows the look used in most turns of the direct message.
+    let next = rig_deferring(started_from_a_file, script);
+    seed_use(&next.core, "dm", "look", 12);
+    let sid = session(&next.core, Some(DM));
+    say(&next.core, &sid, "hello").await;
+    let req = &next.requests()[0];
+    assert!(
+        offered(req).contains(&"look_theseus".to_string()) && !deferred(req, "look_theseus"),
+        "{:?}",
+        offered(req)
+    );
+}
