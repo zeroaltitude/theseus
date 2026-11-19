@@ -385,7 +385,6 @@ impl Rig {
             .unwrap_or(Value::Null)
     }
 
-    /// Open a gate a job of the script waits at.
     /// The quay task's history as a failure reads it: each node cut to a line, oldest first, so that a
     /// report that is not the one the script gives says what the task was shown, and in what order.
     fn quay_history_words(&self) -> String {
@@ -432,6 +431,7 @@ impl Rig {
             .exists()
     }
 
+    /// Open a gate a job of the script waits at.
     fn open_gate(&self, name: &str) {
         std::fs::write(self.scratch.path().join("gates").join(name), "").unwrap();
     }
