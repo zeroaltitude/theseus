@@ -845,6 +845,7 @@ export type * from './UnlabelResult';
 export type * from './UnpinFailure';
 export type * from './Urgency';
 export type * from './Usage';
+export type * from './ValueRefusal';
 export type * from './VaultKeepAnswerParams';
 export type * from './VaultKeepParams';
 export type * from './VaultKeepWaiting';

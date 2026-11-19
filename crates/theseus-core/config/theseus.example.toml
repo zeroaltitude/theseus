@@ -1092,6 +1092,16 @@ notify = "auto"
 [owner_proof]
 window_hours = 24
 
+# ---------------------------------------------------------------- vault
+# Where you may give Theseus a secret's value to keep in the vault. The terminal
+# (`theseus vault keep`) and the cockpit's field are always on. The third place is
+# a form on the keep card in your Discord direct messages: what you type there
+# goes through Discord's servers on its way to Theseus, and the form does not
+# hide what you type. true (the default) offers the form; false draws the card
+# as the terminal's and the cockpit's alone, and refuses a value sent from Discord.
+[vault]
+keep_by_discord = true
+
 # ---------------------------------------------------------------- mcp_server
 # Theseus's own MCP server: an MCP client on this machine (Claude Code,
 # another agent) opens a Theseus conversation, sends it text, and reads the

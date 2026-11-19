@@ -69,6 +69,86 @@ struct Input {
     purpose: String,
 }
 
+/// The card's first line: where the value is typed. A place that cannot carry a value offers only
+/// Decline, so the card must say first what to do instead.
+pub const HEAD: &str = "Type the value in your own terminal: run `theseus vault keep` (nothing is shown as you \
+     type). There is no Approve here: a yes carries no value, so this card offers only Decline. In the \
+     cockpit, the card has a field for the value.\n";
+
+/// What replaces [`HEAD`] in the owner's Discord direct messages while `[vault] keep_by_discord` is on
+/// (issue 29): the form is one more place, and the next line says what it costs.
+pub const HEAD_FORM: &str = "Type the value in your own terminal (run `theseus vault keep`; nothing is shown as you \
+     type), or press \"Type the value here\" to type it in a form in this chat. In the cockpit, the card has a \
+     field for the value.\n\
+     A value typed in the form goes through Discord's servers on its way to Theseus, and the form shows what you \
+     type; the terminal does neither.\n";
+
+/// The label of the button that opens the form.
+pub const FORM_BUTTON: &str = "Type the value here";
+
+/// The card's words for the owner's Discord direct messages: [`HEAD`] replaced by [`HEAD_FORM`]. None
+/// for words that do not begin with [`HEAD`] (a card drawn by another build): such a card is
+/// drawn as it is, with no form, so the line about the chat service is never missing from a card that has one.
+pub fn with_form(words: &str) -> Option<String> {
+    words
+        .strip_prefix(HEAD)
+        .map(|rest| format!("{HEAD_FORM}{rest}"))
+}
+
+/// What a keep that arrives without the second proof is told (a window that lapsed between the press and
+/// the submit, say): the code is asked with the value, so the way is to ask again. A keep card is never
+/// approved, so `theseus answer ... approve --code` is not offered. `by_form` is whether the form is a way
+/// from where it was given.
+pub fn proof_missing_words(by_form: bool) -> String {
+    let how = match by_form {
+        true => "press \"Type the value here\" again and the form asks for the code, or run \
+                 `theseus vault keep` in your own terminal",
+        false => "run `theseus vault keep` in your own terminal, or use the card's field in the cockpit: \
+                  they ask for the code with the value",
+    };
+    format!("it needs your second proof, which is asked with the value: {how}. Nothing was kept")
+}
+
+/// How the owner gives a secret's value, in a sentence: the form in their direct messages when it is a way,
+/// and always their own terminal.
+fn how_to_give(by_form: bool) -> &'static str {
+    match by_form {
+        true => "press \"Type the value here\" on its card in their direct messages with Theseus, or run \
+                 `theseus vault keep` in their own terminal",
+        false => "run `theseus vault keep` in their own terminal, or use the card's field in the cockpit",
+    }
+}
+
+/// What a yes, or a code, given in a conversation to a secret to keep is told: it takes a value, not a
+/// yes, and nothing is given in the owner's name from a conversation. For the chat's answer tool, which a
+/// model reads.
+pub fn chat_words(by_form: bool) -> String {
+    format!(
+        "this is a secret to keep: a yes carries no value, and neither a yes nor a code is given from a \
+         conversation. The owner gives the value: {}. Nothing changed",
+        how_to_give(by_form)
+    )
+}
+
+/// What a typed or spoken yes to a keep card is told, where the setting is not at hand.
+pub const KEEP_BY_PRESS: &str = "this is a secret to keep: a yes carries no value, so it is not answered in the owner's name from a \
+     conversation. The owner gives the value on its card's form in their direct messages (when it has \
+     one), or with `theseus vault keep` in their own terminal. Nothing was kept";
+
+/// How a notification that cannot hold the card says it is answered: the value is typed, a decline is the
+/// only answer. `short` is the question's short id.
+pub fn answer_line(short: &str) -> String {
+    format!(
+        "give the value with `theseus vault keep` in your terminal, or on its card (a decline is \
+         `theseus answer {short} decline`)"
+    )
+}
+
+/// Whether a listed question is a keep card.
+pub fn is_keep_request(req: &theseus_protocol::ConfirmRequest) -> bool {
+    req.tool == ACK && req.input.get(ARG).is_some_and(Value::is_object)
+}
+
 /// The card, whole: what is kept where, whether it replaces, where the value is
 /// typed, and what a value typed in chat comes to.
 pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> String {
@@ -78,13 +158,11 @@ pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> Stri
         State::Adds => "a new field in an item that is already there",
         State::Replaces => "the field that is already there",
     };
-    // The first words are where the value is typed: a place that cannot carry a value (Discord
-    // today) offers only Decline, so the card must say first what to do instead.
+    // The first words are where the value is typed: a place that cannot carry a value offers only
+    // Decline, so the card must say first what to do instead (the owner's Discord direct messages
+    // swap them for `HEAD_FORM`, `with_form`).
     let mut out = format!(
-        "Type the value in your own terminal: run `theseus vault keep` (nothing is shown as you \
-         type). There is no Approve here: a yes carries no value, so this card offers only \
-         Decline. In the cockpit, the card has a field for the value.\n\
-         Keep a secret in the vault?\nIn the vault \"{}\": item \"{}\", field \"{}\" ({what}).\n",
+        "{HEAD}Keep a secret in the vault?\nIn the vault \"{}\": item \"{}\", field \"{}\" ({what}).\n",
         t.vault, t.title, t.field
     );
     if t.replaces() {

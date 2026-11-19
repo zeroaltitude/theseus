@@ -13,7 +13,7 @@ use crate::bus::EventSink;
 use crate::chat_acts::Said;
 use crate::content::Flag;
 use crate::node::{Body, ResultStatus};
-use crate::profile_tool::{ASK, HOLD};
+use crate::profile_tool::{ASK, HOLD, RUN};
 use crate::session::SessionRecord;
 use crate::turn::TurnRequest;
 
@@ -419,4 +419,51 @@ async fn a_hold_with_no_card_and_no_owner_message_is_still_refused() {
         "{text}"
     );
     assert_eq!(r.core.runner.sticky_profile(&sid), None);
+}
+
+/// Handing work to a profile after outside text is asked first too: nothing opens before the
+/// yes, and after it the task opens in the continuation, on the profile, with tools, and its
+/// report speaks in the conversation once, before that turn's reply.
+#[tokio::test]
+async fn a_hand_over_asked_first_opens_the_task_after_the_yes_and_its_report_speaks() {
+    let r = rig();
+    r.agents_report("Listed the folder: a.txt, b.txt", None);
+    let sid = steered(&r);
+    r.steps(
+        &sid,
+        vec![(
+            "profile_run",
+            json!({"profile": "haiku", "work": "AGENT: list the files of the folder"}),
+        )],
+    )
+    .await;
+    let q = card(&r, RUN);
+    assert!(
+        r.seen().iter().all(|(m, _)| m != "claude-haiku-5-5"),
+        "nothing ran before the yes: {:?}",
+        r.seen()
+    );
+    let done = r
+        .core
+        .confirm_action(&q.correlation_id, true, None, owner_in_dm())
+        .unwrap();
+    assert!(done.approved && done.resumes);
+    continue_turn(&r, &sid).await;
+    let (status, text) = result_of_first(&r, &sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert!(text.contains("Handed the work to haiku"), "{text}");
+    assert!(
+        r.seen()
+            .iter()
+            .any(|(m, tools)| m == "claude-haiku-5-5" && *tools > 0),
+        "the agent has tools: {:?}",
+        r.seen()
+    );
+    let kinds = kinds(&r);
+    assert_eq!(
+        kinds.iter().filter(|k| *k == "subagent").count(),
+        1,
+        "the report is posted, once: {kinds:?}"
+    );
+    assert_eq!(kinds.last().map(String::as_str), Some("reply"), "{kinds:?}");
 }

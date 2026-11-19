@@ -381,7 +381,7 @@ fn the_profile_family_is_deferred_and_adds_nothing_to_a_request() {
         .expect("the profile family");
     assert_eq!(
         fam.tools,
-        ["profile_ask", "profile_hold"],
+        ["profile_ask", "profile_hold", "profile_run"],
         "{:?}",
         fam.tools
     );

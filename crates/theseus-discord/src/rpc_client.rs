@@ -59,6 +59,16 @@ static REFUSALS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 #[cfg(test)]
 static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// The request line of every `vault.keep.answer` sent through any client of this process: a test
+/// reads what a form's submit carried (issue 29).
+#[cfg(test)]
+static KEEP_LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn keep_lines() -> Vec<String> {
+    KEEP_LINES.lock().unwrap().clone()
+}
+
 /// The methods called so far.
 #[cfg(test)]
 pub(crate) fn calls() -> Vec<String> {
@@ -147,6 +157,10 @@ impl RpcClient {
         let line =
             serde_json::to_string(&Message::Request(Request::new(Id::Num(id), method, params)))
                 .map_err(CallError::local)?;
+        #[cfg(test)]
+        if method == theseus_protocol::method::VAULT_KEEP_ANSWER {
+            KEEP_LINES.lock().unwrap().push(line.clone());
+        }
         #[cfg(test)]
         {
             let mut refusals = REFUSALS.lock().unwrap();
