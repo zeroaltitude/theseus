@@ -1937,7 +1937,8 @@ impl FakeDiscord {
             return false;
         };
         let mut st = self.state.lock().unwrap();
-        let limit = st.ack_limit_ms.unwrap_or(3_000);
+        // The service's own slowness (`set_delay_ms`) is not the binding's: the response was sent that long ago.
+        let limit = st.ack_limit_ms.unwrap_or(3_000) + st.delay_ms;
         let late = !st.acked.contains(id)
             && st
                 .arrived
