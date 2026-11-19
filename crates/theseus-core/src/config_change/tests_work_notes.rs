@@ -217,3 +217,45 @@ async fn the_confirm_list_reads_the_sessions_that_ask_in_the_order_it_always_did
     assert_eq!(got, want);
     let _ = SessionKind::Conversation;
 }
+
+/// The project view is read to a limit: the newest are built and the older counted and said.
+#[tokio::test]
+async fn the_project_view_is_read_to_a_limit_and_says_how_many_older_it_left() {
+    let r = rig();
+    let here = conversation(&r).await;
+    for i in 0..14 {
+        r.core
+            .project_create(
+                &serde_json::from_value(json!({
+                    "title": format!("Harbour survey {i:02}"), "objective": "Chart every mooring",
+                    "acceptance": ["every mooring has a depth"],
+                    "milestones": [{"title": "Outer harbour", "due": "in 30d"}],
+                    "review": "none"
+                }))
+                .unwrap(),
+                "the CLI",
+            )
+            .unwrap();
+    }
+    let (shown, older) = r.core.projects_upto(12).unwrap();
+    assert_eq!((shown.len(), older), (12, 2));
+    assert_eq!(
+        r.core
+            .project_list(&Default::default())
+            .unwrap()
+            .projects
+            .len(),
+        14,
+        "the command lists them all"
+    );
+    let text = said(&r, &here, json!({"what": ["projects"]})).await;
+    assert!(text.contains("Projects (14 open)."), "{text}");
+    assert!(
+        text.contains("… and 2 more older projects not listed here"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Harbour survey 13") && !text.contains("Harbour survey 00"),
+        "{text}"
+    );
+}
