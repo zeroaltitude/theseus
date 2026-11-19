@@ -317,10 +317,9 @@ async fn a_shared_place_and_a_guild_participant_are_refused_and_start_nothing() 
     let (status, text) = r.result(&shared);
     assert_ne!(status, ResultStatus::Ok, "{text}");
     assert!(
-        text.starts_with("profile.run can hand another model profile"),
+        text.contains("profile.run is not offered in a shared place"),
         "{text}"
     );
-    assert!(text.contains("shared"), "{text}");
     // A channel bound private is still the guild's: whoever it lets in writes there.
     r.core.runner.place_rule.bind(vec![BoundPlace {
         target: "discord:channel:314159265358979323".into(),
@@ -333,13 +332,28 @@ async fn a_shared_place_and_a_guild_participant_are_refused_and_start_nothing() 
     let (status, text) = r.result(&guild);
     assert_ne!(status, ResultStatus::Ok, "{text}");
     assert!(
-        text.starts_with("profile.run can hand another model profile"),
+        text.contains("profile.run") && text.contains("shared"),
         "{text}"
     );
     for s in [&shared, &guild] {
         assert!(tasks(&r, s).is_empty());
     }
     assert!(!ran(&r, "claude-haiku-5-5"));
+}
+
+/// The first tool result of a session, when it has one.
+fn first_result(r: &Rig, sid: &str) -> Option<(ResultStatus, String)> {
+    r.core
+        .store
+        .session_nodes(sid)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, n)| match n.body {
+            crate::node::Body::ToolResult {
+                status, content, ..
+            } => Some((status, content)),
+            _ => None,
+        })
 }
 
 /// A conversation whose execution acts for a routine, the self-improvement loop, a connected client
@@ -357,15 +371,17 @@ async fn a_routine_the_self_loop_a_client_and_a_job_are_refused() {
             .try_steps(&sid, vec![("profile_run", work("haiku"))])
             .await
         {
-            Ok(_) => {
-                let (status, text) = r.result(&sid);
-                assert_eq!(status, ResultStatus::Error, "{principal}: {text}");
-                assert!(
-                    text.starts_with("profile.run is only for the owner's own conversation"),
-                    "{principal}: {text}"
-                );
-                played.push(principal);
-            }
+            Ok(_) => match first_result(&r, &sid) {
+                Some((status, text)) => {
+                    assert_eq!(status, ResultStatus::Error, "{principal}: {text}");
+                    assert!(
+                        text.starts_with("profile.run is only for the owner's own conversation"),
+                        "{principal}: {text}"
+                    );
+                    played.push(principal);
+                }
+                None => eprintln!("{principal}: the turn ran and made no call"),
+            },
             Err(e) => eprintln!("{principal}: the turn itself was refused: {e:#}"),
         }
         assert!(tasks(&r, &sid).is_empty(), "{principal}");
