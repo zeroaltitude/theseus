@@ -156,6 +156,39 @@ fn reproduce_what_the_terminal_command_does_on_a_waiting_card() {
         let (code, out) = r.at_a_terminal(&["vault", "keep"], &[]);
         report += &format!("--- after the press: exit {code}\n{out}\n");
     }
+    // Enter already waiting at each prompt, as a pasted or doubled newline leaves it.
+    let (code, out) = r.at_a_terminal(
+        &["vault", "keep"],
+        &[("authenticator app: ", ""), ("nothing is shown): ", "")],
+    );
+    report += &format!("--- Enter typed at each prompt: exit {code}\n{out}\n");
+    // A job's marker in the environment.
+    let mut argv = vec!["/usr/bin/env".into(), "THESEUS_SESSION=ses_x".to_string()];
+    argv.extend(r.argv(&["vault", "keep"]));
+    let (code, out) = common::terminal::typed_at_a_terminal(&argv, &[], &[], 3);
+    report += &format!("--- THESEUS_SESSION set (the terminal strips it, env puts it back): exit {code}\n{out}\n");
+    // No terminal on standard input.
+    let o = std::process::Command::new(&r.cli)
+        .args(["--socket"])
+        .arg(r.s.path("sock"))
+        .args(["vault", "keep"])
+        .env_remove("THESEUS_SESSION")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    report += &format!(
+        "--- stdin is /dev/null: exit {:?}\n{}{}\n",
+        o.status.code(),
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
+    // The value typed, with a code, on a daemon with no authenticator enrolled.
+    let (code, out) = r.at_a_terminal(
+        &["vault", "keep"],
+        &[("authenticator app: ", "123456"), ("nothing is shown): ", VALUE)],
+    );
+    report += &format!("--- code and value typed: exit {code}\n{out}\n");
+    assert!(!out.contains(VALUE), "the value was echoed");
     report += &format!("op argv: {:?}\n", common::vault::argv(r.vault.path()));
     report += &format!("vault.keep rows: {:?}\n", r.ledger("vault.keep"));
     report += &format!("daemon log tail:\n{}\n", common::tail(&r.s.log(), 30));
