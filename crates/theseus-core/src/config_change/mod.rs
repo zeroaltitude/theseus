@@ -43,6 +43,7 @@ pub mod restart;
 pub mod show;
 pub mod shown;
 pub mod undo;
+pub mod vault_keep;
 pub mod vault_use;
 pub mod waiting;
 pub mod wall;
@@ -69,13 +70,14 @@ pub const RESTART: &str = "daemon.restart";
 /// The question the owner's yes answers: a planned action of this tool.
 pub const ACK: &str = "config.ack";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 6] = [
+pub const NAMES: [&str; 7] = [
     PROPOSE,
     RESTART,
     history::HISTORY,
     undo::UNDO,
     show::SHOW,
     vault_use::USE,
+    vault_keep::KEEP,
 ];
 /// The most settings one proposal may name.
 pub const MAX_CHANGES: usize = 20;
@@ -193,6 +195,7 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
         r.register(Arc::new(history::History));
         r.register(Arc::new(show::Show));
         r.register(Arc::new(vault_use::VaultUse));
+        r.register(Arc::new(vault_keep::VaultKeep));
         r.register(Arc::new(undo::Undo));
         r.register(Arc::new(mcp_attach::Attach));
         r.register(Arc::new(mcp_attach::Detach));
@@ -634,7 +637,7 @@ fn too_big(settings: &[diff::Setting]) -> Result<usize, String> {
 
 /// The question, its card, and the record that answers a call run again, in
 /// one frame on the proposing execution.
-fn ask(
+pub(crate) fn ask(
     rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
     proposal: Proposal,

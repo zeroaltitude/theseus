@@ -17,6 +17,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [config-undo.md](config-undo.md): the history of those changes, and undoing one by the same card, without writing the old file back (issue 22).
 - [look-tools.md](look-tools.md): Theseus reads itself and the names its vault holds with tools of its own, so a look is never a card; the floor is untouched (issue 26).
 - [vault-use.md](vault-use.md): Theseus uses what its vault holds by name: a field's names (never a value) and one card that puts an item to use after the daemon read it, with a reference the daemon builds and never a turn (issue 26).
+- [vault-keep.md](vault-keep.md): the owner keeps a new secret in the vault with its value typed in a surface's own form (the terminal's hidden prompt, the cockpit's field), never as a chat message and never through a turn (issue 26).
 - [mcp-attach.md](mcp-attach.md): the owner attaches an MCP server by asking (issue 22): the trial in the sandbox with no secret, the one card built from the table as it will be written, the yes that writes it and loads it live, detach, and what none of it can be made to do.
 - [self-install.md](self-install.md): what the root-owned program directory protects, and the one-purpose helper that lets Theseus install what its own loop joined (issue 22).
 - [m7-surface.md](m7-surface.md): M7, the surface: the MCP client and server, recurring wakes, bindings, the task graph, the web UI, self-extension, and voice. Roadmap steps 36 to 39 and 41 to 45.

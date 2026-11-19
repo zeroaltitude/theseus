@@ -22,6 +22,9 @@ use super::server::{parse, reply, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Surface};
 
+/// Where the owner runs these.
+const OWN_CMD: &str = "`theseus owner proof <enroll|status|reset>`";
+
 impl Core {
     /// The five methods, from one dispatch arm.
     pub(super) fn rpc_owner_proof(
@@ -33,8 +36,12 @@ impl Core {
         match m {
             method::OWNER_PROOF_ENROLL => {
                 let p: OwnerProofEnrollParams = parse(params)?;
-                let who =
-                    self.owners_shell(&conn, p.from_job.as_deref(), "pair an authenticator app")?;
+                let who = self.owners_shell(
+                    &conn,
+                    p.from_job.as_deref(),
+                    "pair an authenticator app",
+                    OWN_CMD,
+                )?;
                 let offer = self
                     .proofs
                     .begin_enrol(&who.via())
@@ -46,8 +53,12 @@ impl Core {
             }
             method::OWNER_PROOF_CONFIRM => {
                 let p: OwnerProofCodeParams = parse(params)?;
-                let who =
-                    self.owners_shell(&conn, p.from_job.as_deref(), "pair an authenticator app")?;
+                let who = self.owners_shell(
+                    &conn,
+                    p.from_job.as_deref(),
+                    "pair an authenticator app",
+                    OWN_CMD,
+                )?;
                 let code = typed(&p)?;
                 self.proofs
                     .confirm_enrol(code, &who.via())
@@ -60,13 +71,18 @@ impl Core {
                     &conn,
                     p.from_job.as_deref(),
                     "read the authenticator's status",
+                    OWN_CMD,
                 )?;
                 reply(self.owner_proof_status())
             }
             method::OWNER_PROOF_RESET => {
                 let p: OwnerProofCodeParams = parse(params)?;
-                let who =
-                    self.owners_shell(&conn, p.from_job.as_deref(), "reset the authenticator")?;
+                let who = self.owners_shell(
+                    &conn,
+                    p.from_job.as_deref(),
+                    "reset the authenticator",
+                    OWN_CMD,
+                )?;
                 let code = typed(&p)?;
                 self.proofs.abandon_enrol();
                 self.proofs
@@ -115,11 +131,12 @@ impl Core {
     /// The owner's own shell: the CLI on this machine's socket, with no
     /// Theseus job's marker and no agent's process behind it. Anything else is
     /// refused, ledgered, and told where to run it.
-    fn owners_shell(
+    pub(super) fn owners_shell(
         &self,
         conn: &Conn<'_>,
         from_job: Option<&str>,
         what: &str,
+        run: &str,
     ) -> Result<Answerer, RpcFailure> {
         let who = conn.answerer(None, None);
         let why = match (who.surface, from_job, &who.agent) {
@@ -136,9 +153,7 @@ impl Core {
                 other.name()
             ),
         };
-        let words = format!(
-            "{why}. Run it from your own terminal: `theseus owner proof <enroll|status|reset>`"
-        );
+        let words = format!("{why}. Run it from your own terminal: {run}");
         self.proofs.changed("refused", &who.via(), Some(&words));
         Err(RpcFailure {
             code: error_code::REFUSED,

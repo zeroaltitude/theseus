@@ -1,7 +1,7 @@
 // A question's buttons from its options (`src/lib/answers.ts`, theseus-ds5os), run by `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answerParams, buttonsOf, hasWholeText, isSettingsChange, mayAnswer, needsCode, proofLine } from '../src/lib/answers.ts'
+import { answerParams, buttonsOf, hasWholeText, isKeep, isSettingsChange, keepNeedsCode, keepParams, mayAnswer, needsCode, proofLine } from '../src/lib/answers.ts'
 
 const opt = (id: string, label: string, takes_note = false, style = 'plain') => ({ id, label, style, takes_note, effect: `${id} does it` })
 const ask = (o: Record<string, unknown> = {}) => ({ correlation_id: 'act_7f3a9c', session_id: 'ses_a', execution_id: 'exe_a', tool: 'fs.write', input: {}, reason: 'write', by: 'operator', requested_at_ms: 0, expires_at_ms: 0, floor: false, ...o }) as any
@@ -75,4 +75,19 @@ test('a settings change keeps its lines, and has a whole text to read only when 
   assert.equal(isSettingsChange(ask({ input: { whole: true } })), false)
   assert.equal(hasWholeText(ask({ input: { whole: true } })), false)
   assert.equal(hasWholeText(ask({ tool: 'config.ack', input: null })), false)
+})
+
+test('a keep card takes a value in a field of its own, never a yes, and the value rides one request', () => {
+  const card = (extra: object = {}) =>
+    ask({ correlation_id: 'act_keep1', tool: 'config.ack', input: { keep: { vault: 'Harbor', title: 'Lantern new' } }, needs_proof: true, ...extra })
+  assert.equal(isKeep(card()), true)
+  assert.equal(isKeep(card({ input: { paths: [] } })), false)
+  assert.equal(isKeep(card({ tool: 'proc.run' })), false)
+  // A new item: a code only when no window of this place covers it.
+  assert.equal(keepNeedsCode(card({ proof: { code_needed: false, line: '' } })), false)
+  assert.equal(keepNeedsCode(card({ proof: { code_needed: true, line: '' } })), true)
+  // A replace: a fresh code every time, window or not.
+  assert.equal(keepNeedsCode(card({ needs_fresh_proof: true, proof: { code_needed: false, line: '' } })), true)
+  assert.deepEqual(keepParams(card({ proof: { code_needed: true, line: '' } }), 'INVENTED-VALUE', ' 123456 '), { question_id: 'act_keep1', value: 'INVENTED-VALUE', code: '123456' })
+  assert.deepEqual(keepParams(card({ proof: { code_needed: false, line: '' } }), 'INVENTED-VALUE', '123456'), { question_id: 'act_keep1', value: 'INVENTED-VALUE' })
 })

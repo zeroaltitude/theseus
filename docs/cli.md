@@ -187,6 +187,11 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   paired and which places a good code still covers; `owner proof reset` takes a code and removes the pairing;
   `owner proof lock` ends every open window; and `theseus answer ID approve --code 123456` answers a change that needs it.
   Yours alone: refused inside a job. See `docs/design/owner-proof.md`.
+- **`vault`**: keep a new secret in the vault, typed where only you see it (issue 26). `theseus vault keep` answers the card Theseus put to you
+  (the only one waiting, or `<id>`): the value is typed at a hidden prompt of your own terminal, with a code from your authenticator app when one
+  is needed, and goes to the daemon alone, which writes it with its own account, reads it back and says where it is by name. With `--vault`,
+  `--item` and `--field` it keeps one with no card: the way to replace an item Theseus's own settings read (always a fresh code). Refused inside a
+  Theseus job, with a pipe, and by the daemon from every surface but your own terminal. Never paste a secret into chat.
 - **`card`**: the owner card, proposed from imported history; each proposal is a question to keep, edit or decline.
   `theseus card`; `card propose|keep|edit|decline|scope|done`; `card keep ID --scope surface:terminal` says where a kept
   one holds, and `card scope ID everywhere` moves a kept one's record.

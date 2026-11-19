@@ -52,6 +52,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("books.")
         || name.starts_with("google.")
         || name == method::CALENDAR_WINDOW
+        || super::vault_keep::OWN.contains(&name)
         || super::context::prefixed(name)
         || super::route_correct::ROUTE.contains(&name)
         || super::people::ROUTE.contains(&name)
@@ -244,6 +245,9 @@ impl Core {
             }
             method::CONFIG_HISTORY => return self.rpc_config_history(params, conn),
             method::CONFIG_WHOLE => return self.rpc_config_whole(params, conn),
+            m if super::vault_keep::OWN.contains(&m) => {
+                return self.rpc_vault_keep(m, params, conn).await
+            }
             method::IMPORT_EPISODES => return self.import_episodes(params, conn).await,
             method::IMPORT_ERASE => {
                 let p: ImportEraseParams = parse(params)?;
