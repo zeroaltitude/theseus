@@ -172,7 +172,12 @@ pub fn plain_of(args: &Value) -> Option<PlainWords> {
         .as_str()
         .map_or_else(|| first_line(&question), str::to_string);
     let file = args["kind"] == super::prompt_file::KIND;
+    let keep = super::vault_keep::is_card(args);
     let (risk, yes) = match (args.get("merge").is_some(), args["restart_only"] == true) {
+        _ if keep => (
+            "stores a secret in Theseus's vault",
+            "has the daemon keep the value you type, in the vault, with its own account.",
+        ),
         (true, _) => (
             "installs a program Theseus runs",
             "installs that build and restarts Theseus.",
@@ -191,7 +196,10 @@ pub fn plain_of(args: &Value) -> Option<PlainWords> {
         who: "Theseus".into(),
         what: said,
         why: String::new(),
-        held: "it changes what Theseus is or runs, so only you may allow it".into(),
+        held: match keep {
+            true => "it stores a secret, which only you give".into(),
+            false => "it changes what Theseus is or runs, so only you may allow it".into(),
+        },
         risk: risk.into(),
         yes: yes.into(),
         no: "changes nothing.".into(),

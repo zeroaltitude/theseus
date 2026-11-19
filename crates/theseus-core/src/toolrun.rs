@@ -1743,7 +1743,8 @@ impl ToolRuntime {
             // Run again after a restart: what the first run asked the owner.
             crate::config_change::mcp_attach::ATTACH
             | crate::config_change::mcp_attach::DETACH
-            | crate::config_change::vault_use::USE => {
+            | crate::config_change::vault_use::USE
+            | crate::config_change::vault_keep::KEEP => {
                 crate::config_change::proposed_by_call(tc, correlation_id)
             }
             crate::config_change::RESTART => {

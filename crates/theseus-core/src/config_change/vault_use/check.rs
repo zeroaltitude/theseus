@@ -36,7 +36,7 @@ pub struct Checked {
 }
 
 /// What a vault the account cannot see is told, with what the owner can do.
-fn not_seen(wanted: &str, seen: &[Vault]) -> String {
+pub(crate) fn not_seen(wanted: &str, seen: &[Vault]) -> String {
     let each: Vec<&str> = seen.iter().map(|v| v.name.as_str()).collect();
     format!(
         "Theseus's vault account does not see a vault called \"{}\"; it sees {}. The owner can \
@@ -93,6 +93,39 @@ fn read_failure(e: &anyhow::Error) -> String {
     said(class_of(text.as_bytes()))
 }
 
+/// The one item `wanted` means among the vault's `items`: by the id the vault
+/// gave, else by title in any case. `Ok(None)` when none has it; two of one
+/// title are not guessed between, and the ids are told.
+pub(crate) fn find_item<'a>(
+    items: &'a [ItemName],
+    vault: &str,
+    wanted: &str,
+) -> Result<Option<&'a ItemName>, String> {
+    let mut hit: Vec<&ItemName> = items.iter().filter(|i| i.id == wanted).collect();
+    if hit.is_empty() {
+        hit = items
+            .iter()
+            .filter(|i| i.title.eq_ignore_ascii_case(wanted))
+            .collect();
+    }
+    match hit.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(*one)),
+        many => {
+            let each: Vec<String> = many
+                .iter()
+                .map(|i| format!("{} (id {})", i.title, i.id))
+                .collect();
+            Err(format!(
+                "{} items in \"{vault}\" are titled \"{}\": {}. Ask again with the id of the one meant.",
+                many.len(),
+                crate::secrets::look::clean(wanted),
+                each.join("; ")
+            ))
+        }
+    }
+}
+
 /// Check what the model named and build the reference, or say why not, in
 /// words for the model and the owner.
 pub async fn check(
@@ -109,34 +142,11 @@ pub async fn check(
     };
     let scope = VaultId::parse(&v.id).ok_or_else(|| said(Failed::Unreadable))?;
     let items = parse_items(&list(Verb::Items(Some(scope))).await.map_err(said)?).map_err(said)?;
-    let mut hit: Vec<&ItemName> = items.iter().filter(|i| i.id == item).collect();
-    if hit.is_empty() {
-        hit = items
-            .iter()
-            .filter(|i| i.title.eq_ignore_ascii_case(item))
-            .collect();
-    }
-    let found = match hit.as_slice() {
-        [] => {
-            return Err(format!(
-                "the vault \"{}\" has no item of that title: look at its items first",
-                v.name
-            ))
-        }
-        [one] => *one,
-        many => {
-            let each: Vec<String> = many
-                .iter()
-                .map(|i| format!("{} (id {})", i.title, i.id))
-                .collect();
-            return Err(format!(
-                "{} items in \"{}\" are titled \"{}\": {}. Ask again with the id of the one meant.",
-                many.len(),
-                v.name,
-                crate::secrets::look::clean(item),
-                each.join("; ")
-            ));
-        }
+    let Some(found) = find_item(&items, &v.name, item)? else {
+        return Err(format!(
+            "the vault \"{}\" has no item of that title: look at its items first",
+            v.name
+        ));
     };
     let item_id = ItemId::parse(&found.id).ok_or_else(|| said(Failed::Unreadable))?;
     let fields = match reader.look_item(&item_id).await {

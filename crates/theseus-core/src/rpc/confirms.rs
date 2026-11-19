@@ -414,6 +414,24 @@ impl Core {
                 a.state.as_str()
             );
         }
+        // A secret to keep takes a value, which a yes does not carry: refused
+        // before the proof gate, so a code is not spent on it (issue 26).
+        if approve && crate::config_change::vault_keep::is_keep(&a) {
+            let r = Refusal {
+                who: who.who(),
+                via: who.via(),
+                why: crate::config_change::vault_keep::NO_VALUE.to_string(),
+            };
+            self.refused(
+                Act::Answer {
+                    action: &a,
+                    approve,
+                },
+                &who,
+                &r,
+            )?;
+            return Err(r.into());
+        }
         // The owner's second proof (issue 22): a question the asker marked
         // is approved on a good code or an open window of this place, and on
         // no other footing. A decline tightens and is never gated.

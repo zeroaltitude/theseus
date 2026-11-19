@@ -121,6 +121,7 @@ pub mod time;
 mod toolinfo;
 #[cfg(test)]
 mod ts;
+pub mod vault_keep;
 pub mod voice;
 pub mod voice_pick;
 pub mod wakes;
