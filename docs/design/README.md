@@ -15,6 +15,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [config-change.md](config-change.md): the owner asks Theseus to change a setting and the daemon writes it, then restarts itself with a way back (issue 22).
 - [prompt-file-change.md](prompt-file-change.md): the owner asks Theseus to change a prompt file, or a setting too long for a card, by the same door and the same proof (issue 23).
 - [config-undo.md](config-undo.md): the history of those changes, and undoing one by the same card, without writing the old file back (issue 22).
+- [board-place.md](board-place.md): where the board's Coming up, Routines and Projects are drawn (the task channel's board alone while there is one), how a wake says where it came from, and the select that cancels or snoozes a reminder (issue 30).
 - [look-tools.md](look-tools.md): Theseus reads itself and the names its vault holds with tools of its own, so a look is never a card; the floor is untouched (issue 26).
 - [vault-use.md](vault-use.md): Theseus uses what its vault holds by name: a field's names (never a value) and one card that puts an item to use after the daemon read it, with a reference the daemon builds and never a turn (issue 26).
 - [vault-keep.md](vault-keep.md): the owner keeps a new secret in the vault with its value typed in a surface's own form (the terminal's hidden prompt, the cockpit's field), never as a chat message and never through a turn (issue 26).

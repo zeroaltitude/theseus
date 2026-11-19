@@ -540,7 +540,7 @@ impl Shared {
     }
 }
 
-/// What a place's board shows of the future (issue 30). Private places only.
+/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`). Private places only.
 /// While the task channel stands, or is being looked for, the whole future is
 /// on the board the owner's DM place draws into it, and on no other place's.
 /// Without one, a place shows the reminders and check-ins of its own
