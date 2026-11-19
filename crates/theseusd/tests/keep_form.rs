@@ -597,6 +597,10 @@ fn a_slow_vault_does_not_make_the_form_miss_the_services_three_seconds() {
             .into_iter()
             .find(|x| x.interaction.as_deref() == Some(second.as_str()))
     });
+    assert!(
+        refusal.ephemeral,
+        "the refusal is for the presser alone: {refusal:?}"
+    );
     let said = refusal.content.unwrap_or_default();
     assert!(said.contains("being kept right now"), "{said}");
     assert!(
@@ -613,7 +617,7 @@ fn a_slow_vault_does_not_make_the_form_miss_the_services_three_seconds() {
     });
     let said = done.content.unwrap_or_default();
     assert!(said.starts_with("✅ Kept in the vault"), "{said}");
-    assert!(done.ephemeral || !said.is_empty());
+    assert!(done.ephemeral, "the completion is private: {done:?}");
     assert_eq!(
         common::vault::stored(r.vault.path())
             .as_deref()

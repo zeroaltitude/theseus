@@ -84,23 +84,22 @@ async fn the_owners_press_wakes_the_message_and_the_card_becomes_the_answer() {
     r.until("the card", || r.posted(ANA_DM).iter().any(is_card))
         .await;
     let card = r.posted(ANA_DM).into_iter().find(is_card).unwrap();
-    r.press(&card.id, "security fix", (ANA, "ana"));
+    let pressed = r.press(&card.id, "security fix", (ANA, "ana"));
     let got = tokio::time::timeout(Duration::from_secs(10), rx)
         .await
         .expect("answered")
         .unwrap();
     assert_eq!(got.choice, Choice::Thread("security-fix".into()));
     assert_eq!(got.who.label, "discord:ana");
-    // The card becomes the answer: acknowledged at once (a deferred update), then edited.
+    // The card becomes the answer: acknowledged at once (a deferred update of the card), then the card is edited.
     r.until("the card settled", || {
-        r.fake.replies().iter().any(|a| {
-            a.kind == "original"
-                && a.content
-                    .as_deref()
-                    .is_some_and(|c| c.starts_with("\u{2705}"))
-        })
+        r.fake
+            .all_messages()
+            .iter()
+            .any(|m| m.id == card.id && m.content.starts_with("\u{2705}"))
     })
     .await;
+    super::acks::assert_card_updated_for_everyone(&r, &pressed, &card.id, "\u{2705}");
 }
 
 /// A pick on the card's `other` select answers the ask as a button's press does
@@ -157,7 +156,8 @@ async fn the_others_select_answers_like_a_press() {
     r.until("the card", || r.posted(ANA_DM).iter().any(is_card))
         .await;
     let card = r.posted(ANA_DM).into_iter().find(is_card).unwrap();
-    r.fake
+    let pressed = r
+        .fake
         .press_values(
             &theseus_sim::fake_discord::Pressed {
                 message: &card.id,
@@ -175,12 +175,11 @@ async fn the_others_select_answers_like_a_press() {
     assert_eq!(got.choice, Choice::Thread("t-two".into()));
     assert_eq!(got.who.label, "discord:ana");
     r.until("the card settled", || {
-        r.fake.replies().iter().any(|a| {
-            a.kind == "original"
-                && a.content
-                    .as_deref()
-                    .is_some_and(|c| c.starts_with("\u{2705}"))
-        })
+        r.fake
+            .all_messages()
+            .iter()
+            .any(|m| m.id == card.id && m.content.starts_with("\u{2705}"))
     })
     .await;
+    super::acks::assert_card_updated_for_everyone(&r, &pressed, &card.id, "\u{2705}");
 }

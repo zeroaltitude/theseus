@@ -400,17 +400,15 @@ async fn an_expired_card_offers_ask_again_and_the_owners_press_asks_it() {
         "nothing is asked before a press"
     );
 
-    r.press(&card.id, "Ask again", (ANA, "ana"));
+    let pressed = r.press(&card.id, "Ask again", (ANA, "ana"));
     r.until("the press answers by clearing the button", || {
-        // Acknowledged at once (a deferred update), then the card is edited.
-        r.fake.replies().iter().any(|p| {
-            p.kind == "original"
-                && p.content
-                    .as_deref()
-                    .is_some_and(|c| c.contains("asked again"))
-        })
+        r.fake
+            .all_messages()
+            .iter()
+            .any(|m| m.id == card.id && m.content.contains("asked again") && m.buttons.is_empty())
     })
     .await;
+    super::acks::assert_card_updated_for_everyone(&r, &pressed, &card.id, "asked again");
     // The wake is due now, so the driver may already have taken it from the
     // execution's pending list: the ledger's row of its being set is the record
     // that stays.

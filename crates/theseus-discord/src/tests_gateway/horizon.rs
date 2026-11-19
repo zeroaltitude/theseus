@@ -442,20 +442,20 @@ async fn a_routines_failure_posts_with_buttons_once_a_day_and_the_buttons_act() 
     let posts = r.posted(ANA_DM).into_iter().filter(is_it).count();
     assert_eq!(posts, 1, "once a day: {:#?}", r.posted(ANA_DM));
     // Pause on the post: the routine is held and the post becomes the answer.
-    r.press(&post.id, "⏸ Pause", (ANA, "ana"));
+    let pressed = r.press(&post.id, "⏸ Pause", (ANA, "ana"));
     r.until("the routine paused by the press", || {
         now(&r).iter().any(|x| x.id == made.id && x.paused)
     })
     .await;
     r.until("the post settled", || {
-        r.fake.replies().iter().any(|x| {
-            x.kind == "original"
-                && x.content.as_deref().is_some_and(|c| {
-                    c.contains("⚠️ Alert · Morning digest") && c.ends_with("⏸ Paused")
-                })
+        r.fake.all_messages().iter().any(|m| {
+            m.id == post.id
+                && m.content.contains("⚠️ Alert · Morning digest")
+                && m.content.ends_with("⏸ Paused")
         })
     })
     .await;
+    super::acks::assert_card_updated_for_everyone(&r, &pressed, &post.id, "⏸ Paused");
 }
 
 #[tokio::test(flavor = "multi_thread")]

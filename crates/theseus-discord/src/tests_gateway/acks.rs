@@ -556,3 +556,28 @@ async fn a_prompt_that_runs_from_the_form_posts_one_public_line_and_none_of_its_
         "the arguments are in neither line"
     );
 }
+
+/// The press was acknowledged as a deferred UPDATE of the card (callback type 6: the card itself is updated for
+/// everyone), and the card message the person pressed now says `said` with its buttons gone.
+pub(super) fn assert_card_updated_for_everyone(
+    r: &super::Rig,
+    pressed: &str,
+    card: &str,
+    said: &str,
+) {
+    let ack = r
+        .fake
+        .replies()
+        .into_iter()
+        .find(|x| x.interaction.as_deref() == Some(pressed) && x.kind == "callback")
+        .expect("the press was acknowledged");
+    assert_eq!(ack.response_type, Some(6), "{ack:?}");
+    let m = r
+        .fake
+        .all_messages()
+        .into_iter()
+        .find(|m| m.id == card)
+        .expect("the card");
+    assert!(m.content.contains(said), "the card itself says it: {m:?}");
+    assert!(m.buttons.is_empty(), "its buttons went: {m:?}");
+}
