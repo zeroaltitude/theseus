@@ -56,6 +56,9 @@ impl Core {
             .iter()
             .filter(|t| !t.state.is_terminal())
             .count() as u32;
+        // The agents the stop named were cancelled with the rest: name only one still working.
+        result.agents_running =
+            crate::profile_tool::run::agents_working(&self.kernel, &self.store, id);
         self.session_rec(&e.session_id)
             .record(&fact::driver::ExecutionStoppedAll {
                 execution: &e,

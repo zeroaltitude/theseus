@@ -115,9 +115,15 @@ fn text<'a>(input: &'a Value, k: &str) -> Option<&'a str> {
     input.get(k).and_then(Value::as_str)
 }
 
-/// The words of a piece of work or a brief on a card: its lines as one, as much as a card allows.
+/// The words of a piece of work or a brief on a card: its lines as one, with no control character, as
+/// much as a card allows.
 fn work_words(w: &str) -> String {
-    short(&w.split_whitespace().collect::<Vec<_>>().join(" "), 300)
+    let words: Vec<String> = w
+        .split_whitespace()
+        .map(|t| t.chars().filter(|c| !c.is_control()).collect())
+        .filter(|t: &String| !t.is_empty())
+        .collect();
+    short(&words.join(" "), 300)
 }
 
 /// The verb and its object for a call.
