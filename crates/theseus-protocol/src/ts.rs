@@ -199,7 +199,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         NodeListParams, NodeListResult, NodeReachParams, ReachCompilation, ReachExposure,
         ReachDescendant, ReachTotals, NodeReachResult, CompilationListParams, CompilationInfo,
         CompilationListResult, CatalogModel, CatalogListResult, ConfirmRequest, plain::PlainWords, BudgetAsk,
-        ConfirmListResult, ActionConfirmParams, ActionConfirmResult, ToolInfo, ToolListResult, defer::DeferListResult, defer::DeferPlace, defer::DeferFamily, defer::DeferHealth,
+        vault_keep::VaultKeepAnswerParams, vault_keep::VaultKeepParams, vault_keep::VaultKept, ConfirmListResult, ActionConfirmParams, ActionConfirmResult, ToolInfo, ToolListResult, defer::DeferListResult, defer::DeferPlace, defer::DeferFamily, defer::DeferHealth,
         ProviderErrorData, TurnStarted, TurnFailed, LoopStarted, ModelDelta, LoopEnded,
         NarrativePart, NarrativeLine, NarrativeWatchResult, narrative_watch::NarrativeWatchParams, ToolProposed, ContextFileRef,
         CacheSummary, StubbedFile, EstimateSummary, CensusSummary, ContextCompiled, Situation, ToolStarted, ToolEnded, ToolDiff, ConfirmPreview,

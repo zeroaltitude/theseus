@@ -63,3 +63,19 @@ export const isSettingsChange = (c: ConfirmRequest): boolean => c.tool === 'conf
  *  long for the card. The daemon says so in the question's own arguments. */
 export const hasWholeText = (c: ConfirmRequest): boolean =>
   isSettingsChange(c) && (c.input as { whole?: unknown } | null)?.whole === true
+
+/** A secret to keep (`vault.keep`, issue 26): a settings card whose arguments carry the target, which takes the secret's
+ *  value in a field of its own (`vault.keep.answer`) and not a yes: a yes carries no value, and the daemon refuses it. */
+export const isKeep = (c: ConfirmRequest): boolean =>
+  isSettingsChange(c) && typeof (c.input as { keep?: unknown } | null)?.keep === 'object' && (c.input as { keep?: unknown }).keep !== null
+
+/** Whether the keep card asks for a code with the value: a replace always does, a new item when no window covers it. */
+export const keepNeedsCode = (c: ConfirmRequest): boolean => Boolean(c.needs_fresh_proof) || needsCode(c)
+
+/** The `vault.keep.answer` params: the question, the value the owner typed into the card's own field, and the code
+ *  when one is needed. The value goes to the daemon in this one request and nowhere else. */
+export function keepParams(c: ConfirmRequest, value: string, code = ''): Record<string, unknown> {
+  const out: Record<string, unknown> = { question_id: c.correlation_id, value }
+  if (keepNeedsCode(c) && code.trim()) out.code = code.trim()
+  return out
+}
