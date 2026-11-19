@@ -579,6 +579,16 @@ impl Renderer {
                     });
                 }
                 self.update_tool(turn_id, use_id, |l| l.end(t));
+                // Another profile's answer is shown when its call settles (issue 28), as it
+                // happened: after the words and the call's line before it, before the words the
+                // turn writes after it. The turn's post (`subagent:<call>:...`, the same keys)
+                // comes at its end and finds these messages.
+                if let Some(a) = &t.subagent {
+                    ops.extend(self.tick());
+                    for (key, content) in subagent_parts(a) {
+                        ops.push(self.upsert(&key, content, Buttons::Keep));
+                    }
+                }
                 ops
             }
             // A notified call's score (M5 step 24): its tool line gains it,

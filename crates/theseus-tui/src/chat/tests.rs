@@ -579,6 +579,10 @@ async fn a_subagents_answer_is_a_message_with_its_own_footer() {
     r.shows("Hello from the other model.").await;
     let text = r.text();
     assert!(
+        text.contains("🛰️ Hello from the other model."),
+        "the icon before the first word: {text}"
+    );
+    assert!(
         text.contains(
             "haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s"
         ),

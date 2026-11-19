@@ -5,10 +5,19 @@
 import type { SubagentAnswer } from '@protocol'
 import { usd } from './figures.ts'
 
+/** The icon a subagent's message opens with, before its first word: theseus-protocol's `SUBAGENT_ICON` (a test there
+ *  holds the two together). */
+export const SUBAGENT_ICON = '🛰️'
+
 /** The answer a tool-result node's detail holds (`meta.subagent`), when it holds one. */
 export function subagentOf(detail: unknown): SubagentAnswer | null {
   const a = (detail as { meta?: { subagent?: SubagentAnswer } } | null | undefined)?.meta?.subagent
   return a && typeof a.text === 'string' && a.text.trim() !== '' ? a : null
+}
+
+/** Its words as the message opens: the icon, then the first word (`SubagentAnswer::opening`). */
+export function subagentOpening(a: SubagentAnswer): string {
+  return `${SUBAGENT_ICON} ${a.text.trim()}`
 }
 
 /** The footer's bits, in a reply's order. */

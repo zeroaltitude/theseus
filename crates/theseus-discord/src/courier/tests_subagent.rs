@@ -48,7 +48,10 @@ async fn a_subagents_answer_is_its_own_message_before_the_reply() {
     assert!(lane.deliver_posts().await);
     let all = fake.messages(CHANNEL);
     assert_eq!(all.len(), 2, "{all:#?}");
-    assert!(all[0].content.starts_with(WORDS), "{all:#?}");
+    assert!(
+        all[0].content.starts_with(&format!("🛰️ {WORDS}")),
+        "{all:#?}"
+    );
     assert!(
         all[0].content.contains(
             "-# haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s"

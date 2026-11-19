@@ -315,13 +315,13 @@ fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> Str
             crate::provider::cap_phrase(p.request.max_tokens)
         ));
     }
-    // The post is made when the turn ends, so the result says what will be shown, and nothing
-    // when there are no words to show.
+    // Where the owner sees it is not the model's to say: it is shown as a message of its own, and
+    // nothing of the kind is said when the profile had no words to show.
     let shown = match text.is_empty() {
         true => String::new(),
         false => format!(
-            " Theseus shows it to the owner as {profile}'s own message when this turn ends, its model \
-             ({}) named, so your reply need not repeat the words.",
+            " Theseus shows it to the owner as {profile}'s own message, its model ({}) named, so \
+             your reply need not repeat the words.",
             resp.model
         ),
     };

@@ -2387,6 +2387,8 @@ mod tests_self_note;
 #[cfg(test)]
 mod tests_subagent;
 #[cfg(test)]
+mod tests_subagent_order;
+#[cfg(test)]
 mod tests_v2;
 
 #[cfg(test)]

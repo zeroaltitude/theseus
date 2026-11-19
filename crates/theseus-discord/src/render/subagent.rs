@@ -13,7 +13,7 @@ use super::{split_text, DISCORD_LIMIT, PART_LIMIT};
 /// the last part when it fits, else standing alone.
 pub fn subagent_parts(a: &SubagentAnswer) -> Vec<(String, String)> {
     let key = format!("subagent:{}", a.call);
-    let mut out: Vec<(String, String)> = split_text(a.text.trim(), PART_LIMIT)
+    let mut out: Vec<(String, String)> = split_text(&a.opening(), PART_LIMIT)
         .into_iter()
         .enumerate()
         .map(|(i, part)| (format!("{key}:p{i}"), part))
@@ -57,7 +57,7 @@ mod tests {
         assert_eq!(parts[0].0, "subagent:act_1:p0");
         assert_eq!(
             parts[0].1,
-            "Hello.\n-# haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s"
+            "🛰️ Hello.\n-# haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s"
         );
     }
 
