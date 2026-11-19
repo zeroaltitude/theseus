@@ -53,6 +53,10 @@ pub(super) fn failure(e: anyhow::Error) -> RpcFailure {
     }
 }
 
+/// What `Core::projects_upto` reads: the projects, each with the session its next milestone was written
+/// in, and how many older open ones were left unread.
+pub type ProjectsRead = (Vec<(ProjectInfo, Option<String>)>, usize);
+
 impl Core {
     /// The projects' methods, by name.
     pub(super) fn rpc_projects(
@@ -221,10 +225,7 @@ impl Core {
     /// (a milestone's words are that conversation's, a project's own title the owner's). The records
     /// are decoded once, as `project.list` does; what is limited is the building of each project's
     /// progress, which walks the records again for every project.
-    pub fn projects_upto(
-        &self,
-        limit: usize,
-    ) -> Result<(Vec<(ProjectInfo, Option<String>)>, usize), RpcFailure> {
+    pub fn projects_upto(&self, limit: usize) -> Result<ProjectsRead, RpcFailure> {
         let tasks = crate::task_graph::all(&self.store)?;
         let open: Vec<&TaskRecord> = tasks
             .iter()
