@@ -145,7 +145,10 @@ impl FakeDiscord {
                     .find(|m| m.id == id)
                     .ok_or_else(|| format!("no message {id}"))?;
                 let mut j = super::message_json(m);
-                j["components"] = m.components_json.clone();
+                j["components"] = match m.components_json.is_null() {
+                    true => json!([]),
+                    false => m.components_json.clone(),
+                };
                 j
             }
         };
@@ -308,7 +311,10 @@ impl FakeDiscord {
                 let m = st.messages.iter().find(|m| m.id == id);
                 let m = m.ok_or_else(|| format!("no message {id}"))?;
                 let mut j = super::message_json(m);
-                j["components"] = m.components_json.clone();
+                j["components"] = match m.components_json.is_null() {
+                    true => json!([]),
+                    false => m.components_json.clone(),
+                };
                 Some(j)
             }
         };
