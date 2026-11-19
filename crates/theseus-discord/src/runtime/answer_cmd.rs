@@ -205,6 +205,16 @@ impl Shared {
                 .confirms
                 .into_iter()
                 .filter(|c| c.may_answer.unwrap_or(false))
+                .map(|mut c| {
+                    // A secret to keep, in the owner's direct messages: this view draws the form's words
+                    // and button as the card does (issue 29).
+                    super::keep_form::offer(
+                        &mut c,
+                        i.guild_id.is_none(),
+                        self.core.cfg.vault.keep_by_discord,
+                    );
+                    c
+                })
                 .collect(),
             Err(e) => {
                 self.board.error("confirm.list", None, e);

@@ -293,7 +293,7 @@ fn interaction(kind: u8, guild: Option<&str>, channel: u64, user: u64, data: Val
         "id": "1000000000000000011", "application_id": "1000000000000000002", "type": kind,
         "token": "not-a-token", "version": 1, "authorizing_integration_owners": {},
         "channel": {"id": channel.to_string(), "type": if guild.is_some() { 0 } else { 1 }},
-        "user": {"id": user.to_string(), "username": if user == OWNER { "zeroaltitude" } else { "mallory" },
+        "user": {"id": user.to_string(), "username": if user == OWNER { "dockhand" } else { "mallory" },
                  "discriminator": "0", "avatar": null},
         "data": data,
     });
@@ -580,7 +580,7 @@ async fn a_submit_is_one_request_and_the_value_is_nowhere_else() {
     assert_eq!(p["question_id"], "act_0000feed");
     assert_eq!(p["value"], VALUE);
     assert_eq!(p["code"], "123456");
-    assert_eq!(p["author"], "discord:zeroaltitude");
+    assert_eq!(p["author"], "discord:dockhand");
     assert_eq!(p["discord"]["user_id"], OWNER.to_string());
     assert_eq!(p["discord"]["channel_id"], DM.to_string());
     assert!(p["discord"]["guild_id"].is_null(), "a direct message: {p}");
@@ -669,6 +669,106 @@ fn a_turns_own_words_do_not_make_a_form() {
         2,
         "a form button exists only where this module draws one"
     );
+}
+
+/// The form's description says "replaces" for a card that replaces a stored value, inside Discord's 100
+/// characters, and clips the vault's name before it clips those words.
+#[test]
+fn the_forms_description_says_replaces_and_clips_the_vault_before_the_word() {
+    let mut t = target("Lantern key", "credential");
+    t.state = State::Replaces;
+    let m = modal("act_0000feed", &t.args(), false);
+    let said = m["data"]["components"][0]["description"].as_str().unwrap();
+    assert_eq!(
+        said,
+        "Replaces the value in vault Harbor. Goes through Discord, and is shown as you type."
+    );
+    // A long vault name is clipped; the words around it are not.
+    t.vault = "v".repeat(64);
+    let m = modal("act_0000feed", &t.args(), true);
+    let said = m["data"]["components"][1]["description"].as_str().unwrap();
+    assert!(said.chars().count() <= 100, "{said}");
+    assert!(said.starts_with("Replaces the value in vault v"), "{said}");
+    assert!(
+        said.contains('…') && said.ends_with("Goes through Discord, and is shown as you type."),
+        "{said}"
+    );
+    // A new item says what it always said.
+    let new = modal(
+        "act_0000feed",
+        &target("Lantern new", "credential").args(),
+        false,
+    );
+    assert_eq!(
+        new["data"]["components"][0]["description"],
+        "In the vault Harbor. Goes through Discord, and is shown as you type."
+    );
+}
+
+/// A value the daemon would refuse is refused by the form in the daemon's words, before anything is sent:
+/// the form counts characters and the daemon bytes, so a long run of multi-byte characters passes the
+/// form's own limit; and a blank one. Nothing reaches the daemon, and the refusal holds no value.
+#[tokio::test]
+async fn a_value_the_daemon_would_refuse_is_refused_by_the_form_before_it_is_sent() {
+    let (shared, fake, _d, _rx) = rig(true);
+    let before = crate::rpc_client::keep_lines().len();
+    let long = "é".repeat(2100); // 2,100 characters, 4,200 bytes
+    for value in [long.as_str(), "   "] {
+        shared
+            .clone()
+            .on_interaction(submitted(
+                None,
+                DM,
+                OWNER,
+                "kf:act_0000feed",
+                &[("value", value)],
+            ))
+            .await;
+    }
+    assert_eq!(
+        crate::rpc_client::keep_lines().len(),
+        before,
+        "nothing was sent"
+    );
+    let told: Vec<String> = fake
+        .replies()
+        .into_iter()
+        .filter_map(|r| r.content)
+        .collect();
+    assert_eq!(told.len(), 2, "{told:?}");
+    assert!(
+        told[0].contains("at most 4096 bytes") && told[0].starts_with("🔐 Nothing was kept"),
+        "{}",
+        told[0]
+    );
+    assert!(told[1].contains("no value was given"), "{}", told[1]);
+    assert!(told.iter().all(|t| !t.contains("é")));
+}
+
+/// `/answer` in the owner's direct messages draws the form's words and its button as the card does; in a
+/// channel, or with the setting off, it draws what it drew. (The Details press has no keep card to explain:
+/// a keep card is drawn with Decline and the form's button alone, never a Details button, see the first
+/// test.)
+#[test]
+fn the_answer_view_draws_the_form_where_the_card_does() {
+    let t = target("Lantern new", "credential");
+    let mut req = keep_card(&t);
+    req.may_answer = Some(true);
+    let as_was = req.clone();
+    assert!(offer(&mut req, true, true));
+    let view = crate::runtime::answer_cmd::view_of(&req);
+    let ids = crate::render::v2::custom_ids(&view);
+    assert!(ids.iter().any(|i| i.ends_with(":keep_form")), "{ids:?}");
+    assert!(ids.iter().any(|i| i.ends_with(":decline")), "{ids:?}");
+    let said = crate::render::v2::texts(&view).join("\n");
+    assert!(said.contains("Discord's servers"), "{said}");
+    // Not offered: the view is what it was.
+    let view = crate::runtime::answer_cmd::view_of(&as_was);
+    let ids = crate::render::v2::custom_ids(&view);
+    assert!(!ids.iter().any(|i| i.ends_with(":keep_form")), "{ids:?}");
+    assert!(!crate::render::v2::texts(&view)
+        .join("\n")
+        .contains("Discord's servers"));
 }
 
 /// A tiny capture of everything logged, at trace level, for the test that plants a value.

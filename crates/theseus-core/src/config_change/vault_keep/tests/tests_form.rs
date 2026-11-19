@@ -38,7 +38,7 @@ async fn submit(
     code: Option<&str>,
     from: Value,
 ) -> Result<Value, RpcError> {
-    let mut p = json!({"question_id": q, "value": value, "author": "discord:zeroaltitude",
+    let mut p = json!({"question_id": q, "value": value, "author": "discord:dockhand",
                        "discord": from});
     if let Some(c) = code {
         p["code"] = json!(c);
@@ -300,4 +300,36 @@ async fn a_replace_by_the_form_needs_a_fresh_code_as_by_the_terminal() {
     let kept = submit(&r, &q, VALUE, Some(&code(&secret, 1)), dm()).await;
     assert!(kept.is_ok(), "{kept:?}");
     assert!(wrote(dir.path()));
+}
+
+/// A keep that arrives without the second proof (the window lapsed between the press and the submit) is
+/// told in the keep card's own words: the code is asked with the value, so ask again, by the form or the
+/// terminal. `theseus answer ... approve --code` is never offered: a keep card refuses an Approve.
+#[tokio::test]
+async fn a_missing_code_is_told_in_the_keep_cards_own_words() {
+    let (r, dir) = rig_form(true);
+    let _secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    let by_form = submit(&r, &q, VALUE, None, dm()).await.unwrap_err();
+    let said = format!("{by_form:?}");
+    assert!(
+        said.contains("press \\\"Type the value here\\\" again"),
+        "{said}"
+    );
+    assert!(said.contains("theseus vault keep"), "{said}");
+    assert!(
+        !said.contains("theseus answer") && !said.contains("approve"),
+        "{said}"
+    );
+    assert!(!said.contains(VALUE));
+    // From the terminal there is no form to press again.
+    let by_terminal = give(&r, cli(), &q, VALUE, None).await.unwrap_err();
+    let said = format!("{by_terminal:?}");
+    assert!(
+        said.contains("run `theseus vault keep`") && !said.contains("press"),
+        "{said}"
+    );
+    assert!(!said.contains("theseus answer"), "{said}");
+    assert!(!wrote(dir.path()));
+    assert!(waiting(&r, &q));
 }

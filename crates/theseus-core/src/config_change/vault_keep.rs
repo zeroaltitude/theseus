@@ -95,6 +95,20 @@ pub fn with_form(words: &str) -> Option<String> {
         .map(|rest| format!("{HEAD_FORM}{rest}"))
 }
 
+/// What a keep that arrives without the second proof is told (a window that lapsed between the press and
+/// the submit, say): the code is asked with the value, so the way is to ask again. A keep card is never
+/// approved, so `theseus answer ... approve --code` is not offered. `by_form` is whether the form is a way
+/// from where it was given.
+pub fn proof_missing_words(by_form: bool) -> String {
+    let how = match by_form {
+        true => "press \"Type the value here\" again and the form asks for the code, or run \
+                 `theseus vault keep` in your own terminal",
+        false => "run `theseus vault keep` in your own terminal, or use the card's field in the cockpit: \
+                  they ask for the code with the value",
+    };
+    format!("it needs your second proof, which is asked with the value: {how}. Nothing was kept")
+}
+
 /// The card, whole: what is kept where, whether it replaces, where the value is
 /// typed, and what a value typed in chat comes to.
 pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> String {

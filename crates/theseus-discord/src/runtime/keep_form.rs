@@ -164,10 +164,7 @@ pub(crate) fn modal(question: &str, keep: &Value, code_needed: bool) -> Value {
     rows.push(json!({
         "type": LABEL,
         "label": clip(&format!("Value for {title}, field {field}"), LABEL_LIMIT),
-        "description": clip(
-            &format!("In the vault {vault}. Goes through Discord, and is shown as you type."),
-            DESCRIPTION,
-        ),
+        "description": description(vault, name("state") == "replaces"),
         "component": {"type": TEXT_INPUT, "custom_id": VALUE_FIELD, "style": 1,
                       "required": true, "min_length": 1, "max_length": VALUE_MAX},
     }));
@@ -176,6 +173,19 @@ pub(crate) fn modal(question: &str, keep: &Value, code_needed: bool) -> Value {
         "title": clip("Keep a secret", LABEL_LIMIT),
         "components": rows,
     }})
+}
+
+/// The form's description, in Discord's 100 characters: the vault, that the text goes through Discord and is
+/// shown as typed and, for a card that replaces a stored value, that word first. The vault's name is what is
+/// clipped to fit, never the words that matter.
+fn description(vault: &str, replaces: bool) -> String {
+    const TAIL: &str = ". Goes through Discord, and is shown as you type.";
+    let head = match replaces {
+        true => "Replaces the value in vault ",
+        false => "In the vault ",
+    };
+    let room = DESCRIPTION - head.chars().count() - TAIL.chars().count();
+    format!("{head}{}{TAIL}", clip(vault, room))
 }
 
 impl Shared {
@@ -263,9 +273,21 @@ impl Shared {
             return self.tell(i, format!("🔐 {GONE}")).await;
         };
         let code = field_of(m, CODE_FIELD);
+        let value = SecretText::new(field_of(m, VALUE_FIELD));
+        // What the daemon would refuse, refused here in its words before anything is sent: the form's own
+        // limit counts characters, the daemon's counts bytes.
+        if let Err(why) = theseus_core::config_change::vault_keep::done::checked(value.expose()) {
+            self.core.binding_ledger(
+                LedgerKind::DiscordConfirm,
+                None,
+                json!({"correlation_id": question, "option": OPTION, "by": who, "ok": false,
+                       "modal": true, "keep": true, "refused": "value", "error": why}),
+            );
+            return self.tell(i, format!("🔐 Nothing was kept: {why}")).await;
+        }
         let params = VaultKeepAnswerParams {
             question_id: question.to_string(),
-            value: SecretText::new(field_of(m, VALUE_FIELD)),
+            value,
             code: Some(code.trim())
                 .filter(|c| !c.is_empty())
                 .map(ProofCode::new),

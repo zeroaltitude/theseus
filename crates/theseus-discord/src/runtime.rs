@@ -253,6 +253,22 @@ pub async fn run(core: Arc<Core>, cfg: DiscordConfig, path: PathBuf) {
     }
 }
 
+/// What a failed gateway read is recorded as: its kind in fixed words, never the event. The library's
+/// own text for a deserializing failure is `event=<the whole raw JSON>`, and its source's message (serde's)
+/// can quote a fragment of it; an interaction event can carry a typed secret (the keep form's value), and
+/// this text goes to a log line, a durable `discord.error` row and health's `last_error`. So nothing derived
+/// from the payload is recorded: not a fragment, not its length.
+pub(crate) fn receive_words(e: &twilight_gateway::error::ReceiveMessageError) -> &'static str {
+    use twilight_gateway::error::ReceiveMessageErrorType as Kind;
+    match e.kind() {
+        Kind::Deserializing { .. } => {
+            "a gateway event could not be read (its content is not recorded)"
+        }
+        Kind::Reconnect => "failed to reconnect to the gateway",
+        _ => "the gateway could not be read (the reason is not recorded)",
+    }
+}
+
 /// The bot token, once the vault gives it. Fail closed: the binding never
 /// connects without it. While it resolves the binding is `waiting`; if it
 /// fails, the binding is `failed` with the reason, and connects when a retry
@@ -511,7 +527,7 @@ async fn event_loop(
         let event = match item {
             Ok(e) => e,
             Err(e) => {
-                board.error("gateway receive", None, &e);
+                board.error("gateway receive", None, receive_words(&e));
                 continue;
             }
         };

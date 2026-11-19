@@ -101,6 +101,14 @@ impl Core {
                 }
                 return Ok(footing);
             }
+            // A secret to keep is not approved (a yes carries no value): the code is asked with the
+            // value, by the form or the terminal.
+            Proof::Missing if crate::config_change::vault_keep::is_keep(a) => {
+                crate::config_change::vault_keep::proof_missing_words(
+                    who.surface == crate::approval::Surface::Discord
+                        && self.cfg.vault.keep_by_discord,
+                )
+            }
             Proof::Missing => format!(
                 "it needs your second proof: type the code your authenticator app shows into \
                  the card's form, or answer with `theseus answer {} approve --code <the six \
