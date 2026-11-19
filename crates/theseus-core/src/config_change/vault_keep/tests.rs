@@ -905,6 +905,12 @@ async fn a_card_asked_in_a_direct_message_is_in_the_terminals_list() {
     let (r, _dir) = rig_vault("ok");
     let sid = r.session();
     r.core.outbox.bind_place("dm:42", &sid).unwrap();
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:42".into(),
+        name: "DM @owner".into(),
+        private: true,
+        ..Default::default()
+    }]);
     r.turn_with("vault_keep", &sid, input("Lantern new", "credential"))
         .await;
     let (status, text) = r.result(&sid);
