@@ -2,6 +2,7 @@
 import type { CancelVerdict } from "./CancelVerdict";
 import type { ExecutionInfo } from "./ExecutionInfo";
 import type { JobKept } from "./JobKept";
+import type { StopAgent } from "./StopAgent";
 
 export type ExecutionStopResult = { execution: ExecutionInfo, 
 /**
@@ -32,6 +33,11 @@ turn_running: boolean,
  * running tasks and its pending wakes.
  */
 tasks_running: number, wakes_pending: number, 
+/**
+ * Of those tasks, the ones a turn handed to a model profile (`profile.run`): an agent that is
+ * still working, each stopped by its own cancel.
+ */
+agents_running?: Array<StopAgent>, 
 /**
  * With `tasks`: the tasks cancelled, depth first (theseus-cdcwr).
  */
