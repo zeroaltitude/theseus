@@ -172,7 +172,8 @@ impl Core {
         conn: &Conn<'_>,
     ) -> Result<VaultKept, Stop> {
         // The presser a form's submit names, as the Discord binding read it off the press: judged
-        // below as every press is. Any other surface that names one is refused by `judge_act`.
+        // below as every press is. Another surface's named author is not taken (`vouched_author`),
+        // and a Discord place it names is refused by `judge_act`.
         let who = conn.answerer(conn.vouched_author(p.author.as_deref()), p.discord.clone());
         if let Some(job) = p.from_job.as_deref() {
             return Err(stop("job")(refused(format!(

@@ -153,8 +153,8 @@ Replace an item the settings read (refused). Overwrite another item (shown on th
 - **Who a row names.** A keep's rows (the outcomes and the stopped attempts) label who answered from the daemon's own judgement of the
   connection: the Discord binding names the person it read off the press, and on the terminal and the web UI the label is the surface's
   (`the CLI`, `the web UI`), whatever author the request names, because any process of the owner's own user can send a request and name
-  anyone there (`rpc::vault_keep::author_of`). `via` says where it came from. The rows of the other answer methods still take the
-  request's author, as they did.
+  anyone there (`rpc::server::Conn::vouched_author`). `via` says where it came from. `work.answer` and `action.confirm` take the
+  request's author by the same rule; the label is never what judges the answer.
 - **The service's three seconds.** The submit is acknowledged at once (a deferred, ephemeral response with nothing in it) and that
   response is completed with the daemon's words when the vault's program is done, so a slow vault no longer shows the owner "Something
   went wrong" for a value that was kept; a second submit for the card while one is with the daemon is refused in true words; see
