@@ -200,18 +200,26 @@ impl Core {
     fn why_none(&self, question: Option<&str>) -> (&'static str, String) {
         let kept = of_kind(&self.store, LedgerKind::VaultKeep);
         let declined = of_kind(&self.store, LedgerKind::ConfigDeclined);
+        // A card is asked by the question's own row (`tool.confirm_requested`), which holds the
+        // target by name under `keep`.
+        let requested = of_kind(&self.store, LedgerKind::ToolConfirmRequested);
         let names = |d: &Value| {
+            let k = &d["input"]["keep"];
             format!(
                 "the vault \"{}\", item \"{}\", field \"{}\"",
-                d["vault"].as_str().unwrap_or("?"),
-                d["title"].as_str().unwrap_or("?"),
-                d["field"].as_str().unwrap_or("?")
+                k["vault"].as_str().unwrap_or("?"),
+                k["title"].as_str().unwrap_or("?"),
+                k["field"].as_str().unwrap_or("?")
             )
         };
-        let asked = kept.iter().rev().find(|r| {
-            r.data["outcome"] == "asked"
-                && question
-                    .is_none_or(|q| r.data["question"].as_str().is_some_and(|c| c.ends_with(q)))
+        let asked = requested.iter().rev().find(|r| {
+            r.data["tool"] == crate::config_change::ACK
+                && r.data["input"]["keep"].is_object()
+                && question.is_none_or(|q| {
+                    r.data["correlation_id"]
+                        .as_str()
+                        .is_some_and(|c| c.ends_with(q))
+                })
         });
         let Some(asked) = asked else {
             return match question {

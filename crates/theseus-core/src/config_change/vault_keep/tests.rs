@@ -448,7 +448,10 @@ async fn a_replace_says_so_and_needs_a_fresh_code_every_time() {
         "{lines:?}"
     );
     assert!(lines.iter().any(|l| l == "read --no-newline op://vaultid00000000000000000001/itemid00000000000000000001/credential"), "{lines:?}");
-    assert_eq!(r.rows("vault.keep")[0]["state"], "replaces");
+    // The attempts that stopped before this one left rows of their own; the keep is the last.
+    let rows = r.rows("vault.keep");
+    assert_eq!(rows.last().unwrap()["outcome"], "kept", "{rows:?}");
+    assert_eq!(rows.last().unwrap()["state"], "replaces");
 }
 
 /// An item Theseus's own settings read is never replaced by a turn: the tool
@@ -608,8 +611,7 @@ async fn the_terminal_keeps_with_no_card_and_may_replace_what_the_settings_read(
     assert_eq!(rows[0]["protected"], true);
     assert!(
         all.iter()
-            .filter(|x| x["outcome"] == "stopped")
-            .all(|x| x["why"] == "proof"),
+            .any(|x| x["outcome"] == "stopped" && x["why"] == "proof"),
         "{all:?}"
     );
     let sid = r.session();
@@ -892,7 +894,13 @@ async fn a_vault_that_does_not_answer_at_the_value_spends_no_code_and_keeps_the_
     assert_eq!(checks(&r), before, "no code was checked");
     assert!(waiting(&r, &q), "the card keeps waiting");
     assert!(!wrote(dir.path()));
-    assert!(r.rows("vault.keep").is_empty());
+    // Nothing was written, and the attempt says what stopped it: the vault did not answer.
+    let rows = r.rows("vault.keep");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0]["outcome"].as_str(), rows[0]["why"].as_str()),
+        (Some("stopped"), Some("vault"))
+    );
 }
 
 /// A second answer to a question that is being kept waits; the turn is given
