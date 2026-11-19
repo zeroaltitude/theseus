@@ -28,7 +28,7 @@ An item that a `[secrets]` entry or the settings note reads is never replaced by
 |---|---|---|
 | The owner's terminal | `theseus vault keep` (the card waiting, or `<id>`): a hidden prompt, echo off for the read and restored on drop; a pipe, a capture, a redirected standard error and a Theseus job's shell are refused, by the daemon, in words | the daemon's own socket (mode 0600) |
 | The cockpit | a password field on the card and a "Keep it" button; cleared as it is sent | the web port, as the owner's own page |
-| Discord | **none, until the owner decides**: the card says where the value is typed, a press says it again, no form opens (`proof_form.rs`) | |
+| Discord | **none, until the owner decides**: the card says first where the value is typed and offers only Decline; no form opens (a press of Approve on a card drawn before issue 29 says where the value is typed, `proof_form.rs`) | |
 
 ## The card, the terminal and the record (issue 29)
 
@@ -46,7 +46,8 @@ daemon's requests one at a time and never the program. What was built after it:
 - **The program says nothing that sounds like a result before the daemon does.** It prints the daemon's heading ("To keep a new item ...:
   type its value."), asks, and ends with one plain line: kept and where, or not kept and why, with the exit status to match. What is
   already waiting on the terminal's input is thrown away before each prompt (`tcflush`), and an empty line asks once more.
-- **Every run that reaches the daemon writes a `vault.keep` row**: `asked` (a card was put), `listed` (what the terminal was told, and its
+- **Every run that reaches the daemon writes a `vault.keep` row** (a card that was put is the question's own `tool.confirm_requested`
+  row, which names its target under `keep`): `listed` (what the terminal was told, and its
   class: `none_asked`, `declined`, `expired`, `blocked`, `one`, ...), `stopped` (a value was given and something refused it before the
   vault was asked to write: `blank`, `proof`, `no_authenticator`, `place`, `agent`, `job`, `not_writable`, `vault`, ...), `client_ended`
   (the terminal ended before sending a value: `no_value`, `end_of_input`, `unreadable`, `no_echo`), then the outcomes of a write. Each
