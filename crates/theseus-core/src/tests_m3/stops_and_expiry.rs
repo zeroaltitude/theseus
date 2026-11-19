@@ -120,23 +120,12 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     assert_ne!(b3.stop_reason, "stopped");
 }
 
-/// A `/stop` that lands while an input's turn still waits for its secrets,
-/// before it has reached `admit()`, reaches that turn as well: the answer and
-/// the kernel's row say a turn was running (the turn stops itself on the
-/// stop's notice when it is admitted, and plans nothing). The turn is known
-/// from the start of its run, not from its admission.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_stop_while_an_inputs_turn_waits_for_its_secrets_counts_that_turn() {
-    use crate::secrets::{Secret, SecretBoard};
+/// A session with an execution of its own, as one that has had a turn, and
+/// the request of an input for it.
+fn input_for_a_session_with_an_execution(
+    r: &Rig,
+) -> (SessionRecord, theseus_kernel::Execution, TurnRequest) {
     use theseus_kernel::Authority;
-    let key = "anthropic_api_key".to_string();
-    let board = SecretBoard::new([key.clone()], std::time::Instant::now());
-    let held_board = board.clone();
-    let r = rig_parts(
-        vec![Scripted::text("never sent")],
-        |_| {},
-        move |p| p.secrets = board,
-    );
     // A session with an execution of its own, as one that has had a turn.
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     let exec = r
@@ -174,6 +163,26 @@ async fn a_stop_while_an_inputs_turn_waits_for_its_secrets_counts_that_turn() {
         reply_to: None,
         answer_at: None,
     };
+    (rec, exec, req)
+}
+
+/// A `/stop` that lands while an input's turn still waits for its secrets,
+/// before it has reached `admit()`, reaches that turn as well: the answer and
+/// the kernel's row say a turn was running (the turn stops itself on the
+/// stop's notice when it is admitted, and plans nothing). The turn is known
+/// from the start of its run, not from its admission.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_while_an_inputs_turn_waits_for_its_secrets_counts_that_turn() {
+    use crate::secrets::{Secret, SecretBoard};
+    let key = "anthropic_api_key".to_string();
+    let board = SecretBoard::new([key.clone()], std::time::Instant::now());
+    let held_board = board.clone();
+    let r = rig_parts(
+        vec![Scripted::text("never sent")],
+        |_| {},
+        move |p| p.secrets = board,
+    );
+    let (rec, exec, req) = input_for_a_session_with_an_execution(&r);
     let core = r.core.clone();
     let turn = tokio::spawn(async move { core.runner.run(req).await.unwrap() });
     let t0 = std::time::Instant::now();
@@ -206,6 +215,81 @@ async fn a_stop_while_an_inputs_turn_waits_for_its_secrets_counts_that_turn() {
         .unwrap();
     assert_eq!(res.stop_reason, "stopped", "{res:?}");
     assert_eq!(r.fake.requests.lock().unwrap().len(), 0, "no model call");
+}
+
+/// A turn that a stop counted (it waited for its secrets) and that then ends
+/// for a reason of its own, before it is admitted, was not ended by the stop.
+/// The stop's answer and the kernel's row had gone, and said a turn was
+/// reached; the ledger and the session then say what in fact ended it. The
+/// window is held open by order, with no clock: the turn is polled once, so it
+/// is listed and waiting for its secret, the stop lands, and only then does
+/// the secret fail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_counted_turn_that_fails_before_admission_says_what_ended_it() {
+    use crate::secrets::SecretBoard;
+    use futures_util::FutureExt;
+    let key = "anthropic_api_key".to_string();
+    let board = SecretBoard::new([key.clone()], std::time::Instant::now());
+    let secrets = board.clone();
+    let r = rig_parts(
+        vec![Scripted::text("never sent")],
+        |_| {},
+        move |p| p.secrets = board,
+    );
+    let (rec, exec, req) = input_for_a_session_with_an_execution(&r);
+    let mut turn = r.core.runner.run(req);
+    assert!(
+        turn.as_mut().now_or_never().is_none(),
+        "it waits for its secret"
+    );
+    // The stop counts the turn: it waits listed, holding nothing.
+    let stop = r.core.stop_execution(&exec.id, "test").await.unwrap();
+    assert!(stop.stopped && stop.turn_running, "{stop:?}");
+    assert!(
+        ledgered(&r, "execution.stop_not_taken").is_empty(),
+        "not yet"
+    );
+    // Its secret is refused: the turn ends for its own reason.
+    secrets.withdraw(&key, "the vault refused it");
+    let failed = turn.await.expect_err("a refused secret fails the turn");
+    let rows = ledgered(&r, "execution.stop_not_taken");
+    assert_eq!(rows.len(), 1, "{rows:?}: {failed:#}");
+    assert_eq!(rows[0]["by"], "test");
+    assert_eq!(rows[0]["execution_id"], json!(exec.id));
+    assert!(
+        rows[0]["why"].as_str().unwrap().contains("secret_failed"),
+        "{rows:?}"
+    );
+    let lines = narrated(&r, &rec.session_id);
+    assert!(
+        said(&lines, "session", "ended before it was, for its own reason"),
+        "{}",
+        dump(&lines)
+    );
+}
+
+/// A turn no stop counted that fails before admission says nothing of a stop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_no_stop_counted_that_fails_before_admission_says_nothing_of_one() {
+    use crate::secrets::SecretBoard;
+    use futures_util::FutureExt;
+    let key = "anthropic_api_key".to_string();
+    let board = SecretBoard::new([key.clone()], std::time::Instant::now());
+    let secrets = board.clone();
+    let r = rig_parts(
+        vec![Scripted::text("never sent")],
+        |_| {},
+        move |p| p.secrets = board,
+    );
+    let (_rec, _exec, req) = input_for_a_session_with_an_execution(&r);
+    let mut turn = r.core.runner.run(req);
+    assert!(
+        turn.as_mut().now_or_never().is_none(),
+        "it waits for its secret"
+    );
+    secrets.withdraw(&key, "the vault refused it");
+    turn.await.expect_err("a refused secret fails the turn");
+    assert!(ledgered(&r, "execution.stop_not_taken").is_empty());
 }
 
 /// theseus-830, changed by theseus-v2dnc: a call's question nobody answers
