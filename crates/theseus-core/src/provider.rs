@@ -638,7 +638,7 @@ pub enum ProviderError {
     Overloaded { message: String },
     #[error("provider server error ({status}): {message}")]
     Server { status: u16, message: String },
-    #[error("authentication failed ({status}): {message}")]
+    #[error("{} ({status}): {message}", access::auth_head(.status))]
     Auth { status: u16, message: String },
     #[error("invalid request ({status}): {message}")]
     InvalidRequest { status: u16, message: String },
@@ -728,7 +728,7 @@ impl ProviderError {
     }
 
     pub fn from_status(status: u16, body: &str, headers: &reqwest::header::HeaderMap) -> Self {
-        let message = api_error_message(body);
+        let message = access::words(status, body).unwrap_or_else(|| api_error_message(body));
         match status {
             429 => ProviderError::RateLimited {
                 message,
@@ -890,6 +890,7 @@ pub type CountFuture<'a> = futures_util::future::BoxFuture<'a, Result<u64>>;
 
 // --------------------------------------------------------------- anthropic
 
+mod access;
 pub mod binding;
 mod count;
 mod digest;
