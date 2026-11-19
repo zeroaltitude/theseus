@@ -75,6 +75,13 @@ pub(crate) struct State {
 }
 
 impl State {
+    /// A restart: the pace the board was written at went with the process.
+    #[cfg(test)]
+    pub(super) fn restarted(&mut self) {
+        self.board_at = None;
+        self.board_due = None;
+    }
+
     /// The next time the lane should wake with nothing new from its place.
     pub fn due(&self) -> Option<Instant> {
         [self.board_due, self.summary_due]
@@ -274,13 +281,7 @@ impl Lane {
     /// Write the V2 board: the pinned one found after a restart, else made.
     async fn board_v2(&mut self, content: String) -> Result<bool, SendErr> {
         let channel = self.place_channel().await?;
-        if !self.msgs.contains_key(BOARD_KEY) && !self.board_sought {
-            self.board_sought = true;
-            if let Some(m) = self.find_board_v2(channel).await {
-                tracing::info!(place = %self.label, message = m, "the task board: found the pinned one, edited in place");
-                self.msgs.insert(BOARD_KEY.into(), (channel, m));
-            }
-        }
+        self.take_up_board(channel, true).await?;
         if self.v2.only_if_pinned && !self.msgs.contains_key(BOARD_KEY) {
             return Ok(false);
         }
@@ -299,6 +300,7 @@ impl Lane {
             .await?;
         if let (true, Some((c, m))) = (made, at) {
             tracing::info!(place = %self.label, message = m, "the task board: made a new one");
+            self.record_board(c, m, true);
             self.pin(c, m).await;
         }
         Ok(at.is_some())
