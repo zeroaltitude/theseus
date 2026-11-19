@@ -134,6 +134,7 @@ ledger_kinds! {
     ExecutionQueued = "execution.queued",
     ExecutionResultsConsumed = "execution.results_consumed",
     ExecutionRunning = "execution.running",
+    ExecutionStopNotTaken = "execution.stop_not_taken",
     ExecutionStopped = "execution.stopped",
     ExecutionStoppedAll = "execution.stopped_all",
     ExecutionWaiting = "execution.waiting",
