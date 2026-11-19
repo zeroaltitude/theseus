@@ -9,8 +9,12 @@ use std::fmt::Write;
 
 use theseus_protocol::{ConfirmRequest, TaskInfo};
 
+use super::owed;
 use super::reader::Reader;
-use super::{clip, TASKS_ELSEWHERE_MAX, TASKS_HERE_MAX, WAITING_ELSEWHERE_MAX, WAITING_HERE_MAX};
+use super::{
+    clip, TASKS_ELSEWHERE_MAX, TASKS_HERE_MAX, TASKS_READ_MAX, WAITING_ELSEWHERE_MAX,
+    WAITING_HERE_MAX,
+};
 
 /// The line before another conversation's words: what they are, and how to read them.
 pub(super) const OTHERS: &str =
@@ -103,41 +107,57 @@ fn left_out(out: &mut String, more: usize, what: &str) {
     }
 }
 
-/// The tasks: this conversation's first, then every other's, newest first. `here` gives this
-/// conversation's alone.
+/// The tasks: this conversation's first, then every other's, newest first; the read is limited inside the
+/// view (the newest open ones, then a count of the older). `here` gives this conversation's alone.
 pub(super) fn tasks(r: &Reader<'_>, here: bool) -> String {
-    let list = match r.core.tasks(here.then_some(r.here), None) {
-        Ok(l) => l,
-        Err(_) => return "Tasks: they could not be read just now.\n".into(),
+    let unread = || "Tasks: they could not be read just now.\n".to_string();
+    let Ok((mine, mine_older)) = r.core.tasks_upto(Some(r.here), None, TASKS_HERE_MAX) else {
+        return unread();
     };
-    let (mine, rest): (Vec<&TaskInfo>, Vec<&TaskInfo>) =
-        list.iter().partition(|t| t.parent_session_id == r.here);
-    if list.is_empty() {
+    let (rest, others) = match here {
+        true => (Vec::new(), 0),
+        false => {
+            let Ok((all, older)) = r.core.tasks_upto(None, None, TASKS_READ_MAX) else {
+                return unread();
+            };
+            let total = all.len() + older;
+            let rest: Vec<TaskInfo> = all
+                .into_iter()
+                .filter(|t| t.parent_session_id != r.here)
+                .collect();
+            let others = total.saturating_sub(mine.len() + mine_older);
+            (rest, others)
+        }
+    };
+    if mine.is_empty() && mine_older == 0 && others == 0 {
         return match here {
             true => "Tasks: this conversation has started none.\n".into(),
             false => "Tasks: none have been started.\n".into(),
         };
     }
-    let mut out = format!("Tasks ({} in all):\n", list.len());
-    if here || !mine.is_empty() {
-        let _ = writeln!(out, "Started in this conversation ({}):", mine.len());
-        for t in mine.iter().take(TASKS_HERE_MAX) {
-            out.push_str(&task_line_in(t, r));
-        }
-        left_out(&mut out, mine.len().saturating_sub(TASKS_HERE_MAX), "tasks");
-    }
-    if !rest.is_empty() {
+    let mut out = format!("Tasks ({} in all):\n", mine.len() + mine_older + others);
+    if here || !mine.is_empty() || mine_older > 0 {
         let _ = writeln!(
             out,
-            "Started in other conversations ({}), newest first. {OTHERS}:",
-            rest.len()
+            "Started in this conversation ({}):",
+            mine.len() + mine_older
+        );
+        for t in &mine {
+            out.push_str(&task_line_in(t, r));
+        }
+        left_out(&mut out, mine_older, "older tasks");
+    }
+    if others > 0 {
+        let _ = writeln!(
+            out,
+            "Started in other conversations ({others}), the newest open ones first. {OTHERS}:"
         );
         for t in rest.iter().take(TASKS_ELSEWHERE_MAX) {
             out.push_str(&task_line_in(t, r));
         }
         left_out(
             &mut out,
-            rest.len().saturating_sub(TASKS_ELSEWHERE_MAX),
+            others.saturating_sub(rest.len().min(TASKS_ELSEWHERE_MAX)),
             "tasks",
         );
     }
@@ -171,28 +191,30 @@ fn question_line_in(q: &ConfirmRequest, r: &Reader<'_>) -> String {
 /// What waits on the owner: every question and card anywhere, this place's first. They answer; this
 /// tool answers nothing. `here` gives this place's alone.
 pub(super) fn needs_you(r: &Reader<'_>, here: bool) -> String {
-    let all = match r.core.confirm_list() {
-        Ok(a) => a,
-        Err(_) => return "Waiting on the owner: it could not be read just now.\n".into(),
+    let unread = || "Waiting on the owner: it could not be read just now.\n".to_string();
+    let Ok(all) = r.core.confirm_list() else {
+        return unread();
     };
-    let ours = match crate::chat_acts::waiting_here(r.core, r.here) {
-        Ok(w) => w,
-        Err(_) => return "Waiting on the owner: it could not be read just now.\n".into(),
+    let Ok(ours) = crate::chat_acts::waiting_here(r.core, r.here) else {
+        return unread();
+    };
+    let Ok(more) = owed::owed(r, here) else {
+        return unread();
     };
     let is_here = |q: &ConfirmRequest| ours.iter().any(|o| o.correlation_id == q.correlation_id);
     let (mine, rest): (Vec<&ConfirmRequest>, Vec<&ConfirmRequest>) =
         all.iter().partition(|q| is_here(q));
     let rest = if here { Vec::new() } else { rest };
-    if mine.is_empty() && rest.is_empty() {
-        return match here {
-            true => "Waiting on the owner: nothing waits here.\n".into(),
-            false => "Waiting on the owner: nothing waits anywhere.\n".into(),
+    let waiting = mine.len() + rest.len() + more.waiting();
+    if waiting == 0 {
+        let none = match here {
+            true => "Waiting on the owner: nothing waits here.\n",
+            false => "Waiting on the owner: nothing waits anywhere.\n",
         };
+        return format!("{none}{}", owed::standing_words(more.standing));
     }
-    let mut out = format!(
-        "Waiting on the owner ({}); only they answer, this tool answers nothing:\n",
-        mine.len() + rest.len()
-    );
+    let mut out =
+        format!("Waiting on the owner ({waiting}); only they answer, this tool answers nothing:\n");
     if !mine.is_empty() {
         let _ = writeln!(out, "Here ({}):", mine.len());
         for q in mine.iter().take(WAITING_HERE_MAX) {
@@ -215,5 +237,21 @@ pub(super) fn needs_you(r: &Reader<'_>, here: bool) -> String {
             "questions",
         );
     }
+    if more.waiting() > 0 {
+        let _ = writeln!(
+            out,
+            "Cards and questions of Theseus's own ({}). {OTHERS}:",
+            more.waiting()
+        );
+        for l in more.cards.iter().chain(&more.asks) {
+            out.push_str(l);
+        }
+        left_out(
+            &mut out,
+            more.cards_more + more.asks_more,
+            "cards and questions",
+        );
+    }
+    out.push_str(&owed::standing_words(more.standing));
     out
 }
