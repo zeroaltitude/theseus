@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { SubagentAnswer } from '@protocol'
-import { subagentFooter, subagentOf } from '../src/lib/subagent.ts'
+import { SUBAGENT_ICON, subagentFooter, subagentOf, subagentOpening } from '../src/lib/subagent.ts'
 
 const answer = (over: Partial<SubagentAnswer> = {}): SubagentAnswer => ({
   profile: 'haiku', provider: 'anthropic', model: 'claude-haiku-5-5', asked_by: 'sonnet', text: 'Hello.',
@@ -21,4 +21,9 @@ test('only a result node that holds words is a subagent message', () => {
   assert.equal(subagentOf({ meta: { exit_code: 0 } }), null)
   assert.equal(subagentOf(null), null)
   assert.equal(subagentOf(undefined), null)
+})
+
+test('the message opens with the icon before its first word', () => {
+  assert.equal(SUBAGENT_ICON, '🛰️')
+  assert.equal(subagentOpening(answer({ text: '  Hello from the other model.\n' })), '🛰️ Hello from the other model.')
 })

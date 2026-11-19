@@ -62,6 +62,7 @@ mod notice_press;
 mod onto_card;
 pub(crate) mod persona_soul;
 mod remind;
+pub(crate) mod sched;
 pub(crate) mod seal;
 pub(crate) use capture_card::{buttons as capture_buttons, card_of as capture_card};
 pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_buttons};

@@ -19,7 +19,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 use crate::bus::EventSink;
 use crate::node::{Body, ResultStatus};
 use crate::policy::Posture;
-use crate::provider::{FakeProvider, Scripted};
+use crate::provider::{FakeProvider, RequestGate, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::turn::TurnRequest;
@@ -42,6 +42,11 @@ impl Drop for Rig {
 /// `sync` seconds, with a drain every 20 ms as the daemon's harness drains
 /// on each wrapper's word.
 fn rig(script: Vec<Scripted>, sync: u64, edit: impl FnOnce(&mut Config)) -> Rig {
+    rig_over(Arc::new(FakeProvider::scripted(script)), sync, edit)
+}
+
+/// `rig` over a provider the test built (one that holds a request).
+fn rig_over(fake: Arc<FakeProvider>, sync: u64, edit: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -54,7 +59,6 @@ fn rig(script: Vec<Scripted>, sync: u64, edit: impl FnOnce(&mut Config)) -> Rig 
     cfg.policy.tools.remove("proc.run");
     edit(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
-    let fake = Arc::new(FakeProvider::scripted(script));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
     let c = core.clone();
     let drain = tokio::spawn(async move {
@@ -399,6 +403,76 @@ async fn a_job_that_ends_mid_turn_reaches_the_next_request() {
     );
     assert!(next.contains("midturn"), "{next}");
     assert!(!r.request(1).contains("midturn"), "not before it ended");
+}
+
+/// A job's result that settles while its turn's last model call is in flight
+/// is read once, by the turn it wakes: the turn that was ending never read it
+/// (its last request is held until the job has ended, by its action and not a
+/// stopwatch), and the late result is one node, taken in that turn's last
+/// frame, which wakes the execution for the next turn (theseus-l6y: a turn's
+/// own results are not queued; this one was not its own).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_result_that_lands_as_its_turn_ends_is_read_once_by_the_next_turn() {
+    // The job waits for a file the test makes once the request is held, and
+    // prints a word its own command line does not spell.
+    let hold = tempfile::tempdir().unwrap();
+    let go = hold.path().join("go");
+    let script = format!(
+        "while [ ! -e {} ]; do sleep 0.02; done; printf 'lan%s\\n' ded",
+        go.display()
+    );
+    let job = json!({"argv": ["sh", "-c", script], "background": true});
+    let gate = RequestGate::at(1);
+    let fake = Arc::new(FakeProvider {
+        script: std::sync::Mutex::new(
+            vec![
+                Scripted::tools("Starting it.", &[("t1", "proc_run", job)]),
+                Scripted::text("Working."),
+            ]
+            .into(),
+        ),
+        gate: Some(gate.clone()),
+        ..Default::default()
+    });
+    let r = rig_over(fake, 10, |_| {});
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let sid = rec.session_id.clone();
+    let landed = async {
+        gate.reached().await;
+        // The turn's second request is held: the job ends now, and the
+        // drain settles it for the execution, which no turn reads yet.
+        std::fs::write(&go, "").unwrap();
+        loop {
+            let (_, _, _, corr) = r.result(&sid, "t1");
+            let a = r.core.kernel.action(&corr.unwrap()).unwrap().unwrap();
+            if a.state == theseus_kernel::ActionState::Succeeded {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        gate.open();
+    };
+    let (res, ()) = tokio::join!(r.turn(Some(&sid), "start it"), landed);
+    // The turn's own requests never carried the result.
+    assert_eq!(r.fake.requests().len(), 2);
+    for i in 0..2 {
+        assert!(!r.request(i).contains("landed"), "request {i}");
+    }
+    // It is one late node, and the execution is woken for the turn that reads it.
+    let nodes = r.core.store.session_nodes(&sid).unwrap();
+    let seen: Vec<bool> = nodes
+        .into_iter()
+        .filter_map(|(_, n)| match n.body {
+            Body::ToolResult { content, late, .. } if content.contains("landed") => Some(late),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seen, vec![true], "one reading, as a late result");
+    let e = r.core.kernel.execution(&res.execution_id.unwrap());
+    let e = e.unwrap().unwrap();
+    assert_eq!(e.state, theseus_kernel::ExecState::Queued);
+    assert!(e.queued_results.is_empty(), "taken by the turn's end");
 }
 
 /// A job is its session's: another session naming it by its long id is

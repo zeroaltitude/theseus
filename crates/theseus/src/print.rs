@@ -420,6 +420,10 @@ mod tests {
                 );
             }
             assert!(
+                out.contains("🛰️ Hello from the other model."),
+                "the icon before the first word: {out}"
+            );
+            assert!(
                 err.contains(
                     "[haiku → anthropic/claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s]"
                 ),

@@ -84,6 +84,10 @@ async fn use_a_profile_to_say_hello_is_a_tool_and_its_words_come_back() {
     );
     assert!(text.contains(HELLO), "{text}");
     assert!(text.contains("need not repeat the words"), "{text}");
+    // Where the owner sees it is not the model's to say.
+    for place in ["above", "below", "earlier", "later", "when this turn ends"] {
+        assert!(!text.contains(place), "{place}: {text}");
+    }
     assert!(reply(&r, &sid).contains(HELLO), "{}", reply(&r, &sid));
     assert_eq!(called(&r, &sid), [ASK], "no shell");
     assert!(r.asked().is_empty(), "told, not asked: {:?}", r.asked());

@@ -40,6 +40,18 @@ better way to use the ones it has. What only the owner may do from their own ter
   `theseus profile use` (the daemon's live profile, for everyone) is NOT offered: that is a setting of Theseus, which
   `config.propose` changes on a card.
 
+**Asked first, then the yes (the hold).** After outside text a continuation runs the approved call, and a continuation is
+offered nothing to read the owner's message from (`chat_acts::Board::offered`, by design, and unchanged: every other act reads
+it so). The owner's yes on the hold's OWN card is the owner's word for that one hold (decided 2026-11-19: reviewer's finding
+B1, choice (a)). `confirm_action` keeps the answerer it judged (`Board::keep_yes`, before the wake can start the continuation,
+dropped if the answer fails), and the approved call takes it, once (`hold::pressed`). What acts is what the card showed: the
+profile is read from the plan the card was made from (the action's proposal) and the call must equal it (`hold::kept_plan`);
+nothing the model says after the card is read. The yes must be the owner's own press or their own terminal: `judge_typed_settings`
+refuses the model's answer tool (words) and an agent's process for this card as it does for a settings card, and the act refuses
+an agent's yes again. The wall is judged again when the approved call runs, and `session_set_profile` judges the pressing
+answerer as it judges the command. A restart between the yes and the call loses the kept yes (memory only): the hold is refused
+and the owner says it again, which is the way to fail. A hold in a turn with no card and no owner's message is refused as it was.
+
 **The wall** for both is `config.show`'s (`config_change::wall`): the owner's own turn in a private place only they write
 in; refused to a job, a task, the self loop, a session an MCP client opened and a shared place, each in the tool's own
 words. Both are in `routine::grant::NEVER`.
@@ -69,9 +81,15 @@ model listed in the model part of the footer." So `profile.ask`'s answer is show
   (`courier/subagent.rs`, `render/subagent.rs`): the words, then `-# ` and the footer, split under Discord's limit.
 - **The terminal** prints the words on stdout before the reply that follows, and the footer on stderr; `--json` prints
   neither (the daemon's result is the whole of it); the terminal UI says the words and a dim footer line.
-- **A turn that was stopped posts none**: the answers wait in memory until the turn stages them after its calls, and a
+- **A turn that was stopped posts none**: the answers wait in memory until the turn stages them, and a
   stop that landed since the turn's input arrived drops them; a call a stop aborted never gives one. A session that
   posts nowhere (the CLI's) stages nothing.
+- **Every path posts, from one place.** The answers are taken once, in `stage_turn_post`, just before the turn's reply is
+  staged, so a call the turn's own loop ran, one a continuation ran after the owner's yes (the asked-first path), and any
+  path a third turn takes, post alike; there is no second call site to miss. Its result says "Theseus shows it ... when this
+  turn ends", and nothing of the kind when the profile had no words to show. What a turn did not post (it stopped, faulted, or
+  was a task's) is dropped when the turn ends (`Board::forget`, by session; one turn runs in a session at a time), not kept
+  until a restart.
 - **What does NOT name the right model yet** (found, not changed here): a task's report to a chat names no model at all
   (`render::report`: the task, its turns, its money, its time), and the words of a task are read by the asking turn,
   whose own reply footer names the asking turn's model.
@@ -89,7 +107,10 @@ only in a daemon started from a config, so no request a test builds carries it. 
 model's request has no tool and one message, its words and model are the result and the turn's reply quotes them, the call
 is a `provider.call` action of the turn's execution settled as `ask_profile`; an unknown profile, a bad question, a
 task's session are refused and call no model; the hold needs the owner's own message and a real profile, writes the
-`session.profile_set` row the command writes, and is let go the same way.
+`session.profile_set` row the command writes, and is let go the same way. `config_change/tests_profile_asked.rs` plays the asked-first
+path of each tool through a yes and a continuation (the answer posted once before the reply; the hold acts on the card's profile,
+for this conversation, once), and every refusal: a no, a stop, another's answer, an agent's process, the model's words, a wall that
+changed before the call ran, and a hold with no card and no owner message.
 
 ## The shell is answered with the tool that does it (issue 28, part 3, step 1)
 
@@ -106,7 +127,8 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
   `2>&1` and `2>/dev/null`, a substitution, a glob, a `~`, a comment, or any other program in the pipe: the line is not read and
   runs as it did.
 - **What runs as it did.** An act (`theseus ask`, `profile use`), a look with no tool yet (`history`, `tasks`, …), a verb the table
-  does not know, and a command that asks for more than the tool gives (an operand, a stream flag).
+  does not know, and a command that asks for more than the tool gives (an operand, a stream flag). `config show` is one of them:
+  the command prints a waiting change whole, and the tool `config.show` reads settings by name, so they are different looks.
 - **Where it is not answered.** Only where the tool can be called: it is registered (a daemon started from a config), and the
   turn is the owner's own conversation (`config.show`'s wall). A job, a task, the self loop, an MCP session and a shared place
   keep the command, since the tool is refused them and the command is the only look they have.
