@@ -144,6 +144,35 @@ pub async fn check(
         Err(f) => return Err(said(f)),
     };
     let field = pick_field(&fields, field, section, &found.title)?;
+    let (reference, by_id) = build_reference(&vaults, v, &items, found, &fields, field)?;
+    let parsed = SecretRef::parse(&reference).map_err(|_| said(Failed::Unreadable))?;
+    // The proof: the daemon reads it as a start will, and keeps nothing.
+    match reader.read(&parsed).await {
+        Ok(value) => drop(value),
+        Err(e) => return Err(read_failure(&e)),
+    }
+    Ok(Checked {
+        vault: v.name.clone(),
+        item: found.title.clone(),
+        field: field.label.clone(),
+        section: field.section.clone(),
+        reference,
+        by_id,
+    })
+}
+
+/// The reference for the one field found: each part written by its name, or by
+/// its id where the name is not one exactly one sibling answers to (the vault's
+/// program matches names ignoring case, and is not assumed to look in a field's
+/// own section first). And whether any part is an id.
+fn build_reference(
+    vaults: &[Vault],
+    v: &Vault,
+    items: &[ItemName],
+    found: &ItemName,
+    fields: &[FieldName],
+    field: &FieldName,
+) -> Result<(String, bool), String> {
     let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
     let mut by_id = false;
     let mut parts = vec![
@@ -228,20 +257,7 @@ pub async fn check(
         );
     };
     let reference = format!("op://{}", parts.join("/"));
-    let parsed = SecretRef::parse(&reference).map_err(|_| said(Failed::Unreadable))?;
-    // The proof: the daemon reads it as a start will, and keeps nothing.
-    match reader.read(&parsed).await {
-        Ok(value) => drop(value),
-        Err(e) => return Err(read_failure(&e)),
-    }
-    Ok(Checked {
-        vault: v.name.clone(),
-        item: found.title.clone(),
-        field: field.label.clone(),
-        section: field.section.clone(),
-        reference,
-        by_id,
-    })
+    Ok((reference, by_id))
 }
 
 /// The one field the model meant: by its label (any case), and its section when

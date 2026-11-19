@@ -528,25 +528,7 @@ pub(crate) fn put_using(
     if undoes.is_none() {
         vault_use::refuse_other_references(&settings, secret)?;
     }
-    // What cannot be shown whole is refused first, in its own words. A value
-    // too long for a line is not refused: it has its own form on the card
-    // (`long_value.rs`), with its whole text readable before the yes.
-    let short: Vec<diff::Setting> = settings
-        .iter()
-        .filter(|s| !diff::too_long(s))
-        .cloned()
-        .collect();
-    if let Some(why) = card::too_much(&short) {
-        return Err(why);
-    }
-    let long = settings.len() - short.len();
-    if long > long_value::MAX_LONG {
-        return Err(format!(
-            "that changes {long} long values, and one card shows at most {} of them, each with \
-             its changed lines: ask for fewer at a time",
-            long_value::MAX_LONG
-        ));
-    }
+    let long = too_big(&settings)?;
     let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
@@ -624,6 +606,30 @@ pub(crate) fn put_using(
         said,
         json!({"settings": settings.len(), "candidate": digest}),
     ))
+}
+
+/// What cannot be shown whole is refused first, in its own words; else how many
+/// values are too long for a line. A value too long for a line is not refused:
+/// it has its own form on the card (`long_value.rs`), with its whole text
+/// readable before the yes.
+fn too_big(settings: &[diff::Setting]) -> Result<usize, String> {
+    let short: Vec<diff::Setting> = settings
+        .iter()
+        .filter(|s| !diff::too_long(s))
+        .cloned()
+        .collect();
+    if let Some(why) = card::too_much(&short) {
+        return Err(why);
+    }
+    let long = settings.len() - short.len();
+    if long > long_value::MAX_LONG {
+        return Err(format!(
+            "that changes {long} long values, and one card shows at most {} of them, each with \
+             its changed lines: ask for fewer at a time",
+            long_value::MAX_LONG
+        ));
+    }
+    Ok(long)
 }
 
 /// The question, its card, and the record that answers a call run again, in
