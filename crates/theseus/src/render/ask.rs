@@ -181,4 +181,43 @@ mod tests {
         assert!(all.contains("memory.k11"));
         assert!(!all.contains("config.ack"), "{all}");
     }
+
+    /// A source the model gave is a line of the card the terminal prints, and
+    /// of `theseus answer`'s list, under its setting, whole and as one row.
+    #[test]
+    fn a_source_is_a_row_of_the_card_under_its_setting() {
+        let card = "Change 1 setting?\n- providers.lantern.api_base: not set (its default) → \"https://lantern.example.test\" (after a restart)\n  Theseus's source for this, in its own words (nothing here checked it): \"the docs say it, \\\"quoted\\\" \\u{202e}\"\nTake care: since your last message this conversation has read text from outside (a page, a search or a server), so the request may not be only yours.\nTheseus's reason, in its own words: \"x\"\n";
+        let c = theseus_protocol::ConfirmRequest {
+            correlation_id: "act_0000feed".into(),
+            tool: "config.ack".into(),
+            plain: Some(theseus_protocol::PlainWords {
+                who: "Theseus".into(),
+                what: "change `providers.lantern.api_base`".into(),
+                yes: "writes it.".into(),
+                no: "changes nothing.".into(),
+                detail: card.into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let lines: Vec<String> = super::super::confirm_lines(&c)
+            .iter()
+            .map(|l| l.text.clone())
+            .collect();
+        let at = lines
+            .iter()
+            .position(|l| l.trim_start().starts_with("- providers.lantern.api_base"))
+            .expect("the setting's row");
+        assert_eq!(
+            lines[at + 1].trim_start(),
+            "Theseus's source for this, in its own words (nothing here checked it): \"the docs say it, \\\"quoted\\\" \\u{202e}\"",
+            "{lines:?}"
+        );
+        assert!(
+            lines[at + 2]
+                .trim_start()
+                .starts_with("Take care: since your last message"),
+            "the care line follows, untouched: {lines:?}"
+        );
+    }
 }
