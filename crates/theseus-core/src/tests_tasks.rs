@@ -321,6 +321,13 @@ async fn a_task_runs_on_its_own_and_reports_once_to_the_place_and_the_parent() {
     assert_eq!(crate::outbox::target_of(&reports[0]), TARGET);
     assert_eq!(body["task"], task.session_id);
     assert_eq!(body["outcome"], "complete");
+    // A task is a subagent (issue 28): its report names the profile and model it ran on.
+    let ran_on = &body["ran_on"];
+    assert!(
+        ran_on["profile"].as_str().is_some_and(|p| !p.is_empty())
+            && ran_on["model"].as_str().is_some_and(|m| !m.is_empty()),
+        "{body}"
+    );
     assert_eq!(
         r.core
             .outbox

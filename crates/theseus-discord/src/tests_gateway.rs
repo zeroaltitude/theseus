@@ -172,7 +172,8 @@ impl Rig {
         };
         // Each place starts fresh: its first message opens its session
         // (theseus-emqx), so a place is bound once the binding reports it.
-        let want = 2 + more.len();
+        // #lab, the DM when the file binds one, and the places named in `more`.
+        let want = 1 + usize::from(bindings.contains("[[dm]]")) + more.len();
         r.until("every place bound", || {
             r.core
                 .bindings

@@ -1050,6 +1050,9 @@ pub struct Report {
     pub target: Option<String>,
     /// A check's basis, as its line (M5 28a): shown beside its report.
     pub check: Option<String>,
+    /// The profile, provider and model the task ran on last (issue 28): a task is a subagent, and
+    /// its report names, in the footer's model part, the model that gave it.
+    pub ran_on: Option<crate::session::TargetRef>,
     /// The messages the owner joined it with (theseus-slmj1): the parent's
     /// node says its brief was changed by its owner.
     pub joined: u32,
@@ -1179,6 +1182,7 @@ impl Report {
             elapsed_ms: e.updated_at_ms.saturating_sub(e.created_at_ms),
             target: None,
             check: None,
+            ran_on: None,
             joined: 0,
         }
     }
@@ -1212,6 +1216,10 @@ impl Report {
         });
         if let Some(c) = &self.check {
             body["check"] = json!(c);
+        }
+        if let Some(t) = &self.ran_on {
+            body["ran_on"] =
+                json!({"profile": t.profile, "provider": t.provider, "model": t.model});
         }
         // Words with no node of their own (`with_close`) ride in the post.
         if let (None, Some(t)) = (&self.node, &self.text) {
@@ -1293,9 +1301,11 @@ pub fn load_report(
     let joined = store
         .get_meta::<u32>(&joined_key(&e.session_id))?
         .unwrap_or(0);
+    let ran_on = rec.as_ref().and_then(|r| r.last_target.clone());
     Ok(Some(Report {
         target,
         check,
+        ran_on,
         joined,
         ..Report::new(&e, rec.and_then(|r| r.title), last)
             .with_close(close_of(store, &e.session_id))
@@ -1465,8 +1475,10 @@ pub fn cancelled_report(
         return Ok((vec![], None));
     };
     let check = check_line(rec.as_ref());
+    let ran_on = rec.as_ref().and_then(|r| r.last_target.clone());
     let report = Report {
         check,
+        ran_on,
         ..Report::new(e, rec.and_then(|r| r.title), None)
     };
     let (post, records) = outbox.stage(&e.session_id, &e.id, &target, report.post_body())?;

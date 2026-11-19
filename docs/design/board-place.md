@@ -14,6 +14,12 @@ The board's **Coming up**, **Routines** and **Projects** are one snapshot of the
   threads that answer there (`Tasks::sessions_shown`). Routines, projects, a routine's runs, a task's start and a watch are
   not a conversation's wake and are shown on every private place, as before.
 
+**With a task channel but no DM bound** there is no place to draw the task channel's board (it is drawn by the owner's DM
+place), so the home branch is taken only when there is such a place; otherwise the no-task-channel rule applies and nothing a person
+had before is lost. A board of the task channel's own, drawn with no DM, would need a place for its presses (Clear, Quiet, the
+select) and for the tasks it holds, and the home has neither: that is a larger change than this one. The owner's DM place is the
+first `[[dm]]` whose user is an owner, else the first.
+
 A **line of Coming up** says where a conversation's wake came from (`· from #pier`); a check-in Theseus set for itself says
 so (`· set by Theseus in #pier`). Names come from health's places (`Shared::conversation_names`; Home and the threads by
 the place that adopts them); a session no place runs is named by nothing (`· set by Theseus`).
