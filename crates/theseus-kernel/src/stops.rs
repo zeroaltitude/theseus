@@ -40,7 +40,8 @@ pub struct Stop {
     /// The planned calls, approvals, and budget question that will not run.
     pub declined: Vec<Action>,
     /// A turn held the execution, or the caller named one the stop reached:
-    /// that turn ends at its next step, or has ended already.
+    /// a held turn ends at its next step; one the caller named may have ended
+    /// already.
     pub turn_running: bool,
 }
 

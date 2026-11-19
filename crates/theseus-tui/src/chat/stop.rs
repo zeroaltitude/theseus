@@ -44,8 +44,9 @@ impl Chat {
         Vec::new()
     }
 
-    /// The stop, sent now: the turn that runs ends at its next step, the
-    /// calls in flight are told to stop, and the daemon says how each ended.
+    /// The stop, sent now: the turn that runs stops at its next step (one that
+    /// has ended already is only told of), the calls in flight are told to
+    /// stop, and the daemon says how each ended.
     pub(super) fn stop_turn(&mut self, tasks: bool) -> Vec<Effect> {
         let Some(execution) = self.execution.clone() else {
             self.flash("nothing to stop yet · the conversation has no execution");

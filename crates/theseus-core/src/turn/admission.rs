@@ -952,8 +952,6 @@ impl TurnRunner {
         frames: &mut u64,
     ) -> Result<Option<(TurnGuard, Slot)>> {
         let queue = &self.tools.admission;
-        // Listed while it waits: a `/stop` that lands now reaches this turn.
-        let _waiting = wait.then(|| self.admit_waiting.enter(exec_id, arrived));
         // A person's typed input, or the owner's into a task, is never failed
         // by the stuck window (`take`'s rule, here for the wait on the
         // execution's own turn too; theseus-fzaep). Any other task turn, and a

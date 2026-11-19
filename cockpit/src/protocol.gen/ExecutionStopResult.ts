@@ -21,7 +21,10 @@ verdicts: Array<CancelVerdict>,
  */
 declined: Array<string>, 
 /**
- * A turn was running: it ends at its next step.
+ * The stop reached a turn: one that was running, which ends at its next
+ * step, or one that took the stop's notice and has ended already (an
+ * input's turn that was still waiting to be admitted, or for its
+ * secrets).
  */
 turn_running: boolean, 
 /**
