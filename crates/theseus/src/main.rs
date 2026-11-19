@@ -88,6 +88,7 @@ mod tasks_tree;
 mod thread;
 mod thread_import;
 mod undo_cmd;
+mod vault_keep_cmd;
 mod vestige;
 mod voice_cmd;
 mod watch_cmd;
@@ -754,6 +755,15 @@ enum Cmd {
     Owner {
         #[command(subcommand)]
         cmd: owner_proof_cmd::OwnerCmd,
+    },
+    /// The vault: `vault keep` keeps a secret you type at a hidden prompt, for a card Theseus put
+    /// to you or (with `--vault`, `--item` and `--field`) with no card. Yours alone (refused inside
+    /// a job, and by the daemon from every surface but your own terminal). Never paste a secret
+    /// into chat.
+    #[command(hide = true)]
+    Vault {
+        #[command(subcommand)]
+        cmd: vault_keep_cmd::VaultCmd,
     },
     /// The owner's standing orders, preferences and facts: kept in every prompt of
     /// their scope until you revoke them. `standing` lists them; `standing add [--kind order|
@@ -1444,7 +1454,8 @@ async fn long_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
         Cmd::Digest(a) => digest::run(c, json, a).await,
         Cmd::Mode(a) => mode_cmd::run(c, json, a).await,
         Cmd::Owner { cmd } => owner_proof_cmd::run(c, json, cmd).await,
-        _ => unreachable!("only agenda, card, digest, mode and owner come here"),
+        Cmd::Vault { cmd } => vault_keep_cmd::run(c, json, cmd).await,
+        _ => unreachable!("only agenda, card, digest, mode, owner and vault come here"),
     }
 }
 
@@ -1567,10 +1578,10 @@ async fn run(cli: Cli) -> Result<()> {
         | Cmd::Status(_)
         | Cmd::Postmortem(_)
         | Cmd::Tui { .. }
-        | Cmd::Chat { .. } => {
-            unreachable!("above")
+        | Cmd::Chat { .. } => unreachable!("above"),
+        cmd @ (Cmd::Card { .. } | Cmd::Owner { .. } | Cmd::Vault { .. }) => {
+            long_cmd(c, json, cmd).await
         }
-        cmd @ (Cmd::Card { .. } | Cmd::Owner { .. }) => long_cmd(c, json, cmd).await,
         Cmd::Profile { cmd } => cmd::profile(c, json, cmd.unwrap_or(ProfileCmd::List)).await,
         l @ Cmd::Ledger { .. } => ledger_cmd(c, json, l).await,
         Cmd::Herdr { cmd } => herdr_sync::run(c, json, cmd, (!spawned).then(|| &*cli.socket)).await,
