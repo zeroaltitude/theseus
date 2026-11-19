@@ -976,8 +976,8 @@ fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
     }
 }
 
-/// The Fable rows, newest first. Fable 5.2 (published 2026-11-09) is Fable
-/// 5.1's shape at 0.8 × its prices: its window, output cap, always-on
+/// The Fable rows, newest first (Mythos 5.2's, built by `mythos`, goes with them).
+/// Fable 5.2 (published 2026-11-09) is Fable 5.1's shape at 0.8 × its prices: its window, output cap, always-on
 /// thinking, effort levels, vision, PDF and `us` origin are 5.1's, so it takes
 /// every rule 5.1 takes — no forced `tool_choice`, no `thinking` that turns
 /// thinking off, the family's tokenizer, and the server's own refusal
@@ -1012,6 +1012,7 @@ fn fable_rows(e: &mut BTreeMap<String, CatalogEntry>) {
         "claude-fable-5".into(),
         claude(m, 128_000, 10.0, 50.0, 1.00, 12.50, Always, false, 512),
     );
+    mythos::rows(e);
 }
 
 /// Kimi's two rows, the model and its faster variant at double the price.
@@ -1122,7 +1123,6 @@ impl Catalog {
         let mut e = BTreeMap::new();
         let m = 1_000_000;
         fable_rows(&mut e);
-        mythos::rows(&mut e);
         e.insert(
             "claude-opus-5-5".into(),
             claude(m, 128_000, 4.0, 20.0, 0.20, 5.00, Always, false, 512),
