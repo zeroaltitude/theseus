@@ -95,27 +95,34 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         let pid = conn.pid;
-        let (question, done) = match m {
+        // The card, and who the binding says pressed: the row of an attempt that stopped names both, as the
+        // rows of its outcomes do, so a form's refusal says where it was typed.
+        let (question, presser, done) = match m {
             method::VAULT_KEEP_WAITING => {
                 return reply(self.keep_waiting(parse_quiet(params)?, &conn).await?)
             }
             method::VAULT_KEEP_ANSWER => match parse_quiet::<VaultKeepAnswerParams>(params) {
                 Ok(p) => {
                     let q = Some(p.question_id.clone());
-                    (q, self.keep_answer(p, &conn).await.map(reply))
+                    let by = (p.author.clone(), p.discord.clone());
+                    (q, by, self.keep_answer(p, &conn).await.map(reply))
                 }
-                Err(f) => (None, Err(stop("bad_request")(f))),
+                Err(f) => (None, (None, None), Err(stop("bad_request")(f))),
             },
             _ => match parse_quiet::<VaultKeepParams>(params) {
-                Ok(p) => (None, self.keep_direct(p, &conn).await.map(reply)),
-                Err(f) => (None, Err(stop("bad_request")(f))),
+                Ok(p) => (
+                    None,
+                    (None, None),
+                    self.keep_direct(p, &conn).await.map(reply),
+                ),
+                Err(f) => (None, (None, None), Err(stop("bad_request")(f))),
             },
         };
         match done {
             Ok(r) => r,
             Err(Stop { failure, class }) => {
                 if let Some(class) = class {
-                    let who = conn.answerer(None, None);
+                    let who = conn.answerer(presser.0, presser.1);
                     self.keep_stopped(class, &who, pid, question.as_deref());
                 }
                 Err(failure)
