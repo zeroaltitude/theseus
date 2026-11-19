@@ -54,8 +54,9 @@ pub struct ToolCalled {
     pub gate: Option<String>,
     /// The gate's reason for it.
     pub reason: Option<String>,
-    /// The profiles a `profile.ask` of the turn asked (issue 28), in the order asked: each
-    /// answer is a subagent's, drawn as a message of its own from the model that gave it.
+    /// The profiles a `profile.ask` of the turn asked (issue 28), in the order asked, each with
+    /// the model that answered when its result says (`haiku (claude-haiku-5-5)`): each answer is
+    /// a subagent's, drawn as a message of its own from the model that gave it.
     pub asked: Vec<String>,
 }
 
@@ -68,6 +69,17 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
         .filter(|n| n.kind == "tool_call" && n.turn_id.as_deref() == Some(turn))
         .collect();
     calls.sort_by_key(|n| n.position);
+    // The model that answered each `profile.ask`, by the call's id: the result node's marker.
+    let answered: std::collections::HashMap<&str, &str> = nodes
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "tool_result" && n.turn_id.as_deref() == Some(turn))
+        .filter_map(|n| {
+            let id = n.detail.get("tool_use_id")?.as_str()?;
+            let model = n.detail.pointer("/meta/subagent/model")?.as_str()?;
+            Some((id, model)).filter(|(_, m)| !m.is_empty())
+        })
+        .collect();
     let mut out: Vec<ToolCalled> = Vec::new();
     for n in calls {
         let Some(name) = n.detail.get("tool").and_then(Value::as_str) else {
@@ -94,11 +106,19 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
         };
         t.calls += 1;
         if name.replace('.', "_") == "profile_ask" {
+            let model = n
+                .detail
+                .get("tool_use_id")
+                .and_then(Value::as_str)
+                .and_then(|id| answered.get(id));
             t.asked.extend(
                 n.detail
                     .pointer("/input/profile")
                     .and_then(Value::as_str)
-                    .map(str::to_string),
+                    .map(|p| match model {
+                        Some(m) => format!("{p} ({m})"),
+                        None => p.to_string(),
+                    }),
             );
         }
         t.gate = gate.map(str::to_string).or(t.gate.take());
@@ -712,7 +732,7 @@ fn tools(i: &WhyInput) -> Vec<String> {
         out.push(tool_line(c, found));
         if !c.asked.is_empty() {
             out.push(format!(
-                "    asked as subagents: {} (each answer is a message of its own, from the model that gave it, with a footer that says so)",
+                "    asked as subagents: {} (each answer is a message of its own, from the model that gave it, with a footer that says so; it is shown even when the turn that asked was stopped or failed)",
                 c.asked.join(", ")
             ));
         }

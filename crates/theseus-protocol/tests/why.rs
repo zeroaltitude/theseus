@@ -166,6 +166,40 @@ fn a_turn_that_asked_profiles_says_which_and_that_each_answer_is_a_subagents() {
     assert!(got.contains("asked as subagents: haiku, opus"), "{got}");
 }
 
+/// The model that answered is named when the result says which: the profile asked is not always the
+/// model that answered (a fallback), and a call with no result yet names the profile alone.
+#[test]
+fn a_turn_that_asked_profiles_names_the_model_that_answered() {
+    let (x, p, r) = (explain("private"), policy(), route());
+    let nodes: NodeListResult = serde_json::from_value(json!({"total": 4, "nodes": [
+        {"node_id": "n1", "kind": "tool_call", "session_id": "ses_a", "position": 1, "at_unix_ms": 1,
+         "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
+         "detail": {"tool_use_id": "u1", "tool": "profile.ask", "input": {"profile": "haiku", "question": "Hi"}}},
+        {"node_id": "n2", "kind": "tool_result", "session_id": "ses_a", "position": 2, "at_unix_ms": 2,
+         "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
+         "detail": {"tool_use_id": "u1", "tool": "profile.ask", "status": "ok",
+                    "meta": {"subagent": {"profile": "haiku", "model": "claude-haiku-5-5", "text": "Hello."}}}},
+        {"node_id": "n3", "kind": "tool_call", "session_id": "ses_a", "position": 3, "at_unix_ms": 3,
+         "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
+         "detail": {"tool_use_id": "u2", "tool": "profile.ask", "input": {"profile": "opus", "question": "Hi"}}},
+        {"node_id": "n4", "kind": "tool_result", "session_id": "ses_b", "position": 4, "at_unix_ms": 4,
+         "turn_id": "trn_other", "text": "", "bytes": 0,
+         "detail": {"tool_use_id": "u2", "tool": "profile.ask", "status": "ok",
+                    "meta": {"subagent": {"profile": "opus", "model": "claude-opus-5-5", "text": "Hi."}}}}]}))
+    .unwrap();
+    let tools = tools_called(&nodes, "trn_k3m9x2");
+    assert_eq!(
+        tools[0].asked,
+        vec!["haiku (claude-haiku-5-5)".to_string(), "opus".to_string()],
+        "another turn's result names nothing here"
+    );
+    let got = why_lines(&input(&x, &p, &r, &tools)).join("\n");
+    assert!(
+        got.contains("asked as subagents: haiku (claude-haiku-5-5), opus"),
+        "{got}"
+    );
+}
+
 #[test]
 fn a_shared_place_shows_that_a_source_was_there_and_nothing_of_it() {
     let (x, p, r) = (explain("shared"), policy(), route());

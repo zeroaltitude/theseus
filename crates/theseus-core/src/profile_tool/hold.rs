@@ -93,9 +93,6 @@ pub(super) fn kept_plan(kept: &Value, input: &Value) -> Result<Option<String>, S
     let shown = hold_of(kept)?;
     match shown == hold_of(input)? {
         true => Ok(shown),
-        false => Err(
-            "profile.hold is not what its card showed, so it was not done. Nothing was done."
-                .into(),
-        ),
+        false => Err("profile.hold is not what its card showed. Nothing was done.".into()),
     }
 }

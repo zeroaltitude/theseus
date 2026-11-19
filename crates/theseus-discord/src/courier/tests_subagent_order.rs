@@ -259,3 +259,46 @@ fn the_calls_line_is_made_before_the_answer_when_the_call_was_fast() {
     );
     assert!(line < said, "{keys:?}");
 }
+
+/// A turn stopped after its call settled: the live message stays, and the post edits it to say
+/// the turn that asked was stopped. One message of the answer, with the note on its footer.
+#[tokio::test]
+async fn a_stopped_turns_live_message_stays_and_is_footed_as_the_answer_of_a_stopped_turn() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let lane = dm_lane(d.path(), &fake);
+    let outbox = lane.shared.core.outbox.clone();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    for op in the_turns_stream("act_stop") {
+        tx.send(LaneMsg::Live(op)).unwrap();
+    }
+    let (shared, target) = (lane.shared.clone(), lane.target.clone());
+    let run = tokio::spawn(lane.run(rx));
+    drawn(&fake, &outbox, 4, false).await;
+    shared
+        .core
+        .outbox
+        .post(
+            SESSION,
+            "",
+            &target,
+            json!({"kind": "subagent", "turn_id": TURN, "session_id": SESSION, "reply_to": null,
+                "turn_ended": "stopped", "answer": answer("act_stop")}),
+        )
+        .unwrap();
+    tx.send(LaneMsg::Wake).unwrap();
+    let got = drawn(&fake, &outbox, 4, true).await;
+    drop(tx);
+    run.await.unwrap();
+    let sub: Vec<&str> = got
+        .iter()
+        .map(|m| m.content.as_str())
+        .filter(|c| c.contains("subagent answer"))
+        .collect();
+    assert_eq!(sub.len(), 1, "{sub:#?}");
+    assert!(sub[0].starts_with("🛰️ "), "{sub:#?}");
+    assert!(
+        sub[0].ends_with("1.3 s · the turn that asked was stopped"),
+        "{sub:#?}"
+    );
+}

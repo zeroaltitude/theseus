@@ -14,6 +14,22 @@ use super::*;
 const NO_CALL: [&str; 2] = ["nothing_new", "awaiting_confirm"];
 
 impl TurnRunner {
+    /// What a turn that ended posts: its post, or, for a turn a stop ended, only the answers
+    /// another profile gave it: it posts nothing of its own, but an answer that was produced and
+    /// paid for is shown (its live message is already in the place) and its post marks it
+    /// (issue 28).
+    pub(super) fn stage_end_post(
+        &self,
+        t: &Turn<'_>,
+        result: &TurnSubmitResult,
+        failing: Option<&crate::session::Failing>,
+    ) -> Result<()> {
+        match result.stop_reason == "stopped" {
+            false => self.stage_turn_post(t, result, failing),
+            true => self.post_subagents(t, true),
+        }
+    }
+
     /// The turn's post: its reply, or for a continuation that made no model
     /// call, a line to the person waiting on it, or nothing.
     pub(super) fn stage_turn_post(
@@ -24,7 +40,7 @@ impl TurnRunner {
     ) -> Result<()> {
         // What another profile answered a call of this turn, whichever path ran the call, is
         // shown before the turn's post (issue 28).
-        self.post_subagents(t)?;
+        self.post_subagents(t, false)?;
         let no_call = t.continuation
             && result.loops == 0
             && NO_CALL.contains(&result.stop_reason.as_str())

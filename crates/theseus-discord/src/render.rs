@@ -58,7 +58,7 @@ pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, reply_parts_in, thread_tag, wake_header};
 use step::{render_turn, step_loop, STEP_ROLL};
-pub use subagent::subagent_parts;
+pub use subagent::{subagent_parts, subagent_parts_ended};
 pub use tables::fence_tables;
 pub use wakes::wakes;
 

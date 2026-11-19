@@ -558,7 +558,9 @@ impl Core {
         // before the wake can start the continuation that runs it, dropped if the answer fails.
         let held_yes = approve && a.tool == crate::profile_tool::HOLD;
         if held_yes {
-            self.tools.profile.keep_yes(correlation_id, &who);
+            self.tools
+                .profile
+                .keep_yes(correlation_id, &a.session_id, &a.execution_id, &who);
         }
         let woke = self.kernel.frame(&[&a.execution_id], |k| {
             if task_lock.is_some() {
@@ -676,6 +678,8 @@ impl Core {
         // Raised first: a question asked while these are read lowers it
         // again, so none is missed.
         self.tools.question_due.store(u64::MAX, SeqCst);
+        // A hold's yes nobody took goes with its hour (issue 28).
+        self.tools.profile.prune_yes();
         let pending = match self.kernel.pending_confirms() {
             Ok(p) => p,
             Err(e) => {

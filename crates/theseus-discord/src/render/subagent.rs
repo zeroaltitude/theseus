@@ -24,13 +24,24 @@ fn opening(a: &SubagentAnswer) -> String {
 /// The message's parts, in order, under the call's own keys: its text, then the footer riding on
 /// the last part when it fits, else standing alone.
 pub fn subagent_parts(a: &SubagentAnswer) -> Vec<(String, String)> {
+    subagent_parts_ended(a, None)
+}
+
+/// [`subagent_parts`] for the answer of a turn that ended before it could say so itself: the
+/// footer adds that the turn was stopped, or then failed (`ended`, the post's `turn_ended`).
+pub fn subagent_parts_ended(a: &SubagentAnswer, ended: Option<&str>) -> Vec<(String, String)> {
     let key = format!("subagent:{}", a.call);
     let mut out: Vec<(String, String)> = split_text(&opening(a), PART_LIMIT)
         .into_iter()
         .enumerate()
         .map(|(i, part)| (format!("{key}:p{i}"), part))
         .collect();
-    let footer = format!("-# {}", a.footer());
+    let note = match ended {
+        Some("stopped") => " · the turn that asked was stopped",
+        Some(_) => " · the turn that asked then failed",
+        None => "",
+    };
+    let footer = format!("-# {}{note}", a.footer());
     match out.last_mut() {
         Some((_, c)) if c.len() + footer.len() < DISCORD_LIMIT => {
             c.push('\n');
@@ -179,5 +190,29 @@ mod tests {
             parts[0].1
         );
         assert!(!parts[0].1.contains("```"));
+    }
+
+    /// The answer of a turn that was stopped, or then failed, says so in its footer; a turn that
+    /// ended well says nothing of the kind.
+    #[test]
+    fn the_footer_of_an_answer_says_when_its_turn_was_stopped_or_failed() {
+        let ok = subagent_parts_ended(&answer("Hello."), None);
+        assert_eq!(ok[0].1, subagent_parts(&answer("Hello."))[0].1);
+        let stopped = subagent_parts_ended(&answer("Hello."), Some("stopped"));
+        assert!(
+            stopped[0]
+                .1
+                .ends_with("· 1.3 s · the turn that asked was stopped"),
+            "{}",
+            stopped[0].1
+        );
+        let failed = subagent_parts_ended(&answer("Hello."), Some("failed"));
+        assert!(
+            failed[0]
+                .1
+                .ends_with("· 1.3 s · the turn that asked then failed"),
+            "{}",
+            failed[0].1
+        );
     }
 }

@@ -9,7 +9,9 @@
 //! (Discord). It goes where `stage_reply` sends the reply (an answer's place, a thread's turn
 //! spoken in the owner's DM, the session's place, where a wake was set), once: a post is staged
 //! in the turn's own frame, keyed by the call's id, so a retry that finds the call settled does not
-//! ask again and posts nothing twice. **A turn that was stopped posts none.**
+//! ask again and posts nothing twice. **A turn that was stopped or that failed posts it too**: the
+//! answer was produced and paid for, and its live message is already in the place, so the post
+//! edits it and its footer says the turn that asked was stopped, or then failed (`turn_ended`).
 //!
 //! It is taken once, at the one place every turn's post passes (`stage_turn_post`, just before
 //! the reply), so a call run by the turn's own loop, one the owner's yes let a continuation run,
@@ -19,12 +21,14 @@
 use super::*;
 
 impl TurnRunner {
-    /// Stage the answers this turn's calls got, one post each, in the order they came.
-    pub(super) fn post_subagents(&self, t: &Turn<'_>) -> Result<()> {
+    /// Stage the answers this turn's calls got, one post each, in the order they came. `stopped`
+    /// says the turn ended on a stop, which a stop that landed since its input arrived says too.
+    pub(super) fn post_subagents(&self, t: &Turn<'_>, stopped: bool) -> Result<()> {
         let answers = self.tools.profile.take(t.tc.turn_id);
-        if answers.is_empty() || self.stopped_since(t.tc.execution_id, t.arrived).is_some() {
+        if answers.is_empty() {
             return Ok(());
         }
+        let stopped = stopped || self.stopped_since(t.tc.execution_id, t.arrived).is_some();
         let Some(target) = t
             .answer_at
             .clone()
@@ -34,13 +38,16 @@ impl TurnRunner {
             return Ok(());
         };
         for answer in answers {
-            let body = json!({
+            let mut body = json!({
                 "kind": "subagent",
                 "turn_id": t.tc.turn_id,
                 "session_id": t.tc.session_id,
                 "answer": answer,
                 "reply_to": t.reply_to,
             });
+            if stopped {
+                body["turn_ended"] = json!("stopped");
+            }
             let (post, records) =
                 self.outbox
                     .stage(t.tc.session_id, t.tc.execution_id, &target, body)?;
@@ -50,5 +57,31 @@ impl TurnRunner {
             t.tc.posts.lock().unwrap().push(post);
         }
         Ok(())
+    }
+
+    /// The answers of a turn that ended in an error (a fault, a failure, a stop that aborted it):
+    /// no frame of the turn's carries a post by now, so each is written as the failed notice is,
+    /// to the session's place, with the turn's end marked on it.
+    pub(super) fn post_unposted_answers(
+        &self,
+        session_id: &str,
+        execution_id: &str,
+        turn_id: &str,
+        answers: Vec<theseus_protocol::SubagentAnswer>,
+        ended: &str,
+    ) {
+        for answer in answers {
+            let body = json!({
+                "kind": "subagent",
+                "turn_id": turn_id,
+                "session_id": session_id,
+                "answer": answer,
+                "reply_to": null,
+                "turn_ended": ended,
+            });
+            if let Err(e) = self.outbox.post_for(session_id, execution_id, body) {
+                tracing::warn!(error = %format!("{e:#}"), "an answer of a turn that ended was not written");
+            }
+        }
     }
 }

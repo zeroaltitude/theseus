@@ -283,6 +283,8 @@ struct Held {
 /// A yes kept for a hold's call: who answered, and when.
 struct Pressed {
     who: Answerer,
+    session: String,
+    execution: String,
     at: std::time::Instant,
 }
 
@@ -315,14 +317,57 @@ impl Board {
             .unwrap_or_default()
     }
 
-    /// A turn of `session` has ended: what it was given and did not post (it stopped, it
-    /// faulted, it was a task's) is dropped, not kept until a restart. One turn runs in a
-    /// session at a time, so none of what is dropped belongs to a later turn.
-    pub(crate) fn forget(&self, session: &str) {
-        self.answers
+    /// A turn of `session`, which arrived at `arrived`, has ended. What it was given and did not
+    /// post is handed back (a faulted turn's answers, which the end of the turn posts as the
+    /// answers of a turn that failed; a task's, which are dropped), not kept until a restart; one
+    /// turn runs in a session at a time, so none of it belongs to a later turn. A yes kept before
+    /// the turn arrived that no call took is dropped too: the turn that arrived after it was the
+    /// one to take it, and a yes kept while the turn ran is a later turn's.
+    pub(crate) fn sweep(&self, session: &str, arrived: std::time::Instant) -> Vec<SubagentAnswer> {
+        self.yes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .retain(|_, h| h.session != session);
+            .retain(|_, p| p.session != session || p.at >= arrived);
+        let mut answers = self
+            .answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let turns: Vec<String> = answers
+            .iter()
+            .filter(|(_, h)| h.session == session)
+            .map(|(t, _)| t.clone())
+            .collect();
+        turns
+            .into_iter()
+            .filter_map(|t| answers.remove(&t))
+            .flat_map(|h| h.answers)
+            .collect()
+    }
+
+    /// A `/stop` of `execution` landed: no call of it runs on a yes kept before, so none is kept.
+    pub(crate) fn drop_yes_of(&self, execution: &str) {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, p| p.execution != execution);
+    }
+
+    /// The driver's tick: a yes older than [`YES_KEPT`] that nothing took (its execution ended some
+    /// other way) is dropped, whether or not another is kept.
+    pub(crate) fn prune_yes(&self) {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, p| p.at.elapsed() < YES_KEPT);
+    }
+
+    /// How many yes entries are kept (a test reads it).
+    #[cfg(test)]
+    pub(crate) fn held_yes(&self) -> usize {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     /// How many turns have answers kept (a test reads it).
@@ -335,7 +380,7 @@ impl Board {
     }
 
     /// The owner's yes to the card of the hold `call` was pressed by `who`: kept for the call.
-    pub(crate) fn keep_yes(&self, call: &str, who: &Answerer) {
+    pub(crate) fn keep_yes(&self, call: &str, session: &str, execution: &str, who: &Answerer) {
         let mut yes = self
             .yes
             .lock()
@@ -345,6 +390,8 @@ impl Board {
             call.to_string(),
             Pressed {
                 who: who.clone(),
+                session: session.to_string(),
+                execution: execution.to_string(),
                 at: std::time::Instant::now(),
             },
         );

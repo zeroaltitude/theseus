@@ -9,11 +9,19 @@
 //! Only a real table is touched: a header row with a pipe, directly followed by a delimiter row of
 //! dashes (and optional colons) with the same number of cells, and the rows after it that have a
 //! pipe. Text that only contains a pipe is left alone, and so is a table inside a code fence.
-//! Widths count characters (there is no width table in this crate), so a wide character can misalign
-//! its column by a cell; the words are all there either way. The terminal and the cockpit draw tables
+//! Widths are display columns (`unicode-width`, already used by the CLI and the terminal UI), so
+//! wide characters (CJK, emoji) keep their column. The terminal and the cockpit draw tables
 //! themselves and are given the text as it was.
 
 use std::borrow::Cow;
+
+use unicode_width::UnicodeWidthStr;
+
+/// The longest a drawn line may be, in bytes: under half a part, so that a cut at a newline always
+/// falls on a row and never inside one. A row that would be longer is left as plain text, outside
+/// the fence (which closes before it and reopens after it); a table whose header cannot fit is left
+/// as it was.
+const MAX_ROW: usize = 900;
 
 /// How a column's cells are padded.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -42,14 +50,20 @@ pub fn fence_tables(text: &str) -> Cow<'_, str> {
             i += 1;
             continue;
         };
-        let rows: Vec<Vec<String>> = lines[i + 2..]
+        let rows: Vec<(Vec<String>, &str)> = lines[i + 2..]
             .iter()
             .take_while(|l| is_row(l))
-            .map(|l| row_cells(l))
+            .map(|l| (row_cells(l), l.trim()))
             .collect();
         let used = 2 + rows.len();
-        out.extend(block(&cells, &aligns, &rows));
-        changed = true;
+        match block(&cells, &aligns, &rows) {
+            Some(drawn) => {
+                out.extend(drawn);
+                changed = true;
+            }
+            // Too wide to draw: the table is the text it was.
+            None => out.extend(lines[i..i + used].iter().map(|l| l.to_string())),
+        }
         i += used;
     }
     match changed {
@@ -125,36 +139,85 @@ fn clean(cell: &str) -> String {
         .replace('`', "")
 }
 
-/// The fenced block: the header, a rule, the rows, each column as wide as its widest cell. A row
-/// with fewer cells than the header is padded with empty ones, one with more is cut to it.
-fn block(head: &[String], aligns: &[Align], rows: &[Vec<String>]) -> Vec<String> {
+/// The fenced block: the header, a rule, the rows, each column as wide as its widest cell, in
+/// display columns. A row with fewer cells than the header is padded with empty ones, one with more
+/// is cut to it. A row that would draw longer than [`MAX_ROW`] is left as the text it was, outside
+/// the fence, which closes before it and opens again for the rows after it. `None` when the header
+/// itself cannot fit, or no row can: the table is then left as it was.
+fn block(head: &[String], aligns: &[Align], rows: &[(Vec<String>, &str)]) -> Option<Vec<String>> {
     let n = head.len();
     let cell = |row: &[String], c: usize| row.get(c).cloned().unwrap_or_default();
-    let width: Vec<usize> = (0..n)
-        .map(|c| {
-            std::iter::once(&head.to_vec())
-                .chain(rows)
-                .map(|r| cell(r, c).chars().count())
-                .max()
-                .unwrap_or(0)
-                .max(1)
-        })
-        .collect();
-    let draw = |row: &[String]| {
+    let draw = |row: &[String], width: &[usize]| {
         let cells: Vec<String> = (0..n)
             .map(|c| pad(&cell(row, c), width[c], aligns[c]))
             .collect();
         cells.join("  ").trim_end().to_string()
     };
+    let mut plain = vec![false; rows.len()];
+    let width = loop {
+        let width: Vec<usize> = (0..n)
+            .map(|c| {
+                std::iter::once(head)
+                    .chain(
+                        rows.iter()
+                            .zip(&plain)
+                            .filter(|(_, p)| !**p)
+                            .map(|((r, _), _)| r.as_slice()),
+                    )
+                    .map(|r| cell(r, c).width())
+                    .max()
+                    .unwrap_or(0)
+                    .max(1)
+            })
+            .collect();
+        let rule: usize = width.iter().sum::<usize>() + 2 * (n - 1);
+        // Too wide as a whole (a cell somewhere is long): the row with the most in it goes out of
+        // the table and the widths are read again. Else only the rows that still draw too long.
+        let too_wide = rule > MAX_ROW || draw(head, &width).len() > MAX_ROW;
+        let victim = rows
+            .iter()
+            .enumerate()
+            .filter(|(i, (r, _))| !plain[*i] && (too_wide || draw(r, &width).len() > MAX_ROW))
+            .max_by_key(|(_, (r, _))| r.iter().map(String::len).sum::<usize>())
+            .map(|(i, _)| i);
+        match victim {
+            Some(i) => plain[i] = true,
+            // The header alone is too wide to draw.
+            None if too_wide => return None,
+            None => break width,
+        }
+    };
+    if !rows.is_empty() && plain.iter().all(|p| *p) {
+        return None;
+    }
     let rule: Vec<String> = width.iter().map(|w| "-".repeat(*w)).collect();
-    let mut out = vec!["```".to_string(), draw(head), rule.join("  ")];
-    out.extend(rows.iter().map(|r| draw(r)));
-    out.push("```".into());
-    out
+    let mut out = vec!["```".to_string(), draw(head, &width), rule.join("  ")];
+    let mut open = true;
+    for ((row, source), plain) in rows.iter().zip(&plain) {
+        match (plain, open) {
+            (true, true) => {
+                out.push("```".into());
+                open = false;
+            }
+            (false, false) => {
+                out.push("```".into());
+                open = true;
+            }
+            _ => {}
+        }
+        out.push(match plain {
+            true => source.to_string(),
+            false => draw(row, &width),
+        });
+    }
+    if open {
+        out.push("```".into());
+    }
+    Some(out)
 }
 
 fn pad(s: &str, width: usize, align: Align) -> String {
-    let gap = width.saturating_sub(s.chars().count());
+    let gap = width.saturating_sub(s.width());
     match align {
         Align::Left => format!("{s}{}", " ".repeat(gap)),
         Align::Right => format!("{}{s}", " ".repeat(gap)),
@@ -265,5 +328,91 @@ mod tests {
             })
             .collect();
         assert_eq!(live, vec![fence_tables(TABLE).into_owned()]);
+    }
+
+    /// Wide characters keep their column: with the last column right-aligned every drawn line ends
+    /// at the same display column (CJK and emoji count two), where a count of characters would leave
+    /// the lines with them a column or more short.
+    #[test]
+    fn wide_characters_keep_their_columns() {
+        let t = "| 名前 | size |\n|---|--:|\n| ファイル名 | 10 |\n| a | 200 |\n| ✅ ok | 3 |";
+        let got = fence_tables(t).into_owned();
+        let lines: Vec<&str> = got.lines().collect();
+        let body = &lines[1..lines.len() - 1];
+        // The widest first cell is the five wide characters (ten columns); `size` is four.
+        let total = 10 + 2 + 4;
+        for l in body {
+            assert_eq!(UnicodeWidthStr::width(*l), total, "{l:?} in\n{got}");
+        }
+        assert!(lines[3].starts_with("ファイル名  "), "{got}");
+    }
+
+    fn long(n: usize) -> String {
+        "x".repeat(n)
+    }
+
+    /// A row longer than a part is not drawn: it is the text it was, outside the fence, which closes
+    /// before it and opens again after it; the other rows are drawn as they would be without it, and
+    /// no fence is left open.
+    #[test]
+    fn a_row_longer_than_a_part_is_left_as_plain_text_and_no_fence_is_left_open() {
+        let t = format!(
+            "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | {} |\n| 5 | 6 |",
+            long(3_000)
+        );
+        let got = fence_tables(&t);
+        let lines: Vec<&str> = got.lines().collect();
+        assert_eq!(
+            lines[..7],
+            [
+                "```",
+                "a  b",
+                "-  -",
+                "1  2",
+                "```",
+                &format!("| 3 | {} |", long(3_000)),
+                "```"
+            ]
+        );
+        assert_eq!(&lines[7..], ["5  6", "```"]);
+        assert_eq!(got.matches("```").count() % 2, 0);
+        // Through the split, no part holds an open fence either.
+        for part in crate::render::split_text(&got, crate::render::PART_LIMIT) {
+            assert_eq!(part.matches("```").count() % 2, 0, "{part}");
+        }
+    }
+
+    /// A table whose every row, or whose header, is too long to draw is the text it was.
+    #[test]
+    fn a_table_that_cannot_fit_is_left_as_it_was() {
+        let all = format!("| a |\n|---|\n| {} |", long(2_000));
+        assert_eq!(fence_tables(&all), all);
+        let head = format!("| {} |\n|---|\n| 1 |", long(2_000));
+        assert_eq!(fence_tables(&head), head);
+    }
+
+    /// Rows that are each short enough but together too wide (two long cells in different columns)
+    /// draw once the worst of them is out.
+    #[test]
+    fn rows_that_are_too_wide_together_lose_the_worst_one() {
+        let t = format!(
+            "| a | b |\n|---|---|\n| {} | 1 |\n| 2 | {} |\n| 3 | 4 |",
+            long(600),
+            long(600)
+        );
+        let got = fence_tables(&t);
+        let lines: Vec<&str> = got.lines().collect();
+        assert_eq!(got.matches("```").count() % 2, 0);
+        // One row is the text it was; the rest are drawn, none longer than a row may be.
+        assert_eq!(lines.iter().filter(|l| l.starts_with("| ")).count(), 1);
+        assert!(lines
+            .iter()
+            .any(|l| l.starts_with("3 ") && l.ends_with("  4")));
+        assert!(
+            lines
+                .iter()
+                .all(|l| l.len() <= MAX_ROW || l.starts_with('|')),
+            "a drawn line is too long"
+        );
     }
 }

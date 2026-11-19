@@ -362,7 +362,7 @@ async fn an_agents_yes_kept_for_a_hold_is_refused_at_the_act() {
         .runner
         .tools
         .profile
-        .keep_yes(&q.correlation_id, &agent);
+        .keep_yes(&q.correlation_id, &sid, &q.execution_id, &agent);
     continue_turn(&r, &sid).await;
     let (status, text) = result_of_first(&r, &sid);
     assert_eq!(status, ResultStatus::Error, "{text}");

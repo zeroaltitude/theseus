@@ -19,7 +19,7 @@ impl Lane {
         let answer: SubagentAnswer = serde_json::from_value(body["answer"].clone())
             .map_err(|e| SendErr::refused(format!("a subagent post without its answer: {e}")))?;
         let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
-        let mut parts = render::subagent_parts(&answer);
+        let mut parts = render::subagent_parts_ended(&answer, body["turn_ended"].as_str());
         if let Some((tag, _)) = self.thread_tag(body, &turn_id) {
             render::thread_tag(&mut parts, &tag);
         }

@@ -81,6 +81,9 @@ struct Model {
     asked: Mutex<Vec<ProviderRequest>>,
     /// Run once, when a model with no tool offered is asked (a stop that lands during the call).
     on_asked: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The turn's own model call fails once it has read a tool's result (a turn that faults after
+    /// a successful ask).
+    fails_after_a_result: std::sync::atomic::AtomicBool,
 }
 
 impl Provider for Model {
@@ -94,6 +97,20 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
+        }
+        if self
+            .fails_after_a_result
+            .load(std::sync::atomic::Ordering::SeqCst)
+            && !req.tools.is_empty()
+            && tool_result_text(req).is_some()
+        {
+            return Box::pin(async {
+                Err(anyhow::Error::new(
+                    crate::provider::ProviderError::Overloaded {
+                        message: "the lighthouse is busy".into(),
+                    },
+                ))
+            });
         }
         if let Some(said) = self.plain.lock().unwrap().clone() {
             if req.tools.is_empty() {
@@ -197,6 +214,7 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         plain: Mutex::default(),
         asked: Mutex::default(),
         on_asked: Mutex::default(),
+        fails_after_a_result: Default::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -311,7 +329,49 @@ impl Rig {
         self.run_turn(sid).await;
     }
 
+    /// The turn's own model call fails once it has read a tool's result.
+    pub(super) fn the_turn_fails_after_a_result(&self) {
+        self.model
+            .fails_after_a_result
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     pub(super) async fn run_turn(&self, sid: &str) -> theseus_protocol::TurnSubmitResult {
+        self.try_turn(sid).await.unwrap()
+    }
+
+    /// [`Rig::turn_with`], for a turn that may end in an error.
+    pub(super) async fn try_turn_with(
+        &self,
+        tool: &str,
+        sid: &str,
+        call: Value,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.model.calls.lock().unwrap().push((tool.into(), call));
+        self.try_turn(sid).await
+    }
+
+    /// The turn the driver runs after an answer: no input, the call that was waiting.
+    pub(super) async fn try_continue(
+        &self,
+        sid: &str,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run(sid, None).await
+    }
+
+    /// One turn, as `run_turn` runs it, and what it ended with.
+    pub(super) async fn try_turn(
+        &self,
+        sid: &str,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run(sid, Some("change a setting".into())).await
+    }
+
+    async fn run(
+        &self,
+        sid: &str,
+        input: Option<String>,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -325,7 +385,7 @@ impl Rig {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: Some("change a setting".into()),
+                input,
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None),
                 author: "test".into(),
@@ -336,7 +396,6 @@ impl Rig {
                 answer_at: None,
             })
             .await
-            .unwrap()
     }
 
     pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {
