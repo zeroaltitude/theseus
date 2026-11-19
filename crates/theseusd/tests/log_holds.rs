@@ -1,10 +1,8 @@
 //! The daemon's log and its store's writer, each held where a stalled disk would hold it, with the real `theseusd`
 //! (debug builds only: the holds are a debug build's plant, `theseus_store::hold_by_fifo`). `health` answers while
-//! the log writer is held (the daemon on ONE runtime worker, so a thread that waited on the log would hold every
-//! other request with it), a turn is taken then, and `health` answers while the log writer AND the WAL writer are
-//! held together (on the daemon's own workers: the turn that opens a session asks the log's position under the
-//! writer's lock, on a worker, and a held writer holds that worker; with one worker that is the whole daemon, which
-//! is why this test does not run on one).
+//! the log writer is held, a turn is taken then, and `health` and another session's read answer while the log writer
+//! AND the WAL writer are held together and a turn waits for the write. The daemon runs on ONE runtime worker, so a
+//! thread that waited on either would hold every other request with it.
 
 mod common;
 
