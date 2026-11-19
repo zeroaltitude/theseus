@@ -588,10 +588,22 @@ async fn a_submit_is_one_request_and_the_value_is_nowhere_else() {
     assert_eq!(lines[0].matches(VALUE).count(), 1, "{}", lines[0]);
 
     // The presser is told, privately, what the daemon said, and it holds no value.
+    // The submit was acknowledged at once, with nothing in it (a deferred, ephemeral response), and that same
+    // response completed with the daemon's words.
     let replies = said(&fake);
-    assert_eq!(replies.len(), 1, "{replies:?}");
-    assert!(replies[0].ephemeral, "{replies:?}");
-    let told = replies[0].content.clone().unwrap();
+    assert_eq!(replies.len(), 2, "{replies:?}");
+    assert_eq!(
+        (
+            replies[0].kind.as_str(),
+            replies[0].response_type,
+            replies[0].ephemeral
+        ),
+        ("callback", Some(5), true),
+        "{replies:?}"
+    );
+    assert_eq!(replies[0].content, None, "the acknowledgement says nothing");
+    assert_eq!(replies[1].kind, "original", "{replies:?}");
+    let told = replies[1].content.clone().unwrap();
     assert!(
         told.starts_with("🔐 Nothing was kept") || told.starts_with("⚠️ Nothing was kept"),
         "{told}"

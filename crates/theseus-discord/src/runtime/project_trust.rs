@@ -225,6 +225,8 @@ impl Shared {
             None,
             serde_json::json!({"command": c.name, "by": who}),
         );
+        // Acknowledge first: a trust, an item or a list is the daemon's, and the first response is due in three seconds.
+        self.ack_ephemeral(i).await;
         if let Some((sub, args)) = parsed_item(&c.options) {
             let said = self.project_item_said(sub, &args, who, discord).await;
             self.project_respond(i, said).await;
@@ -248,23 +250,7 @@ impl Shared {
 
     /// The command's answer: ephemeral, so the command adds no noise to the place.
     async fn project_respond(self: &Arc<Self>, i: &Interaction, said: String) {
-        let resp = InteractionResponse {
-            kind: InteractionResponseType::ChannelMessageWithSource,
-            data: Some(InteractionResponseData {
-                content: Some(said),
-                flags: Some(MessageFlags::EPHEMERAL),
-                allowed_mentions: Some(AllowedMentions::default()),
-                ..Default::default()
-            }),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("project response", None, e);
-        }
+        self.finish_command(i, &said, "project response").await;
     }
 
     /// `/project item add|close|list`: the call as the presser, which the core

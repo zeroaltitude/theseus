@@ -13,9 +13,15 @@
 //! interaction's first answer, before there is a reply to edit. Their
 //! `allowed_mentions` were always empty.
 
+use std::future::Future;
+use std::time::Duration;
+
 use theseus_core::exits::Exits;
 use twilight_model::application::interaction::Interaction;
-use twilight_model::channel::message::AllowedMentions;
+use twilight_model::channel::message::{AllowedMentions, MessageFlags};
+use twilight_model::http::interaction::{
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
+};
 
 use super::Shared;
 use crate::render::clip;
@@ -29,7 +35,107 @@ pub(super) fn leaving(exits: &Exits, text: &str) -> String {
     clip(&exits.text(text).0, LIMIT)
 }
 
+/// How long a handler waits for the daemon after it has acknowledged an interaction: Discord lets the
+/// response be completed for fifteen minutes, so the wait ends a minute inside that.
+pub(super) const FOLLOW_UP_WINDOW: Duration = Duration::from_secs(14 * 60);
+
+/// How long a handler that must answer with a modal (which cannot follow an acknowledgement) or an autocomplete
+/// waits for the daemon: inside the service's three seconds, with room to send the response.
+pub(super) const ACK_DEADLINE: Duration = Duration::from_millis(2_500);
+
+/// What such a handler says when the daemon did not answer in time: nothing was done, and trying again is safe.
+pub(super) const TOO_SLOW: &str = "⏳ Theseus was slow to answer. Nothing was done: try again.";
+
+/// `work`, or `None` when [`ACK_DEADLINE`] ends first.
+pub(super) async fn within_ack<T>(work: impl Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(ACK_DEADLINE, work).await.ok()
+}
+
+/// What a response says when the daemon has not answered inside [`FOLLOW_UP_WINDOW`]: the work goes on, and the
+/// card (or the record) is where the outcome shows.
+pub(super) const STILL_WORKING: &str =
+    "⏳ Theseus has not finished yet. The card shows the outcome when it does.";
+
+/// `work`, or `None` when the follow-up window ends first. The daemon's request has been sent and is not
+/// cancelled: only the wait for its answer ends.
+pub(super) async fn within_follow_up<T>(work: impl Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(FOLLOW_UP_WINDOW, work).await.ok()
+}
+
 impl Shared {
+    /// Acknowledge an interaction at once, for a response that is completed later (Discord's first response is
+    /// due within three seconds: a handler that waits for the daemon first can miss it, and the person sees
+    /// "Something went wrong" whatever it then says). The acknowledgement carries nothing: the presser alone
+    /// sees "thinking", and the response is then completed with `finish_command`.
+    pub(super) async fn ack_ephemeral(&self, i: &Interaction) {
+        let resp = InteractionResponse {
+            kind: InteractionResponseType::DeferredChannelMessageWithSource,
+            data: Some(InteractionResponseData {
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            }),
+        };
+        if let Err(e) = self
+            .interact
+            .interaction(i.application_id)
+            .create_response(i.id, &i.token, &resp)
+            .await
+        {
+            self.board.error("interaction response", None, e);
+        }
+    }
+
+    /// Acknowledge a press on a message at once, for an edit of that message (or a follow-up to the presser)
+    /// that is made later.
+    pub(super) async fn ack_update(&self, i: &Interaction) {
+        self.respond(
+            i,
+            InteractionResponseType::DeferredUpdateMessage,
+            None,
+            false,
+        )
+        .await;
+    }
+
+    /// Complete an acknowledged reply (`ack_ephemeral`) with words and buttons.
+    pub(super) async fn finish_data(
+        &self,
+        i: &Interaction,
+        data: InteractionResponseData,
+        what: &str,
+    ) {
+        let content = leaving(&self.core.exits, data.content.as_deref().unwrap_or(""));
+        let components = data.components.unwrap_or_default();
+        if let Err(e) = self
+            .interact
+            .interaction(i.application_id)
+            .update_response(&i.token)
+            .content(Some(&content))
+            .components(Some(&components))
+            .allowed_mentions(Some(&AllowedMentions::default()))
+            .await
+        {
+            self.board.error(what, None, e);
+        }
+    }
+
+    /// Complete an acknowledged press on a message (`ack_update`): its words become `content` and its buttons
+    /// go, when it was answered; `what` names the handler in the board's error when the service refuses.
+    pub(super) async fn edit_pressed(&self, i: &Interaction, content: &str, what: &str) {
+        let content = leaving(&self.core.exits, content);
+        if let Err(e) = self
+            .interact
+            .interaction(i.application_id)
+            .update_response(&i.token)
+            .content(Some(&content))
+            .components(Some(&[]))
+            .allowed_mentions(Some(&AllowedMentions::default()))
+            .await
+        {
+            self.board.error(what, None, e);
+        }
+    }
+
     /// Edit `text` into the reply to `i` (already acknowledged). `what` names
     /// the command in the board's error when Discord refuses it.
     pub(super) async fn finish_command(&self, i: &Interaction, text: &str, what: &str) {

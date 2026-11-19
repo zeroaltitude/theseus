@@ -234,6 +234,8 @@ impl Shared {
         discord: Option<DiscordOrigin>,
     ) {
         let key = chosen(i, key);
+        // Acknowledge first: the answer is written by the daemon, and the first response is due in three seconds.
+        self.ack_update(i).await;
         let r = self
             .rpc
             .call::<_, ThreadAnswerResult>(
@@ -254,49 +256,29 @@ impl Shared {
         );
         // The card becomes the answer; a refused or late press changes
         // nothing on it and tells the presser alone.
-        let resp = match r {
+        match r {
             Ok(a) => {
                 let was = match (&a.routed, key.as_str()) {
                     (Some(s), _) => format!("\u{2192} {s}"),
                     (None, "new") => "\u{2192} a new thread".to_string(),
                     (None, _) => "\u{2192} home".to_string(),
                 };
-                InteractionResponse {
-                    kind: InteractionResponseType::UpdateMessage,
-                    data: Some(InteractionResponseData {
-                        content: Some(format!("\u{2705} {was}")),
-                        components: Some(Vec::new()),
-                        allowed_mentions: Some(AllowedMentions::default()),
-                        ..Default::default()
-                    }),
-                }
+                self.edit_pressed(i, &format!("\u{2705} {was}"), "thread ask response")
+                    .await;
             }
-            Err(e) => InteractionResponse {
-                kind: InteractionResponseType::ChannelMessageWithSource,
-                data: Some(InteractionResponseData {
-                    content: Some(match e.code == theseus_protocol::error_code::REFUSED {
-                        true => format!(
-                            "\u{1f510} Your answer did not count: {}.",
-                            e.data
-                                .get("why")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or(&e.message)
-                        ),
-                        false => format!("\u{26a0}\u{fe0f} {}", e.message),
-                    }),
-                    flags: Some(twilight_model::channel::message::MessageFlags::EPHEMERAL),
-                    allowed_mentions: Some(AllowedMentions::default()),
-                    ..Default::default()
-                }),
-            },
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("thread ask response", None, e);
+            Err(e) => {
+                let text = match e.code == theseus_protocol::error_code::REFUSED {
+                    true => format!(
+                        "\u{1f510} Your answer did not count: {}.",
+                        e.data
+                            .get("why")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or(&e.message)
+                    ),
+                    false => format!("\u{26a0}\u{fe0f} {}", e.message),
+                };
+                self.followup(i, &text).await;
+            }
         }
     }
 

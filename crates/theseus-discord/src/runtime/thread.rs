@@ -261,6 +261,9 @@ impl Shared {
             None,
             serde_json::json!({"command": c.name, "by": who}),
         );
+        // Acknowledge first: every subcommand is a call to the daemon, and the first response is due in three
+        // seconds.
+        self.ack_ephemeral(i).await;
         let said = match parsed(&c.options) {
             Some(("new", args)) => {
                 let get = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
@@ -319,23 +322,7 @@ impl Shared {
             _ => "⚠️ `/thread new`, `list`, `bind slug:`, `unbind`, `seal slug:`, `merge from: into:`, `link a: b:` or `unlink a: b:`."
                 .to_string(),
         };
-        let resp = InteractionResponse {
-            kind: InteractionResponseType::ChannelMessageWithSource,
-            data: Some(InteractionResponseData {
-                content: Some(said),
-                flags: Some(MessageFlags::EPHEMERAL),
-                allowed_mentions: Some(AllowedMentions::default()),
-                ..Default::default()
-            }),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("thread response", None, e);
-        }
+        self.finish_command(i, &said, "thread response").await;
         true
     }
 }

@@ -160,6 +160,8 @@ impl Shared {
             .await;
             return true;
         }
+        // Acknowledge first: the reminder is written by the daemon, and the first response is due in three seconds.
+        self.ack_ephemeral(i).await;
         let (when, what) = (
             text("when").unwrap_or_default(),
             text("what").unwrap_or_default(),
@@ -184,17 +186,7 @@ impl Shared {
             ),
             Err(e) => format!("⚠️ Not set: {}", e.message),
         };
-        self.remind_answer(
-            i,
-            InteractionResponseType::ChannelMessageWithSource,
-            InteractionResponseData {
-                content: Some(words),
-                flags: Some(MessageFlags::EPHEMERAL),
-                allowed_mentions: Some(AllowedMentions::default()),
-                ..Default::default()
-            },
-        )
-        .await;
+        self.finish_command(i, &words, "reminder response").await;
         true
     }
 
@@ -210,6 +202,8 @@ impl Shared {
         let Some(a) = reminder_answers().into_iter().find(|a| a.id == answer) else {
             return;
         };
+        // Acknowledge first: the answer is written by the daemon, and the first response is due in three seconds.
+        self.ack_update(i).await;
         let said = if a.method == method::WAKE_DONE {
             let r = self
                 .rpc
@@ -243,28 +237,17 @@ impl Shared {
             .as_ref()
             .map(|m| m.content.clone())
             .unwrap_or_default();
-        let data = match said {
-            Ok(line) => InteractionResponseData {
-                content: Some(format!("{was}\n-# {line}")),
-                components: Some(vec![]),
-                allowed_mentions: Some(AllowedMentions::default()),
-                ..Default::default()
-            },
+        match said {
+            Ok(line) => {
+                self.edit_pressed(i, &format!("{was}\n-# {line}"), "reminder response")
+                    .await;
+            }
             // The buttons stay, so the owner may try again; the failure is theirs alone.
             Err(why) => {
-                let data = InteractionResponseData {
-                    content: Some(format!("⚠️ That did not count: {why}")),
-                    flags: Some(MessageFlags::EPHEMERAL),
-                    allowed_mentions: Some(AllowedMentions::default()),
-                    ..Default::default()
-                };
-                self.remind_answer(i, InteractionResponseType::ChannelMessageWithSource, data)
+                self.followup(i, &format!("⚠️ That did not count: {why}"))
                     .await;
-                return;
             }
-        };
-        self.remind_answer(i, InteractionResponseType::UpdateMessage, data)
-            .await;
+        }
     }
 
     async fn remind_answer(

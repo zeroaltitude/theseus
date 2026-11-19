@@ -521,3 +521,112 @@ fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
     assert_eq!(r.cards().len(), 1, "the card still waits");
     r.value_nowhere();
 }
+
+/// The vault's program is slow (held open by a gate), as the real one was: the service wants the first response to a
+/// form's submit within three seconds, so the binding acknowledges it at once, with nothing of the value, and
+/// completes that same response when the daemon answers. A second submit for the card while the first is with the
+/// daemon is refused in true words and asks nothing of the vault. The value is found nowhere else, in the
+/// acknowledgement and the completion included, and the service refused nothing (no `discord.error`).
+#[test]
+fn a_slow_vault_does_not_make_the_form_miss_the_services_three_seconds() {
+    let r = Rig::start(true);
+    r.pair();
+    let card = r.card();
+    r.fake
+        .press(&Pressed {
+            message: &card.id,
+            button: "Type the value here",
+            user: ANA,
+            name: "ana",
+        })
+        .unwrap();
+    let form = r.wait("the form", || {
+        r.fake.replies().into_iter().find_map(|x| x.modal)
+    });
+    let id = form["custom_id"].as_str().unwrap().to_string();
+    common::vault::hold(r.vault.path());
+    let submit = |code: &str| {
+        r.fake
+            .modal(&Modal {
+                user: ANA,
+                name: "ana",
+                channel: ANA + 1,
+                custom_id: &id,
+                fields: &[("code", code), ("value", VALUE)],
+            })
+            .unwrap()
+    };
+    let first = submit(&r.code_now());
+    r.wait("the vault's program to be holding the write", || {
+        common::vault::holding(r.vault.path()).then_some(())
+    });
+    // The write has not happened, and the submit is already acknowledged: deferred, ephemeral, no words.
+    assert!(common::vault::stored(r.vault.path()).is_none());
+    let ack: Vec<_> = r
+        .fake
+        .replies()
+        .into_iter()
+        .filter(|x| x.interaction.as_deref() == Some(first.as_str()))
+        .collect();
+    assert_eq!(ack.len(), 1, "only the acknowledgement so far: {ack:?}");
+    assert_eq!(
+        (
+            ack[0].kind.as_str(),
+            ack[0].response_type,
+            ack[0].ephemeral,
+            ack[0].content.as_deref()
+        ),
+        ("callback", Some(5), true, None),
+        "{ack:?}"
+    );
+    // A second submit while the first is with the daemon: refused at once, in true words.
+    let second = submit(&r.code_now());
+    let refusal = r.wait("the second submit's answer", || {
+        r.fake
+            .replies()
+            .into_iter()
+            .find(|x| x.interaction.as_deref() == Some(second.as_str()))
+    });
+    let said = refusal.content.unwrap_or_default();
+    assert!(said.contains("being kept right now"), "{said}");
+    assert!(
+        !said.contains("already"),
+        "not 'already answered' before it is: {said}"
+    );
+    // Let the vault go: the same response is completed with the outcome.
+    common::vault::release(r.vault.path());
+    let done = r.wait("the first response to be completed", || {
+        r.fake
+            .replies()
+            .into_iter()
+            .find(|x| x.interaction.as_deref() == Some(first.as_str()) && x.kind == "original")
+    });
+    let said = done.content.unwrap_or_default();
+    assert!(said.starts_with("✅ Kept in the vault"), "{said}");
+    assert!(done.ephemeral || !said.is_empty());
+    assert_eq!(
+        common::vault::stored(r.vault.path())
+            .as_deref()
+            .map(str::trim),
+        Some(VALUE)
+    );
+    r.wait("the card to settle", || r.cards().is_empty().then_some(()));
+    // One write, one `kept` row, and the second attempt asked the daemon for nothing.
+    let rows = r.ledger("vault.keep");
+    assert_eq!(
+        rows.iter().filter(|x| x["outcome"] == "kept").count(),
+        1,
+        "{rows:?}"
+    );
+    assert_eq!(
+        rows.len(),
+        1,
+        "no row for the refused second submit: {rows:?}"
+    );
+    assert!(
+        r.ledger("discord.error").is_empty(),
+        "{:?}",
+        r.ledger("discord.error")
+    );
+    r.value_nowhere();
+}

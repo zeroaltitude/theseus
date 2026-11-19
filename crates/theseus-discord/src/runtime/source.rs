@@ -112,6 +112,8 @@ impl Shared {
         let Some((session, handle)) = parse(&c.custom_id) else {
             return false;
         };
+        // Acknowledge first: the source is read from the memory index, and the first response is due in three seconds.
+        self.ack_ephemeral(i).await;
         let said = match self
             .rpc
             .call::<_, MemoryCitesResult>(
@@ -129,23 +131,7 @@ impl Shared {
             },
             Err(e) => format!("⚠️ The source could not be read: {}", e.message),
         };
-        let resp = InteractionResponse {
-            kind: InteractionResponseType::ChannelMessageWithSource,
-            data: Some(InteractionResponseData {
-                content: Some(said),
-                flags: Some(MessageFlags::EPHEMERAL),
-                allowed_mentions: Some(AllowedMentions::default()),
-                ..Default::default()
-            }),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("interaction response", None, e);
-        }
+        self.finish_command(i, &said, "interaction response").await;
         true
     }
 }

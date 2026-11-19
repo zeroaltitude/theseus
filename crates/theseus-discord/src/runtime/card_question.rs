@@ -165,17 +165,22 @@ impl Shared {
             // The one proposal's words, read as it stands: nothing is
             // expired by the read (theseus-5pypl), and the owner never gets
             // an empty box: a proposal that cannot be edited is said, alone.
-            let read = self
-                .rpc
-                .call::<_, CardListResult>(
-                    method::CARD_LIST,
-                    CardListParams {
-                        author: Some(who.to_string()),
-                        discord,
-                        id: Some(press.id.clone()),
-                    },
-                )
-                .await;
+            // The form is the response (a modal cannot follow an acknowledgement), so the daemon's list is waited
+            // for inside the service's three seconds, and said to be slow when it is.
+            let Some(read) = super::command_reply::within_ack(self.rpc.call::<_, CardListResult>(
+                method::CARD_LIST,
+                CardListParams {
+                    author: Some(who.to_string()),
+                    discord,
+                    id: Some(press.id.clone()),
+                },
+            ))
+            .await
+            else {
+                return self
+                    .tell(i, super::command_reply::TOO_SLOW.to_string())
+                    .await;
+            };
             let words = match read {
                 Ok(l) => edit_words(&l, &press.id, theseus_protocol::now_unix_ms()),
                 Err(e) => Err(super::capture_card::failed(&e)),

@@ -600,6 +600,8 @@ impl Shared {
             self.reply_ephemeral(i, SHARED.into()).await;
             return false;
         }
+        // Acknowledge first: the daemon writes the change, and the first response is due in three seconds.
+        self.ack_ephemeral(i).await;
         let author = Some(who.to_string());
         let said = if let Some(wake) = choice.strip_prefix(CANCEL_PREFIX) {
             let r = self
@@ -645,7 +647,7 @@ impl Shared {
         };
         self.tasks.future.dirty();
         let done = !said.starts_with('⚠');
-        self.reply_ephemeral(i, said).await;
+        self.finish_command(i, &said, "interaction response").await;
         done
     }
 
@@ -663,6 +665,8 @@ impl Shared {
             self.reply_ephemeral(i, SHARED.into()).await;
             return false;
         }
+        // Acknowledge first: the daemon writes the change, and the first response is due in three seconds.
+        self.ack_ephemeral(i).await;
         let said = if cancel {
             let r = self
                 .rpc
@@ -703,7 +707,7 @@ impl Shared {
         };
         self.tasks.future.dirty();
         let done = !said.starts_with('⚠');
-        self.reply_ephemeral(i, said).await;
+        self.finish_command(i, &said, "interaction response").await;
         done
     }
 
@@ -769,6 +773,8 @@ impl Shared {
         let (sub, opts) = sub_of(c);
         match (c.name.as_str(), sub.as_str()) {
             ("agenda", _) => {
+                // Acknowledge first: the reads below are several calls to the daemon.
+                self.ack_ephemeral(i).await;
                 let span = Span::parse(&opt(&opts, "when").unwrap_or_default());
                 if self.read_future().await {
                     self.redraw_private_boards();
@@ -787,31 +793,30 @@ impl Shared {
                     &s.projects,
                     &going,
                 );
-                self.reply_ephemeral(i, t).await;
+                self.finish_command(i, &t, "interaction response").await;
             }
             ("routine", "add") => {
                 self.answer(i, InteractionResponseType::Modal, Some(routine_modal()))
                     .await;
             }
             ("routine", "list") => {
+                self.ack_ephemeral(i).await;
                 if self.read_future().await {
                     self.redraw_private_boards();
                 }
                 let s = self.tasks.future.snapshot();
                 let data = routine_list(&s.routines, &s.records);
-                self.answer(
-                    i,
-                    InteractionResponseType::ChannelMessageWithSource,
-                    Some(data),
-                )
-                .await;
+                self.finish_data(i, data, "interaction response").await;
             }
             ("routine", verb @ ("pause" | "resume" | "run")) => {
+                // Acknowledge first: a routine's pause, resume or run is written (and run starts a task).
+                self.ack_ephemeral(i).await;
                 let name = opt(&opts, "name").unwrap_or_default();
                 let said = self.routine_verb(i, verb, &name, who).await;
-                self.reply_ephemeral(i, said).await;
+                self.finish_command(i, &said, "interaction response").await;
             }
             ("snooze", _) => {
+                self.ack_ephemeral(i).await;
                 let (wake, when) = (
                     opt(&opts, "wake").unwrap_or_default(),
                     opt(&opts, "when").unwrap_or_default(),
@@ -836,7 +841,7 @@ impl Shared {
                     ),
                     Err(e) => format!("⚠️ Not snoozed: {}", e.message),
                 };
-                self.reply_ephemeral(i, said).await;
+                self.finish_command(i, &said, "interaction response").await;
             }
             ("watch", sub) => self.watch_command(i, sub, &opts).await,
             _ => self.reply_ephemeral(i, "Unknown option.".into()).await,
@@ -856,6 +861,7 @@ impl Shared {
                     .await;
             }
             "list" => {
+                self.ack_ephemeral(i).await;
                 if self.read_future().await {
                     self.redraw_private_boards();
                 }
@@ -877,7 +883,8 @@ impl Shared {
                 if s.watches.is_empty() {
                     out.push("none open. `/watch add` makes one.".into());
                 }
-                self.reply_ephemeral(i, out.join("\n")).await;
+                self.finish_command(i, &out.join("\n"), "interaction response")
+                    .await;
             }
             _ => self.reply_ephemeral(i, "Unknown option.".into()).await,
         }
@@ -961,11 +968,17 @@ impl Shared {
     /// ephemeral message) the list is drawn again; elsewhere the presser is
     /// told.
     async fn routine_press(&self, i: &Interaction, verb: &str, id: &str, who: &str) {
-        let said = self.routine_verb(i, verb, id, who).await;
         let in_list = i
             .message
             .as_ref()
             .is_some_and(|m| m.flags.is_some_and(|f| f.contains(MessageFlags::EPHEMERAL)));
+        // Acknowledge first: the verb is written by the daemon (a run starts a task), and the first response is
+        // due in three seconds. From the list the answer redraws the list; elsewhere it is a line to the presser.
+        match in_list {
+            true => self.ack_update(i).await,
+            false => self.ack_ephemeral(i).await,
+        }
+        let said = self.routine_verb(i, verb, id, who).await;
         if in_list && !said.starts_with('⚠') {
             if self.read_future().await {
                 self.redraw_private_boards();
@@ -973,10 +986,11 @@ impl Shared {
             let s = self.tasks.future.snapshot();
             let mut data = routine_list(&s.routines, &s.records);
             data.content = data.content.map(|c| format!("{c}\n-# {said}"));
-            self.answer(i, InteractionResponseType::UpdateMessage, Some(data))
-                .await;
+            self.finish_data(i, data, "interaction response").await;
+        } else if in_list {
+            self.followup(i, &said).await;
         } else {
-            self.reply_ephemeral(i, said).await;
+            self.finish_command(i, &said, "interaction response").await;
         }
     }
 
@@ -991,6 +1005,8 @@ impl Shared {
             Ok(p) => p,
             Err(e) => return self.reply_ephemeral(i, format!("⚠️ Not made: {e}")).await,
         };
+        // Acknowledge first: the routine is written by the daemon.
+        self.ack_ephemeral(i).await;
         let r = self
             .rpc
             .call::<_, RoutineEditResult>(method::ROUTINE_CREATE, p)
@@ -1010,7 +1026,7 @@ impl Shared {
             ),
                 Err(e) => format!("⚠️ Not made: {}", e.message),
             };
-        self.reply_ephemeral(i, said).await;
+        self.finish_command(i, &said, "interaction response").await;
     }
 
     async fn watch_submit(
@@ -1030,8 +1046,10 @@ impl Shared {
             Err(e) => return self.reply_ephemeral(i, format!("⚠️ Not made: {e}")).await,
         };
         if kind != "command" {
+            // Acknowledge first: the watch is written by the daemon.
+            self.ack_ephemeral(i).await;
             let said = self.watch_create(p).await;
-            return self.reply_ephemeral(i, said).await;
+            return self.finish_command(i, &said, "interaction response").await;
         }
         // A command is approved once, showing what will run.
         let WatchCheck::Run { argv, .. } = &p.check else {
@@ -1095,20 +1113,15 @@ impl Shared {
     }
 
     async fn watch_approval(&self, i: &Interaction, verb: &str, token: &str, _who: &str) {
+        // Acknowledge first: an approved watch is written by the daemon.
+        self.ack_update(i).await;
         let taken = self.tasks.future.pending.lock().unwrap().remove(token);
         let said = match (verb, taken) {
             ("ok", Some((_, p))) => self.watch_create(p).await,
             ("no", Some(_)) => "Not watching.".into(),
             _ => "That approval has passed: make the watch again.".into(),
         };
-        let data = InteractionResponseData {
-            content: Some(said),
-            components: Some(vec![]),
-            allowed_mentions: Some(AllowedMentions::default()),
-            ..Default::default()
-        };
-        self.answer(i, InteractionResponseType::UpdateMessage, Some(data))
-            .await;
+        self.edit_pressed(i, &said, "interaction response").await;
     }
 
     async fn watch_create(&self, p: WatchCreateParams) -> String {

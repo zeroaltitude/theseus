@@ -203,6 +203,8 @@ impl Shared {
         let Some((key, text)) = submitted(m) else {
             return;
         };
+        // Acknowledge first: the soul is written by the daemon, and the first response is due in three seconds.
+        self.ack_ephemeral(i).await;
         let r = self
             .rpc
             .call::<_, PersonaWriteResult>(
@@ -228,7 +230,7 @@ impl Shared {
             ),
             Err(e) => failed("soul", &e),
         };
-        self.tell(i, line).await;
+        self.finish_command(i, &line, "persona soul response").await;
     }
 }
 

@@ -169,6 +169,62 @@ fn interaction_answers_are_kept_and_their_tokens_are_not() {
     assert!(fake.seen().iter().all(|s| !s.path.contains(&tok)));
 }
 
+/// Discord's rule, which the fake keeps: an interaction's first response comes within three seconds, or the
+/// interaction is unknown (10062) and the person sees "Something went wrong". An acknowledgement in time keeps
+/// it known, and what follows (an edit, a follow-up) is accepted. The limit is the test's to set, and an
+/// interaction can be backdated, so no test waits three seconds.
+#[test]
+fn a_response_after_three_seconds_with_no_acknowledgement_is_refused_as_unknown() {
+    let fake = FakeDiscord::start();
+    fake.set_ack_limit_ms(3_000);
+    let call = |id: &str, ty: u64| {
+        http(
+            &fake.addr,
+            "POST",
+            &format!("/api/v10/interactions/{id}/{TOKEN_PREFIX}{id}/callback"),
+            &json!({"type": ty, "data": {"content": "late"}}),
+        )
+    };
+    // An interaction the fake sent, answered at once: accepted.
+    let fresh = "501";
+    fake.state
+        .lock()
+        .unwrap()
+        .arrived
+        .insert(fresh.into(), std::time::Instant::now());
+    assert_eq!(call(fresh, 4).0, 204);
+    // The same, three seconds late and never acknowledged: 10062, and nothing is recorded as a reply.
+    fake.state
+        .lock()
+        .unwrap()
+        .arrived
+        .insert("502".into(), std::time::Instant::now());
+    fake.backdate_interaction("502", 3_500);
+    let (s, body) = call("502", 4);
+    assert_eq!((s, &body["code"]), (404, &json!(10062)), "{body}");
+    assert_eq!(fake.replies().len(), 1, "{:?}", fake.replies());
+    assert!(fake
+        .seen()
+        .iter()
+        .any(|s| s.outcome == "unknown interaction"));
+    // Acknowledged in time, then answered after the three seconds are long past: accepted.
+    fake.state
+        .lock()
+        .unwrap()
+        .arrived
+        .insert("503".into(), std::time::Instant::now());
+    assert_eq!(call("503", 5).0, 204);
+    fake.backdate_interaction("503", 60_000);
+    let (s, _) = http(
+        &fake.addr,
+        "PATCH",
+        &format!("/api/v10/webhooks/{APP_ID}/{TOKEN_PREFIX}503/messages/@original"),
+        &json!({"content": "done"}),
+    );
+    assert_eq!(s, 200);
+    assert!(fake.acknowledged().contains(&"503".to_string()));
+}
+
 /// theseus-qifw: a message keeps each content it had, in order, and its
 /// buttons until an edit takes them away.
 #[test]

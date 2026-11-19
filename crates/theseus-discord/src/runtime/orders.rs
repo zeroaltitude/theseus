@@ -264,6 +264,8 @@ impl Shared {
                     None,
                     serde_json::json!({"command": c.name, "by": who}),
                 );
+                // Acknowledge first: an order is added by the daemon, and the first response is due in three seconds.
+                self.ack_ephemeral(i).await;
                 let mut said = None;
                 if let Some(p) = add_of(&c.options, who, discord.clone()) {
                     let r = self
@@ -283,14 +285,15 @@ impl Shared {
                 if let Some(said) = said {
                     data.content = Some(format!("{said}\n\n{}", data.content.unwrap_or_default()));
                 }
-                self.orders_answer(i, InteractionResponseType::ChannelMessageWithSource, data)
-                    .await;
+                self.finish_data(i, data, "orders response").await;
                 true
             }
             Some(InteractionData::MessageComponent(c)) => {
                 let Some(id) = revoke_of(&c.custom_id) else {
                     return false;
                 };
+                // Acknowledge first: the revoke is the daemon's, and the first response is due in three seconds.
+                self.ack_update(i).await;
                 // The press goes through the place, as the presser.
                 let said =
                     Self::ask_place(tx, Control::Unorder(id.to_string(), discord.clone()), who)
@@ -300,31 +303,10 @@ impl Shared {
                     Err(_) => InteractionResponseData::default(),
                 };
                 data.content = Some(format!("{said}\n\n{}", data.content.unwrap_or_default()));
-                self.orders_answer(i, InteractionResponseType::UpdateMessage, data)
-                    .await;
+                self.finish_data(i, data, "orders response").await;
                 true
             }
             _ => false,
-        }
-    }
-
-    async fn orders_answer(
-        &self,
-        i: &Interaction,
-        kind: InteractionResponseType,
-        data: InteractionResponseData,
-    ) {
-        let resp = InteractionResponse {
-            kind,
-            data: Some(data),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("orders response", None, e);
         }
     }
 }

@@ -284,6 +284,8 @@ impl Place {
     /// Stop, sure: the same `task.cancel` as `/cancel`.
     async fn stop_task(&self, p: &TaskPress, task: &str) {
         let s = &self.shared;
+        // Acknowledge first: the cancel is the daemon's, and the first response is due in three seconds.
+        s.ack_update(&p.i).await;
         let target = s
             .tasks
             .view(task)
@@ -292,7 +294,7 @@ impl Place {
         let words = self
             .cancel_task(target, &p.who, "no wake of that name either")
             .await;
-        s.respond_v2(&p.i, 7, &card_v2::closed(&words), true).await;
+        s.edit_original_v2(&p.i, &card_v2::closed(&words)).await;
     }
 
     /// An answer pressed: `work.answer` as the presser.

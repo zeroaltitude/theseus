@@ -417,6 +417,11 @@ impl Place {
         };
         match what {
             What::Tasks(show) => {
+                // The shows that read the finished tasks ask the daemon first: acknowledge before that.
+                let reads = matches!(show, Show::Done | Show::All);
+                if reads {
+                    s.ack_ephemeral(&i).await;
+                }
                 let p = s.tasks.project(&self.session_id);
                 let history = self.history(show).await;
                 let parts = Parts {
@@ -426,7 +431,10 @@ impl Place {
                     history: &history,
                 };
                 let comps = snapshot::render(show, &parts, theseus_protocol::now_unix_ms());
-                s.respond_v2(&i, 4, &comps, true).await;
+                match reads {
+                    true => s.edit_original_v2(&i, &comps).await,
+                    false => s.respond_v2(&i, 4, &comps, true).await,
+                }
             }
             What::Task(name) => self.task_named(&i, &name).await,
             What::Share(name, g) => self.share_task(&i, &name, g).await,
@@ -556,8 +564,12 @@ impl Place {
             return true;
         }
         if let Some(show) = id.strip_prefix(snapshot::REFRESH) {
-            let pr = s.tasks.project(&self.session_id);
             let show = Show::parse(show).unwrap_or_default();
+            let reads = matches!(show, Show::Done | Show::All);
+            if reads {
+                s.ack_update(&p.i).await;
+            }
+            let pr = s.tasks.project(&self.session_id);
             let history = self.history(show).await;
             let parts = Parts {
                 needs: &pr.needs,
@@ -566,7 +578,10 @@ impl Place {
                 history: &history,
             };
             let comps = snapshot::render(show, &parts, theseus_protocol::now_unix_ms());
-            s.respond_v2(&p.i, 7, &comps, true).await;
+            match reads {
+                true => s.edit_original_v2(&p.i, &comps).await,
+                false => s.respond_v2(&p.i, 7, &comps, true).await,
+            }
             return true;
         }
         if let Some(task) = id.strip_prefix(FOLLOW) {
@@ -589,8 +604,11 @@ impl Place {
         }
         for (prefix, retry) in [(RETRY, true), (DISMISS, false)] {
             if let Some(task) = id.strip_prefix(prefix) {
+                // Acknowledge first: a retry starts a task and a dismissal is written, and the first response is due
+                // in three seconds.
+                s.ack_ephemeral(&p.i).await;
                 let line = self.failure_verb(&p.i, task, retry).await;
-                s.tell(&p.i, line).await;
+                s.finish_command(&p.i, &line, "task control response").await;
                 return true;
             }
         }

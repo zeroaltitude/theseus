@@ -297,6 +297,14 @@ impl Shared {
         let Some((question, option)) = av2::parse_pair(av2::MODAL, &m.custom_id) else {
             return;
         };
+        // Acknowledge first: the file is fetched from the service and the answer is the daemon's to write, and the
+        // first response is due in three seconds. From a button on a message the answer edits that message; from a
+        // command it is a line to the presser alone.
+        let on_message = i.message.is_some();
+        match on_message {
+            true => self.ack_update(i).await,
+            false => self.ack_ephemeral(i).await,
+        }
         let (mut note, files) = fields_of(m);
         if let Some(file) = files.first() {
             note.push_str(&self.file_note(m, file).await);
@@ -339,12 +347,10 @@ impl Shared {
             }
             Err(e) => format!("⚠️ Could not answer: {e}"),
         };
-        // From a button on a message the modal edits that message; from a
-        // command it is a line to the presser alone.
-        if i.message.is_some() && line.starts_with('✅') {
-            self.respond_v2(i, 7, &card_v2::closed(&line), true).await;
-        } else {
-            self.tell(i, line).await;
+        match (on_message, line.starts_with('✅')) {
+            (true, true) => self.edit_original_v2(i, &card_v2::closed(&line)).await,
+            (true, false) => self.followup(i, &line).await,
+            (false, _) => self.finish_command(i, &line, "answer response").await,
         }
     }
 

@@ -34,6 +34,7 @@ use twilight_model::application::interaction::modal::ModalInteractionData;
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
 
+use super::command_reply::{within_ack, within_follow_up, STILL_WORKING, TOO_SLOW};
 use super::persona_soul::field_of;
 use super::proof_form::keeps;
 use super::{origin_of, Shared};
@@ -62,6 +63,8 @@ const NOT_HERE: &str =
      your own terminal (`theseus vault keep`) or the cockpit. It is not typed in a channel.";
 const OFF: &str = "Typing a secret's value in Discord is turned off (`[vault] keep_by_discord`). Give it in your own \
      terminal with `theseus vault keep`, or in the card's field in the cockpit.";
+const IN_FLIGHT: &str =
+    "A value for this card is being kept right now: wait for its answer. Nothing was sent again.";
 const GONE: &str =
     "That card is not waiting for a value any more. Ask Theseus to keep the secret again.";
 
@@ -228,10 +231,16 @@ impl Shared {
         if i.guild_id.is_some() {
             return say(NOT_HERE).await;
         }
-        let listed: Result<ConfirmListResult, _> = self
-            .rpc
-            .call(method::CONFIRM_LIST, ConfirmListParams { discord })
-            .await;
+        // The form is the response (a modal cannot follow an acknowledgement), so the daemon's list is waited for
+        // inside the service's three seconds, and said to be slow when it is.
+        let listed: Option<Result<ConfirmListResult, _>> = within_ack(
+            self.rpc
+                .call(method::CONFIRM_LIST, ConfirmListParams { discord }),
+        )
+        .await;
+        let Some(listed) = listed else {
+            return self.tell(i, TOO_SLOW.to_string()).await;
+        };
         let Ok(listed) = listed else {
             return say(GONE).await;
         };
@@ -272,6 +281,14 @@ impl Shared {
         let Some(question) = question_of(&m.custom_id) else {
             return self.tell(i, format!("🔐 {GONE}")).await;
         };
+        // One submit at a time for a card: a second while the first is with the daemon is refused at once, in
+        // words that are true while it is (the card is not yet answered), and asks the daemon for nothing.
+        let Some(_one) = Submitting::take(question) else {
+            return self.tell(i, format!("🔐 {IN_FLIGHT}")).await;
+        };
+        // The service wants the first response within three seconds and the vault's program can take longer:
+        // acknowledge now (nothing of the value in it), and complete the same response when the daemon answers.
+        self.ack_ephemeral(i).await;
         let code = field_of(m, CODE_FIELD);
         let typed = field_of(m, VALUE_FIELD);
         // What the daemon would refuse is found here, since the form counts characters and the daemon bytes,
@@ -293,33 +310,59 @@ impl Shared {
             discord,
             ..Default::default()
         };
-        let r = self
-            .rpc
-            .call::<_, VaultKept>(method::VAULT_KEEP_ANSWER, params)
-            .await;
+        let r = within_follow_up(
+            self.rpc
+                .call::<_, VaultKept>(method::VAULT_KEEP_ANSWER, params),
+        )
+        .await;
         // The outcome, and never the field.
         self.core.binding_ledger(
             LedgerKind::DiscordConfirm,
             None,
             json!({"correlation_id": question, "option": OPTION, "by": who,
-                   "ok": r.is_ok(), "modal": true, "keep": true,
-                   "error": r.as_ref().err().map(|e| e.message.clone())}),
+                   "ok": r.as_ref().is_some_and(Result::is_ok), "modal": true, "keep": true,
+                   "error": r.as_ref().and_then(|r| r.as_ref().err()).map(|e| e.message.clone())}),
         );
-        match r {
-            Ok(kept) => self.tell(i, format!("✅ {}", kept.words)).await,
-            Err(e) if e.code == theseus_protocol::error_code::REFUSED => {
+        let text = match r {
+            None => STILL_WORKING.to_string(),
+            Some(Ok(kept)) => format!("✅ {}", kept.words),
+            Some(Err(e)) if e.code == theseus_protocol::error_code::REFUSED => {
                 let why = e.data.get("why").and_then(Value::as_str);
-                self.tell(
-                    i,
-                    format!("🔐 Nothing was kept: {}", why.unwrap_or(&e.message)),
-                )
-                .await;
+                format!("🔐 Nothing was kept: {}", why.unwrap_or(&e.message))
             }
-            Err(e) => {
-                self.tell(i, format!("⚠️ Nothing was kept: {}", e.message))
-                    .await
+            Some(Err(e)) => format!("⚠️ Nothing was kept: {}", e.message),
+        };
+        self.finish_command(i, &text, "keep form response").await;
+    }
+}
+
+/// The cards whose form is with the daemon now, so a second submit for one is refused and not sent.
+static SUBMITTING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// A card's turn at the daemon, given back on drop.
+struct Submitting(String);
+
+impl Submitting {
+    fn take(question: &str) -> Option<Self> {
+        let mut held = SUBMITTING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match held.iter().any(|q| q == question) {
+            true => None,
+            false => {
+                held.push(question.to_string());
+                Some(Self(question.to_string()))
             }
         }
+    }
+}
+
+impl Drop for Submitting {
+    fn drop(&mut self) {
+        SUBMITTING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|q| *q != self.0);
     }
 }
 

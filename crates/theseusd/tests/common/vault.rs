@@ -20,6 +20,8 @@ case "$1 $2" in
     [ -f "$D/op.created" ] && EXTRA=",{\"id\":\"itemid00000000000000000099\",\"title\":\"$(cat "$D/op.created")\",\"vault\":{\"id\":\"vaultid00000000000000000001\",\"name\":\"Harbor\"},\"category\":\"API_CREDENTIAL\"}"
     echo "[{\"id\":\"itemid00000000000000000001\",\"title\":\"Lantern key\",\"vault\":{\"id\":\"vaultid00000000000000000001\",\"name\":\"Harbor\"},\"category\":\"API_CREDENTIAL\"}$EXTRA]" ;;
   "item create"|"item edit")
+    # A test that holds the write open (`hold`): say so, then wait to be let go. Nothing polls and nothing sleeps.
+    if [ -p "$D/op.gate" ]; then : > "$D/op.holding"; read _ < "$D/op.gate"; fi
     cat > "$D/op.stdin"
     sed -n 's/.*"id":"credential","[^}]*"value":"\([^"]*\)".*/\1/p' "$D/op.stdin" > "$D/op.stored"
     [ "$1 $2" = "item create" ] && sed -n 's/.*"title":"\([^"]*\)".*/\1/p' "$D/op.stdin" > "$D/op.created"
@@ -52,4 +54,30 @@ pub fn argv(dir: &Path) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
+}
+
+/// Make the next write wait until [`release`]: the program says it is holding (`holding`) and then blocks
+/// reading a pipe, so a test can look at everything that happens while the vault is slow, with no sleep.
+pub fn hold(dir: &Path) {
+    let gate = dir.join("op.gate");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&gate)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo");
+}
+
+/// Whether the held write has begun and is waiting.
+pub fn holding(dir: &Path) -> bool {
+    dir.join("op.holding").exists()
+}
+
+/// Let the held write go on.
+pub fn release(dir: &Path) {
+    use std::io::Write;
+    let mut gate = std::fs::OpenOptions::new()
+        .write(true)
+        .open(dir.join("op.gate"))
+        .unwrap();
+    gate.write_all(b"go\n").unwrap();
 }

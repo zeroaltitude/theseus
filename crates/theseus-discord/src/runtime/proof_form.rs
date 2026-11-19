@@ -105,10 +105,18 @@ impl Shared {
         question: &str,
         discord: Option<DiscordOrigin>,
     ) -> bool {
-        let listed: Result<ConfirmListResult, _> = self
-            .rpc
-            .call(method::CONFIRM_LIST, ConfirmListParams { discord })
-            .await;
+        // The form is the response (a modal cannot follow an acknowledgement), so the daemon's list is waited for
+        // inside the service's three seconds; when it is slower the press is told so, and nothing is done.
+        let listed: Option<Result<ConfirmListResult, _>> = super::command_reply::within_ack(
+            self.rpc
+                .call(method::CONFIRM_LIST, ConfirmListParams { discord }),
+        )
+        .await;
+        let Some(listed) = listed else {
+            self.tell(i, super::command_reply::TOO_SLOW.to_string())
+                .await;
+            return true;
+        };
         let Ok(listed) = listed else {
             return false;
         };
@@ -166,6 +174,14 @@ impl Shared {
         let Some(question) = question_of(&m.custom_id) else {
             return;
         };
+        // Acknowledge first: the approval is the daemon's to carry out (a settings change is written, an install
+        // restarts), and the first response is due in three seconds. From a button on a message the answer edits
+        // that message; from a command it is a line to the presser alone.
+        let on_message = i.message.is_some();
+        match on_message {
+            true => self.ack_update(i).await,
+            false => self.ack_ephemeral(i).await,
+        }
         let typed = super::persona_soul::field_of(m, CODE_FIELD);
         let code = Some(typed.trim())
             .filter(|c| !c.is_empty())
@@ -197,31 +213,31 @@ impl Shared {
                    "ok": r.is_ok(), "modal": true, "proof": true,
                    "error": r.as_ref().err().map(|e| e.message.clone())}),
         );
-        match r {
+        let (line, counted) = match r {
             Ok(done) => {
                 let mut line =
                     format!("✅ **Approved** by {who} · `…{}`", short(&done.question_id));
                 if let Some(detail) = &done.detail {
                     line.push_str(&format!("\n-# {detail}"));
                 }
-                if i.message.is_some() {
-                    self.respond_v2(i, 7, &card_v2::closed(&line), true).await;
-                } else {
-                    self.tell(i, line).await;
-                }
+                (line, true)
             }
             Err(e) if e.code == theseus_protocol::error_code::REFUSED => {
                 let why = e.data.get("why").and_then(Value::as_str);
-                self.tell(
-                    i,
+                (
                     format!(
                         "🔐 Your answer did not count: {}. It keeps waiting for an answer that does.",
                         why.unwrap_or(&e.message)
                     ),
+                    false,
                 )
-                .await;
             }
-            Err(e) => self.tell(i, format!("⚠️ Could not answer: {e}")).await,
+            Err(e) => (format!("⚠️ Could not answer: {e}"), false),
+        };
+        match (on_message, counted) {
+            (true, true) => self.edit_original_v2(i, &card_v2::closed(&line)).await,
+            (true, false) => self.followup(i, &line).await,
+            (false, _) => self.finish_command(i, &line, "proof form response").await,
         }
     }
 }

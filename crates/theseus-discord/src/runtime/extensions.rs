@@ -168,6 +168,8 @@ impl Shared {
                     None,
                     serde_json::json!({"command": c.name, "by": who}),
                 );
+                // Acknowledge first: the text and the list are the daemon's, and the first response is due in three seconds.
+                self.ack_ephemeral(i).await;
                 // The text through the place, as every command's; the
                 // buttons from the same list.
                 let said = Self::ask_place(tx, Control::Extensions, who).await;
@@ -176,8 +178,7 @@ impl Shared {
                     Err(_) => list_data(&ExtendListResult::default()),
                 };
                 data.content = Some(said);
-                self.extensions_answer(i, InteractionResponseType::ChannelMessageWithSource, data)
-                    .await;
+                self.finish_data(i, data, "extensions response").await;
                 true
             }
             Some(InteractionData::MessageComponent(c)) => {
@@ -185,6 +186,8 @@ impl Shared {
                     // A cited source's "Show source" (`runtime/source.rs`).
                     return self.source_interaction(i).await;
                 };
+                // Acknowledge first: the revoke is the daemon's, and the first response is due in three seconds.
+                self.ack_update(i).await;
                 // The press goes through the place, as the presser.
                 let said =
                     Self::ask_place(tx, Control::Revoke(name.to_string(), discord), who).await;
@@ -194,8 +197,7 @@ impl Shared {
                     Err(_) => InteractionResponseData::default(),
                 };
                 data.content = Some(format!("{said}\n\n{}", data.content.unwrap_or_default()));
-                self.extensions_answer(i, InteractionResponseType::UpdateMessage, data)
-                    .await;
+                self.finish_data(i, data, "extensions response").await;
                 true
             }
             // Not one of ours: `/why` is the next in the chain.
@@ -217,26 +219,6 @@ impl Shared {
         });
         rrx.await
             .unwrap_or_else(|_| "The place did not answer.".into())
-    }
-
-    async fn extensions_answer(
-        &self,
-        i: &Interaction,
-        kind: InteractionResponseType,
-        data: InteractionResponseData,
-    ) {
-        let resp = InteractionResponse {
-            kind,
-            data: Some(data),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("extensions response", None, e);
-        }
     }
 }
 

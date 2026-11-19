@@ -179,6 +179,8 @@ impl Shared {
         who: &str,
         discord: Option<DiscordOrigin>,
     ) {
+        // Acknowledge first: the answer is the daemon's to write, and Discord's first response is due in three seconds.
+        self.ack_update(i).await;
         let r = self
             .rpc
             .call::<_, WorkAnswerResult>(
@@ -197,43 +199,25 @@ impl Shared {
             .as_ref()
             .map(|m| m.content.clone())
             .unwrap_or_default();
-        let (kind, data) = match r {
-            Ok(_) => (
-                InteractionResponseType::UpdateMessage,
-                InteractionResponseData {
-                    content: Some(format!("{was}\n-# 🔁 {who} asked again")),
-                    components: Some(vec![]),
-                    allowed_mentions: Some(AllowedMentions::default()),
-                    ..Default::default()
-                },
-            ),
-            Err(e) => (
-                InteractionResponseType::ChannelMessageWithSource,
-                InteractionResponseData {
-                    content: Some(format!(
-                        "🔐 It was not asked again: {}",
-                        e.data
-                            .get("why")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or(&e.message)
-                    )),
-                    flags: Some(MessageFlags::EPHEMERAL),
-                    allowed_mentions: Some(AllowedMentions::default()),
-                    ..Default::default()
-                },
-            ),
-        };
-        let resp = InteractionResponse {
-            kind,
-            data: Some(data),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("interaction response", None, e);
+        match r {
+            Ok(_) => {
+                self.edit_pressed(
+                    i,
+                    &format!("{was}\n-# 🔁 {who} asked again"),
+                    "interaction response",
+                )
+                .await;
+            }
+            // The buttons stay, so the owner may try again; the failure is theirs alone.
+            Err(e) => {
+                let why = e
+                    .data
+                    .get("why")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&e.message);
+                self.followup(i, &format!("🔐 It was not asked again: {}", why))
+                    .await;
+            }
         }
     }
 
@@ -245,6 +229,8 @@ impl Shared {
         who: &str,
         discord: Option<DiscordOrigin>,
     ) {
+        // Acknowledge first: the answer is the daemon's to write, and Discord's first response is due in three seconds.
+        self.ack_update(i).await;
         let r = self
             .rpc
             .call::<_, WorkAnswerResult>(
@@ -263,44 +249,25 @@ impl Shared {
             .as_ref()
             .map(|m| m.content.clone())
             .unwrap_or_default();
-        let (kind, data) = match r {
-            Ok(_) => (
-                InteractionResponseType::UpdateMessage,
-                InteractionResponseData {
-                    content: Some(format!("{was}\n-# ✅ {who} chose {n}")),
-                    components: Some(vec![]),
-                    allowed_mentions: Some(AllowedMentions::default()),
-                    ..Default::default()
-                },
-            ),
+        match r {
+            Ok(_) => {
+                self.edit_pressed(
+                    i,
+                    &format!("{was}\n-# ✅ {who} chose {n}"),
+                    "interaction response",
+                )
+                .await;
+            }
             // The buttons stay, so the owner may try again; the failure is theirs alone.
-            Err(e) => (
-                InteractionResponseType::ChannelMessageWithSource,
-                InteractionResponseData {
-                    content: Some(format!(
-                        "🔐 Your answer did not count: {}",
-                        e.data
-                            .get("why")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or(&e.message)
-                    )),
-                    flags: Some(MessageFlags::EPHEMERAL),
-                    allowed_mentions: Some(AllowedMentions::default()),
-                    ..Default::default()
-                },
-            ),
-        };
-        let resp = InteractionResponse {
-            kind,
-            data: Some(data),
-        };
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .create_response(i.id, &i.token, &resp)
-            .await
-        {
-            self.board.error("interaction response", None, e);
+            Err(e) => {
+                let why = e
+                    .data
+                    .get("why")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&e.message);
+                self.followup(i, &format!("🔐 Your answer did not count: {}", why))
+                    .await;
+            }
         }
     }
 }

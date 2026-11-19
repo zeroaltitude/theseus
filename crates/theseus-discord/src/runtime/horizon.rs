@@ -403,6 +403,13 @@ impl Shared {
         who: &str,
         discord: Option<theseus_protocol::DiscordOrigin>,
     ) {
+        // Acknowledge first: the answer is the daemon's to write, and the first response is due in three seconds.
+        // Details are for the presser alone and keep the buttons; any other answer edits the card.
+        let details = answer == "details";
+        match details {
+            true => self.ack_ephemeral(i).await,
+            false => self.ack_update(i).await,
+        }
         let r = self
             .rpc
             .call::<_, WorkAnswerResult>(
@@ -422,27 +429,24 @@ impl Shared {
             .as_ref()
             .map(|m| m.content.clone())
             .unwrap_or_default();
-        let data = match r {
-            Ok(r) if answer == "details" => {
-                // Details are for the presser alone, and the buttons stay.
-                self.reply_ephemeral(i, r.detail.unwrap_or_else(|| "no details".into()))
-                    .await;
-                return;
+        match (r, details) {
+            (Ok(r), true) => {
+                let text = r.detail.unwrap_or_else(|| "no details".into());
+                self.finish_command(i, &text, "interaction response").await;
             }
-            Ok(_) => InteractionResponseData {
-                content: Some(format!("{was}\n-# {}", settled(&answer, who))),
-                components: Some(vec![]),
-                allowed_mentions: Some(AllowedMentions::default()),
-                ..Default::default()
-            },
-            Err(e) => {
-                self.reply_ephemeral(i, format!("⚠️ That did not count: {}", e.message))
-                    .await;
-                return;
+            (Ok(_), false) => {
+                let line = format!("{was}\n-# {}", settled(&answer, who));
+                self.edit_pressed(i, &line, "interaction response").await;
             }
-        };
-        self.answer(i, InteractionResponseType::UpdateMessage, Some(data))
-            .await;
+            (Err(e), true) => {
+                let line = format!("⚠️ That did not count: {}", e.message);
+                self.finish_command(i, &line, "interaction response").await;
+            }
+            (Err(e), false) => {
+                self.followup(i, &format!("⚠️ That did not count: {}", e.message))
+                    .await;
+            }
+        }
     }
 
     /// An ephemeral line for the presser.

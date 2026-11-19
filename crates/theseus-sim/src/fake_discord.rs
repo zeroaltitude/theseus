@@ -44,7 +44,7 @@
 //! a path Discord's API never uses: `say`, `press`, `guild`, and the reads
 //! `messages`, `replies`, and `gateway`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -548,6 +548,13 @@ struct State {
     replies: Vec<Reply>,
     /// Each interaction `press` sent, by id, and its channel.
     pressed: BTreeMap<String, u64>,
+    /// When each interaction `press` (or a command, a modal) sent arrived, and which have had their first
+    /// response: Discord's own rule is that an interaction's first response comes within three seconds, or
+    /// the interaction is unknown (10062) and the person sees "Something went wrong".
+    arrived: BTreeMap<String, std::time::Instant>,
+    acked: BTreeSet<String>,
+    /// The three seconds, or what a test sets (`set_ack_limit_ms`).
+    ack_limit_ms: Option<u64>,
     /// The messages the binding answered an interaction with (an ephemeral
     /// view, say), by the interaction's id: kept apart from the channel's
     /// messages, and pressable (`press_reply`).
@@ -646,6 +653,25 @@ impl FakeDiscord {
 
     pub fn set_mode(&self, mode: Mode) {
         self.state.lock().unwrap().mode = Some(mode);
+    }
+
+    /// How long an interaction may wait for its first response (Discord's is three seconds), for a test.
+    pub fn set_ack_limit_ms(&self, ms: u64) {
+        self.state.lock().unwrap().ack_limit_ms = Some(ms);
+    }
+
+    /// Treat interaction `id` as having arrived `ms` ago: a test of the three-second rule without waiting.
+    pub fn backdate_interaction(&self, id: &str, ms: u64) {
+        let mut st = self.state.lock().unwrap();
+        let then = std::time::Instant::now()
+            .checked_sub(Duration::from_millis(ms))
+            .unwrap_or_else(std::time::Instant::now);
+        st.arrived.insert(id.to_string(), then);
+    }
+
+    /// The interactions answered so far with their first response, in no order.
+    pub fn acknowledged(&self) -> Vec<String> {
+        self.state.lock().unwrap().acked.iter().cloned().collect()
     }
 
     /// Discord keeps a nonce for a few minutes; the fake, forever unless told.
@@ -1018,6 +1044,8 @@ impl FakeDiscord {
             st.next_id += 1;
             let iid = st.next_id;
             st.pressed.insert(iid.to_string(), channel);
+            st.arrived
+                .insert(iid.to_string(), std::time::Instant::now());
             (msg, Where { channel, guild }, iid)
         };
         let button = msg
@@ -1065,6 +1093,8 @@ impl FakeDiscord {
             st.next_id += 1;
             let iid = st.next_id;
             st.pressed.insert(iid.to_string(), c.channel);
+            st.arrived
+                .insert(iid.to_string(), std::time::Instant::now());
             let guild = Some(st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id));
             (
                 Where {
@@ -1166,6 +1196,8 @@ impl FakeDiscord {
         st.next_id += 1;
         let iid = st.next_id;
         st.pressed.insert(iid.to_string(), channel);
+        st.arrived
+            .insert(iid.to_string(), std::time::Instant::now());
         let guild = Some(st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id));
         (Where { channel, guild }, iid)
     }
@@ -1847,6 +1879,30 @@ impl FakeDiscord {
         kind: &str,
         body: &Value,
     ) -> std::io::Result<()> {
+        // The first response to an interaction comes within three seconds, or Discord no longer knows it
+        // (10062): the person sees "Something went wrong" whatever the binding then says. An interaction the
+        // fake was not told of (a reply to nothing it sent) is let through.
+        if kind == "callback" {
+            if let Some(id) = interaction {
+                let mut st = self.state.lock().unwrap();
+                let limit = st.ack_limit_ms.unwrap_or(3_000);
+                let late = st
+                    .arrived
+                    .get(id)
+                    .is_some_and(|at| at.elapsed() > Duration::from_millis(limit))
+                    && !st.acked.contains(id);
+                if late {
+                    drop(st);
+                    self.record(seen(method, path, "unknown interaction"));
+                    return reply(
+                        stream,
+                        404,
+                        &json!({"message": "Unknown interaction", "code": 10062}),
+                    );
+                }
+                st.acked.insert(id.to_string());
+            }
+        }
         self.record(seen(method, path, kind));
         // A callback's message is in `data`; an edit's and a follow-up's is the body.
         let data = if kind == "callback" {

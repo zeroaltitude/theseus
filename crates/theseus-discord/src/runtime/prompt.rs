@@ -369,7 +369,12 @@ impl Shared {
 
     /// An autocomplete request: the choices for what was typed.
     async fn prompt_autocomplete(&self, i: &Interaction, c: &CommandData) {
-        let list = self.prompt_infos(None).await.unwrap_or_default();
+        // An autocomplete cannot be deferred: what the daemon has not answered inside the service's three seconds
+        // is offered as no choices.
+        let list = super::command_reply::within_ack(self.prompt_infos(None))
+            .await
+            .and_then(Result::ok)
+            .unwrap_or_default();
         let data = InteractionResponseData {
             choices: Some(choices(&list, &Self::typed(c))),
             ..Default::default()
@@ -407,7 +412,16 @@ impl Shared {
             .await;
             return;
         };
-        let list = match self.prompt_infos(Some(server.to_string())).await {
+        // The arguments' modal cannot follow an acknowledgement, so the daemon's answer is waited for inside the
+        // service's three seconds, and said to be slow when it is.
+        let Some(listed) =
+            super::command_reply::within_ack(self.prompt_infos(Some(server.to_string()))).await
+        else {
+            self.say_ephemeral(i, super::command_reply::TOO_SLOW.into())
+                .await;
+            return;
+        };
+        let list = match listed {
             Ok(l) => l,
             Err(e) => {
                 self.say_ephemeral(i, format!("⚠️ {e}")).await;
@@ -425,7 +439,7 @@ impl Shared {
                 name: info.prompt.clone(),
                 arguments: BTreeMap::new(),
             };
-            self.prompt_run(i, tx, who, r).await;
+            self.prompt_run(i, tx, who, r, false).await;
             return;
         }
         self.answer(i, InteractionResponseType::Modal, Some(modal(info)))
@@ -444,16 +458,29 @@ impl Shared {
         let Some((server, prompt)) = split(name) else {
             return;
         };
+        // Acknowledge first: the server's prompts are asked of the MCP server, which can be slow, and the first
+        // response is due in three seconds.
+        self.answer(
+            i,
+            InteractionResponseType::DeferredChannelMessageWithSource,
+            None,
+        )
+        .await;
         let list = match self.prompt_infos(Some(server.to_string())).await {
             Ok(l) => l,
             Err(e) => {
-                self.say_ephemeral(i, format!("⚠️ {e}")).await;
+                self.finish_command(i, &format!("⚠️ {e}"), "prompt response")
+                    .await;
                 return;
             }
         };
         let Some(info) = list.iter().find(|p| p.name == name) else {
-            self.say_ephemeral(i, format!("MCP server {server} no longer lists `{name}`."))
-                .await;
+            self.finish_command(
+                i,
+                &format!("MCP server {server} no longer lists `{name}`."),
+                "prompt response",
+            )
+            .await;
             return;
         };
         match parse_modal(info, &fields_of(m)) {
@@ -463,9 +490,12 @@ impl Shared {
                     name: prompt.into(),
                     arguments,
                 };
-                self.prompt_run(i, tx, who, r).await;
+                self.prompt_run(i, tx, who, r, true).await;
             }
-            Err(why) => self.say_ephemeral(i, format!("⚠️ {why}")).await,
+            Err(why) => {
+                self.finish_command(i, &format!("⚠️ {why}"), "prompt response")
+                    .await;
+            }
         }
     }
 
@@ -477,13 +507,16 @@ impl Shared {
         tx: &mpsc::UnboundedSender<PlaceMsg>,
         who: String,
         r: McpPromptRef,
+        acked: bool,
     ) {
-        self.answer(
-            i,
-            InteractionResponseType::DeferredChannelMessageWithSource,
-            None,
-        )
-        .await;
+        if !acked {
+            self.answer(
+                i,
+                InteractionResponseType::DeferredChannelMessageWithSource,
+                None,
+            )
+            .await;
+        }
         self.core.binding_ledger(
             LedgerKind::DiscordCommand,
             None,

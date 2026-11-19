@@ -332,6 +332,9 @@ impl Place {
             .await;
             return;
         }
+        // Acknowledge first: a task start is written by the daemon (and runs a turn's first loop), and the first
+        // response is due in three seconds.
+        s.ack_ephemeral(i).await;
         let r = s
             .rpc
             .call::<_, TaskStartResult>(
@@ -356,7 +359,7 @@ impl Place {
             }
             Err(e) => format!("⚠️ It did not start: {e}"),
         };
-        s.tell(i, line).await;
+        s.finish_command(i, &line, "task start response").await;
         if sub.offer.is_some() {
             self.drop_offer(i).await;
         }

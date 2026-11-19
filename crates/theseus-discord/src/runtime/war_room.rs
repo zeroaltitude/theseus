@@ -213,11 +213,15 @@ impl Place {
         guest: Option<Guest>,
     ) {
         let s = &self.shared;
-        let line = match guest {
-            None => "Give `share` or `unshare`, not both.".to_string(),
-            Some(g) => self.share(i.author_id().map(Id::get), name, g).await,
+        let Some(g) = guest else {
+            return s
+                .tell(i, "Give `share` or `unshare`, not both.".to_string())
+                .await;
         };
-        s.tell(i, line).await;
+        // Acknowledge first: sharing is written by the daemon, and the first response is due in three seconds.
+        s.ack_ephemeral(i).await;
+        let line = self.share(i.author_id().map(Id::get), name, g).await;
+        s.finish_command(i, &line, "task share response").await;
     }
 
     async fn share(&self, by: Option<u64>, name: &str, guest: Guest) -> String {

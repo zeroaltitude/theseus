@@ -46,6 +46,8 @@ impl FakeDiscord {
         st.next_id += 1;
         let iid = st.next_id;
         st.pressed.insert(iid.to_string(), at.channel);
+        st.arrived
+            .insert(iid.to_string(), std::time::Instant::now());
         (at, iid)
     }
 
