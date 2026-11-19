@@ -115,7 +115,9 @@ async fn the_owner_looks_in_the_vault_and_is_asked_nothing() {
         assert!(!all.contains(leaked), "{leaked} reached the record");
     }
     assert!(!text.contains("/credential"), "{text}");
-    assert_eq!(logged(&dir).len(), 3, "{:?}", logged(&dir));
+    // The vaults are listed twice: all of them, and the ones the account may make items in (so the
+    // look says for each whether Theseus may write there).
+    assert_eq!(logged(&dir).len(), 4, "{:?}", logged(&dir));
 }
 
 /// Whatever the tool is given, the daemon's command line is one of the list
@@ -127,6 +129,7 @@ async fn no_input_makes_the_daemon_ask_for_a_value() {
     let allowed = |line: &str| {
         line == "whoami --format json"
             || line == "vault list --format json"
+            || line == "vault list --permission create_items --format json"
             || line == "item list --format json"
             || line == "item list --format json --vault vaultid00000000000000000001"
             || line == "item list --format json --vault vaultid00000000000000000002"

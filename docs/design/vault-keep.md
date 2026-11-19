@@ -26,9 +26,34 @@ An item that a `[secrets]` entry or the settings note reads is never replaced by
 
 | Place | How | What carries it |
 |---|---|---|
-| The owner's terminal | `theseus vault keep` (the card waiting, or `<id>`): a hidden prompt, echo off for the read and restored on drop; a pipe, a capture and a Theseus job's shell are refused | the daemon's own socket (mode 0600) |
+| The owner's terminal | `theseus vault keep` (the card waiting, or `<id>`): a hidden prompt, echo off for the read and restored on drop; a pipe, a capture, a redirected standard error and a Theseus job's shell are refused, by the daemon, in words | the daemon's own socket (mode 0600) |
 | The cockpit | a password field on the card and a "Keep it" button; cleared as it is sent | the web port, as the owner's own page |
 | Discord | **none, until the owner decides**: the card says where the value is typed, a press says it again, no form opens (`proof_form.rs`) | |
+
+## The card, the terminal and the record (issue 29)
+
+The first use of this on the owner's machine failed at the terminal command, silently, after tests that had driven the
+daemon's requests one at a time and never the program. What was built after it:
+
+- **The card offers a decline alone.** A card that takes a value is offered no yes by the daemon (`config_change::confirm_request`
+  keeps only the decline in `options`), so no surface can draw an Approve that could only be refused. Its first words are where the
+  value is typed. Discord draws a Decline button and no sentence about an Approve (`courier/ask.rs`, `render/settings.rs`); the cockpit
+  draws its field.
+- **The terminal asks the daemon first, and filters nothing.** `vault.keep.waiting` answers which keep cards wait for the owner's
+  terminal and, when none does, why, in words (never asked, expired, declined, answered, kept), from the daemon's own rows; and whether
+  anything stops a prompt (no authenticator app enrolled; the account may not write in the vault), before any prompt. Standard input and
+  standard error must both be the terminal: the daemon says so, and writes a row.
+- **The program says nothing that sounds like a result before the daemon does.** It prints the daemon's heading ("To keep a new item ...:
+  type its value."), asks, and ends with one plain line: kept and where, or not kept and why, with the exit status to match. What is
+  already waiting on the terminal's input is thrown away before each prompt (`tcflush`), and an empty line asks once more.
+- **Every run that reaches the daemon writes a `vault.keep` row**: `asked` (a card was put), `listed` (what the terminal was told, and its
+  class: `none_asked`, `declined`, `expired`, `blocked`, `one`, ...), `stopped` (a value was given and something refused it before the
+  vault was asked to write: `blank`, `proof`, `no_authenticator`, `place`, `agent`, `job`, `not_writable`, `vault`, ...), `client_ended`
+  (the terminal ended before sending a value: `no_value`, `end_of_input`, `unreadable`, `no_echo`), then the outcomes of a write. Each
+  carries the client's process id, as the daemon logs it for the connection, and never a value, its length or its digest.
+- **The write permission is the vault's own answer.** `vault list --permission create_items` (a new item) or `edit_items` (a field in an
+  item that is there) lists only the vaults the account may write in. It is asked before a card and again at the value, so a permission
+  taken away since is found before a code is spent; `look.vault` says for each vault whether Theseus may write there.
 
 Two requests, one value each (`theseus_protocol::vault_keep`; the value is a `SecretText`, which prints as nothing):
 

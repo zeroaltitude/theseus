@@ -156,15 +156,6 @@ pub fn row(
     row
 }
 
-/// The ledger row of a card that was put (`asked`): it is what `theseus vault
-/// keep` reads to say, later, that a card was asked and what became of it.
-pub fn asked_row(t: &Target, question: &str, place: &Value) -> Value {
-    json!({
-        "outcome": "asked", "question": question, "state": t.state.as_str(),
-        "vault": t.vault, "title": t.title, "field": t.field, "place": place,
-    })
-}
-
 /// The ledger row of an attempt that stopped before the vault was asked to
 /// write, or that only asked what waits: the class of what stopped it (a
 /// closed set of words: `blank`, `proof`, `no_card`, ...), who, where, from

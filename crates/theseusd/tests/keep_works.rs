@@ -255,7 +255,6 @@ fn a_keep_goes_from_the_card_through_the_real_program_into_the_vault() {
         rows[0]["pid"].is_u64(),
         "the client's process is in the row: {rows:?}"
     );
-    assert_eq!(r.keep_rows("asked").len(), 1);
     r.value_nowhere(&out);
 }
 
@@ -268,7 +267,7 @@ fn the_terminal_says_why_nothing_waits_and_leaves_a_row() {
     let (code, out) = r.at_a_terminal(&["vault", "keep"], &[], "");
     assert_eq!(code, 1, "{out}");
     assert!(
-        out.contains("No secret is waiting to be kept, and Theseus has no record of asking"),
+        out.contains("No secret is waiting to be kept, and Theseus has no recent record of asking"),
         "{out}"
     );
     let card = r.card();
@@ -405,16 +404,20 @@ fn a_wrong_code_leaves_a_row_and_the_card_waiting() {
 fn a_pipe_and_a_jobs_shell_are_refused_by_the_daemon_with_a_row() {
     let r = Rig::start();
     r.card();
-    let piped = std::process::Command::new(&r.cli)
-        .arg("--socket")
-        .arg(r.s.path("sock"))
-        .args(["vault", "keep"])
-        .env_remove("THESEUS_SESSION")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .unwrap();
-    let text = String::from_utf8_lossy(&piped.stderr);
-    assert_eq!(piped.status.code(), Some(1), "{text}");
+    // A terminal for the shell, and standard input from /dev/null for the program: a pipe in the
+    // owner's own shell. The daemon refuses it in words, before any prompt.
+    let piped = r.argv(&["vault", "keep"]).join(" ");
+    let (code, text) = common::terminal::typed_at_a_terminal(
+        &[
+            "/bin/sh".into(),
+            "-c".into(),
+            format!("{piped} < /dev/null"),
+        ],
+        &[],
+        &[],
+        "",
+    );
+    assert_eq!(code, 1, "{text}");
     assert!(
         text.contains("standard input and standard error must both be that terminal"),
         "{text}"

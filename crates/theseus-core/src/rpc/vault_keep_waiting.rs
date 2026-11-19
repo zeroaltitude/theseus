@@ -225,13 +225,13 @@ impl Core {
                 ),
                 None => (
                     "none_asked",
-                    "No secret is waiting to be kept, and Theseus has no record of asking to \
+                    "No secret is waiting to be kept, and Theseus has no recent record of asking to \
                      keep one: ask Theseus to keep a secret in the vault and it puts a card"
                         .to_string(),
                 ),
             };
         };
-        let q = asked.data["question"].as_str().unwrap_or_default();
+        let q = asked.data["correlation_id"].as_str().unwrap_or_default();
         let card = names(&asked.data);
         let ago = super::question_waits::waited_words(
             theseus_protocol::now_unix_ms().saturating_sub(asked.at_unix_ms),

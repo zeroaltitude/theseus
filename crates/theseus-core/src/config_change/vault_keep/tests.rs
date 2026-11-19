@@ -600,9 +600,18 @@ async fn the_terminal_keeps_with_no_card_and_may_replace_what_the_settings_read(
         .unwrap();
     assert_eq!(said["replaced"], true);
     assert!(wrote(dir.path()));
-    let rows = r.rows("vault.keep");
-    assert_eq!(rows.len(), 1);
+    // The attempts that stopped before this one each left a row of their own (a window did not
+    // cover it, so it was refused for a code); the keep itself is one more.
+    let all = r.rows("vault.keep");
+    let rows: Vec<_> = all.iter().filter(|x| x["outcome"] != "stopped").collect();
+    assert_eq!(rows.len(), 1, "{all:?}");
     assert_eq!(rows[0]["protected"], true);
+    assert!(
+        all.iter()
+            .filter(|x| x["outcome"] == "stopped")
+            .all(|x| x["why"] == "proof"),
+        "{all:?}"
+    );
     let sid = r.session();
     assert_value_nowhere(&r, &sid, dir.path(), &[&said.to_string()], &log);
 }
@@ -1006,9 +1015,9 @@ async fn a_permission_taken_away_since_the_card_is_found_at_the_value() {
     assert_eq!(checks(&r), before, "no code was checked");
     assert!(waiting(&r, &q) && !wrote(dir.path()));
     let stopped = r.rows("vault.keep");
-    assert_eq!(stopped.len(), 2, "asked, then stopped: {stopped:?}");
-    assert_eq!(stopped[1]["outcome"], "stopped");
-    assert_eq!(stopped[1]["why"], "not_writable");
+    assert_eq!(stopped.len(), 1, "{stopped:?}");
+    assert_eq!(stopped[0]["outcome"], "stopped");
+    assert_eq!(stopped[0]["why"], "not_writable");
 }
 
 /// Every attempt that stops leaves a row with the class of what stopped it, and
@@ -1118,4 +1127,25 @@ async fn what_the_cockpits_field_sends_is_what_the_daemon_takes() {
     let stdin = std::fs::read_to_string(dir.path().join("op.stdin")).unwrap();
     assert!(stdin.contains(sent["value"].as_str().unwrap()));
     assert!(!waiting(&r, &q), "the card is settled");
+}
+
+/// The look at the vault's names says, for each vault, whether Theseus may write
+/// there: the program's own answer, so a read-only vault is seen before a keep.
+#[tokio::test]
+async fn the_look_says_for_each_vault_whether_theseus_may_write_there() {
+    let (r, _dir) = rig_vault("ok");
+    let sid = r.session();
+    r.turn_with("look_vault", &sid, json!({"what": ["vaults"]}))
+        .await;
+    let (_, text) = r.result(&sid);
+    assert!(
+        text.contains("Harbor (id vaultid00000000000000000001; Theseus may write here)"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "Dock (id vaultid00000000000000000002; Theseus may not write here (read only))"
+        ),
+        "{text}"
+    );
 }

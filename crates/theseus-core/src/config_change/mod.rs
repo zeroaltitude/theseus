@@ -660,7 +660,7 @@ fn too_big(settings: &[diff::Setting]) -> Result<usize, String> {
 }
 
 /// The question, its card, and the record that answers a call run again, in
-/// one frame on the proposing execution. The question's id.
+/// one frame on the proposing execution.
 pub(crate) fn ask(
     rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
@@ -668,7 +668,7 @@ pub(crate) fn ask(
     correlation_id: &str,
     said: &str,
     needs: proof_seam::Needs,
-) -> Result<String, String> {
+) -> Result<(), String> {
     let target = tc.outbox.target(tc.session_id);
     let mut card = None;
     let a = tc
@@ -714,7 +714,7 @@ pub(crate) fn ask(
         request.needs_fresh_proof = needs == proof_seam::Needs::Fresh;
         tc.record(&crate::fact::tool::CallAsked { request: &request });
     }
-    Ok(a.correlation_id.clone())
+    Ok(())
 }
 
 /// A proposal run again after a restart: what the first run asked, else why

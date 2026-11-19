@@ -26,11 +26,10 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use theseus_kernel::Proposal;
-use theseus_protocol::{LedgerKind, Plan};
+use theseus_protocol::Plan;
 use theseus_tools::{parse, Backend, Retry, Tool, ToolClass, ToolCtx};
 
 use super::{card, outside_text, proof_seam, wall, ACK};
-use crate::ledger::LedgerRow;
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub mod done;
@@ -198,15 +197,7 @@ pub async fn run(
          You never see the value. When it is kept they are told, by name; then, if they want it \
          used, put it to use with `vault.use` (a second card).",
     );
-    let question = super::ask(rt, tc, proposal, correlation_id, &said, needs)?;
-    // The row that says a card was asked, so that the terminal can say later what became of it.
-    let place = json!(tc.outbox.target(tc.session_id));
-    let _ = tc.store.append_ledger(&LedgerRow::new(
-        LedgerKind::VaultKeep,
-        Some(tc.session_id),
-        None,
-        done::asked_row(&t, &question, &place),
-    ));
+    super::ask(rt, tc, proposal, correlation_id, &said, needs)?;
     Ok((said, json!({"keep": t.state.as_str()})))
 }
 
