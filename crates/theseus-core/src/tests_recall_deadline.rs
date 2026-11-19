@@ -37,6 +37,60 @@ struct Seen {
     closed: Mutex<Vec<(usize, Instant)>>,
 }
 
+/// What this test's own process did while it ran, for a failure to read: the
+/// recall, the stand-in tender and the turn share one thread, so a connection
+/// closed late is the product's wait or this process not running. A task wakes
+/// every 5 ms and keeps the longest silence it saw; the process's own CPU time
+/// says whether it was starved (little CPU in a long wall time) or busy.
+struct Stalls {
+    longest: Arc<AtomicUsize>,
+    task: tokio::task::JoinHandle<()>,
+    began: (Instant, Option<Duration>),
+}
+
+impl Stalls {
+    fn start() -> Self {
+        let longest = Arc::new(AtomicUsize::new(0));
+        let seen = longest.clone();
+        let task = tokio::spawn(async move {
+            let mut last = Instant::now();
+            loop {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                seen.fetch_max(last.elapsed().as_millis() as usize, Ordering::SeqCst);
+                last = Instant::now();
+            }
+        });
+        Self {
+            longest,
+            task,
+            began: (Instant::now(), cpu_time()),
+        }
+    }
+
+    fn say(&self) -> String {
+        let cpu = cpu_time().zip(self.began.1).map(|(now, then)| now - then);
+        format!(
+            "the test's runtime was silent for at most {} ms; its process used {cpu:?} of CPU in {:?}",
+            self.longest.load(Ordering::SeqCst),
+            self.began.0.elapsed()
+        )
+    }
+}
+
+impl Drop for Stalls {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// This process's CPU time (user and system), where the kernel says (Linux).
+fn cpu_time() -> Option<Duration> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let fields: Vec<&str> = stat.rsplit(") ").next()?.split(' ').collect();
+    let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
+    Some(Duration::from_millis(ticks * 10))
+}
+
 /// A stand-in tender on a socket in `dir`: each connection's requests
 /// answered in order, from `index` (`tests_recall`'s stand-in index), the
 /// words' after `words` and a vector query's after `vector` (each of its hits
@@ -218,6 +272,7 @@ async fn a_recall_asks_on_one_connection_and_embeds_the_new_text_alone() {
 async fn a_late_vector_side_leaves_the_words_and_closes_its_connection() {
     let (r, now, seen, _dir) = rig(Duration::from_secs(5), 250);
     let c = &r.core;
+    let stalls = Stalls::start();
     turn(c, &now, "Where do the otters den?").await;
     let rows = recalls(c, &now);
     assert_eq!(rows.len(), 1);
@@ -242,7 +297,8 @@ async fn a_late_vector_side_leaves_the_words_and_closes_its_connection() {
     // The deadline's 250 ms, and room for a starved test runtime.
     assert!(
         held < Duration::from_millis(2_500),
-        "the connection was held {held:?}, past the deadline's 250 ms and toward the vector's 5 s"
+        "the connection was held {held:?}, past the deadline's 250 ms and toward the vector's 5 s; {}",
+        stalls.say()
     );
     assert_eq!(seen.accepts.load(Ordering::SeqCst), 1);
 }
