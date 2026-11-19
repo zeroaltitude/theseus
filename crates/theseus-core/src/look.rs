@@ -337,14 +337,19 @@ impl Board {
                     Ok(a) => a,
                     Err(e) => return fail(e),
                 };
-                let session = tc.session_id.to_string();
+                let (session, turn) = (tc.session_id.to_string(), tc.turn_id.to_string());
                 // Whether this turn's own model is one the labels could keep off (the data gate's
                 // predicate); a turn with no target is read as one.
                 let restricted = target
                     .as_ref()
                     .is_none_or(|t| core.runner.restricted_profile(&t.profile));
                 Box::pin(async move {
-                    let said = work::words(&core, &session, &ask, restricted).await;
+                    let who = work::Caller {
+                        session: &session,
+                        turn: &turn,
+                        restricted,
+                    };
+                    let said = work::words(&core, &who, &ask).await;
                     Ok((output(said, WORK), None, None))
                 })
             }
