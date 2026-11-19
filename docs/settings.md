@@ -109,7 +109,7 @@ a setting nobody has classified counts as sensitive):
 - where Theseus listens and keeps its state;
 - self-improvement: its mode, its budget, and what it may change;
 - the proof itself, and attaching or removing an MCP server;
-- where a secret's value may be typed (`[vault] keep_by_discord`, below).
+- where a secret's value may be typed (`[vault] keep_by_discord`, above).
 
 Some of those ask for a **fresh code every time**, whatever else is open: a change to who the owner is (`[places]
 owner`, and `[discord] bindings_file`, the file that says who the owner is on Discord), a change to where Theseus keeps
