@@ -770,6 +770,56 @@ impl Worker {
         wait
     }
 
+    /// A post the worker holds no slot for: the list's, taken up again; one
+    /// made now; or none (a task's own post is made on request). How long to
+    /// wait before looking again, if it must.
+    async fn without_a_slot(
+        &mut self,
+        key: &(String, u64),
+        f: &Forum,
+        (view, link, homed, index): (&WorkView, Option<&str>, bool, bool),
+    ) -> Option<Duration> {
+        let (id, ended, now) = (key.0.as_str(), view.state.ended(), Instant::now());
+        // An index card made before its task's thread was: it gets its link.
+        if index {
+            self.reopen_for_link(key, link);
+        }
+        // A scheduled item set again after it ended (a fired reminder
+        // snoozed from its notice, under its own id): its post is opened
+        // again, `scheduled`, as it was.
+        if let Some(wait) = self.reopen_if_rearmed(key, view).await {
+            return Some(wait);
+        }
+        // A post the last run made (the list has it): taken up again.
+        if let Some(held) = self.adopt(key) {
+            return held;
+        }
+        // A task's own post is made on request, not by this sync; one that ended before any sync saw
+        // it running is owed an index card in its final state (theseus-hzdlf).
+        if homed || (ended && !self.shared.task_threads.owed(view) && !is_scheduled(view)) {
+            return None;
+        }
+        if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
+            return Some(t - now);
+        }
+        let name = post_name(&view.id, &view.title);
+        if let Err(e) = self.create(key, f, view, link, name).await {
+            self.shared.board.error(
+                "task forum",
+                Some(&view.session_id.clone().unwrap_or_default()),
+                format!("{e:#}"),
+            );
+            return Some(self.backed_off(key));
+        }
+        self.failed.remove(key);
+        if index {
+            self.keep_index(key, link, id);
+            self.card_made(key, id);
+        }
+        // A post made in its final state is looked at again at once: its name is still to come.
+        ended.then_some(Duration::ZERO)
+    }
+
     /// One task in one forum: its post made, its card and tags brought up to
     /// date as far as the pace allows. How long the rest must wait, if any.
     async fn one(&mut self, id: &str, f: &Forum) -> Option<Duration> {
@@ -778,49 +828,9 @@ impl Worker {
         let ended = view.state.ended();
         let now = Instant::now();
         if !self.slots.contains_key(&key) {
-            // An index card made before its task's thread was: it gets its link.
-            if index {
-                self.reopen_for_link(&key, link.as_deref());
-            }
-            // A scheduled item set again after it ended (a fired reminder
-            // snoozed from its notice, under its own id): its post is opened
-            // again, `scheduled`, as it was.
-            if is_scheduled(&view) && !ended {
-                if let Err(e) = self.reopen_rearmed(&key, &view).await {
-                    self.shared
-                        .board
-                        .error("task forum reopen", None, format!("{e:#}"));
-                    return Some(self.backed_off(&key));
-                }
-            }
-            // A post the last run made (the list has it): taken up again.
-            if let Some(held) = self.adopt(&key) {
-                return held;
-            }
-            // A task's own post is made on request, not by this sync; one that ended before any sync saw
-            // it running is owed an index card in its final state (theseus-hzdlf).
-            if homed || (ended && !self.shared.task_threads.owed(&view) && !is_scheduled(&view)) {
-                return None;
-            }
-            if let Some(t) = self.failed.get(&key).map(|f| f.until).filter(|t| *t > now) {
-                return Some(t - now);
-            }
-            let name = post_name(&view.id, &view.title);
-            if let Err(e) = self.create(&key, f, &view, link.as_deref(), name).await {
-                self.shared.board.error(
-                    "task forum",
-                    Some(&view.session_id.clone().unwrap_or_default()),
-                    format!("{e:#}"),
-                );
-                return Some(self.backed_off(&key));
-            }
-            self.failed.remove(&key);
-            if index {
-                self.keep_index(&key, link.as_deref(), id);
-                self.card_made(&key, id);
-            }
-            // A post made in its final state is looked at again at once: its name is still to come.
-            return ended.then_some(Duration::ZERO);
+            return self
+                .without_a_slot(&key, f, (&view, link.as_deref(), homed, index))
+                .await;
         }
         let mut held: Option<Duration> = None;
         let mut earliest = |d: Option<Duration>| {
@@ -833,16 +843,7 @@ impl Worker {
         }
         // A scheduled item set again before its end was fully shown: the name
         // its end gave the post is taken off.
-        if is_scheduled(&view) && !ended && self.slots.get(&key).is_some_and(|s| s.named) {
-            let name = post_name(&view.id, &view.title);
-            if self.set_name(&key, &name).await {
-                if let Some(s) = self.slots.get_mut(&key) {
-                    s.named = false;
-                }
-            } else {
-                earliest(Some(self.backed_off(&key)));
-            }
-        }
+        earliest(self.unmark_rearmed(&key, &view).await);
         // The card.
         let card = self.card_of(&view, link.as_deref());
         let sent = digest(&serde_json::to_string(&card).unwrap_or_default());
@@ -944,6 +945,46 @@ impl Worker {
             .find(|p| p.task == key.0 && p.forum == key.1)
             .ok_or_else(|| anyhow::anyhow!("the task's post is gone"))?;
         Ok((post.post, f.guild.parse().ok()))
+    }
+
+    /// A scheduled item that stands has its ended post opened again
+    /// (`reopen_rearmed`). How long to wait before trying again, if that failed.
+    async fn reopen_if_rearmed(
+        &mut self,
+        key: &(String, u64),
+        view: &WorkView,
+    ) -> Option<Duration> {
+        if !is_scheduled(view) || view.state.ended() {
+            return None;
+        }
+        match self.reopen_rearmed(key, view).await {
+            Ok(()) => None,
+            Err(e) => {
+                self.shared
+                    .board
+                    .error("task forum reopen", None, format!("{e:#}"));
+                Some(self.backed_off(key))
+            }
+        }
+    }
+
+    /// A scheduled item set again before its end was fully shown: the name its
+    /// end gave the post is taken off. How long to wait before trying again,
+    /// if that failed.
+    async fn unmark_rearmed(&mut self, key: &(String, u64), view: &WorkView) -> Option<Duration> {
+        if !is_scheduled(view)
+            || view.state.ended()
+            || !self.slots.get(key).is_some_and(|s| s.named)
+        {
+            return None;
+        }
+        if !self.set_name(key, &post_name(&view.id, &view.title)).await {
+            return Some(self.backed_off(key));
+        }
+        if let Some(s) = self.slots.get_mut(key) {
+            s.named = false;
+        }
+        None
     }
 
     /// The post of a scheduled item that ended and stands again: it leaves the
