@@ -174,13 +174,7 @@ async fn the_handed_task_is_equal_to_a_task_create_from_the_same_conversation() 
 /// words: a call cannot be reserved for without one. Nothing opens and no model is asked.
 #[tokio::test]
 async fn an_unpriced_model_is_refused_as_profile_ask_refuses_it() {
-    let r = rig_with(|cfg, _| {
-        cfg.resolved
-            .profiles
-            .get_mut("haiku")
-            .expect("the haiku profile")
-            .model = "claude-unpriced-9".into();
-    });
+    let r = rig_with(|cfg, _| cfg.unprice_haiku());
     r.agents_report(REPORT, None);
     r.answers_plain("never");
     let sid = r.session_at(PLACE);

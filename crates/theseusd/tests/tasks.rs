@@ -241,6 +241,78 @@ fn a_kill_mid_task_then_a_restart_finishes_it_and_reports_once() {
     assert_eq!(r.report_nodes(&sid).len(), 1, "read once");
 }
 
+/// `kill -9` while the handed agent's own provider call is in flight (issue 28, `profile.run`): the
+/// call has been taken and nothing has come back. The restarted daemon takes the agent up again, and
+/// the report still speaks in the conversation as the subagent's message, once.
+#[test]
+fn a_kill_while_the_handed_agents_call_is_in_flight_then_a_restart_speaks_once() {
+    let work = "List the files of the folder and report them.";
+    let r = Rig::new(vec![(
+        "Hand the listing over",
+        vec![("profile_run", json!({"profile": "haiku", "work": work}))],
+    )]);
+    // The agent's request is the one whose last message is the work; hold it.
+    r.model.stall_when("List the files of the folder");
+    let daemon = r.spawn();
+    let sid = r.session();
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            // The turn waits on the agent, so this returns only when the daemon is gone.
+            let _ = r.call(
+                "turn.submit",
+                json!({"session_id": sid, "input": "Hand the listing over", "author": "test",
+                       "attachments": []}),
+            );
+        });
+        r.wait("the agent's call in flight", || {
+            r.model
+                .requests()
+                .iter()
+                .any(|q| q.to_string().contains("List the files of the folder"))
+                .then_some(())
+        });
+        let task = r.wait("the handed task", || r.tasks().into_iter().next());
+        assert_eq!(task["state"], "running", "{task}");
+        // SIGKILL, with the agent's call open.
+        drop(daemon);
+    });
+    assert!(
+        r.fake
+            .messages(DM)
+            .iter()
+            .all(|m| !m.content.contains("subagent answer")),
+        "nothing spoke before the agent ended"
+    );
+    r.model.release_stalls();
+    let _daemon = r.spawn();
+    let spoke = r.wait("the agent's message in the conversation", || {
+        let got: Vec<Msg> = r
+            .fake
+            .messages(DM)
+            .into_iter()
+            .filter(|m| m.content.contains("subagent answer"))
+            .collect();
+        (!got.is_empty()).then_some(got)
+    });
+    // Give a second copy, were there one, the time to arrive.
+    std::thread::sleep(Duration::from_millis(700));
+    let again: Vec<Msg> = r
+        .fake
+        .messages(DM)
+        .into_iter()
+        .filter(|m| m.content.contains("subagent answer"))
+        .collect();
+    assert_eq!(again.len(), 1, "one message: {again:?}");
+    assert!(spoke[0].content.starts_with("🛰️ "), "{}", spoke[0].content);
+    assert!(
+        spoke[0]
+            .content
+            .contains("-# haiku · claude-haiku-5-5 · subagent answer"),
+        "{}",
+        spoke[0].content
+    );
+}
+
 /// `kill -9` while a task is parked on its own one-shot wake (37b,
 /// theseus-7kg): the restarted daemon fires the wake once, its turn continues
 /// the task, and the task reports once, after the wake's turn. While it was

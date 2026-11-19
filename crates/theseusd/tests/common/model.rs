@@ -39,6 +39,10 @@ struct Seen {
     /// How many of the next requests get no byte back at all, until the
     /// client gives up and closes (theseus-7gir.21).
     stalls: Mutex<u32>,
+    /// While set, a request whose last user text holds this phrase gets no byte back either, as a
+    /// provider that has taken the call and not answered: a call in flight, for a test to kill the
+    /// daemon under.
+    stall_phrase: Mutex<Option<String>>,
 }
 
 pub struct FakeModel {
@@ -119,6 +123,16 @@ impl FakeModel {
     pub fn stall_next(&self, n: u32) {
         *self.seen.stalls.lock().unwrap() += n;
     }
+
+    /// Answer nothing to every request whose last user text holds `phrase`, until `release_stalls`.
+    pub fn stall_when(&self, phrase: &str) {
+        *self.seen.stall_phrase.lock().unwrap() = Some(phrase.into());
+    }
+
+    /// The requests `stall_when` held are answered from now on.
+    pub fn release_stalls(&self) {
+        *self.seen.stall_phrase.lock().unwrap() = None;
+    }
 }
 
 /// The status and body the API refuses with, by status.
@@ -189,7 +203,12 @@ fn answer(mut stream: TcpStream, calls: &Calls, seen: &Seen) -> std::io::Result<
         let stalls = *s > 0;
         *s = s.saturating_sub(1);
         stalls
-    };
+    } || seen
+        .stall_phrase
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|p| prompt(&req).contains(p.as_str()));
     if stalls {
         // Nothing back: wait for the client to close (its read sees the end),
         // or the read timeout.
