@@ -548,6 +548,48 @@ async fn a_call_is_a_dock_row_while_it_runs_and_a_line_when_it_ends() {
     );
 }
 
+/// A subagent's answer (issue 28) is a message of the conversation in the terminal UI: its words, then a footer
+/// that names the profile and model that answered and says it is a subagent's and who asked.
+#[tokio::test(start_paused = true)]
+async fn a_subagents_answer_is_a_message_with_its_own_footer() {
+    let mut r = Rig::new(100, 24).await;
+    r.ready().await;
+    r.starts_turn("trn_1");
+    r.tell(Event::ToolEnded(ToolEnded {
+        session_id: SID.into(),
+        turn_id: "trn_1".into(),
+        tool_use_id: "tu_1".into(),
+        tool: "profile.ask".into(),
+        status: "ok".into(),
+        duration_ms: Some(1_300),
+        subagent: Some(theseus_protocol::SubagentAnswer {
+            profile: "haiku".into(),
+            provider: "anthropic".into(),
+            model: "claude-haiku-5-5".into(),
+            asked_by: "sonnet".into(),
+            text: "Hello from the other model.".into(),
+            cost_usd: Some(0.0031),
+            elapsed_ms: 1_300,
+            output_tokens: 12,
+            cut: false,
+            call: "act_1".into(),
+        }),
+        ..Default::default()
+    }));
+    r.shows("Hello from the other model.").await;
+    let text = r.text();
+    assert!(
+        text.contains(
+            "haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.find("Hello from the other model.").unwrap() < text.find("subagent answer").unwrap(),
+        "the words, then their footer: {text}"
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_question_shows_in_the_dock_and_y_answers_it() {
     let mut r = Rig::new(80, 24).await;

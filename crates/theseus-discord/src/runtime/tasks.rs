@@ -299,6 +299,17 @@ impl Tasks {
         own
     }
 
+    /// The conversations that answer at another's place: `(session, the
+    /// place's session)` for Home and for each thread shown at a place.
+    pub fn adopted(&self) -> Vec<(String, String)> {
+        let m = self.model.lock().unwrap();
+        m.home
+            .iter()
+            .cloned()
+            .chain(m.shown.iter().map(|(t, p)| (t.clone(), p.clone())))
+            .collect()
+    }
+
     /// The projects the model holds, the soonest next step first.
     pub fn projects(&self) -> Vec<WorkView> {
         let m = self.model.lock().unwrap();

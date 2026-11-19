@@ -137,6 +137,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "look at Theseus itself (models, provider keys, health, build) and at the vault's names, with no shell: a command naming Theseus's own program or the vault's is held, and the vault's has no session by design",
     ),
     (
+        "profile",
+        "ask another model profile one question and get its words back, or put this conversation on a profile, with no shell: Theseus's own command line in a shell is not the way",
+    ),
+    (
         "vault",
         "use a secret that is in the vault, by its name: the daemon finds the item and field, checks it can read them, and the owner approves one card; its value never reaches you, and the vault's program in a shell has no session by design",
     ),
@@ -196,6 +200,7 @@ pub fn of_wire(wire: &str) -> String {
             "extend" => "extensions",
             "config" | "daemon" | "mcp" => "settings",
             "look" => "look",
+            "profile" => "profile",
             "vault" => "vault",
             "self" => "self",
             _ => OTHER,
@@ -409,6 +414,8 @@ mod tests {
             ("config_show", "settings"),
             ("look_theseus", "look"),
             ("look_vault", "look"),
+            ("profile_ask", "profile"),
+            ("profile_hold", "profile"),
             ("vault_use", "vault"),
             ("config_propose_file", "prompt-files"),
             ("config_read_file", "prompt-files"),

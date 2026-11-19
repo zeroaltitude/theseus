@@ -357,6 +357,8 @@ pub struct ToolRuntime {
     pub thread_read: crate::thread_read::Board,
     /// `look.theseus` and `look.vault` (issue 26): the core, and the daemon's vault reader.
     pub look: crate::look::Board,
+    /// `profile.ask` and `profile.hold` (issue 28): the core.
+    pub profile: crate::profile_tool::Board,
     /// What `card.observed` reads (theseus-6f8t0): the core, once built.
     pub card_observed: crate::card::tool::Board,
     /// `self.file` (theseus-cux0o): a person's finding, filed from a chat.
@@ -562,6 +564,7 @@ impl ToolRuntime {
             routines: Default::default(),
             thread_read: Default::default(),
             look: Default::default(),
+            profile: Default::default(),
             card_observed: Default::default(),
             self_file: Default::default(),
             self_pause: Default::default(),
@@ -1207,6 +1210,8 @@ impl ToolRuntime {
             planned.map(|p| crate::config_change::show::ask_if_outside(tc, tool.name(), p));
         // So is a look at Theseus itself or at the vault's names (issue 26).
         let planned = planned.map(|p| crate::look::ask_if_outside(tc, tool.name(), p));
+        // And so is asking a profile, or putting the conversation on one (issue 28).
+        let planned = planned.map(|p| crate::profile_tool::ask_if_outside(tc, tool.name(), p));
         // So is a use of a vault item, before the daemon reads anything from it (issue 26).
         let planned =
             planned.map(|p| crate::config_change::vault_use::ask_if_outside(tc, tool.name(), p));
@@ -2011,6 +2016,8 @@ pub fn build_runtime(
         crate::config_change::register(cfg, &mut r);
         // Theseus and its vault, looked at by name, with no shell (issue 26).
         crate::look::register(cfg, &mut r);
+        // Asking a profile and holding a conversation to one, with no shell (issue 28).
+        crate::profile_tool::register(cfg, &mut r);
         r.register(Arc::new(crate::glide::ChannelPost));
         r.register(Arc::new(crate::glide::ChannelRead));
         // The files people gave the session (theseus-c9l6).
@@ -2170,6 +2177,7 @@ pub fn build_runtime(
         routines: crate::routine::Book::new(&cfg.routines),
         thread_read: Default::default(),
         look: Default::default(),
+        profile: Default::default(),
         card_observed: Default::default(),
         self_file: Default::default(),
         self_pause: Default::default(),

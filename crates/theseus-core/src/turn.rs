@@ -123,6 +123,7 @@ mod standing_step;
 pub mod stdio_step;
 mod steer_step;
 mod stopping_step;
+mod subagent_step;
 mod surface_step;
 mod target;
 pub(crate) mod tier;

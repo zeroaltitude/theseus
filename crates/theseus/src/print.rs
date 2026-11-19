@@ -372,6 +372,66 @@ mod tests {
         assert_eq!(String::from_utf8(err).unwrap(), "  → fs.read\n");
     }
 
+    fn subagent_ended() -> Event {
+        Event::ToolEnded(theseus_protocol::ToolEnded {
+            tool_use_id: "t1".into(),
+            tool: "profile.ask".into(),
+            status: "ok".into(),
+            subagent: Some(theseus_protocol::SubagentAnswer {
+                profile: "haiku".into(),
+                provider: "anthropic".into(),
+                model: "claude-haiku-5-5".into(),
+                asked_by: "sonnet".into(),
+                text: "Hello from the other model.".into(),
+                cost_usd: Some(0.0031),
+                elapsed_ms: 1_300,
+                output_tokens: 12,
+                cut: false,
+                call: "act_1".into(),
+            }),
+            ..theseus_protocol::ToolEnded::default()
+        })
+    }
+
+    /// A subagent's answer (issue 28) is a message of the conversation in `theseus ask`'s output: its
+    /// words on stdout, in order BEFORE the reply that follows, and its footer, which names the
+    /// profile and model that answered and says who asked, on stderr; a `--json` run prints none of it.
+    #[test]
+    fn a_subagents_answer_is_printed_before_the_reply_with_its_own_footer() {
+        let delta =
+            |text: &str| serde_json::json!({"turn_id": "turn_a", "loop_index": 0, "text": text});
+        for mode in [Mode::Text, Mode::Quiet, Mode::Watch] {
+            let mut p = Printer::to(mode, false, Vec::new(), Vec::new());
+            p.on_event(&subagent_ended());
+            p.on(notify::MODEL_DELTA, &delta("It said hello.\n"));
+            p.settle();
+            let (out, err) = p.into_parts();
+            let (out, err) = (
+                String::from_utf8(out).unwrap(),
+                String::from_utf8(err).unwrap(),
+            );
+            let shown = out
+                .find("Hello from the other model.")
+                .expect("the words are shown");
+            if mode != Mode::Quiet {
+                assert!(
+                    shown < out.find("It said hello.").unwrap(),
+                    "before the reply: {out}"
+                );
+            }
+            assert!(
+                err.contains(
+                    "[haiku → anthropic/claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s]"
+                ),
+                "{err}"
+            );
+        }
+        let mut p = Printer::to(Mode::Json, false, Vec::new(), Vec::new());
+        p.on_event(&subagent_ended());
+        let (out, err) = p.into_parts();
+        assert_eq!((out, err), (Vec::new(), Vec::new()));
+    }
+
     fn edit_events() -> Vec<Event> {
         use serde_json::json;
         use theseus_protocol::{ToolDiff, ToolEnded, ToolProposed, ToolStarted};

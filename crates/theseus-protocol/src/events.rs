@@ -422,6 +422,11 @@ pub struct ToolEnded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub diff: Option<crate::ToolDiff>,
+    /// The words of another model profile that a turn asked (`profile.ask`, issue 28): a
+    /// subagent's answer, which every place that draws a reply draws as a message of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub subagent: Option<crate::SubagentAnswer>,
 }
 
 /// `confirm.resolved`: a question waiting for the operator closed.

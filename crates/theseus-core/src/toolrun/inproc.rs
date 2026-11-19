@@ -100,6 +100,15 @@ impl ToolRuntime {
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // Theseus and its vault, looked at by name (issue 26).
                 crate::look::FAMILY => self.look.run(tc, tool.name(), &input),
+                // A profile asked one question, or a conversation held to one (issue 28).
+                crate::profile_tool::FAMILY => self.profile.run(
+                    tc,
+                    tool.name(),
+                    &input,
+                    self.chat_acts
+                        .offered(tc.session_id, tc.turn_id)
+                        .map(|o| o.said),
+                ),
                 // What has been kept about the owner, asked for (theseus-6f8t0).
                 crate::card::tool::FAMILY => self.card_observed.run(tc, &input),
                 // By name: their family is `self`, which both share.
