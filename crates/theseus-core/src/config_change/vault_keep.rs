@@ -55,10 +55,20 @@ pub fn is_keep(a: &theseus_kernel::Action) -> bool {
     a.tool == ACK && a.proposal.as_ref().is_some_and(|p| is_card(&p.args))
 }
 
-/// What a plain Approve on a keep card is told: there is no value in it.
-pub const NO_VALUE: &str = "this is a secret to keep, and a yes carries no value: type the value where only you \
-     see it, in your own terminal with `theseus vault keep` or in the cockpit's field on this card. \
-     Nothing was kept";
+/// What a plain Approve on a keep card is told: there is no value in it, and where the value is typed. The
+/// form in the owner's direct messages is named where the setting offers it (`by_form`), as the other words
+/// for a keep card name it.
+pub fn no_value_words(by_form: bool) -> String {
+    let form = match by_form {
+        true => ", or by pressing \"Type the value here\" on its card in your direct messages with Theseus",
+        false => "",
+    };
+    format!(
+        "this is a secret to keep, and a yes carries no value: type the value where only you see it, \
+         in your own terminal with `theseus vault keep` or in the cockpit's field on this card{form}. \
+         Nothing was kept"
+    )
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

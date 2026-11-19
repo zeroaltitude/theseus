@@ -451,3 +451,68 @@ async fn a_yes_to_a_keep_card_from_a_conversation_is_told_how_the_value_is_given
     assert!(!line.contains("approve"), "{line}");
     assert!(waiting(&r, &q));
 }
+
+/// A row names who answered by the daemon's own judgement of the connection: the Discord binding names the person it
+/// read off the press, but on the terminal a request that names an author does not make the row say it. Both the
+/// stopped rows and the outcome rows.
+#[tokio::test]
+async fn a_keep_rows_label_is_the_surfaces_judgement_not_the_authors_claim() {
+    let (r, _dir) = rig_form(true);
+    let secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    // From the terminal, naming someone else: a blank value (a stopped row), then the keep itself (an outcome row).
+    for (value, with_code) in [("   ", false), (VALUE, true)] {
+        let mut p = json!({"question_id": q, "value": value, "author": "discord:someone-else"});
+        if with_code {
+            p["code"] = json!(code(&secret, 0));
+        }
+        let _ = rpc_as(&r.core, cli(), method::VAULT_KEEP_ANSWER, p).await;
+    }
+    let rows = r.rows("vault.keep");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    for row in &rows {
+        let by = row["approved_by"].as_str().unwrap();
+        assert_eq!(by, Surface::Cli.name(), "{row}");
+        assert!(!format!("{row}").contains("someone-else"), "{row}");
+    }
+    // From the Discord binding the label is the person it named.
+    let q2 = ask(&r, input("Lantern second", "credential")).await;
+    let mut p = json!({"question_id": q2, "value": "", "refused": "blank",
+                       "author": "discord:dockhand", "discord": dm()});
+    p["code"] = json!(code(&secret, 1));
+    let _ = rpc_as(&r.core, discord(), method::VAULT_KEEP_ANSWER, p).await;
+    let last = r
+        .rows("vault.keep")
+        .into_iter()
+        .find(|x| x["question"] == q2.as_str())
+        .unwrap();
+    assert_eq!(last["approved_by"], "discord:dockhand", "{last}");
+}
+
+/// A plain Approve on a keep card is told where the value is typed, naming the form where the setting offers it
+/// and not where it does not.
+#[tokio::test]
+async fn a_plain_yes_is_told_about_the_form_only_where_the_setting_offers_it() {
+    for (on, names_it) in [(true, true), (false, false)] {
+        let (r, _dir) = rig_form(on);
+        let q = ask(&r, input("Lantern new", "credential")).await;
+        let e = rpc_as(
+            &r.core,
+            cli(),
+            method::ACTION_CONFIRM,
+            json!({"correlation_id": q, "approve": true}),
+        )
+        .await
+        .unwrap_err();
+        let said = format!("{e:?}");
+        assert!(
+            said.contains("theseus vault keep") && said.contains("cockpit"),
+            "{said}"
+        );
+        assert_eq!(
+            said.contains("Type the value here"),
+            names_it,
+            "{on}: {said}"
+        );
+    }
+}

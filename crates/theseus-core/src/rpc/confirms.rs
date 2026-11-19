@@ -420,7 +420,9 @@ impl Core {
             let r = Refusal {
                 who: who.who(),
                 via: who.via(),
-                why: crate::config_change::vault_keep::NO_VALUE.to_string(),
+                why: crate::config_change::vault_keep::no_value_words(
+                    self.cfg.vault.keep_by_discord,
+                ),
             };
             self.refused(
                 Act::Answer {

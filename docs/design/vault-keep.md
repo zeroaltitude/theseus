@@ -139,9 +139,9 @@ Replace an item the settings read (refused). Overwrite another item (shown on th
   binding's `warn!` line, a `discord.error` row and health's `last_error`. `runtime::receive_words` records the kind in fixed words and
   nothing derived from the event, not its length. The binding's other `board.error` sites format a `twilight_http` error (which can carry
   Discord's response to a request the binding sent: the callback, a followup, a modal's response, an edit) or the daemon's refusal. No
-  request the binding sends carries the value (the reply is the daemon's words by name, the modal holds the title, field and vault), and
-  Discord does not echo a request's text in an error body, so none of them can carry it; the test sends a malformed form through the fake
-  gateway and searches the log at trace level, the rows and health.
+  request the binding sends carries the value (the reply is the daemon's words by name, the modal holds the title, field and vault), so
+  nothing a `twilight_http` error can quote of a request holds it; the test sends a malformed form through the fake gateway and searches
+  the log at trace level, the rows and health.
 - **Where else the form's words are drawn.** The `/answer` view in a direct message draws the same first words and the same button
   (`answer_cmd::answerable` applies `keep_form::offer`). A keep card has no Details button (its buttons are Decline and the form's), so
   there is no Details view of one to explain. A value the daemon would refuse (blank, over 4,096 bytes, a NUL) is found by the form (it counts characters, the daemon bytes) and
@@ -150,6 +150,11 @@ Replace an item the settings read (refused). Overwrite another item (shown on th
   and the submit) is told in the keep card's own words (`vault_keep::proof_missing_words`), never `theseus answer ... approve --code`. A yes or a code given to a keep card from a conversation (the chat's answer tool, a typed
   yes, the plain-text needs-you line) is told the same way: the owner gives the value (`vault_keep::chat_words`, `KEEP_BY_PRESS`,
   `answer_line`).
+- **Who a row names.** A keep's rows (the outcomes and the stopped attempts) label who answered from the daemon's own judgement of the
+  connection: the Discord binding names the person it read off the press, and on the terminal and the web UI the label is the surface's
+  (`the CLI`, `the web UI`), whatever author the request names, because any process of the owner's own user can send a request and name
+  anyone there (`rpc::vault_keep::author_of`). `via` says where it came from. The rows of the other answer methods still take the
+  request's author, as they did.
 - **The reply** to the presser is private and is the daemon's words by name (or its refusal); the card is edited to its outcome by
   the daemon's own settle, as the terminal's keep is. The turn is told by the settled card, not woken: the owner asks for the use
   (`vault.use`, the second card).
