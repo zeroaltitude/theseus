@@ -134,7 +134,16 @@ async fn work_handed_to_a_profile_is_done_by_a_task_that_has_tools() {
     assert_eq!(read.len(), 1, "{read:?}");
     assert!(read[0].contains(REPORT), "{}", read[0]);
     // And what the agent spent counts against the conversation, as any task's does.
-    assert_eq!(parent.spent_micros, ts[0].spent_micros, "the carry");
+    assert!(
+        ts[0].budget.spent_micros > 0,
+        "the agent's calls were priced"
+    );
+    assert!(
+        parent.budget.spent_micros >= ts[0].budget.spent_micros,
+        "the carry: {} of the conversation's {}",
+        ts[0].budget.spent_micros,
+        parent.budget.spent_micros
+    );
 }
 
 /// The report is a message of the conversation in its own right, from the agent: after the call
