@@ -907,7 +907,12 @@ async fn a_card_asked_in_a_direct_message_is_in_the_terminals_list() {
     r.core.outbox.bind_place("dm:42", &sid).unwrap();
     r.turn_with("vault_keep", &sid, input("Lantern new", "credential"))
         .await;
-    let q = r.asked().pop().expect("one card waits").correlation_id;
+    let (status, text) = r.result(&sid);
+    let q = r
+        .asked()
+        .pop()
+        .unwrap_or_else(|| panic!("no card waits: {status:?} {text}"))
+        .correlation_id;
     for (label, p) in [
         ("the terminal", json!({})),
         (
