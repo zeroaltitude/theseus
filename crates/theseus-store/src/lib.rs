@@ -29,6 +29,8 @@
 pub mod chain;
 pub mod chain_walk;
 pub mod frame_times;
+#[cfg(debug_assertions)]
+mod hold;
 pub mod index;
 pub mod leak;
 pub mod pages;
@@ -39,6 +41,8 @@ pub mod store;
 pub mod wal;
 
 pub use frame_times::FrameTime;
+#[cfg(debug_assertions)]
+pub use hold::hold_by_fifo;
 pub use index::{Engine, Location, MovedAside, Sums};
 pub use pages::{Page, PageOut};
 pub use record::{kinds, NewRecord, Record, RecordKind, FROZEN_SCHEMA};

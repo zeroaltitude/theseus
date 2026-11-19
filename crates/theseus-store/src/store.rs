@@ -2227,11 +2227,14 @@ impl Store for WalStore {
                 kept.iter().take(REFUSED_SHOWN).copied().collect(),
             )
         };
+        // Numbers that are shown, not acted on: read where the writer keeps them, so a write a stalled disk holds
+        // does not hold `health` (`wal::stand`).
+        let (last_position, wal_bytes, wal_segments) = s.wal.stood();
         Ok(StoreStats {
-            last_position: s.wal.last_position(),
+            last_position,
             checkpoint: s.index.checkpoint()?,
-            wal_bytes: s.wal.total_bytes(),
-            wal_segments: s.wal.segment_count(),
+            wal_bytes,
+            wal_segments,
             recovered_records: r.records,
             truncated_bytes: r.truncated_bytes,
             cut: r.cut,
@@ -2363,5 +2366,7 @@ mod tests_keyed;
 mod tests_overlap;
 #[cfg(test)]
 mod tests_pages;
+#[cfg(test)]
+mod tests_stand;
 #[cfg(test)]
 mod tests_tombstone;
