@@ -1393,6 +1393,19 @@ fn a_tasks_report_footer_names_the_model_that_gave_it_and_says_it_is_a_subagents
     );
 }
 
+/// A setup with no named profile has no empty one in the footer: no stray separator before the model.
+#[test]
+fn a_tasks_report_footer_skips_an_empty_profile_as_the_replys_does() {
+    let body = json!({"kind": "report", "task": "ses_x", "short": "a1b2c3", "title": "Run the gate",
+        "outcome": "complete", "spent_usd": 0.0123, "limit_usd": 2.5, "turns": 3, "elapsed_ms": 64_000,
+        "ran_on": {"profile": "", "provider": "anthropic", "model": "claude-haiku-5-5"}});
+    assert_eq!(
+        report(&body, Some("The gate passed."), 0, None),
+        "📋 **Task `a1b2c3` finished** · Run the gate\nThe gate passed.\n\
+         -# claude-haiku-5-5 · subagent task report · 3 turns · $0.0123 of $2.50 · 1 min 4 s"
+    );
+}
+
 /// A task that works in a forum post or a channel of its own has its
 /// mention on the report's first line, so a tap opens it; one with
 /// neither reports as before (theseus-ypnxt.5).

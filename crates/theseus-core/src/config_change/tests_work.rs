@@ -7,7 +7,7 @@ use serde_json::json;
 use super::tests::rig;
 use crate::node::ResultStatus;
 
-/// "What is going on here?": the three parts, from this conversation, with no card and no shell.
+/// "What is going on?": every part, with no card and no shell; a daemon with nothing going on says so.
 #[tokio::test]
 async fn the_owner_reads_this_conversations_work_and_is_asked_nothing() {
     let r = rig();
@@ -16,8 +16,8 @@ async fn the_owner_reads_this_conversations_work_and_is_asked_nothing() {
     let (status, text) = r.result(&sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
     for part in [
-        "Tasks: this conversation has started none.",
-        "Waiting on the owner: nothing waits here.",
+        "Tasks: none have been started.",
+        "Waiting on the owner: nothing waits anywhere.",
         "- the owner: change a setting",
     ] {
         assert!(text.contains(part), "{part} in {text}");
@@ -95,14 +95,15 @@ async fn it_takes_no_session_or_place_to_read() {
     }
 }
 
-/// `theseus tasks`, `status` and `history` in the owner's shell are answered with it, and the answer
-/// is on the ledger as a row of the verb, the tool and the place, with no command text.
+/// `theseus tasks` and `status` in the owner's shell are answered with it, and the answer is on the
+/// ledger as a row of the verb, the tool and the place, with no command text. The answer's words say
+/// what the tool gives (Theseus's work whole) and where it gives less, and never that it is "the same
+/// look".
 #[tokio::test]
 async fn the_shell_commands_it_replaces_are_answered_with_it_and_counted() {
     for (line, verb) in [
         ("theseus tasks", "tasks"),
         ("theseus status --json", "status"),
-        ("theseus history | tail -20", "history"),
     ] {
         let r = rig_in_its_dir();
         let sid = r.session();
@@ -111,6 +112,11 @@ async fn the_shell_commands_it_replaces_are_answered_with_it_and_counted() {
         let (status, text) = r.result(&sid);
         assert_eq!(status, ResultStatus::Declined, "{line}: {text}");
         assert!(text.contains("`look_work`: use it"), "{text}");
+        assert!(
+            text.contains("Theseus's work") && text.contains("the conversations running"),
+            "{text}"
+        );
+        assert!(!text.contains("same look"), "{text}");
         let rows = r.rows("shell.answered");
         assert_eq!(rows.len(), 1, "{rows:?}");
         assert_eq!(rows[0]["verb"], json!(verb));
@@ -122,16 +128,31 @@ async fn the_shell_commands_it_replaces_are_answered_with_it_and_counted() {
             rows[0]
         );
     }
-    // `history` of a session is another read, which runs.
+    // `history`, bare or of a session, is another read (the most recently active session's whole
+    // transcript, or that session's), which runs.
+    for line in ["theseus history", "theseus history ses_other"] {
+        let r = rig_in_its_dir();
+        let sid = r.session();
+        r.turn_with("proc_run", &sid, json!({"command": line}))
+            .await;
+        assert!(r.rows("shell.answered").is_empty(), "{line}");
+    }
+}
+
+/// `theseus ontology` (bare) is answered with `look_theseus`, and the answer says the ontology comes only
+/// when the call names it.
+#[tokio::test]
+async fn the_ontology_commands_answer_says_to_name_it() {
     let r = rig_in_its_dir();
     let sid = r.session();
-    r.turn_with(
-        "proc_run",
-        &sid,
-        json!({"command": "theseus history ses_other"}),
-    )
-    .await;
-    assert!(r.rows("shell.answered").is_empty());
+    r.turn_with("proc_run", &sid, json!({"command": "theseus ontology"}))
+        .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Declined, "{text}");
+    assert!(
+        text.contains("`look_theseus`: use it") && text.contains("only when the call names it"),
+        "{text}"
+    );
 }
 
 fn rig_in_its_dir() -> super::tests::Rig {

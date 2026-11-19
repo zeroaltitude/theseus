@@ -14,7 +14,8 @@ use serde_json::Value;
 use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 
 use super::board_v2::{
-    ago, ask_line, done_line, headline, short, title_of, working_line, OPEN, PICK,
+    ago, ask_line, done_line, headline, running_and_scheduled, short, title_of, working_line, OPEN,
+    PICK,
 };
 use super::clip;
 use super::history::{self, Row};
@@ -88,7 +89,13 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
         },
     );
     let finished = if stored { p.history.len() } else { 0 };
-    let mut head = headline(needs.len(), working.len(), done.iter().map(|v| v.state));
+    let (running, scheduled) = running_and_scheduled(working);
+    let mut head = headline(
+        needs.len(),
+        running,
+        scheduled,
+        done.iter().map(|v| v.state),
+    );
     if finished > 0 {
         head = match head.as_str() {
             "all clear" => format!("{finished} finished"),
@@ -117,14 +124,23 @@ fn build(show: Show, p: &Parts<'_>, caps: [usize; 3], now_ms: u64) -> Vec<Value>
     }
     if !working.is_empty() {
         inner.push(separator());
-        let mut lines = vec![format!("**{} Now**", state(WorkState::Running))];
-        lines.extend(
-            working
-                .iter()
-                .rev()
-                .take(cw)
-                .map(|v| working_line(v, now_ms)),
-        );
+        let (later, now): (Vec<&WorkView>, Vec<&WorkView>) = working
+            .iter()
+            .rev()
+            .partition(|v| super::task_view::waits_to_start(v) && !v.paused);
+        let mut lines = Vec::new();
+        let mut room = cw;
+        for (head, group) in [
+            (format!("**{} Now**", state(WorkState::Running)), now),
+            ("**🕒 Scheduled**".to_string(), later),
+        ] {
+            if group.is_empty() || room == 0 {
+                continue;
+            }
+            lines.push(head);
+            lines.extend(group.iter().take(room).map(|v| working_line(v, now_ms)));
+            room = room.saturating_sub(group.len());
+        }
         inner.push(text(lines.join("\n")));
     }
     if !done.is_empty() {
@@ -223,6 +239,7 @@ pub fn task_choices(views: &[WorkView], typed: &str) -> Vec<(String, String)> {
     out.extend(tasks.into_iter().map(|v| {
         let mark = match v.state {
             WorkState::NeedsYou => "🔴",
+            WorkState::Waiting if super::task_view::waits_to_start(v) => "🕒",
             s if s.working() => "⚙️",
             WorkState::Done => "✅",
             WorkState::Failed => "❌",

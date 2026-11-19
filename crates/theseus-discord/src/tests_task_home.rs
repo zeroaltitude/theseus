@@ -633,10 +633,18 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
 /// A rig whose DM and `#lab` each have a conversation (a word said in each),
 /// `#lab` and `#reel` private beside the DM, the home as `home` says.
 pub(crate) async fn two_places(home: &str) -> Rig {
+    two_places_with(home, |_| vec![]).await
+}
+
+/// `two_places` with tasks the model runs for the briefs `kids` names.
+pub(crate) async fn two_places_with(
+    home: &str,
+    kids: impl FnOnce(&Path) -> Vec<(&'static str, Vec<Scripted>)>,
+) -> Rig {
     let home = home.to_string();
     let r = rig(
         vec![Scripted::text("Hello."), Scripted::text("Hello.")],
-        |_| vec![],
+        kids,
         &bindings(true, ""),
         |_| {},
         move |c| c.discord.task_home = home,
@@ -935,8 +943,11 @@ async fn the_task_channels_board_is_drawn_by_an_owners_dm_not_the_first_dm() {
 pub(crate) async fn started_again(r: &Rig) -> Rig {
     r.stop();
     // The stand-in's gateway must have dropped the stopped run's client, or the
-    // new run's connect is taken for the old one's.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // new run's connect is taken for the old one's: wait for that fact.
+    until(r, "the stand-in's gateway sees the old client gone", || {
+        r.fake.gateway_state().is_some_and(|g| !g.connected)
+    })
+    .await;
     let again = Rig::start_over(
         r.fake.clone(),
         |_, _| Arc::new(FakeProvider::scripted(vec![Scripted::text("Hello.")])),

@@ -64,6 +64,9 @@ const RETRY_MAX: Duration = Duration::from_secs(60);
 /// A card whose item is over stays in the list this long, for a late press.
 const KEPT_MS: u64 = 24 * 3_600_000;
 
+/// How many of the newest cancel rows are read to find who cancelled an item.
+const ROWS_READ: usize = 500;
+
 /// An item that ended this recently, with no card yet, is given one in its
 /// final state: the owner must be able to see that it was set.
 const LATE_MS: u64 = 3_600_000;
@@ -114,11 +117,12 @@ impl Sched {
     /// A press cancels `wake`: remember who, for the card the worker brings
     /// to its true state.
     pub(crate) fn will_cancel(&self, wake: &str, who: &str) {
-        let who = who.trim_start_matches("discord:").to_string();
-        self.cancelled_by
-            .lock()
-            .unwrap()
-            .insert(wake.to_string(), who);
+        if let Some(who) = crate::render::sched::who_of(who) {
+            self.cancelled_by
+                .lock()
+                .unwrap()
+                .insert(wake.to_string(), who);
+        }
     }
 
     /// The press did not cancel it.
@@ -153,6 +157,12 @@ impl Shared {
             return None;
         }
         self.task_posts.home.target()
+    }
+
+    /// The name of the conversation a task was set in: its root's session.
+    fn task_from(&self, v: &WorkView, names: &HashMap<String, String>) -> Option<String> {
+        let root = self.tasks.view(&v.root)?;
+        names.get(root.session_id.as_deref()?).cloned()
     }
 
     /// The items now: the pending wakes and the routines the future's
@@ -193,6 +203,24 @@ impl Shared {
                 paused: false,
                 routine: None,
             });
+        }
+        // A task set to start later is a scheduled item too: one card of its
+        // own, and no second post (the task has its own). One that began or
+        // was cancelled has its card brought to that.
+        for v in self.tasks.waiting_to_start() {
+            let rec = recs.iter().find(|r| r.id == v.id);
+            out.push(task_face(&v, rec, self.task_from(&v, &names), sched));
+        }
+        for r in recs
+            .iter()
+            .filter(|r| r.kind == "task" && r.ended_ms.is_none())
+        {
+            if out.iter().any(|f| f.id == r.id) {
+                continue;
+            }
+            if let Some(v) = self.tasks.view(&r.id) {
+                out.push(task_face(&v, Some(r), self.task_from(&v, &names), sched));
+            }
         }
         for r in &snap.routines {
             out.push(Face {
@@ -267,6 +295,41 @@ fn wake_face(
     }
 }
 
+/// A task's face: scheduled while it waits for its start, else how its start
+/// went (it began, or it was cancelled before it).
+fn task_face(v: &WorkView, rec: Option<&Rec>, from: Option<String>, sched: &Sched) -> Face {
+    let due = v.next_at_ms.or(rec.and_then(|r| r.due_ms));
+    let ended = v.ended_at_ms.unwrap_or(v.state_since_ms);
+    let life = if crate::render::task_view::waits_to_start(v) {
+        Life::Scheduled {
+            snoozed: rec.is_some_and(|r| {
+                r.snoozed
+                    || matches!((r.due_ms, v.next_at_ms), (Some(was), Some(now)) if now.abs_diff(was) > 1_000)
+            }),
+        }
+    } else if matches!(v.state, WorkState::Cancelled | WorkState::Expired) {
+        Life::Cancelled(
+            ended,
+            sched
+                .who_cancelled(&v.id)
+                .or_else(|| rec.and_then(|r| r.by.clone())),
+        )
+    } else {
+        Life::Started(due.map_or_else(now_unix_ms, |d| d.min(now_unix_ms())))
+    };
+    Face {
+        id: v.id.clone(),
+        kind: Kind::Task,
+        title: v.title.clone(),
+        due_ms: due,
+        life,
+        from: from.or_else(|| rec.and_then(|r| r.from.clone())),
+        every: None,
+        paused: v.paused,
+        routine: None,
+    }
+}
+
 /// The work view the forum worker takes a face for: a wake or a routine, its
 /// state the item's life.
 fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
@@ -289,6 +352,7 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
         state: match f.life {
             Life::Scheduled { .. } => WorkState::Waiting,
             Life::Fired(_) => WorkState::Done,
+            Life::Started(_) => WorkState::Running,
             Life::Cancelled(..) | Life::Removed(_) => WorkState::Cancelled,
         },
         previous: None,
@@ -300,7 +364,7 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
         started_at_ms: created_ms,
         state_since_ms: created_ms,
         ended_at_ms: match f.life {
-            Life::Scheduled { .. } => None,
+            Life::Scheduled { .. } | Life::Started(_) => None,
             Life::Fired(at) | Life::Cancelled(at, _) | Life::Removed(at) => Some(at),
         },
         doing: None,
@@ -427,12 +491,18 @@ impl Worker {
         };
         self.retry = Duration::ZERO;
         let now = now_unix_ms();
-        let Some(faces) = s.schedule_now(&self.recs) else {
+        let Some(mut faces) = s.schedule_now(&self.recs) else {
             return true;
         };
         let mut shown: Vec<Face> = Vec::new();
         let mut ok = true;
-        for f in &faces {
+        for f in &mut faces {
+            if !self.name_canceller(f).await {
+                ok = false;
+                break;
+            }
+        }
+        for f in faces.iter().filter(|_| ok) {
             if !self.card_for(f, &home, now).await {
                 ok = false;
                 break;
@@ -449,8 +519,8 @@ impl Worker {
                 .cloned()
                 .collect();
             for r in gone {
-                let f = gone_face(&r, now, &s.task_posts.sched);
-                if !self.card_for(&f, &home, now).await {
+                let mut f = gone_face(&r, now, &s.task_posts.sched);
+                if !self.name_canceller(&mut f).await || !self.card_for(&f, &home, now).await {
                     ok = false;
                     break;
                 }
@@ -464,6 +534,66 @@ impl Worker {
         ok
     }
 
+    /// A card that is about to say `Cancelled` with no name: the item's own
+    /// record says who cancelled it (the author of the cancel call, from the
+    /// terminal or elsewhere), and the card says so. False when the record
+    /// could not be read: the pass waits and looks again, so a card is never
+    /// left without a name it could have had.
+    async fn name_canceller(&mut self, f: &mut Face) -> bool {
+        let Life::Cancelled(at, None) = &f.life else {
+            return true;
+        };
+        let at = *at;
+        let at_its_end = self
+            .recs
+            .iter()
+            .find(|r| r.id == f.id)
+            .is_some_and(|r| r.ended_ms.is_some() || r.by.is_some());
+        if at_its_end {
+            return true;
+        }
+        match self.cancelled_by(&f.id, f.kind).await {
+            Ok(by) => {
+                f.life = Life::Cancelled(at, by);
+                true
+            }
+            Err(e) => {
+                self.failed("schedule card", e);
+                false
+            }
+        }
+    }
+
+    /// The label the newest `wake.cancelled` row of the wake `id` (or
+    /// `execution.cancelled` row of the task) holds as its author.
+    async fn cancelled_by(&self, id: &str, kind: Kind) -> Result<Option<String>, String> {
+        let (row, key) = if kind == Kind::Task {
+            ("execution.cancelled", "execution_id")
+        } else {
+            ("wake.cancelled", "wake_id")
+        };
+        let rows = self
+            .shared
+            .rpc
+            .call::<_, theseus_protocol::LedgerTailResult>(
+                theseus_protocol::method::LEDGER_TAIL,
+                theseus_protocol::LedgerTailParams {
+                    n: Some(ROWS_READ),
+                    kind: Some(row.into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| e.message)?
+            .rows;
+        Ok(rows
+            .iter()
+            .rev()
+            .find(|r| r.data[key].as_str() == Some(id))
+            .and_then(|r| r.data["by"].as_str())
+            .and_then(crate::render::sched::who_of))
+    }
+
     /// One item's card: posted if it has none, edited if what it says
     /// changed. False when the write failed.
     async fn card_for(&mut self, f: &Face, home: &Home, now: u64) -> bool {
@@ -471,7 +601,9 @@ impl Worker {
         let dig = digest(&card);
         let Some(i) = self.recs.iter().position(|r| r.id == f.id) else {
             let late = match f.life {
-                Life::Fired(t) | Life::Cancelled(t, _) | Life::Removed(t) => now < t + LATE_MS,
+                Life::Fired(t) | Life::Started(t) | Life::Cancelled(t, _) | Life::Removed(t) => {
+                    now < t + LATE_MS
+                }
                 Life::Scheduled { .. } => true,
             };
             return !late || self.post(f, &card, dig, home, now, None).await;
@@ -636,7 +768,13 @@ impl Worker {
             let mut faces = s.task_posts.sched.faces.lock().unwrap();
             faces.clear();
             for f in shown {
-                let Some(r) = self.recs.iter().find(|r| r.id == f.id) else {
+                // A task has its own post; only the other items are made one.
+                let Some(r) = self
+                    .recs
+                    .iter()
+                    .find(|r| r.id == f.id)
+                    .filter(|_| f.kind != Kind::Task)
+                else {
                     continue;
                 };
                 faces.insert(f.id.clone(), f.clone());
@@ -660,10 +798,12 @@ fn gone_face(r: &Rec, now: u64, sched: &Sched) -> Face {
     let kind = match r.kind.as_str() {
         "routine" => Kind::Routine,
         "check-in" => Kind::CheckIn,
+        "task" => Kind::Task,
         _ => Kind::Reminder,
     };
     let life = match (kind, r.due_ms) {
         (Kind::Routine, _) => Life::Removed(now),
+        (Kind::Task, Some(due)) if due <= now + 5_000 => Life::Started(due),
         (_, Some(due)) if due <= now + 5_000 => Life::Fired(due),
         _ => Life::Cancelled(now, sched.who_cancelled(&r.id).or_else(|| r.by.clone())),
     };
@@ -692,6 +832,9 @@ impl Shared {
             .strip_prefix(CANCEL_PREFIX)
             .or_else(|| custom_id.strip_prefix(crate::render::horizon::SNOOZE_PREFIX))
             .unwrap_or_default();
+        if !wake.starts_with("wak_") {
+            return self.task_card_press(i, cancel, wake, who).await;
+        }
         let over = self
             .tasks
             .scheduled()
@@ -711,6 +854,33 @@ impl Shared {
         }
         if !self.reminder_pick(i, custom_id, who).await && cancel {
             self.task_posts.sched.not_cancelled(wake);
+        }
+    }
+}
+
+impl Shared {
+    /// The press of the card of a task set to start later: `task.cancel` or
+    /// `task.reschedule` an hour on, as the presser. A task that has started
+    /// or ended says so, and its card is brought to that.
+    async fn task_card_press(&self, i: &Interaction, cancel: bool, task: &str, who: &str) {
+        let waits = self
+            .tasks
+            .view(task)
+            .is_some_and(|v| crate::render::task_view::waits_to_start(&v));
+        if !waits {
+            self.tasks.future.dirty();
+            return self
+                .reply_ephemeral(
+                    i,
+                    "That task has started or ended already: its card shows how.".into(),
+                )
+                .await;
+        }
+        if cancel {
+            self.task_posts.sched.will_cancel(task, who);
+        }
+        if !self.task_pick(i, cancel, task, who).await && cancel {
+            self.task_posts.sched.not_cancelled(task);
         }
     }
 }

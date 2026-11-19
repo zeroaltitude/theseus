@@ -77,7 +77,7 @@ pub fn register(cfg: &crate::Config, r: &mut Registry) {
 fn about(tool: &str) -> &'static str {
     match tool {
         VAULT => "read the names in Theseus's vault",
-        WORK => "read this conversation's tasks, questions and messages",
+        WORK => "read what work Theseus has going: its tasks, questions, projects, routines and reminders",
         _ => "look at what Theseus runs as",
     }
 }
@@ -235,9 +235,9 @@ impl Tool for LookWork {
     }
 
     fn description(&self) -> &str {
-        "This conversation's work: the tasks it started (state, spend, what each asks), what waits on \
-         the owner, and its last messages. Only this conversation's. Answers Theseus's own tasks, status \
-         and history commands. Changes nothing. Offered only to the owner, in a private place."
+        "Theseus's work, whole: what runs, tasks, what waits on the owner, projects, routines, reminders; `scope: \
+         here` for this conversation's. Messages: this one's only (another's: `theseus history \
+         SESSION`). Owner only, private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -259,14 +259,14 @@ impl Tool for LookWork {
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let ask = work::ask_of(input)?;
         Ok(Plan {
-            summary: format!("look at this conversation's work: {}", ask.summary()),
+            summary: format!("look at Theseus's work: {}", ask.summary()),
             ..Default::default()
         })
     }
 
     fn run_async(&self, _input: &Value, _ctx: &ToolCtx) -> theseus_tools::AsyncRun {
         Box::pin(std::future::ready(Err(ToolFailure::new(
-            "look.work runs through the runtime, which reads this conversation",
+            "look.work runs through the runtime, which reads Theseus's work",
         ))))
     }
 }
@@ -338,8 +338,13 @@ impl Board {
                     Err(e) => return fail(e),
                 };
                 let session = tc.session_id.to_string();
+                // Whether this turn's own model is one the labels could keep off (the data gate's
+                // predicate); a turn with no target is read as one.
+                let restricted = target
+                    .as_ref()
+                    .is_none_or(|t| core.runner.restricted_profile(&t.profile));
                 Box::pin(async move {
-                    let said = work::words(&core, &session, &ask);
+                    let said = work::words(&core, &session, &ask, restricted).await;
                     Ok((output(said, WORK), None, None))
                 })
             }

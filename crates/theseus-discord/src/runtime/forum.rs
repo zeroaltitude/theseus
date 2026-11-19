@@ -98,6 +98,13 @@ pub(crate) enum Tag {
     Scheduled,
 }
 
+/// Whether `task` is a scheduled item's id (a reminder's or a check-in's wake,
+/// or a routine's session), not a task's: its post is read by the same Clear
+/// done as a task's (`archive`).
+pub(crate) fn is_item_id(task: &str) -> bool {
+    task.starts_with("wak_") || task.starts_with("ses_")
+}
+
 /// Whether `view` is a scheduled item (a reminder, a check-in or a routine)
 /// that `runtime/sched.rs` made up for its post, not a task.
 pub(crate) fn is_scheduled(view: &WorkView) -> bool {
@@ -138,6 +145,9 @@ impl Tag {
             WorkState::Failed => Tag::Failed,
             WorkState::Cancelled | WorkState::Expired => Tag::Stopped,
             _ if view.paused => Tag::Paused,
+            // Set to start later and not yet started (needs you, paused and
+            // the ends came first): scheduled until its time, then running.
+            _ if crate::render::task_view::waits_to_start(view) => Tag::Scheduled,
             _ => Tag::Running,
         }
     }
@@ -834,7 +844,10 @@ impl Worker {
         let want = Tag::of(&view);
         let slot = self.slots.get(&key)?;
         if slot.tag != Some(want) {
-            match wait(slot.tag_at, self.every.tags, now, ended) {
+            // The one edit that leaves `scheduled` is the item's start: shown
+            // at once, as an end is (it is one more edit, never a stream).
+            let leaving = slot.tag == Some(Tag::Scheduled);
+            match wait(slot.tag_at, self.every.tags, now, ended || leaving) {
                 None => {
                     if self.set_tag(&key, f, want).await {
                         self.failed.remove(&key);
@@ -1256,6 +1269,33 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tag of a task set to start later: `scheduled` until it starts,
+    /// `running` once it has, `needs you` over it, `paused` and the ends as
+    /// they were.
+    #[test]
+    fn a_task_set_for_later_is_scheduled_until_its_start_and_running_after() {
+        use crate::render::task_view::tests::{deferred, task};
+        let at = 1_790_003_600_000;
+        assert_eq!(Tag::of(&deferred(at)), Tag::Scheduled);
+        let mut started = deferred(at);
+        started.state = WorkState::Running;
+        assert_eq!(Tag::of(&started), Tag::Running);
+        let mut asks = deferred(at);
+        asks.state = WorkState::NeedsYou;
+        assert_eq!(Tag::of(&asks), Tag::NeedsYou, "a question wins");
+        let mut held = deferred(at);
+        held.paused = true;
+        assert_eq!(Tag::of(&held), Tag::Paused);
+        let mut done = deferred(at);
+        done.state = WorkState::Done;
+        assert_eq!(Tag::of(&done), Tag::Done);
+        // A task started at once, or one that slept after working, is running.
+        assert_eq!(Tag::of(&task()), Tag::Running);
+        let mut slept = deferred(at);
+        slept.doing.as_mut().unwrap().turn = 2;
+        assert_eq!(Tag::of(&slept), Tag::Running);
+    }
 
     fn forum(private: bool) -> Forum {
         Forum {

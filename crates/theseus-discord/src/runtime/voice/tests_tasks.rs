@@ -864,6 +864,42 @@ async fn pause_it_with_two_running_and_none_pending_is_an_ordinary_turn() {
     assert_eq!(rows_of(&r.core, "task.paused", &b), 0);
 }
 
+/// A task that waits for its start time is not running: with one running task
+/// and one set for later (both the core's own), the watch counts one running
+/// and "pause it" is the running one's, not an ordinary turn.
+#[tokio::test]
+async fn a_task_set_for_later_is_not_a_running_task_for_pause_it() {
+    let mut r = rig(vec![]).await;
+    let (a, _) = started_task(&r.core, "Count the boats");
+    let owner = Answerer {
+        label: "the CLI".into(),
+        surface: Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    let later = r
+        .core
+        .task_start(
+            &TaskStartParams {
+                brief: "Count the gulls".into(),
+                start_when: Some("in 90m".into()),
+                ..Default::default()
+            },
+            owner,
+        )
+        .unwrap();
+    let tasks = Arc::clone(&r.tasks);
+    until("the running task is the one running", move || {
+        tasks.lock().unwrap().open_counts() == (1, 0)
+    })
+    .await;
+    r.say("pause it");
+    assert!(!r.place.inflight, "the one running task, not a voice turn");
+    assert_eq!(r.said().await, "Paused.");
+    assert_eq!(rows_of(&r.core, "task.paused", &a), 1);
+    assert_eq!(rows_of(&r.core, "task.paused", &later.session_id), 0);
+}
+
 /// A guest's words hold nothing: only the owner pauses a task by voice.
 #[tokio::test]
 async fn a_guests_pause_it_does_nothing() {

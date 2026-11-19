@@ -565,9 +565,15 @@ pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<
             .then(|| shared.tasks.future.parts(None, names))
             .flatten()?;
         // Where the scheduled items have cards of their own the cards are the
-        // list: the board keeps the projects.
+        // list: a reminder, a check-in, a routine's run and a task's start are
+        // off the board's Coming up, and the Routines with them. What has no
+        // card (a watch's give-up, a milestone) stays, and so do the tasks and
+        // the projects.
         if shared.sched_target().is_some() {
-            parts.coming.clear();
+            parts.coming.retain(|l| {
+                !(is_wake_of_conversation(l)
+                    || matches!(l.what, AgendaWhat::Run | AgendaWhat::Starts))
+            });
             parts.routines.clear();
         }
         return (!parts.is_empty()).then_some(parts);

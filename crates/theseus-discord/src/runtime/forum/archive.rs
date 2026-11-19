@@ -15,6 +15,9 @@
 //! - It runs on its own hourly tick (`ARCHIVE_TICK`, `Shared::archive_tick`), so a
 //!   read post leaves at most an hour after its day, and on the task channels'
 //!   sweep (`Shared::sweep_once`: at the start, then daily).
+//! - **A scheduled item's post** (a fired or cancelled reminder, a check-in, a
+//!   removed routine) is read by the same press and archived by the same sweep
+//!   (`TaskPosts::seen_items`, `forum::is_item_id`).
 //! - A Clear done pressed after the task ended but before the forum worker
 //!   wrote the post's end still reads it: the tick asks the board
 //!   (`Tasks::cleared_since_end`) and keeps the answer in `read_ms`.
@@ -84,6 +87,23 @@ impl TaskPosts {
         }
     }
 
+    /// The owner pressed Clear done: the finished posts of scheduled items (a
+    /// reminder, a check-in, a routine) are read from now, as a done task's
+    /// are (`seen`).
+    pub(crate) fn seen_items(&self, store: &theseus_core::store::Store) {
+        let now = theseus_protocol::now_unix_ms();
+        let mut changed = false;
+        for p in self.posts.lock().unwrap().iter_mut() {
+            if p.ended_ms.is_some() && p.read_ms.is_none() && super::is_item_id(&p.task) {
+                p.read_ms = Some(now);
+                changed = true;
+            }
+        }
+        if changed {
+            self.save(store);
+        }
+    }
+
     /// The owner has seen the end of the tasks `tasks`: their finished posts
     /// are read from now.
     pub(crate) fn seen(&self, tasks: &[String], store: &theseus_core::store::Store) {
@@ -140,7 +160,12 @@ impl Shared {
             .unwrap()
             .iter()
             .filter(|p| p.ended_ms.is_some() && p.read_ms.is_none())
-            .filter(|p| self.tasks.cleared_since_end(&p.task))
+            .filter(|p| match p.ended_ms {
+                // A scheduled item is no task of the board's model: a Clear
+                // done since its end reads it.
+                Some(at) if super::is_item_id(&p.task) => self.tasks.cleared_since(at),
+                _ => self.tasks.cleared_since_end(&p.task),
+            })
             .map(|p| p.task.clone())
             .collect();
         self.task_posts.seen(&cleared, &self.core.store);
