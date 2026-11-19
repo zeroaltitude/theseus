@@ -22,14 +22,14 @@ use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
-use theseus_kernel::{Action, ActionState};
+use theseus_kernel::Action;
 use theseus_protocol::vault_keep::{VaultKeepAnswerParams, VaultKeepParams, VaultKept};
 use theseus_protocol::{error_code, method, LedgerKind};
 
 use super::confirms::Act;
 use super::server::{reply, Conn, RpcFailure};
 use super::Core;
-use crate::approval::{Answerer, Refusal};
+use crate::approval::{Answerer, Refusal, Surface};
 use crate::config_change::vault_keep::done::{self, Outcome};
 use crate::config_change::vault_keep::target::{self, Target};
 use crate::config_change::vault_keep::{is_card, ARG};
@@ -95,27 +95,34 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         let pid = conn.pid;
-        let (question, done) = match m {
+        // The card, and who the binding says pressed: the row of an attempt that stopped names both, as the
+        // rows of its outcomes do, so a form's refusal says where it was typed.
+        let (question, presser, done) = match m {
             method::VAULT_KEEP_WAITING => {
                 return reply(self.keep_waiting(parse_quiet(params)?, &conn).await?)
             }
             method::VAULT_KEEP_ANSWER => match parse_quiet::<VaultKeepAnswerParams>(params) {
                 Ok(p) => {
                     let q = Some(p.question_id.clone());
-                    (q, self.keep_answer(p, &conn).await.map(reply))
+                    let by = (p.author.clone(), p.discord.clone());
+                    (q, by, self.keep_answer(p, &conn).await.map(reply))
                 }
-                Err(f) => (None, Err(stop("bad_request")(f))),
+                Err(f) => (None, (None, None), Err(stop("bad_request")(f))),
             },
             _ => match parse_quiet::<VaultKeepParams>(params) {
-                Ok(p) => (None, self.keep_direct(p, &conn).await.map(reply)),
-                Err(f) => (None, Err(stop("bad_request")(f))),
+                Ok(p) => (
+                    None,
+                    (None, None),
+                    self.keep_direct(p, &conn).await.map(reply),
+                ),
+                Err(f) => (None, (None, None), Err(stop("bad_request")(f))),
             },
         };
         match done {
             Ok(r) => r,
             Err(Stop { failure, class }) => {
                 if let Some(class) = class {
-                    let who = conn.answerer(None, None);
+                    let who = conn.answerer(presser.0, presser.1);
                     self.keep_stopped(class, &who, pid, question.as_deref());
                 }
                 Err(failure)
@@ -164,7 +171,9 @@ impl Core {
         p: VaultKeepAnswerParams,
         conn: &Conn<'_>,
     ) -> Result<VaultKept, Stop> {
-        let who = conn.answerer(None, None);
+        // The presser a form's submit names, as the Discord binding read it off the press: judged
+        // below as every press is. Any other surface that names one is refused by `judge_act`.
+        let who = conn.answerer(p.author.clone(), p.discord.clone());
         if let Some(job) = p.from_job.as_deref() {
             return Err(stop("job")(refused(format!(
                 "this shell is a Theseus job's (THESEUS_SESSION={job} is set), so it would give \
@@ -181,6 +190,14 @@ impl Core {
         )
         .map_err(|e| stop("place")(failure(e)))?;
         self.keep_wall(&a, &who).map_err(stop("agent"))?;
+        self.keep_place(&a, &who)?;
+        // The binding's form found the value one this daemon would refuse and sent none: the attempt is
+        // recorded by its class and told in the daemon's words. Nothing in `value` is read.
+        if let Some(refusal) = p.refused {
+            return Err(stop(refusal.class())(RpcFailure::invalid_text(
+                done::refusal_words(refusal),
+            )));
+        }
         let value = done::checked(p.value.expose()).map_err(|why| {
             let class = if p.value.is_blank() {
                 "blank"
@@ -278,10 +295,15 @@ impl Core {
                 anyhow::anyhow!("that question is not a secret to keep: it takes no value"),
             )));
         };
-        if a.state != ActionState::Planned {
+        // The one test of a pending confirm: a card that was answered stays planned, with its
+        // confirmation bound, until the turn goes on, and it takes no second value.
+        if !a.awaits_confirm() {
+            let state = match a.confirm.is_some() {
+                true => "already answered",
+                false => a.state.as_str(),
+            };
             return Err(stop("not_waiting")(RpcFailure::invalid(anyhow::anyhow!(
-                "that question is {}, not waiting for a value",
-                a.state.as_str()
+                "that question is {state}, not waiting for a value"
             ))));
         }
         Ok((a, recorded))
@@ -377,6 +399,54 @@ impl Core {
             &r,
         );
         Err(failure(r.into()))
+    }
+
+    /// Where a value may come from on a transport (issue 29): the owner's direct messages alone, and
+    /// only while `[vault] keep_by_discord` is on. The terminal and the cockpit are not asked. Judged
+    /// after `judge_act` (an owner, a private place), so a channel bound private is refused here.
+    fn keep_place(&self, a: &Action, who: &Answerer) -> Result<(), Stop> {
+        if who.surface != Surface::Discord {
+            return Ok(());
+        }
+        let (class, verdict) = match self.cfg.vault.keep_by_discord {
+            false => (
+                "setting_off",
+                Err(
+                    "typing a secret's value in Discord is turned off ([vault] keep_by_discord): \
+                     the owner gives it from their own terminal or on its card in the cockpit"
+                        .to_string(),
+                ),
+            ),
+            true => (
+                "place",
+                crate::places::owner_in_person_of(
+                    who,
+                    &self.runner.place_rule,
+                    &self.cfg,
+                    "a secret's value is given only where the owner is alone with Theseus: a \
+                     value typed in a channel passes through the chat service and the people \
+                     who can read it",
+                    "a secret's value is given",
+                ),
+            ),
+        };
+        let Err(why) = verdict else {
+            return Ok(());
+        };
+        let r = Refusal {
+            who: who.who(),
+            via: who.via(),
+            why,
+        };
+        let _ = self.refused(
+            Act::Answer {
+                action: a,
+                approve: true,
+            },
+            who,
+            &r,
+        );
+        Err(stop(class)(failure(r.into())))
     }
 
     /// The question settles, and the row says how.

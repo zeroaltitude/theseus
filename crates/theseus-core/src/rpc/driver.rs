@@ -455,9 +455,11 @@ impl Core {
     /// conversation. The kernel tells its running jobs and calls to stop and
     /// declines what waits on the operator (`Kernel::stop_execution`); here
     /// each job's backend is terminated, and each declined question's card
-    /// settles where it was posted. A running turn ends at its next step,
+    /// settles where it was posted. A running turn stops at its next step,
     /// and so does the turn of an input sent before the stop and admitted
-    /// after it (theseus-hmwv). The session's tasks and pending wakes go on.
+    /// after it (theseus-hmwv), which may have ended on the notice by the time
+    /// the kernel's step comes; the answer says a turn was reached either way.
+    /// The session's tasks and pending wakes go on.
     pub async fn stop_execution(
         &self,
         id: &str,
@@ -519,8 +521,8 @@ impl Core {
     /// kernel's stop stops itself on the notice and ends first, so the
     /// kernel finds no turn: the answer still says a turn was running, as it
     /// does when the kernel's stop comes first (`stop_taken_by_a_turn`). So
-    /// does an input's turn still waiting in `admit()` that arrived before
-    /// the notice: it stops itself on the notice when admitted. The kernel is
+    /// does an input's turn that has not yet taken its hold (waiting for its
+    /// secrets, or in `admit()`) and arrived before the notice: it stops itself on the notice when admitted. The kernel is
     /// told of both, so that its row, the answer and the session's note say
     /// the same.
     pub(crate) async fn stop_after_landing(
@@ -534,8 +536,11 @@ impl Core {
         // Asked before the kernel's step, so that its row says what the
         // answer does: a turn that took this stop's notice and ended, or an
         // input's turn still waiting for admission (it stops on the notice).
+        let session = self.kernel.execution(id)?.map(|e| e.session_id);
         let reached = self.runner.stop_taken_by_a_turn(id, landed)
-            || self.runner.admit_waiting.reaches(id, landed);
+            || session
+                .as_deref()
+                .is_some_and(|s| self.runner.admit_waiting.reaches(s, landed));
         let stop = self
             .kernel
             .stop_execution_reaching(id, by, &keep, reached)?;

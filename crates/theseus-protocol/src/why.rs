@@ -57,6 +57,10 @@ pub struct ToolCalled {
     /// The profiles a `profile.ask` of the turn asked (issue 28), in the order asked: each
     /// answer is a subagent's, drawn as a message of its own from the model that gave it.
     pub asked: Vec<String>,
+    /// The profiles a `profile.run` of the turn handed work to (issue 28), in the order handed, each
+    /// with the model that ran when the call's result says (`haiku (claude-haiku-5-5)`): the work
+    /// was a task, and its report is a subagent's own message.
+    pub handed: Vec<String>,
 }
 
 /// The tools a turn's `tool_call` nodes (`node.list`'s) name, in the order of
@@ -100,6 +104,20 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
                     .and_then(Value::as_str)
                     .map(str::to_string),
             );
+        }
+        if name.replace('.', "_") == "profile_run" {
+            let profile = n.detail.pointer("/input/profile").and_then(Value::as_str);
+            let model = nodes
+                .nodes
+                .iter()
+                .filter(|r| r.kind == "tool_result" && r.turn_id.as_deref() == Some(turn))
+                .find(|r| r.detail.get("tool_use_id") == n.detail.get("tool_use_id"))
+                .and_then(|r| r.detail.pointer("/meta/handed/model"))
+                .and_then(Value::as_str);
+            t.handed.extend(profile.map(|p| match model {
+                Some(m) => format!("{p} ({m})"),
+                None => p.to_string(),
+            }));
         }
         t.gate = gate.map(str::to_string).or(t.gate.take());
         t.reason = reason.map(str::to_string).or(t.reason.take());
@@ -714,6 +732,12 @@ fn tools(i: &WhyInput) -> Vec<String> {
             out.push(format!(
                 "    asked as subagents: {} (each answer is a message of its own, from the model that gave it, with a footer that says so)",
                 c.asked.join(", ")
+            ));
+        }
+        if !c.handed.is_empty() {
+            out.push(format!(
+                "    work handed to agents: {} (each did it as a task with tools, and its report is a message of its own, from the model that ran, with a footer that says so)",
+                c.handed.join(", ")
             ));
         }
     }

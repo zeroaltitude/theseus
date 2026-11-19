@@ -1,43 +1,44 @@
-//! The input turns waiting in `admit()`, by execution: a `/stop` that lands
-//! while one waits for its slot or for the execution's previous turn reaches
-//! it, as it does a turn that holds the execution, since the turn stops
-//! itself on the stop's notice once it is admitted (theseus-hmwv). The stop's
-//! answer, the session's note of it and the kernel's row of it count such a
-//! turn as running.
+//! The input turns that have not yet taken their execution's hold, by
+//! session: a `/stop` that lands while one waits for its secrets, for a slot
+//! or for the execution's previous turn reaches it, as it does a turn that
+//! holds the execution, since the turn stops itself on the stop's notice once
+//! it is admitted (theseus-hmwv). The stop's answer, the session's note of it
+//! and the kernel's row of it count such a turn as running. A turn is listed
+//! from the start of `TurnRunner::run`, so nothing before its admission is
+//! out of the list.
 
 use std::sync::Mutex;
 use std::time::Instant;
 
-/// The turns in `admit()` now: each one's execution and the arrival of its
-/// input.
+/// The turns that wait now: each one's session and the arrival of its input.
 #[derive(Default)]
 pub struct AdmitWaiting {
     turns: Mutex<Vec<(String, Instant)>>,
 }
 
-/// A turn's place in the list, until it leaves `admit()`.
+/// A turn's place in the list, until it holds its execution.
 pub(super) struct Waiting<'a> {
     from: &'a AdmitWaiting,
     entry: (String, Instant),
 }
 
 impl AdmitWaiting {
-    /// `execution_id`'s turn for the input that arrived at `arrived` begins
-    /// to wait; it is listed until the guard drops.
-    pub(super) fn enter(&self, execution_id: &str, arrived: Instant) -> Waiting<'_> {
-        let entry = (execution_id.to_string(), arrived);
+    /// `session_id`'s turn for the input that arrived at `arrived` begins to
+    /// wait; it is listed until the guard drops.
+    pub(super) fn enter(&self, session_id: &str, arrived: Instant) -> Waiting<'_> {
+        let entry = (session_id.to_string(), arrived);
         self.turns.lock().unwrap().push(entry.clone());
         Waiting { from: self, entry }
     }
 
-    /// Whether a turn of `execution_id` waits whose input arrived before
-    /// `at`: the turns a stop that landed at `at` reaches.
-    pub fn reaches(&self, execution_id: &str, at: Instant) -> bool {
+    /// Whether a turn of `session_id` waits whose input arrived before `at`:
+    /// the turns a stop that landed at `at` reaches.
+    pub fn reaches(&self, session_id: &str, at: Instant) -> bool {
         self.turns
             .lock()
             .unwrap()
             .iter()
-            .any(|(e, arrived)| e == execution_id && *arrived < at)
+            .any(|(s, arrived)| s == session_id && *arrived < at)
     }
 }
 

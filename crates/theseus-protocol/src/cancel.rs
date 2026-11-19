@@ -213,7 +213,10 @@ pub struct ExecutionStopResult {
     pub verdicts: Vec<CancelVerdict>,
     /// Planned calls, approvals, and a budget question that will not run.
     pub declined: Vec<String>,
-    /// A turn was running: it ends at its next step.
+    /// The stop reached a turn: one that was running, which ends at its next
+    /// step, or one that took the stop's notice and has ended already (an
+    /// input's turn that was still waiting to be admitted, or for its
+    /// secrets).
     pub turn_running: bool,
     /// What goes on, which `/cancel <id>` stops one by one: the session's
     /// running tasks and its pending wakes.
