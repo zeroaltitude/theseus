@@ -34,7 +34,7 @@ use twilight_model::application::interaction::modal::ModalInteractionData;
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
 
-use super::command_reply::{within_ack, within_follow_up, STILL_WORKING, TOO_SLOW};
+use super::command_reply::{within_ack, within_follow_up, TOO_SLOW};
 use super::persona_soul::field_of;
 use super::proof_form::keeps;
 use super::{origin_of, Shared};
@@ -63,6 +63,10 @@ const NOT_HERE: &str =
      your own terminal (`theseus vault keep`) or the cockpit. It is not typed in a channel.";
 const OFF: &str = "Typing a secret's value in Discord is turned off (`[vault] keep_by_discord`). Give it in your own \
      terminal with `theseus vault keep`, or in the card's field in the cockpit.";
+/// What the form's response says when the daemon has not answered in fourteen minutes: true whether or not the card
+/// is ever redrawn, since every attempt leaves a row.
+const STILL_WORKING: &str = "⏳ Theseus has not finished keeping this yet. If it is written, the card shows it when it is done; \
+     if it stops short, `theseus ledger` has a `vault.keep` row that says why. Nothing is lost by waiting.";
 const IN_FLIGHT: &str =
     "A value for this card is being kept right now: wait for its answer. Nothing was sent again.";
 const GONE: &str =

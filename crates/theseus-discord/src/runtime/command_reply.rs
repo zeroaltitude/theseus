@@ -51,11 +51,6 @@ pub(super) async fn within_ack<T>(work: impl Future<Output = T>) -> Option<T> {
     tokio::time::timeout(ACK_DEADLINE, work).await.ok()
 }
 
-/// What a response says when the daemon has not answered inside [`FOLLOW_UP_WINDOW`]: the work goes on, and the
-/// card (or the record) is where the outcome shows.
-pub(super) const STILL_WORKING: &str =
-    "⏳ Theseus has not finished yet. The card shows the outcome when it does.";
-
 /// `work`, or `None` when the follow-up window ends first. The daemon's request has been sent and is not
 /// cancelled: only the wait for its answer ends.
 pub(super) async fn within_follow_up<T>(work: impl Future<Output = T>) -> Option<T> {
