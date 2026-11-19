@@ -69,13 +69,19 @@ fn a_daemon_started_from_a_config_has_the_tools_and_a_bare_config_has_none() {
         r.len()
     };
     assert_eq!(count(&crate::Config::example()), 0);
-    assert_eq!(count(&started_from_a_file()), 2);
+    assert_eq!(count(&started_from_a_file()), 3);
     let mut r = Registry::default();
     register(&started_from_a_file(), &mut r);
     for tool in NAMES {
         let t = r.get(tool).expect(tool);
         assert_eq!(t.family(), FAMILY);
-        assert_eq!(t.class(), ToolClass::Read);
+        // The hand-over starts a task, as `task.create` does: a run, and alone in its batch.
+        let class = if tool == RUN {
+            ToolClass::Run
+        } else {
+            ToolClass::Read
+        };
+        assert_eq!(t.class(), class, "{tool}");
         assert!(t
             .description()
             .contains("command line in a shell is not the way"));

@@ -151,8 +151,8 @@ impl Tool for ProfileAsk {
         "Ask ONE question of another model profile and get its own words back, with its model named: \
          one call, no tools for the asked model, an answer of at most 4,000 tokens, 100 seconds. It is \
          counted and priced as a model call of this turn. Use it for \"use <profile> to say hello\". \
-         Theseus shows the answer to the owner as that profile's own message, so your reply need not repeat it. To put this conversation on a profile, \
-         use profile.hold; Theseus's own command line in a shell is not the way. Offered only to the \
+         Theseus shows the answer to the owner as that profile's own message, so your reply need not repeat it. To have a profile DO work with tools, use \
+         profile.run. To put this conversation on a profile, use profile.hold; Theseus's own command line in a shell is not the way. Offered only to the \
          owner, in a private place."
     }
 

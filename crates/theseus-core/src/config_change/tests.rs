@@ -81,6 +81,12 @@ struct Model {
     asked: Mutex<Vec<ProviderRequest>>,
     /// Run once, when a model with no tool offered is asked (a stop that lands during the call).
     on_asked: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Every request's model and how many tools it offered (`profile.run`: an agent has tools).
+    seen: Mutex<Vec<(String, usize)>>,
+    /// What an agent (a request whose first message holds `AGENT:`) reports, and the gate that holds
+    /// it until a test lets it go.
+    agent: Mutex<Option<String>>,
+    gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
 }
 
 impl Provider for Model {
@@ -92,6 +98,26 @@ impl Provider for Model {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
+        self.seen
+            .lock()
+            .unwrap()
+            .push((req.model.clone(), req.tools.len()));
+        let agent = req
+            .messages
+            .first()
+            .is_some_and(|m| m.to_string().contains("AGENT:"));
+        if let (true, Some(said)) = (agent, self.agent.lock().unwrap().clone()) {
+            let gate = self.gate.lock().unwrap().clone();
+            let answer = Scripted::text(&said);
+            return Box::pin(async move {
+                if let Some(g) = gate {
+                    g.acquire().await.unwrap().forget();
+                }
+                FakeProvider::scripted(vec![answer])
+                    .stream_message(req, on_delta)
+                    .await
+            });
+        }
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
         }
@@ -197,6 +223,9 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         plain: Mutex::default(),
         asked: Mutex::default(),
         on_asked: Mutex::default(),
+        seen: Mutex::default(),
+        agent: Mutex::default(),
+        gate: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -274,6 +303,19 @@ impl Rig {
     /// Have `f` run when the model with no tool offered is next asked.
     pub(super) fn when_the_profile_is_asked(&self, f: impl FnOnce() + Send + 'static) {
         *self.model.on_asked.lock().unwrap() = Some(Box::new(f));
+    }
+
+    /// A task's turns run, as the daemon's driver runs them, and an agent reports `said`; held
+    /// until `hold` is given a permit when it is.
+    pub(super) fn agents_report(&self, said: &str, hold: Option<Arc<tokio::sync::Semaphore>>) {
+        *self.model.agent.lock().unwrap() = Some(said.into());
+        *self.model.gate.lock().unwrap() = hold;
+        tokio::spawn(crate::harness::drive(self.core.clone()));
+    }
+
+    /// The model of every request made, and the tools it offered.
+    pub(super) fn seen(&self) -> Vec<(String, usize)> {
+        self.model.seen.lock().unwrap().clone()
     }
 
     /// A session posting to `place` (`dm:<user>`), as a binding's place is.

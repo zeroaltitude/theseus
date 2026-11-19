@@ -138,7 +138,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
     ),
     (
         "profile",
-        "ask another model profile one question and get its words back, or put this conversation on a profile, with no shell: Theseus's own command line in a shell is not the way",
+        "ask another model profile a question, hand it work to DO with tools, or put this conversation on one, with no shell: Theseus's own command line in a shell is not the way",
     ),
     (
         "vault",

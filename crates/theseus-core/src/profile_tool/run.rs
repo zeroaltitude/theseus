@@ -89,7 +89,8 @@ impl Tool for ProfileRun {
          with no tools, use profile.ask. It starts a task now on that profile with a task's own limit and \
          approvals, waits a few minutes for its report, and Theseus shows the report to the owner as \
          that profile's own message. If it is not done in time it goes on, and its report is shown when \
-         it ends. Write `work` in full: the profile sees nothing else. Only for the owner, in a private place."
+         it ends. Write `work` in full: the profile sees nothing else. Theseus's own command line in a shell is not \
+         the way. Only for the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
