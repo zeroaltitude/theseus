@@ -57,7 +57,10 @@ pub fn line(text: &str) -> String {
 
 /// The sources that cover the setting `path`: those named at it, or at a table
 /// that holds it.
-pub fn covering<'a>(sources: &'a [Sourced], path: &[String]) -> impl Iterator<Item = &'a Sourced> {
+pub fn covering<'a>(
+    sources: &'a [Sourced],
+    path: &'a [String],
+) -> impl Iterator<Item = &'a Sourced> {
     sources.iter().filter(move |s| path.starts_with(&s.path))
 }
 

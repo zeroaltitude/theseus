@@ -52,6 +52,7 @@ fn longest() -> (ConfirmRequest, Vec<String>) {
         steered: true,
         reason: &"because ".repeat(40),
         wait_secs: 120,
+        sources: &[],
     });
     (request(&q, &words::change(&settings, None)), values)
 }
@@ -123,6 +124,7 @@ fn a_plain_change_is_one_message_that_settles_into_words() {
         steered: false,
         reason: "you said so",
         wait_secs: 120,
+        sources: &[],
     });
     let mut req = request(&q, &words::change(&s, None));
     req.needs_proof = false;
@@ -169,6 +171,7 @@ fn a_view_that_cannot_hold_the_words_does_not_take_a_yes_on_part_of_them() {
         steered: false,
         reason: "",
         wait_secs: 120,
+        sources: &[],
     });
     let short = request(&q, &words::change(&s, None));
     assert!(words_here(&short).unwrap().starts_with("Change 1 setting?"));
@@ -199,6 +202,7 @@ fn markdown_in_a_value_is_drawn_as_the_characters_it_is() {
         steered: false,
         reason: "turn *this* on",
         wait_secs: 120,
+        sources: &[],
     });
     let req = request(&q, &words::change(&s, None));
     let all = unmarked(&drawn(&req));
@@ -254,6 +258,7 @@ fn a_cut_never_splits_an_escape_and_each_message_says_its_place() {
         steered: false,
         reason: "",
         wait_secs: 120,
+        sources: &[],
     });
     let mut req = request(&q, &words::change(&settings, None));
     req.needs_proof = false;
@@ -311,4 +316,64 @@ fn the_needs_you_post_draws_the_longest_card_whole() {
     // A post with no settings words is not this form.
     assert!(render::settings::needs_you(&json!({"card": {"what": "x"}})).is_none());
     assert!(render::settings::needs_you(&json!({"settings": null})).is_none());
+}
+
+/// A source the model gave is drawn in the card's own words as one line under
+/// its setting: the address is on its own line, markdown in the source is
+/// drawn as the characters it is (never emphasis, a spoiler or a link), and the
+/// care line, the reason and the buttons' footer are as they were.
+#[test]
+fn a_source_is_drawn_literally_under_its_setting() {
+    use theseus_core::config_change::source;
+    let settings = [setting(
+        "providers.lantern.api_base",
+        Value::Null,
+        json!("https://lantern.example.test"),
+    )];
+    let said = source::of(
+        &settings[0].path,
+        Some("**the docs** say ||this|| is [the address](https://evil.example.test) `x`\n> - quoted\n# heading"),
+    )
+    .unwrap();
+    let q = card::question(&card::Facts {
+        settings: &settings,
+        outside_text: true,
+        steered: false,
+        reason: "the owner asked",
+        wait_secs: 120,
+        sources: std::slice::from_ref(&said),
+    });
+    let req = request(&q, &words::change(&settings, None));
+    let all = unmarked(&drawn(&req));
+    let lines: Vec<&str> = all.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.starts_with("\\- providers.lantern.api\\_base"))
+        .unwrap_or_else(|| panic!("the setting's line: {all}"));
+    assert!(lines[at].contains("https://lantern.example.test"), "{all}");
+    let said_line = lines[at + 1];
+    assert!(
+        said_line
+            .contains("Theseus's source for this, in its own words \\(nothing here checked it\\)"),
+        "{said_line}"
+    );
+    for literal in [
+        "\\*\\*the docs\\*\\*",
+        "\\|\\|this\\|\\|",
+        "\\[the address\\]\\(https://evil.example.test\\)",
+        "\\`x\\`",
+        "\\> \\- quoted \\# heading",
+    ] {
+        assert!(said_line.contains(literal), "{literal} in {said_line}");
+    }
+    assert!(all.contains("Take care: since your last message"), "{all}");
+    assert!(all.contains("Theseus's reason, in its own words"), "{all}");
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.contains("source for this"))
+            .count(),
+        1,
+        "{all}"
+    );
 }

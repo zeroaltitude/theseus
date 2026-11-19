@@ -80,6 +80,11 @@ by name. Do not paste a secret into chat: it is then with the model's provider a
 read is replaced only from your terminal: `theseus vault keep --vault V --item T --field F`. There is no Discord form yet
 (`docs/design/vault-keep.md`).
 
+A fact its maker publishes (a model's exact name, a provider's address and protocol, a server's command) Theseus may look up
+on the web instead of asking you. It puts it on the card with where it says it found it, under that setting, in the words
+"Theseus's source for this, in its own words (nothing here checked it)": that is Theseus's word, not a check, so read the
+address itself. Where a secret is sent is always yours to confirm, on the card, with the code (`docs/design/public-facts.md`).
+
 ## Which settings need the code
 
 An **ordinary** change needs the card's yes and nothing else: the notes import, a theme, a model's name, a count.
