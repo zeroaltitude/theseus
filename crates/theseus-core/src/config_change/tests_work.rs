@@ -113,7 +113,7 @@ async fn the_shell_commands_it_replaces_are_answered_with_it_and_counted() {
         assert_eq!(status, ResultStatus::Declined, "{line}: {text}");
         assert!(text.contains("`look_work`: use it"), "{text}");
         assert!(
-            text.contains("Theseus's work") && text.contains("not a running job"),
+            text.contains("Theseus's work") && text.contains("the conversations running"),
             "{text}"
         );
         assert!(!text.contains("same look"), "{text}");
