@@ -30,7 +30,7 @@ const V2: u64 = 1 << 15;
 
 /// The default forum's rig with the task home on, as the config has it by
 /// default, and `cfg` after.
-async fn rig(
+pub(crate) async fn rig(
     parent: Vec<Scripted>,
     kids: impl FnOnce(&Path) -> Vec<(&'static str, Vec<Scripted>)>,
     binds: &str,
@@ -45,14 +45,14 @@ async fn rig(
 }
 
 /// The home's id, from its META record.
-fn home_record(r: &Rig) -> Option<u64> {
+pub(crate) fn home_record(r: &Rig) -> Option<u64> {
     let v: Option<Value> = r.core.store.get_meta("discord.task_home").ok().flatten();
     v?["channel"].as_u64()
 }
 
 /// The home is recorded (`find_task_home`) and stands: its state holds the channel, which `instead_of`
 /// reads, and the core was told, in that order, so the DM lane no longer draws the board (theseus-0prmm).
-async fn home_up(r: &Rig) -> u64 {
+pub(crate) async fn home_up(r: &Rig) -> u64 {
     let dm = format!("discord:dm:{ANA}");
     until(r, "the task home stands", || {
         home_record(r).is_some() && r.core.outbox.report_target(Some(dm.clone())).1.is_some()
@@ -61,8 +61,28 @@ async fn home_up(r: &Rig) -> u64 {
     home_record(r).unwrap()
 }
 
+/// The card of a scheduled item in `channel`: a V2 message that is not the
+/// board, whose words hold `needle` (issue 30).
+pub(crate) fn card_in(r: &Rig, channel: u64, needle: &str) -> Option<Msg> {
+    r.posted(channel)
+        .into_iter()
+        .find(|m| m.flags & V2 != 0 && !is_board(m) && m.content.contains(needle))
+}
+
+/// Every card of a scheduled item in `channel`.
+pub(crate) fn cards_in(r: &Rig, channel: u64) -> Vec<Msg> {
+    r.posted(channel)
+        .into_iter()
+        .filter(|m| m.flags & V2 != 0 && !is_board(m))
+        .collect()
+}
+
+fn is_board(m: &Msg) -> bool {
+    m.buttons.iter().any(|b| b.custom_id == board_v2::CLEAR)
+}
+
 /// The bot's V2 messages in `channel` that carry the board's Clear button.
-fn boards(r: &Rig, channel: u64) -> Vec<Msg> {
+pub(crate) fn boards(r: &Rig, channel: u64) -> Vec<Msg> {
     r.posted(channel)
         .into_iter()
         .filter(|m| m.flags & V2 != 0 && m.buttons.iter().any(|b| b.custom_id == board_v2::CLEAR))
@@ -612,7 +632,7 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
 
 /// A rig whose DM and `#lab` each have a conversation (a word said in each),
 /// `#lab` and `#reel` private beside the DM, the home as `home` says.
-async fn two_places(home: &str) -> Rig {
+pub(crate) async fn two_places(home: &str) -> Rig {
     let home = home.to_string();
     let r = rig(
         vec![Scripted::text("Hello."), Scripted::text("Hello.")],
@@ -638,7 +658,7 @@ async fn two_places(home: &str) -> Rig {
 }
 
 /// A reminder `note` in the conversation of `session`, as `wake.create` makes it.
-async fn remind_in(r: &Rig, session: &str, note: &str) -> String {
+pub(crate) async fn remind_in(r: &Rig, session: &str, note: &str) -> String {
     let rpc = RpcClient::connect(r.core.clone(), Client::new("test", Surface::Cli)).0;
     let made: WakeEditResult = rpc
         .call(
@@ -655,7 +675,7 @@ async fn remind_in(r: &Rig, session: &str, note: &str) -> String {
     made.wake.wake_id
 }
 
-fn session_of_place(r: &Rig, place: &str) -> String {
+pub(crate) fn session_of_place(r: &Rig, place: &str) -> String {
     r.core
         .outbox
         .place_session(place)
@@ -663,8 +683,9 @@ fn session_of_place(r: &Rig, place: &str) -> String {
         .expect("the place's session")
 }
 
-/// With the home standing, a reminder set in the DM or in a channel is on the
-/// home's board and on no other place's, and no other place is given a board.
+/// With the home standing, a reminder set in the DM or in a channel is a card
+/// of its own in the home, and on no other place's board, and no other place is
+/// given a board; the home's board does not list it.
 #[tokio::test]
 async fn a_reminder_is_on_the_task_channels_board_alone() {
     let r = two_places("theseus-tasks").await;
@@ -681,10 +702,9 @@ async fn a_reminder_is_on_the_task_channels_board_alone() {
         "lab net mending",
     )
     .await;
-    until(&r, "both on the home's board", || {
-        boards(&r, home).first().is_some_and(|b| {
-            b.content.contains("dm tide check") && b.content.contains("lab net mending")
-        })
+    until(&r, "both on cards in the home", || {
+        card_in(&r, home, "dm tide check").is_some()
+            && card_in(&r, home, "lab net mending").is_some()
     })
     .await;
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -695,7 +715,7 @@ async fn a_reminder_is_on_the_task_channels_board_alone() {
             r.posted(place)
         );
     }
-    assert_eq!(boards(&r, home).len(), 1);
+    assert_eq!(cards_in(&r, home).len(), 2, "{:#?}", r.posted(home));
 }
 
 /// With no home, a place shows the reminders of its own conversations: a
@@ -761,15 +781,13 @@ async fn a_board_drawn_before_the_task_channel_stood_is_edited_to_all_clear() {
         "{}",
         b[0].content
     );
-    until(&r, "the reminder on the home's board", || {
-        boards(&r, home)
-            .first()
-            .is_some_and(|b| b.content.contains("lab net mending"))
+    until(&r, "the reminder's card in the home", || {
+        card_in(&r, home, "lab net mending").is_some()
     })
     .await;
 }
 
-/// On the task channel's board, only the owner's press cancels a reminder: a
+/// On the task channel's card, only the owner's press cancels a reminder: a
 /// press by anyone else is refused where every press on a place is, and
 /// writes nothing.
 #[tokio::test]
@@ -782,24 +800,19 @@ async fn only_the_owners_press_cancels_a_reminder_on_the_task_channels_board() {
         "dm tide check",
     )
     .await;
-    until(&r, "the reminder on the home's board", || {
-        boards(&r, home)
-            .first()
-            .is_some_and(|b| b.content.contains("dm tide check"))
+    until(&r, "the reminder's card in the home", || {
+        card_in(&r, home, "dm tide check").is_some()
     })
     .await;
-    let board = boards(&r, home).remove(0);
+    let card = card_in(&r, home, "dm tide check").unwrap();
     let press = |user: u64, name: &str| {
         r.fake
-            .press_values(
-                &theseus_sim::fake_discord::Pressed {
-                    message: &board.id,
-                    button: crate::render::horizon::REMINDER_PICK,
-                    user,
-                    name,
-                },
-                &[&format!("hq:cancel:{wake}")],
-            )
+            .press(&theseus_sim::fake_discord::Pressed {
+                message: &card.id,
+                button: &format!("hq:cancel:{wake}"),
+                user,
+                name,
+            })
             .unwrap()
     };
     let due = |r: &Rig| {
@@ -823,16 +836,14 @@ async fn only_the_owners_press_cancels_a_reminder_on_the_task_channels_board() {
     assert!(due(&r), "ben's press cancelled nothing");
     press(ANA, "ana");
     until(&r, "ana's press cancels it", || !due(&r)).await;
-    until(&r, "the line leaves the home's board", || {
-        boards(&r, home)
-            .first()
-            .is_some_and(|b| !b.content.contains("dm tide check"))
+    until(&r, "the card says it was cancelled", || {
+        card_in(&r, home, "dm tide check").is_some_and(|c| c.content.contains("Cancelled"))
     })
     .await;
 }
 
 /// The bindings of `bindings(true, "")` with no `[[dm]]`: channels only.
-fn no_dm() -> String {
+pub(crate) fn no_dm() -> String {
     bindings(true, "").replace(&format!("[[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"), "")
 }
 
@@ -916,4 +927,81 @@ async fn the_task_channels_board_is_drawn_by_an_owners_dm_not_the_first_dm() {
     let r = rig(vec![], |_| vec![], &binds, |_| {}, |_| {}).await;
     let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
     assert_eq!(shared.owner_dm_place(), Some(format!("discord:dm:{ANA}")));
+}
+
+/// A process that started again over what the last one left in Discord: the
+/// task channel found by its name, its board an older run's pinned message, the
+/// owner's DM bound, and a first word said in the DM.
+pub(crate) async fn started_again(r: &Rig) -> Rig {
+    r.stop();
+    // The stand-in's gateway must have dropped the stopped run's client, or the
+    // new run's connect is taken for the old one's.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let again = Rig::start_over(
+        r.fake.clone(),
+        |_, _| Arc::new(FakeProvider::scripted(vec![Scripted::text("Hello.")])),
+        &bindings(true, ""),
+        &[
+            format!("channel:{}", crate::tests_default_forum::OPS),
+            format!("channel:{REEL}"),
+        ],
+        |c| {
+            tune(c);
+            c.discord.task_home = "theseus-tasks".into();
+        },
+    )
+    .await;
+    again.say((ANA, "ana"), None, "hello");
+    until(&again, "the DM answered", || {
+        again
+            .posted(ANA_DM)
+            .iter()
+            .filter(|m| m.content.contains("Hello."))
+            .count()
+            >= 2
+    })
+    .await;
+    again
+}
+
+/// The owner's setup: an older run's cards are in the task channel, which the new
+/// process finds by its name. A reminder set in the DM is a new card of its own
+/// there at once (issue 30: the fact the owner's first use asks about): the
+/// channel's one board is not edited to show it, and the older card is left as it is.
+#[tokio::test]
+async fn the_task_channels_old_pinned_board_shows_a_new_reminder_at_once() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    remind_in(
+        &r,
+        &session_of_place(&r, &format!("dm:{ANA}")),
+        "first tide check",
+    )
+    .await;
+    until(&r, "the first reminder's card", || {
+        card_in(&r, home, "first tide check").is_some()
+    })
+    .await;
+    let old = card_in(&r, home, "first tide check").unwrap();
+    let again = started_again(&r).await;
+    let home = home_up(&again).await;
+    remind_in(
+        &again,
+        &session_of_place(&again, &format!("dm:{ANA}")),
+        "second tide check",
+    )
+    .await;
+    until(
+        &again,
+        "the second reminder's card in the task channel",
+        || card_in(&again, home, "second tide check").is_some(),
+    )
+    .await;
+    let b = boards(&again, home);
+    assert!(
+        b.iter().all(|b| !b.content.contains("second tide check")),
+        "the board is not the place of a reminder: {b:#?}"
+    );
+    let still = card_in(&again, home, "first tide check").expect("the older card is still there");
+    assert_eq!(still.id, old.id, "the older run's card, untouched");
 }

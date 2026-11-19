@@ -554,6 +554,12 @@ impl Core {
             .flatten();
         let task_rec = self.session_rec(&a.session_id);
         let mut declined = None;
+        // A hold's yes is the owner's word for that one hold (issue 28): kept for the call
+        // before the wake can start the continuation that runs it, dropped if the answer fails.
+        let held_yes = approve && a.tool == crate::profile_tool::HOLD;
+        if held_yes {
+            self.tools.profile.keep_yes(correlation_id, &who);
+        }
         let woke = self.kernel.frame(&[&a.execution_id], |k| {
             if task_lock.is_some() {
                 if let Some((records, c)) =
@@ -587,6 +593,11 @@ impl Core {
                 .frame(&[&a.execution_id], |k| k.wake(&a.execution_id, why))
                 .is_ok();
             Ok(woke)
+        });
+        let woke = woke.inspect_err(|_| {
+            if held_yes {
+                self.tools.profile.drop_yes(correlation_id);
+            }
         })?;
         drop(task_lock);
         if let Some(c) = &declined {

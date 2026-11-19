@@ -549,8 +549,14 @@ impl Shared {
             Some(InteractionData::MessageComponent(c)) => {
                 if c.custom_id == REMINDER_PICK {
                     if let Some(choice) = c.values.first() {
-                        self.reminder_pick(i, choice, who).await;
+                        let _ = self.reminder_pick(i, choice, who).await;
                     }
+                    return true;
+                }
+                if c.custom_id.starts_with(CANCEL_PREFIX) || c.custom_id.starts_with(SNOOZE_PREFIX)
+                {
+                    // A scheduled item's card (`runtime/sched.rs`).
+                    self.card_press(i, &c.custom_id, who).await;
                     return true;
                 }
                 if let Some(rest) = c.custom_id.strip_prefix(ROUTINE_PREFIX) {
@@ -588,9 +594,11 @@ impl Shared {
     /// A choice of the board's reminder select: the wake cancelled, or set again
     /// an hour on, by the same calls as `/cancel` and `/snooze`, as the presser.
     /// The presser alone is told what happened.
-    async fn reminder_pick(&self, i: &Interaction, choice: &str, who: &str) {
+    /// True when the call went through.
+    pub(super) async fn reminder_pick(&self, i: &Interaction, choice: &str, who: &str) -> bool {
         if target_of(i).is_none_or(|t| !self.is_private(&t)) {
-            return self.reply_ephemeral(i, SHARED.into()).await;
+            self.reply_ephemeral(i, SHARED.into()).await;
+            return false;
         }
         let author = Some(who.to_string());
         let said = if let Some(wake) = choice.strip_prefix(CANCEL_PREFIX) {
@@ -636,7 +644,9 @@ impl Shared {
             "Unknown option.".into()
         };
         self.tasks.future.dirty();
+        let done = !said.starts_with('⚠');
         self.reply_ephemeral(i, said).await;
+        done
     }
 
     /// Autocomplete from the snapshot in memory. False for a command that is

@@ -16,6 +16,9 @@
 //! - **`look.vault`** (`look/vault.rs`, `secrets/look.rs`): who the daemon's
 //!   token is, the vaults, the titles of the items, one item's field names and
 //!   kinds, and which setting reads which item. Never a value or a note.
+//! - **`look.work`** (`look/work.rs`, issue 28): this conversation's tasks,
+//!   the questions that wait here, and its last messages. Never another
+//!   conversation's.
 //!
 //! **The wall** is `config.show`'s: the owner's own turn, in a private place
 //! only they write in (`config_change::wall`; a job, a task, the self loop, a
@@ -54,7 +57,7 @@ pub const FAMILY: &str = "look";
 /// The tools' names, as the config's `[policy.tools]` checks them.
 pub const NAMES: [&str; 3] = [THESEUS, VAULT, WORK];
 
-/// Register both tools, in a daemon that was started from a config: a file
+/// Register the three tools, in a daemon that was started from a config: a file
 /// (`config_file`) or the vault's note (`config_copy`), either of which a start
 /// sets and no TOML can. A default test config has neither, so no request a
 /// test builds carries them, as it carries none of the settings tools

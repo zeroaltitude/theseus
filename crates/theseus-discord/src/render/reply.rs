@@ -3,7 +3,7 @@
 
 use theseus_protocol::TurnSubmitResult;
 
-use super::{cite, clip, footer_in, split_text, DISCORD_LIMIT, PART_LIMIT};
+use super::{cite, clip, fence_tables, footer_in, split_text, DISCORD_LIMIT, PART_LIMIT};
 
 /// A reply's messages, in order: each loop's text in its final form, under
 /// the keys the stream used, and the footer riding on the last part when it
@@ -30,7 +30,10 @@ pub fn reply_parts_in(
     let (texts, order) = cite::marked(texts, cites);
     let mut out: Vec<(String, String)> = Vec::new();
     for (li, text) in &texts {
-        for (i, part) in split_text(text, PART_LIMIT).into_iter().enumerate() {
+        for (i, part) in split_text(&fence_tables(text), PART_LIMIT)
+            .into_iter()
+            .enumerate()
+        {
             out.push((format!("{turn_id}:L{li}:p{i}"), part));
         }
     }

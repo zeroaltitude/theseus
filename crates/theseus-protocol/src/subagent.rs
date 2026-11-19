@@ -16,6 +16,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// The icon a subagent's message opens with, before its first word, in every place a reply is
+/// drawn (the owner, 2026-11-19: "a special icon right before the message"). One constant; the
+/// cockpit's `lib/subagent.ts` holds the same one, and a test here holds the two together. Not
+/// one a reply's own lines use (💭 ✅ 🔔 🧠).
+pub const SUBAGENT_ICON: &str = "🛰️";
+
 /// One subagent's answer: its words, and who gave them.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -44,6 +50,11 @@ impl SubagentAnswer {
     /// The answer a result node's `meta` holds, when it holds one.
     pub fn from_meta(meta: &Value) -> Option<Self> {
         serde_json::from_value(meta.get("subagent")?.clone()).ok()
+    }
+
+    /// Its words as the message opens: the icon, then the first word.
+    pub fn opening(&self) -> String {
+        format!("{SUBAGENT_ICON} {}", self.text.trim())
     }
 
     /// The footer's bits, in a reply's order: the model part first (`profile · model`, the ones
@@ -98,6 +109,24 @@ mod tests {
             output_tokens: 12,
             cut: false,
             call: "act_1".into(),
+        }
+    }
+
+    /// The message opens with the icon before its first word, and the cockpit draws the same one.
+    #[test]
+    fn the_message_opens_with_the_icon_and_the_cockpit_holds_the_same_one() {
+        assert_eq!(answer().opening(), "🛰️ Hello.");
+        let ts = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../cockpit/src/lib/subagent.ts"
+        ))
+        .unwrap();
+        assert!(
+            ts.contains(&format!("SUBAGENT_ICON = '{SUBAGENT_ICON}'")),
+            "cockpit/src/lib/subagent.ts holds another icon"
+        );
+        for used in ["💭", "✅", "🔔", "🧠"] {
+            assert_ne!(SUBAGENT_ICON, used);
         }
     }
 

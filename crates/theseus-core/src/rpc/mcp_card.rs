@@ -90,6 +90,13 @@ impl Core {
         // the button, or their own terminal).
         let why = if typed && crate::config_change::words::is_settings_action(a) {
             crate::config_change::words::BY_PRESS
+        } else if (typed || who.agent.is_some()) && a.tool == crate::profile_tool::HOLD {
+            // The owner's yes to the hold's card is the owner's word for that hold (issue 28),
+            // so it is theirs: the button, or their own terminal.
+            match typed {
+                true => crate::config_change::words::HOLD_BY_PRESS,
+                false => crate::config_change::words::HOLD_BY_AGENT,
+            }
         } else if (typed || who.agent.is_some()) && self.is_floor_hold(a) {
             match typed {
                 true => crate::config_change::words::FLOOR_BY_PRESS,
