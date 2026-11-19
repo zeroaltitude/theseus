@@ -20,9 +20,9 @@ use crate::Core;
 
 /// The rows not yet written, and whether a writer is draining them.
 #[derive(Default)]
-struct Queue {
-    rows: VecDeque<LedgerRow>,
-    draining: bool,
+pub(super) struct Queue {
+    pub(super) rows: VecDeque<LedgerRow>,
+    pub(super) draining: bool,
 }
 
 /// The sink the tender's and the language servers' hooks write through.
@@ -51,6 +51,30 @@ pub(super) fn ordered(core: &Arc<Core>) -> crate::tender::Ledger {
 
 /// Write the queue to its end, oldest first; the writer ends with it.
 fn drain(core: &Weak<Core>, queue: &Mutex<Queue>) {
+    drain_with(queue, |row| {
+        let Some(core) = core.upgrade() else { return };
+        if let Err(e) = core.store.append_ledger(&row) {
+            tracing::warn!(error = %e, "ledger append failed");
+        }
+    });
+}
+
+/// `drain`, with the write of each row as `write`. A write that panics ends
+/// this writer, not the sink: the next row said starts another, and the rows
+/// behind the one that failed are still queued for it.
+pub(super) fn drain_with(queue: &Mutex<Queue>, mut write: impl FnMut(LedgerRow)) {
+    struct Ended<'a>(&'a Mutex<Queue>);
+    impl Drop for Ended<'_> {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                self.0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .draining = false;
+            }
+        }
+    }
+    let _ended = Ended(queue);
     loop {
         let row = {
             let mut q = queue.lock().unwrap();
@@ -62,9 +86,6 @@ fn drain(core: &Weak<Core>, queue: &Mutex<Queue>) {
                 }
             }
         };
-        let Some(core) = core.upgrade() else { continue };
-        if let Err(e) = core.store.append_ledger(&row) {
-            tracing::warn!(error = %e, "ledger append failed");
-        }
+        write(row);
     }
 }

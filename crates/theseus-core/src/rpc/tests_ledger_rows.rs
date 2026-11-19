@@ -61,3 +61,30 @@ async fn rows_said_in_a_row_are_written_in_that_order() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
+
+/// A write that panics ends the writer that made it and nothing else: the
+/// rows behind it stay queued, and the next row said starts a writer that
+/// writes them (a flag left set would have held every later row for good).
+#[test]
+fn a_write_that_panics_does_not_stop_the_rows_after_it() {
+    use super::ledger_rows::{drain_with, Queue};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::Mutex;
+    let row = |n: u64| LedgerRow::new(LedgerKind::LspStarted, None, None, json!({"n": n}));
+    let queue = Mutex::new(Queue {
+        rows: (0..3).map(row).collect(),
+        draining: true,
+    });
+    let first = catch_unwind(AssertUnwindSafe(|| {
+        drain_with(&queue, |_| panic!("the disk"));
+    }));
+    assert!(first.is_err());
+    {
+        let q = queue.lock().unwrap();
+        assert!(!q.draining, "the writer that panicked is not still counted");
+        assert_eq!(q.rows.len(), 2, "the rows behind the failed one are queued");
+    }
+    let mut written = vec![];
+    drain_with(&queue, |r| written.push(r.data["n"].as_u64().unwrap()));
+    assert_eq!(written, [1, 2]);
+}
