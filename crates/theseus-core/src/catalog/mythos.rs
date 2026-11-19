@@ -21,8 +21,10 @@
 //! - the maker is Anthropic, so the row's origin is `us`.
 //!
 //! What the maker does not publish for it, and the row leaves out:
-//! - the provider's own refusal fallback: the refusals page's availability line
-//!   for it names the Fable, Opus, Sonnet and Haiku models and not Mythos, so
+//! - the provider's own refusal fallback: the refusals page lists Mythos 5.2
+//!   for classifier refusals on the Messages API and names Haiku 5.5 as the one
+//!   model with no server-side fallback, but does not say Mythos 5.2 has one
+//!   (its "Only with" list of models is for Managed Agents), so
 //!   `refusal_fallbacks` is false and Theseus asks for none;
 //! - its tokenizer's density: the pricing page says only that Claude 4.7 and
 //!   later models and Mythos Preview read about 30% more tokens, and gives no

@@ -53,7 +53,7 @@ fn mythos_5_2_is_the_makers_published_row() {
 }
 
 /// What the maker does not publish for it is not claimed: no server-side
-/// refusal fallback is asked for (its availability line leaves Mythos out), and
+/// refusal fallback is asked for (the refusals page does not say it has one), and
 /// the tokenizer's density is Theseus's estimate for a Claude id, said so in the
 /// row's source, with the date the pages were read.
 #[test]
