@@ -904,13 +904,10 @@ fn a_second_answer_to_the_same_question_waits() {
 async fn a_card_asked_in_a_direct_message_is_in_the_terminals_list() {
     let (r, _dir) = rig_vault("ok");
     let sid = r.session();
-    r.core.outbox.bind_place("dm:42", &sid).unwrap();
-    r.core.bind_places(vec![crate::places::BoundPlace {
-        target: "discord:dm:42".into(),
-        name: "DM @owner".into(),
-        private: true,
-        ..Default::default()
-    }]);
+    r.core
+        .outbox
+        .bind_place(&format!("dm:{}", crate::config_change::tests::OWNER), &sid)
+        .unwrap();
     r.turn_with("vault_keep", &sid, input("Lantern new", "credential"))
         .await;
     let (status, text) = r.result(&sid);
@@ -923,7 +920,7 @@ async fn a_card_asked_in_a_direct_message_is_in_the_terminals_list() {
         ("the terminal", json!({})),
         (
             "the binding",
-            json!({"discord": {"user_id": "42", "channel_id": "7"}}),
+            json!({"discord": {"user_id": crate::config_change::tests::OWNER.to_string(), "channel_id": "7"}}),
         ),
     ] {
         let listed = rpc_as(&r.core, cli(), method::CONFIRM_LIST, p)
