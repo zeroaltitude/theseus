@@ -1224,6 +1224,7 @@ impl TurnRunner {
         // frame that does: a turn that ends after a cancel landed writes
         // none, and the cancel reports (DD7).
         let reported = std::sync::Mutex::new(None);
+        let said = std::sync::Mutex::new(None);
         // Its record closes in that frame too (39a), under its lock.
         let (lock, closing) = Closing::new(&frames.store, task_of.as_ref(), &failure_sink);
         // A late result's wake rides in the end's frame (theseus-6qwr).
@@ -1255,9 +1256,20 @@ impl TurnRunner {
             let mut records = closing.records(e, report.node.as_deref())?;
             let joined = self.tools.job_waits.steers.joined(&e.session_id);
             records.extend(crate::task::joined_record(&e.session_id, joined)?);
+            // Work handed to a profile (`profile.run`) speaks in the conversation as well.
+            let spoke = crate::profile_tool::run::speak(&self.outbox, &frames.store, e, &report)?;
+            let place = spoke.map(|s| {
+                records.extend(s.records);
+                *said.lock().unwrap() = Some(s.post);
+                s.place
+            });
             let Some(target) = task.target_for_now(&frames.store, &e.session_id, &report) else {
                 return Ok(records);
             };
+            // Where its report would go is the place it spoke in: one message stands for both.
+            if place.as_deref() == Some(target.as_str()) {
+                return Ok(records);
+            }
             let (post, more) =
                 self.outbox
                     .stage(&e.session_id, &e.id, &target, report.post_body())?;
@@ -1287,6 +1299,9 @@ impl TurnRunner {
                     self.outbox.posted(&a);
                 }
                 if let Some(a) = reported.lock().unwrap().take() {
+                    self.outbox.posted(&a);
+                }
+                if let Some(a) = said.lock().unwrap().take() {
                     self.outbox.posted(&a);
                 }
                 let to = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));

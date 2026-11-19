@@ -150,3 +150,41 @@ async fn a_tasks_own_reply_in_a_channel_says_it_is_a_subagents() {
     let plain = fake2.messages(CHANNEL);
     assert!(!plain[0].content.contains("subagent"), "{plain:#?}");
 }
+
+/// A hand-over's report (`profile.run`, issue 28) rides the same post as a question's answer: it
+/// is drawn with the icon before its words, its table as a fenced block, and the footer that names
+/// the model that ran, keyed to the task, so a retry posts it no more than once. The body is the
+/// one the daemon stages when the task ends (no turn of its own, the task's session as the call).
+#[tokio::test]
+async fn a_hand_overs_report_is_drawn_with_the_icon_and_its_table_fenced() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake);
+    let core = lane.shared.core.clone();
+    let report =
+        "Listed the folder:\n\n| file | size |\n| --- | --- |\n| a.txt | 12 |\n| b.txt | 7 |";
+    let body = json!({"kind": "subagent", "turn_id": "", "session_id": SESSION, "reply_to": null,
+        "answer": {"profile": "haiku", "provider": "anthropic", "model": "claude-haiku-5-5",
+            "asked_by": "sonnet", "text": report, "cost_usd": 0.0102, "elapsed_ms": 41_000,
+            "output_tokens": 0, "cut": false, "call": "ses_task_x"}});
+    core.outbox
+        .post(SESSION, "", &lane.target, body.clone())
+        .unwrap();
+    core.outbox.post(SESSION, "", &lane.target, body).unwrap();
+    assert!(lane.deliver_posts().await);
+    let all = fake.messages(CHANNEL);
+    assert_eq!(all.len(), 1, "once: {all:#?}");
+    let said = &all[0].content;
+    assert!(said.starts_with("🛰️ Listed the folder:"), "{said}");
+    assert!(
+        said.contains("```") && !said.contains("| --- |"),
+        "the table is a fenced block: {said}"
+    );
+    assert!(said.contains("a.txt"), "{said}");
+    assert!(
+        said.contains(
+            "-# haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0102 · 41.0 s"
+        ),
+        "{said}"
+    );
+}

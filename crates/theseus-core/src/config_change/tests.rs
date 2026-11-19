@@ -81,6 +81,14 @@ struct Model {
     asked: Mutex<Vec<ProviderRequest>>,
     /// Run once, when a model with no tool offered is asked (a stop that lands during the call).
     on_asked: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Every request's model and how many tools it offered (`profile.run`: an agent has tools).
+    seen: Mutex<Vec<(String, usize)>>,
+    /// What an agent (a request whose first message holds `AGENT:`) reports, and the gate that holds
+    /// it until a test lets it go.
+    agent: Mutex<Option<String>>,
+    gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
+    /// A call the agent makes before it reports (`Rig::agents_call`).
+    agent_call: Mutex<Option<(String, Value)>>,
 }
 
 impl Provider for Model {
@@ -92,6 +100,37 @@ impl Provider for Model {
         req: &'a ProviderRequest,
         on_delta: DeltaSink<'a>,
     ) -> ProviderFuture<'a> {
+        self.seen
+            .lock()
+            .unwrap()
+            .push((req.model.clone(), req.tools.len()));
+        let agent = req
+            .messages
+            .first()
+            .is_some_and(|m| m.to_string().contains("AGENT:"));
+        if let (true, Some(said)) = (agent, self.agent.lock().unwrap().clone()) {
+            let gate = self.gate.lock().unwrap().clone();
+            let answers_a_call = req
+                .messages
+                .last()
+                .and_then(|m| m["content"].as_array())
+                .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+            let call = self.agent_call.lock().unwrap().clone();
+            let answer = match call {
+                Some((tool, input)) if !answers_a_call => {
+                    Scripted::tools("", &[("ag1", tool.as_str(), input)])
+                }
+                _ => Scripted::text(&said),
+            };
+            return Box::pin(async move {
+                if let Some(g) = gate {
+                    g.acquire().await.unwrap().forget();
+                }
+                FakeProvider::scripted(vec![answer])
+                    .stream_message(req, on_delta)
+                    .await
+            });
+        }
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
         }
@@ -166,6 +205,8 @@ pub(super) struct Rig {
     pub(super) file: PathBuf,
     pub(super) state: PathBuf,
     _dir: tempfile::TempDir,
+    /// The driver `Rig::drive` started: it takes a task's turns, as the daemon's does.
+    driver: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 pub(super) fn rig() -> Rig {
@@ -175,7 +216,11 @@ pub(super) fn rig() -> Rig {
 /// [`rig`], with `tweak` to say about the settings last: it is given them and
 /// the state directory.
 pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
+    rig_in(tempfile::tempdir().unwrap(), tweak)
+}
+
+/// [`rig_with`] over the state directory `dir`: a daemon started again on a store that is there.
+fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
     let state = dir.path().to_path_buf();
     let file = dir.path().join("theseus.toml");
     std::fs::write(&file, FILE).unwrap();
@@ -197,6 +242,10 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         plain: Mutex::default(),
         asked: Mutex::default(),
         on_asked: Mutex::default(),
+        seen: Mutex::default(),
+        agent: Mutex::default(),
+        gate: Mutex::default(),
+        agent_call: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -205,6 +254,7 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         file,
         state,
         _dir: dir,
+        driver: Mutex::default(),
     }
 }
 
@@ -276,6 +326,55 @@ impl Rig {
         *self.model.on_asked.lock().unwrap() = Some(Box::new(f));
     }
 
+    /// An agent (a request whose first message holds `AGENT:`) reports `said`; its call is held until
+    /// `hold` is given a permit when it is.
+    pub(super) fn agents_say(&self, said: &str, hold: Option<Arc<tokio::sync::Semaphore>>) {
+        *self.model.agent.lock().unwrap() = Some(said.into());
+        *self.model.gate.lock().unwrap() = hold;
+    }
+
+    /// Task turns run, as the daemon's driver runs them.
+    pub(super) fn drive(&self) {
+        let h = tokio::spawn(crate::harness::drive(self.core.clone()));
+        *self.driver.lock().unwrap() = Some(h);
+    }
+
+    /// [`agents_say`](Self::agents_say), and the driver runs.
+    pub(super) fn agents_report(&self, said: &str, hold: Option<Arc<tokio::sync::Semaphore>>) {
+        self.agents_say(said, hold);
+        self.drive();
+    }
+
+    /// Before its first request an agent calls `tool` with `input`, and reports after the result.
+    pub(super) fn agents_call(&self, tool: &str, input: Value) {
+        *self.model.agent_call.lock().unwrap() = Some((tool.into(), input));
+    }
+
+    /// The daemon is stopped and started again on the same store: the driver is gone, the model's
+    /// script stays, and `tweak` says the settings again.
+    pub(super) fn restart(self, tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig {
+        let Rig {
+            core,
+            model,
+            _dir,
+            driver,
+            ..
+        } = self;
+        if let Some(h) = driver.lock().unwrap().take() {
+            h.abort();
+        }
+        let said = model.agent.lock().unwrap().clone();
+        drop((core, model));
+        let r = rig_in(_dir, tweak);
+        *r.model.agent.lock().unwrap() = said;
+        r
+    }
+
+    /// The model of every request made, and the tools it offered.
+    pub(super) fn seen(&self) -> Vec<(String, usize)> {
+        self.model.seen.lock().unwrap().clone()
+    }
+
     /// A session posting to `place` (`dm:<user>`), as a binding's place is.
     pub(super) fn session_at(&self, place: &str) -> String {
         let sid = self.session();
@@ -311,7 +410,22 @@ impl Rig {
         self.run_turn(sid).await;
     }
 
+    /// [`steps`](Self::steps), for a turn that may fail (a day's ceiling reached): its result.
+    pub(super) async fn try_steps(
+        &self,
+        sid: &str,
+        steps: Vec<(&str, Value)>,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        *self.model.made.lock().unwrap() = 0;
+        *self.model.steps.lock().unwrap() = steps.into_iter().map(|(t, v)| (t.into(), v)).collect();
+        self.try_run_turn(sid).await
+    }
+
     pub(super) async fn run_turn(&self, sid: &str) -> theseus_protocol::TurnSubmitResult {
+        self.try_run_turn(sid).await.unwrap()
+    }
+
+    async fn try_run_turn(&self, sid: &str) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -336,7 +450,6 @@ impl Rig {
                 answer_at: None,
             })
             .await
-            .unwrap()
     }
 
     pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {
