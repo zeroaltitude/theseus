@@ -78,8 +78,13 @@ pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> Stri
         State::Adds => "a new field in an item that is already there",
         State::Replaces => "the field that is already there",
     };
+    // The first words are where the value is typed: a place that cannot carry a value (Discord
+    // today) offers only Decline, so the card must say first what to do instead.
     let mut out = format!(
-        "Keep a secret in the vault?\nIn the vault \"{}\": item \"{}\", field \"{}\" ({what}).\n",
+        "Type the value in your own terminal: run `theseus vault keep` (nothing is shown as you \
+         type). There is no Approve here: a yes carries no value, so this card offers only \
+         Decline. In the cockpit, the card has a field for the value.\n\
+         Keep a secret in the vault?\nIn the vault \"{}\": item \"{}\", field \"{}\" ({what}).\n",
         t.vault, t.title, t.field
     );
     if t.replaces() {
@@ -90,12 +95,9 @@ pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> Stri
     }
     out.push_str(
         "You give the value yourself, where only you see it; it never goes to the model, to this \
-         card or to a record:\n\
-         - in your own terminal: run `theseus vault keep` (the value is typed with nothing shown)\n\
-         - or in the cockpit, in this card's own field.\n\
-         Do not paste it into chat: a value typed in chat is already with the model's provider \
-         and in Theseus's record, and Theseus cannot take it back (rotate it at its provider, \
-         then give the new one here).\n",
+         card or to a record. Do not paste it into chat: a value typed in chat is already with the model's provider and in Theseus's \
+         record, and Theseus cannot take it back (rotate it at its provider, then give the new \
+         one where it is typed).\n",
     );
     out.push_str(match t.replaces() {
         true => "It needs a fresh code from your authenticator app, every time.\n",

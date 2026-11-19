@@ -91,3 +91,18 @@ test('a keep card takes a value in a field of its own, never a yes, and the valu
   assert.deepEqual(keepParams(card({ proof: { code_needed: true, line: '' } }), 'INVENTED-VALUE', ' 123456 '), { question_id: 'act_keep1', value: 'INVENTED-VALUE', code: '123456' })
   assert.deepEqual(keepParams(card({ proof: { code_needed: false, line: '' } }), 'INVENTED-VALUE', '123456'), { question_id: 'act_keep1', value: 'INVENTED-VALUE' })
 })
+
+test('a keep card offers a decline alone, and its field sends what the daemon takes', async () => {
+  // The daemon offers no yes to a secret to keep: only its decline is a button, and the field
+  // and "Keep it" carry the value.
+  const card = (extra: object = {}) =>
+    ask({ correlation_id: 'act_keep1', tool: 'config.ack', input: { keep: { vault: 'Harbor', title: 'Lantern new' } }, needs_proof: true, ...extra })
+  const c = card({ options: [opt('decline', 'Decline', true)] })
+  assert.equal(isKeep(c), true)
+  assert.deepEqual(buttonsOf(c).map((b) => [b.id, b.tone]), [['decline', 'fault']])
+  // What the field sends is the file the daemon's own test sends through the web port.
+  const { readFileSync } = await import('node:fs')
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/keep_answer.json', import.meta.url), 'utf8'))
+  const sent = keepParams(card({ proof: { code_needed: true, line: '' } }), 'INVENTED-COCKPIT-VALUE-5531', '123456')
+  assert.deepEqual(sent, fixture)
+})

@@ -29,7 +29,7 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-const OWNER: u64 = 4_100_000_000_000_000_001;
+pub(super) const OWNER: u64 = 4_100_000_000_000_000_001;
 const LAB: u64 = 4_100_000_000_000_000_777;
 
 /// The settings file the owner keeps: comments, an order of its own.

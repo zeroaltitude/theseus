@@ -109,7 +109,7 @@ pub fn doc_of(text: &str) -> Option<Value> {
 
 /// The newest rows of `kind`, oldest first: through the index, or by a scan
 /// of the tail while it is built.
-fn of_kind(store: &crate::store::Store, kind: LedgerKind) -> Vec<LedgerRow> {
+pub(crate) fn of_kind(store: &crate::store::Store, kind: LedgerKind) -> Vec<LedgerRow> {
     let page = Page {
         kind: kinds::LEDGER,
         tags: vec![ledger_kind(kind.as_str())],

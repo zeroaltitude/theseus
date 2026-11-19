@@ -60,14 +60,22 @@ const READS: [&str; 10] = [
     "read", "get", "--reveal", "document", "inject", "run", "create", "edit", "delete", "--fields",
 ];
 
-/// There are three verbs, and the arguments of each are literals but a vault's
-/// id, which is letters and digits only.
+/// There are four list verbs and a get, and the arguments of each are literals
+/// but a vault's id, which is letters and digits only.
 #[test]
 fn the_verbs_are_a_closed_set_of_lists() {
     let id = VaultId::parse("abcd1234efgh5678").unwrap();
     let all = [
         (Verb::Whoami, "whoami --format json"),
         (Verb::Vaults, "vault list --format json"),
+        (
+            Verb::VaultsWith(super::Permission::CreateItems),
+            "vault list --permission create_items --format json",
+        ),
+        (
+            Verb::VaultsWith(super::Permission::EditItems),
+            "vault list --permission edit_items --format json",
+        ),
         (Verb::Items(None), "item list --format json"),
         (
             Verb::Items(Some(id)),
