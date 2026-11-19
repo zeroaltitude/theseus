@@ -171,7 +171,7 @@ fn a_turn_that_asked_profiles_says_which_and_that_each_answer_is_a_subagents() {
 #[test]
 fn a_turn_that_asked_profiles_names_the_model_that_answered() {
     let (x, p, r) = (explain("private"), policy(), route());
-    let nodes: NodeListResult = serde_json::from_value(json!({"total": 4, "nodes": [
+    let nodes: NodeListResult = serde_json::from_value(json!({"total": 5, "nodes": [
         {"node_id": "n1", "kind": "tool_call", "session_id": "ses_a", "position": 1, "at_unix_ms": 1,
          "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
          "detail": {"tool_use_id": "u1", "tool": "profile.ask", "input": {"profile": "haiku", "question": "Hi"}}},
@@ -182,20 +182,27 @@ fn a_turn_that_asked_profiles_names_the_model_that_answered() {
         {"node_id": "n3", "kind": "tool_call", "session_id": "ses_a", "position": 3, "at_unix_ms": 3,
          "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
          "detail": {"tool_use_id": "u2", "tool": "profile.ask", "input": {"profile": "opus", "question": "Hi"}}},
-        {"node_id": "n4", "kind": "tool_result", "session_id": "ses_b", "position": 4, "at_unix_ms": 4,
-         "turn_id": "trn_other", "text": "", "bytes": 0,
+        {"node_id": "n4", "kind": "tool_result", "session_id": "ses_a", "position": 4, "at_unix_ms": 4,
+         "turn_id": "trn_later", "text": "", "bytes": 0,
          "detail": {"tool_use_id": "u2", "tool": "profile.ask", "status": "ok",
-                    "meta": {"subagent": {"profile": "opus", "model": "claude-opus-5-5", "text": "Hi."}}}}]}))
+                    "meta": {"subagent": {"profile": "opus", "model": "claude-opus-5-5", "text": "Hi."}}}},
+        {"node_id": "n5", "kind": "tool_result", "session_id": "ses_b", "position": 5, "at_unix_ms": 5,
+         "turn_id": "trn_x", "text": "", "bytes": 0,
+         "detail": {"tool_use_id": "u1", "tool": "profile.ask", "status": "ok",
+                    "meta": {"subagent": {"profile": "haiku", "model": "claude-wrong-9", "text": "No."}}}}]}))
     .unwrap();
     let tools = tools_called(&nodes, "trn_k3m9x2");
     assert_eq!(
         tools[0].asked,
-        vec!["haiku (claude-haiku-5-5)".to_string(), "opus".to_string()],
-        "another turn's result names nothing here"
+        vec![
+            "haiku (claude-haiku-5-5)".to_string(),
+            "opus (claude-opus-5-5)".to_string()
+        ],
+        "a result in a later turn of the session names its model too; another session's call id does not"
     );
     let got = why_lines(&input(&x, &p, &r, &tools)).join("\n");
     assert!(
-        got.contains("asked as subagents: haiku (claude-haiku-5-5), opus"),
+        got.contains("asked as subagents: haiku (claude-haiku-5-5), opus (claude-opus-5-5)"),
         "{got}"
     );
 }

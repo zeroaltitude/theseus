@@ -69,15 +69,17 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
         .filter(|n| n.kind == "tool_call" && n.turn_id.as_deref() == Some(turn))
         .collect();
     calls.sort_by_key(|n| n.position);
-    // The model that answered each `profile.ask`, by the call's id: the result node's marker.
-    let answered: std::collections::HashMap<&str, &str> = nodes
+    // The model that answered each `profile.ask`, by the call's id in its session: the result
+    // node's marker. The result of a call the owner confirmed lands in a later turn than the call,
+    // so the results are not limited to this turn's.
+    let answered: std::collections::HashMap<(&str, &str), &str> = nodes
         .nodes
         .iter()
-        .filter(|n| n.kind == "tool_result" && n.turn_id.as_deref() == Some(turn))
+        .filter(|n| n.kind == "tool_result")
         .filter_map(|n| {
             let id = n.detail.get("tool_use_id")?.as_str()?;
             let model = n.detail.pointer("/meta/subagent/model")?.as_str()?;
-            Some((id, model)).filter(|(_, m)| !m.is_empty())
+            Some(((n.session_id.as_str(), id), model)).filter(|(_, m)| !m.is_empty())
         })
         .collect();
     let mut out: Vec<ToolCalled> = Vec::new();
@@ -110,7 +112,7 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
                 .detail
                 .get("tool_use_id")
                 .and_then(Value::as_str)
-                .and_then(|id| answered.get(id));
+                .and_then(|id| answered.get(&(n.session_id.as_str(), id)));
             t.asked.extend(
                 n.detail
                     .pointer("/input/profile")
@@ -732,7 +734,7 @@ fn tools(i: &WhyInput) -> Vec<String> {
         out.push(tool_line(c, found));
         if !c.asked.is_empty() {
             out.push(format!(
-                "    asked as subagents: {} (each answer is a message of its own, from the model that gave it, with a footer that says so; it is shown even when the turn that asked was stopped or failed)",
+                "    asked as subagents: {} (each answer is shown as a message of its own after its call, with a footer naming the model that gave it: in Discord in the place the turn answers, and under the call in the terminal, the terminal UI, the cockpit and the history; when the turn that asked was stopped or failed it is shown the same, and says so)",
                 c.asked.join(", ")
             ));
         }

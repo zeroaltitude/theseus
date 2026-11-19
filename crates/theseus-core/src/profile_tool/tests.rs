@@ -162,7 +162,7 @@ fn a_turns_unposted_answers_are_dropped_with_its_session() {
     let board = Board::default();
     board.give("ses_a", "turn_a", answer());
     board.give("ses_b", "turn_b", answer());
-    let left = board.sweep("ses_a", std::time::Instant::now());
+    let left = board.sweep("ses_a");
     assert_eq!(left.len(), 1, "handed back, for a faulted turn to post");
     assert!(board.take("turn_a").is_empty());
     assert_eq!(board.take("turn_b").len(), 1);

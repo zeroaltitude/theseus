@@ -260,6 +260,18 @@ impl Tool for ProfileHold {
     }
 }
 
+/// The META key that says how the turn that asked ended, for the answer of the call `call` (issue
+/// 28): written when it did not end well, read by the node list, which gives it to every surface
+/// that draws the answer from its result node.
+pub(crate) fn ended_key(call: &str) -> String {
+    format!("subagent.ended.{call}")
+}
+
+/// The record of it: `ended` is `stopped` or `failed`.
+pub(crate) fn ended_record(call: &str, ended: &str) -> anyhow::Result<theseus_store::NewRecord> {
+    theseus_store::NewRecord::json(theseus_store::kinds::META, Some(&ended_key(call)), &ended)
+}
+
 /// What the tools reach: the core, given once it exists.
 #[derive(Default)]
 pub struct Board {
@@ -317,17 +329,23 @@ impl Board {
             .unwrap_or_default()
     }
 
-    /// A turn of `session`, which arrived at `arrived`, has ended. What it was given and did not
-    /// post is handed back (a faulted turn's answers, which the end of the turn posts as the
-    /// answers of a turn that failed; a task's, which are dropped), not kept until a restart; one
-    /// turn runs in a session at a time, so none of it belongs to a later turn. A yes kept before
-    /// the turn arrived that no call took is dropped too: the turn that arrived after it was the
-    /// one to take it, and a yes kept while the turn ran is a later turn's.
-    pub(crate) fn sweep(&self, session: &str, arrived: std::time::Instant) -> Vec<SubagentAnswer> {
+    /// A turn of `session`, which arrived at `arrived`, has resumed the calls the owner's answers
+    /// let run. A yes kept before it arrived that no call took is dropped: this turn was the one
+    /// to take it, and nothing will. Only after the resume: a turn that erred before it left
+    /// the confirmed call waiting, and the next turn takes the yes. A yes kept while the turn ran
+    /// is a later turn's and stays.
+    pub(crate) fn drop_untaken(&self, session: &str, arrived: std::time::Instant) {
         self.yes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .retain(|_, p| p.session != session || p.at >= arrived);
+    }
+
+    /// A turn of `session` has ended. What it was given and did not post is handed back (a
+    /// faulted turn's answers, which the end of the turn posts as the answers of a turn that
+    /// failed; a task's, which are dropped), not kept until a restart; one turn runs in a session
+    /// at a time, so none of it belongs to a later turn.
+    pub(crate) fn sweep(&self, session: &str) -> Vec<SubagentAnswer> {
         let mut answers = self
             .answers
             .lock()

@@ -20,6 +20,20 @@ export function subagentOpening(a: SubagentAnswer): string {
   return `${SUBAGENT_ICON} ${a.text.trim()}`
 }
 
+/** What a surface says of an answer whose turn did not end well: theseus-protocol's `ended_words` (a test there holds
+ *  the two together). `ended` is what the node list says (`detail.subagent_ended`). */
+export function subagentEnded(ended: unknown): string | null {
+  if (ended === 'stopped') return 'the turn that asked was stopped'
+  if (ended === 'failed') return 'the turn that asked then failed'
+  return null
+}
+
+/** The footer's bits with the words for a turn that did not end well after them, from a result node's detail. */
+export function subagentBits(a: SubagentAnswer, detail: unknown): string[] {
+  const ended = subagentEnded((detail as { subagent_ended?: unknown } | null | undefined)?.subagent_ended)
+  return ended === null ? subagentFooter(a) : [...subagentFooter(a), ended]
+}
+
 /** The footer's bits, in a reply's order. */
 export function subagentFooter(a: SubagentAnswer): string[] {
   const bits = [a.profile, a.model, a.asked_by ? `subagent answer, asked by ${a.asked_by}` : 'subagent answer']

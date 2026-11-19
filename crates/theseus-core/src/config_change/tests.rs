@@ -340,6 +340,11 @@ impl Rig {
         self.try_turn(sid).await.unwrap()
     }
 
+    /// The call the next turn's model makes.
+    pub(super) fn call_next(&self, tool: &str, call: Value) {
+        self.model.calls.lock().unwrap().push((tool.into(), call));
+    }
+
     /// [`Rig::turn_with`], for a turn that may end in an error.
     pub(super) async fn try_turn_with(
         &self,
@@ -367,10 +372,29 @@ impl Rig {
         self.run(sid, Some("change a setting".into())).await
     }
 
+    /// [`Rig::try_turn`], for a turn that answers in another place (`answer_at`).
+    pub(super) async fn try_turn_answering_at(
+        &self,
+        sid: &str,
+        answer_at: &str,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run_at(sid, Some("change a setting".into()), Some(answer_at.into()))
+            .await
+    }
+
     async fn run(
         &self,
         sid: &str,
         input: Option<String>,
+    ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
+        self.run_at(sid, input, None).await
+    }
+
+    async fn run_at(
+        &self,
+        sid: &str,
+        input: Option<String>,
+        answer_at: Option<String>,
     ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
@@ -393,7 +417,7 @@ impl Rig {
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
-                answer_at: None,
+                answer_at,
             })
             .await
     }

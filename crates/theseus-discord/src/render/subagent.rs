@@ -36,11 +36,9 @@ pub fn subagent_parts_ended(a: &SubagentAnswer, ended: Option<&str>) -> Vec<(Str
         .enumerate()
         .map(|(i, part)| (format!("{key}:p{i}"), part))
         .collect();
-    let note = match ended {
-        Some("stopped") => " · the turn that asked was stopped",
-        Some(_) => " · the turn that asked then failed",
-        None => "",
-    };
+    let note = ended
+        .map(|e| format!(" · {}", theseus_protocol::subagent::ended_words(e)))
+        .unwrap_or_default();
     let footer = format!("-# {}{note}", a.footer());
     match out.last_mut() {
         Some((_, c)) if c.len() + footer.len() < DISCORD_LIMIT => {

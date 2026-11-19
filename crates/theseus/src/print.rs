@@ -436,6 +436,40 @@ mod tests {
         assert_eq!((out, err), (Vec::new(), Vec::new()));
     }
 
+    /// An answer whose turn was stopped or failed says so under it, in the words every surface says,
+    /// on stderr; a turn that ended well adds nothing.
+    #[test]
+    fn a_stopped_or_failed_turns_answer_says_so_under_it() {
+        let ended = |stop: &str| {
+            Event::TurnEnded(theseus_protocol::TurnSubmitResult {
+                session_id: "ses_a".into(),
+                turn_id: "turn_a".into(),
+                stop_reason: stop.into(),
+                ..Default::default()
+            })
+        };
+        let failed = Event::TurnFailed(theseus_protocol::TurnFailed {
+            session_id: "ses_a".into(),
+            turn_id: Some("turn_a".into()),
+            error: "the lighthouse is busy".into(),
+            ..Default::default()
+        });
+        let run = |last: Event| {
+            let mut p = Printer::to(Mode::Text, false, Vec::new(), Vec::new());
+            let Event::ToolEnded(mut t) = subagent_ended() else {
+                unreachable!()
+            };
+            t.turn_id = "turn_a".into();
+            p.on_event(&Event::ToolEnded(t));
+            p.on_event(&last);
+            String::from_utf8(p.into_parts().1).unwrap()
+        };
+        let mark = |w: &str| format!("haiku · claude-haiku-5-5 · {w}");
+        assert!(run(ended("stopped")).contains(&mark("the turn that asked was stopped")));
+        assert!(run(failed).contains(&mark("the turn that asked then failed")));
+        assert!(!run(ended("end_turn")).contains("the turn that asked"));
+    }
+
     fn edit_events() -> Vec<Event> {
         use serde_json::json;
         use theseus_protocol::{ToolDiff, ToolEnded, ToolProposed, ToolStarted};

@@ -45,7 +45,7 @@ pub fn fence_tables(text: &str) -> Cow<'_, str> {
             fence = !fence;
         }
         let head = (!fence).then(|| header_and_rule(&lines, i)).flatten();
-        let Some((cells, aligns)) = head else {
+        let Some((mut cells, mut aligns)) = head else {
             out.push(line.to_string());
             i += 1;
             continue;
@@ -56,6 +56,14 @@ pub fn fence_tables(text: &str) -> Cow<'_, str> {
             .map(|l| (row_cells(l), l.trim()))
             .collect();
         let used = 2 + rows.len();
+        // Drawing a table loses nothing: a row with more cells than the header widens the table
+        // (the header gets empty cells), where a row with fewer is padded.
+        let n = rows
+            .iter()
+            .map(|(r, _)| r.len())
+            .fold(cells.len(), usize::max);
+        cells.resize(n, String::new());
+        aligns.resize(n, Align::Left);
         match block(&cells, &aligns, &rows) {
             Some(drawn) => {
                 out.extend(drawn);
@@ -131,17 +139,44 @@ fn row_cells(line: &str) -> Vec<String> {
     cells
 }
 
-/// A cell as plain words.
+/// A cell as it is drawn: the words the model wrote, and nothing less. Only a mark that is one
+/// pair around the whole cell is dropped (`**x**`, `__x__`, `*x*`, `_x_`, and a backtick pair),
+/// since the block shows no emphasis; `__` and `**` inside a word or a cell stay as written
+/// (`__init__.py`, `2**10`), and so does a pair of underscores around one word, which may be a name
+/// (`__init__`): a pair of underscores is dropped only around words with a space in them.
 fn clean(cell: &str) -> String {
-    cell.trim()
-        .replace("**", "")
-        .replace("__", "")
-        .replace('`', "")
+    let t = cell.trim();
+    for (mark, words_only) in [
+        ("**", false),
+        ("__", true),
+        ("*", false),
+        ("_", true),
+        ("`", false),
+    ] {
+        let Some(inner) = wrapped(t, mark) else {
+            continue;
+        };
+        if !words_only || inner.contains(char::is_whitespace) {
+            return inner.to_string();
+        }
+    }
+    t.to_string()
+}
+
+/// What `mark` wraps when it is one pair around all of `t`: the inside holds no mark of its own and
+/// does not begin or end in a space (`* x *` is no emphasis).
+fn wrapped<'a>(t: &'a str, mark: &str) -> Option<&'a str> {
+    let inner = t.strip_prefix(mark)?.strip_suffix(mark)?;
+    let bare = !inner.is_empty()
+        && !inner.contains(&mark[..1])
+        && !inner.starts_with(char::is_whitespace)
+        && !inner.ends_with(char::is_whitespace);
+    bare.then_some(inner)
 }
 
 /// The fenced block: the header, a rule, the rows, each column as wide as its widest cell, in
-/// display columns. A row with fewer cells than the header is padded with empty ones, one with more
-/// is cut to it. A row that would draw longer than [`MAX_ROW`] is left as the text it was, outside
+/// display columns. A row with fewer cells than the header is padded with empty ones (`fence_tables`
+/// has widened the header to the widest row, so no cell is cut). A row that would draw longer than [`MAX_ROW`] is left as the text it was, outside
 /// the fence, which closes before it and opens again for the rows after it. `None` when the header
 /// itself cannot fit, or no row can: the table is then left as it was.
 fn block(head: &[String], aligns: &[Align], rows: &[(Vec<String>, &str)]) -> Option<Vec<String>> {
@@ -244,13 +279,14 @@ mod tests {
     }
 
     /// Alignment colons are kept: right-aligned numbers, centred words; a short row is padded and a
-    /// long one cut to the header; escaped pipes and emphasis marks in a cell are plain words.
+    /// long one widens the table (the header gets an empty cell: nothing a row says is cut); an
+    /// escaped pipe is a pipe, and a pair of marks around a whole cell is dropped.
     #[test]
     fn alignment_short_rows_escapes_and_marks() {
         let t = "| name | n | mid |\n|:-----|--:|:---:|\n| **bold** | 7 | x |\n| a \\| b | 12 |\n| c | 3 | y | extra |";
         assert_eq!(
             fence_tables(t),
-            "```\nname    n  mid\n-----  --  ---\nbold    7   x\na | b  12\nc       3   y\n```"
+            "```\nname    n  mid\n-----  --  ---  -----\nbold    7   x\na | b  12\nc       3   y   extra\n```"
         );
     }
 
@@ -414,5 +450,154 @@ mod tests {
                 .all(|l| l.len() <= MAX_ROW || l.starts_with('|')),
             "a drawn line is too long"
         );
+    }
+
+    /// Drawing a table loses nothing: names with underscores and asterisks inside them, an extra
+    /// cell, a pair of underscores around one word (a name), all as the model wrote them.
+    #[test]
+    fn a_table_draws_the_words_as_written() {
+        let t = "| file | note |\n|---|---|\n| __init__.py | 2**10 |\n| __pycache__ | **bold** |\n| __init__ | _two words_ |\n| a*b*c | `code` | extra |";
+        let got = fence_tables(t).into_owned();
+        for kept in [
+            "__init__.py",
+            "2**10",
+            "__pycache__",
+            "__init__",
+            "a*b*c",
+            "extra",
+        ] {
+            assert!(got.contains(kept), "{kept} in\n{got}");
+        }
+        // A pair around the whole cell is the block's to drop; a pair inside is the words'.
+        assert!(got.contains("bold") && !got.contains("**bold**"), "{got}");
+        assert!(
+            got.contains("two words") && !got.contains("_two words_"),
+            "{got}"
+        );
+        assert!(got.contains("code") && !got.contains("`code`"), "{got}");
+    }
+
+    /// The cells of a drawn block, row by row, read back by the column widths its rule line gives.
+    fn cells_drawn(block: &str) -> Vec<Vec<String>> {
+        let lines: Vec<&str> = block.lines().collect();
+        let widths: Vec<usize> = lines[2].split("  ").map(str::len).collect();
+        let body = lines[1..lines.len() - 1].iter().enumerate();
+        body.filter(|(i, _)| *i != 1)
+            .map(|(_, line)| {
+                let mut chars = line.chars().peekable();
+                widths
+                    .iter()
+                    .map(|w| {
+                        let mut cell = String::new();
+                        let mut used = 0;
+                        while used < *w {
+                            let Some(c) = chars.next() else { break };
+                            used += unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                            cell.push(c);
+                        }
+                        chars.by_ref().take(2).for_each(drop);
+                        cell.trim().to_string()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// What a cell may be drawn as: the text the model wrote (an escaped pipe a pipe), or that text
+    /// with one pair of marks off the whole of it.
+    fn may_draw(raw: &str) -> Vec<String> {
+        let mut ok = vec![raw.to_string()];
+        for mark in ["**", "__", "*", "_", "`"] {
+            if let Some(inner) = raw.strip_prefix(mark).and_then(|r| r.strip_suffix(mark)) {
+                ok.push(inner.to_string());
+            }
+        }
+        ok
+    }
+
+    /// Generated tables (a fixed seed): cells with underscores, asterisks, backticks, escaped pipes,
+    /// wide characters, spaces and nothing at all, rows with fewer cells and with more than the
+    /// header, each alignment. Every cell of every row is in the drawn block, in its row and its
+    /// column, as written or with one pair of marks off the whole of it: nothing else is changed.
+    #[test]
+    fn a_generated_table_loses_nothing_it_says() {
+        let pool = [
+            "__init__.py",
+            "__pycache__",
+            "2**10",
+            "**bold**",
+            "__x__ y",
+            "_a b_",
+            "*it*",
+            "`code`",
+            "a \\| b",
+            "名前",
+            "✅",
+            "plain",
+            "*",
+            "**",
+            "_",
+            "``",
+            "snake_case_name",
+            "a*b*c",
+            "",
+            "x y",
+            "* star *",
+            "__init__",
+            "_x_y_",
+            "**a** b",
+            "ファイル名.rs",
+            "a_b",
+            "*a*b*",
+        ];
+        let rules = ["---", ":--", "--:", ":-:"];
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % n as u64) as usize
+        };
+        let (mut tables, mut checked) = (0, 0);
+        for _ in 0..400 {
+            let cols = 1 + next(5);
+            let rows: Vec<Vec<&str>> = (0..next(7))
+                .map(|_| {
+                    (0..1 + next(cols + 2))
+                        .map(|_| pool[next(pool.len())])
+                        .collect()
+                })
+                .collect();
+            let head: Vec<&str> = (0..cols).map(|_| pool[next(pool.len())]).collect();
+            let line = |cells: &[&str]| format!("| {} |", cells.join(" | "));
+            let rule: Vec<&str> = (0..cols).map(|_| rules[next(4)]).collect();
+            let mut t = format!("{}\n{}", line(&head), line(&rule));
+            for r in &rows {
+                t.push('\n');
+                t.push_str(&line(r));
+            }
+            let got = fence_tables(&t).into_owned();
+            let drawn = cells_drawn(&got);
+            let width = rows.iter().map(Vec::len).fold(cols, usize::max);
+            let wrote: Vec<&Vec<&str>> = std::iter::once(&head).chain(&rows).collect();
+            assert_eq!(drawn.len(), wrote.len(), "{t}\n->\n{got}");
+            for (r, (cells, said)) in drawn.iter().zip(&wrote).enumerate() {
+                assert_eq!(cells.len(), width, "row {r} of\n{got}");
+                for (c, shown) in cells.iter().enumerate() {
+                    let raw = said
+                        .get(c)
+                        .map_or(String::new(), |x| x.replace("\\|", "|").trim().to_string());
+                    assert!(
+                        may_draw(&raw).contains(shown),
+                        "row {r} column {c}: wrote {raw:?}, drawn {shown:?}\nin\n{got}\nfrom\n{t}"
+                    );
+                    checked += 1;
+                }
+            }
+            tables += 1;
+        }
+        assert_eq!(tables, 400);
+        assert!(checked > 3_000, "{checked} cells checked");
+        eprintln!("generated tables: {tables}, cells checked: {checked}");
     }
 }

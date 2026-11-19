@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { SubagentAnswer } from '@protocol'
-import { SUBAGENT_ICON, subagentFooter, subagentOf, subagentOpening } from '../src/lib/subagent.ts'
+import { SUBAGENT_ICON, subagentBits, subagentFooter, subagentOf, subagentOpening } from '../src/lib/subagent.ts'
 
 const answer = (over: Partial<SubagentAnswer> = {}): SubagentAnswer => ({
   profile: 'haiku', provider: 'anthropic', model: 'claude-haiku-5-5', asked_by: 'sonnet', text: 'Hello.',
@@ -26,4 +26,10 @@ test('only a result node that holds words is a subagent message', () => {
 test('the message opens with the icon before its first word', () => {
   assert.equal(SUBAGENT_ICON, '🛰️')
   assert.equal(subagentOpening(answer({ text: '  Hello from the other model.\n' })), '🛰️ Hello from the other model.')
+})
+
+test('the footer says when the turn that asked was stopped or failed, and nothing when it ended well', () => {
+  assert.deepEqual(subagentBits(answer(), { meta: {} }), subagentFooter(answer()))
+  assert.equal(subagentBits(answer(), { subagent_ended: 'stopped' }).at(-1), 'the turn that asked was stopped')
+  assert.equal(subagentBits(answer(), { subagent_ended: 'failed' }).at(-1), 'the turn that asked then failed')
 })

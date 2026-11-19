@@ -1184,6 +1184,7 @@ impl TurnRunner {
         };
         // A task (DD7): where it reports, and its title, for its report.
         let task_of = req.session.task.clone();
+        let answer_at = req.answer_at.clone();
         let task_title = req.session.title.clone();
         let task_session = req.session.session_id.clone();
         // The turn's session write waits for its last frame, under the
@@ -1293,9 +1294,8 @@ impl TurnRunner {
         drop(session_hold);
         // What an asked profile answered this turn and the turn did not post is not kept until a
         // restart (issue 28): a faulted turn's is posted below, as the answer of a turn that
-        // failed; a task's is dropped. A yes no call took is dropped with the turn that should
-        // have taken it.
-        let unposted = self.tools.profile.sweep(&failure_sink.session_id, arrived);
+        // failed; a task's is dropped.
+        let unposted = self.tools.profile.sweep(&failure_sink.session_id);
         self.keep_warm.turn_ended(&failure_sink.session_id);
         clock_step::turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
@@ -1406,9 +1406,12 @@ impl TurnRunner {
             // (issue 28). A task's turn posts none.
             if task_of.is_none() {
                 self.post_unposted_answers(
-                    &failure_sink.session_id,
-                    &exec_id,
-                    failed.turn_id.as_deref().unwrap_or_default(),
+                    (
+                        &failure_sink.session_id,
+                        &exec_id,
+                        failed.turn_id.as_deref().unwrap_or_default(),
+                        answer_at,
+                    ),
                     unposted,
                     if stopped.is_some() {
                         "stopped"
