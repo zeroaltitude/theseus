@@ -457,6 +457,18 @@ impl Tasks {
             .any(|(s, t)| *t >= at && roots_of(&m, s).contains(&v.root))
     }
 
+    /// Whether any place cleared its done ones at or after `at_ms`: the owner
+    /// has seen what ended by then, of the items that are no task's (a fired
+    /// reminder's post; `forum::archive`).
+    pub fn cleared_since(&self, at_ms: u64) -> bool {
+        self.model
+            .lock()
+            .unwrap()
+            .cleared
+            .values()
+            .any(|t| *t >= at_ms)
+    }
+
     /// A view held, by its id.
     pub fn view(&self, id: &str) -> Option<WorkView> {
         self.model.lock().unwrap().views.get(id).cloned()

@@ -288,39 +288,39 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - **The future in Discord** (theseus-j90w2, horizon HZ9; owner, 2026-10-08: Theseus speaks first in the chat, boards only show).
   Private places only (the place rule: `Shared::is_private`, the core's `place_rule.class`); a shared place is told
   "That is yours alone", offered no autocomplete choice, and its board draws none of it.
-  - **The snapshot** (`runtime/horizon.rs`, `Tasks.future`): one loop reads `routine.list`, `watch.list` and
-    `work.agenda` (once, naming the places' sessions as the Discord surface must; a routine's own conversation is not a
-    place, so a routine is read from `routine.list`, not from the agenda) and the 30-day record of the first 8 routines
-    (`routine.runs`, again only when a routine's run count, last run or running changed). It runs when the work engine
-    changes (`work.changed`), a `wake.noticed` is heard, the courier posts a routine's or a watch's words, or a command
-    here acts, or a minute passes with none (a routine made from the CLI or a wake the model sets moves it with no event this binding hears): 300 ms after the first, at least 2 s apart, so **a busy day's worst minute is 20 reads** (each 3 calls to
-    memory-only core reads) **and the board's 30 edits** (`BOARD_EVERY`, unchanged). A snapshot that changed nothing
-    redraws nothing. Autocomplete (`/snooze wake:`, `/cancel id:`, `/routine pause|resume|run name:`) answers from this
-    snapshot: no daemon call per keystroke, reminders before other wakes.
-  - **The board** gets three sections after Done (`render/horizon.rs`, `render/board_v2.rs`): **⏰ Coming up** (the next
-    5 of the agenda: Discord's `<t:…>` time, kind emoji, title), **🔁 Routines** (a line each: next run, last ✓ or ✗, 30-day
-    record, `$0.86 of $10`, and `[▶ Run now] [⏸ Pause]`, ids `hr:run|pause|resume:<routine id>`), **◎ Projects** (one line each:
-    a bar of steps, `3/7`, the next milestone). They fold with the rest (`render` lowers the part with the most
-    components until 40 components and 4,000 characters; a routine is four components) as `+N more · /routine list`.
-    A place with only a future is not idle, so a DM with a reminder gets its board.
-  - **Commands** (`runtime/horizon_cmds.rs`): `/agenda [when: today|week|all]` (ephemeral, the sections of `theseus
-    agenda`, a live read; the tasks going now are new `▶` lines at the head of its Coming up, `horizon::going`, theseus-1t4q8: the 📋 board's own Coming up is unchanged, the DM task flow being locked), `/routine add|list|pause|resume|run` (`add` is a modal: name, schedule, brief, `0.50 / 10`,
-    where it posts; `list` is ephemeral with Run now and Pause or Resume per routine, drawn again after a press),
-    `/snooze wake: when:` (`wake.snooze`), `/watch add|list` (`add` is a modal: question, target, condition, every, for;
-    **a command check is the owner's, from the DM only, shown with its command and approved once** by `hw:ok:<token>`,
-    kept in memory 10 minutes), and `/cancel id:` gains autocomplete. Each act is the core's to judge as the presser.
-  - **Speaking** (all normal pinging posts through the outbox, in the routine's or watch's place, the DM by default):
-    a routine run's report is headed `🔁 **Morning digest** · <t> · run 22 · 52 s · $0.04` (`Shared::routine_report`,
-    from the run's `routine.run:` mark; `speak: when_notable` is the core's: a quiet run posts nothing); a failed or
-    blocked run's notice (the core's `routine_failed` post, once a routine a local day, its line and `answers`) is the
-    reminder post with `[▶ Run now] [⏸ Pause] [Details]` (`hz:<answer>:<wake id>`, `Buttons::Horizon`); a met watch's
-    notice (`purpose: watch.met`) pings like a reminder and has no button: its wake is gone, so `work.answer` has no Done to find, and "keep watching" has no verb. A press is `work.answer` as the
-    presser; the message becomes the answer, its buttons gone (a refusal is told to the presser alone and the buttons
-    stay). Not settled from another surface: the post edits itself on the press that settles it, as a reminder does.
-  - **The status line** gains `⏰ 16:52` (the next reminder due before the local midnight, a time and no word of it,
-    `Counts.reminder`).
-  - Tests: `render/horizon.rs`, `runtime/horizon.rs`, `runtime/horizon_cmds.rs`, `tests_gateway/horizon.rs` (the stand-in
-    now types modals and autocomplete: `FakeDiscord::modal`, `autocomplete`, and `Reply.choices`).
+  - **The snapshot** (`runtime/horizon.rs`, `Tasks.future`): one loop reads `routine.list`, `watch.list` and `work.agenda` (once, naming
+    the places' sessions; a routine is read from `routine.list`, not the agenda) and the 30-day record of the first 8 routines
+    (`routine.runs`, only when a run count, last run or running changed). It runs on `work.changed`, a `wake.noticed`, a routine's or
+    watch's words posted, a command acting here, or a minute of quiet (a CLI routine or a model's wake moves it with no event heard):
+    300 ms after the first, at least 2 s apart, so **a busy day's worst minute is 20 reads and the board's 30 edits** (`BOARD_EVERY`).
+    A snapshot that changed nothing redraws nothing, and wakes the card worker. Autocomplete (`/snooze wake:`, `/cancel id:`,
+    `/routine … name:`) answers from it: no daemon call per keystroke, reminders first.
+  - **The board** (`render/board_v2.rs`, `render/horizon.rs`; `docs/design/board-place.md`): tasks and **◎ Projects**; **⏰ Coming up** and
+    **🔁 Routines** (lines with a `<t:…>` time, `$0.86 of $10`, `[▶ Run now] [⏸ Pause]`, ids `hr:run|pause|resume:<routine>`) only where
+    no card lists them (below). A task set to start later (waiting on its time, no turn) is **🕒 scheduled**, never running, on every
+    surface: forum tag, post card, board (own heading, `🕒 1 scheduled`), `/tasks`, status line, voice (`render::task_view::waits_to_start`).
+    Parts fold with the rest (`+N more · /routine list`).
+  - **Scheduled items are cards** (`runtime/sched.rs`, `render/sched.rs`, `tests_sched.rs`): where the task home stands, the owner's DM
+    place draws into it and V2 works, a reminder, a check-in and a routine each get a message of their own in the task home (silent,
+    edited only for the item's life: snoozed, fired, `Cancelled by <who>` / `from the terminal`, removed; META `discord.sched`, a
+    create under the item's nonce) and a `scheduled` post in the default forum (tag made on first use; done/stopped at the end; archived
+    by Clear done as a task's). A task set for later gets the card only (its post is its own). Cancel and Snooze 1 h are the select's
+    ids `hq:cancel|snooze:<id>`: `wake.*` or `task.cancel|reschedule` as the presser, behind the place's owner gate. Elsewhere the place's own
+    board lists its own reminders with the select, as before.
+  - **Commands** (`runtime/horizon_cmds.rs`): `/agenda [when:]` (ephemeral; tasks going now are `▶` lines at the head of its Coming up,
+    `horizon::going`; the DM task flow is locked), `/routine add|list|pause|resume|run` (`add` is a modal; `list` has Run now and Pause or
+    Resume per routine), `/snooze wake: when:`, `/watch add|list` (`add` is a modal; **a command check is the owner's, from the DM only,
+    shown and approved once** by `hw:ok:<token>`, kept 10 minutes) and `/cancel id:` with autocomplete. Each act is the core's to judge
+    as the presser.
+  - **Speaking** (pinging outbox posts in the routine's or watch's place, the DM by default): a routine run's report is headed
+    `🔁 **Morning digest** · <t> · run 22 · 52 s · $0.04` (`Shared::routine_report`; a quiet `when_notable` run posts nothing); a failed
+    or blocked run's notice is the reminder post with `[▶ Run now] [⏸ Pause] [Details]` (`hz:<answer>:<wake id>`, `Buttons::Horizon`); a
+    met watch's notice pings and has no button (its wake is gone). A press is `work.answer` as the presser; the message becomes the answer
+    (a refusal is told to the presser alone, buttons stay), and settles itself as a reminder does.
+  - **The status line** gains `⏰ 16:52` (the next reminder due before the local midnight: `Counts.reminder`); a scheduled task is no
+    running count.
+  - Tests: `render/horizon.rs`, `runtime/horizon.rs`, `runtime/horizon_cmds.rs`, `tests_gateway/horizon.rs` (`FakeDiscord::modal`,
+    `autocomplete`).
 - **A thread per task, and the task forum** (theseus-i3do6; the plan's §1.8, 8: guild tasks get threads, the forum is offered and
   off by default). `runtime/threads.rs`, `runtime/forum.rs`; the bindings' `[[channel]] task_threads` (default on; off in a voice
   channel) and `kind = "forum"` (`Bindings.forums`, apart from `channel`, so no place loop sees a forum).

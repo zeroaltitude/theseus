@@ -64,6 +64,9 @@ const RETRY_MAX: Duration = Duration::from_secs(60);
 /// A card whose item is over stays in the list this long, for a late press.
 const KEPT_MS: u64 = 24 * 3_600_000;
 
+/// How many of the newest cancel rows are read to find who cancelled an item.
+const ROWS_READ: usize = 500;
+
 /// An item that ended this recently, with no card yet, is given one in its
 /// final state: the owner must be able to see that it was set.
 const LATE_MS: u64 = 3_600_000;
@@ -114,11 +117,12 @@ impl Sched {
     /// A press cancels `wake`: remember who, for the card the worker brings
     /// to its true state.
     pub(crate) fn will_cancel(&self, wake: &str, who: &str) {
-        let who = who.trim_start_matches("discord:").to_string();
-        self.cancelled_by
-            .lock()
-            .unwrap()
-            .insert(wake.to_string(), who);
+        if let Some(who) = crate::render::sched::who_of(who) {
+            self.cancelled_by
+                .lock()
+                .unwrap()
+                .insert(wake.to_string(), who);
+        }
     }
 
     /// The press did not cancel it.
@@ -487,12 +491,18 @@ impl Worker {
         };
         self.retry = Duration::ZERO;
         let now = now_unix_ms();
-        let Some(faces) = s.schedule_now(&self.recs) else {
+        let Some(mut faces) = s.schedule_now(&self.recs) else {
             return true;
         };
         let mut shown: Vec<Face> = Vec::new();
         let mut ok = true;
-        for f in &faces {
+        for f in &mut faces {
+            if !self.name_canceller(f).await {
+                ok = false;
+                break;
+            }
+        }
+        for f in faces.iter().filter(|_| ok) {
             if !self.card_for(f, &home, now).await {
                 ok = false;
                 break;
@@ -509,8 +519,8 @@ impl Worker {
                 .cloned()
                 .collect();
             for r in gone {
-                let f = gone_face(&r, now, &s.task_posts.sched);
-                if !self.card_for(&f, &home, now).await {
+                let mut f = gone_face(&r, now, &s.task_posts.sched);
+                if !self.name_canceller(&mut f).await || !self.card_for(&f, &home, now).await {
                     ok = false;
                     break;
                 }
@@ -522,6 +532,66 @@ impl Worker {
         self.save();
         self.tell_the_forum(&shown, &home, now);
         ok
+    }
+
+    /// A card that is about to say `Cancelled` with no name: the item's own
+    /// record says who cancelled it (the author of the cancel call, from the
+    /// terminal or elsewhere), and the card says so. False when the record
+    /// could not be read: the pass waits and looks again, so a card is never
+    /// left without a name it could have had.
+    async fn name_canceller(&mut self, f: &mut Face) -> bool {
+        let Life::Cancelled(at, None) = &f.life else {
+            return true;
+        };
+        let at = *at;
+        let at_its_end = self
+            .recs
+            .iter()
+            .find(|r| r.id == f.id)
+            .is_some_and(|r| r.ended_ms.is_some() || r.by.is_some());
+        if at_its_end {
+            return true;
+        }
+        match self.cancelled_by(&f.id, f.kind).await {
+            Ok(by) => {
+                f.life = Life::Cancelled(at, by);
+                true
+            }
+            Err(e) => {
+                self.failed("schedule card", e);
+                false
+            }
+        }
+    }
+
+    /// The label the newest `wake.cancelled` row of the wake `id` (or
+    /// `execution.cancelled` row of the task) holds as its author.
+    async fn cancelled_by(&self, id: &str, kind: Kind) -> Result<Option<String>, String> {
+        let (row, key) = if kind == Kind::Task {
+            ("execution.cancelled", "execution_id")
+        } else {
+            ("wake.cancelled", "wake_id")
+        };
+        let rows = self
+            .shared
+            .rpc
+            .call::<_, theseus_protocol::LedgerTailResult>(
+                theseus_protocol::method::LEDGER_TAIL,
+                theseus_protocol::LedgerTailParams {
+                    n: Some(ROWS_READ),
+                    kind: Some(row.into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| e.message)?
+            .rows;
+        Ok(rows
+            .iter()
+            .rev()
+            .find(|r| r.data[key].as_str() == Some(id))
+            .and_then(|r| r.data["by"].as_str())
+            .and_then(crate::render::sched::who_of))
     }
 
     /// One item's card: posted if it has none, edited if what it says
