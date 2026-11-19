@@ -464,7 +464,7 @@ fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
     });
     let id = form["custom_id"].as_str().unwrap().to_string();
     let long = format!("{VALUE}{}", "é".repeat(2100));
-    for value in [long.as_str(), "   "] {
+    for (n, value) in [long.as_str(), "   "].into_iter().enumerate() {
         r.fake
             .modal(&Modal {
                 user: ANA,
@@ -474,6 +474,16 @@ fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
                 fields: &[("code", &r.code_now()), ("value", value)],
             })
             .unwrap();
+        // One at a time: a second submit while one is with the daemon is refused (and that is its own test).
+        r.wait("the attempt to be answered", || {
+            let said = r
+                .fake
+                .replies()
+                .into_iter()
+                .filter(|x| x.kind == "original")
+                .count();
+            (said == n + 1).then_some(())
+        });
     }
     let rows = r.wait("both attempts to leave a row", || {
         let rows: Vec<Value> = r
