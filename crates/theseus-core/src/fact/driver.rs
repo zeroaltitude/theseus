@@ -154,7 +154,7 @@ impl Fact for ExecutionStopped<'_> {
                 narrative::count(self.to_kill as u64, "action", "actions"),
                 narrative::count(self.declined as u64, "question", "questions"),
                 if self.turn_running {
-                    ", and the running turn ends at its next step"
+                    ", and the turn it reached stops at its next step, or already has"
                 } else {
                     ""
                 },

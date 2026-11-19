@@ -233,7 +233,7 @@ async fn a_stop_whose_notice_the_turn_took_answers_that_a_turn_was_running() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("never sent")]);
     let landed: Arc<std::sync::Mutex<Option<std::time::Instant>>> = Arc::default();
     let into = landed.clone();
-    let (res, _sid, exec) = held_with(&r, move |core, id| {
+    let (res, sid, exec) = held_with(&r, move |core, id| {
         *into.lock().unwrap() = Some(core.runner.stop_landed(id, "operator"));
     })
     .await;
@@ -252,6 +252,23 @@ async fn a_stop_whose_notice_the_turn_took_answers_that_a_turn_was_running() {
         .unwrap();
     assert!(stop.stopped, "{stop:?}");
     assert!(stop.turn_running, "the turn took this stop: {stop:?}");
+    // The kernel's row of this stop and the session's note say it too.
+    let rows = ledgered(&r, "execution.stopped");
+    assert_eq!(
+        rows.last().map(|row| row["turn_running"].clone()),
+        Some(json!(true)),
+        "the kernel's row: {rows:?}"
+    );
+    let lines = narrated(&r, &sid);
+    assert!(
+        said(
+            &lines,
+            "session",
+            "the turn it reached stops at its next step, or already has"
+        ),
+        "{}",
+        dump(&lines)
+    );
 }
 
 /// The answer to a stop speaks for that stop alone: one nobody took, sent
