@@ -69,3 +69,8 @@ line and the vault's program are not the way to look, and that the vault's progr
 The family is deferred: measured on 2026-11-18, it adds nothing to a private place's request, and loading it would add 694
 tokens, over the 400 under which it would load by default (`config_change::tests_look`). `proc.run`'s sentence adds 40
 tokens to a direct message's request and 41 to the terminal's (`tests_tasks_wake.rs`).
+
+**Issue 28 replaced that sentence** (the daemon now answers a shell look with its tool, `own-tools.md`), at two tokens fewer, measured:
+`Not for `theseus` or the vault's program: look_theseus, look_vault, config_show do that.` A person's direct-message request is 10,090
+tokens (10,093) and the terminal's 7,806 (7,808); the closest small-prefix rig of `tests_wait_cost` reads 20,993 against its 21,000
+line, 7 tokens of room where it had 5.

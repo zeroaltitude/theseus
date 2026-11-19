@@ -322,9 +322,12 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"]
 // And 10053 and 7768 until `proc.run`'s description sent a look at Theseus or its
 // vault to `look_theseus` and `look_vault` (issue 26): 40 more tokens in a family
 // every person's turn loads.
-const DM_PERSON_TOKENS: u64 = 10093;
+// And 10090 and 7806 until `proc.run`'s sentence about Theseus's own command line and the vault's
+// program was put in place of issue 26's (issue 28): two tokens fewer, in a family every person's
+// turn loads.
+const DM_PERSON_TOKENS: u64 = 10090;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7808;
+const CLI_PERSON_TOKENS: u64 = 7806;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
