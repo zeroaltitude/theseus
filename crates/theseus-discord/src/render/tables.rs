@@ -115,8 +115,10 @@ fn rule_cell(cell: &str) -> Option<Align> {
     })
 }
 
-/// A row's cells: split at the pipes that are not escaped, the outer pipes dropped, each cell
-/// trimmed and without the marks a fence would show as noise (`**`, `__`, backticks).
+/// A row's cells: split at the pipes that are not escaped and not inside a code span, the outer
+/// pipes dropped, each cell trimmed and cleaned (`clean`). A pipe inside a pair of backticks is
+/// text, not a column break (`ls | wc -l` in a command table): that goes beyond GFM, which splits
+/// there, because drawing a table loses nothing.
 fn row_cells(line: &str) -> Vec<String> {
     let t = line.trim();
     let t = t.strip_prefix('|').unwrap_or(t);
@@ -124,19 +126,57 @@ fn row_cells(line: &str) -> Vec<String> {
         true => &t[..t.len() - 1],
         false => t,
     };
-    let (mut cells, mut cur, mut chars) = (Vec::new(), String::new(), t.chars().peekable());
-    while let Some(c) = chars.next() {
-        match (c, chars.peek()) {
-            ('\\', Some('|')) => {
+    let chars: Vec<char> = t.chars().collect();
+    let (mut cells, mut cur, mut i) = (Vec::new(), String::new(), 0);
+    while i < chars.len() {
+        match chars[i] {
+            '\\' if chars.get(i + 1) == Some(&'|') => {
                 cur.push('|');
-                chars.next();
+                i += 2;
             }
-            ('|', _) => cells.push(clean(&std::mem::take(&mut cur))),
-            _ => cur.push(c),
+            '|' => {
+                cells.push(clean(&std::mem::take(&mut cur)));
+                i += 1;
+            }
+            '`' => {
+                let run = chars[i..].iter().take_while(|c| **c == '`').count();
+                // A later run of as many backticks closes the span, pipes and all.
+                let end = code_span_end(&chars, i + run, run).unwrap_or(i + run);
+                let mut span = chars[i..end].iter().peekable();
+                while let Some(c) = span.next() {
+                    match (c, span.peek()) {
+                        ('\\', Some('|')) => {}
+                        _ => cur.push(*c),
+                    }
+                }
+                i = end;
+            }
+            c => {
+                cur.push(c);
+                i += 1;
+            }
         }
     }
     cells.push(clean(&cur));
     cells
+}
+
+/// Where a code span opened by `run` backticks ends (just past its closing run), searching from
+/// `from`: the next run of exactly `run` backticks.
+fn code_span_end(chars: &[char], from: usize, run: usize) -> Option<usize> {
+    let mut j = from;
+    while j < chars.len() {
+        if chars[j] != '`' {
+            j += 1;
+            continue;
+        }
+        let len = chars[j..].iter().take_while(|c| **c == '`').count();
+        if len == run {
+            return Some(j + len);
+        }
+        j += len;
+    }
+    None
 }
 
 /// A cell as it is drawn: the words the model wrote, and nothing less. Only a mark that is one
@@ -180,6 +220,12 @@ fn wrapped<'a>(t: &'a str, mark: &str) -> Option<&'a str> {
 /// the fence, which closes before it and opens again for the rows after it. `None` when the header
 /// itself cannot fit, or no row can: the table is then left as it was.
 fn block(head: &[String], aligns: &[Align], rows: &[(Vec<String>, &str)]) -> Option<Vec<String>> {
+    // A cell with three backticks would open or close the block's own fence: the table stays as
+    // written.
+    let fenced = |c: &String| c.contains("```");
+    if head.iter().any(fenced) || rows.iter().any(|(r, _)| r.iter().any(fenced)) {
+        return None;
+    }
     let n = head.len();
     let cell = |row: &[String], c: usize| row.get(c).cloned().unwrap_or_default();
     let draw = |row: &[String], width: &[usize]| {
@@ -503,16 +549,25 @@ mod tests {
             .collect()
     }
 
-    /// What a cell may be drawn as: the text the model wrote (an escaped pipe a pipe), or that text
-    /// with one pair of marks off the whole of it.
-    fn may_draw(raw: &str) -> Vec<String> {
-        let mut ok = vec![raw.to_string()];
+    /// What a cell is drawn as, written out apart from `clean`: the text the model wrote (an escaped
+    /// pipe a pipe), with one pair of marks off the whole of it when the pair wraps it alone and
+    /// its inside holds none of that mark and no space at either end; and a pair of underscores
+    /// only when the inside has a space in it (`__init__` is a name and stays).
+    fn drawn_as(raw: &str) -> String {
         for mark in ["**", "__", "*", "_", "`"] {
-            if let Some(inner) = raw.strip_prefix(mark).and_then(|r| r.strip_suffix(mark)) {
-                ok.push(inner.to_string());
+            let Some(inner) = raw.strip_prefix(mark).and_then(|r| r.strip_suffix(mark)) else {
+                continue;
+            };
+            let bare = !inner.is_empty()
+                && !inner.contains(&mark[..1])
+                && !inner.starts_with(char::is_whitespace)
+                && !inner.ends_with(char::is_whitespace);
+            let name = mark.starts_with('_') && !inner.contains(char::is_whitespace);
+            if bare && !name {
+                return inner.to_string();
             }
         }
-        ok
+        raw.to_string()
     }
 
     /// Generated tables (a fixed seed): cells with underscores, asterisks, backticks, escaped pipes,
@@ -537,7 +592,6 @@ mod tests {
             "*",
             "**",
             "_",
-            "``",
             "snake_case_name",
             "a*b*c",
             "",
@@ -549,6 +603,10 @@ mod tests {
             "ファイル名.rs",
             "a_b",
             "*a*b*",
+            "`ls | wc -l`",
+            "`a \\| b`",
+            "__a b__",
+            "a `b | c` d",
         ];
         let rules = ["---", ":--", "--:", ":-:"];
         let mut seed = 0x2545_f491_4f6c_dd1d_u64;
@@ -587,9 +645,10 @@ mod tests {
                     let raw = said
                         .get(c)
                         .map_or(String::new(), |x| x.replace("\\|", "|").trim().to_string());
-                    assert!(
-                        may_draw(&raw).contains(shown),
-                        "row {r} column {c}: wrote {raw:?}, drawn {shown:?}\nin\n{got}\nfrom\n{t}"
+                    assert_eq!(
+                        shown,
+                        &drawn_as(&raw),
+                        "row {r} column {c}: wrote {raw:?}\nin\n{got}\nfrom\n{t}"
                     );
                     checked += 1;
                 }
@@ -599,5 +658,47 @@ mod tests {
         assert_eq!(tables, 400);
         assert!(checked > 3_000, "{checked} cells checked");
         eprintln!("generated tables: {tables}, cells checked: {checked}");
+    }
+
+    /// One-word underscores are a name and stay as written; a pair around words is dropped. The
+    /// drawn cells are read back and compared exactly.
+    #[test]
+    fn a_pair_of_underscores_around_one_word_stays_and_around_words_goes() {
+        let t = "| a | b | c |\n|---|---|---|\n| __init__ | _x_ | __two words__ |\n| __pycache__ | _a b_ | __init__.py |";
+        let got = fence_tables(t).into_owned();
+        assert_eq!(
+            cells_drawn(&got)[1..],
+            [
+                ["__init__", "_x_", "two words"],
+                ["__pycache__", "a b", "__init__.py"]
+            ]
+        );
+    }
+
+    /// A pipe inside a code span is text, not a column break: a command table survives, and an
+    /// escaped pipe inside one is a pipe.
+    #[test]
+    fn a_pipe_inside_backticks_is_text() {
+        let t = "| command | what |\n|---|---|\n| `ls | wc -l` | counts |\n| `a \\| b` | escaped |\n| ``x | y`` | double |\n| a ` b | c |";
+        let got = fence_tables(t).into_owned();
+        assert_eq!(
+            cells_drawn(&got)[1..],
+            [
+                ["ls | wc -l", "counts"],
+                ["a | b", "escaped"],
+                ["``x | y``", "double"],
+                ["a ` b", "c"]
+            ]
+        );
+    }
+
+    /// A cell with three backticks would open or close the block's own fence: the table is left as
+    /// written, whole.
+    #[test]
+    fn a_table_with_three_backticks_in_a_cell_is_left_as_written() {
+        let t = "| a | b |\n|---|---|\n| ```x``` | 1 |\n| 2 | 3 |";
+        assert_eq!(fence_tables(t), t);
+        let head = "| ```a``` | b |\n|---|---|\n| 1 | 2 |";
+        assert_eq!(fence_tables(head), head);
     }
 }

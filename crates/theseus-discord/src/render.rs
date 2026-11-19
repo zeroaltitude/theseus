@@ -77,6 +77,8 @@ pub enum Buttons {
     /// Decline alone, for a question the daemon offers no yes to: one that
     /// takes a value, which no button carries (a secret to keep, issue 29).
     Decline(String),
+    /// A decline, and the form for a secret's value, in the owner's direct messages only (issue 29).
+    KeepForm(String),
     /// One button per option of an `owner_ask` question (theseus-j7cje).
     Ask(String, Vec<String>),
     /// A needs-you card (theseus-suvpe): the question's choices, else Approve

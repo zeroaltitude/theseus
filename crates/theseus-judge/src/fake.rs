@@ -15,7 +15,9 @@
 //! | `EchoAuth` | 401 whose body repeats the bearer key, as a careless server might |
 //! | `Held` | the answer once the test calls [`FakeJev::release`]: lateness by order, not by a delay |
 //!
-//! [`FakeJev::hold_when`] holds one question's answers alike, in any mode.
+//! [`FakeJev::hold_when`] holds one question's answers alike, in any mode, and
+//! [`FakeJev::hold_batches`] holds each request that asks several packs'
+//! until the next release, whatever it takes to get there: lateness by order.
 //!
 //! Two knobs model Jev's time (theseus-ddbi): [`FakeJev::set_latency`]
 //! delays a request that asks one pack's questions by one figure and a
@@ -103,6 +105,9 @@ struct Shared {
     /// A request whose state holds any of these waits for the next release
     /// ([`FakeJev::hold_when`]).
     held_when: Vec<String>,
+    /// A request of several packs' waits for the next release
+    /// ([`FakeJev::hold_batches`]).
+    hold_batches: bool,
     /// One pack's request, and a batch of several packs', wait this long.
     single: Duration,
     batch: Duration,
@@ -136,6 +141,7 @@ impl FakeJev {
             warmups: 0,
             releases: 0,
             held_when: Vec::new(),
+            hold_batches: false,
             single: Duration::ZERO,
             batch: Duration::ZERO,
             keep_alive: None,
@@ -247,7 +253,16 @@ impl FakeJev {
         self.lock().held_when.push(state_has.to_string());
     }
 
-    /// Lets every call `Held` holds now answer, and each [`FakeJev::hold_when`]'s.
+    /// A request that asks several packs' (the inbound batch) waits, whatever
+    /// the mode, until the next [`FakeJev::release`]; a request of one pack's
+    /// is answered as usual. A turn that waited for the batch would never
+    /// finish, so a test sees it by order and not by a clock.
+    pub fn hold_batches(&self) {
+        self.lock().hold_batches = true;
+    }
+
+    /// Lets every call `Held` holds now answer, and each [`FakeJev::hold_when`]'s
+    /// and [`FakeJev::hold_batches`]'.
     pub fn release(&self) {
         self.lock().releases += 1;
     }
@@ -402,7 +417,8 @@ fn serve_one(
                 0 | 1 => s.single,
                 _ => s.batch,
             },
-            s.held_when.iter().any(|h| state.contains(h)),
+            s.held_when.iter().any(|h| state.contains(h))
+                || (s.hold_batches && packs_asked(&req) > 1),
             s.refuse_images,
         )
     };

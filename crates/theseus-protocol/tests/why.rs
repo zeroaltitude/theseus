@@ -207,6 +207,36 @@ fn a_turn_that_asked_profiles_names_the_model_that_answered() {
     );
 }
 
+/// A turn that handed work to a profile (issue 28) says so in `why`: which profile, the model that ran
+/// when the call's result names it, and that its report is a subagent's own message.
+#[test]
+fn a_turn_that_handed_work_to_a_profile_names_it_and_the_model_that_ran() {
+    let (x, p, r) = (explain("private"), policy(), route());
+    let nodes: NodeListResult = serde_json::from_value(json!({"total": 3, "nodes": [
+        {"node_id": "n1", "kind": "tool_call", "session_id": "ses_a", "position": 1, "at_unix_ms": 1,
+         "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
+         "detail": {"tool": "profile.run", "tool_use_id": "u1", "input": {"profile": "haiku", "work": "List it"}}},
+        {"node_id": "n2", "kind": "tool_result", "session_id": "ses_a", "position": 2, "at_unix_ms": 2,
+         "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
+         "detail": {"tool": "profile.run", "tool_use_id": "u1",
+                    "meta": {"handed": {"profile": "haiku", "model": "claude-haiku-5-5"}}}},
+        {"node_id": "n3", "kind": "tool_call", "session_id": "ses_a", "position": 3, "at_unix_ms": 3,
+         "turn_id": "trn_k3m9x2", "text": "", "bytes": 0,
+         "detail": {"tool": "profile.run", "tool_use_id": "u2", "input": {"profile": "opus", "work": "More"}}}]}))
+    .unwrap();
+    let tools = tools_called(&nodes, "trn_k3m9x2");
+    assert_eq!(
+        tools[0].handed,
+        ["haiku (claude-haiku-5-5)".to_string(), "opus".to_string()]
+    );
+    assert!(tools[0].asked.is_empty());
+    let got = why_lines(&input(&x, &p, &r, &tools)).join("\n");
+    assert!(
+        got.contains("work handed to agents: haiku (claude-haiku-5-5), opus"),
+        "{got}"
+    );
+}
+
 #[test]
 fn a_shared_place_shows_that_a_source_was_there_and_nothing_of_it() {
     let (x, p, r) = (explain("shared"), policy(), route());

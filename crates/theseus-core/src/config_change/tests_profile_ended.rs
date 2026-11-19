@@ -124,6 +124,9 @@ fn an_untaken_yes_is_dropped_with_the_turn_that_should_have_taken_it() {
     std::thread::sleep(std::time::Duration::from_millis(3));
     board.keep_yes("act_a", "ses_a", "exe_a", &who);
     board.keep_yes("act_b", "ses_b", "exe_b", &who);
+    // Their confirms are bound.
+    board.bind_yes("act_a");
+    board.bind_yes("act_b");
     std::thread::sleep(std::time::Duration::from_millis(3));
     let after = std::time::Instant::now();
     // A turn that arrived before the yes was kept (the yes came while it ran): the yes stays.
@@ -138,6 +141,18 @@ fn an_untaken_yes_is_dropped_with_the_turn_that_should_have_taken_it() {
     assert_eq!(board.held_yes(), 1);
     assert!(board.take_yes("act_a").is_none());
     assert!(board.take_yes("act_b").is_some());
+    // A yes whose confirm is not bound yet (the owner's answer is mid-write) is not dropped by a
+    // turn that arrived after it: that turn may not have seen the confirm.
+    board.keep_yes("act_e", "ses_e", "exe_e", &who);
+    std::thread::sleep(std::time::Duration::from_millis(3));
+    board.drop_untaken("ses_e", std::time::Instant::now());
+    assert_eq!(board.held_yes(), 1, "unbound: kept");
+    board.bind_yes("act_e");
+    board.drop_untaken("ses_e", std::time::Instant::now());
+    assert!(
+        board.take_yes("act_e").is_none(),
+        "bound and untaken: dropped"
+    );
     // A stop of an execution drops what was kept for it.
     board.keep_yes("act_c", "ses_c", "exe_c", &who);
     board.keep_yes("act_d", "ses_c", "exe_d", &who);

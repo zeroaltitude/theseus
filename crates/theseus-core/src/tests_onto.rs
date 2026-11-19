@@ -371,18 +371,20 @@ async fn off_the_batch_is_todays_and_on_its_state_is_todays_plus_the_fields() {
 }
 
 /// The turn waits for nothing of onto.v1: with the batch (and so onto.v1's
-/// answer) held 2.5 s, the turn's route verdict, which rides a request of
-/// its own, comes at once and the turn finishes as soon as it does without
-/// onto.v1 (the batch, the sink and the filing are off its path).
+/// answer) held until the test releases it, the turn's route verdict, which
+/// rides a request of its own, comes at once and the turn finishes with the
+/// batch still out (the batch, the sink and the filing are off its path).
+/// The promise is an order, not a time: the batch never answers until the
+/// test says so, so a turn that waited for it would give up at its own bound
+/// with the verdict missed (`late` on its route row), and no clock of the
+/// test's is compared against another (it failed once in ten whole runs as a
+/// comparison of two timed turns). The turn's limit here is the fixture's
+/// patience.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
-    // "Waits for nothing" is a promise about the turn: its 1 s limit, and the 2.5 s the batch is
-    // held, are both held in proportion on a busy machine (theseus-20; 1 on a quiet one).
-    let busy = theseus_tools::busy_factor() as u32;
-    let mut took = Vec::new();
     for on in [false, true] {
         let jev = FakeJev::start().unwrap();
-        jev.set_latency(Duration::ZERO, Duration::from_millis(2_500) * busy);
+        jev.hold_batches();
         let r = rig_with(jev, Vec::new(), |c| {
             c.ontology.judge = on;
             // route.v6 asks, and the turn waits for its verdict beside its
@@ -392,24 +394,41 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
             crate::tests_route::glm_placements(c);
         });
         let sid = bound(&r.core);
+        let turn = crate::tests_route::turn(&r.core, Some(&sid), SAID, None);
+        tokio::time::timeout(Duration::from_secs(60), turn)
+            .await
+            .unwrap_or_else(|_| {
+                panic!("onto = {on}: the turn waited for the batch, which is held")
+            });
+        // The verdict came in time: the turn did not miss it, which it does
+        // when something on its path waits for the held batch (it then gives
+        // up at its bound and the row says `late`).
+        let rows = crate::tests_route::decided(&r.core.store);
+        assert_eq!(rows.len(), 1, "onto = {on}: {rows:?}");
+        assert_eq!(rows[0]["late"], false, "onto = {on}: {}", rows[0]);
+        assert!(rows[0]["answered_ms"].is_u64(), "onto = {on}: {}", rows[0]);
+        // The batch was asked, and is still out: the turn did not wait for it.
         let t0 = Instant::now();
-        crate::tests_route::turn(&r.core, Some(&sid), SAID, None).await;
-        took.push(t0.elapsed());
+        while !r
+            .jev
+            .seen()
+            .iter()
+            .any(|s| s.body["questions"].to_string().contains("classify.v4/"))
+        {
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "the batch was never asked"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let asked = batch_request(&r.jev)["questions"].to_string();
+        assert_eq!(
+            asked.contains("onto.v1/"),
+            on,
+            "onto.v1 is in the held batch only when on"
+        );
+        r.jev.release();
     }
-    // Both bounds are held by the factor read before the two turns. A red
-    // says what the machine reads as now, so a run whose load moved between
-    // the two turns reads as that.
-    assert!(
-        took.iter()
-            .all(|t| *t < Duration::from_millis(1_000) * busy),
-        "the turn did not wait for the batch: {took:?} (busy x{busy} before, x{} now)",
-        theseus_tools::busy_factor()
-    );
-    assert!(
-        took[1] < took[0] + Duration::from_millis(500) * busy,
-        "onto.v1 added no wait: {took:?} (busy x{busy} before, x{} now)",
-        theseus_tools::busy_factor()
-    );
 }
 
 /// The naming call: Jev says `new` and no mined name fits, so one cheap

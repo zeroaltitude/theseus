@@ -298,6 +298,15 @@ impl Place {
     /// An answer pressed: `work.answer` as the presser.
     pub(super) async fn answer_press(&self, p: &TaskPress, question: &str, option: &str) {
         let s = &self.shared;
+        // A keep card's form (issue 29): not an answer, the daemon is asked when it is submitted.
+        if option == super::keep_form::OPTION {
+            let discord = super::origin_of(
+                p.i.author().map(|u| u.id.get()),
+                p.i.channel.as_ref().map(|c| c.id.get()),
+                p.i.guild_id,
+            );
+            return s.keep_form_open(&p.i, question, discord).await;
+        }
         // An approval that needs the owner's second proof opens its form first.
         if theseus_protocol::answer::approves(option) {
             let discord = super::origin_of(

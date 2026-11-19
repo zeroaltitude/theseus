@@ -601,6 +601,9 @@ impl Core {
                 self.tools.profile.drop_yes(correlation_id);
             }
         })?;
+        if held_yes {
+            self.tools.profile.bind_yes(correlation_id);
+        }
         drop(task_lock);
         if let Some(c) = &declined {
             crate::fact::task_graph::announce(&task_rec, "change_declined", c);

@@ -88,7 +88,9 @@ impl Core {
         // A settings question is refused to words; a floor hold to words and to
         // an agent's process on the CLI or the web socket too (the owner's rule:
         // the button, or their own terminal).
-        let why = if typed && crate::config_change::words::is_settings_action(a) {
+        let why = if typed && crate::config_change::vault_keep::is_keep(a) {
+            crate::config_change::vault_keep::KEEP_BY_PRESS
+        } else if typed && crate::config_change::words::is_settings_action(a) {
             crate::config_change::words::BY_PRESS
         } else if (typed || who.agent.is_some()) && a.tool == crate::profile_tool::HOLD {
             // The owner's yes to the hold's card is the owner's word for that hold (issue 28),

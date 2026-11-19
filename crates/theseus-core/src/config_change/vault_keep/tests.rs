@@ -141,7 +141,7 @@ async fn give(
         question_id: q.into(),
         value: SecretText::new(value),
         code: code.map(theseus_protocol::owner_proof::ProofCode::new),
-        from_job: None,
+        ..Default::default()
     };
     rpc_as(
         &r.core,
@@ -540,6 +540,7 @@ async fn only_the_owners_own_surfaces_give_a_value() {
             value: SecretText::new(VALUE),
             code: None,
             from_job: from_job.map(str::to_string),
+            ..Default::default()
         })
         .unwrap()
     };
@@ -1157,3 +1158,5 @@ async fn the_look_says_for_each_vault_whether_theseus_may_write_there() {
         "{text}"
     );
 }
+
+mod tests_form;
