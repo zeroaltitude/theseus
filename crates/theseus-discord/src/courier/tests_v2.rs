@@ -361,3 +361,149 @@ async fn an_earlier_runs_dm_board_goes_when_the_home_stands() {
     second.drop_stale_board().await;
     assert_eq!(boards(&fake).len(), 1, "{:#?}", fake.messages(CHANNEL));
 }
+
+/// What a restart leaves of a lane: its store, and no message id. The lane
+/// looks for its board again at its next write.
+fn restart(lane: &mut Lane) {
+    lane.msgs.clear();
+    lane.sent.clear();
+    lane.board_sought = false;
+    lane.v2.restarted();
+}
+
+fn creates(fake: &FakeDiscord) -> usize {
+    fake.seen()
+        .iter()
+        .filter(|s| s.method == "POST" && s.path == format!("/channels/{CHANNEL}/messages"))
+        .count()
+}
+
+/// Where the bot may not pin, the board is never pinned and the pins cannot
+/// find it: a restart finds it by the id it recorded, however far up the
+/// channel it has gone, and edits it (issue 30).
+#[tokio::test]
+async fn after_a_restart_an_unpinned_board_is_found_by_its_record() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    fake.refuse_pins(true);
+    let mut lane = lane(d.path(), &fake);
+    lane.take(live(board(1)));
+    lane.apply_live().await;
+    assert_eq!(boards(&fake).len(), 1);
+    assert!(!boards(&fake)[0].pinned, "the pin was refused");
+    // The channel moves on: the board is far up it.
+    for i in 0..30 {
+        lane.take(super::tests_bound::upsert(
+            &format!("n{i}"),
+            "a line of chat",
+        ));
+        lane.apply_live().await;
+    }
+    let made = creates(&fake);
+    restart(&mut lane);
+    fake.set_nonce_window_ms(0);
+    lane.take(live(board(3)));
+    lane.apply_live().await;
+    let b = boards(&fake);
+    assert_eq!(b.len(), 1, "no second board: {:#?}", fake.messages(CHANNEL));
+    assert!(b[0].content.contains("3 running"), "{}", b[0].content);
+    assert_eq!(creates(&fake), made, "found, not made again");
+}
+
+/// The text board, as the fallback draws it, is found the same way.
+#[tokio::test]
+async fn after_a_restart_an_unpinned_text_board_is_found_by_its_record() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    fake.refuse_pins(true);
+    let mut lane = lane(d.path(), &fake);
+    let text = |t: &str| {
+        LaneMsg::Live(Op::Upsert {
+            key: render::BOARD_KEY.into(),
+            content: format!("{} · {t}", render::BOARD_HEAD),
+            buttons: Buttons::Keep,
+        })
+    };
+    let all = |fake: &FakeDiscord| {
+        fake.messages(CHANNEL)
+            .into_iter()
+            .filter(|m| m.content.starts_with(render::BOARD_HEAD))
+            .collect::<Vec<_>>()
+    };
+    lane.take(text("1 open"));
+    lane.apply_live().await;
+    assert_eq!(all(&fake).len(), 1);
+    restart(&mut lane);
+    fake.set_nonce_window_ms(0);
+    lane.take(text("2 open"));
+    lane.apply_live().await;
+    let b = all(&fake);
+    assert_eq!(b.len(), 1, "no second board: {:#?}", fake.messages(CHANNEL));
+    assert!(b[0].content.ends_with("2 open"), "{}", b[0].content);
+}
+
+/// A board that was deleted is no board: one new one is made, recorded, and
+/// found by the next restart.
+#[tokio::test]
+async fn a_deleted_board_is_made_once_anew_and_that_one_is_found_next() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    fake.refuse_pins(true);
+    let mut lane = lane(d.path(), &fake);
+    lane.take(live(board(1)));
+    lane.apply_live().await;
+    let (c, m) = lane.msgs[render::BOARD_KEY];
+    lane.shared
+        .http
+        .delete_message(Id::new(c), Id::new(m))
+        .await
+        .unwrap();
+    restart(&mut lane);
+    fake.set_nonce_window_ms(0);
+    lane.take(live(board(2)));
+    lane.apply_live().await;
+    let first = boards(&fake);
+    assert_eq!(first.len(), 1, "{:#?}", fake.messages(CHANNEL));
+    assert_ne!(first[0].id, m.to_string(), "a new one");
+    restart(&mut lane);
+    lane.take(live(board(3)));
+    lane.apply_live().await;
+    let b = boards(&fake);
+    assert_eq!(
+        (b.len(), b[0].id.as_str()),
+        (1, first[0].id.as_str()),
+        "found, not made again"
+    );
+}
+
+/// A recorded V2 board is not a text board: the text board is its own
+/// message, and the V2 one is left as it was.
+#[tokio::test]
+async fn a_recorded_v2_board_is_not_taken_for_the_text_board() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    fake.refuse_pins(true);
+    let mut lane = lane(d.path(), &fake);
+    lane.take(live(board(1)));
+    lane.apply_live().await;
+    let v2 = boards(&fake)[0].id.clone();
+    restart(&mut lane);
+    fake.set_nonce_window_ms(0);
+    lane.take(LaneMsg::Live(Op::Upsert {
+        key: render::BOARD_KEY.into(),
+        content: format!("{} · 1 open", render::BOARD_HEAD),
+        buttons: Buttons::Keep,
+    }));
+    lane.apply_live().await;
+    assert_eq!(boards(&fake).len(), 1);
+    assert_eq!(boards(&fake)[0].id, v2);
+    assert!(
+        boards(&fake)[0].content.contains("1 running"),
+        "the V2 board untouched"
+    );
+    assert_eq!(
+        fake.messages(CHANNEL).len(),
+        2,
+        "the text board is a message of its own"
+    );
+}
