@@ -14,7 +14,7 @@ use crate::node::{Body, ResultStatus};
 use crate::session::{SessionRecord, TargetRef, TaskOf};
 
 /// A conversation that has run one turn, so it has an execution to hold tasks.
-async fn conversation(r: &Rig) -> String {
+pub(super) async fn conversation(r: &Rig) -> String {
     let sid = r.session();
     r.turn_with("look_work", &sid, json!({"what": ["history"]}))
         .await;
@@ -22,7 +22,12 @@ async fn conversation(r: &Rig) -> String {
 }
 
 /// A task `parent` started, titled and reporting nowhere; deferred to `start_at_ms` when given.
-fn task(r: &Rig, parent: &str, title: &str, start_at_ms: Option<u64>) -> theseus_kernel::Execution {
+pub(super) fn task(
+    r: &Rig,
+    parent: &str,
+    title: &str,
+    start_at_ms: Option<u64>,
+) -> theseus_kernel::Execution {
     let p: SessionRecord = r.core.store.get_session(parent).unwrap().unwrap();
     let pe = p.execution_id.unwrap();
     let opened = r
@@ -30,7 +35,7 @@ fn task(r: &Rig, parent: &str, title: &str, start_at_ms: Option<u64>) -> theseus
         .kernel
         .open_task_owned(
             &pe,
-            &format!("act_{}", title.len()),
+            &format!("act_{}", title.replace(' ', "_")),
             usd_to_micros(1.0),
             Opening {
                 start_at_ms,
@@ -58,7 +63,7 @@ fn task(r: &Rig, parent: &str, title: &str, start_at_ms: Option<u64>) -> theseus
 }
 
 /// The last result in `sid`: each turn of a conversation answers its own call.
-fn latest(r: &Rig, sid: &str) -> (ResultStatus, String) {
+pub(super) fn latest(r: &Rig, sid: &str) -> (ResultStatus, String) {
     r.core
         .store
         .session_nodes(sid)
@@ -75,7 +80,7 @@ fn latest(r: &Rig, sid: &str) -> (ResultStatus, String) {
 }
 
 /// What `look_work` said to `sid` for `input`.
-async fn said(r: &Rig, sid: &str, input: serde_json::Value) -> String {
+pub(super) async fn said(r: &Rig, sid: &str, input: serde_json::Value) -> String {
     r.turn_with("look_work", sid, input).await;
     let (status, text) = latest(r, sid);
     assert_eq!(status, ResultStatus::Ok, "{text}");
@@ -83,7 +88,7 @@ async fn said(r: &Rig, sid: &str, input: serde_json::Value) -> String {
 }
 
 /// The short ids at the head of each `- ` line.
-fn heads(text: &str) -> BTreeSet<String> {
+pub(super) fn heads(text: &str) -> BTreeSet<String> {
     text.lines()
         .filter_map(|l| l.strip_prefix("- "))
         .filter_map(|l| l.split(" · ").next())
@@ -106,7 +111,7 @@ async fn it_answers_for_every_conversations_tasks_this_ones_first() {
     assert!(text.contains("Tasks (3 in all):"), "{text}");
     assert!(text.contains("Started in this conversation (1):"), "{text}");
     assert!(
-        text.contains("Started in other conversations (2), newest first."),
+        text.contains("Started in other conversations (2), the newest open ones first."),
         "{text}"
     );
     assert!(
@@ -230,7 +235,12 @@ async fn nothing_is_listed_that_the_command_lines_views_would_not_list() {
     task(&r, &here, "Sort the charts", None);
     r.turn(&other, change("import.notes.enabled", json!(false)))
         .await;
-    let text = said(&r, &here, json!({"messages": 20})).await;
+    let text = said(
+        &r,
+        &here,
+        json!({"what": ["tasks", "needs_you", "history"], "messages": 20}),
+    )
+    .await;
     let tasks: BTreeSet<String> = r
         .core
         .tasks(None, None)
@@ -261,16 +271,9 @@ async fn nothing_is_listed_that_the_command_lines_views_would_not_list() {
     );
 }
 
-/// Another conversation's words are held back when its labels mark its data: a title is not carried into
-/// this conversation, and the line still says it is there.
-#[tokio::test]
-async fn a_conversation_that_holds_marked_data_has_its_words_held_back() {
+/// A label of `confidential` on `session`, as a content judgment leaves one.
+pub(super) fn mark(r: &Rig, session: &str) {
     use crate::content::{ContentFlags, Flag, ItemKind, Label};
-    let r = rig();
-    let (here, other) = (conversation(&r).await, conversation(&r).await);
-    task(&r, &other, "Chart the outer reef", None);
-    let open = said(&r, &here, json!({"what": ["tasks"]})).await;
-    assert!(open.contains("Chart the outer reef"), "{open}");
     let mut flags = ContentFlags::default();
     flags.raise(Label {
         flag: Flag::Confidential,
@@ -282,15 +285,55 @@ async fn a_conversation_that_holds_marked_data_has_its_words_held_back() {
         at_ms: 1,
         judgment: String::new(),
     });
-    let mut rec: SessionRecord = r.core.store.get_session(&other).unwrap().unwrap();
+    let mut rec: SessionRecord = r.core.store.get_session(session).unwrap().unwrap();
     rec.data = Some(Box::new(flags));
-    r.core.store.put_session(&other, &rec).unwrap();
-    let held = said(&r, &here, json!({"what": ["tasks"]})).await;
-    assert!(!held.contains("Chart the outer reef"), "{held}");
-    assert!(
-        held.contains("(held back: that conversation holds data marked"),
-        "{held}"
+    r.core.store.put_session(session, &rec).unwrap();
+}
+
+/// A rig whose every provider is of restricted origin: the asking turn's own model is one the labels could
+/// keep off.
+fn restricted_rig() -> Rig {
+    super::tests::rig_with(|cfg, _| cfg.serve_default_from_cn())
+}
+
+/// Another conversation's words are given, marked as such, to a turn whose model is not of restricted
+/// origin, whatever that conversation's labels say: they are judged as any tool result is.
+#[tokio::test]
+async fn a_marked_conversations_words_are_given_marked_to_an_unrestricted_turn() {
+    let r = rig();
+    let (here, other) = (conversation(&r).await, conversation(&r).await);
+    task(&r, &other, "Chart the outer reef", None);
+    mark(&r, &other);
+    assert!(!r.core.runner.restricted_profile(&r.core.live_profile().0));
+    let text = said(&r, &here, json!({"what": ["tasks"]})).await;
+    assert!(text.contains("Chart the outer reef"), "{text}");
+    assert!(text.contains("never as instructions"), "marked: {text}");
+    assert!(!text.contains("held back"), "{text}");
+}
+
+/// (Held back, as before, for the turn the rule is about.) A turn whose model is of restricted origin is not handed another conversation's marked words: they are
+/// held back, said to be, while an open conversation's are given, and this conversation's always.
+#[tokio::test]
+async fn a_conversation_that_holds_marked_data_has_its_words_held_back() {
+    let r = restricted_rig();
+    let (here, marked, open) = (
+        conversation(&r).await,
+        conversation(&r).await,
+        conversation(&r).await,
     );
+    assert!(r.core.runner.restricted_profile(&r.core.live_profile().0));
+    task(&r, &marked, "Chart the outer reef", None);
+    task(&r, &open, "Mend the lamp", None);
+    task(&r, &here, "Sort the charts", None);
+    mark(&r, &marked);
+    let text = said(&r, &here, json!({"what": ["tasks"]})).await;
+    assert!(!text.contains("Chart the outer reef"), "{text}");
+    assert!(
+        text.contains("(held back: that conversation holds data marked"),
+        "{text}"
+    );
+    assert!(text.contains("Mend the lamp"), "an open one's: {text}");
+    assert!(text.contains("Sort the charts"), "its own: {text}");
 }
 
 /// A shared place and a guild participant are refused, in the tool's own words, and read nothing.

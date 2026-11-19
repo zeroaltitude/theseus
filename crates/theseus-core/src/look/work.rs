@@ -33,11 +33,14 @@ use crate::Core;
 
 mod history;
 mod horizon;
+mod owed;
 mod reader;
+mod running;
 mod tasks;
 
 /// The parts of the look, in the order they are given.
-const PARTS: [&str; 6] = [
+const PARTS: [&str; 7] = [
+    "running",
     "tasks",
     "needs_you",
     "projects",
@@ -50,9 +53,15 @@ const WHOLE_ONLY: [&str; 2] = ["projects", "routines"];
 /// How many messages `history` gives when it is not told, and the most it may.
 const MESSAGES: usize = 6;
 const MESSAGES_MAX: usize = 20;
-/// The most tasks listed, from this conversation and from the rest.
+/// The most tasks listed, from this conversation and from the rest, and the most the read takes from the
+/// task view for the whole (the newest open ones; the rest are counted, not read).
 const TASKS_HERE_MAX: usize = 10;
 const TASKS_ELSEWHERE_MAX: usize = 15;
+const TASKS_READ_MAX: usize = 60;
+/// The most conversations running, cards, and thread questions listed.
+const RUNNING_MAX: usize = 12;
+const CARDS_MAX: usize = 10;
+const THREAD_ASKS_MAX: usize = 10;
 /// The most questions listed, from this place and from the rest.
 const WAITING_HERE_MAX: usize = 10;
 const WAITING_ELSEWHERE_MAX: usize = 15;
@@ -151,8 +160,13 @@ pub(super) fn schema() -> Value {
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
 /// messages (`session`'s).
-pub(super) fn words(core: &Core, session: &str, ask: &Ask) -> String {
-    let r = reader::Reader::new(core, session);
+pub(super) async fn words(
+    core: &std::sync::Arc<Core>,
+    session: &str,
+    ask: &Ask,
+    restricted: bool,
+) -> String {
+    let r = reader::Reader::new(core, session, restricted);
     let mut out = String::new();
     for p in &ask.parts {
         let part = match (*p, ask.here) {
@@ -160,6 +174,7 @@ pub(super) fn words(core: &Core, session: &str, ask: &Ask) -> String {
                 "{}: not tied to one conversation; ask for scope `all` to see them.\n",
                 part[..1].to_uppercase() + &part[1..]
             ),
+            ("running", _) => running::running(core, &r, ask.here).await,
             ("tasks", _) => tasks::tasks(&r, ask.here),
             ("needs_you", _) => tasks::needs_you(&r, ask.here),
             ("projects", _) => horizon::projects(&r),

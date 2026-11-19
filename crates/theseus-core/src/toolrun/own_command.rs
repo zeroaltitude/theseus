@@ -46,9 +46,9 @@ fn gives(tool: &str, verb: &str) -> &'static str {
              `what` gives profiles, providers, health and the build, not the ontology"
         }
         crate::look::WORK => {
-            "what it shows of Theseus's work (every conversation's tasks, what waits on the owner, \
-             projects, routines and what is coming, this conversation's first; not a running job, a \
-             watch or the daemon's own work)"
+            "what it shows of Theseus's work: the conversations running and the daemon's own jobs, \
+             every conversation's tasks, what waits on the owner, projects, routines and what is \
+             coming, this conversation's first"
         }
         _ => "the same look",
     }

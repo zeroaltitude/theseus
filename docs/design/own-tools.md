@@ -159,6 +159,15 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
   - **Bounds.** Per list: tasks 10 from this conversation and 15 from the rest, questions 10 and 15, projects, routines and reminders 12 each,
     messages 6 by default and 20 at most at 600 characters each; one part at most 8,000 characters and the whole answer 24,000 (about 6,000
     tokens at the worst; a typical answer is far less). Each cut says what it left out. It is deferred: the result is paid only when called.
+  - **Second pass (the owner: "fix all then review all").** A `running` part gives the conversations working now (the board `theseus status` reads: where,
+    since when, turns and spend; a title is not given) and the daemon's own jobs, so `status` is answered whole. `needs_you` is everything that waits on the owner:
+    the questions on calls, the card's open proposals (`card.list`'s, an expired one is not listed) and the router's thread questions, each with where it waits; a
+    proposed standing record (`standing.proposals`) is asked of no one (nothing posts it, no turn waits, it never expires), so it is counted as "open for
+    review" and not called a wait. The read of the task view is limited inside the view (`Core::tasks_upto`: the newest 60 open tasks, filled with ended
+    ones, the older counted and said; this conversation's own read is 10): `theseus tasks` still reads all of it.
+  - **The hold is by the asking model.** Another conversation's marked words are held back only when the asking turn's own model is one the labels could keep off
+    (`TurnRunner::restricted_profile`, the predicate the data gate and the route's floor read for a turn's target; a turn with no target is read as one); any other turn is
+    given them, marked as other conversations' words, and they are judged as any result is. Words from imported notes (a card's question) follow the same rule.
   - **The shell answer** maps `tasks` and `status` (bare) to it and says what it gives (and that a running job, a watch and the daemon's own work are
     not in it). `history` bare is the most recently active session's whole transcript, tool calls and results included, which the tool does not give:
     it runs, like `history SESSION`.
