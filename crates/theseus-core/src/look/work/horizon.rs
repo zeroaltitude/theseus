@@ -3,8 +3,9 @@
 //! the same views (`Core::project_list`, `routine_list`, `wakes`). Names, states, times and counts.
 //!
 //! A routine's, a project's and a reminder's words were written when it was made, in some
-//! conversation: each part says so, and a routine's or a reminder's are held back when the
-//! conversation they belong to holds data marked anything but open (`Reader::words`).
+//! conversation: each part says so, and a routine's or a reminder's are held back from a turn whose
+//! model the labels could keep off when the conversation they belong to holds data marked anything but
+//! open (`Reader::words`).
 
 use std::fmt::Write;
 

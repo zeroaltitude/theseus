@@ -16,9 +16,10 @@
 //! - **`look.vault`** (`look/vault.rs`, `secrets/look.rs`): who the daemon's
 //!   token is, the vaults, the titles of the items, one item's field names and
 //!   kinds, and which setting reads which item. Never a value or a note.
-//! - **`look.work`** (`look/work.rs`, issue 28): this conversation's tasks,
-//!   the questions that wait here, and its last messages. Never another
-//!   conversation's.
+//! - **`look.work`** (`look/work.rs`, issue 28): Theseus's work whole: what
+//!   runs, every conversation's tasks, what waits on the owner, projects,
+//!   routines and what is coming, this conversation's first; and this
+//!   conversation's last messages, never another's.
 //!
 //! **The wall** is `config.show`'s: the owner's own turn, in a private place
 //! only they write in (`config_change::wall`; a job, a task, the self loop, a
