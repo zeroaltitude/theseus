@@ -109,6 +109,9 @@ impl Rig {
 /// one wait in a loaded suite once took 642 ms (the gate, 2026-10-03 18:26),
 /// so the bound on each is the backstop's, and the bound on the median is
 /// the word's.
+///
+/// Not scaled by the machine's slowness (theseus-20): the bound sits under the product's 1 s backstop
+/// (`waits::LOOK`) to tell the word from a poll, and a bound over it could not tell them apart.
 #[test]
 fn a_quick_jobs_result_comes_by_the_drains_word_not_a_poll() {
     let r = Rig::new();

@@ -7,7 +7,7 @@ pub mod discord_proof;
 pub mod fake_discord;
 pub mod fake_gateway;
 
-pub use theseus_tools::busy_factor;
+pub use theseus_tools::{bound_factor, busy_factor, Busy, BOUND_CAP};
 
 /// This process's CPU time (`CLOCK_PROCESS_CPUTIME_ID`): a clock a loaded machine
 /// does not stretch, for a test whose bound is on the work done and not on the wait

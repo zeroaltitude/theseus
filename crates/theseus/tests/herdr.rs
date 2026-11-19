@@ -1602,7 +1602,12 @@ fn nth_report_after(herdr: &FakeHerdr, n: usize, sent: Instant) -> Option<Durati
 }
 
 /// From the daemon's frame to herdr's ear, 200 changes on the scripted rig:
-/// the 99th percentile within 10 ms (FAST). A change is one report.
+/// the 99th percentile within 10 ms (FAST). A change is one report. The
+/// 10 ms is a promise about the adapter, so on a machine that gives each
+/// thread a third of a core it is held in proportion: the bound is
+/// multiplied by how slowly the machine gave a thread its turn before the
+/// changes and after them (`Busy`, at most 10 times), which is 1 on a quiet
+/// machine, so there it is 10 ms exactly (theseus-20).
 #[test]
 fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
     let dir = tempfile::tempdir().unwrap();
@@ -1613,6 +1618,7 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
     );
     let w = Watch::start(&d, Some(&herdr), &[]);
     herdr.wait_for("pane.report_metadata", 1);
+    let busy = theseus_tools::Busy::before();
     let mut lat = Vec::new();
     for i in 0..200u64 {
         let seen = report_requests(&herdr.requests()).len();
@@ -1633,7 +1639,10 @@ fn a_change_reaches_herdr_within_ten_ms_at_the_99th_percentile() {
         lat[lat.len() / 2],
         lat[lat.len() - 1]
     );
-    assert!(p99 <= Duration::from_millis(10), "p99 {p99:?}");
+    assert!(
+        busy.keeps(p99, Duration::from_millis(10)),
+        "p99 {p99:?} against 10 ms ({busy})"
+    );
     w.signal(libc::SIGTERM);
     let (code, err) = w.finish();
     assert_eq!(code, 0, "{err}");

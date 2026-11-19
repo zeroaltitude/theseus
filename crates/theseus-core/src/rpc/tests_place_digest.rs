@@ -244,23 +244,34 @@ async fn a_place_digest_never_shows_a_sealed_thread() {
 
 /// A turn whose scope is `thread`, and one whose answer is later than
 /// `route_wait_ms`, get no digest; the late one waited no more than the bound.
+/// The bound sits 100 ms under the late answer's own latency, so it tells a
+/// turn that waited for the answer from one that did not; on a machine that
+/// gives each thread a third of a core the turn's own work stretches, so the
+/// latency and the bound grow together, by what `bound_factor` measured (at
+/// most 10; 1 on a quiet machine, where they are 3 s and 2.9 s exactly).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_thread_scope_and_a_late_answer_get_no_digest() {
+    let k = theseus_tools::bound_factor();
+    let late = Duration::from_millis(3_000) * k as u32;
     let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 4, true);
+    let r = rig_on(texts(4), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5 * k;
+        c.threads.place_digest = true;
+    });
     let c = &r.core;
     threads(c);
     scope(&jev, "thread");
     ask(c, "pr-round", "what's left on the tarnlib PR?").await;
     assert_eq!(digest_of(&last_request(&r)), None);
     scope(&jev, "place");
-    jev.set_latency(Duration::from_millis(3_000), Duration::from_millis(3_000));
+    jev.set_latency(late, late);
     let t0 = std::time::Instant::now();
     ask(c, "pipeline", "What else is going on this week?").await;
     assert_eq!(digest_of(&last_request(&r)), None, "late: no digest");
     assert!(
-        t0.elapsed() < Duration::from_millis(2_900),
-        "{:?}",
+        t0.elapsed() < late - Duration::from_millis(100),
+        "{:?} against an answer at {late:?}",
         t0.elapsed()
     );
 }

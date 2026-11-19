@@ -288,6 +288,9 @@ async fn a_message_sent_during_job_wait_returns_the_wait_and_joins_the_next_requ
 
 /// Two messages sent during one model call wait for that call's boundary,
 /// which the call never loses, and join in the order they arrived.
+///
+/// Not scaled by the machine's slowness (theseus-20): the premise is that `echo` ends under the product's
+/// `STEER_AFTER` (1 s), which is the product's constant, not this test's limit.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn messages_sent_during_a_model_call_wait_for_its_boundary_in_order() {
     let r = rig(
