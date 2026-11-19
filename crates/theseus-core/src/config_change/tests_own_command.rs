@@ -44,8 +44,8 @@ async fn the_owners_shell_look_at_theseus_is_answered_and_not_run() {
     }
     let r = rig();
     let sid = r.session();
-    let (_, text, _) = shell(&r, &sid, json!({"command": "theseus config show"})).await;
-    assert!(text.contains("`config_show`: use it"), "{text}");
+    let (_, text, _) = shell(&r, &sid, json!({"command": "theseus config history"})).await;
+    assert!(text.contains("`config_history`: use it"), "{text}");
 }
 
 /// What the answer does not touch: an act, a look with no tool, a command with anything else in
@@ -56,6 +56,8 @@ async fn an_act_a_look_with_no_tool_and_anything_else_run_as_they_did() {
         json!({"command": "theseus ask hello"}),
         json!({"command": "theseus profile use glm"}),
         json!({"command": "theseus judge log"}),
+        // The command prints a waiting change whole; the tool `config.show` reads settings by name.
+        json!({"command": "theseus config show"}),
         json!({"command": "theseus health; echo more"}),
         json!({"command": "theseus health | tee out.txt"}),
         json!({"command": "echo hello"}),

@@ -22,6 +22,9 @@ impl TurnRunner {
         result: &TurnSubmitResult,
         failing: Option<&crate::session::Failing>,
     ) -> Result<()> {
+        // What another profile answered a call of this turn, whichever path ran the call, is
+        // shown before the turn's post (issue 28).
+        self.post_subagents(t)?;
         let no_call = t.continuation
             && result.loops == 0
             && NO_CALL.contains(&result.stop_reason.as_str())

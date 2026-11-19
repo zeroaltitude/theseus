@@ -802,6 +802,8 @@ mod tests_press;
 #[cfg(test)]
 mod tests_profile;
 #[cfg(test)]
+mod tests_profile_asked;
+#[cfg(test)]
 mod tests_profile_run;
 #[cfg(test)]
 mod tests_proof;

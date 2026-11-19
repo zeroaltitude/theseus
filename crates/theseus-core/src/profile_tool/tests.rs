@@ -106,3 +106,67 @@ fn a_hold_names_a_profile_or_lets_go_and_nothing_else() {
         assert!(hold_of(&bad).is_err(), "{bad}");
     }
 }
+
+/// What acts after a yes is the plan the card was made from, and a call that is not that plan
+/// is not done, whatever the model said after the card.
+#[test]
+fn what_acts_after_a_yes_is_the_plan_the_card_showed() {
+    let card = json!({"profile": "haiku"});
+    assert_eq!(
+        hold::kept_plan(&card, &json!({"profile": "haiku"})),
+        Ok(Some("haiku".into()))
+    );
+    assert_eq!(
+        hold::kept_plan(&json!({"release": true}), &json!({"release": true})),
+        Ok(None)
+    );
+    for (kept, call) in [
+        (card.clone(), json!({"profile": "opus"})),
+        (card, json!({"release": true})),
+        (json!({"release": true}), json!({"profile": "haiku"})),
+    ] {
+        let why = hold::kept_plan(&kept, &call).unwrap_err();
+        assert!(why.contains("not what its card showed"), "{why}");
+    }
+}
+
+/// The owner's yes to a hold is kept for its one call, taken once, and a yes nobody took is
+/// dropped when the next is kept.
+#[test]
+fn a_yes_is_kept_for_its_call_and_taken_once() {
+    let board = Board::default();
+    let who = crate::test_support::owner_cli();
+    board.keep_yes("act_1", &who);
+    assert!(board.take_yes("act_2").is_none(), "another call's");
+    assert_eq!(board.take_yes("act_1").map(|w| w.label), Some(who.label));
+    assert!(board.take_yes("act_1").is_none(), "one hold's: taken once");
+    board.keep_yes("act_3", &crate::test_support::owner_cli());
+    board.drop_yes("act_3");
+    assert!(
+        board.take_yes("act_3").is_none(),
+        "a failed answer keeps none"
+    );
+}
+
+/// A session's answers are dropped when its turn ends, and another session's are not.
+#[test]
+fn a_turns_unposted_answers_are_dropped_with_its_session() {
+    let answer = || SubagentAnswer {
+        profile: "haiku".into(),
+        provider: "anthropic".into(),
+        model: "claude-haiku-5-5".into(),
+        asked_by: "sonnet".into(),
+        text: "words".into(),
+        cost_usd: None,
+        elapsed_ms: 1,
+        output_tokens: 1,
+        cut: false,
+        call: "act_1".into(),
+    };
+    let board = Board::default();
+    board.give("ses_a", "turn_a", answer());
+    board.give("ses_b", "turn_b", answer());
+    board.forget("ses_a");
+    assert!(board.take("turn_a").is_empty());
+    assert_eq!(board.take("turn_b").len(), 1);
+}

@@ -25,7 +25,7 @@ import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { authorWord } from '@/ship/words'
 import { ReplyMarkdown } from '@/components/Cites'
 import { replySpeaker } from '@/lib/speaker'
-import { subagentFooter, subagentOf } from '@/lib/subagent'
+import { subagentFooter, subagentOf, subagentOpening } from '@/lib/subagent'
 
 type D = Record<string, any>
 
@@ -352,7 +352,7 @@ function SubagentItem({ n }: { n: NodeInfo }) {
     <div className="group flex gap-3" data-subagent={a.call}>
       <Gutter icon={<Bot size={13} />} at={n.at_unix_ms} tone="bg-model/10 text-model ring-model/30" />
       <div className="relative min-w-0 flex-1 rounded-lg bg-model/[0.05] px-3 py-2 ring-1 ring-model/15">
-        <ReplyMarkdown text={a.text} />
+        <ReplyMarkdown text={subagentOpening(a)} />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
           <span className="font-medium text-model">{replySpeaker(a.model).name}</span>
           {subagentFooter(a).map((bit, i) => <span key={bit} className={cn('num', i === 1 && 'text-model')} title={i === 1 ? 'the model that answered' : undefined}>{bit}</span>)}

@@ -41,12 +41,14 @@ use theseus_tools::{
     ToolOutput,
 };
 
+use crate::approval::Answerer;
 use crate::chat_acts::Said;
 use crate::config_change::{outside_text, wall};
 use crate::toolrun::TurnCtx;
 use crate::Core;
 
 mod ask;
+mod hold;
 pub(crate) mod run;
 
 pub use ask::{ANSWER_MAX_TOKENS, QUESTION_MAX_CHARS, TIME_LIMIT};
@@ -281,18 +283,43 @@ impl Tool for ProfileHold {
 pub struct Board {
     core: OnceLock<Weak<Core>>,
     /// The answers a turn's calls got, until the turn posts them (`give`, `take`): in memory
-    /// only, as a staged post's source is; the answer itself is in the result node.
-    answers: std::sync::Mutex<std::collections::HashMap<String, Vec<SubagentAnswer>>>,
+    /// only, as a staged post's source is; the answer itself is in the result node. Each is
+    /// kept with its session, so a turn that ends without posting is swept (`forget`).
+    answers: std::sync::Mutex<std::collections::HashMap<String, Held>>,
+    /// Who pressed the owner's yes on a hold's card, by the call's id, until the approved call
+    /// runs and takes it (`keep_yes`, `take_yes`): in memory only, so a restart between the yes
+    /// and the call leaves the hold refused, which is the way to fail.
+    yes: std::sync::Mutex<std::collections::HashMap<String, Pressed>>,
 }
 
+/// The answers one turn's calls got, and whose session it was.
+struct Held {
+    session: String,
+    answers: Vec<SubagentAnswer>,
+}
+
+/// A yes kept for a hold's call: who answered, and when.
+struct Pressed {
+    who: Answerer,
+    at: std::time::Instant,
+}
+
+/// How long a yes that no call took is kept: past it the entry is dropped, as the next yes is kept.
+const YES_KEPT: std::time::Duration = std::time::Duration::from_secs(3_600);
+
 impl Board {
-    /// A turn's call got `answer`: the turn posts it to its place, in order, before its reply.
-    pub(crate) fn give(&self, turn: &str, answer: SubagentAnswer) {
+    /// A call of `turn`, in `session`, got `answer`: the turn posts it to its place, in order,
+    /// before its reply.
+    pub(crate) fn give(&self, session: &str, turn: &str, answer: SubagentAnswer) {
         self.answers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .entry(turn.to_string())
-            .or_default()
+            .or_insert_with(|| Held {
+                session: session.to_string(),
+                answers: Vec::new(),
+            })
+            .answers
             .push(answer);
     }
 
@@ -302,7 +329,57 @@ impl Board {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(turn)
+            .map(|h| h.answers)
             .unwrap_or_default()
+    }
+
+    /// A turn of `session` has ended: what it was given and did not post (it stopped, it
+    /// faulted, it was a task's) is dropped, not kept until a restart. One turn runs in a
+    /// session at a time, so none of what is dropped belongs to a later turn.
+    pub(crate) fn forget(&self, session: &str) {
+        self.answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, h| h.session != session);
+    }
+
+    /// How many turns have answers kept (a test reads it).
+    #[cfg(test)]
+    pub(crate) fn held_answers(&self) -> usize {
+        self.answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+    }
+
+    /// The owner's yes to the card of the hold `call` was pressed by `who`: kept for the call.
+    pub(crate) fn keep_yes(&self, call: &str, who: &Answerer) {
+        let mut yes = self
+            .yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        yes.retain(|_, p| p.at.elapsed() < YES_KEPT);
+        yes.insert(
+            call.to_string(),
+            Pressed {
+                who: who.clone(),
+                at: std::time::Instant::now(),
+            },
+        );
+    }
+
+    /// The yes was not taken (its answer failed): it is not kept.
+    pub(crate) fn drop_yes(&self, call: &str) {
+        self.take_yes(call);
+    }
+
+    /// Who pressed the yes kept for `call`; taken once.
+    pub(crate) fn take_yes(&self, call: &str) -> Option<Answerer> {
+        self.yes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(call)
+            .map(|p| p.who)
     }
 
     pub fn attach(&self, core: &Arc<Core>) {
@@ -313,13 +390,15 @@ impl Board {
         self.core.get().and_then(Weak::upgrade)
     }
 
-    /// The call, behind the wall. `said` is the message that started this turn, when one of
-    /// the owner's did (`chat_acts::Board::offered`): the hold acts on nothing else.
+    /// The call `call`, behind the wall. `said` is the message that started this turn, when one
+    /// of the owner's did (`chat_acts::Board::offered`): the hold acts on that, or on the
+    /// owner's own yes to its card (`hold::hold`), and on nothing else.
     pub fn run(
         &self,
         tc: &TurnCtx<'_>,
         name: &str,
         input: &Value,
+        call: &str,
         said: Option<Said>,
     ) -> AsyncMediaRun {
         let fail = |why: String| -> AsyncMediaRun {
@@ -332,7 +411,7 @@ impl Board {
             return fail(format!("{name} is not ready: the core is not built"));
         };
         match name {
-            HOLD => match hold(&core, tc, input, said) {
+            HOLD => match hold::hold(self, &core, tc, input, call, said) {
                 Ok(said) => Box::pin(std::future::ready(Ok((output(said, HOLD), None, None)))),
                 Err(why) => fail(why),
             },
@@ -357,54 +436,6 @@ fn output(text: String, tool: &str) -> ToolOutput {
         text,
         meta: json!({ "profile_tool": tool }),
     }
-}
-
-/// Put this conversation on the profile the model named, as the owner who spoke: through
-/// `session_set_profile`, which the command calls.
-fn hold(
-    core: &Core,
-    tc: &TurnCtx<'_>,
-    input: &Value,
-    said: Option<Said>,
-) -> Result<String, String> {
-    let to = hold_of(input)?;
-    let said = said.filter(|s| s.owner_input).ok_or(
-        "profile.hold acts only in a turn the owner's own message started, and no message of \
-         theirs started this one. Nothing was done.",
-    )?;
-    let done = core
-        .session_set_profile(
-            &SessionProfileParams {
-                session_id: tc.session_id.to_string(),
-                profile: to,
-                author: None,
-                discord: None,
-            },
-            &said.who,
-        )
-        .map_err(|e| format!("{e:#}"))?;
-    if let Some(why) = done.refused {
-        return Err(format!("Nothing was changed: {why}."));
-    }
-    let now = match &done.profile {
-        Some(p) => format!("This conversation's next turns run on {p}"),
-        None => {
-            "This conversation's profile hold is let go: its next turns route as the default does"
-                .into()
-        }
-    };
-    let was = match (&done.previous, &done.profile) {
-        (p, n) if p == n => " (it already was)".to_string(),
-        (Some(p), _) => format!(" (it was held to {p})"),
-        (None, _) => String::new(),
-    };
-    let note = done
-        .note
-        .map(|n| format!(" Note: {n}."))
-        .unwrap_or_default();
-    Ok(format!(
-        "{now}{was}. This turn keeps the model it started on.{note}"
-    ))
 }
 
 #[cfg(test)]
