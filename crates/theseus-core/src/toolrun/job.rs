@@ -285,7 +285,7 @@ impl ToolRuntime {
             running.keep();
         }
         let kind = (background, was_interrupted);
-        let text = self.placeholder(&name, spec, kind, bound, &output, note.as_deref());
+        let text = Self::placeholder(&name, spec, kind, bound, &output, note.as_deref());
         self.answer(
             tc,
             ResultNode {
@@ -304,7 +304,6 @@ impl ToolRuntime {
     /// theseus-qu1lc), or its bound passed: the wait it had, which is the
     /// configured one or the job's limit and five seconds, whichever is shorter.
     fn placeholder(
-        &self,
         name: &str,
         spec: &JobSpec,
         (background, interrupted): (bool, bool),

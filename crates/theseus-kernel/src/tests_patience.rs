@@ -169,7 +169,7 @@ fn a_byte_printed_early_starts_the_silence_at_the_byte_not_at_the_next_look() {
     let mut p = Patience::silence(600, Instant::now(), move || counted.load(SeqCst));
     let look = p.look();
     let printed: Arc<Mutex<Option<Instant>>> = Arc::default();
-    let (when, put) = (printed.clone(), bytes.clone());
+    let (when, put) = (printed.clone(), bytes);
     let writer = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(300));
         *when.lock().unwrap() = Some(Instant::now());
