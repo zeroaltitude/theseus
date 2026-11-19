@@ -27,8 +27,9 @@ fetched nothing and checked nothing, and the card's line says so (`config_change
 ```
 
 - **One line, cut.** Runs of whitespace (a line break included) become one space; the text is cut at 200 characters, with
-  a `…` that says so (the length of the model's reason). A character that cannot be seen is written as `\u{..}`, a quote
-  or a backslash is escaped as a value's are (`diff::escaped`), so the line ends in the card's own closing quote.
+  a `…` that says so (the length of the model's reason), before its unseen characters are written out, so a line of them
+  is longer. A character that cannot be seen is written as `\u{..}`, a quote or a backslash is escaped as a value's are
+  (`diff::escaped`), so the line ends in the card's own closing quote.
 - **It begins no line and ends none.** It follows a fixed label, indented, so it can pass for no setting line, no care
   line and no reason; a fence in it is one more character of a line. Discord's markdown escaping and the cockpit's text
   drawing treat it as the rest of the card; a test of each place draws a source and a hostile one.
