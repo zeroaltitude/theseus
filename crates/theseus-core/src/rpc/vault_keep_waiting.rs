@@ -75,7 +75,7 @@ impl Core {
         p: VaultKeepWaitingParams,
         conn: &Conn<'_>,
     ) -> Result<VaultKeepWaiting, RpcFailure> {
-        let pid = conn.peer.pid();
+        let pid = conn.pid;
         let who: Answerer = match self.owners_shell(
             conn,
             p.from_job.as_deref(),

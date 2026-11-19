@@ -94,7 +94,7 @@ impl Core {
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        let pid = conn.peer.pid();
+        let pid = conn.pid;
         let (question, done) = match m {
             method::VAULT_KEEP_WAITING => {
                 return reply(self.keep_waiting(parse_quiet(params)?, &conn).await?)
@@ -269,7 +269,7 @@ impl Core {
             false => (Outcome::Changed, recorded.clone()),
         };
         drop(value);
-        self.keep_settle(&a, &outcome.1, outcome.0, &who, conn.peer.pid())
+        self.keep_settle(&a, &outcome.1, outcome.0, &who, conn.pid)
             .map_err(|e| Stop {
                 failure: failure(e),
                 class: None,
@@ -339,7 +339,7 @@ impl Core {
             LedgerKind::VaultKeep,
             None,
             None,
-            done::row(&t, outcome, (&who.label, &place, conn.peer.pid()), None),
+            done::row(&t, outcome, (&who.label, &place, conn.pid), None),
         );
         let _ = self.store.append_ledger(&row);
         Self::keep_told(&t, outcome).map_err(|failure| Stop {
