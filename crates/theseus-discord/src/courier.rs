@@ -1034,13 +1034,28 @@ impl Lane {
         }
     }
 
+    /// Whether the turn's session is a task's: a task is a subagent (issue 28).
+    fn is_task(&self, result: Option<&TurnSubmitResult>) -> bool {
+        result.is_some_and(|r| {
+            self.shared
+                .core
+                .store
+                .get_session::<theseus_core::session::SessionRecord>(&r.session_id)
+                .ok()
+                .flatten()
+                .is_some_and(|s| s.task.is_some())
+        })
+    }
+
     /// A turn's reply: its loops' final text under the stream's keys, which
     /// edits what the stream posted and creates what it did not.
     fn reply(&mut self, body: &Value, channel: u64) -> Plan {
         let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
         let texts = self.shared.core.outbox.reply_texts(body);
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
-        let mut parts = render::reply_parts(&turn_id, &texts, result.as_ref());
+        // A task is a subagent (issue 28): its own channel's reply footer says so.
+        let task = self.is_task(result.as_ref());
+        let mut parts = render::reply_parts_in(&turn_id, &texts, result.as_ref(), task);
         // A wake's turn says which wake woke it (DD8), and a turn a task's
         // report started says which report did (W1).
         let wakes: Vec<String> = ["wakes", "reports"]

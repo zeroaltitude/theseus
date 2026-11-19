@@ -1379,6 +1379,20 @@ fn a_tasks_report_is_one_message_that_names_it() {
     );
 }
 
+/// A task is a subagent (issue 28): its report's footer names the profile and model that gave it, first,
+/// then says it is a subagent's task report, then the turns, spend and time it always had.
+#[test]
+fn a_tasks_report_footer_names_the_model_that_gave_it_and_says_it_is_a_subagents() {
+    let body = json!({"kind": "report", "task": "ses_x", "short": "a1b2c3", "title": "Run the gate",
+        "outcome": "complete", "spent_usd": 0.0123, "limit_usd": 2.5, "turns": 3, "elapsed_ms": 64_000,
+        "ran_on": {"profile": "haiku", "provider": "anthropic", "model": "claude-haiku-5-5"}});
+    assert_eq!(
+        report(&body, Some("The gate passed."), 0, None),
+        "📋 **Task `a1b2c3` finished** · Run the gate\nThe gate passed.\n\
+         -# haiku · claude-haiku-5-5 · subagent task report · 3 turns · $0.0123 of $2.50 · 1 min 4 s"
+    );
+}
+
 /// A task that works in a forum post or a channel of its own has its
 /// mention on the report's first line, so a tap opens it; one with
 /// neither reports as before (theseus-ypnxt.5).
@@ -1637,4 +1651,19 @@ proptest::proptest! {
             proptest::prop_assert_eq!(got, want, "{:?} kept once each", c);
         }
     }
+}
+
+/// A task's own reply in a channel of its own (issue 28) says it is a subagent's, after the model it ran on;
+/// any other reply keeps the footer it had.
+#[test]
+fn a_tasks_own_reply_footer_says_it_is_a_subagents() {
+    let r = result_of(ended("t1", None));
+    let plain = reply_parts_in("t1", &[(0, "Done.".into())], Some(&r), false);
+    let task = reply_parts_in("t1", &[(0, "Done.".into())], Some(&r), true);
+    assert_eq!(plain, reply_parts("t1", &[(0, "Done.".into())], Some(&r)));
+    let (p, t) = (&plain[0].1, &task[0].1);
+    assert!(!p.contains("subagent"), "{p}");
+    let model = &r.model;
+    assert!(t.contains(&format!("{model} · subagent task reply")), "{t}");
+    assert_eq!(t.replace(" · subagent task reply", ""), *p);
 }

@@ -187,10 +187,16 @@ pub(super) fn ready(shared: &Arc<Shared>) {
 }
 
 impl Shared {
-    /// The target of the owner's DM place: the first the bindings name.
-    pub(super) fn owner_dm_place(&self) -> Option<String> {
-        let dm = self.core.runner.place_rule.owner_dm_places();
-        dm.into_iter().next().map(|p| format!("discord:{p}"))
+    /// The target of the owner's DM place: the first the bindings name whose
+    /// user is an owner, else the first of any.
+    pub(crate) fn owner_dm_place(&self) -> Option<String> {
+        let rule = &self.core.runner.place_rule;
+        let owners = rule.owners(&self.core.cfg);
+        let dm = rule.owner_dm_places();
+        let theirs = dm
+            .iter()
+            .find(|p| owners.contains(&format!("discord:{}", p.trim_start_matches("dm:"))));
+        theirs.or(dm.first()).map(|p| format!("discord:{p}"))
     }
 
     /// At the start: the voice channels are read, the recorded home's lane

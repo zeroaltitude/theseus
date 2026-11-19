@@ -1,0 +1,139 @@
+//! `look.work` played through the whole core, on the settings rig (issue 28): the owner's own turn
+//! reads this conversation's tasks, what waits on the owner and its last messages, asked nothing;
+//! it reads this conversation and no other; and a task's session is refused it.
+
+use serde_json::json;
+
+use super::tests::rig;
+use crate::node::ResultStatus;
+
+/// "What is going on here?": the three parts, from this conversation, with no card and no shell.
+#[tokio::test]
+async fn the_owner_reads_this_conversations_work_and_is_asked_nothing() {
+    let r = rig();
+    let sid = r.session();
+    r.turn_with("look_work", &sid, json!({})).await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    for part in [
+        "Tasks: this conversation has started none.",
+        "Waiting on the owner: nothing waits here.",
+        "- the owner: change a setting",
+    ] {
+        assert!(text.contains(part), "{part} in {text}");
+    }
+    assert!(r.asked().is_empty(), "no card: {:?}", r.asked());
+}
+
+/// Only this conversation's messages: another session's turn is not in it, and its count is this
+/// session's own. A part asked for alone is the only part, and `messages` bounds the history.
+#[tokio::test]
+async fn it_reads_this_conversation_and_no_other_and_one_part_alone() {
+    let r = rig();
+    let other = r.session();
+    r.turn_with("look_work", &other, json!({"what": ["history"]}))
+        .await;
+    let sid = r.session();
+    r.turn_with(
+        "look_work",
+        &sid,
+        json!({"what": ["history"], "messages": 1}),
+    )
+    .await;
+    let (status, text) = r.result(&sid);
+    assert_eq!(status, ResultStatus::Ok, "{text}");
+    assert!(
+        text.contains("The last 1 of this conversation's 1 messages:"),
+        "{text}"
+    );
+    assert!(!text.contains("Tasks"), "one part alone: {text}");
+    assert!(!text.contains("Waiting"), "one part alone: {text}");
+    // The other session's two messages (its question and its reply) are its own.
+    let (_, theirs) = r.result(&other);
+    assert!(
+        theirs.contains("this conversation's 1 messages"),
+        "{theirs}"
+    );
+}
+
+/// A task's session is refused it, in the tool's own words, and reads nothing.
+#[tokio::test]
+async fn a_task_is_not_given_the_look() {
+    let r = rig();
+    let parent = r.session();
+    let mut rec =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    rec.task = Some(crate::session::TaskOf {
+        parent_session: parent,
+        parent_execution: "exe_x".into(),
+        by: "tool_x".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.turn_with("look_work", &rec.session_id, json!({})).await;
+    let (status, text) = r.result(&rec.session_id);
+    assert_eq!(status, ResultStatus::Error, "{text}");
+    assert!(text.contains("not for a task"), "{text}");
+}
+
+/// What it will not take: another session or place to read, and a part that is not one.
+#[tokio::test]
+async fn it_takes_no_session_or_place_to_read() {
+    let r = rig();
+    for bad in [
+        json!({"session": "ses_other"}),
+        json!({"place": "discord:dm:1"}),
+        json!({"what": ["vault"]}),
+    ] {
+        let sid = r.session();
+        r.turn_with("look_work", &sid, bad.clone()).await;
+        let (status, text) = r.result(&sid);
+        assert_eq!(status, ResultStatus::Error, "{bad}: {text}");
+    }
+}
+
+/// `theseus tasks`, `status` and `history` in the owner's shell are answered with it, and the answer
+/// is on the ledger as a row of the verb, the tool and the place, with no command text.
+#[tokio::test]
+async fn the_shell_commands_it_replaces_are_answered_with_it_and_counted() {
+    for (line, verb) in [
+        ("theseus tasks", "tasks"),
+        ("theseus status --json", "status"),
+        ("theseus history | tail -20", "history"),
+    ] {
+        let r = rig_in_its_dir();
+        let sid = r.session();
+        r.turn_with("proc_run", &sid, json!({"command": line}))
+            .await;
+        let (status, text) = r.result(&sid);
+        assert_eq!(status, ResultStatus::Declined, "{line}: {text}");
+        assert!(text.contains("`look_work`: use it"), "{text}");
+        let rows = r.rows("shell.answered");
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0]["verb"], json!(verb));
+        assert_eq!(rows[0]["tool"], json!("look.work"));
+        assert_eq!(rows[0]["place"], json!("cli"));
+        assert!(
+            !rows[0].to_string().contains("tail"),
+            "no command text: {}",
+            rows[0]
+        );
+    }
+    // `history` of a session is another read, which runs.
+    let r = rig_in_its_dir();
+    let sid = r.session();
+    r.turn_with(
+        "proc_run",
+        &sid,
+        json!({"command": "theseus history ses_other"}),
+    )
+    .await;
+    assert!(r.rows("shell.answered").is_empty());
+}
+
+fn rig_in_its_dir() -> super::tests::Rig {
+    super::tests::rig_with(|cfg, state| cfg.tools.cwd = Some(state.to_string_lossy().into_owned()))
+}
