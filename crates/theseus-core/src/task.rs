@@ -85,6 +85,17 @@ pub const OPEN_RETIRED: &str = "Not started: open tasks are retired. A task runs
     does, and what keeps a session off a model outside the owner's trust is the labels on it. \
     Start it without `open`.";
 
+/// What a task is carved when the call names no budget: `DEFAULT_SHARE` of what the parent has left. Under a
+/// limit that notifies, of the parent's limit, even once the parent has passed it (theseus-usei).
+pub(crate) fn default_carve(kernel: &theseus_kernel::Kernel, parent: &Execution) -> Micros {
+    let left = parent.budget.available();
+    let share_of = match kernel.overdraws(parent) {
+        true => left.max(parent.budget.limit_micros),
+        false => left,
+    };
+    share_of / DEFAULT_SHARE.1 * DEFAULT_SHARE.0
+}
+
 /// How people name a task: the last six characters of its id.
 pub fn short(task_id: &str) -> String {
     let n = task_id.chars().count();
@@ -511,7 +522,14 @@ pub fn create_call<'a>(
     ),
     b: &crate::forecast::Book,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
-    create(tc, input, (correlation_id, correlation_id, None), a, b)
+    create(
+        tc,
+        input,
+        (correlation_id, correlation_id, None),
+        a,
+        b,
+        None,
+    )
 }
 
 /// Run `task.create` for the call `call_id` of the turn `tc` (the harness's
@@ -520,6 +538,12 @@ pub fn create_call<'a>(
 /// (`act_X` gives `exe_X`): the call's own for `task.create`, and for each helper
 /// of a `task.fan_out` call `act_Xh<i>` (theseus-z9mze.3), `helper` being that
 /// call, which groups them (`Opening::helper`).
+///
+/// `on` (issue 28, `profile.run`) is the model the task runs on, named by the caller as a check's profile is, and None
+/// for every other task. It is an argument and not a field of the input, so no call a model
+/// writes can name one: only a tool that has judged the profile passes it. The task is pinned to
+/// it (no brief verdict picks its model) and carries the marker that makes its end speak in the
+/// conversation (`profile_tool::run`).
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn create<'a>(
     tc: &TurnCtx<'a>,
@@ -530,6 +554,7 @@ pub fn create<'a>(
         crate::project::Ext<'_>,
     ),
     forecasts: &crate::forecast::Book,
+    on: Option<&TargetRef>,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -592,16 +617,9 @@ pub fn create<'a>(
         Some(c) => (c.pieces.clone(), 0),
         None => arranged(tc, &i, &nodes, holder.as_deref())?,
     };
-    let left = parent.budget.available();
-    // Under a limit that notifies, a quarter of the parent's limit, even
-    // once the parent has passed it (theseus-usei).
-    let share_of = match tc.kernel.overdraws(&parent) {
-        true => left.max(parent.budget.limit_micros),
-        false => left,
-    };
     let want = match i.budget_usd {
         Some(b) => usd_to_micros(b),
-        None => share_of / DEFAULT_SHARE.1 * DEFAULT_SHARE.0,
+        None => default_carve(tc.kernel, &parent),
     };
     let now = tc.kernel.now_ms();
     let start = match (&i.start_at, &i.start_after) {
@@ -666,6 +684,10 @@ pub fn create<'a>(
                 pieces.clone(),
                 i.fidelity_ack,
             ));
+            // A task handed to a profile runs on it, and its end speaks in the conversation.
+            if let Some(t) = on {
+                rec.last_target = Some(t.clone());
+            }
             // A check runs on its profile, and reads its claim (M5 28a).
             if let Some(c) = &check {
                 if let Some(t) = &c.target {
@@ -693,6 +715,9 @@ pub fn create<'a>(
                 &rec,
             )?];
             records.push(brief.record()?);
+            if let Some(t) = on {
+                records.push(crate::profile_tool::run::marker(&task.session_id, t, tc)?);
+            }
             if let Some(reply) = &holder {
                 records.push(
                     crate::graph::Edge::new(

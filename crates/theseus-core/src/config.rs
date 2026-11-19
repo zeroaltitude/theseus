@@ -103,6 +103,7 @@ pub mod mcp_server;
 pub mod owner_proof;
 pub mod sensitivity;
 pub mod tui;
+pub mod vault;
 pub use mcp::{McpConfig, McpServerConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +156,10 @@ pub struct Config {
     /// app covers the place it came from (issue 22).
     #[serde(default)]
     pub owner_proof: owner_proof::OwnerProofConfig,
+    /// `[vault]`: whether the owner's Discord direct messages may take a secret's
+    /// value in a form (issue 29).
+    #[serde(default, skip_serializing_if = "vault::VaultConfig::is_default")]
+    pub vault: vault::VaultConfig,
     #[serde(default)]
     pub telemetry: crate::telemetry::TelemetryConfig,
     #[serde(default)]

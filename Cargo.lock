@@ -6717,6 +6717,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "tracing-subscriber",
  "twilight-gateway",
  "twilight-http",
  "twilight-model",
