@@ -59,8 +59,9 @@ fn rules(gates: &std::path::Path) -> Value {
         // Ends on the gate, on its directory gone (the test ended), or in 300 s (a test killed
         // outright leaves the directory): a job never outlives its test (theseus-ynfq9).
         let d = gates.display();
+        // `{gate}.up` says the job is running, for a test that must not act before it is.
         let script = format!(
-            "n=0; while [ ! -e {d}/{gate} ] && [ -d {d} ] && [ $n -lt 6000 ]; \
+            "touch {d}/{gate}.up; n=0; while [ ! -e {d}/{gate} ] && [ -d {d} ] && [ $n -lt 6000 ]; \
              do sleep 0.05; n=$((n+1)); done"
         );
         json!({"calls": [{"name": "proc_run", "input": {"argv": ["sh", "-c", script],
@@ -385,6 +386,15 @@ impl Rig {
     }
 
     /// Open a gate a job of the script waits at.
+    /// Whether the job that waits for gate `name` has started.
+    fn gate_is_waited_for(&self, name: &str) -> bool {
+        self.scratch
+            .path()
+            .join("gates")
+            .join(format!("{name}.up"))
+            .exists()
+    }
+
     fn open_gate(&self, name: &str) {
         std::fs::write(self.scratch.path().join("gates").join(name), "").unwrap();
     }
@@ -818,6 +828,13 @@ impl Journey {
         let (r, quay) = (&self.r, &self.quay);
         let post = self.post().id;
         let first = r.fake.messages(post)[0].id.clone();
+        // The task must be in the job the join's answer runs before the owner pauses it. A pause that lands
+        // while that answer is still on its way holds the task at the loop boundary after it, the job is
+        // never run, and the resume's own note starts a turn no rule of the stand-in matches: the task
+        // ended "Done." (one whole run of ten beside 64 busy loops, theseus-20, the third pass).
+        within("the join's job running", 10_000, || {
+            r.gate_is_waited_for("pause")
+        });
         r.fake.react(ANA, post, &first, PAUSE).unwrap();
         let pause = within("the view to read paused", 1000, || {
             r.view(quay)["paused"] == true
