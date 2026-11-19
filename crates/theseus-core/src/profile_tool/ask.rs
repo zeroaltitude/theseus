@@ -16,6 +16,7 @@ use theseus_kernel::{
     micros_to_usd, Action, Completion, KernelError, Outcome as ActionOutcome, Proposal, RetryClass,
     PROVIDER_TOOL,
 };
+use theseus_protocol::SubagentAnswer;
 use theseus_tools::parse;
 
 use crate::fact::{self, ops::ProfileAsked};
@@ -66,6 +67,8 @@ pub(super) struct Planned {
     session: String,
     turn: String,
     loop_index: Option<u32>,
+    /// The profile of the turn that asked.
+    asked_by: String,
 }
 
 /// Resolve `profile`, ask the data floor and the books, and plan the call; or the words of why not.
@@ -135,6 +138,7 @@ pub(super) fn begin(
         session: tc.session_id.to_string(),
         turn: tc.turn_id.to_string(),
         loop_index: tc.loop_index,
+        asked_by: tc.target.map(|t| t.profile.clone()).unwrap_or_default(),
     })
 }
 
@@ -249,10 +253,28 @@ fn settled(core: &Core, p: &Planned, resp: ModelResponse, started_ms: u64) -> (S
         tracing::warn!(correlation_id = %p.action.correlation_id, error = %format!("{e:#}"),
             "an asked profile's call was not settled; the reconcile settles it at its deadline");
     }
-    let meta = json!({"profile_ask": {"profile": p.target.profile, "provider": p.target.provider,
-        "model": resp.model, "input_tokens": resp.usage.input_tokens,
-        "output_tokens": resp.usage.output_tokens, "cost_usd": micros_to_usd(cost),
-        "stop_reason": resp.stop_reason}});
+    // The answer is a message of the conversation (issue 28): its words, who gave them, and the
+    // call's own cost and time ride the result node, and the turn posts it before its reply.
+    let text = resp.text.trim();
+    let answer = SubagentAnswer {
+        profile: p.target.profile.clone(),
+        provider: p.target.provider.clone(),
+        model: resp.model.clone(),
+        asked_by: p.asked_by.clone(),
+        text: text.to_string(),
+        cost_usd: Some(micros_to_usd(cost)),
+        elapsed_ms: theseus_protocol::now_unix_ms().saturating_sub(started_ms),
+        output_tokens: resp.usage.output_tokens,
+        cut,
+        call: p.action.correlation_id.clone(),
+    };
+    let meta = match text.is_empty() {
+        true => json!({}),
+        false => {
+            core.tools.profile.give(&p.turn, answer.clone());
+            json!({"subagent": answer})
+        }
+    };
     (words(p, &resp, cost), meta)
 }
 
@@ -294,8 +316,8 @@ fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> Str
         ));
     }
     out.push_str(&format!(
-        "\n\n[That is {profile}'s answer, not yours: give it to the owner as {profile}'s words, \
-         with its model ({}) named. The call cost {}.]",
+        "\n\n[That is {profile}'s answer, not yours. Theseus has shown it to the owner as {profile}'s \
+         own message, its model ({}) named, so your reply need not repeat the words. The call cost {}.]",
         resp.model,
         crate::narrative::dollars(cost)
     ));

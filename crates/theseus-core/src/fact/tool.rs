@@ -550,6 +550,8 @@ impl Fact for ToolEnded<'_> {
             diff: meta
                 .get("diff")
                 .and_then(|d| serde_json::from_value(d.clone()).ok()),
+            // Another profile's words, which every place draws as a message of its own (issue 28).
+            subagent: theseus_protocol::SubagentAnswer::from_meta(meta),
         }))
     }
 

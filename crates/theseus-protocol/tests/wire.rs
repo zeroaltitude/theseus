@@ -1062,6 +1062,7 @@ fn typed_tool_started_ended_and_written() {
                 reached: None,
                 verified: None,
                 diff: None,
+                subagent: None,
             }),
         );
     }
