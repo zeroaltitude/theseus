@@ -206,7 +206,7 @@ impl Tasks {
             v.id.clone(),
             Live {
                 task: v.session_id.clone().unwrap_or_else(|| v.id.clone()),
-                running: v.state.working(),
+                running: v.state.working() && !crate::render::task_view::waits_to_start(v),
                 held: v.paused || v.next_at_ms == Some(PAUSED_AT_MS),
             },
         );
