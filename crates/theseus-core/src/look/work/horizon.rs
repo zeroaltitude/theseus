@@ -1,18 +1,21 @@
 //! `look.work`'s projects, routines and what is coming (reminders and check-ins): the lists the
 //! command line prints (`theseus project list`, `theseus routine list`, `theseus wake list`), read from
-//! the same views (`Core::project_list`, `routine_list`, `wakes`). Names, states, times and counts.
+//! the same views (`Core::projects_upto`, which is `project_list`'s with a limit, `routine_list`, `wakes`). Names, states, times and counts.
 //!
 //! A routine's, a project's and a reminder's words were written when it was made, in some
 //! conversation: each part says so, and a routine's or a reminder's are held back when the
-//! conversation they belong to holds data marked anything but open (`Reader::words`).
+//! conversation they belong to holds data marked anything but open (`Reader::words`). A project's own
+//! title is the owner's; its next milestone's title may have been written in another conversation (the
+//! milestone record names the session), and is that conversation's words. Each short field is clipped
+//! by itself (`reader::field`).
 
 use std::fmt::Write;
 
-use theseus_protocol::projects::{ProjectInfo, ProjectListParams};
+use theseus_protocol::projects::ProjectInfo;
 use theseus_protocol::routines::RoutineInfo;
 use theseus_protocol::WakeInfo;
 
-use super::reader::Reader;
+use super::reader::{field, Reader};
 use super::tasks::OTHERS;
 use super::{clip, COMING_MAX, PROJECTS_MAX, ROUTINES_MAX};
 
@@ -30,11 +33,13 @@ fn left_out(out: &mut String, more: usize, what: &str) {
     }
 }
 
-fn project_line(p: &ProjectInfo) -> String {
+/// One project as a line. The title is the owner's (written at `project.create`); the next milestone's
+/// words, `next`, may have been written in another conversation and come as that conversation's.
+pub(super) fn project_line(p: &ProjectInfo, next: Option<String>) -> String {
     let g = &p.progress;
-    let next = match (&p.next_title, g.next_due_ms) {
-        (Some(t), Some(ms)) => format!(" · next {} by {}", clip(t, 80), at(ms)),
-        (Some(t), None) => format!(" · next {}", clip(t, 80)),
+    let next = match (next, g.next_due_ms) {
+        (Some(t), Some(ms)) => format!(" · next {t} by {}", at(ms)),
+        (Some(t), None) => format!(" · next {t}"),
         _ => String::new(),
     };
     let overdue = match g.overdue {
@@ -45,7 +50,7 @@ fn project_line(p: &ProjectInfo) -> String {
         "- {} · {} · {} · {}/{} steps · {}/{} milestones{overdue}{next}\n",
         crate::task::short(&p.id),
         clip(&p.title, 100),
-        p.state,
+        field(&p.state),
         g.steps_done,
         g.steps_total,
         g.milestones_done,
@@ -53,30 +58,43 @@ fn project_line(p: &ProjectInfo) -> String {
     )
 }
 
-/// The open projects: each with its state, its steps and milestones done, and the next one due.
+/// The open projects: each with its state, its steps and milestones done, and the next one due. The read
+/// is the newest `PROJECTS_MAX` open ones, the older counted.
 pub(super) fn projects(r: &Reader<'_>) -> String {
-    let list = match r.core.project_list(&ProjectListParams::default()) {
-        Ok(l) => l.projects,
+    let (list, older) = match r.core.projects_upto(PROJECTS_MAX) {
+        Ok(l) => l,
         Err(_) => return "Projects: they could not be read just now.\n".into(),
     };
     if list.is_empty() {
         return "Projects: none are open.\n".into();
     }
-    let mut out = format!("Projects ({} open). {WRITTEN}:\n", list.len());
-    for p in list.iter().take(PROJECTS_MAX) {
-        out.push_str(&project_line(p));
-    }
-    left_out(
-        &mut out,
-        list.len().saturating_sub(PROJECTS_MAX),
-        "projects",
+    let mut out = format!(
+        "Projects ({} open). {WRITTEN}; a next milestone's words are those of the conversation it was written in:\n",
+        list.len() + older
     );
+    for (p, session) in &list {
+        let next = p.next_title.as_deref().map(|t| match session {
+            Some(s) => r.words(s, t, 80),
+            None => clip(t, 80),
+        });
+        out.push_str(&project_line(p, next));
+    }
+    left_out(&mut out, older, "older projects");
     out
 }
 
 fn routine_line(s: &RoutineInfo, r: &Reader<'_>) -> String {
-    let state = match (s.paused, s.running, &s.stopped) {
-        (_, _, Some(why)) => format!(" · stopped: {}", r.words(&s.id, why, 80)),
+    routine_row(
+        s,
+        &r.words(&s.id, &s.title, 100),
+        s.stopped.as_deref().map(|why| r.words(&s.id, why, 80)),
+    )
+}
+
+/// One routine as a line, its words (`title`, and why it `stopped`) given.
+pub(super) fn routine_row(s: &RoutineInfo, title: &str, stopped: Option<String>) -> String {
+    let state = match (s.paused, s.running, stopped) {
+        (_, _, Some(why)) => format!(" · stopped: {why}"),
         (true, _, _) => " · paused".to_string(),
         (_, true, _) => " · running now".to_string(),
         _ => String::new(),
@@ -93,10 +111,9 @@ fn routine_line(s: &RoutineInfo, r: &Reader<'_>) -> String {
         ),
     };
     format!(
-        "- {} · {} · {}{next}{state} · {} run{}{failing}\n",
-        s.short,
-        r.words(&s.id, &s.title, 100),
-        s.series,
+        "- {} · {title} · {}{next}{state} · {} run{}{failing}\n",
+        field(&s.short),
+        field(&s.series),
         s.runs,
         if s.runs == 1 { "" } else { "s" },
     )
@@ -129,26 +146,30 @@ fn coming_kind(w: &WakeInfo) -> bool {
 }
 
 fn wake_line(w: &WakeInfo, r: &Reader<'_>) -> String {
-    let kind = match w.purpose.as_deref() {
-        Some("remind") => "reminder",
-        _ => "check-in",
-    };
-    let note = w.title.as_deref().unwrap_or(&w.note);
-    let every = w
-        .every
-        .as_deref()
-        .map(|e| format!(" · every {e}"))
-        .unwrap_or_default();
-    let held = if w.paused { " · paused" } else { "" };
     let place = match w.session_id == r.here {
         true => String::new(),
         false => format!(" · in {}", r.place(&w.session_id)),
     };
+    let note = w.title.as_deref().unwrap_or(&w.note);
+    wake_row(w, &place, &r.words(&w.session_id, note, 100))
+}
+
+/// One reminder or check-in as a line, its `place` (already worded) and `note` given.
+pub(super) fn wake_row(w: &WakeInfo, place: &str, note: &str) -> String {
+    let kind = match w.purpose.as_deref() {
+        Some("remind") => "reminder",
+        _ => "check-in",
+    };
+    let every = w
+        .every
+        .as_deref()
+        .map(|e| format!(" · every {}", field(e)))
+        .unwrap_or_default();
+    let held = if w.paused { " · paused" } else { "" };
     format!(
-        "- {} · {kind} · {}{every}{held}{place} · {}\n",
-        w.short,
-        w.due_local,
-        r.words(&w.session_id, note, 100)
+        "- {} · {kind} · {}{every}{held}{place} · {note}\n",
+        field(&w.short),
+        field(&w.due_local),
     )
 }
 

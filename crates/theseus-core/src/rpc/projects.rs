@@ -53,6 +53,10 @@ pub(super) fn failure(e: anyhow::Error) -> RpcFailure {
     }
 }
 
+/// What `Core::projects_upto` reads: the projects, each with the session its next milestone was written
+/// in, and how many older open ones were left unread.
+pub type ProjectsRead = (Vec<(ProjectInfo, Option<String>)>, usize);
+
 impl Core {
     /// The projects' methods, by name.
     pub(super) fn rpc_projects(
@@ -214,6 +218,32 @@ impl Core {
             .map(|t| self.project_info(&tasks, t))
             .collect();
         Ok(ProjectListResult { projects })
+    }
+
+    /// The newest `limit` open projects as `look.work` reads them, in `project.list`'s order, and how
+    /// many older open ones were left unread: each with the session its next milestone was written in
+    /// (a milestone's words are that conversation's, a project's own title the owner's). The records
+    /// are decoded once, as `project.list` does; what is limited is the building of each project's
+    /// progress, which walks the records again for every project.
+    pub fn projects_upto(&self, limit: usize) -> Result<ProjectsRead, RpcFailure> {
+        let tasks = crate::task_graph::all(&self.store)?;
+        let open: Vec<&TaskRecord> = tasks
+            .iter()
+            .filter(|t| project::is_project(t) && !t.state.is_closed())
+            .collect();
+        let older = open.len().saturating_sub(limit);
+        let shown = open
+            .into_iter()
+            .skip(older)
+            .map(|t| {
+                let next = project::progress::milestones(&tasks, &t.id)
+                    .into_iter()
+                    .find(|m| !m.state.is_closed())
+                    .map(|m| m.origin.session.clone());
+                (self.project_info(&tasks, t), next)
+            })
+            .collect();
+        Ok((shown, older))
     }
 
     pub(super) fn project_named<'a>(
