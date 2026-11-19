@@ -15,6 +15,7 @@ pub(crate) fn stub(dir: &Path, mode: &str) -> OpReader {
         r#"#!/bin/sh
 LOG='{d}/op.argv'; MODE='{mode}'
 printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in "item get"|"item edit"|"item create"|"item delete") case " $* " in *" --vault "*) ;; *) echo '[ERROR] 2026/10/19 08:00:00 a vault query must be provided when this command is called by a service account. Please specify one either through the --vault flag or through piped input' >&2; exit 1 ;; esac ;; esac
 [ "$MODE" = fail-denied ] && {{ echo '[ERROR] 2026/10/19 08:00:00 you are not authorized: the token is wrong' >&2; exit 1; }}
 [ "$MODE" = fail-net ] && {{ echo '[ERROR] 2026/10/19 08:00:00 dial tcp: lookup nowhere.example: no such host' >&2; exit 1; }}
 [ "$MODE" = fail-other ] && {{ echo '[ERROR] 2026/10/19 08:00:00 something with INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
@@ -137,7 +138,8 @@ fn what_the_program_adds_does_not_ride_through() {
             id: "i1".into(),
             title: "Lantern key".into(),
             category: "LOGIN".into(),
-            vault: "Harbor".into()
+            vault: "Harbor".into(),
+            vault_id: "v1".into(),
         }]
     );
     let account = parse_account(
@@ -247,27 +249,33 @@ fn an_item_id_cannot_be_a_flag_a_reference_or_a_path() {
     assert!(ItemId::parse("itemid00000000000000000001").is_some());
 }
 
-/// The one get is of a listed id with its format, and has no way to name a
-/// field, a reveal, or a vault of the model's.
+/// The one get is of a listed id in the listed vault of that id, with its
+/// format, and has no way to name a field, a reveal, or a vault of the model's.
 #[test]
 fn the_item_verb_is_one_get_of_a_listed_id() {
     let id = ItemId::parse("itemid00000000000000000001").unwrap();
+    let vault = VaultId::parse("vaultid00000000000000000001").unwrap();
     assert_eq!(
-        Verb::Item(id).argv(),
+        Verb::Item(vault.clone(), id).argv(),
         [
             "item",
             "get",
             "itemid00000000000000000001",
+            "--vault",
+            "vaultid00000000000000000001",
             "--format",
             "json"
         ]
     );
     for word in READS.iter().filter(|w| **w != "get") {
         assert!(
-            !Verb::Item(ItemId::parse("itemid00000000000000000001").unwrap())
-                .argv()
-                .iter()
-                .any(|a| a == word),
+            !Verb::Item(
+                vault.clone(),
+                ItemId::parse("itemid00000000000000000001").unwrap()
+            )
+            .argv()
+            .iter()
+            .any(|a| a == word),
             "{word}"
         );
     }
@@ -333,16 +341,20 @@ async fn the_reader_gets_an_item_by_its_id_and_a_failure_is_a_class() {
     let dir = tempfile::tempdir().unwrap();
     let op = stub(dir.path(), "ok");
     let id = ItemId::parse("itemid00000000000000000001").unwrap();
-    let text = op.look_item(&id).await.unwrap();
+    let vault = VaultId::parse("vaultid00000000000000000001").unwrap();
+    let text = op.look_item(&vault, &id).await.unwrap();
     assert_eq!(parse_fields(&text).unwrap().len(), 5);
     assert_eq!(
         logged(dir.path()),
-        ["item get itemid00000000000000000001 --format json"]
+        ["item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json"]
     );
     let dir = tempfile::tempdir().unwrap();
-    let got = stub(dir.path(), "fail-get").look_item(&id).await;
+    let got = stub(dir.path(), "fail-get").look_item(&vault, &id).await;
     assert_eq!(got.err(), Some(Failed::Denied));
     let mut none = stub(dir.path(), "ok");
     none.absent = Some("no token".into());
-    assert_eq!(none.look_item(&id).await.err(), Some(Failed::NoVault));
+    assert_eq!(
+        none.look_item(&vault, &id).await.err(),
+        Some(Failed::NoVault)
+    );
 }

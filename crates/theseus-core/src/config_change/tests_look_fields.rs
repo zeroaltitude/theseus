@@ -59,7 +59,7 @@ async fn the_owner_asks_for_an_items_field_names_and_gets_no_value() {
         [
             "vault list --format json",
             "item list --format json --vault vaultid00000000000000000001",
-            "item get itemid00000000000000000001 --format json"
+            "item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json"
         ]
     );
 }
@@ -107,7 +107,10 @@ async fn no_fields_of_makes_the_daemon_get_anything_but_a_listed_id() {
         json!({"fields_of": "itemid00000000000000000001", "what": ["fields"]}),
     )
     .await;
-    assert!(logged(&dir).contains(&"item get itemid00000000000000000001 --format json".to_string()));
+    assert!(logged(&dir).contains(
+        &"item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json"
+            .to_string()
+    ));
 }
 
 /// Two items of one title are not guessed between: their ids are given and no
@@ -134,7 +137,10 @@ async fn two_items_of_one_title_are_not_guessed_between() {
         json!({"fields_of": "itemid00000000000000000009"}),
     )
     .await;
-    assert!(logged(&dir).contains(&"item get itemid00000000000000000009 --format json".to_string()));
+    assert!(logged(&dir).contains(
+        &"item get itemid00000000000000000009 --vault vaultid00000000000000000001 --format json"
+            .to_string()
+    ));
 }
 
 /// A failed get is its class, never the program's words.

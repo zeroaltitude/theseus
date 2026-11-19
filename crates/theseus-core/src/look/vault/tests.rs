@@ -74,6 +74,7 @@ fn the_list_says_its_cap_and_how_many_it_left_out() {
         title: format!("Lantern {n:03}"),
         category: "LOGIN".into(),
         vault: "Harbor".into(),
+        vault_id: "vaultid00000000000000000001".into(),
     };
     let all: Vec<ItemName> = (0..7).map(item).collect();
     let ask = ask_of(&json!({"limit": 3, "filter": "LANTERN"})).unwrap();
@@ -106,6 +107,7 @@ fn the_in_the_list_mark_is_only_given_where_the_list_covers_the_vault() {
         title: title.into(),
         category: "LOGIN".into(),
         vault: vault.into(),
+        vault_id: "vaultid00000000000000000001".into(),
     };
     let all = [item("i1", "Lantern key", "Harbor")];
     let line = |reference: &str, seen: Option<&[ItemName]>| {

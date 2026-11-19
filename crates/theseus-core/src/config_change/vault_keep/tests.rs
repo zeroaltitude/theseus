@@ -33,6 +33,7 @@ const VALUE: &str = "INVENTED-KEEP-VALUE-4417";
 const SCRIPT: &str = r#"#!/bin/sh
 D='@D@'; MODE='@MODE@'; LOG="$D/op.argv"
 printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in "item get"|"item edit"|"item create"|"item delete") case " $* " in *" --vault "*) ;; *) echo '[ERROR] 2026/10/19 08:00:00 a vault query must be provided when this command is called by a service account. Please specify one either through the --vault flag or through piped input' >&2; exit 1 ;; esac ;; esac
 [ "$MODE" = flaky ] && [ "$1 $2" = "vault list" ] && [ "$(grep -c '^vault list' "$LOG")" -gt 1 ] && { echo '[ERROR] 2026/10/19 08:00:00 dial tcp: network is unreachable' >&2; exit 1; }
 case "$1 $2" in
   "vault list") echo '[{"id":"vaultid00000000000000000001","name":"Harbor"},{"id":"vaultid00000000000000000002","name":"Dock"}]' ;;
