@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use theseus_kernel::{Action, Execution};
+use theseus_kernel::{usd, Action, Execution};
 use theseus_protocol::SubagentAnswer;
 use theseus_store::{kinds, NewRecord};
 use theseus_tools::{
@@ -307,7 +307,7 @@ impl Board {
         };
         match open(&core, tc, call_id, input) {
             Err(why) => fail(why),
-            Ok((id, said)) => {
+            Ok((id, said, handed)) => {
                 let left = crate::turn::clock_step::left_in_force(tc.session_id);
                 let asked = task_wait::clamp_timeout(&core.cfg, Some(WAIT.as_secs()), left);
                 let ask = WaitAsk {
@@ -335,11 +335,37 @@ impl Board {
                             .to_string(),
                     };
                     out.text = format!("{said}\n{}{tail}", out.text);
+                    out.meta["handed"] = handed;
                     Ok((out, external, media))
                 })
             }
         }
     }
+}
+
+/// The floor `task.fan_out` keeps (`call_floor`, the same function): a task whose default share of what
+/// this conversation has left cannot afford one call of the asked profile's model is refused up front,
+/// in words that say what is left and what one call needs, and nothing is opened.
+fn afford(core: &Core, tc: &TurnCtx<'_>, profile: &str, on: &TargetRef) -> Result<(), String> {
+    let parent = tc
+        .kernel
+        .execution(tc.execution_id)
+        .map_err(|e| format!("{e:#}"))?
+        .ok_or("this session has no execution")?;
+    let carve = task::default_carve(tc.kernel, &parent);
+    let floor = crate::task_fan_out::call_floor(core, &on.model);
+    if carve >= floor {
+        return Ok(());
+    }
+    Err(format!(
+        "Not started: this conversation has {} left, so a task's share of it is {}, and one call of \
+         {profile}'s model ({}) needs at least {}. Nothing was started. Hand the work to a profile that \
+         costs less, or do it when this conversation has more left.",
+        usd(parent.budget.available()),
+        usd(carve),
+        on.model,
+        usd(floor)
+    ))
 }
 
 /// Open the task on the profile; its execution id and the words that say so.
@@ -348,10 +374,11 @@ fn open(
     tc: &TurnCtx<'_>,
     call_id: &str,
     input: &Value,
-) -> Result<(String, String), String> {
+) -> Result<(String, String, Value), String> {
     let (profile, work) = input_of(input)?;
     crate::task_lineage::check_depth(tc.kernel, tc.execution_id)?;
     let on = target_of(core, tc, &profile)?;
+    afford(core, tc, &profile, &on)?;
     let node = owner_message(tc, call_id)?;
     // The task's input is what `task.create` takes, less everything a model may not set here: no
     // budget (a task's default), no wake, no start time, no profile of its own.
@@ -381,5 +408,6 @@ fn open(
         get("short"),
         done.meta["limit_usd"].as_f64().unwrap_or(0.0)
     );
-    Ok((get("execution_id"), said))
+    let handed = json!({"profile": profile, "provider": on.provider, "model": on.model, "task": get("task_id")});
+    Ok((get("execution_id"), said, handed))
 }

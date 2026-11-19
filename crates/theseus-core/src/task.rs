@@ -85,6 +85,17 @@ pub const OPEN_RETIRED: &str = "Not started: open tasks are retired. A task runs
     does, and what keeps a session off a model outside the owner's trust is the labels on it. \
     Start it without `open`.";
 
+/// What a task is carved when the call names no budget: `DEFAULT_SHARE` of what the parent has left. Under a
+/// limit that notifies, of the parent's limit, even once the parent has passed it (theseus-usei).
+pub(crate) fn default_carve(kernel: &theseus_kernel::Kernel, parent: &Execution) -> Micros {
+    let left = parent.budget.available();
+    let share_of = match kernel.overdraws(parent) {
+        true => left.max(parent.budget.limit_micros),
+        false => left,
+    };
+    share_of / DEFAULT_SHARE.1 * DEFAULT_SHARE.0
+}
+
 /// How people name a task: the last six characters of its id.
 pub fn short(task_id: &str) -> String {
     let n = task_id.chars().count();
@@ -607,15 +618,9 @@ pub fn create<'a>(
         None => arranged(tc, &i, &nodes, holder.as_deref())?,
     };
     let left = parent.budget.available();
-    // Under a limit that notifies, a quarter of the parent's limit, even
-    // once the parent has passed it (theseus-usei).
-    let share_of = match tc.kernel.overdraws(&parent) {
-        true => left.max(parent.budget.limit_micros),
-        false => left,
-    };
     let want = match i.budget_usd {
         Some(b) => usd_to_micros(b),
-        None => share_of / DEFAULT_SHARE.1 * DEFAULT_SHARE.0,
+        None => default_carve(tc.kernel, &parent),
     };
     let now = tc.kernel.now_ms();
     let start = match (&i.start_at, &i.start_after) {
