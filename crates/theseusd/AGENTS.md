@@ -103,6 +103,13 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   last checkpoint again, so a record a task the stop never waited for writes after it is not replayed either: the
   driver's `driver.started` row did, when a stop came as the daemon began to serve (theseus-fts6). The stop's
   answer is written before the daemon stops.
+- **The log never blocks the daemon** (`src/logq.rs`): a serving daemon (the socket or `--stdio`) hands each log
+  line, whole, to a queue of at most 8,192 lines and 8 MiB that one thread (`log-writer`) writes to stderr in order.
+  Full, it drops the new line and, once caught up, says how many in one line. It is flushed, each wait bounded, at a
+  clean stop, before a restart's exec, before a failed start's error, and first in the panic hook. The record (the
+  ledger, the store) never goes through it; the commands that run and end write stderr themselves. A debug build's
+  `THESEUS_TEST_LOG_HOLD` and `THESEUS_TEST_WAL_HOLD` name a FIFO that holds the log's or the store's writer inside
+  its write (`theseus_store::hold_by_fifo`), for `tests/log_holds.rs`; a release build has neither.
 - **A serving daemon is a child subreaper** (`children::adopt`): a job's orphans are its to adopt and reap.
 - **One index tender per state dir**, and none outlives its daemon: it holds `<state>/index/LOCK`, exits when the
   daemon's pid does (`--parent`), and after a restart in place the new image takes it over (`children::relearn`
