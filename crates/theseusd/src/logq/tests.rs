@@ -226,13 +226,13 @@ fn a_panic_flushes_the_queue_before_the_hook_it_wraps() {
     let (stop, opener) = open_when_flushed(&log, &sink.gate);
     let seen = Arc::new(Mutex::new(None));
     let wrapped = {
-        let (seen, sink) = (seen.clone(), sink.clone());
+        let seen = seen.clone();
         Box::new(move |_: &std::panic::PanicHookInfo<'_>| {
             *seen.lock().unwrap() = Some(sink.text().lines().count());
         })
     };
     let before = std::panic::take_hook();
-    std::panic::set_hook(flushing(wrapped, log.clone()));
+    std::panic::set_hook(flushing(wrapped, log));
     let _ = std::panic::catch_unwind(|| panic!("a test's panic"));
     std::panic::set_hook(before);
     stop.store(true, SeqCst);
