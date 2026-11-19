@@ -26,7 +26,8 @@
 //!   place draws its board (`Shared::sched_target`). Elsewhere the place's own
 //!   board shows its own reminders, as before.
 //! - **A press** on a card is `wake.cancel` or `wake.snooze` as the presser
-//!   (`Shared::card_press`), after the gate every press on a place passes: the
+//!   (`Shared::card_press`), or `task.cancel` or `task.reschedule` for a task
+//!   set to start later, after the gate every press on a place passes: the
 //!   home's people are the owners. A routine's buttons are the board's.
 
 use std::collections::HashMap;
@@ -75,7 +76,7 @@ const LATE_MS: u64 = 3_600_000;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Rec {
     pub id: String,
-    /// `reminder`, `check-in` or `routine`.
+    /// `reminder`, `check-in`, `routine` or `task`.
     pub kind: String,
     pub title: String,
     #[serde(default)]
@@ -92,7 +93,7 @@ pub(crate) struct Rec {
     pub snoozed: bool,
     #[serde(default)]
     pub ended_ms: Option<u64>,
-    /// Who cancelled it, when a press did.
+    /// Who cancelled it, from a press or the item's own record.
     #[serde(default)]
     pub by: Option<String>,
     /// The digest of the card as last sent.
@@ -105,7 +106,7 @@ pub(crate) struct Rec {
 pub(crate) struct Sched {
     /// Each item's face as last drawn, for the forum post's card.
     faces: Mutex<HashMap<String, Face>>,
-    /// Who cancelled a wake by a press, until its card says so.
+    /// Who cancelled a wake or a task by a press, until its card says so.
     cancelled_by: Mutex<HashMap<String, String>>,
 }
 
