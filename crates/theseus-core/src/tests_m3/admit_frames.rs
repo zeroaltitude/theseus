@@ -216,6 +216,67 @@ async fn a_stop_while_the_turn_is_held_ends_it_with_no_dispatch() {
     assert!(e.stopped.is_none(), "the end clears the mark");
 }
 
+/// A `/stop` whose notice the input's turn took before the kernel's stop ran:
+/// the notice lands while the turn holds its execution (the lane lets a stop
+/// through once its input holds, so this is where a stop sent right after a
+/// message meets it), the turn stops itself on it at its admission and ends,
+/// and the stop's own kernel step then finds the execution parked and no turn.
+/// The answer still says a turn was running: the stop reached one, as it does
+/// when the kernel's step comes first. It said `turn_running: false`, which
+/// the terminal's stop line and the session's own "Stopped by" line worded as
+/// a stop that had no turn to end (issue 20, the third pass: 17 of 600 runs of
+/// `rpc::tests_ordered::a_stop_after_an_input_reaches_its_running_turn` beside
+/// 64 busy loops). The hook lands the notice and nothing waits on a clock: the
+/// order of the three steps is the test's.
+#[tokio::test]
+async fn a_stop_whose_notice_the_turn_took_answers_that_a_turn_was_running() {
+    let r = rig(vec![Scripted::text("first"), Scripted::text("never sent")]);
+    let landed: Arc<std::sync::Mutex<Option<std::time::Instant>>> = Arc::default();
+    let into = landed.clone();
+    let (res, _sid, exec) = held_with(&r, move |core, id| {
+        *into.lock().unwrap() = Some(core.runner.stop_landed(id, "operator"));
+    })
+    .await;
+    assert_eq!(res.expect("a stopped turn ends").stop_reason, "stopped");
+    assert_eq!(dispatched(&r.core, &exec), 1, "only the first turn's call");
+    let e = r.core.kernel.execution(&exec).unwrap().unwrap();
+    assert!(
+        e.state == theseus_kernel::ExecState::Waiting && !r.core.kernel.holds_turn(&exec),
+        "the turn has gone: {e:?}"
+    );
+    let landed = landed.lock().unwrap().expect("the hook ran");
+    let stop = r
+        .core
+        .stop_after_landing(&exec, "operator", false, landed)
+        .await
+        .unwrap();
+    assert!(stop.stopped, "{stop:?}");
+    assert!(stop.turn_running, "the turn took this stop: {stop:?}");
+}
+
+/// The answer to a stop speaks for that stop alone: one nobody took, sent
+/// when the execution is idle, finds no turn, and a stop whose notice a turn
+/// took does not make the next one say so (its notice is a later stamp).
+#[tokio::test]
+async fn a_stop_no_turn_took_answers_that_none_was_running() {
+    let r = rig(vec![Scripted::text("first"), Scripted::text("never sent")]);
+    let landed: Arc<std::sync::Mutex<Option<std::time::Instant>>> = Arc::default();
+    let into = landed.clone();
+    let (res, _sid, exec) = held_with(&r, move |core, id| {
+        *into.lock().unwrap() = Some(core.runner.stop_landed(id, "operator"));
+    })
+    .await;
+    res.expect("a stopped turn ends");
+    let first = landed.lock().unwrap().expect("the hook ran");
+    assert!(r.core.runner.stop_taken_by_a_turn(&exec, first));
+    let again = r.core.stop_execution(&exec, "operator").await.unwrap();
+    assert!(again.stopped && !again.turn_running, "{again:?}");
+    assert!(
+        !r.core.runner.stop_taken_by_a_turn(&exec, first),
+        "the first notice is no longer the latest"
+    );
+}
+
 /// The input's frame is the turn's start whole or not at all: when it fails
 /// (as a full disk fails it), nothing of it is written, and the turn's one
 /// exit (a fault) admits and ends the held turn in its end's frame, as the
