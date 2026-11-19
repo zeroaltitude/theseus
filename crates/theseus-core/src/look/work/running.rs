@@ -24,11 +24,16 @@ pub(super) async fn running(core: &Arc<Core>, r: &Reader<'_>, here: bool) -> Str
         .filter(|v| v.kind == SessionKind::Conversation && v.attention.level == Level::Working)
         .filter(|v| !here || v.session_id == r.here)
         .collect();
+    let system = (!here).then(|| system_words(core)).flatten();
+    let own = system
+        .map(|w| format!("The daemon's own work: {w}\n"))
+        .unwrap_or_default();
     if mine.is_empty() {
-        return match here {
-            true => "Running: this conversation is not working just now.\n".into(),
-            false => "Running: no conversation is working just now.\n".into(),
+        let none = match here {
+            true => "Running: this conversation is not working just now.\n",
+            false => "Running: no conversation is working just now.\n",
         };
+        return format!("{none}{own}");
     }
     mine.sort_by_key(|v| {
         (
