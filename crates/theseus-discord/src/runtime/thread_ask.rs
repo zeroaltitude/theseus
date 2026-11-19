@@ -26,9 +26,7 @@ use twilight_model::channel::message::component::{
     ActionRow, Button, ButtonStyle, Component, SelectMenu, SelectMenuOption, SelectMenuType,
 };
 use twilight_model::channel::message::AllowedMentions;
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
+use twilight_model::http::interaction::InteractionResponseType;
 use twilight_model::id::Id;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 

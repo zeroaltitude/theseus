@@ -18,9 +18,7 @@ use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle};
 use twilight_model::channel::message::{AllowedMentions, Component, MessageFlags};
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
+use twilight_model::http::interaction::InteractionResponseData;
 use twilight_util::builder::command::CommandBuilder;
 
 use super::{Control, Place, PlaceMsg, Shared};

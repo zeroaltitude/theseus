@@ -21,10 +21,6 @@ use twilight_model::application::interaction::application_command::{
     CommandDataOption, CommandOptionValue,
 };
 use twilight_model::application::interaction::{Interaction, InteractionData};
-use twilight_model::channel::message::{AllowedMentions, MessageFlags};
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
 use twilight_util::builder::command::{CommandBuilder, StringBuilder, SubCommandBuilder};
 
 use std::sync::Arc;

@@ -20,10 +20,7 @@ use theseus_protocol::answer::{WorkAnswerParams, WorkAnswerResult};
 use theseus_protocol::{method, DiscordOrigin};
 use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
-use twilight_model::channel::message::{AllowedMentions, MessageFlags};
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
+use twilight_model::http::interaction::InteractionResponseType;
 
 use super::Shared;
 

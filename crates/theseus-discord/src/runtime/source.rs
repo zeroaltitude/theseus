@@ -11,10 +11,7 @@
 use theseus_protocol::cite::{is_handle, MemoryCitesParams, MemoryCitesResult};
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle};
-use twilight_model::channel::message::{AllowedMentions, Component, MessageFlags};
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
+use twilight_model::channel::message::Component;
 
 use theseus_core::exits::Exits;
 use theseus_protocol::cite::Citation;
