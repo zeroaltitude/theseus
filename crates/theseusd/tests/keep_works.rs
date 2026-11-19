@@ -40,9 +40,17 @@ impl Rig {
             std::env::var("PATH").unwrap_or_default()
         );
         let base = model.base.clone();
+        // The model's keys are files holding a stand-in: the vault's program is the daemon's keeping alone.
+        let key = vault.path().join("model-key");
+        std::fs::write(&key, "test-secret-value-0000").unwrap();
+        std::fs::set_permissions(&key, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+            .unwrap();
         let s = Served::start_with(
             |_| {},
             move |t| {
+                for (_, v) in table(t, "secrets").iter_mut() {
+                    *v = format!("file:{}", key.display()).into();
+                }
                 table(t, "model").insert("api_base".into(), base.clone().into());
                 for (_, p) in table(t, "providers").iter_mut() {
                     p.as_table_mut()
