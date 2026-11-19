@@ -395,7 +395,7 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   by default): a greeting or a thank-you goes to Haiku, chat stays on the session's own model, deep coding goes to Opus
   5.5, the most sophisticated work to Fable, and routine coding to GLM-5.3. (Since 1.0.7 the `fable` choice is
   Fable 5.2: Jev's pick runs the profile that names that model, and a config whose `[profiles.fable]` still says
-  Fable 5.1 is warned at each start, and in `theseusd check`, to change that line.) A routed session keeps its
+  Fable 5.1 is warned at each start, and in `theseusd check`, to change that line.) Claude Mythos 5.2 (`claude-mythos-5-2`, which Anthropic offers only to organizations it has verified) is on the model list with the figures Anthropic publishes for it, and the example configuration shows a commented profile that pins it; Jev never chooses it. A provider's "not found" or "permission denied" for a model is told in plain words that say which it was. A routed session keeps its
   move only while `route.v1` acts, and `profile.use` moves it back (Items 139 and
   150); it keeps the base it was moved from, across a restart, and follows a change of that base, and each loop
   records one compile and one start (Item 181). A request the model refuses is retried once on its fallback, Sonnet 5 for Sonnet 5.5

@@ -163,6 +163,14 @@ max_loops = 40
 # model = "claude-fable-5-1"
 # thinking_display = "summarized"
 
+# Claude Mythos 5.2, for a pin only (`-P mythos`): Anthropic offers it to the organizations it has
+# verified, so a key that is not one of them is answered "not found" or "permission denied", and Theseus
+# says which. The router never chooses it. Its window, output limit and prices are the ones Anthropic
+# publishes for it, in the model list's row.
+# [profiles.mythos]
+# provider = "anthropic"
+# model = "claude-mythos-5-2"
+
 # GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial): a pin only.
 [profiles.glm53]
 provider = "zai"
