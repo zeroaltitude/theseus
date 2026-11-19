@@ -3,6 +3,7 @@
 
 use serde_json::json;
 
+use super::tasks::{question_line, task_line};
 use super::*;
 
 /// No part named is all of them, in order; a part named once, whatever order; a part that is not one,
@@ -73,4 +74,58 @@ fn a_line_is_clipped_and_the_whole_answer_is_cut_and_says_so() {
     assert!(shown.chars().count() < TOTAL_CHARS + 120, "{}", shown.len());
     assert!(shown.contains("[cut at 8000 characters"), "{shown}");
     assert_eq!(cut("short".into(), 100), "short");
+}
+
+/// A caller may name a scope: the default is the whole of Theseus's work, `here` is this conversation's, and
+/// the list of parts is six, history last.
+#[test]
+fn the_scope_is_global_unless_it_says_here() {
+    assert!(!ask_of(&json!({})).unwrap().here);
+    assert!(!ask_of(&json!({"scope": "all"})).unwrap().here);
+    let here = ask_of(&json!({"scope": " here "})).unwrap();
+    assert!(here.here);
+    assert_eq!(
+        here.summary(),
+        format!("{} (this conversation)", PARTS.join(", "))
+    );
+    for bad in [json!({"scope": "elsewhere"}), json!({"scope": ["here"]})] {
+        assert!(ask_of(&bad).is_err(), "{bad}");
+    }
+    assert_eq!(PARTS.last(), Some(&"history"));
+}
+
+/// The harness is named for its own words alone; a task's report, a wake's note and the rest carry other
+/// words and say what they are (`content::harness_own`).
+#[test]
+fn a_message_is_named_for_what_it_is() {
+    use crate::node::Origin;
+    let own = crate::content::HARNESS_AUTHORS[0];
+    assert_eq!(history::who(Origin::Operator, None), "the owner");
+    assert_eq!(history::who(Origin::Harness, Some(own)), "the harness");
+    assert_eq!(
+        history::who(Origin::Harness, Some("task:ses_a1b2c3")),
+        "a task's report"
+    );
+    assert_eq!(
+        history::who(Origin::Harness, Some("wake:wak_x")),
+        "a wake's note"
+    );
+    assert_eq!(
+        history::who(Origin::Harness, Some("harness:end_note")),
+        "a note that carries other words"
+    );
+    assert_eq!(
+        history::who(Origin::Harness, None),
+        "a note that carries other words"
+    );
+    assert_eq!(history::who(Origin::Agent, None), "a message");
+}
+
+/// A control character is no part of a line, and every part is capped: nothing else can enlarge the answer.
+#[test]
+fn a_line_has_no_control_characters_and_the_caps_hold_the_answer() {
+    assert_eq!(clip("a\u{1b}[31mb\u{0}c", 20), "a [31mb c");
+    const { assert!(TOTAL_CHARS < ANSWER_CHARS) };
+    assert_eq!(ANSWER_CHARS, 24_000);
+    assert_eq!(TOTAL_CHARS, 8_000);
 }

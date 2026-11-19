@@ -56,6 +56,8 @@ use crate::Config;
 
 pub mod admission;
 mod admit_step;
+mod admit_wait;
+pub use admit_wait::AdmitWaiting;
 pub(crate) mod advance_step;
 #[cfg(test)]
 pub(crate) use admit_step::admit_hook;
@@ -185,6 +187,9 @@ pub struct TurnRunner {
     /// who sent it (theseus-hmwv): an input that arrived before it, and
     /// whose turn is admitted after it, is stopped as its turn starts.
     pub latest_stops: std::sync::Mutex<std::collections::HashMap<String, StopNotice>>,
+    /// The input turns waiting in `admit()`: a stop reaches them
+    /// (`AdmitWaiting`).
+    pub admit_waiting: AdmitWaiting,
     /// Each place's class (the place rule, theseus-nbsh): the places the
     /// binding binds, as it told the core at its start.
     pub place_rule: crate::places::PlaceRule,

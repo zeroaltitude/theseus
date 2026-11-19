@@ -396,14 +396,19 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
         crate::tests_route::turn(&r.core, Some(&sid), SAID, None).await;
         took.push(t0.elapsed());
     }
+    // Both bounds are held by the factor read before the two turns. A red
+    // says what the machine reads as now, so a run whose load moved between
+    // the two turns reads as that.
     assert!(
         took.iter()
             .all(|t| *t < Duration::from_millis(1_000) * busy),
-        "the turn did not wait for the batch: {took:?}"
+        "the turn did not wait for the batch: {took:?} (busy x{busy} before, x{} now)",
+        theseus_tools::busy_factor()
     );
     assert!(
         took[1] < took[0] + Duration::from_millis(500) * busy,
-        "onto.v1 added no wait: {took:?}"
+        "onto.v1 added no wait: {took:?} (busy x{busy} before, x{} now)",
+        theseus_tools::busy_factor()
     );
 }
 

@@ -39,7 +39,8 @@ pub struct Stop {
     pub to_kill: Vec<CorrelationId>,
     /// The planned calls, approvals, and budget question that will not run.
     pub declined: Vec<Action>,
-    /// A turn held the execution: it ends at its next step.
+    /// A turn held the execution, or the caller named one the stop reached:
+    /// that turn ends at its next step, or has ended already.
     pub turn_running: bool,
 }
 
@@ -58,6 +59,22 @@ impl Kernel {
         execution_id: &str,
         by: &str,
         keep: &[String],
+    ) -> Result<Option<Stop>> {
+        self.stop_execution_reaching(execution_id, by, keep, false)
+    }
+
+    /// `stop_execution_keeping`, for a caller that knows a turn the stop
+    /// reaches although none holds the execution now (`reached`): an input's
+    /// turn still waiting for admission, which stops itself on the stop's
+    /// notice once admitted, or one that took the notice and ended before
+    /// this step. The stop's answer, its `execution.stopped` row and the
+    /// session's note then all say a turn was running.
+    pub fn stop_execution_reaching(
+        &self,
+        execution_id: &str,
+        by: &str,
+        keep: &[String],
+        reached: bool,
     ) -> Result<Option<Stop>> {
         let _w = self.lock_family(execution_id)?;
         let mut e = self
@@ -120,8 +137,9 @@ impl Kernel {
         // running one is: its admission keeps the mark, so its first step is
         // refused, where parking the execution here would leave it for the
         // admission's wake to undo.
-        let turn_running = e.state == ExecState::Running || self.holds_turn(&e.id);
-        if turn_running {
+        let held = e.state == ExecState::Running || self.holds_turn(&e.id);
+        let turn_running = held || reached;
+        if held {
             // The turn holds the execution: its next step is refused, and its
             // end parks it on input.
             if e.stopped.is_none() {
