@@ -69,6 +69,32 @@ struct Input {
     purpose: String,
 }
 
+/// The card's first line: where the value is typed. A place that cannot carry a value offers only
+/// Decline, so the card must say first what to do instead.
+pub const HEAD: &str = "Type the value in your own terminal: run `theseus vault keep` (nothing is shown as you \
+     type). There is no Approve here: a yes carries no value, so this card offers only Decline. In the \
+     cockpit, the card has a field for the value.\n";
+
+/// What replaces [`HEAD`] in the owner's Discord direct messages while `[vault] keep_by_discord` is on
+/// (issue 29): the form is one more place, and the next line says what it costs.
+pub const HEAD_FORM: &str = "Type the value in your own terminal (run `theseus vault keep`; nothing is shown as you \
+     type), or press \"Type the value here\" to type it in a form in this chat. In the cockpit, the card has a \
+     field for the value.\n\
+     A value typed in the form goes through Discord's servers on its way to Theseus, and the form shows what you \
+     type; the terminal does neither.\n";
+
+/// The label of the button that opens the form.
+pub const FORM_BUTTON: &str = "Type the value here";
+
+/// The card's words for the owner's Discord direct messages: [`HEAD`] replaced by [`HEAD_FORM`]. None
+/// for words that do not begin with [`HEAD`] (a card drawn by another build): such a card is
+/// drawn as it is, with no form, so the line about the chat service is never missing from a card that has one.
+pub fn with_form(words: &str) -> Option<String> {
+    words
+        .strip_prefix(HEAD)
+        .map(|rest| format!("{HEAD_FORM}{rest}"))
+}
+
 /// The card, whole: what is kept where, whether it replaces, where the value is
 /// typed, and what a value typed in chat comes to.
 pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> String {
@@ -78,13 +104,11 @@ pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> Stri
         State::Adds => "a new field in an item that is already there",
         State::Replaces => "the field that is already there",
     };
-    // The first words are where the value is typed: a place that cannot carry a value (Discord
-    // today) offers only Decline, so the card must say first what to do instead.
+    // The first words are where the value is typed: a place that cannot carry a value offers only
+    // Decline, so the card must say first what to do instead (the owner's Discord direct messages
+    // swap them for `HEAD_FORM`, `with_form`).
     let mut out = format!(
-        "Type the value in your own terminal: run `theseus vault keep` (nothing is shown as you \
-         type). There is no Approve here: a yes carries no value, so this card offers only \
-         Decline. In the cockpit, the card has a field for the value.\n\
-         Keep a secret in the vault?\nIn the vault \"{}\": item \"{}\", field \"{}\" ({what}).\n",
+        "{HEAD}Keep a secret in the vault?\nIn the vault \"{}\": item \"{}\", field \"{}\" ({what}).\n",
         t.vault, t.title, t.field
     );
     if t.replaces() {

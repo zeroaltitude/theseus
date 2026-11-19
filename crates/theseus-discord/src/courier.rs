@@ -21,7 +21,7 @@
 //! waits until the place has shown its call (`LaneMsg::Asked`), at most
 //! `CARD_WAIT`; what the place showed before that goes first.
 
-mod ask;
+pub(crate) mod ask;
 mod board;
 mod catchup;
 mod held;
@@ -249,6 +249,7 @@ fn asks(w: &Write) -> bool {
         w.buttons,
         Buttons::Confirm(_)
             | Buttons::Decline(_)
+            | Buttons::KeepForm(_)
             | Buttons::Card(..)
             | Buttons::Ask(..)
             | Buttons::ConfirmGrant(..)
@@ -1207,11 +1208,7 @@ impl Lane {
         };
         let channel = self.place_channel().await?;
         let route = self.route().await?;
-        // A question that needs the owner's second proof says, before the press,
-        // whether the place's earlier proof covers it or a code is asked.
-        if let (true, Some(place)) = (req.needs_proof, self.press_place(&route)) {
-            req.proof = Some(core.proof_standing(&place, req.needs_fresh_proof));
-        }
+        self.prepare(&mut req, &route);
         let elsewhere = theseus_core::approval::elsewhere(core.cfg.web.enabled);
         let mut card = render::card(&req, &route, elsewhere);
         let mut note = render::card_note(&route, &card.line, elsewhere);
@@ -1988,6 +1985,7 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => confirm_buttons(corr),
             Buttons::Decline(corr) => crate::runtime::decline_buttons(corr),
+            Buttons::KeepForm(corr) => crate::runtime::keep_form::buttons(corr),
             Buttons::Ask(corr, choices) => crate::runtime::ask_buttons(corr, choices),
             Buttons::Card(corr, choices) => crate::runtime::card_buttons(corr, choices),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
@@ -2065,6 +2063,7 @@ impl Lane {
         let comps = match buttons {
             Buttons::Confirm(corr) => Some(confirm_buttons(corr)),
             Buttons::Decline(corr) => Some(crate::runtime::decline_buttons(corr)),
+            Buttons::KeepForm(corr) => Some(crate::runtime::keep_form::buttons(corr)),
             Buttons::Ask(corr, choices) => Some(crate::runtime::ask_buttons(corr, choices)),
             Buttons::Card(corr, choices) => Some(crate::runtime::card_buttons(corr, choices)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),

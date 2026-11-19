@@ -333,16 +333,24 @@ pub fn card_body(
 /// A settings question's words for its needs-you post, or null for any other.
 fn settings_of(a: &Action, req: &ConfirmRequest) -> serde_json::Value {
     match req.plain.as_ref().filter(|p| !p.detail.is_empty()) {
-        Some(p) => json!({
-            "detail": p.detail,
-            "needs_proof": req.needs_proof,
-            "needs_fresh_proof": req.needs_fresh_proof,
-            "short": short_id(&a.correlation_id),
-            // No yes is offered (a secret to keep takes a value no button carries): the post
-            // says where the value is typed and offers a Decline alone.
-            "no_yes": !req.options.is_empty()
-                && !req.options.iter().any(|o| theseus_protocol::answer::approves(&o.id)),
-        }),
+        Some(p) => {
+            let mut s = json!({
+                "detail": p.detail,
+                "needs_proof": req.needs_proof,
+                "needs_fresh_proof": req.needs_fresh_proof,
+                "short": short_id(&a.correlation_id),
+                // No yes is offered (a secret to keep takes a value no button carries): the post
+                // says where the value is typed and offers a Decline alone.
+                "no_yes": !req.options.is_empty()
+                    && !req.options.iter().any(|o| theseus_protocol::answer::approves(&o.id)),
+            });
+            // A secret to keep: the owner's Discord direct messages may add a form (issue 29).
+            // Marked only when it is one, so no other post's body changes.
+            if crate::config_change::vault_keep::is_keep(a) {
+                s["keep"] = json!(true);
+            }
+            s
+        }
         None => serde_json::Value::Null,
     }
 }

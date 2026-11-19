@@ -77,8 +77,14 @@ item, adds a field or replaces a value. Then give the value yourself, where only
 (nothing is shown as you type) or the card's field in the cockpit, with a code from your authenticator app (a fresh one for a replace).
 The value never goes to the model, a card or a record; Theseus writes it with its own account, reads it back, and tells you where it is
 by name. Do not paste a secret into chat: it is then with the model's provider and in Theseus's record. An item Theseus's own settings
-read is replaced only from your terminal: `theseus vault keep --vault V --item T --field F`. There is no Discord form yet
-(`docs/design/vault-keep.md`).
+read is replaced only from your terminal: `theseus vault keep --vault V --item T --field F`.
+
+**In your Discord direct messages only**, the keep card also has a button, "Type the value here", that opens a form with one field. The
+card says so before you press: a value typed in that form goes through Discord's servers on its way to Theseus, the form does not hide
+what you type (Discord's text field has no hidden style), and the terminal does neither. In any other place the card has a Decline and
+says where to type. `[vault] keep_by_discord` (true by default, your yes of 2026-11-19) turns the form off: the card is then the
+terminal's and the cockpit's alone, and a value sent from Discord is refused. Changing it asks for the code, as the other settings
+that decide where a secret goes (`docs/design/vault-keep.md`).
 
 A fact its maker publishes (a model's exact name, a provider's address and protocol, a server's command) Theseus may look up
 on the web instead of asking you. It puts it on the card with where it says it found it, under that setting, in the words
@@ -102,7 +108,8 @@ a setting nobody has classified counts as sensitive):
 - which AWS accounts, Google access and secrets broker it uses;
 - where Theseus listens and keeps its state;
 - self-improvement: its mode, its budget, and what it may change;
-- the proof itself, and attaching or removing an MCP server.
+- the proof itself, and attaching or removing an MCP server;
+- where a secret's value may be typed (`[vault] keep_by_discord`, below).
 
 Some of those ask for a **fresh code every time**, whatever else is open: a change to who the owner is (`[places]
 owner`, and `[discord] bindings_file`, the file that says who the owner is on Discord), a change to where Theseus keeps

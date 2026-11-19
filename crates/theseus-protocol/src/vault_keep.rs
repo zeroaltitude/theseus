@@ -56,6 +56,16 @@ pub struct VaultKeepAnswerParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub from_job: Option<String>,
+    /// Who gave it, as the Discord binding names the presser of a form. Only
+    /// that binding's connection may name one; the daemon judges it as it
+    /// judges every press (`DiscordOrigin`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    /// Where the binding read the press: the presser's user and channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// `vault.keep`: the owner keeps a secret from their own terminal, with no
@@ -205,7 +215,7 @@ mod tests {
             question_id: "act_1".into(),
             value: value.clone(),
             code: Some(ProofCode::new("123456")),
-            from_job: None,
+            ..Default::default()
         };
         let direct = VaultKeepParams {
             vault: "v".into(),

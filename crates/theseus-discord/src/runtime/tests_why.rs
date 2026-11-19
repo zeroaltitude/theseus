@@ -23,7 +23,18 @@ use theseus_core::approval::{Client, Surface};
 /// A core whose model answers from `script` and whose tools ask first, with
 /// its Discord REST at the fake.
 pub(super) fn core_at(dir: &std::path::Path, rest: &str, script: Vec<Scripted>) -> Arc<Core> {
+    core_at_with(dir, rest, script, |_| {})
+}
+
+/// `core_at`, with `tweak` applied to the config first.
+pub(super) fn core_at_with(
+    dir: &std::path::Path,
+    rest: &str,
+    script: Vec<Scripted>,
+    tweak: impl FnOnce(&mut theseus_core::Config),
+) -> Arc<Core> {
     let mut cfg = theseus_core::Config::example();
+    tweak(&mut cfg);
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     let work = dir.join("work");
     std::fs::create_dir_all(&work).unwrap();

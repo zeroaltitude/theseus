@@ -6,7 +6,9 @@ taken back. So the value is given **in a surface's own form**, as a request of i
 its own account. The design note this follows was answered by the owner's side: a new item needs the second proof (a window
 may cover it); a replace needs a fresh code every time; an item Theseus's own settings read is replaced only from the owner's
 terminal; no detector of key-shaped text, the scrubber is not widened; two cards, keep then use. Whether a durable secret may
-travel through Discord's form is the owner's call, still open: **there is no Discord form.**
+travel through Discord's form was the owner's call; on 2026-11-19 he said yes ("let's add the discord form"): **the form exists, in
+his direct messages with Theseus only, and `[vault] keep_by_discord` (true by default) turns it off** (see "The form in the owner's
+direct messages" below).
 
 ## The tool and its card
 
@@ -28,7 +30,7 @@ An item that a `[secrets]` entry or the settings note reads is never replaced by
 |---|---|---|
 | The owner's terminal | `theseus vault keep` (the card waiting, or `<id>`): a hidden prompt, echo off for the read and restored on drop; a pipe, a capture, a redirected standard error and a Theseus job's shell are refused, by the daemon, in words | the daemon's own socket (mode 0600) |
 | The cockpit | a password field on the card and a "Keep it" button; cleared as it is sent | the web port, as the owner's own page |
-| Discord | **none, until the owner decides**: the card says first where the value is typed and offers only Decline; no form opens (a press of Approve on a card drawn before issue 29 says where the value is typed, `proof_form.rs`) | |
+| Discord | in the owner's direct messages only, a form the card's "Type the value here" button opens (`runtime/keep_form.rs`); anywhere else the card says first where the value is typed and offers only Decline, and no form opens (a press of Approve on a card drawn before issue 29 says where the value is typed, `proof_form.rs`) | Discord's servers, as the card says before the press |
 
 ## The card, the terminal and the record (issue 29)
 
@@ -105,8 +107,40 @@ outside text is asked at the gate first, before the vault is listed). Supply a v
 owner pressed (the request names only the question, and the target is re-found). Read a value back (nothing returns one).
 Replace an item the settings read (refused). Overwrite another item (shown on the card; a fresh code every time).
 
-## Deferred, not built
+## The form in the owner's direct messages (issue 29, the owner's yes of 2026-11-19)
 
-The Discord form: one commit when the owner says yes, a modal whose submit sends `vault.keep.answer`. The words of the card and of
-`proof_form.rs`'s press change with it. After a keep, the turn is told by the settled card, not woken: the owner asks for the use
-(`vault.use`, the second card).
+- **Where.** A keep card drawn in a direct message with the owner, with `[vault] keep_by_discord` on, swaps its first words
+  (`vault_keep::HEAD`) for `HEAD_FORM` and gains a button, "Type the value here", beside Decline (`keep_form::offer`; the needs-you
+  post, which always goes to the owner's direct messages, draws the same through `needs_you_body`). Every other drawing of the card (a
+  channel, a card drawn by another build whose words differ, the setting off, the `/answer` view) is what it was: a Decline, and the
+  first words say where the value is typed. A card the form was not drawn for has no form to press.
+- **What the card says before the press**, in one plain line: a value typed in the form goes through Discord's servers on its way to
+  Theseus, and the form shows what is typed; the terminal does neither. Discord's text field has no hidden style (`TextInputStyle` is
+  Short or Paragraph, checked in the library), so the card does not claim the form hides the text. The terminal and the cockpit are
+  still named in the same words.
+- **The form.** The press lists the cards as the presser and opens a modal for the one card that matches (a V2 card's id is its last
+  six characters, so a press that names two cards opens nothing). One field for the value, labelled "Value for <title>, field <field>"
+  (45 characters, clipped with an ellipsis as `proof_form.rs` clips) with the vault named in the description; when the daemon says a
+  code is needed (a new item whose window does not cover it, or a replace, which always needs a fresh one) the form has a field of its
+  own for it, so a code and a value are never one field. Choice: one form with two fields, not two forms in turn, because a second
+  form would leave the value waiting in the binding between them; a wrong code costs the owner retyping the value, which is then
+  dropped, and the card keeps waiting.
+- **The submit** is `vault.keep.answer {question_id, value, code, author, discord}`: the question from the form's id, the value in a
+  `SecretText`, and the presser as the binding read it off the press. The daemon judges it as every press is (`judge_act`: an owner,
+  a private place, the place rule; no agent's process), then by `keep_place`: on a transport **a direct message with the owner alone**
+  (`places::owner_in_person_of`, the rule a repository's trust takes: a channel bound private is refused, though the other answers
+  take it), and only while `keep_by_discord` is on. Then the checks above (open, single use, expiry, blank, 4 KiB, trimmed, the target
+  re-found, the second proof only when a write will be tried). The target is the one the question recorded.
+- **What is written.** Every attempt writes the rows the terminal's writes: `kept`, `not_written`, `changed` and the like, and
+  `stopped` with a class (`place`, `setting_off`, `proof`, `blank`, ...); the binding adds a `discord.confirm` row with the outcome
+  and the daemon's refusal and never a field. None holds the value, its length, a prefix or a digest.
+- **The reply** to the presser is private and is the daemon's words by name (or its refusal); the card is edited to its outcome by
+  the daemon's own settle, as the terminal's keep is. The turn is told by the settled card, not woken: the owner asks for the use
+  (`vault.use`, the second card).
+- **The setting.** `[vault] keep_by_discord`, default true. Off: the card is drawn as above for a channel (no form, no line about
+  the chat service), a press says it is off and asks the daemon nothing, and a submit is refused (`setting_off`). It is classified as
+  a sensitive table (`config/sensitivity.rs`): a change to it is a card with the second proof.
+
+The proof: `config_change/vault_keep/tests/tests_form.rs` (the daemon, from the Discord surface, against the stand-in vault: the
+planted value, every refusal), `runtime/keep_form/tests.rs` (the drawn card and form, with a golden; the binding's one request) and
+`crates/theseusd/tests/keep_form.rs` (a real daemon, the fake gateway and the stand-in vault, end to end).

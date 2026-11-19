@@ -1101,7 +1101,11 @@ impl FakeDiscord {
     /// The interaction's id; what the binding answered is `replies()`.
     pub fn modal(&self, m: &Modal<'_>) -> Result<String, String> {
         let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
-        let (at, iid) = self.next_interaction(m.channel);
+        let (mut at, iid) = self.next_interaction(m.channel);
+        // A form submitted in a direct message is from no guild, as a press there is.
+        if self.state.lock().unwrap().dms.contains_key(&m.channel) {
+            at.guild = None;
+        }
         let token = format!("{TOKEN_PREFIX}{iid}");
         let i = fake_gateway::Interaction {
             id: iid,

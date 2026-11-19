@@ -119,6 +119,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: VaultCmd) -> Result<()> {
                 value,
                 code,
                 from_job: None,
+                ..Default::default()
             };
             conn.call(
                 method::VAULT_KEEP_ANSWER,
