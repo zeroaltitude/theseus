@@ -72,7 +72,7 @@ fn settled_ledger_end(dir: &std::path::Path) -> (u64, u64) {
         std::thread::sleep(pause);
         let now = ledger_end(dir);
         // Three reads in a row the same: two did agree while ten rows were still to come (105 rows against
-        // 95 at the end, one run in twenty under 64 burners).
+        // 95 at the end, one run in twenty under 64 burners; the memory pass's, which the rig now turns off).
         agreed = if now == last { agreed + 1 } else { 0 };
         if agreed >= 2 || std::time::Instant::now() > deadline {
             return now;
@@ -158,7 +158,18 @@ fn rig(tweak: impl FnOnce(&mut toml::Table)) -> Rig {
 
 #[test]
 fn why_reads_the_last_turn_and_an_older_one_by_its_id_and_writes_nothing() {
-    let r = rig(|_| {});
+    // The memory pass labels a turn's nodes in frames of its own, between turns and when the machine lets
+    // it: ten `memory.labeled` and `memory.gated` rows, a second or more after the turns had ended, in one
+    // run of eight beside 64 busy loops (theseus-20, the third pass). It is a writer this test is not
+    // about, and no quiet window outlasts it, so it is off here; `why`'s own reading of recall is the next
+    // test's.
+    let r = rig(|t| {
+        t.entry("memory")
+            .or_insert_with(|| toml::Value::Table(Default::default()))
+            .as_table_mut()
+            .unwrap()
+            .insert("mode".into(), "off".into());
+    });
     let dir = r.dir.path();
     let first = ask(dir, "read the notes, then say what they hold", None);
     let sid = first["session_id"].as_str().unwrap().to_string();
