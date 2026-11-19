@@ -43,6 +43,21 @@ Everything this tool can set in motion was already reachable by the same turn.
 | Starting a task with no card where `task.create` asks | the hand-over asks when `task.create` is on `approve` (`ask_if_task_asks`), and after outside text as the other profile tools do | `where_a_task_asks_first_so_does_the_hand_over`, `the_hook_touches_only_the_hand_over_and_only_where_a_task_asks` |
 | Who may call it | the wall (`config_change::wall`): refused to a shared place, a participant who is not the owner, a task, a routine, the self loop and an MCP session; it is also in `routine::grant::NEVER` | `a_task_may_not_hand_work_to_a_profile`, the wall's own tests (`every_other_caller_is_refused_in_its_own_words`) |
 
+## Second pass: the floor, the card, the day, a restart, `theseus why`
+
+- **The floor.** A task's default share (`task::default_carve`, a quarter of what the conversation has left) must pay for one call of the
+  asked profile's model by `task_fan_out::call_floor`, the function `task.fan_out` uses. Where it cannot, the hand-over is refused
+  before anything opens, in words that say what is left and what one call needs. Without it a failed task spoke as the agent.
+- **A card the agent raises** is the owner's: the asking turn's answer tool is offered only what waited when the turn began, so a
+  card the agent raises afterwards cannot be answered by that turn's model; the owner's own press answers it and the agent goes on.
+- **The day.** The agent's calls are a task's provider calls, held and settled on the day's ceiling like any call. Under the stop mode a
+  hand-over past the ceiling, and under notify one past the runaway line, is refused as a task's own call is: the call is not made, the
+  day's row says it was a task's, and the agent speaks as one that did not finish.
+- **A restart** between the opening and the end keeps the marker (a record of the opening frame) and the post is keyed by the task's
+  session, so the late report speaks once.
+- **`theseus why`** names, for a turn that handed work over, each profile and the model the call's result says ran (the result's
+  `meta.handed`): `work handed to agents: haiku (claude-haiku-5-5)`.
+
 ## Outside text
 
 A task's report is already treated as carrying a child session's text (`content.rs`, `ItemKind::TaskReport`); the report
