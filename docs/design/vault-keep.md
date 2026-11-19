@@ -155,6 +155,10 @@ Replace an item the settings read (refused). Overwrite another item (shown on th
   (`the CLI`, `the web UI`), whatever author the request names, because any process of the owner's own user can send a request and name
   anyone there (`rpc::vault_keep::author_of`). `via` says where it came from. The rows of the other answer methods still take the
   request's author, as they did.
+- **The service's three seconds.** The submit is acknowledged at once (a deferred, ephemeral response with nothing in it) and that
+  response is completed with the daemon's words when the vault's program is done, so a slow vault no longer shows the owner "Something
+  went wrong" for a value that was kept; a second submit for the card while one is with the daemon is refused in true words; see
+  `docs/design/discord-acknowledge.md`.
 - **The reply** to the presser is private and is the daemon's words by name (or its refusal); the card is edited to its outcome by
   the daemon's own settle, as the terminal's keep is. The turn is told by the settled card, not woken: the owner asks for the use
   (`vault.use`, the second card).
