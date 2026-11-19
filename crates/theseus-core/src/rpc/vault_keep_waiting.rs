@@ -106,49 +106,13 @@ impl Core {
             row("stopped", "no_terminal", None);
             return Err(refused(NO_TERMINAL));
         }
-        let mut found: Vec<(Option<String>, Target, bool)> = Vec::new();
-        if let (Some(vault), Some(title), Some(field)) = (&p.vault, &p.title, &p.field) {
-            // A keep with no card: always a fresh code.
-            let reader = self
-                .keep_reader()
-                .inspect_err(|_| row("stopped", "no_vault", None))?;
-            match target::resolve(&reader, &target::readers(self), (vault, title, field)).await {
-                Ok(t) => found.push((None, t, true)),
-                Err(why) => {
-                    let class = match why.starts_with(target::CANNOT_WRITE) {
-                        true => "not_writable",
-                        false => "vault",
-                    };
-                    row("stopped", class, None);
-                    return Err(refused(why));
-                }
+        let found = match self.keep_found(&p).await {
+            Ok(found) => found,
+            Err((class, failure)) => {
+                row("stopped", class, None);
+                return Err(failure);
             }
-        } else {
-            let want = p
-                .question
-                .as_deref()
-                .map(str::trim)
-                .filter(|q| !q.is_empty());
-            for a in self
-                .kernel
-                .pending_confirms()
-                .map_err(RpcFailure::invalid)?
-            {
-                if !crate::config_change::vault_keep::is_keep(&a)
-                    || want.is_some_and(|q| !a.correlation_id.ends_with(q))
-                {
-                    continue;
-                }
-                let args = a.proposal.as_ref().map(|p| &p.args);
-                let Some(t) = args
-                    .filter(|args| is_card(args))
-                    .and_then(|args| Target::of_args(&args[ARG]))
-                else {
-                    continue;
-                };
-                found.push((Some(a.correlation_id.clone()), t.clone(), t.replaces()));
-            }
-        }
+        };
         let mut cards = Vec::new();
         let mut blocked = None;
         for (question_id, t, fresh) in found {
@@ -195,6 +159,56 @@ impl Core {
         })
     }
 
+    /// What a prompt could answer: the cards that wait (those the terminal named, when it
+    /// named one), or the target typed in the command; each with whether a fresh code is
+    /// always asked. Or the class and words of why the target could not be had.
+    async fn keep_found(
+        self: &Arc<Self>,
+        p: &VaultKeepWaitingParams,
+    ) -> Result<Vec<(Option<String>, Target, bool)>, (&'static str, RpcFailure)> {
+        let mut found: Vec<(Option<String>, Target, bool)> = Vec::new();
+        if let (Some(vault), Some(title), Some(field)) = (&p.vault, &p.title, &p.field) {
+            // A keep with no card: always a fresh code.
+            let reader = self.keep_reader().map_err(|f| ("no_vault", f))?;
+            match target::resolve(&reader, &target::readers(self), (vault, title, field)).await {
+                Ok(t) => found.push((None, t, true)),
+                Err(why) => {
+                    let class = match why.starts_with(target::CANNOT_WRITE) {
+                        true => "not_writable",
+                        false => "vault",
+                    };
+                    return Err((class, refused(why)));
+                }
+            }
+            return Ok(found);
+        }
+        let want = p
+            .question
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty());
+        for a in self
+            .kernel
+            .pending_confirms()
+            .map_err(|e| ("kernel", RpcFailure::invalid(e)))?
+        {
+            if !crate::config_change::vault_keep::is_keep(&a)
+                || want.is_some_and(|q| !a.correlation_id.ends_with(q))
+            {
+                continue;
+            }
+            let args = a.proposal.as_ref().map(|p| &p.args);
+            let Some(t) = args
+                .filter(|args| is_card(args))
+                .and_then(|args| Target::of_args(&args[ARG]))
+            else {
+                continue;
+            };
+            found.push((Some(a.correlation_id.clone()), t.clone(), t.replaces()));
+        }
+        Ok(found)
+    }
+
     /// Why no keep card waits: what became of the latest one asked, from the
     /// daemon's own rows. The class is the row's; the words are the owner's.
     fn why_none(&self, question: Option<&str>) -> (&'static str, String) {
@@ -222,22 +236,7 @@ impl Core {
                 })
         });
         let Some(asked) = asked else {
-            return match question {
-                Some(q) => (
-                    "none_named",
-                    format!(
-                        "No keep card ends in \"{q}\", waiting or not: run `theseus vault keep` \
-                         with no argument to see what waits, or ask Theseus to keep the secret \
-                         again and it puts a card"
-                    ),
-                ),
-                None => (
-                    "none_asked",
-                    "No secret is waiting to be kept, and Theseus has no recent record of asking to \
-                     keep one: ask Theseus to keep a secret in the vault and it puts a card"
-                        .to_string(),
-                ),
-            };
+            return nothing_asked(question);
         };
         let q = asked.data["correlation_id"].as_str().unwrap_or_default();
         let card = names(&asked.data);
@@ -301,5 +300,25 @@ impl Core {
                 ),
             ),
         }
+    }
+}
+
+/// Why no keep card waits when none was ever asked, or none that the terminal's name fits.
+fn nothing_asked(question: Option<&str>) -> (&'static str, String) {
+    match question {
+        Some(q) => (
+            "none_named",
+            format!(
+                "No keep card ends in \"{q}\", waiting or not: run `theseus vault keep` with no \
+                 argument to see what waits, or ask Theseus to keep the secret again and it puts \
+                 a card"
+            ),
+        ),
+        None => (
+            "none_asked",
+            "No secret is waiting to be kept, and Theseus has no recent record of asking to keep \
+             one: ask Theseus to keep a secret in the vault and it puts a card"
+                .to_string(),
+        ),
     }
 }

@@ -171,36 +171,7 @@ impl Core {
                  a secret in the owner's name: run it from your own terminal"
             ))));
         }
-        let a = self
-            .kernel
-            .action(&p.question_id)
-            .map_err(|e| stop("no_card")(RpcFailure::invalid(e)))?
-            .filter(|a| a.tool == crate::config_change::ACK)
-            .ok_or_else(|| {
-                stop("no_card")(RpcFailure::new(
-                    error_code::NOT_FOUND,
-                    "no such question waiting for a value",
-                ))
-            })?;
-        let args = a
-            .proposal
-            .as_ref()
-            .map(|p| p.args.clone())
-            .unwrap_or_default();
-        let Some(recorded) = is_card(&args)
-            .then(|| Target::of_args(&args[ARG]))
-            .flatten()
-        else {
-            return Err(stop("not_a_keep_card")(RpcFailure::invalid(
-                anyhow::anyhow!("that question is not a secret to keep: it takes no value"),
-            )));
-        };
-        if a.state != ActionState::Planned {
-            return Err(stop("not_waiting")(RpcFailure::invalid(anyhow::anyhow!(
-                "that question is {}, not waiting for a value",
-                a.state.as_str()
-            ))));
-        }
+        let (a, recorded) = self.keep_card(&p.question_id)?;
         self.judge_act(
             &who,
             Act::Answer {
@@ -278,6 +249,42 @@ impl Core {
             failure,
             class: None,
         })
+    }
+
+    /// The question a value is given to, and the target its card recorded: or why it is
+    /// not a keep card that waits.
+    fn keep_card(&self, question_id: &str) -> Result<(Action, Target), Stop> {
+        let a = self
+            .kernel
+            .action(question_id)
+            .map_err(|e| stop("no_card")(RpcFailure::invalid(e)))?
+            .filter(|a| a.tool == crate::config_change::ACK)
+            .ok_or_else(|| {
+                stop("no_card")(RpcFailure::new(
+                    error_code::NOT_FOUND,
+                    "no such question waiting for a value",
+                ))
+            })?;
+        let args = a
+            .proposal
+            .as_ref()
+            .map(|p| p.args.clone())
+            .unwrap_or_default();
+        let Some(recorded) = is_card(&args)
+            .then(|| Target::of_args(&args[ARG]))
+            .flatten()
+        else {
+            return Err(stop("not_a_keep_card")(RpcFailure::invalid(
+                anyhow::anyhow!("that question is not a secret to keep: it takes no value"),
+            )));
+        };
+        if a.state != ActionState::Planned {
+            return Err(stop("not_waiting")(RpcFailure::invalid(anyhow::anyhow!(
+                "that question is {}, not waiting for a value",
+                a.state.as_str()
+            ))));
+        }
+        Ok((a, recorded))
     }
 
     /// The owner keeps a secret from their own terminal.
