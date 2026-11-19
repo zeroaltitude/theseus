@@ -234,7 +234,7 @@ impl ToolRuntime {
         let background = call.input.get("background").and_then(Value::as_bool) == Some(true);
         let bound = match background {
             true => Duration::ZERO,
-            false => Duration::from_secs(self.proc_sync_secs.min(spec.timeout_secs + 5)),
+            false => call_wait(self.proc_sync_secs, spec.timeout_secs),
         };
         // The turn waits on its job from before the launch, so the drain
         // leaves the job's completion to it, and wakes it (7.1).
@@ -1234,6 +1234,16 @@ fn job_path_refusal(name: &str) -> Option<String> {
     })
 }
 
+/// How long a blocking call waits for its job's result: the configured wait, or when the job's limit is shorter, the
+/// limit, five seconds for the start and the result, and the worst case of the job's own kill (`CUT_WORST`), so the
+/// call never answers "still running" of a job its limit has already cut and that is being stopped. The product's
+/// constants are added, never scaled.
+pub(super) fn call_wait(proc_sync_secs: u64, limit_secs: u64) -> Duration {
+    Duration::from_secs(limit_secs.saturating_add(5))
+        .saturating_add(theseus_kernel::job::CUT_WORST)
+        .min(Duration::from_secs(proc_sync_secs))
+}
+
 /// What a blocking call answers when its job is still running at the end of its wait: the wait the call
 /// had, not the configured one (a job with a short limit is waited for its limit and five seconds only).
 fn still_running(name: &str, waited: Duration, timeout_secs: u64) -> String {
@@ -1247,6 +1257,29 @@ fn still_running(name: &str, waited: Duration, timeout_secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A call waits for its job's result past the job's limit by the worst case of the kill that limit makes, so it
+    /// is not answering "still running" of a job being stopped; the configured wait is still its ceiling.
+    #[test]
+    fn a_call_waits_past_its_limit_for_the_worst_case_of_its_own_kill() {
+        use theseus_kernel::job::CUT_WORST;
+        let wait = call_wait(60, 2);
+        assert_eq!(wait, Duration::from_secs(2 + 5) + CUT_WORST);
+        assert!(
+            wait > Duration::from_secs(7),
+            "the kill's worst case is added, not left out"
+        );
+        assert_eq!(
+            call_wait(10, 2),
+            Duration::from_secs(10),
+            "the configured wait caps it"
+        );
+        assert_eq!(
+            call_wait(60, 3600),
+            Duration::from_secs(60),
+            "a long limit is the configured wait"
+        );
+    }
 
     /// The words say how long the call waited: a 2 s limit's job is waited for 7 s, whatever `proc_sync_secs`
     /// is, and the words said the configured 30 s (the sandbox test's "after 30 s (timeout 2 s)", where the
