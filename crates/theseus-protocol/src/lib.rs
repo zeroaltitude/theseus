@@ -25,6 +25,7 @@ pub mod content;
 pub use content::{ContentUnlabelParams, LabelLink, LabelRaised, LabelView, UnlabelResult};
 pub mod context;
 mod cost;
+pub mod own_command;
 pub mod subagent;
 pub use subagent::SubagentAnswer;
 pub mod cred;
