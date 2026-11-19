@@ -130,7 +130,7 @@ fn health_and_a_turn_are_taken_while_the_logs_write_is_held() {
 /// Both held, on ONE runtime worker: the WAL writer inside a frame's write (with its lock) and the log writer inside
 /// its write, while a turn's submit waits for the write. `health` answers, and so does a read of another session,
 /// within the bound: the submit's wait for the writer (its staging asks the log's position under the writer's lock)
-/// is made off the worker. Let go, the waiting turn goes through, and its session holds its execution.
+/// is made off the worker. Let go, the waiting turns go through, and each session holds its execution.
 #[test]
 fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_one_worker() {
     let h = daemon(true);
@@ -146,12 +146,17 @@ fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_o
     std::thread::scope(|s| {
         let held = s.spawn(|| submit(&h.daemon, "writes"));
         arrived(&h.wal, "the store's write");
+        // A second turn arrives while the writer is held: staging its records asks the log's position, which is a
+        // read under the writer's lock, on a worker.
+        let waits = s.spawn(|| submit(&h.daemon, "waits"));
         // The log writer is held by the lines a daemon says as it goes.
         for _ in 0..5 {
             let _ = health(&h.daemon, ANSWER_WITHIN);
         }
         arrived(&h.log, "the log's write");
-        for _ in 0..20 {
+        // For long enough that the second turn is at the lock, as a quarter of a second of answers makes sure.
+        let began = Instant::now();
+        while began.elapsed() < Duration::from_millis(250) {
             let t0 = Instant::now();
             let said = health(&h.daemon, ANSWER_WITHIN).unwrap();
             assert!(
@@ -171,25 +176,23 @@ fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_o
         }
         let (_a, _b) = (release(&h.wal), release(&h.log));
         held.join().unwrap();
+        waits.join().unwrap();
     });
-    // The turn that waited went through: both sessions are there, and the second holds its execution.
+    // The turns that waited went through: all three sessions are there, each holding its execution.
     let listed = rpc(&h.daemon, "session.list", json!({}), ANSWER_WITHIN).unwrap();
     let sessions = listed["sessions"].as_array().unwrap();
-    assert_eq!(sessions.len(), 2, "{listed}");
-    let newer = sessions
-        .iter()
-        .map(|s| s["session_id"].as_str().unwrap())
-        .find(|id| *id != other)
+    assert_eq!(sessions.len(), 3, "{listed}");
+    for id in sessions.iter().map(|s| s["session_id"].as_str().unwrap()) {
+        let history = rpc(
+            &h.daemon,
+            "session.history",
+            json!({"session_id": id}),
+            ANSWER_WITHIN,
+        )
         .unwrap();
-    let history = rpc(
-        &h.daemon,
-        "session.history",
-        json!({"session_id": newer}),
-        ANSWER_WITHIN,
-    )
-    .unwrap();
-    // This daemon has no model, so the session holds no node; it holds the execution the turn staged and committed.
-    assert!(history["session"]["execution_id"].is_string(), "{history}");
+        // This daemon has no model, so a session holds no node; it holds the execution its turn staged and committed.
+        assert!(history["session"]["execution_id"].is_string(), "{history}");
+    }
 }
 
 /// A start that fails still says what it logged before, and then why: the queue is written out before the error that
