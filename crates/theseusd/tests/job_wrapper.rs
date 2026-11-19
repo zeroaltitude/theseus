@@ -503,11 +503,15 @@ fn stubborn(i: usize) -> String {
 }
 
 /// [`stubborn`], and it writes the time (microseconds since the epoch) at which its trap took the SIGTERM to
-/// `term<i>`, read with no fork, as the trap began: the order of the signals, which no load changes.
-fn stubborn_timed(i: usize) -> String {
+/// `term<i>` in `evidence`, a directory of memory, read with no fork, as the trap began: the order of the
+/// signals, which no load changes. The trap forks nothing and makes no file on the test's disk, which waits on
+/// the disk's journal when a loaded machine's journal is full (the same trap in `stops.rs` was found blocked
+/// there, its file created and empty, when its grace ended).
+fn stubborn_timed(i: usize, evidence: &Path) -> String {
+    let evidence = evidence.display();
     format!(
         "exec bash -s \"$1\" <<'BASH'\n\
-         trap 't=$EPOCHREALTIME; trap \"\" TERM; printf \"%s\\n\" \"${{t/[.,]/}}\" > term{i}.tmp && mv term{i}.tmp term{i}' TERM\n\
+         trap 't=$EPOCHREALTIME; trap \"\" TERM; printf \"%s\\n\" \"${{t/[.,]/}}\" > {evidence}/term{i}' TERM\n\
          echo $$ > main{i}.pid\n\
          while [ -d \"$1\" ]; do sleep 0.05; done\n\
          BASH\n"
@@ -546,10 +550,12 @@ fn a_cancel_waits_out_a_command_that_ignores_sigterm_then_kills_it() {
 #[test]
 fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
     let rig = Rig::new();
+    let evidence =
+        tempfile::tempdir_in("/dev/shm").unwrap_or_else(|_| tempfile::tempdir().unwrap());
     let (mut jobs, mut mains) = (vec![], vec![]);
     for i in 0..3 {
         let id = format!("act_stubborn_{i}");
-        jobs.push((rig.start(&id, &stubborn_timed(i)), id));
+        jobs.push((rig.start(&id, &stubborn_timed(i, evidence.path())), id));
         mains.push(rig.pid(&format!("main{i}.pid")));
     }
     // The grace is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20).
@@ -570,7 +576,8 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
     // last one's grace, however fast the machine; stopped together, they are signalled at once, however slow.
     let terms: Vec<u128> = (0..3)
         .map(|i| {
-            let t = std::fs::read_to_string(rig.path(&format!("term{i}"))).unwrap_or_default();
+            let t = std::fs::read_to_string(evidence.path().join(format!("term{i}")))
+                .unwrap_or_default();
             t.trim()
                 .parse()
                 .unwrap_or_else(|_| panic!("command {i} had no SIGTERM: {t:?}"))
