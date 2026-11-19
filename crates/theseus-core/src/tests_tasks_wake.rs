@@ -320,11 +320,11 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"]
 // And 10036 and 7752 until `fs.edit`'s description said what its matching
 // rule is (theseus-w2cs): 17 and 16 more tokens in a family a person's turn loads.
 // And 10053 and 7768 until `proc.run`'s description sent a look at Theseus or its
-// vault to `look_theseus` and `look_vault` (issue 26): 40 more tokens (41 in the CLI) in a family
+// vault to `look_theseus` and `look_vault` (issue 26): 40 more tokens in a family
 // every person's turn loads.
 const DM_PERSON_TOKENS: u64 = 10093;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7809;
+const CLI_PERSON_TOKENS: u64 = 7808;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
