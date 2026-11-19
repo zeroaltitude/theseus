@@ -25,6 +25,27 @@ the three seconds. So:
 "Provably instant" is a read of the daemon's own memory (`confirm.list`) and anything that asks the daemon nothing. A vault's program,
 a model call, a task start, anything that writes a frame (it fsyncs), an MCP server and a download are not.
 
+## What a deferral's flag says is who sees what completes it
+
+**An answer that was private stays private, and when in doubt the acknowledgement is private.** In the service a deferral's flag
+decides the visibility of what completes it: an ephemeral deferral (callback type 5 with the ephemeral flag) is completed
+privately, an unflagged one publicly, and a deferred UPDATE of a pressed message (type 6) is completed by an edit of that message
+for everyone, with any refusal told as an ephemeral follow-up. So each handler acknowledges as its final answer was before this
+sweep: a private reply with an ephemeral deferral, a card updated for everyone with a deferred update.
+
+`/prompt`'s form submit is the one that needs both: its refusals were private (one quotes what the person typed) and the prompt's
+own line is for the place. It acknowledges **privately**, completes that private response (a refusal, or a short "running in this
+place" line), and posts the place's line as a message of its own (a follow-up with no ephemeral flag). The arguments are in neither.
+`/prompt name:` with no arguments is unchanged: its deferral is public and the place's line completes it, as it always did.
+
+**The table that keeps it so** (`tests_gateway/acks.rs`, `every_handler_the_sweep_changed_acknowledges_as_its_answer_was_before`)
+fires 36 of these handlers, through the real gateway path, with ids the daemon has never heard of (every handler acknowledges before
+its daemon call, so the first response is the same whatever the daemon then says), and holds each first response to what its answer
+was before the sweep. It does not reach: a scheduled TASK card's Cancel and Snooze (`task_pick`: they need a task that waits to start,
+and answer "that task has started or ended" without one; the scheduled reminder's card, which shares the handler, is in the table),
+and a watch command's approval beyond its `no` button. A routine's button on the list is its own test
+(`a_routines_button_on_the_list_updates_the_private_list`).
+
 ## The proof
 
 `theseus-sim`'s fake chat service keeps the rule (`set_ack_limit_ms`, default three seconds; `backdate_interaction` for a test that
