@@ -225,6 +225,99 @@ fn a_response_after_three_seconds_with_no_acknowledgement_is_refused_as_unknown(
     assert!(fake.acknowledged().contains(&"503".to_string()));
 }
 
+/// Discord's other rules for an answer to an interaction, which the fake keeps: an edit or a follow-up of an
+/// interaction that never had a first response is an unknown webhook (10015); what a late first response said is
+/// kept (a search for a value must see it); and a deferred update of a message is completed by an edit of that
+/// message, which the test reads where a person would.
+#[test]
+fn an_answer_with_no_first_response_is_refused_and_a_deferred_update_edits_the_pressed_message() {
+    let fake = FakeDiscord::start();
+    let call = |id: &str, ty: u64, content: &str| {
+        http(
+            &fake.addr,
+            "POST",
+            &format!("/api/v10/interactions/{id}/{TOKEN_PREFIX}{id}/callback"),
+            &json!({"type": ty, "data": {"content": content}}),
+        )
+    };
+    let edit = |id: &str, content: &str| {
+        http(
+            &fake.addr,
+            "PATCH",
+            &format!("/api/v10/webhooks/{APP_ID}/{TOKEN_PREFIX}{id}/messages/@original"),
+            &json!({"content": content, "components": []}),
+        )
+    };
+    let arrive = |id: &str| {
+        fake.state
+            .lock()
+            .unwrap()
+            .arrived
+            .insert(id.into(), std::time::Instant::now());
+    };
+    // No first response yet: an edit and a follow-up are an unknown webhook.
+    arrive("601");
+    let (s, body) = edit("601", "too soon");
+    assert_eq!((s, &body["code"]), (404, &json!(10015)), "{body}");
+    let (s, body) = http(
+        &fake.addr,
+        "POST",
+        &format!("/api/v10/webhooks/{APP_ID}/{TOKEN_PREFIX}601?wait=true"),
+        &json!({"content": "too soon"}),
+    );
+    assert_eq!((s, &body["code"]), (404, &json!(10015)), "{body}");
+    // A first response that is late is refused, and what it said is kept.
+    arrive("602");
+    fake.backdate_interaction("602", 3_500);
+    let (s, _) = call("602", 4, "INVENTED-LATE-BODY");
+    assert_eq!(s, 404);
+    let kept = fake.replies();
+    assert!(
+        kept.iter().any(|r| r.kind.starts_with("callback refused")
+            && r.content.as_deref() == Some("INVENTED-LATE-BODY")),
+        "{kept:?}"
+    );
+    // A deferred update of a message is completed by an edit of that message.
+    arrive("603");
+    let card = Msg {
+        id: "9001".into(),
+        channel: "9000".into(),
+        content: "card".into(),
+        nonce: None,
+        components: 1,
+        reply_to: None,
+        edits: 0,
+        created_ms: 0,
+        allowed_mentions: Value::Null,
+        mentions: vec![],
+        author: BOT_ID.to_string(),
+        versions: vec!["card".into()],
+        buttons: vec![Button {
+            label: "Go".into(),
+            custom_id: "go".into(),
+            disabled: false,
+        }],
+        components_json: Value::Null,
+        pinned: false,
+        flags: 0,
+        hook: None,
+    };
+    {
+        let mut st = fake.state.lock().unwrap();
+        st.messages.push(card);
+        st.pressed_message.insert("603".into(), "9001".into());
+    }
+    assert_eq!(call("603", 6, "").0, 204);
+    assert_eq!(edit("603", "settled").0, 200);
+    let m = fake
+        .all_messages()
+        .into_iter()
+        .find(|m| m.id == "9001")
+        .unwrap();
+    assert_eq!(m.content, "settled");
+    assert!(m.buttons.is_empty(), "the card's buttons went");
+}
+
 /// theseus-qifw: a message keeps each content it had, in order, and its
 /// buttons until an edit takes them away.
 #[test]

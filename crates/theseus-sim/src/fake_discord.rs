@@ -319,7 +319,25 @@ impl State {
             ("original", false) if self.ephemeral_acks.contains(id) => r.ephemeral = true,
             _ => {}
         }
+        if kind == "callback" && r.response_type == Some(6) {
+            self.deferred_updates.insert(id.to_string());
+        }
         if kind == "original" {
+            // A deferred update of a message is completed by an edit of THAT message, as the service does; any
+            // other completion is the view the person sees of the response itself.
+            let target = match self.deferred_updates.contains(id) {
+                true => self.pressed_message.get(id).cloned(),
+                false => None,
+            };
+            let found = self
+                .messages
+                .iter_mut()
+                .chain(self.ephemerals.values_mut())
+                .find(|m| target.as_ref() == Some(&m.id));
+            if let Some(m) = found {
+                let _ = apply_edit(m, data);
+                return;
+            }
             let content = r.content.clone().unwrap_or_default();
             self.complete_view(id, &content, &data["components"], data["flags"].as_u64());
         }
@@ -364,6 +382,78 @@ impl State {
             m.components_json = components.clone();
         }
     }
+}
+
+/// An edit of a message, held to the rules of the service: the message keeps its flags (the V2 flag cannot be
+/// removed) and the edit is held to the same rules as a create. `Some(why)` is the refusal, the message untouched.
+fn apply_edit(m: &mut Msg, body: &Value) -> Option<String> {
+    if let Some(why) = v2_refusal(m.flags, &body["content"], &body["components"]) {
+        return Some(why);
+    }
+    let v2 = m.flags & IS_COMPONENTS_V2 != 0;
+    if v2
+        && body["flags"]
+            .as_u64()
+            .is_some_and(|f| f & IS_COMPONENTS_V2 == 0)
+    {
+        return Some("IS_COMPONENTS_V2 cannot be removed".into());
+    }
+    if v2 {
+        if body["components"].is_array() {
+            let c = v2_text(&body["components"]);
+            if c != m.content {
+                m.versions.push(c.clone());
+            }
+            m.content = c;
+        }
+    } else if let Some(c) = body["content"].as_str() {
+        if c != m.content {
+            m.versions.push(c.to_string());
+        }
+        m.content = c.to_string();
+    }
+    if body["components"].is_array() {
+        m.components = rows(&body["components"]);
+        m.buttons = buttons(&body["components"]);
+        m.components_json = body["components"].clone();
+    }
+    m.edits += 1;
+    None
+}
+
+/// What an answer to an interaction says, as a record.
+fn reply_of(interaction: Option<&str>, kind: &str, body: &Value, data: &Value) -> Reply {
+    Reply {
+        at_ms: now_ms(),
+        interaction: interaction.map(str::to_string),
+        kind: kind.to_string(),
+        response_type: body["type"].as_u64().filter(|_| kind == "callback"),
+        content: data["content"].as_str().map(str::to_string).or_else(|| {
+            // A Components V2 answer: the text its displays show.
+            data["components"]
+                .is_array()
+                .then(|| v2_text(&data["components"]))
+        }),
+        ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
+        allowed_mentions: data["allowed_mentions"].clone(),
+        choices: data["choices"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|c| {
+                (
+                    c["name"].as_str().unwrap_or("").to_string(),
+                    c["value"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect(),
+        modal: (kind == "callback" && body["type"].as_u64() == Some(9)).then(|| data.clone()),
+    }
+}
+
+thread_local! {
+    /// When the request this thread is answering reached the service (each request has a thread of its own).
+    static RECEIVED: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
 
 /// A guild, as the binding's viewer check reads it (theseus-ck0k): its
@@ -613,6 +703,10 @@ struct State {
     acked: BTreeSet<String>,
     /// The interactions whose first response was ephemeral: what completes them is ephemeral too.
     ephemeral_acks: BTreeSet<String>,
+    /// The message each pressed interaction was a press on, and which were acknowledged as a deferred update of
+    /// it: what completes such an interaction edits that message, as the service does.
+    pressed_message: BTreeMap<String, String>,
+    deferred_updates: BTreeSet<String>,
     /// The three seconds, or what a test sets (`set_ack_limit_ms`).
     ack_limit_ms: Option<u64>,
     /// The messages the binding answered an interaction with (an ephemeral
@@ -1104,6 +1198,7 @@ impl FakeDiscord {
             st.next_id += 1;
             let iid = st.next_id;
             st.pressed.insert(iid.to_string(), channel);
+            st.pressed_message.insert(iid.to_string(), msg.id.clone());
             st.arrived
                 .insert(iid.to_string(), std::time::Instant::now());
             (msg, Where { channel, guild }, iid)
@@ -1301,6 +1396,9 @@ impl FakeDiscord {
             // A check's own request: never slowed, failed, or recorded.
             return self.control(stream, &method, rest, &body);
         }
+        // When this request reached the service, before the service's own delay: the three seconds are the
+        // binding's, counted to here.
+        RECEIVED.with(|r| r.set(Some(std::time::Instant::now())));
         let delay = self.state.lock().unwrap().delay_ms;
         if delay > 0 {
             std::thread::sleep(Duration::from_millis(delay));
@@ -1674,41 +1772,9 @@ impl FakeDiscord {
                 .iter_mut()
                 .find(|m| m.channel == channel && m.id == id)
                 .map(|m| {
-                    // An edit keeps the message's flags (the V2 flag cannot be
-                    // removed), and is held to the same rules as a create.
-                    if let Some(why) = v2_refusal(m.flags, &body["content"], &body["components"]) {
+                    if let Some(why) = apply_edit(m, body) {
                         refused = Some(why);
-                        return m.clone();
                     }
-                    let v2 = m.flags & IS_COMPONENTS_V2 != 0;
-                    if v2
-                        && body["flags"]
-                            .as_u64()
-                            .is_some_and(|f| f & IS_COMPONENTS_V2 == 0)
-                    {
-                        refused = Some("IS_COMPONENTS_V2 cannot be removed".into());
-                        return m.clone();
-                    }
-                    if v2 {
-                        if body["components"].is_array() {
-                            let c = v2_text(&body["components"]);
-                            if c != m.content {
-                                m.versions.push(c.clone());
-                            }
-                            m.content = c;
-                        }
-                    } else if let Some(c) = body["content"].as_str() {
-                        if c != m.content {
-                            m.versions.push(c.to_string());
-                        }
-                        m.content = c.to_string();
-                    }
-                    if body["components"].is_array() {
-                        m.components = rows(&body["components"]);
-                        m.buttons = buttons(&body["components"]);
-                        m.components_json = body["components"].clone();
-                    }
-                    m.edits += 1;
                     m.clone()
                 })
         };
@@ -1928,26 +1994,29 @@ impl FakeDiscord {
         }
     }
 
-    /// Discord's rule: an interaction's first response comes within three seconds, or Discord no longer knows it
-    /// (10062) and the person sees "Something went wrong" whatever the binding then says. A first response in
-    /// time is noted, and what follows it (an edit, a follow-up) is accepted. An interaction the fake was not
-    /// told of (a reply to nothing it sent) is let through.
-    fn first_response_is_late(&self, interaction: Option<&str>) -> bool {
-        let Some(id) = interaction else {
-            return false;
-        };
+    /// Discord's rules for an answer to an interaction. The FIRST response comes within three seconds of the
+    /// interaction, counted to when it reached the service (the service's own `set_delay_ms` is not the binding's
+    /// time, and each REST call the binding makes before it is), or Discord no longer knows the interaction
+    /// (10062) and the person sees "Something went wrong". An edit or a follow-up of an interaction that never
+    /// had a first response is an unknown webhook (10015). A first response in time is noted, and what follows
+    /// it is accepted at any age. An interaction the fake was not told of (a reply to nothing it sent) is let
+    /// through. `Some((code, why))` is the refusal, a 404.
+    fn refuse_by_rule(&self, interaction: Option<&str>, kind: &str) -> Option<(u64, &'static str)> {
+        let id = interaction?;
         let mut st = self.state.lock().unwrap();
-        // The service's own slowness (`set_delay_ms`) is not the binding's: the response was sent that long ago.
-        let limit = st.ack_limit_ms.unwrap_or(3_000) + st.delay_ms;
-        let late = !st.acked.contains(id)
-            && st
-                .arrived
-                .get(id)
-                .is_some_and(|at| at.elapsed() > Duration::from_millis(limit));
-        if !late {
-            st.acked.insert(id.to_string());
+        let at = *st.arrived.get(id)?;
+        if kind != "callback" {
+            return (!st.acked.contains(id)).then_some((10015, "Unknown Webhook"));
         }
-        late
+        let limit = Duration::from_millis(st.ack_limit_ms.unwrap_or(3_000));
+        let received = RECEIVED
+            .with(std::cell::Cell::get)
+            .unwrap_or_else(std::time::Instant::now);
+        if !st.acked.contains(id) && received.saturating_duration_since(at) > limit {
+            return Some((10062, "Unknown interaction"));
+        }
+        st.acked.insert(id.to_string());
+        None
     }
 
     /// An answer to an interaction: kept, and answered as Discord does. The
@@ -1961,47 +2030,24 @@ impl FakeDiscord {
         kind: &str,
         body: &Value,
     ) -> std::io::Result<()> {
-        if kind == "callback" && self.first_response_is_late(interaction) {
-            self.record(seen(method, path, "unknown interaction"));
-            return reply(
-                stream,
-                404,
-                &json!({"message": "Unknown interaction", "code": 10062}),
-            );
-        }
-        self.record(seen(method, path, kind));
         // A callback's message is in `data`; an edit's and a follow-up's is the body.
         let data = if kind == "callback" {
             &body["data"]
         } else {
             body
         };
-        let mut r = Reply {
-            at_ms: now_ms(),
-            interaction: interaction.map(str::to_string),
-            kind: kind.to_string(),
-            response_type: body["type"].as_u64().filter(|_| kind == "callback"),
-            content: data["content"].as_str().map(str::to_string).or_else(|| {
-                // A Components V2 answer: the text its displays show.
-                data["components"]
-                    .is_array()
-                    .then(|| v2_text(&data["components"]))
-            }),
-            ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
-            allowed_mentions: data["allowed_mentions"].clone(),
-            choices: data["choices"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|c| {
-                    (
-                        c["name"].as_str().unwrap_or("").to_string(),
-                        c["value"].as_str().unwrap_or("").to_string(),
-                    )
-                })
-                .collect(),
-            modal: (kind == "callback" && body["type"].as_u64() == Some(9)).then(|| data.clone()),
-        };
+        if let Some((code, why)) = self.refuse_by_rule(interaction, kind) {
+            // What was refused is kept (its words are what a search for a value must see), apart from the answers.
+            let refused = reply_of(interaction, kind, body, data);
+            self.state.lock().unwrap().replies.push(Reply {
+                kind: format!("{kind} refused: {why}"),
+                ..refused
+            });
+            self.record(seen(method, path, &why.to_lowercase()));
+            return reply(stream, 404, &json!({"message": why, "code": code}));
+        }
+        self.record(seen(method, path, kind));
+        let mut r = reply_of(interaction, kind, body, data);
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();

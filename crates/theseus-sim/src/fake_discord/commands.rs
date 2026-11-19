@@ -106,6 +106,72 @@ impl FakeDiscord {
         self.send_interaction(from, |i| fake_gateway::slash_command(i, None, data))
     }
 
+    /// `/<command> <sub> key:value…`: a subcommand. The interaction's id.
+    pub fn slash_sub(
+        &self,
+        from: &Sender<'_>,
+        command: &str,
+        sub: &str,
+        options: &[(&str, &str)],
+    ) -> Result<String, String> {
+        let options: Vec<Value> = options
+            .iter()
+            .map(|(k, v)| json!({"name": k, "type": 3, "value": v}))
+            .collect();
+        let data = json!({"id": "1000000000000000004", "name": command, "type": 1, "options": [
+            {"name": sub, "type": 1, "options": options}]});
+        self.send_interaction(from, |i| fake_gateway::slash_command(i, None, data))
+    }
+
+    /// A press of the component `custom_id` (`kind` 2 a button, 3 a select with `values`) on the message `message`
+    /// (its id, a posted message or an ephemeral view), or on none when `message` is None. For a handler whose
+    /// button is not on any message the test has posted.
+    pub fn press_custom(
+        &self,
+        from: &Sender<'_>,
+        message: Option<&str>,
+        (custom_id, kind): (&str, u64),
+        values: &[&str],
+    ) -> Result<String, String> {
+        let gw = self.gateway.get().ok_or("the fake serves no gateway")?;
+        let carried = match message {
+            None => Value::Null,
+            Some(id) => {
+                let st = self.state.lock().unwrap();
+                let m = st
+                    .messages
+                    .iter()
+                    .chain(st.ephemerals.values())
+                    .find(|m| m.id == id)
+                    .ok_or_else(|| format!("no message {id}"))?;
+                let mut j = super::message_json(m);
+                j["components"] = m.components_json.clone();
+                j
+            }
+        };
+        let (at, iid) = self.interaction_at(from);
+        if let Some(id) = message {
+            self.state
+                .lock()
+                .unwrap()
+                .pressed_message
+                .insert(iid.to_string(), id.to_string());
+        }
+        let token = format!("{TOKEN_PREFIX}{iid}");
+        let i = Interaction {
+            id: iid,
+            app: APP_ID,
+            token: &token,
+            at,
+            user: (from.user, from.name),
+        };
+        let d = fake_gateway::component_press_with(&i, carried, custom_id, kind, values);
+        if !gw.dispatch("INTERACTION_CREATE", d) {
+            return Err("no client is connected to the gateway".into());
+        }
+        Ok(iid.to_string())
+    }
+
     /// `/<command> <group> <sub> key:value…`: a subcommand inside a group
     /// (`/project item list project:…`), whose options are strings.
     pub fn slash_in_group(

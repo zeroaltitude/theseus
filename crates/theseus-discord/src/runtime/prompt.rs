@@ -439,7 +439,7 @@ impl Shared {
                 name: info.prompt.clone(),
                 arguments: BTreeMap::new(),
             };
-            self.prompt_run(i, tx, who, r, false).await;
+            self.prompt_run(i, tx, who, r, Acked::Not).await;
             return;
         }
         self.answer(i, InteractionResponseType::Modal, Some(modal(info)))
@@ -459,13 +459,10 @@ impl Shared {
             return;
         };
         // Acknowledge first: the server's prompts are asked of the MCP server, which can be slow, and the first
-        // response is due in three seconds.
-        self.answer(
-            i,
-            InteractionResponseType::DeferredChannelMessageWithSource,
-            None,
-        )
-        .await;
+        // response is due in three seconds. The acknowledgement is PRIVATE: every refusal below was private before
+        // (and one of them quotes the line the person typed), and what a deferral's flag says is what completes it.
+        // The one line the place is meant to see is posted as its own message when the prompt runs.
+        self.ack_ephemeral(i).await;
         let list = match self.prompt_infos(Some(server.to_string())).await {
             Ok(l) => l,
             Err(e) => {
@@ -490,7 +487,7 @@ impl Shared {
                     name: prompt.into(),
                     arguments,
                 };
-                self.prompt_run(i, tx, who, r, true).await;
+                self.prompt_run(i, tx, who, r, Acked::Privately).await;
             }
             Err(why) => {
                 self.finish_command(i, &format!("⚠️ {why}"), "prompt response")
@@ -499,7 +496,15 @@ impl Shared {
         }
     }
 
-    /// Run it in the place, and say so where the command was typed. The
+    /// How a prompt's run was acknowledged: not yet (it is, publicly, as the command always did), or privately by the
+/// form's submit, which then posts the place's line as a message of its own.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Acked {
+    Not,
+    Privately,
+}
+
+/// Run it in the place, and say so where the command was typed. The
     /// arguments are not echoed: they may be private.
     async fn prompt_run(
         &self,
@@ -507,9 +512,9 @@ impl Shared {
         tx: &mpsc::UnboundedSender<PlaceMsg>,
         who: String,
         r: McpPromptRef,
-        acked: bool,
+        acked: Acked,
     ) {
-        if !acked {
+        if acked == Acked::Not {
             self.answer(
                 i,
                 InteractionResponseType::DeferredChannelMessageWithSource,
@@ -517,6 +522,7 @@ impl Shared {
             )
             .await;
         }
+        let (r_server, r_name) = (r.server.clone(), r.name.clone());
         self.core.binding_ledger(
             LedgerKind::DiscordCommand,
             None,
@@ -535,10 +541,21 @@ impl Shared {
             by: who,
             reply: rtx,
         });
+        let name = format!("{}/{}", r_server, r_name);
         let text = rrx
             .await
             .unwrap_or_else(|_| "The place did not answer.".into());
-        self.finish_command(i, &text, "command reply").await;
+        match acked {
+            // The deferral was public: the place's line completes it, as it always did.
+            Acked::Not => self.finish_command(i, &text, "command reply").await,
+            // The acknowledgement was private (the form's submit): the presser is told so privately, and the place's
+            // line is its own message. The arguments are in neither.
+            Acked::Privately => {
+                self.finish_command(i, &format!("▶️ `{name}` is running in this place."), "command reply")
+                    .await;
+                self.followup_public(i, &text).await;
+            }
+        }
     }
 }
 

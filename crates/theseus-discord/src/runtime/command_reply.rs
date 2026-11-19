@@ -97,6 +97,23 @@ impl Shared {
         .await;
     }
 
+    /// A message of its own, public, after an acknowledgement that was private: a follow-up with no flag is seen by
+    /// everyone in the place, whatever the acknowledgement was. For the one line a place is meant to see (a prompt
+    /// that runs there), never for an answer that was private.
+    pub(super) async fn followup_public(&self, i: &Interaction, text: &str) {
+        let content = leaving(&self.core.exits, text);
+        if let Err(e) = self
+            .interact
+            .interaction(i.application_id)
+            .create_followup(&i.token)
+            .content(&content)
+            .allowed_mentions(Some(&AllowedMentions::default()))
+            .await
+        {
+            self.board.error("interaction follow-up", None, e);
+        }
+    }
+
     /// Complete an acknowledged reply (`ack_ephemeral`) with words and buttons.
     pub(super) async fn finish_data(
         &self,
