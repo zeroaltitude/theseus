@@ -321,6 +321,30 @@ struct Pressed {
     at: std::time::Instant,
 }
 
+/// A yes kept for a hold's call, until its confirm is bound (`Board::keep_yes_until_bound`): drops
+/// the yes unless it was bound, so an unwind drops it as an error does.
+pub(crate) struct KeptYes<'a> {
+    board: &'a Board,
+    call: String,
+    bound: bool,
+}
+
+impl KeptYes<'_> {
+    /// The confirm is bound: the yes stays, for the call to take.
+    pub(crate) fn bind(mut self) {
+        self.board.bind_yes(&self.call);
+        self.bound = true;
+    }
+}
+
+impl Drop for KeptYes<'_> {
+    fn drop(&mut self) {
+        if !self.bound {
+            self.board.drop_yes(&self.call);
+        }
+    }
+}
+
 /// How long a yes that no call took is kept: past it the entry is dropped, as the next yes is kept.
 const YES_KEPT: std::time::Duration = std::time::Duration::from_secs(3_600);
 
@@ -436,6 +460,24 @@ impl Board {
                 at: std::time::Instant::now(),
             },
         );
+    }
+
+    /// [`keep_yes`](Self::keep_yes), held by a guard: from here until [`KeptYes::bind`] the yes goes
+    /// when the guard does, whether the answer returned an error, a panic unwound through it, or
+    /// the caller simply let go. It only ever removes a yes sooner.
+    pub(crate) fn keep_yes_until_bound(
+        &self,
+        call: &str,
+        session: &str,
+        execution: &str,
+        who: &Answerer,
+    ) -> KeptYes<'_> {
+        self.keep_yes(call, session, execution, who);
+        KeptYes {
+            board: self,
+            call: call.to_string(),
+            bound: false,
+        }
     }
 
     /// The confirm the yes answers is bound: a turn that arrives from now on has seen it.

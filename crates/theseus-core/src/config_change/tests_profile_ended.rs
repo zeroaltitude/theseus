@@ -294,3 +294,33 @@ async fn a_failed_turns_answer_goes_where_its_reply_would_have_gone() {
         .unwrap();
     assert_eq!(ended.as_deref(), Some("failed"));
 }
+
+/// A yes kept until its confirm is bound goes with its guard when the guard does: an error, an early
+/// return, and a panic unwinding through the frame all drop it, where binding keeps it. (The
+/// confirm's frame cannot be made to unwind from a test, so the guard is tested on its own; the
+/// played hold tests show the bound yes is taken.)
+#[test]
+fn a_kept_yes_goes_with_its_guard_unless_bound_even_when_a_panic_unwinds() {
+    let board = crate::profile_tool::Board::default();
+    let who = crate::test_support::owner_cli();
+    // Let go: gone.
+    drop(board.keep_yes_until_bound("act_a", "ses_a", "exe_a", &who));
+    assert!(board.take_yes("act_a").is_none());
+    // A panic unwinds through the frame while the guard is held: gone.
+    let fell = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = board.keep_yes_until_bound("act_b", "ses_a", "exe_a", &who);
+        assert_eq!(board.held_yes(), 1, "kept while the frame runs");
+        panic!("the frame fell over");
+    }));
+    assert!(fell.is_err());
+    assert_eq!(board.held_yes(), 0, "an unwind drops the yes");
+    // Bound: it stays, and a panic after the bind leaves it, since the confirm landed.
+    let fell = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        board
+            .keep_yes_until_bound("act_c", "ses_a", "exe_a", &who)
+            .bind();
+        panic!("something after the bind fell over");
+    }));
+    assert!(fell.is_err());
+    assert!(board.take_yes("act_c").is_some());
+}

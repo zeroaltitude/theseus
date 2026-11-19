@@ -56,6 +56,17 @@ pub fn fence_tables(text: &str) -> Cow<'_, str> {
             .map(|l| (row_cells(l), l.trim()))
             .collect();
         let used = 2 + rows.len();
+        // Joining code spans moved a row's cells away from the header's where the plain split by
+        // pipes matches it: the table is ambiguous (the two backticks of ``| `a | b` |``), so it
+        // stays as written, whole.
+        if rows
+            .iter()
+            .any(|(r, src)| r.len() != cells.len() && plain_count(src) == cells.len())
+        {
+            out.extend(lines[i..i + used].iter().map(|l| l.to_string()));
+            i += used;
+            continue;
+        }
         // Drawing a table loses nothing: a row with more cells than the header widens the table
         // (the header gets empty cells), where a row with fewer is padded.
         let n = rows
@@ -159,6 +170,25 @@ fn row_cells(line: &str) -> Vec<String> {
     }
     cells.push(clean(&cur));
     cells
+}
+
+/// How many cells a row has when every unescaped pipe splits, code spans or not (GFM's own split):
+/// what `row_cells` would say without its reading of code spans.
+fn plain_count(line: &str) -> usize {
+    let t = line.trim();
+    let t = t.strip_prefix('|').unwrap_or(t);
+    let t = match t.ends_with('|') && !t.ends_with("\\|") {
+        true => &t[..t.len() - 1],
+        false => t,
+    };
+    let (mut count, mut prev) = (1, ' ');
+    for c in t.chars() {
+        if c == '|' && prev != '\\' {
+            count += 1;
+        }
+        prev = c;
+    }
+    count
 }
 
 /// Where a code span opened by `run` backticks ends (just past its closing run), searching from
@@ -616,8 +646,9 @@ mod tests {
             seed ^= seed << 17;
             (seed % n as u64) as usize
         };
-        let (mut tables, mut checked) = (0, 0);
+        let (mut tables, mut checked, mut left) = (0, 0, 0);
         for _ in 0..400 {
+            tables += 1;
             let cols = 1 + next(5);
             let rows: Vec<Vec<&str>> = (0..next(7))
                 .map(|_| {
@@ -635,6 +666,16 @@ mod tests {
                 t.push_str(&line(r));
             }
             let got = fence_tables(&t).into_owned();
+            // A row the code spans make ambiguous (fewer or more cells than the header's, where the
+            // plain split by pipes matches it) leaves the table as written, whole.
+            if rows
+                .iter()
+                .any(|r| r.len() != cols && plain_count(&line(r)) == cols)
+            {
+                assert_eq!(got, t);
+                left += 1;
+                continue;
+            }
             let drawn = cells_drawn(&got);
             let width = rows.iter().map(Vec::len).fold(cols, usize::max);
             let wrote: Vec<&Vec<&str>> = std::iter::once(&head).chain(&rows).collect();
@@ -653,11 +694,11 @@ mod tests {
                     checked += 1;
                 }
             }
-            tables += 1;
         }
         assert_eq!(tables, 400);
+        assert!(left > 0, "the generator never made an ambiguous table");
         assert!(checked > 3_000, "{checked} cells checked");
-        eprintln!("generated tables: {tables}, cells checked: {checked}");
+        eprintln!("generated tables: {tables} ({left} ambiguous, left as written), cells checked: {checked}");
     }
 
     /// One-word underscores are a name and stay as written; a pair around words is dropped. The
@@ -700,5 +741,47 @@ mod tests {
         assert_eq!(fence_tables(t), t);
         let head = "| ```a``` | b |\n|---|---|\n| 1 | 2 |";
         assert_eq!(fence_tables(head), head);
+    }
+
+    /// Joining code spans that moves a row's cell count away from the header's, where the plain split
+    /// by pipes matches it, is ambiguous: the table is left as written, whole. A command table whose
+    /// spans are closed inside one cell, and whose plain split does not match the header, is drawn.
+    #[test]
+    fn a_table_the_code_spans_make_ambiguous_is_left_as_written() {
+        // The reviewer's: two backticks that pair across a pipe, and the plain split fits the header.
+        let t = "| a | b |\n|---|---|\n| `a | b` |";
+        assert_eq!(fence_tables(t), t);
+        // Three columns, a span joining two of them: the plain split still fits.
+        let three = "| a | b | c |\n|---|---|---|\n| `x | y` | z |\n| 1 | 2 | 3 |";
+        assert_eq!(fence_tables(three), three);
+        // Two lone backticks in different cells of a row pair across the pipe: the same.
+        let lone = "| a | b | c |\n|---|---|---|\n| ` | x | ` |";
+        assert_eq!(fence_tables(lone), lone);
+        // Lone backticks where the plain split does not fit the header (a longer row) still pair
+        // across the pipes, and the cells merge: the table is drawn and no word of it is lost. This
+        // is why lone backticks are not among the generated cells of the property test.
+        let ragged = "| a | b |\n|---|---|\n| ` | x | y | ` |";
+        let got = fence_tables(ragged).into_owned();
+        assert_eq!(cells_drawn(&got)[1], ["` | x | y | `", ""]);
+        // A command table: the span is closed inside its cell, the plain split (three) is not the
+        // header's (two): drawn, and the pipe is kept.
+        let cmd = "| command | what |\n|---|---|\n| `ls | wc -l` | counts |\n| `cat x` | prints |";
+        let got = fence_tables(cmd).into_owned();
+        assert!(got.starts_with("```\ncommand"), "{got}");
+        assert_eq!(cells_drawn(&got)[1][0], "ls | wc -l");
+        // A short row whose span closes in its cell, and whose plain split (two) is not the
+        // header's (three): drawn, padded.
+        let short = "| a | b | c |\n|---|---|---|\n| `x | y` |";
+        let got = fence_tables(short).into_owned();
+        assert_eq!(cells_drawn(&got)[1], ["x | y", "", ""]);
+    }
+
+    #[test]
+    fn plain_count_is_the_split_by_every_unescaped_pipe() {
+        assert_eq!(plain_count("| a | b |"), 2);
+        assert_eq!(plain_count("a | b | c"), 3);
+        assert_eq!(plain_count("| `a | b` |"), 2);
+        assert_eq!(plain_count("| a \\| b |"), 1);
+        assert_eq!(plain_count("| `x | y` | z |"), 3);
     }
 }

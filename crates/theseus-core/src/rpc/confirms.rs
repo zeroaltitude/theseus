@@ -555,13 +555,17 @@ impl Core {
         let task_rec = self.session_rec(&a.session_id);
         let mut declined = None;
         // A hold's yes is the owner's word for that one hold (issue 28): kept for the call
-        // before the wake can start the continuation that runs it, dropped if the answer fails.
-        let held_yes = approve && a.tool == crate::profile_tool::HOLD;
-        if held_yes {
-            self.tools
-                .profile
-                .keep_yes(correlation_id, &a.session_id, &a.execution_id, &who);
-        }
+        // before the wake can start the continuation that runs it. The guard drops it unless the
+        // confirm is bound below: an error, a panic unwinding through the frame, or an early
+        // return all let go of it.
+        let held_yes = (approve && a.tool == crate::profile_tool::HOLD).then(|| {
+            self.tools.profile.keep_yes_until_bound(
+                correlation_id,
+                &a.session_id,
+                &a.execution_id,
+                &who,
+            )
+        });
         let woke = self.kernel.frame(&[&a.execution_id], |k| {
             if task_lock.is_some() {
                 if let Some((records, c)) =
@@ -596,14 +600,11 @@ impl Core {
                 .is_ok();
             Ok(woke)
         });
-        let woke = woke.inspect_err(|_| {
-            if held_yes {
-                self.tools.profile.drop_yes(correlation_id);
-            }
-        })?;
-        if held_yes {
-            self.tools.profile.bind_yes(correlation_id);
-        }
+        let woke = woke?;
+        // The confirm is bound: the yes stays for the call.
+        held_yes
+            .into_iter()
+            .for_each(crate::profile_tool::KeptYes::bind);
         drop(task_lock);
         if let Some(c) = &declined {
             crate::fact::task_graph::announce(&task_rec, "change_declined", c);
