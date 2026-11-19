@@ -120,6 +120,9 @@ const NOT_WIRE: &[&str] = &[
     "initiative.rs Proactive",       // the order of first messages, in the core
     "jsonrpc.rs Incoming",           // a message as read, before it is one of the wire's types
     "outbox.rs Receipt",             // a channel's receipt, as the outbox stores it
+    "own_command.rs Way",            // what a verb of the command line does, for the shell's answer
+    "own_command.rs Entry",          // one row of that table
+    "own_command.rs Answered",       // the tool a shell look is answered with, in the core
     "routines.rs RunMark",           // a run's stored mark
     "routines.rs RoutinePing",       // a routine's stored memory of its pings
     "rsi.rs SelfRowKind",            // the table of `self.*` row kinds

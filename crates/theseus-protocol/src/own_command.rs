@@ -232,7 +232,7 @@ fn stages(line: &str) -> Option<Vec<Vec<String>>> {
     let (mut stages, mut words) = (Vec::new(), Vec::new());
     let (mut word, mut bad, mut open) = (String::new(), false, false);
     let mut chars = line.trim().chars().peekable();
-    let mut end = |word: &mut String, bad: &mut bool, open: &mut bool, words: &mut Vec<String>| {
+    let end = |word: &mut String, bad: &mut bool, open: &mut bool, words: &mut Vec<String>| {
         if *open {
             let w = std::mem::take(word);
             match (*bad, w.as_str()) {
