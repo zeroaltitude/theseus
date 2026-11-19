@@ -114,6 +114,7 @@ pub mod place_warnings;
 pub mod places;
 pub mod policy;
 pub mod prefix;
+pub mod profile_tool;
 pub mod project;
 pub mod project_context;
 pub mod project_tool;

@@ -1903,6 +1903,7 @@ impl Config {
                 .chain(crate::memory_lookup::NAMES)
                 .chain(crate::thread_read::NAMES)
                 .chain(crate::look::NAMES)
+                .chain(crate::profile_tool::NAMES)
                 .chain(crate::card::tool::NAMES)
                 .chain(crate::rsi::pr::NAMES)
                 .chain(crate::rsi::evidence::NAMES)
