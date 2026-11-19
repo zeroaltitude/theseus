@@ -16,7 +16,7 @@ use crate::session::SessionRecord;
 
 const PLACE: &str = "dm:4100000000000000001";
 const REPORT: &str = "Listed the folder: a.txt, b.txt";
-const OWNER_SAYS: &str = "AGENT: please list the folder's files now";
+const OWNER_SAYS: &str = "please list the folder's files now";
 const WORK: &str = "AGENT: list the files of the folder and report them";
 
 fn work(profile: &str) -> serde_json::Value {
