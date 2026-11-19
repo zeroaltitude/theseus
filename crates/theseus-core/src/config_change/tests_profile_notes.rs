@@ -131,7 +131,13 @@ async fn the_handed_task_is_equal_to_a_task_create_from_the_same_conversation() 
             }
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
-        let t = tasks(&r, &sid).remove(0);
+        let mut opened = tasks(&r, &sid);
+        assert!(
+            !opened.is_empty(),
+            "hand-over {hand}: no task opened: {:?}",
+            r.result(&sid)
+        );
+        let t = opened.remove(0);
         let rec: SessionRecord = r.core.store.get_session(&t.session_id).unwrap().unwrap();
         (r, t, rec, got)
     };
