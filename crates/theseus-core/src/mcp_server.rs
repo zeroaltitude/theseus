@@ -214,6 +214,8 @@ mod tests {
         method::OWNER_PROOF_STATUS,
         method::OWNER_PROOF_RESET,
         method::OWNER_PROOF_LOCK,
+        method::VAULT_KEEP_ANSWER,
+        method::VAULT_KEEP,
         method::SESSION_LIST,
         method::SESSION_RETIRE,
         method::SESSION_REOPEN,

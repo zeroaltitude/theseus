@@ -432,6 +432,7 @@ ledger_kinds! {
     TurnStarted = "turn.started",
     TurnSteered = "turn.steered",
     TurnTrace = "turn.trace",
+    VaultKeep = "vault.keep",
     VoiceBargeIn = "voice.barge_in",
     VoiceCut = "voice.cut",
     VoiceDeaf = "voice.deaf",

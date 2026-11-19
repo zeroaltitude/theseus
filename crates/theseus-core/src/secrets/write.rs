@@ -174,6 +174,98 @@ impl OpReader {
     }
 }
 
+/// Why a keep did not finish, by class: where it stopped, never `op`'s words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeepStop {
+    /// Nothing was written: the program refused, could not be reached, or timed out.
+    NotWritten(super::look::Failed),
+    /// The write was accepted, and reading the field back failed: the item
+    /// exists and its value is not known to be right.
+    NotChecked(super::look::Failed),
+    /// The write was accepted and the field read back as another value.
+    Differs,
+}
+
+impl OpReader {
+    /// `value` into the one concealed field of an item, for a secret the owner
+    /// gave (issue 26): the item JSON on **stdin**, never argv; read back and
+    /// compared by sha256 before it is called kept. An item that is there is
+    /// edited as a whole (read, one field changed, written back), never by a
+    /// partial body. `exists` says whether the item is there; `field_id` is the id of the field when it is (an existing
+    /// field keeps its id and its label), else a new field is named `label`.
+    /// `reference` is what reads it back: by ids for an item that exists.
+    pub async fn keep_field(
+        &self,
+        (vault, item, exists): (&str, &str, bool),
+        (field_id, label): (&str, &str),
+        reference: &str,
+        value: &Secret,
+    ) -> Result<(), KeepStop> {
+        let class = |e: &str| super::look::class_of(e.as_bytes());
+        let concealed = serde_json::json!({
+            "id": field_id, "label": label, "type": "CONCEALED", "value": value.expose()
+        });
+        let put = match exists {
+            true => {
+                // The vault's program takes what is piped to `item edit` as the item
+                // itself, so the edit is the item's own JSON with this one field
+                // changed or added: nothing else of the item is left out. Its text holds
+                // the item's other values: the text read and the body sent are zeroized
+                // on drop (the parsed form between them is not), and it goes nowhere else.
+                // `--reveal`: what is read here is written back whole, so every value must
+                // be in it. A version of the program that left concealed values out of
+                // its answer without the flag would otherwise have this edit empty them.
+                let got = zeroize::Zeroizing::new(
+                    self.run(
+                        &[
+                            "item", "get", item, "--vault", vault, "--format", "json", "--reveal",
+                        ],
+                        None,
+                    )
+                    .await
+                    .map_err(|e| KeepStop::NotWritten(class(&e)))?,
+                );
+                let mut doc: serde_json::Value = serde_json::from_slice(&got)
+                    .map_err(|_| KeepStop::NotWritten(super::look::Failed::Unreadable))?;
+                let fields = doc
+                    .get_mut("fields")
+                    .and_then(serde_json::Value::as_array_mut)
+                    .ok_or(KeepStop::NotWritten(super::look::Failed::Unreadable))?;
+                match fields.iter_mut().find(|f| f["id"] == field_id) {
+                    Some(f) => f["value"] = serde_json::json!(value.expose()),
+                    None => fields.push(concealed),
+                }
+                let body = zeroize::Zeroizing::new(doc.to_string());
+                self.run(
+                    &["item", "edit", item, "--vault", vault, "--format", "json"],
+                    Some(&body),
+                )
+                .await
+            }
+            false => {
+                let body = serde_json::json!({
+                    "title": item, "category": "API_CREDENTIAL", "fields": [concealed]
+                })
+                .to_string();
+                self.run(
+                    &["item", "create", "-", "--vault", vault, "--format", "json"],
+                    Some(&body),
+                )
+                .await
+            }
+        };
+        put.map_err(|e| KeepStop::NotWritten(class(&e)))?;
+        let back = self
+            .read_raw(reference)
+            .await
+            .map_err(|e| KeepStop::NotChecked(class(&e)))?;
+        match digest(&back) == digest(value.expose().trim()) {
+            true => Ok(()),
+            false => Err(KeepStop::Differs),
+        }
+    }
+}
+
 /// `value` into the `file:` entry's path, atomically at mode 0600, and read back.
 pub fn write_file(reference: &str, value: &Secret) -> Result<(), String> {
     let path = crate::config::expand(

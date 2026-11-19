@@ -65,7 +65,7 @@ const MAX_LIST: usize = 64;
 
 /// Whether `tool` is run by this module's async functions.
 pub fn is_async(tool: &str) -> bool {
-    NAMES.contains(&tool) || tool == super::vault_use::USE
+    NAMES.contains(&tool) || tool == super::vault_use::USE || tool == super::vault_keep::KEEP
 }
 
 #[derive(Debug, Deserialize)]

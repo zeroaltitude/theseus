@@ -75,6 +75,17 @@ pub(super) fn covered(req: &ConfirmRequest) -> bool {
     req.needs_proof && !req.needs_fresh_proof && req.proof.as_ref().is_some_and(|p| !p.code_needed)
 }
 
+/// What a press on a secret to keep is told: where its value is typed.
+const KEEP_HERE: &str = "A secret's value is not typed in Discord. Give it where only you see it: \
+     run `theseus vault keep` in your own terminal (nothing is shown as you type), or use the \
+     card's field in the cockpit. Never paste it into chat.";
+
+/// Whether the question is a secret to keep (`vault.keep`): a settings card
+/// whose arguments carry the target.
+pub(super) fn keeps(req: &ConfirmRequest) -> bool {
+    req.tool == "config.ack" && req.input.get("keep").is_some_and(Value::is_object)
+}
+
 /// The question a form is for, from its `custom_id`.
 pub(super) fn question_of(custom_id: &str) -> Option<&str> {
     custom_id.strip_prefix(MODAL).filter(|q| !q.is_empty())
@@ -108,6 +119,20 @@ impl Shared {
         else {
             return false;
         };
+        // A secret to keep takes a value, which Discord's form does not carry
+        // (issue 26: the owner decides whether a durable secret may travel
+        // through Discord): the press says where it is typed, to the presser
+        // alone, and opens no form. The card says the same.
+        if keeps(&req) {
+            self.respond(
+                i,
+                InteractionResponseType::ChannelMessageWithSource,
+                Some(format!("🔐 {KEEP_HERE}")),
+                true,
+            )
+            .await;
+            return true;
+        }
         if !req.needs_proof || covered(&req) {
             return false;
         }
@@ -247,6 +272,25 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("given here 3 hours ago"));
+    }
+
+    /// A secret to keep opens no form in Discord, whatever its standing: the
+    /// press says where the value is typed (issue 26), and any other settings
+    /// card is not mistaken for one.
+    #[test]
+    fn a_secret_to_keep_opens_no_form_and_a_settings_card_is_not_one() {
+        let card = |tool: &str, input: serde_json::Value| ConfirmRequest {
+            tool: tool.into(),
+            input,
+            needs_proof: true,
+            ..Default::default()
+        };
+        assert!(keeps(&card("config.ack", json!({"keep": {"vault": "v"}}))));
+        assert!(!keeps(&card("config.ack", json!({"paths": []}))));
+        assert!(!keeps(&card("config.ack", json!({"keep": null}))));
+        assert!(!keeps(&card("proc.run", json!({"keep": {"vault": "v"}}))));
+        assert!(KEEP_HERE.contains("theseus vault keep") && KEEP_HERE.contains("cockpit"));
+        assert!(!KEEP_HERE.to_lowercase().contains("type it here"));
     }
 
     /// A line too long for a description is never cut mid-sentence: the

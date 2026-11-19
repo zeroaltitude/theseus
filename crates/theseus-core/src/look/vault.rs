@@ -302,9 +302,9 @@ async fn fields_words(
                     .map_or(String::new(), |v| format!(" in {}", names::clean(v)))
             )
         }
-        [one] => match ItemId::parse(&one.id) {
-            Some(id) => (*one, id),
-            None => return format!("Fields: not available: {}.\n", Failed::Unreadable.words()),
+        [one] => match (VaultId::parse(&one.vault_id), ItemId::parse(&one.id)) {
+            (Some(vault), Some(id)) => (*one, (vault, id)),
+            _ => return format!("Fields: not available: {}.\n", Failed::Unreadable.words()),
         },
         many => {
             let each: Vec<String> = many
@@ -321,7 +321,7 @@ async fn fields_words(
     let Some(reader) = reader else {
         return format!("Fields: not available: {}.\n", Failed::NoVault.words());
     };
-    let fields = match reader.look_item(&id).await {
+    let fields = match reader.look_item(&id.0, &id.1).await {
         Ok(text) => names::parse_fields(&text),
         Err(f) => Err(f),
     };

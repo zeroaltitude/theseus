@@ -13,7 +13,7 @@ import { useTick } from '@/lib/hooks'
 import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords'
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
-import { answerParams, buttonsOf, goesThrough, hasWholeText, needsCode, proofLine } from '@/lib/answers'
+import { answerParams, buttonsOf, goesThrough, hasWholeText, isKeep, keepNeedsCode, keepParams, needsCode, proofLine } from '@/lib/answers'
 import { deadlineOf, floorWords, waitedLabel } from '@/lib/heldquestion'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
@@ -105,15 +105,27 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
   // The code from the owner's authenticator app (issue 22): held in this card's memory alone, sent to the daemon with
   // the answer, and forgotten once it is sent.
   const [code, setCode] = useState('')
+  // The value of a secret to keep (issue 26): typed into a password field of this card, sent to the daemon in one
+  // request, and cleared at once. Never shown, never in a URL, never kept.
+  const [value, setValue] = useState('')
   // A call's question is held, not expiring: it says how long it has waited, never a deadline (theseus-lrc3m).
   const deadline = deadlineOf(c)
   const waited = waitedLabel(c, now)
   const left = deadline ? deadline - now : null
   const span = deadline && c.requested_at_ms ? deadline - c.requested_at_ms : 0
   const budget = c.budget
-  const buttons = buttonsOf(c)
+  const keep = isKeep(c)
+  // A keep card takes a value, not a yes: only its decline is a button.
+  const buttons = buttonsOf(c).filter((b) => !keep || b.tone === 'fault')
   const answer = async (option: string) => {
     const ok = await run(option, 'work.answer', answerParams(c, option, note, code))
+    setCode('')
+    return ok
+  }
+  const keepIt = async () => {
+    const v = value
+    setValue('')
+    const ok = await run('keep', 'vault.keep.answer', keepParams(c, v, code))
     setCode('')
     return ok
   }
@@ -173,7 +185,10 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
               </Btn>
             ))}
             {buttons.length === 0 && <span className="text-[11.5px] text-wait">this connection may not answer it: answer from the CLI (theseus answer {short(c.correlation_id)}), or a private place</span>}
-            {needsCode(c) && <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="code from your authenticator app" inputMode="numeric" autoComplete="off" maxLength={7} aria-label="second proof code"
+            {keep && <input type="password" value={value} onChange={(e) => setValue(e.target.value)} placeholder="the secret's value (it goes to the daemon alone)" autoComplete="new-password" spellCheck={false} aria-label="the secret's value"
+              className="num w-72 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />}
+            {keep && <Btn tone="ok" busy={busy === 'keep'} title="Keep it in the vault: the daemon writes it with its own account and reads it back" onClick={keepIt}><CircleCheck size={13} /> Keep it</Btn>}
+            {(keep ? keepNeedsCode(c) : needsCode(c)) && <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="code from your authenticator app" inputMode="numeric" autoComplete="off" maxLength={7} aria-label="second proof code"
               className="num w-48 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />}
             {buttons.some((b) => b.takesNote) && <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional; the model sees it on a decline)"
               className="min-w-40 flex-1 rounded-md bg-white/5 px-2.5 py-1.5 text-[12px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />}

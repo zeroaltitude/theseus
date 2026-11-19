@@ -33,7 +33,7 @@ use super::{diff, edit};
 use crate::secrets::Source;
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
-mod check;
+pub(crate) mod check;
 #[cfg(test)]
 mod tests;
 
@@ -337,7 +337,7 @@ pub async fn run(
 /// outside since the owner's last message, the call is put to the owner before
 /// anything is read from the vault, as a look at the vault's names is.
 pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
-    if name != USE {
+    if name != USE && name != super::vault_keep::KEEP {
         return plan;
     }
     let (outside, steered) = super::outside_text(tc);
@@ -346,12 +346,16 @@ pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
 
 /// [`ask_if_outside`], on the facts it reads.
 fn held(name: &str, outside: bool, steered: bool, mut plan: Plan) -> Plan {
-    if name == USE && (outside || steered) {
-        plan.authority = Some(
-            "look in Theseus's vault to use a secret: this conversation has read text from \
-             outside since your last message, so the request may not be only yours"
-                .into(),
-        );
+    if outside || steered {
+        let what = match name {
+            USE => "look in Theseus's vault to use a secret",
+            super::vault_keep::KEEP => "ask to keep a secret in Theseus's vault",
+            _ => return plan,
+        };
+        plan.authority = Some(format!(
+            "{what}: this conversation has read text from outside since your last message, so \
+             the request may not be only yours"
+        ));
     }
     plan
 }

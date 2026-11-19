@@ -37,6 +37,10 @@ impl ToolRuntime {
             crate::config_change::vault_use::USE => {
                 crate::config_change::vault_use::run(self, tc, &call.input, correlation_id).await
             }
+            // A secret the owner will give by a form: the daemon reads the vault before the card (issue 26).
+            crate::config_change::vault_keep::KEEP => {
+                crate::config_change::vault_keep::run(self, tc, &call.input, correlation_id).await
+            }
             _ => crate::extend::propose(self, tc, &call.input, correlation_id).await,
         };
         // A trial a cancel or a stop aborted (18a): the cancel settles the

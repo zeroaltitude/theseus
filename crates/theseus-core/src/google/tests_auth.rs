@@ -288,6 +288,7 @@ fn fake_op(dir: &Path, mode: &str) -> Arc<OpReader> {
         r#"#!/bin/sh
 LOG='{d}/op.argv'; STORE='{d}/op.stored'; MODE='{mode}'
 printf '%s\n' "$*" >> "$LOG"
+case "$1 $2" in "item get"|"item edit"|"item create"|"item delete") case " $* " in *" --vault "*) ;; *) echo '[ERROR] 2026/10/19 08:00:00 a vault query must be provided when this command is called by a service account. Please specify one either through the --vault flag or through piped input' >&2; exit 1 ;; esac ;; esac
 case "$1 $2" in
   "item get")
     if [ -f "$STORE" ]; then echo '{{}}'; exit 0; fi
