@@ -24,6 +24,7 @@ fn stopped_all() -> ExecutionStopResult {
         turn_running: false,
         tasks_running: 0,
         wakes_pending: 0,
+        agents_running: vec![],
         cancelled: vec!["exe_ses_aaa111".into(), "exe_ses_bbb222".into()],
         left_ended: vec![],
         left_kept: vec![],

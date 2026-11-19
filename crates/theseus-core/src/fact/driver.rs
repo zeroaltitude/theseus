@@ -141,6 +141,8 @@ pub struct ExecutionStopped<'a> {
     pub declined: usize,
     pub turn_running: bool,
     pub tasks_running: u32,
+    /// The tasks among them that a turn handed to a profile (`profile.run`).
+    pub agents: &'a [theseus_protocol::StopAgent],
 }
 
 impl Fact for ExecutionStopped<'_> {
@@ -166,7 +168,13 @@ impl Fact for ExecutionStopped<'_> {
                         narrative::count(w as u64, "wake", "wakes")
                     ),
                 }
-            ),
+            ) + &match self.agents.is_empty() {
+                true => String::new(),
+                false => format!(
+                    " {}",
+                    theseus_protocol::StopAgent::words(self.agents, "theseus cancel")
+                ),
+            },
         );
     }
 }

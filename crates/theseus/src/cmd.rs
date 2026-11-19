@@ -2071,6 +2071,7 @@ mod tests {
             turn_running: false,
             tasks_running: 1,
             wakes_pending: 0,
+            agents_running: vec![],
             verdicts: vec![],
             cancelled: vec![],
             left_ended: vec![],

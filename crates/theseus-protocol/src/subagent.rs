@@ -44,6 +44,10 @@ pub struct SubagentAnswer {
     pub cut: bool,
     /// The call's id: the post's key, so a retry never posts it twice.
     pub call: String,
+    /// How the work ended, for an agent that was handed work as a task (`profile.run`): `cancelled` or
+    /// `failed`; empty for an answer and for work that was done.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub outcome: String,
 }
 
 impl SubagentAnswer {
@@ -67,6 +71,9 @@ impl SubagentAnswer {
         });
         if self.cut {
             bits.push("cut at its cap".into());
+        }
+        if !self.outcome.is_empty() {
+            bits.push(self.outcome.clone());
         }
         bits.extend(self.cost_usd.map(crate::cost::usd));
         bits.push(format!("{:.1} s", self.elapsed_ms as f64 / 1000.0));
@@ -109,6 +116,7 @@ mod tests {
             output_tokens: 12,
             cut: false,
             call: "act_1".into(),
+            outcome: String::new(),
         }
     }
 
@@ -166,5 +174,25 @@ mod tests {
         assert_eq!(SubagentAnswer::from_meta(&meta), Some(answer()));
         assert_eq!(SubagentAnswer::from_meta(&json!({"exit_code": 0})), None);
         assert_eq!(SubagentAnswer::from_meta(&json!(null)), None);
+    }
+
+    /// Work that was cancelled or failed says so in the footer, after what it is and who asked, and an
+    /// answer or finished work says nothing more.
+    #[test]
+    fn an_outcome_that_is_not_done_is_in_the_footer() {
+        let cancelled = SubagentAnswer {
+            outcome: "cancelled".into(),
+            ..answer()
+        };
+        assert_eq!(
+            cancelled.footer(),
+            "haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · cancelled · $0.0031 · 1.3 s"
+        );
+        assert!(!answer().footer().contains("cancelled"));
+        let wire = serde_json::to_value(answer()).unwrap();
+        assert!(
+            wire.get("outcome").is_none(),
+            "an answer's wire shape is as it was: {wire}"
+        );
     }
 }

@@ -1373,6 +1373,13 @@ pub fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
             r.tasks_running, r.wakes_pending
         ));
     }
+    if !r.agents_running.is_empty() {
+        out.push_str(" · ");
+        out.push_str(&theseus_protocol::StopAgent::words(
+            &r.agents_running,
+            "theseus cancel",
+        ));
+    }
     for clause in stop_reach(r) {
         out.push_str(" · ");
         out.push_str(&clause);

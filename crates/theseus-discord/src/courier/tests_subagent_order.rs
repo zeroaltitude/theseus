@@ -259,3 +259,72 @@ fn the_calls_line_is_made_before_the_answer_when_the_call_was_fast() {
     );
     assert!(line < said, "{keys:?}");
 }
+
+/// A late report of work handed to a profile, in a direct message that hosts several thread
+/// sessions, is drawn with its thread's tag as the turn's own reply is: the post names the asking
+/// conversation and turn (the task's own session is not a thread's), so the tag is found. A post of
+/// a conversation that is no thread's carries none (issue 28).
+#[tokio::test]
+async fn a_late_handed_report_in_a_dm_of_threads_carries_its_threads_tag() {
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let lane = dm_lane(d.path(), &fake);
+    let (core, outbox) = (lane.shared.core.clone(), lane.shared.core.outbox.clone());
+    core.thread_new(
+        &theseus_protocol::threads::ThreadNewParams {
+            slug: "harbor".into(),
+            title: Some("Harbor".into()),
+            ..Default::default()
+        },
+        crate::tests_default_forum::cli(),
+    )
+    .unwrap();
+    let thread = core
+        .thread_session("harbor", crate::tests_default_forum::cli())
+        .unwrap();
+    let body = |session: &str, call: &str| {
+        json!({"kind": "subagent", "turn_id": TURN, "session_id": session, "reply_to": null,
+            "answer": {"profile": "haiku", "provider": "anthropic", "model": "claude-haiku-5-5",
+                "asked_by": "sonnet", "text": WORDS, "cost_usd": 0.0102, "elapsed_ms": 41_000,
+                "output_tokens": 0, "cut": false, "call": call}})
+    };
+    outbox
+        .post(
+            "ses_task_t",
+            "",
+            &lane.target,
+            body(&thread.session_id, "ses_task_t"),
+        )
+        .unwrap();
+    outbox
+        .post(
+            "ses_task_u",
+            "",
+            &lane.target,
+            body("sess_not_a_thread", "ses_task_u"),
+        )
+        .unwrap();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tx.send(LaneMsg::Wake).unwrap();
+    let run = tokio::spawn(lane.run(rx));
+    let got = drawn(&fake, &outbox, 2, true).await;
+    drop(tx);
+    run.await.unwrap();
+    let said: Vec<&str> = got.iter().map(|m| m.content.as_str()).collect();
+    let tagged: Vec<&&str> = said
+        .iter()
+        .filter(|m| m.starts_with("-# → Harbor\n"))
+        .collect();
+    assert_eq!(tagged.len(), 1, "{said:#?}");
+    assert!(
+        tagged[0].contains(&format!(
+            "{} {WORDS}",
+            theseus_protocol::subagent::SUBAGENT_ICON
+        )),
+        "{said:#?}"
+    );
+    assert!(
+        said.iter().any(|m| m.starts_with("🛰️ ")),
+        "the other has none: {said:#?}"
+    );
+}

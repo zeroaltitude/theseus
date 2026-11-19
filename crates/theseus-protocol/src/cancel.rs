@@ -200,6 +200,40 @@ pub struct ExecutionStopParams {
     pub discord: Option<DiscordOrigin>,
 }
 
+/// An agent a stopped turn handed work to, still working (`ExecutionStopResult::agents_running`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StopAgent {
+    /// The profile that was handed the work, and the model that is doing it.
+    pub profile: String,
+    pub model: String,
+    /// The task's short id, which `/cancel` and `theseus cancel` take.
+    pub task: String,
+}
+
+impl StopAgent {
+    /// The words a stop says of the agents it left working, in one place for every surface: each one's
+    /// profile and task, and that its own cancel stops it. `cancel` is the surface's way to say it
+    /// (`/cancel`, `theseus cancel`). Empty for none.
+    pub fn words(agents: &[StopAgent], cancel: &str) -> String {
+        match agents {
+            [] => String::new(),
+            [a] => format!(
+                "The agent {} was handed work ({}) is still working: `{cancel} {}` stops it.",
+                a.profile, a.model, a.task
+            ),
+            many => format!(
+                "{} agents it handed work to are still working ({}): `{cancel} <task>` stops one.",
+                many.len(),
+                many.iter()
+                    .map(|a| format!("{} as {}", a.profile, a.task))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionStopResult {
@@ -222,6 +256,10 @@ pub struct ExecutionStopResult {
     /// running tasks and its pending wakes.
     pub tasks_running: u32,
     pub wakes_pending: u32,
+    /// Of those tasks, the ones a turn handed to a model profile (`profile.run`): an agent that is
+    /// still working, each stopped by its own cancel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents_running: Vec<StopAgent>,
     /// With `tasks`: the tasks cancelled, depth first (theseus-cdcwr).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cancelled: Vec<String>,
@@ -248,4 +286,35 @@ pub struct JobKept {
     /// The operator who approved the call at the floor: the one thing that
     /// keeps a leftover through a stop.
     pub approved_by: String,
+}
+
+#[cfg(test)]
+mod tests_agents {
+    use super::*;
+
+    fn agent(task: &str) -> StopAgent {
+        StopAgent {
+            profile: "haiku".into(),
+            model: "claude-haiku-5-5".into(),
+            task: task.into(),
+        }
+    }
+
+    /// One agent is named with its model and its own cancel; several are counted and listed; none, nothing.
+    #[test]
+    fn the_stop_says_which_agents_go_on_and_how_to_stop_one() {
+        assert_eq!(StopAgent::words(&[], "/cancel"), "");
+        let one = StopAgent::words(&[agent("a1b2c3")], "/cancel");
+        assert_eq!(
+            one,
+            "The agent haiku was handed work (claude-haiku-5-5) is still working: `/cancel a1b2c3` stops it."
+        );
+        let two = StopAgent::words(&[agent("a1b2c3"), agent("d4e5f6")], "theseus cancel");
+        assert!(
+            two.starts_with("2 agents it handed work to are still working")
+                && two.contains("haiku as a1b2c3, haiku as d4e5f6")
+                && two.contains("`theseus cancel <task>`"),
+            "{two}"
+        );
+    }
 }

@@ -57,6 +57,11 @@ pub(super) fn input_of(input: &Value) -> Result<(String, String), String> {
     Ok((profile.to_string(), question.to_string()))
 }
 
+/// Why a model with no price in the catalog is not asked, for `profile.ask` and `profile.run` alike.
+pub(crate) fn unpriced(model: &str) -> String {
+    format!("{model} has no price in the catalog, so it is not asked")
+}
+
 /// What a planned call carries to its making.
 pub(super) struct Planned {
     action: Action,
@@ -100,12 +105,11 @@ pub(super) fn begin(
                 target.provider
             )
         })?;
-    let price = runner.catalog.get(&target.model).cloned().ok_or_else(|| {
-        format!(
-            "{} has no price in the catalog, so it is not asked",
-            target.model
-        )
-    })?;
+    let price = runner
+        .catalog
+        .get(&target.model)
+        .cloned()
+        .ok_or_else(|| unpriced(&target.model))?;
     let max_tokens = target.max_tokens.min(ANSWER_MAX_TOKENS);
     let request = request_for(core, &target, question, max_tokens);
     let est = crate::compiler::estimate(&request, price.bytes_per_token, None);
@@ -267,6 +271,7 @@ fn settled(core: &Core, p: &Planned, resp: ModelResponse, started_ms: u64) -> (S
         output_tokens: resp.usage.output_tokens,
         cut,
         call: p.action.correlation_id.clone(),
+        outcome: String::new(),
     };
     let meta = match text.is_empty() {
         true => json!({}),

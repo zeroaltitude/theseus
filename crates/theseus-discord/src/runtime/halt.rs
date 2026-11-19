@@ -256,6 +256,7 @@ mod tests {
             turn_running: false,
             tasks_running: 0,
             wakes_pending: 0,
+            agents_running: vec![],
             cancelled: vec![],
             left_ended: vec![],
             left_kept: vec![],
@@ -272,6 +273,28 @@ mod tests {
         assert_eq!(
             stop_words(&r),
             format!("{plain} 3 task(s) cancelled with it.")
+        );
+    }
+
+    /// A stop that leaves an agent working says so, in the answer, and names the task's own cancel; a
+    /// stop that leaves none is as it was (issue 28).
+    #[test]
+    fn the_stops_answer_says_an_agent_it_handed_work_to_still_works() {
+        let mut r = bare_result();
+        r.tasks_running = 1;
+        let plain = stop_words(&r);
+        r.agents_running = vec![theseus_protocol::StopAgent {
+            profile: "haiku".into(),
+            model: "claude-haiku-5-5".into(),
+            task: "a1b2c3".into(),
+        }];
+        let said = stop_words(&r);
+        assert_eq!(
+            said,
+            format!(
+                "{plain} The agent haiku was handed work (claude-haiku-5-5) is still working: \
+                 `/cancel a1b2c3` stops it."
+            )
         );
     }
 

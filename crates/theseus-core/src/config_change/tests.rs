@@ -89,6 +89,8 @@ struct Model {
     gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     /// A call the agent makes before it reports (`Rig::agents_call`).
     agent_call: Mutex<Option<(String, Value)>>,
+    /// The tool names each agent request offered, by wire name.
+    agent_tools: Mutex<Vec<Vec<String>>>,
 }
 
 impl Provider for Model {
@@ -108,6 +110,14 @@ impl Provider for Model {
             .messages
             .first()
             .is_some_and(|m| m.to_string().contains("AGENT:"));
+        if agent {
+            self.agent_tools.lock().unwrap().push(
+                req.tools
+                    .iter()
+                    .filter_map(|t| t["name"].as_str().map(str::to_string))
+                    .collect(),
+            );
+        }
         if let (true, Some(said)) = (agent, self.agent.lock().unwrap().clone()) {
             let gate = self.gate.lock().unwrap().clone();
             let answers_a_call = req
@@ -207,6 +217,7 @@ pub(super) struct Rig {
     _dir: tempfile::TempDir,
     /// The driver `Rig::drive` started: it takes a task's turns, as the daemon's does.
     driver: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    said: Mutex<Option<String>>,
 }
 
 pub(super) fn rig() -> Rig {
@@ -246,6 +257,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         agent: Mutex::default(),
         gate: Mutex::default(),
         agent_call: Mutex::default(),
+        agent_tools: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -255,6 +267,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         state,
         _dir: dir,
         driver: Mutex::default(),
+        said: Mutex::default(),
     }
 }
 
@@ -370,6 +383,16 @@ impl Rig {
         r
     }
 
+    /// The tool names each agent request was offered, in the order the requests came.
+    pub(super) fn agent_tools(&self) -> Vec<Vec<String>> {
+        self.model.agent_tools.lock().unwrap().clone()
+    }
+
+    /// The owner's words the next turns start from (`change a setting` when none are set).
+    pub(super) fn says(&self, words: &str) {
+        *self.said.lock().unwrap() = Some(words.into());
+    }
+
     /// The model of every request made, and the tools it offered.
     pub(super) fn seen(&self) -> Vec<(String, usize)> {
         self.model.seen.lock().unwrap().clone()
@@ -439,7 +462,13 @@ impl Rig {
                 prompt: None,
                 surface: None,
                 session: rec,
-                input: Some("change a setting".into()),
+                input: Some(
+                    self.said
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .unwrap_or_else(|| "change a setting".into()),
+                ),
                 target,
                 sink: EventSink::new(self.core.bus.clone(), sid, None),
                 author: "test".into(),
