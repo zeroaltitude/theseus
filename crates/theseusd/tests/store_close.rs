@@ -17,17 +17,7 @@ use serde_json::{json, Value};
 
 const KEY: &str = "store-close-key-0000";
 
-/// A free loopback port for the web UI: a fixed one collides with the
-/// other tests' daemons and with whatever holds it on the host.
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
-fn services_on(base: String, web: u16) -> impl FnOnce(&mut toml::Table) {
+fn services_on(base: String) -> impl FnOnce(&mut toml::Table) {
     move |t| {
         table(t, "secrets").insert("mcp_server_key".into(), "env:STORE_CLOSE_KEY".into());
         let m = table(t, "mcp_server");
@@ -47,7 +37,8 @@ fn services_on(base: String, web: u16) -> impl FnOnce(&mut toml::Table) {
         te.insert("metrics_interval_secs".into(), 1.into());
         let w = table(t, "web");
         w.insert("enabled".into(), true.into());
-        w.insert("port".into(), i64::from(web).into());
+        // The kernel picks the port (`Served::web_port` reads it): none is picked here and found taken.
+        w.insert("port".into(), 0.into());
         table(t, "model").insert("api_base".into(), base.clone().into());
         for (_, p) in table(t, "providers").iter_mut() {
             p.as_table_mut()
@@ -157,8 +148,8 @@ fn every_surface(sigterm: bool) {
     let hook = |c: &mut std::process::Command| {
         c.env("STORE_CLOSE_KEY", KEY);
     };
-    let web = free_port();
-    let mut s = Served::start_with(|_| {}, services_on(model.base.clone(), web), hook);
+    let mut s = Served::start_with(|_| {}, services_on(model.base.clone()), hook);
+    let web = s.web_port();
     let t0 = Instant::now();
     while s.call("health", Value::Null).unwrap()["index"]["state"] != "ready" {
         assert!(t0.elapsed() < Duration::from_secs(30), "{}", s.log());
@@ -221,7 +212,7 @@ fn every_surface(sigterm: bool) {
                 .unwrap()
                 .success());
         },
-        services_on(model.base, web),
+        services_on(model.base),
         hook,
     );
     let p = store_phase(&second);
@@ -251,7 +242,7 @@ fn stop_soon(sigterm: bool) {
         c.env("STORE_CLOSE_KEY", KEY);
     };
     // A first run lays down a store with a session in it.
-    let first = Served::start_with(|_| {}, services_on(model.base.clone(), free_port()), hook);
+    let first = Served::start_with(|_| {}, services_on(model.base.clone()), hook);
     let ses = first
         .call("session.open", json!({"label": "close"}))
         .unwrap();
@@ -281,7 +272,7 @@ fn stop_soon(sigterm: bool) {
                     .unwrap()
                     .success());
             },
-            services_on(model.base.clone(), free_port()),
+            services_on(model.base.clone()),
             hook,
         );
         std::thread::sleep(Duration::from_millis(ms));
