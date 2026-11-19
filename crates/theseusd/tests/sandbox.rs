@@ -1304,6 +1304,11 @@ fn a_job_with_no_list_has_no_proxy() {
 /// The proxy stops when the job ends, its deadline included (18a's stop of
 /// the whole tree): a job that holds a tunnel open past its deadline is
 /// stopped, and its connection is still in its completion and its result.
+///
+/// The limit is an input, held in proportion on a busy machine (1 on a quiet one, theseus-20): it is a bound on
+/// the job's silence from its start, and the job prints nothing until its sandbox has started (up to 1.1 s of
+/// the 2 beside 64 busy threads, measured) and its tunnel is open, so it was cut before its first line once in
+/// 300 runs there.
 #[test]
 fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
     let port = stand_in();
@@ -1314,8 +1319,8 @@ fn a_deadline_ends_a_job_mid_tunnel_and_its_connection_is_still_recorded() {
         IFS= read -r status <&3\n\
         echo \"status=${status%$'\\r'}\"\n\
         sleep 30\n";
-    let call =
-        json!({"argv": ["bash", "-c", held, "held", stand], "sandbox": true, "timeout_secs": 2});
+    let limit = 2 * theseus_sim::bound_factor();
+    let call = json!({"argv": ["bash", "-c", held, "held", stand], "sandbox": true, "timeout_secs": limit});
     let (_, out) = r.turn_in("deadline", vec![("proc_run", call)]);
     let text = &out[0];
     assert!(text.contains("[timed out and killed]"), "{text}");
