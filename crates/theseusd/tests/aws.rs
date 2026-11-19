@@ -241,12 +241,19 @@ fn health_answers_while_aws_does_not() {
     });
     let (check_start, check_end, _) = phase(&h, "aws.check");
     assert_eq!(check_end, None, "the check waits on AWS: {check_start}");
-    // The socket answers every request meanwhile, at once.
+    // The socket answers every request meanwhile, at once: five of them in two seconds, a promise about the
+    // daemon, held in proportion to how slowly the machine gives a thread its turn (`Busy`; exactly two seconds
+    // on a quiet one): five took 2.06 s beside 64 busy loops (theseus-20).
+    let busy = theseus_sim::Busy::before();
     let t0 = Instant::now();
     for _ in 0..5 {
         s.call("health", Value::Null).unwrap();
     }
-    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+    let took = t0.elapsed();
+    assert!(
+        busy.keeps(took, Duration::from_secs(2)),
+        "five health calls took {took:?} ({busy})"
+    );
 }
 
 #[test]
