@@ -130,7 +130,7 @@ fn health_and_a_turn_are_taken_while_the_logs_write_is_held() {
 /// Both held, on ONE runtime worker: the WAL writer inside a frame's write (with its lock) and the log writer inside
 /// its write, while a turn's submit waits for the write. `health` answers, and so does a read of another session,
 /// within the bound: the submit's wait for the writer (its staging asks the log's position under the writer's lock)
-/// is made off the worker. Let go, the waiting turn goes through, and its session holds what it was given.
+/// is made off the worker. Let go, the waiting turn goes through, and its session holds its execution.
 #[test]
 fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_one_worker() {
     let h = daemon(true);
@@ -172,7 +172,7 @@ fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_o
         let (_a, _b) = (release(&h.wal), release(&h.log));
         held.join().unwrap();
     });
-    // The turn that waited went through: both sessions are there, and the second holds its input.
+    // The turn that waited went through: both sessions are there, and the second holds its execution.
     let listed = rpc(&h.daemon, "session.list", json!({}), ANSWER_WITHIN).unwrap();
     let sessions = listed["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 2, "{listed}");
@@ -188,7 +188,8 @@ fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_o
         ANSWER_WITHIN,
     )
     .unwrap();
-    assert!(history.to_string().contains("writes"), "{history}");
+    // This daemon has no model, so the session holds no node; it holds the execution the turn staged and committed.
+    assert!(history["session"]["execution_id"].is_string(), "{history}");
 }
 
 /// A start that fails still says what it logged before, and then why: the queue is written out before the error that
