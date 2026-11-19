@@ -695,34 +695,59 @@ impl Core {
         session: Option<&str>,
         target: Option<&str>,
     ) -> Result<Vec<theseus_protocol::TaskInfo>> {
+        Ok(self.tasks_upto(session, target, usize::MAX)?.0)
+    }
+
+    /// [`Core::tasks`] with a limit: the newest `limit` tasks that are not
+    /// ended, filled up with the newest that are when fewer are open, each read
+    /// whole, and how many older ones were left unread. A daemon with thousands
+    /// of tasks reads `limit` records, not all of them (`look.work`).
+    pub fn tasks_upto(
+        &self,
+        session: Option<&str>,
+        target: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<theseus_protocol::TaskInfo>, usize)> {
         let parent = match session {
             Some(s) => match self.store.get_session::<SessionRecord>(s)? {
                 Some(SessionRecord {
                     execution_id: Some(e),
                     ..
                 }) => Some(e),
-                _ => return Ok(vec![]),
+                _ => return Ok((vec![], 0)),
             },
             None => None,
         };
         let pending = self.pending_by_execution(&self.kernel.pending_confirms()?, None);
+        let mut all = self.kernel.tasks(parent.as_deref())?;
+        all.reverse();
+        let total = all.len();
+        let chosen: Vec<&theseus_kernel::Execution> = match total > limit {
+            false => all.iter().collect(),
+            true => {
+                let open = all.iter().filter(|e| !e.state.is_terminal());
+                let ended = all.iter().filter(|e| e.state.is_terminal());
+                let mut keep: Vec<&theseus_kernel::Execution> = open.take(limit).collect();
+                keep.extend(ended.take(limit - keep.len()));
+                keep.sort_by_key(|e| all.iter().position(|x| x.id == e.id));
+                keep
+            }
+        };
         let mut out = Vec::new();
-        for e in self.kernel.tasks(parent.as_deref())? {
+        for e in &chosen {
             let rec: Option<SessionRecord> = self.store.get_session(&e.session_id)?;
             let asks = pending.get(&e.id).cloned().unwrap_or_default();
-            let mut info = crate::task::info(&e, rec.as_ref(), asks.len() as u32);
+            let mut info = crate::task::info(e, rec.as_ref(), asks.len() as u32);
             info.depth = self.kernel.task_depth(&e.id)? as u32;
             if target.is_some_and(|t| info.target.as_deref() != Some(t)) {
                 continue;
             }
             info.arrangement = crate::task::arrangement_of(&self.store, rec.as_ref());
             let parent = Some(info.parent_session_id.clone()).filter(|p| !p.is_empty());
-            info.attention =
-                Some(crate::push::view(&e, asks, parent, 0, e.updated_at_ms).attention);
+            info.attention = Some(crate::push::view(e, asks, parent, 0, e.updated_at_ms).attention);
             out.push(info);
         }
-        out.reverse();
-        Ok(out)
+        Ok((out, total - chosen.len()))
     }
 
     pub fn task_list(

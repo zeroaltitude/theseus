@@ -76,6 +76,32 @@ impl Face {
     }
 }
 
+/// What a cancel from the terminal is called (`who_of`).
+pub const TERMINAL: &str = "the terminal";
+
+/// `Cancelled by ana`, `Cancelled from the terminal`, or `Cancelled` alone.
+fn cancelled_words(by: Option<&str>) -> String {
+    match by {
+        None => "Cancelled".to_string(),
+        Some(TERMINAL) => format!("Cancelled {TERMINAL_WORDS}"),
+        Some(who) => format!("Cancelled by {}", clip(who, 40)),
+    }
+}
+
+const TERMINAL_WORDS: &str = "from the terminal";
+
+/// Who a cancel's author label names, as a card says it: a person by their
+/// name (`discord:ana`), the command line as the terminal, the model as Theseus.
+pub fn who_of(label: &str) -> Option<String> {
+    let label = label.trim();
+    Some(match label {
+        "" => return None,
+        "the CLI" => TERMINAL.to_string(),
+        "model" => "Theseus".to_string(),
+        l => l.trim_start_matches("discord:").to_string(),
+    })
+}
+
 fn emoji(f: &Face) -> &'static str {
     match (&f.life, f.kind) {
         (Life::Fired(_), _) => "✅",
@@ -142,10 +168,7 @@ fn words(f: &Face) -> Vec<Value> {
         }
         Life::Fired(at) => format!("Fired {}", stamp(*at)),
         Life::Started(at) => format!("Started {}", stamp(*at)),
-        Life::Cancelled(at, by) => match by {
-            Some(who) => format!("Cancelled by {} · {}", clip(who, 40), stamp(*at)),
-            None => format!("Cancelled · {}", stamp(*at)),
-        },
+        Life::Cancelled(at, by) => format!("{} · {}", cancelled_words(by.as_deref()), stamp(*at)),
         Life::Removed(at) => format!("Removed · {}", stamp(*at)),
     };
     vec![
@@ -264,6 +287,17 @@ mod tests {
             "⏹ **stretch**\nCancelled by ana · <t:1790000100:f>"
         );
         assert!(custom_ids(&by).is_empty());
+        let terminal = card(&reminder(Life::Cancelled(
+            1_790_000_100_000,
+            who_of("the CLI"),
+        )));
+        assert_eq!(
+            texts(&terminal)[0],
+            "⏹ **stretch**\nCancelled from the terminal · <t:1790000100:f>"
+        );
+        assert_eq!(who_of("discord:ana").as_deref(), Some("ana"));
+        assert_eq!(who_of("model").as_deref(), Some("Theseus"));
+        assert_eq!(who_of(" "), None);
         let unknown = card(&reminder(Life::Cancelled(1_790_000_100_000, None)));
         assert!(
             texts(&unknown)[0].contains("Cancelled · <t:"),

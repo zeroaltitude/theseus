@@ -1475,7 +1475,11 @@ pub fn cancelled_report(
         return Ok((vec![], None));
     };
     let check = check_line(rec.as_ref());
-    let ran_on = rec.as_ref().and_then(|r| r.last_target.clone());
+    // The model it was opened on gave it nothing when no turn of its own ran: name none.
+    let ran_on = rec
+        .as_ref()
+        .and_then(|r| r.last_target.clone())
+        .filter(|_| e.turns > 0);
     let report = Report {
         check,
         ran_on,

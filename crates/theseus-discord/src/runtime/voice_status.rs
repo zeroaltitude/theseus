@@ -1,6 +1,8 @@
 //! The voice channel's status while Theseus is in a call (theseus-arp9l).
 //!
-//! - **The status**: `🎧 Theseus · ⚙️ 3 tasks · 🔴 1 needs you`, set with
+//! - **The status**: `🎧 Theseus · ⚙️ 3 tasks · 🕒 1 scheduled · 🔴 1 needs you`
+//!   (a task set to start later is scheduled, not working: its time is said
+//!   in the spoken line, never in the status), set with
 //!   `PUT /channels/{id}/voice-status` (a route twilight does not type, so
 //!   the writer is a plain request). Counts only: everyone in the channel
 //!   reads it, so it never holds a title, a path, or a dollar figure.
@@ -52,6 +54,8 @@ const CLEAR_WAIT: Duration = Duration::from_secs(3);
 enum Open {
     /// A task that works (queued, running, or waiting on its work).
     Task,
+    /// A task set to start later, and when (none while it is held).
+    Scheduled(Option<u64>),
     /// A question for the owner: what the call is told, and when it came.
     Question {
         who: String,
@@ -60,9 +64,21 @@ enum Open {
     },
 }
 
+/// What a count moves: a working task, a scheduled one, a question.
+#[derive(Clone, Copy)]
+enum Count {
+    Task,
+    Scheduled,
+    Question,
+}
+
 impl Open {
-    fn is_task(&self) -> bool {
-        matches!(self, Open::Task)
+    fn count(&self) -> Count {
+        match self {
+            Open::Task => Count::Task,
+            Open::Scheduled(_) => Count::Scheduled,
+            Open::Question { .. } => Count::Question,
+        }
     }
 }
 
@@ -72,23 +88,29 @@ impl Open {
 pub(super) struct Tally {
     open: HashMap<String, Open>,
     tasks: u32,
+    scheduled: u32,
     needs: u32,
 }
 
-/// The two counts the status holds.
+/// The counts the status holds.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub(super) struct Counts {
     pub tasks: u32,
+    pub scheduled: u32,
     pub needs: u32,
 }
 
 impl Counts {
-    /// The status text: `🎧 Theseus`, then what works, then what needs you.
+    /// The status text: `🎧 Theseus`, then what works, what is scheduled, and
+    /// what needs you.
     pub(super) fn status(self) -> String {
         let mut s = String::from("🎧 Theseus");
         if self.tasks > 0 {
             let s2 = if self.tasks == 1 { "task" } else { "tasks" };
             s.push_str(&format!(" · ⚙️ {} {s2}", self.tasks));
+        }
+        if self.scheduled > 0 {
+            s.push_str(&format!(" · 🕒 {} scheduled", self.scheduled));
         }
         if self.needs > 0 {
             s.push_str(&format!(" · 🔴 {} needs you", self.needs));
@@ -101,6 +123,7 @@ impl Tally {
     pub(super) fn counts(&self) -> Counts {
         Counts {
             tasks: self.tasks,
+            scheduled: self.scheduled,
             needs: self.needs,
         }
     }
@@ -109,6 +132,11 @@ impl Tally {
     /// count moved.
     pub(super) fn apply(&mut self, v: &WorkView) -> bool {
         let open = match v.kind {
+            WorkKind::Task if crate::render::task_view::waits_to_start(v) => {
+                Some(Open::Scheduled(v.next_at_ms.filter(|at| {
+                    *at < theseus_protocol::task_pause::PAUSED_AT_MS
+                })))
+            }
             WorkKind::Task if v.state.working() => Some(Open::Task),
             WorkKind::Question if !v.state.ended() => v.question.as_ref().map(|q| Open::Question {
                 who: q.asked_by.title.clone(),
@@ -118,12 +146,12 @@ impl Tally {
             _ => None,
         };
         let before = self.counts();
-        let now = open.as_ref().map(Open::is_task);
+        let now = open.as_ref().map(Open::count);
         let was = match open {
             Some(o) => self.open.insert(v.id.clone(), o),
             None => self.open.remove(&v.id),
         };
-        self.count(was.as_ref().map(Open::is_task), false);
+        self.count(was.as_ref().map(Open::count), false);
         self.count(now, true);
         self.counts() != before
     }
@@ -132,15 +160,16 @@ impl Tally {
     pub(super) fn drop_id(&mut self, id: &str) -> bool {
         let before = self.counts();
         let was = self.open.remove(id);
-        self.count(was.as_ref().map(Open::is_task), false);
+        self.count(was.as_ref().map(Open::count), false);
         self.counts() != before
     }
 
-    /// One more (or one fewer) of a kind: `Some(true)` is a task.
-    fn count(&mut self, kind: Option<bool>, add: bool) {
+    /// One more (or one fewer) of a kind.
+    fn count(&mut self, kind: Option<Count>, add: bool) {
         let n = match kind {
-            Some(true) => &mut self.tasks,
-            Some(false) => &mut self.needs,
+            Some(Count::Task) => &mut self.tasks,
+            Some(Count::Scheduled) => &mut self.scheduled,
+            Some(Count::Question) => &mut self.needs,
             None => return,
         };
         *n = if add { *n + 1 } else { n.saturating_sub(1) };
@@ -155,7 +184,8 @@ impl Tally {
     }
 
     /// One line from the board for the call's voice turn, at most
-    /// `SPOKEN_MAX` characters: `3 tasks working; 1 needs you: Beta summary
+    /// `SPOKEN_MAX` characters (a task set to start later is `1 scheduled for
+    /// Fri 09:00`, not working): `3 tasks working; 1 needs you: Beta summary
     /// asks fs.write create projects/beta-summary.txt (40 B)`.
     pub(super) fn spoken(&self) -> String {
         let tasks = match self.tasks {
@@ -163,12 +193,29 @@ impl Tally {
             1 => "1 task working".to_string(),
             n => format!("{n} tasks working"),
         };
+        // A task set to start later is scheduled, with its time, never working.
+        let next = self
+            .open
+            .values()
+            .filter_map(|o| match o {
+                Open::Scheduled(at) => *at,
+                _ => None,
+            })
+            .min()
+            .map(theseus_core::push::hm);
+        let tasks = match (self.scheduled, next) {
+            (0, _) => tasks,
+            (1, Some(at)) => format!("{tasks}, 1 scheduled for {at}"),
+            (1, None) => format!("{tasks}, 1 scheduled"),
+            (n, Some(at)) => format!("{tasks}, {n} scheduled, the next at {at}"),
+            (n, None) => format!("{tasks}, {n} scheduled"),
+        };
         let oldest = self
             .open
             .values()
             .filter_map(|o| match o {
                 Open::Question { who, prompt, at_ms } => Some((*at_ms, who, prompt)),
-                Open::Task => None,
+                Open::Task | Open::Scheduled(_) => None,
             })
             .min();
         let line = match (self.needs, oldest) {
@@ -543,7 +590,14 @@ pub(super) mod tests {
 
     #[test]
     fn the_status_reads_counts_and_nothing_else() {
-        let c = |tasks, needs| Counts { tasks, needs }.status();
+        let c = |tasks, needs| {
+            Counts {
+                tasks,
+                needs,
+                ..Counts::default()
+            }
+            .status()
+        };
         assert_eq!(c(0, 0), "🎧 Theseus");
         assert_eq!(c(1, 0), "🎧 Theseus · ⚙️ 1 task");
         assert_eq!(c(2, 0), "🎧 Theseus · ⚙️ 2 tasks");
@@ -576,7 +630,14 @@ pub(super) mod tests {
             "still a task: no move"
         );
         assert!(t.apply(&view("exe_b", "task", "queued", "B", None)));
-        assert_eq!(t.counts(), Counts { tasks: 2, needs: 0 });
+        assert_eq!(
+            t.counts(),
+            Counts {
+                tasks: 2,
+                needs: 0,
+                ..Counts::default()
+            }
+        );
         // A conversation, a step and a job are not tasks.
         for kind in ["conversation", "step", "job", "wake"] {
             assert!(!t.apply(&view("x", kind, "running", "X", None)), "{kind}");
@@ -588,11 +649,25 @@ pub(super) mod tests {
             "A",
             Some("fs.write x")
         )));
-        assert_eq!(t.counts(), Counts { tasks: 2, needs: 1 });
+        assert_eq!(
+            t.counts(),
+            Counts {
+                tasks: 2,
+                needs: 1,
+                ..Counts::default()
+            }
+        );
         // An answered question and an ended task leave.
         assert!(t.apply(&view("act_q", "question", "done", "A", Some("fs.write x"))));
         assert!(t.apply(&view("exe_a", "task", "done", "A", None)));
-        assert_eq!(t.counts(), Counts { tasks: 1, needs: 0 });
+        assert_eq!(
+            t.counts(),
+            Counts {
+                tasks: 1,
+                needs: 0,
+                ..Counts::default()
+            }
+        );
         assert!(t.drop_id("exe_b"));
         assert!(!t.drop_id("exe_b"));
         assert_eq!(t.counts(), Counts::default());
@@ -635,6 +710,63 @@ pub(super) mod tests {
         assert!(
             line.starts_with("3 tasks working; 2 need you, the oldest: "),
             "{line}"
+        );
+    }
+
+    /// A task set to start later is scheduled in the status and the spoken line,
+    /// with its time said only to the private turn, and never counted working;
+    /// once it starts it is.
+    #[test]
+    fn a_task_set_for_later_is_scheduled_not_working_in_the_status_and_the_spoken_line() {
+        let mut later = crate::render::task_view::tests::deferred(1_790_003_600_000);
+        later.id = "exe_later".into();
+        let mut t = Tally::default();
+        assert!(t.apply(&later), "a count moved");
+        assert_eq!(
+            t.counts(),
+            Counts {
+                tasks: 0,
+                scheduled: 1,
+                needs: 0
+            }
+        );
+        let status = t.counts().status();
+        assert_eq!(status, "🎧 Theseus · 🕒 1 scheduled");
+        assert!(
+            !status.contains("working") && !status.contains("task"),
+            "{status}"
+        );
+        let line = t.spoken();
+        assert_eq!(
+            line,
+            format!(
+                "no tasks working, 1 scheduled for {}; nothing needs you",
+                theseus_core::push::hm(1_790_003_600_000)
+            )
+        );
+        // Beside a task that works: each is counted as what it is.
+        t.apply(&view("exe_a", "task", "running", "A", None));
+        assert_eq!(
+            t.counts().status(),
+            "🎧 Theseus · ⚙️ 1 task · 🕒 1 scheduled"
+        );
+        assert!(
+            t.spoken().starts_with("1 task working, 1 scheduled for "),
+            "{}",
+            t.spoken()
+        );
+        // Its start: it is a working task, and no longer scheduled.
+        let mut started = later;
+        started.state = theseus_protocol::work::WorkState::Running;
+        started.doing = None;
+        assert!(t.apply(&started));
+        assert_eq!(
+            t.counts(),
+            Counts {
+                tasks: 2,
+                scheduled: 0,
+                needs: 0
+            }
         );
     }
 

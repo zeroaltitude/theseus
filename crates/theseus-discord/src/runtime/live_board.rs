@@ -209,6 +209,7 @@ impl Place {
                 if id == board_v2::CLEAR {
                     let seen = s.tasks.clear_done(&self.session_id);
                     s.task_posts.seen(&seen, &s.core.store);
+                    s.task_posts.seen_items(&s.core.store);
                 } else {
                     s.tasks.toggle_quiet(&self.target);
                 }

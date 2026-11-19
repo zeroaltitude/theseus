@@ -978,6 +978,7 @@ impl Core {
             startup_log: startup_log.clone(),
             stops: Default::default(),
             latest_stops: Default::default(),
+            admit_waiting: Default::default(),
             // Told by the binding as it starts (the place rule).
             place_rule: Default::default(),
             // Built after serving, by one META scan (theseus-8kk.1).
