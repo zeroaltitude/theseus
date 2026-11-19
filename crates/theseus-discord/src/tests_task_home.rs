@@ -943,8 +943,11 @@ async fn the_task_channels_board_is_drawn_by_an_owners_dm_not_the_first_dm() {
 pub(crate) async fn started_again(r: &Rig) -> Rig {
     r.stop();
     // The stand-in's gateway must have dropped the stopped run's client, or the
-    // new run's connect is taken for the old one's.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // new run's connect is taken for the old one's: wait for that fact.
+    until(r, "the stand-in's gateway sees the old client gone", || {
+        r.fake.gateway_state().is_some_and(|g| !g.connected)
+    })
+    .await;
     let again = Rig::start_over(
         r.fake.clone(),
         |_, _| Arc::new(FakeProvider::scripted(vec![Scripted::text("Hello.")])),
