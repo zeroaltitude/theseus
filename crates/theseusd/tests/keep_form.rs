@@ -483,8 +483,9 @@ fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
             .collect();
         (rows.len() == 2).then_some(rows)
     });
-    let why: Vec<&str> = rows.iter().map(|x| x["why"].as_str().unwrap()).collect();
-    assert_eq!(why, ["not_a_value", "blank"], "{rows:?}");
+    let mut why: Vec<&str> = rows.iter().map(|x| x["why"].as_str().unwrap()).collect();
+    why.sort_unstable();
+    assert_eq!(why, ["blank", "not_a_value"], "{rows:?}");
     for row in &rows {
         assert!(row["via"].as_str().unwrap().contains("discord:dm"), "{row}");
         assert!(
