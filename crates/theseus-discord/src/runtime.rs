@@ -125,6 +125,8 @@ pub(crate) mod calendar;
 mod digest;
 pub(crate) mod emoji;
 #[cfg(test)]
+mod tests_ack;
+#[cfg(test)]
 mod tests_command_reply;
 #[cfg(test)]
 mod tests_held;
@@ -132,7 +134,6 @@ mod tests_held;
 mod tests_steer;
 #[cfg(test)]
 mod tests_succession;
-#[cfg(test)]
 mod tests_why;
 mod voice;
 mod voice_status;

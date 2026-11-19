@@ -64,6 +64,28 @@ static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 #[cfg(test)]
 static KEEP_LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// A call of `method` that a test holds open: it says it was made (`reached`) and goes no further until the test
+/// lets it (`release`). No sleep: the test waits on the first and fires the second.
+#[cfg(test)]
+pub(crate) struct Hold {
+    pub(crate) reached: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+static HELD: Mutex<Vec<(String, std::sync::Arc<Hold>)>> = Mutex::new(Vec::new());
+
+/// Hold the next calls of `method` (each one, until the test is done).
+#[cfg(test)]
+pub(crate) fn hold(method: &str) -> std::sync::Arc<Hold> {
+    let h = std::sync::Arc::new(Hold {
+        reached: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    HELD.lock().unwrap().push((method.to_string(), h.clone()));
+    h
+}
+
 #[cfg(test)]
 pub(crate) fn keep_lines() -> Vec<String> {
     KEEP_LINES.lock().unwrap().clone()
@@ -152,6 +174,19 @@ impl RpcClient {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         #[cfg(test)]
         CALLS.lock().unwrap().push(method.to_string());
+        #[cfg(test)]
+        {
+            let held = HELD
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(m, _)| m == method)
+                .map(|(_, h)| h.clone());
+            if let Some(h) = held {
+                h.reached.notify_one();
+                h.release.notified().await;
+            }
+        }
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
         let line =
