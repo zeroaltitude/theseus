@@ -511,7 +511,14 @@ pub fn create_call<'a>(
     ),
     b: &crate::forecast::Book,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
-    create(tc, input, (correlation_id, correlation_id, None), a, b)
+    create(
+        tc,
+        input,
+        (correlation_id, correlation_id, None),
+        a,
+        b,
+        None,
+    )
 }
 
 /// Run `task.create` for the call `call_id` of the turn `tc` (the harness's
@@ -520,26 +527,14 @@ pub fn create_call<'a>(
 /// (`act_X` gives `exe_X`): the call's own for `task.create`, and for each helper
 /// of a `task.fan_out` call `act_Xh<i>` (theseus-z9mze.3), `helper` being that
 /// call, which groups them (`Opening::helper`).
-pub fn create<'a>(
-    tc: &TurnCtx<'a>,
-    input: &Value,
-    ids: (&str, &str, Option<&str>),
-    ctx: (
-        &std::collections::BTreeMap<String, TargetRef>,
-        crate::project::Ext<'_>,
-    ),
-    forecasts: &crate::forecast::Book,
-) -> Result<crate::task_graph::tools::Done<'a>, String> {
-    create_on(tc, input, ids, ctx, forecasts, None)
-}
-
-/// [`create`], with the model the task runs on named by the caller, as a check's profile is
-/// (issue 28, `profile.run`). `on` is an argument and not a field of the input, so no call a model
+///
+/// `on` (issue 28, `profile.run`) is the model the task runs on, named by the caller as a check's profile is, and None
+/// for every other task. It is an argument and not a field of the input, so no call a model
 /// writes can name one: only a tool that has judged the profile passes it. The task is pinned to
 /// it (no brief verdict picks its model) and carries the marker that makes its end speak in the
 /// conversation (`profile_tool::run`).
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-pub(crate) fn create_on<'a>(
+pub fn create<'a>(
     tc: &TurnCtx<'a>,
     input: &Value,
     (call_id, open_id, helper): (&str, &str, Option<&str>),

@@ -6,7 +6,7 @@
 //! own spend limit carved from this conversation's, its approvals and the floor as for any task,
 //! and a report. So this tool is built ON that machinery, and is no second agent loop:
 //!
-//! - **It opens a task now** through `task::create_on`, the path `task.create` and `task.fan_out`
+//! - **It opens a task now** through `task::create`, the path `task.create` and `task.fan_out`
 //!   use, with the profile as the task's model (the one thing `task.create` does not let a model
 //!   name). The task gets what a task started from this conversation has: nothing more. There is
 //!   no budget argument: its limit is a task's default, a quarter of what this turn has left.
@@ -359,7 +359,7 @@ fn open(
         "arrangement": {"pieces": [{"node": node, "role": "objective"}]},
         "fidelity_ack": true,
     });
-    let done = task::create_on(
+    let done = task::create(
         tc,
         &task_input,
         (call_id, call_id, None),
