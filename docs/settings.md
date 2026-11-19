@@ -72,6 +72,14 @@ the model, a card or a record. Where its account cannot see the vault, it says s
 account that vault, or move the item to one it sees. A vault reference is never written as text by a turn
 (`docs/design/vault-use.md`).
 
+To keep a NEW secret in the vault, ask Theseus to keep it: it puts one card that says which item and field, and whether it makes an
+item, adds a field or replaces a value. Then give the value yourself, where only you see it: `theseus vault keep` in your own terminal
+(nothing is shown as you type) or the card's field in the cockpit, with a code from your authenticator app (a fresh one for a replace).
+The value never goes to the model, a card or a record; Theseus writes it with its own account, reads it back, and tells you where it is
+by name. Do not paste a secret into chat: it is then with the model's provider and in Theseus's record. An item Theseus's own settings
+read is replaced only from your terminal: `theseus vault keep --vault V --item T --field F`. There is no Discord form yet
+(`docs/design/vault-keep.md`).
+
 ## Which settings need the code
 
 An **ordinary** change needs the card's yes and nothing else: the notes import, a theme, a model's name, a count.
