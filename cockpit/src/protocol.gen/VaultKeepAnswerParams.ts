@@ -2,6 +2,7 @@
 import type { DiscordOrigin } from "./DiscordOrigin";
 import type { ProofCode } from "./ProofCode";
 import type { SecretText } from "./SecretText";
+import type { ValueRefusal } from "./ValueRefusal";
 
 /**
  * `vault.keep.answer`: the owner gives the value of the card a turn's
@@ -26,4 +27,10 @@ author?: string,
 /**
  * Where the binding read the press: the presser's user and channel.
  */
-discord?: DiscordOrigin, };
+discord?: DiscordOrigin, 
+/**
+ * The binding's form already found the value one the daemon would refuse, and sends no value: the
+ * request is how the daemon records the refused attempt, by class. The daemon judges who and where
+ * first, takes nothing from `value`, and answers in its own words for the class.
+ */
+refused?: ValueRefusal, };
