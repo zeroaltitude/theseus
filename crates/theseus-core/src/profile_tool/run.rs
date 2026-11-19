@@ -23,6 +23,8 @@
 //!   place only they write in. A task, a routine, the self loop, an MCP session, a shared place
 //!   and another participant are refused, so no agent starts agents through it. It is asked
 //!   first after outside text, and whenever `task.create` itself would be asked.
+//!
+//! The whole design, and the table of what it can and cannot cause: `docs/design/agent-tools.md`.
 
 use std::sync::Arc;
 use std::time::Duration;
