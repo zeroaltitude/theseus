@@ -256,7 +256,8 @@ async fn a_stop_whose_notice_the_turn_took_answers_that_a_turn_was_running() {
 
 /// The answer to a stop speaks for that stop alone: one nobody took, sent
 /// when the execution is idle, finds no turn, and a stop whose notice a turn
-/// took does not make the next one say so (its notice is a later stamp).
+/// took does not make the next one say so (its notice replaces the first,
+/// not yet taken).
 #[tokio::test]
 async fn a_stop_no_turn_took_answers_that_none_was_running() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("never sent")]);
