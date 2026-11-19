@@ -518,9 +518,11 @@ impl Core {
     /// is the notice's stamp). A turn admitted between the notice and the
     /// kernel's stop stops itself on the notice and ends first, so the
     /// kernel finds no turn: the answer still says a turn was running, as it
-    /// does when the kernel's stop comes first (`stop_taken_by_a_turn`). The
-    /// kernel is told of it, so that its row, the answer and the session's
-    /// note say the same.
+    /// does when the kernel's stop comes first (`stop_taken_by_a_turn`). So
+    /// does an input's turn still waiting in `admit()` that arrived before
+    /// the notice: it stops itself on the notice when admitted. The kernel is
+    /// told of both, so that its row, the answer and the session's note say
+    /// the same.
     pub(crate) async fn stop_after_landing(
         &self,
         id: &str,
@@ -530,8 +532,10 @@ impl Core {
     ) -> Result<theseus_protocol::ExecutionStopResult> {
         let (keep, left_found) = self.keep_through_stop(id, keep_jobs)?;
         // Asked before the kernel's step, so that its row says what the
-        // answer does: a turn that took this stop's notice and ended.
-        let reached = self.runner.stop_taken_by_a_turn(id, landed);
+        // answer does: a turn that took this stop's notice and ended, or an
+        // input's turn still waiting for admission (it stops on the notice).
+        let reached = self.runner.stop_taken_by_a_turn(id, landed)
+            || self.runner.admit_waiting.reaches(id, landed);
         let stop = self
             .kernel
             .stop_execution_reaching(id, by, &keep, reached)?;
