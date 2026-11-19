@@ -16,15 +16,6 @@ use std::time::Duration;
 use common::Served;
 use serde_json::{json, Value};
 
-/// A free loopback port, for the UI to bind.
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
 /// The UI on `port`: the status line it answers `head` with.
 fn status(port: u16, head: &str) -> String {
     status_at(std::net::SocketAddr::from(([127, 0, 0, 1], port)), head)
@@ -107,19 +98,19 @@ fn upgrade(host: &str, origin: Option<&str>) -> String {
 
 #[test]
 fn the_web_ui_answers_only_its_own_page_and_address() {
-    let port = free_port();
     let s = Served::start(
         |_| {},
         |t| {
             let w = t.get_mut("web").unwrap().as_table_mut().unwrap();
             w.insert("enabled".into(), true.into());
             w.insert("bind".into(), "127.0.0.1".into());
-            w.insert("port".into(), i64::from(port).into());
+            w.insert("port".into(), 0.into());
         },
     );
     // A connect to a loopback port nothing listens on can hang here (WSL's
     // mirrored networking drops it rather than refusing), so each try is
     // bounded.
+    let port = s.web_port();
     let ui = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while TcpStream::connect_timeout(&ui, Duration::from_millis(250)).is_err() {
@@ -225,7 +216,6 @@ fn the_web_ui_answers_only_its_own_page_and_address() {
 /// `web.dev_origin`.
 #[test]
 fn the_dev_page_is_served_on_ws_only_while_dev_origin_is_set() {
-    let port = free_port();
     let dev = "http://localhost:5173";
     let s = Served::start(
         |_| {},
@@ -233,10 +223,11 @@ fn the_dev_page_is_served_on_ws_only_while_dev_origin_is_set() {
             let w = t.get_mut("web").unwrap().as_table_mut().unwrap();
             w.insert("enabled".into(), true.into());
             w.insert("bind".into(), "127.0.0.1".into());
-            w.insert("port".into(), i64::from(port).into());
+            w.insert("port".into(), 0.into());
             w.insert("dev_origin".into(), dev.into());
         },
     );
+    let port = s.web_port();
     let ui = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while TcpStream::connect_timeout(&ui, Duration::from_millis(250)).is_err() {
@@ -304,21 +295,20 @@ fn the_dev_page_is_served_on_ws_only_while_dev_origin_is_set() {
 /// its row in `/proc/net/tcp6`, and serves it.
 #[test]
 fn the_web_ui_on_ipv6_serves_its_own_user() {
-    let Ok(probe) = std::net::TcpListener::bind("[::1]:0") else {
+    if std::net::TcpListener::bind("[::1]:0").is_err() {
         eprintln!("skipped: this machine has no IPv6 loopback");
         return;
-    };
-    let port = probe.local_addr().unwrap().port();
-    drop(probe);
+    }
     let s = Served::start(
         |_| {},
         |t| {
             let w = t.get_mut("web").unwrap().as_table_mut().unwrap();
             w.insert("enabled".into(), true.into());
             w.insert("bind".into(), "::1".into());
-            w.insert("port".into(), i64::from(port).into());
+            w.insert("port".into(), 0.into());
         },
     );
+    let port = s.web_port();
     let ui = std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port));
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while TcpStream::connect_timeout(&ui, Duration::from_millis(250)).is_err() {
@@ -353,16 +343,16 @@ fn the_cockpit_is_sent_in_the_coding_the_client_takes() {
         return; // the cockpit is not built; the other tests say so
     };
     let want = std::fs::read(dist.join(&name)).unwrap();
-    let port = free_port();
     let s = Served::start(
         |_| {},
         |t| {
             let w = t.get_mut("web").unwrap().as_table_mut().unwrap();
             w.insert("enabled".into(), true.into());
             w.insert("bind".into(), "127.0.0.1".into());
-            w.insert("port".into(), i64::from(port).into());
+            w.insert("port".into(), 0.into());
         },
     );
+    let port = s.web_port();
     let ui = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while TcpStream::connect_timeout(&ui, Duration::from_millis(250)).is_err() {

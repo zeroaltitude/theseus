@@ -510,7 +510,22 @@ impl Core {
         by: &str,
         keep_jobs: bool,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
-        self.runner.stop_landed(id, by);
+        let landed = self.runner.stop_landed(id, by);
+        self.stop_after_landing(id, by, keep_jobs, landed).await
+    }
+
+    /// The rest of `stop_execution_with`, once its notice has landed (`landed`
+    /// is the notice's stamp). A turn admitted between the notice and the
+    /// kernel's stop stops itself on the notice and ends first, so the
+    /// kernel finds no turn: the answer still says a turn was running, as it
+    /// does when the kernel's stop comes first (`stop_taken_by_a_turn`).
+    pub(crate) async fn stop_after_landing(
+        &self,
+        id: &str,
+        by: &str,
+        keep_jobs: bool,
+        landed: std::time::Instant,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
         let (keep, left_found) = self.keep_through_stop(id, keep_jobs)?;
         let stop = self.kernel.stop_execution_keeping(id, by, &keep)?;
         super::ordered::applied();
@@ -577,13 +592,14 @@ impl Core {
             .iter()
             .filter(|t| !t.state.is_terminal())
             .count() as u32;
+        let turn_running = stop.turn_running || self.runner.stop_taken_by_a_turn(id, landed);
         self.session_rec(&e.session_id)
             .record(&fact::driver::ExecutionStopped {
                 execution: &e,
                 by,
                 to_kill: stop.to_kill.len(),
                 declined: stop.declined.len(),
-                turn_running: stop.turn_running,
+                turn_running,
                 tasks_running,
             });
         Ok(theseus_protocol::ExecutionStopResult {
@@ -595,7 +611,7 @@ impl Core {
                 .iter()
                 .map(|a| a.correlation_id.clone())
                 .collect(),
-            turn_running: stop.turn_running,
+            turn_running,
             tasks_running,
             wakes_pending: e.wakes.len() as u32,
             verdicts,

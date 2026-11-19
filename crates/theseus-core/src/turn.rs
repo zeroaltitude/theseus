@@ -142,6 +142,15 @@ pub use target::Target;
 /// file replaces it whole (`persona::owned`).
 pub const PERSONA: &str = crate::config::persona::DEFAULT_TEXT;
 
+/// One `/stop`'s notice to the turns of its execution (theseus-hmwv): when it
+/// landed, who sent it, and whether a turn has stopped itself on it.
+#[derive(Clone, Debug)]
+pub struct StopNotice {
+    pub at: Instant,
+    pub by: String,
+    pub taken: bool,
+}
+
 /// The assembly note, after the persona: how the harness builds each
 /// request, so the model never takes what the harness added (a recalled
 /// note, a wake, a report) for something the person sent (theseus-fpm2).
@@ -175,7 +184,7 @@ pub struct TurnRunner {
     /// The latest `/stop` of each execution since this process started, and
     /// who sent it (theseus-hmwv): an input that arrived before it, and
     /// whose turn is admitted after it, is stopped as its turn starts.
-    pub latest_stops: std::sync::Mutex<std::collections::HashMap<String, (Instant, String)>>,
+    pub latest_stops: std::sync::Mutex<std::collections::HashMap<String, StopNotice>>,
     /// Each place's class (the place rule, theseus-nbsh): the places the
     /// binding binds, as it told the core at its start.
     pub place_rule: crate::places::PlaceRule,
@@ -943,22 +952,53 @@ impl TurnRunner {
 
     /// A `/stop` of `execution_id` by `by` is landing (theseus-hmwv): said
     /// before the kernel's stop, so a turn admitted once it is done sees it.
-    pub fn stop_landed(&self, execution_id: &str, by: &str) {
-        self.latest_stops
-            .lock()
-            .unwrap()
-            .insert(execution_id.to_string(), (Instant::now(), by.to_string()));
+    /// Returns the notice's stamp, which the stop's answer asks about
+    /// (`stop_taken_by_a_turn`).
+    pub fn stop_landed(&self, execution_id: &str, by: &str) -> Instant {
+        let at = Instant::now();
+        self.latest_stops.lock().unwrap().insert(
+            execution_id.to_string(),
+            StopNotice {
+                at,
+                by: by.to_string(),
+                taken: false,
+            },
+        );
+        at
     }
 
-    /// Who stopped `execution_id` after an input that arrived at `arrived`,
-    /// if anyone did.
-    fn stopped_since(&self, execution_id: &str, arrived: Instant) -> Option<String> {
+    /// The `/stop` of `execution_id` that landed after an input that arrived
+    /// at `arrived`, if one did.
+    fn stopped_since(&self, execution_id: &str, arrived: Instant) -> Option<StopNotice> {
         self.latest_stops
             .lock()
             .unwrap()
             .get(execution_id)
-            .filter(|(at, _)| *at > arrived)
-            .map(|(_, by)| by.clone())
+            .filter(|n| n.at > arrived)
+            .cloned()
+    }
+
+    /// A turn stopped itself on `notice`: the stop that sent it was heard.
+    fn stop_taken(&self, execution_id: &str, notice: &StopNotice) {
+        if let Some(n) = self.latest_stops.lock().unwrap().get_mut(execution_id) {
+            if n.at == notice.at {
+                n.taken = true;
+            }
+        }
+    }
+
+    /// Whether a turn stopped itself on the notice stamped `landed`. A turn
+    /// admitted between a stop's notice and its kernel step stops itself on
+    /// the notice and ends, so the kernel's step finds the execution parked
+    /// again and no turn: the stop's answer asks this, so that it still says
+    /// a turn was running, as it does when the kernel's step comes first.
+    /// A later stop's notice is another stamp, and answers for itself.
+    pub fn stop_taken_by_a_turn(&self, execution_id: &str, landed: Instant) -> bool {
+        self.latest_stops
+            .lock()
+            .unwrap()
+            .get(execution_id)
+            .is_some_and(|n| n.at == landed && n.taken)
     }
 
     /// One turn, its future on the heap (theseus-b4sf): at opt-level 0 a
@@ -1104,9 +1144,12 @@ impl TurnRunner {
         // does: the kernel marks it, and its first step plans nothing.
         // A held turn reads it in its admission's frame (`admit_step`).
         if !continuation && self.kernel.admitted(&guard).unwrap_or(true) {
-            if let Some(by) = self.stopped_since(&guard.execution_id, arrived) {
-                if let Err(e) = self.kernel.stop_execution(&guard.execution_id, &by) {
-                    tracing::warn!(execution_id = %guard.execution_id, error = %format!("{e:#}"), "a stop before admission could not mark the turn");
+            if let Some(notice) = self.stopped_since(&guard.execution_id, arrived) {
+                match self.kernel.stop_execution(&guard.execution_id, &notice.by) {
+                    Ok(_) => self.stop_taken(&guard.execution_id, &notice),
+                    Err(e) => {
+                        tracing::warn!(execution_id = %guard.execution_id, error = %format!("{e:#}"), "a stop before admission could not mark the turn");
+                    }
                 }
             }
         }

@@ -230,6 +230,34 @@ The phases run in this order, and the first failure stops the gate:
   - What scaling cannot fix, and a test must not: a bound set just under a constant of the product (a backstop, a
     grace, an answer window), because a scaled bound could then no longer tell the behaviour from a slow machine.
     Those tests say so in their docs; the product's constants are never scaled.
+  - **What a fixed limit cannot fix: measure the thing the promise names, on the clock that owns it.** A wall clock
+    from a request to a process's exit holds the harness's own polling, the client's connect and the process's
+    teardown, which a crowd starves as much as the product (the outbox's grace test read 1 s to 3.5 s beside 64 busy
+    loops while the daemon's own log put its whole stop at 74 ms and its wait for the post at 51 ms). When the product
+    times the step itself (a `waited_ms` on a log line, a `stop phase` line), the test reads that; the `Busy` limit is
+    then over the quantity the test's name promises.
+  - **Wait for the event, not for a quiet window or a fixed length of run.** A background writer the test is not about
+    (the memory pass's `memory.labeled` rows, ten of them, a second or more after the turns) outlasts any window of
+    quiet: switch it off in that rig, or filter its rows out as the cancel-frames test does. A job that prints for four
+    seconds and is read at seven is a test of the sampler's luck; let the job print until the test has what it needs
+    and says enough. A notification that follows another (`work.notice` after the `work.changed` that ends a question)
+    is waited for, never read at the moment the first arrives.
+  - **A race between a notice and a step is ordered by hand, not raced.** The stop's notice to the turns of its
+    execution (`StopNotice`) and the kernel's own stop can come in either order; the test lands the notice between the
+    turn's hold and its admission with `admit_hook`, and calls the stop's second half (`Core::stop_after_landing`)
+    after the turn has ended, so the order is the test's and no clock is read.
+  - **A test never picks a port and then hands it to a daemon.** Binding `127.0.0.1:0`, dropping the listener and
+    passing the number is a promise the kernel does not keep: the port is free for whoever asks next, another test's
+    daemon among them, and the test then talks to that one, which serves the same pages and goes away with its own
+    test (an empty status line, `its own page at localhost: `, 1 gate in many). Configure `port = 0` and read the port
+    from the daemon's log (`Served::web_port`). To see the fault, narrow the ephemeral range in a namespace of your
+    own (`unshare -Urn`, then `/proc/sys/net/ipv4/ip_local_port_range` to `40000 43999`) and hammer the old and the new
+    code: 65 of 1000 against 0 of 1000.
+  - **A hammer finds a 3 % race in minutes.** Whole hunts of one test (`--filter`, one run after another) found the
+    stop test 4 times in 150; the test's own binary run 600 times, 16 at a time, beside the burners (`cargo test
+    --no-run --message-format=json` names the binary; `xargs -P 16`; each run's output kept) found it 17 times in
+    600 in five minutes, and showed the same cause in each failing log, where a debug print planted on the box
+    (never committed) named the two stops. Confirm a fix with the same hammer: 0 of 600.
 
 - **A gate at 0 % CPU is waiting on a lock**: this one, or cargo's package cache. The gate's log names the holder;
   find it before waiting longer.

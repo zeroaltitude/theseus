@@ -49,6 +49,7 @@ pub(crate) mod judge;
 mod judge_prove;
 mod judge_runs;
 pub(crate) mod learning;
+mod ledger_rows;
 mod ledger_verify;
 mod mcp;
 mod memory;
@@ -159,6 +160,8 @@ mod tests_imported_fields;
 mod tests_inspect;
 #[cfg(test)]
 mod tests_ledger;
+#[cfg(test)]
+mod tests_ledger_rows;
 #[cfg(test)]
 mod tests_ledger_verify;
 #[cfg(test)]
@@ -391,29 +394,6 @@ pub struct Core {
     /// `import.sync.request` starts, and what starts it. One seat, so a
     /// second request while one runs is told rather than served.
     pub on_demand: crate::import::sync_run::OnDemand,
-}
-
-/// Where the index tender's supervisor writes its facts' rows
-/// (`crate::fact::index`, all `index.tender`): the ledger, off the
-/// runtime's workers (a row is an fsync). It holds the core by `Weak`, so
-/// the tender's task never keeps the store open past a stop.
-fn index_ledger(core: &Arc<Core>) -> crate::tender::Ledger {
-    let core = Arc::downgrade(core);
-    Arc::new(move |row: LedgerRow| {
-        let core = core.clone();
-        let write = move || {
-            let Some(core) = core.upgrade() else { return };
-            if let Err(e) = core.store.append_ledger(&row) {
-                tracing::warn!(error = %e, "ledger append failed");
-            }
-        };
-        match tokio::runtime::Handle::try_current() {
-            Ok(rt) => {
-                rt.spawn_blocking(write);
-            }
-            Err(_) => write(),
-        }
-    })
 }
 
 /// The socket daemon's store, in the state dir: `<state>/store`.
@@ -1125,11 +1105,12 @@ impl Core {
             watches,
             on_demand: Default::default(),
         });
-        core.index.set_ledger(index_ledger(&core));
+        // The tender's rows and the language servers' (L2) go one way, in order.
+        let rows = ledger_rows::ordered(&core);
+        core.index.set_ledger(rows.clone());
         core.mcp.attach(Arc::downgrade(&core));
-        // The language servers' rows go the same way (L2).
         if let Some(lsp) = &core.tools.lsp {
-            lsp.set_ledger(index_ledger(&core));
+            lsp.set_ledger(rows);
         }
         core.tools.extend.attach(&core.mcp);
         core.tools.extend.attach_core(Arc::downgrade(&core));

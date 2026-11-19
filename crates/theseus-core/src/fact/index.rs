@@ -2,7 +2,7 @@
 //! (`crate::tender`) records of the tender it runs. Each is an
 //! `index.tender` row and nothing else: no notification, no sentence, and no
 //! span, since the supervisor runs outside every turn. Its hook writes each
-//! row off the runtime's workers (`Core::build`'s `index_ledger`).
+//! row off the runtime's workers, in order (`rpc::ledger_rows`).
 
 use std::path::Path;
 use std::time::Duration;

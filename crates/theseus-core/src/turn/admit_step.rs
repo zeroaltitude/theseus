@@ -27,9 +27,12 @@ impl TurnRunner {
         let id = t.tc.execution_id;
         let wrote = k.admit_held(t.tc.guard)?;
         if wrote {
-            if let Some(by) = self.stopped_since(id, t.arrived) {
-                if let Err(e) = k.frame(&[id], |k| k.stop_execution(id, &by)) {
-                    tracing::warn!(execution_id = %id, error = %format!("{e:#}"), "a stop before admission could not mark the turn");
+            if let Some(notice) = self.stopped_since(id, t.arrived) {
+                match k.frame(&[id], |k| k.stop_execution(id, &notice.by)) {
+                    Ok(_) => self.stop_taken(id, &notice),
+                    Err(e) => {
+                        tracing::warn!(execution_id = %id, error = %format!("{e:#}"), "a stop before admission could not mark the turn");
+                    }
                 }
             }
         }

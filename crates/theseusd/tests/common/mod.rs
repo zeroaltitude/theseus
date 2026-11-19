@@ -227,6 +227,42 @@ impl Served {
         self.dir.path().join(p)
     }
 
+    /// The port the web UI bound, for a config with `[web] port = 0`: the daemon asks the kernel for a free
+    /// one and says which in its log ("web UI listening ... url=http://127.0.0.1:<port>/"). A test never picks
+    /// a port itself: one picked by binding and dropping a listener is free for whoever else asks in the
+    /// meantime, another test's daemon among them, and the test then talks to that one (theseus-20).
+    pub fn web_port(&self) -> u16 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            let log = self.log();
+            let mut plain = String::new();
+            let mut chars = log.chars();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\u{1b}' => {
+                        chars.by_ref().find(|c| *c == 'm');
+                    }
+                    c => plain.push(c),
+                }
+            }
+            let port = plain
+                .lines()
+                .find(|l| l.contains("web UI listening"))
+                .and_then(|l| l.split("url=http://").nth(1))
+                .and_then(|u| u.split_once('/'))
+                .and_then(|(addr, _)| addr.rsplit_once(':'))
+                .and_then(|(_, port)| port.parse().ok());
+            if let Some(port) = port {
+                return port;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no web UI listening in 15 s:\n{log}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
     pub fn log(&self) -> String {
         std::fs::read_to_string(self.path("theseusd.log")).unwrap_or_default()
     }
