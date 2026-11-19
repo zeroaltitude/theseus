@@ -667,7 +667,12 @@ impl Chat {
     }
 
     fn turn_failed(&mut self, f: &TurnFailed) {
-        self.say_answers_ended(f.turn_id.as_deref(), "failed");
+        // A stop that aborted the turn is told as a failure of class `stopped`.
+        let ended = match f.class.as_deref() {
+            Some("stopped") => "stopped",
+            _ => "failed",
+        };
+        self.say_answers_ended(f.turn_id.as_deref(), ended);
         self.live.turn = None;
         let class = f
             .class

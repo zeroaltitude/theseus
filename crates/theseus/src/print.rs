@@ -470,6 +470,31 @@ mod tests {
         assert!(!run(ended("end_turn")).contains("the turn that asked"));
     }
 
+    /// A turn a stop aborted is told as a failure of class `stopped`: its answer says the turn was
+    /// stopped, as the record and Discord say.
+    #[test]
+    fn an_answer_of_a_turn_a_stop_aborted_says_it_was_stopped() {
+        let mut p = Printer::to(Mode::Text, false, Vec::new(), Vec::new());
+        let Event::ToolEnded(mut t) = subagent_ended() else {
+            unreachable!()
+        };
+        t.turn_id = "turn_a".into();
+        p.on_event(&Event::ToolEnded(t));
+        p.on_event(&Event::TurnFailed(theseus_protocol::TurnFailed {
+            session_id: "ses_a".into(),
+            turn_id: Some("turn_a".into()),
+            class: Some("stopped".into()),
+            error: "stopped".into(),
+            ..Default::default()
+        }));
+        let err = String::from_utf8(p.into_parts().1).unwrap();
+        assert!(
+            err.contains("haiku · claude-haiku-5-5 · the turn that asked was stopped"),
+            "{err}"
+        );
+        assert!(!err.contains("then failed"), "{err}");
+    }
+
     fn edit_events() -> Vec<Event> {
         use serde_json::json;
         use theseus_protocol::{ToolDiff, ToolEnded, ToolProposed, ToolStarted};

@@ -110,7 +110,13 @@ impl Flight {
                     .as_ref()
                     .and_then(|id| self.answered.remove(id))
                     .unwrap_or_default();
-                lines.extend(ended_lines(&seen, "failed"));
+                // A stop that aborted the turn is told as a failure of class `stopped`: the
+                // record and Discord say it was stopped, and so does this line.
+                let ended = match f.class.as_deref() {
+                    Some("stopped") => "stopped",
+                    _ => "failed",
+                };
+                lines.extend(ended_lines(&seen, ended));
             }
             _ => {}
         }
