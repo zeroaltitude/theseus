@@ -1113,6 +1113,52 @@ mod tests {
         assert_eq!(t.waiting_to_start().len(), 1);
     }
 
+    /// The bot's status line: a task that only waits for its start time is no
+    /// running task, so with nothing else the status is cleared; one that works
+    /// is as it was.
+    #[test]
+    fn the_status_line_says_running_only_for_work_that_works() {
+        use crate::runtime::presence::line;
+        let conversation = view(
+            "exe_chat",
+            WorkKind::Conversation,
+            "exe_chat",
+            WorkState::Ready,
+            1,
+        );
+        let mut later = crate::render::task_view::tests::deferred(1_790_003_600_000);
+        later.id = "exe_later".into();
+        later.root = "exe_chat".into();
+        let t = Tasks::default();
+        t.changed(changed_of(vec![conversation, later.clone()], &[]));
+        assert_eq!(line(*t.counts().borrow()), None, "only a scheduled task");
+        t.changed(changed_of(
+            vec![view(
+                "exe_b",
+                WorkKind::Task,
+                "exe_chat",
+                WorkState::Running,
+                2,
+            )],
+            &[],
+        ));
+        assert_eq!(
+            line(*t.counts().borrow()).as_deref(),
+            Some("⚙️ 1 running"),
+            "one that works, beside the scheduled one"
+        );
+        t.changed(changed_of(vec![], &["exe_b"]));
+        let mut started = later;
+        started.state = WorkState::Running;
+        started.doing = None;
+        t.changed(changed_of(vec![started], &[]));
+        assert_eq!(
+            line(*t.counts().borrow()).as_deref(),
+            Some("⚙️ 1 running"),
+            "the scheduled task once it has started"
+        );
+    }
+
     #[test]
     fn a_snapshot_replaces_its_roots_and_drops_the_active_views_of_roots_it_lost() {
         let t = Tasks::default();

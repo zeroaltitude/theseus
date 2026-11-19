@@ -119,4 +119,13 @@ asks it (no protocol or core change):
   cancelled first, `Cancelled by <who>`. The post on the board is the task's OWN (the one it already had), not one made for the card.
 - **Where the pinned board's Coming up keeps what has no card**: only a reminder or check-in, a routine's run and a task's start are
   taken off it (`parts_for`); a watch's give-up and a milestone stay. (The first version cleared the whole section.)
+- **How the view carries it** (checked against the core, not guessed from titles or timing): the ledger of a deferred task is
+  `task.created` (state `in_progress`, which is why everything drew it running), `execution.opened` with a future `starts_at_ms`,
+  `execution.waiting` with `why: deferred` on a `due_at` wake, then `execution.queued why: due` and `execution.running` at its time.
+  The work view carries the same fact as the execution's wait (`waiting_on = DueAt`, so `doing = Sleeping` and `next_at_ms`) and its
+  turn count: `waits_to_start` is the core's own `task_start::starts_at` (asleep on `due_at`, no turn taken) read from the view, so
+  the core's view needed no new field. The real-core tests (`tests_sched.rs`, a task started with `start_when`) are the proof.
+- **The bot's status line** (`runtime/presence.rs`) says `running` only for work that works: a task that only waits for its start is
+  not counted (`counts_of`), so with nothing else going the status is cleared; the next thing coming shows only as the next
+  reminder's time does today, never as a count.
 
