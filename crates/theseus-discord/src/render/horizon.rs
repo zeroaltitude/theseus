@@ -567,7 +567,7 @@ pub(crate) mod tests {
         };
         let lines = [wake("wak_a", 1), wake("wak_a", 2), wake("wak_b", 3)];
         let s = reminder_select(&lines, 5).unwrap();
-        let ids = crate::render::v2::custom_ids(&[s.clone()]);
+        let ids = crate::render::v2::custom_ids(std::slice::from_ref(&s));
         assert_eq!(ids, [REMINDER_PICK], "one select");
         let text = s.to_string();
         for want in [
