@@ -813,3 +813,5 @@ mod tests_undo;
 mod tests_withdrawn;
 #[cfg(test)]
 mod tests_work;
+#[cfg(test)]
+mod tests_work_global;
