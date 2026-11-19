@@ -25,6 +25,9 @@ pub struct Flight {
     /// what a watch that began after the call was proposed says of it
     /// (theseus-z6au).
     asked: HashMap<String, String>,
+    /// The answers another profile gave the calls of a turn, by the turn's id, until it ends: a
+    /// turn that was stopped or failed says so under each (issue 28).
+    answered: HashMap<String, Vec<theseus_protocol::SubagentAnswer>>,
 }
 
 impl Flight {
@@ -87,11 +90,47 @@ impl Flight {
                 }
                 // Its result's first lines, or the diff it made (theseus-z6au).
                 lines.extend(super::diffview::ended_lines(t));
+                if let Some(a) = &t.subagent {
+                    self.answered
+                        .entry(t.turn_id.clone())
+                        .or_default()
+                        .push(a.clone());
+                }
+            }
+            // A turn that was stopped or failed says so under the answers it was given.
+            Event::TurnEnded(r) => {
+                let seen = self.answered.remove(&r.turn_id).unwrap_or_default();
+                if r.stop_reason == "stopped" {
+                    lines.extend(ended_lines(&seen, "stopped"));
+                }
+            }
+            Event::TurnFailed(f) => {
+                let seen = f
+                    .turn_id
+                    .as_ref()
+                    .and_then(|id| self.answered.remove(id))
+                    .unwrap_or_default();
+                // A stop that aborted the turn is told as a failure of class `stopped`: the
+                // record and Discord say it was stopped, and so does this line.
+                let ended = match f.class.as_deref() {
+                    Some("stopped") => "stopped",
+                    _ => "failed",
+                };
+                lines.extend(ended_lines(&seen, ended));
             }
             _ => {}
         }
         lines
     }
+}
+
+/// The line under each answer of a turn that did not end well: the model part, then the words
+/// every surface says (`theseus_protocol::subagent::ended_words`).
+fn ended_lines(answers: &[theseus_protocol::SubagentAnswer], ended: &str) -> Vec<Line> {
+    answers
+        .iter()
+        .map(|a| Line::new(Tag::Dim, format!("  ↳ {}", a.ended_line(ended))))
+        .collect()
 }
 
 /// ` 🛡️ L1 · reach` for an L1 job's start, as the start line says it.

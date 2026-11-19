@@ -594,6 +594,42 @@ async fn a_subagents_answer_is_a_message_with_its_own_footer() {
     );
 }
 
+/// An answer whose turn was stopped says so under it in the terminal UI, in the words every surface says.
+#[tokio::test(start_paused = true)]
+async fn a_stopped_turns_answer_says_so_under_it() {
+    let mut r = Rig::new(100, 24).await;
+    r.ready().await;
+    r.starts_turn("trn_1");
+    r.tell(Event::ToolEnded(ToolEnded {
+        session_id: SID.into(),
+        turn_id: "trn_1".into(),
+        tool_use_id: "tu_1".into(),
+        tool: "profile.ask".into(),
+        status: "ok".into(),
+        subagent: Some(theseus_protocol::SubagentAnswer {
+            profile: "haiku".into(),
+            provider: "anthropic".into(),
+            model: "claude-haiku-5-5".into(),
+            asked_by: "sonnet".into(),
+            text: "Hello from the other model.".into(),
+            elapsed_ms: 1_300,
+            call: "act_1".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }));
+    r.shows("Hello from the other model.").await;
+    assert!(!r.text().contains("the turn that asked"), "{}", r.text());
+    r.tell(Event::TurnEnded(theseus_protocol::TurnSubmitResult {
+        session_id: SID.into(),
+        turn_id: "trn_1".into(),
+        stop_reason: "stopped".into(),
+        ..Default::default()
+    }));
+    r.shows("haiku · claude-haiku-5-5 · the turn that asked was stopped")
+        .await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_question_shows_in_the_dock_and_y_answers_it() {
     let mut r = Rig::new(80, 24).await;

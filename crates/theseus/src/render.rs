@@ -936,6 +936,14 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
                     ),
                 );
                 push(&mut out, Tag::Dim, &format!("      ↳ {}", a.footer()));
+                // The turn that asked did not end well: the node list says (`subagent_ended`).
+                if let Some(ended) = d.get("subagent_ended").and_then(Value::as_str) {
+                    push(
+                        &mut out,
+                        Tag::Dim,
+                        &format!("      ↳ {}", a.ended_line(ended)),
+                    );
+                }
             }
         }
         other => push(&mut out, Tag::Plain, &format!("[{t}] {other}")),
