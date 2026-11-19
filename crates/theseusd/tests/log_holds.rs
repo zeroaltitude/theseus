@@ -46,11 +46,11 @@ fn release(path: &Path) -> std::fs::File {
     std::fs::OpenOptions::new().write(true).open(path).unwrap()
 }
 
-/// `health` on the socket, waiting at most `bound` for the answer: its result, or why not.
-fn health(d: &Served, bound: Duration) -> Result<Value, String> {
+/// One call on the socket, waiting at most `bound` for the answer: its result, or why not.
+fn rpc(d: &Served, method: &str, params: Value, bound: Duration) -> Result<Value, String> {
     let s = UnixStream::connect(d.path("sock")).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(bound)).unwrap();
-    let req = json!({"jsonrpc": "2.0", "id": 1, "method": "health"});
+    let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
     (&s).write_all(format!("{req}\n").as_bytes())
         .map_err(|e| e.to_string())?;
     let line = BufReader::new(&s)
@@ -60,6 +60,11 @@ fn health(d: &Served, bound: Duration) -> Result<Value, String> {
         .map_err(|e| format!("no answer in {bound:?}: {e}"))?;
     let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
     Ok(v["result"].clone())
+}
+
+/// `health`, within `bound`.
+fn health(d: &Served, bound: Duration) -> Result<Value, String> {
+    rpc(d, "health", Value::Null, bound)
 }
 
 struct Held {
@@ -124,11 +129,19 @@ fn health_and_a_turn_are_taken_while_the_logs_write_is_held() {
     let _end = release(&h.log);
 }
 
-/// Both held: the WAL writer inside a frame's write (with its lock) and the log writer inside its write. `health`
-/// answers within the bound.
+/// Both held, on ONE runtime worker: the WAL writer inside a frame's write (with its lock) and the log writer inside
+/// its write, while a turn's submit waits for the write. `health` answers, and so does a read of another session,
+/// within the bound: the submit's wait for the writer (its staging asks the log's position under the writer's lock)
+/// is made off the worker. Let go, the waiting turn goes through, and its session holds what it was given.
 #[test]
-fn health_answers_with_the_wal_writer_and_the_log_writer_both_held() {
-    let h = daemon(false);
+fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_one_worker() {
+    let h = daemon(true);
+    submit(&h.daemon, "first");
+    let listed = rpc(&h.daemon, "session.list", json!({}), ANSWER_WITHIN).unwrap();
+    let other = listed["sessions"][0]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     arm(&h.log);
     arm(&h.wal);
     // A turn writes frames: its submit is held with the writer, on a thread of its own.
@@ -149,10 +162,35 @@ fn health_answers_with_the_wal_writer_and_the_log_writer_both_held() {
                 t0.elapsed()
             );
             assert!(said["name"].is_string(), "{said}");
+            let read = rpc(
+                &h.daemon,
+                "session.history",
+                json!({"session_id": other}),
+                ANSWER_WITHIN,
+            )
+            .unwrap();
+            assert!(read["nodes"].is_array(), "another session's read: {read}");
         }
         let (_a, _b) = (release(&h.wal), release(&h.log));
         held.join().unwrap();
     });
+    // The turn that waited went through: both sessions are there, and the second holds its input.
+    let listed = rpc(&h.daemon, "session.list", json!({}), ANSWER_WITHIN).unwrap();
+    let sessions = listed["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 2, "{listed}");
+    let newer = sessions
+        .iter()
+        .map(|s| s["session_id"].as_str().unwrap())
+        .find(|id| *id != other)
+        .unwrap();
+    let history = rpc(
+        &h.daemon,
+        "session.history",
+        json!({"session_id": newer}),
+        ANSWER_WITHIN,
+    )
+    .unwrap();
+    assert!(history.to_string().contains("writes"), "{history}");
 }
 
 /// A start that fails still says what it logged before, and then why: the queue is written out before the error that

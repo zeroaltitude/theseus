@@ -107,3 +107,48 @@ fn stats_answer_while_the_writer_is_inside_its_write() {
         "and moved when it landed"
     );
 }
+
+/// A position asked on a runtime worker while the writer is held in a frame's write (the lock a stalled disk holds)
+/// is waited for without holding the worker: on a runtime of ONE worker another task still runs, and when the write
+/// lands the caller reads the position after it, the same locked read it always was. The handing-off shows as a
+/// thread taken from the blocking pool, which the test waits for, so it never races the caller to the lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_position_asked_on_the_worker_waits_without_holding_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Arc::new(small_segments(dir.path()));
+    s.append(&[rec(0)]).unwrap();
+    let gate = s.inner.wal.hold_writes();
+    let appended = {
+        let s = s.clone();
+        std::thread::spawn(move || s.append(&[rec(1)]).unwrap())
+    };
+    gate.entered();
+    let handle = tokio::runtime::Handle::current();
+    let before = handle.metrics().num_blocking_threads();
+    let asked = {
+        let s = s.clone();
+        tokio::spawn(async move { s.last_position() })
+    };
+    // The worker has been handed on: a thread of the blocking pool runs its role while this caller waits.
+    let t0 = std::time::Instant::now();
+    while handle.metrics().num_blocking_threads() <= before {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the worker was never handed on"
+        );
+        std::thread::yield_now();
+    }
+    let ran = tokio::time::timeout(Duration::from_secs(20), tokio::spawn(async { 7 })).await;
+    gate.release();
+    assert_eq!(
+        ran.map(|r| r.unwrap()),
+        Ok(7),
+        "another task ran on the one worker while the position was waited for"
+    );
+    appended.join().unwrap();
+    assert_eq!(
+        asked.await.unwrap(),
+        2,
+        "the position after the write it waited for"
+    );
+}

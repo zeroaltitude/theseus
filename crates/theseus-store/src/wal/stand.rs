@@ -87,3 +87,21 @@ pub(super) fn hold_here(w: &Writer) {
     #[cfg(debug_assertions)]
     crate::hold::hold_by_fifo("THESEUS_TEST_WAL_HOLD");
 }
+
+impl super::Wal {
+    /// `last_position`, for a caller that runs on a runtime worker (the store's `Store::last_position`, which the
+    /// kernel's staging asks while it holds an execution's lock): the same read, under the same lock, of the same
+    /// number, so what is staged is exactly what it was. An uncontended lock is read where it stands; one the writer
+    /// holds across a write (a disk that has stalled holds it as long) is waited for inside `blocking`, which hands
+    /// the worker's role to another thread first, so the daemon goes on without it and the wait is this caller's
+    /// alone. The thread that waits is the one that called, so what it holds by thread stays its own.
+    pub fn last_position_off_worker(&self) -> u64 {
+        match self.w.try_lock() {
+            Ok(w) => w.next_position - 1,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                crate::store::blocking(|| self.last_position())
+            }
+            Err(std::sync::TryLockError::Poisoned(_)) => self.last_position(),
+        }
+    }
+}
