@@ -251,7 +251,7 @@ const TABLE: &[Row] = &[
     },
     Row {
         handler: "a cited source's Show source",
-        fire: Press("src:ses_0000feed:[1]"),
+        fire: Press("src:ses_0000feed:m:0000feed"),
         ack: Private,
         was: "an ephemeral reply",
     },
