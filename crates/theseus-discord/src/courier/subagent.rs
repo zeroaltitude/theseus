@@ -26,15 +26,19 @@ impl Lane {
         let ping = self.pings(Event::ReplyPart);
         let writes = parts
             .into_iter()
-            .map(|(key, content)| Write {
-                key,
-                channel,
-                content,
-                buttons: Buttons::Keep,
-                reply_to: None,
-                message: None,
-                mentions: vec![],
-                ping,
+            .map(|(key, content)| {
+                // The live message of the same key (made when the call settled) is final now.
+                self.seal(&key);
+                Write {
+                    key,
+                    channel,
+                    content,
+                    buttons: Buttons::Keep,
+                    reply_to: None,
+                    message: None,
+                    mentions: vec![],
+                    ping,
+                }
             })
             .collect();
         Ok(Plan {

@@ -271,7 +271,7 @@ fn settled(core: &Core, p: &Planned, resp: ModelResponse, started_ms: u64) -> (S
     let meta = match text.is_empty() {
         true => json!({}),
         false => {
-            core.tools.profile.give(&p.turn, answer.clone());
+            core.tools.profile.give(&p.session, &p.turn, answer.clone());
             json!({"subagent": answer})
         }
     };
@@ -315,10 +315,18 @@ fn words(p: &Planned, resp: &ModelResponse, cost: theseus_kernel::Micros) -> Str
             crate::provider::cap_phrase(p.request.max_tokens)
         ));
     }
+    // Where the owner sees it is not the model's to say: it is shown as a message of its own, and
+    // nothing of the kind is said when the profile had no words to show.
+    let shown = match text.is_empty() {
+        true => String::new(),
+        false => format!(
+            " Theseus shows it to the owner as {profile}'s own message, its model ({}) named, so \
+             your reply need not repeat the words.",
+            resp.model
+        ),
+    };
     out.push_str(&format!(
-        "\n\n[That is {profile}'s answer, not yours. Theseus has shown it to the owner as {profile}'s \
-         own message, its model ({}) named, so your reply need not repeat the words. The call cost {}.]",
-        resp.model,
+        "\n\n[That is {profile}'s answer, not yours.{shown} The call cost {}.]",
         crate::narrative::dollars(cost)
     ));
     out

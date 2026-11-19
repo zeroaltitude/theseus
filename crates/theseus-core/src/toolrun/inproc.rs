@@ -105,6 +105,7 @@ impl ToolRuntime {
                     tc,
                     tool.name(),
                     &input,
+                    correlation_id,
                     self.chat_acts
                         .offered(tc.session_id, tc.turn_id)
                         .map(|o| o.said),

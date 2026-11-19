@@ -92,6 +92,16 @@ pub(crate) enum Tag {
     Paused,
     /// It was cancelled or expired.
     Stopped,
+    /// A scheduled item that stands (issue 30). Not in `ALL`: it is made in
+    /// a forum the first time an item needs it, so a forum that has no
+    /// scheduled item keeps the tags it had.
+    Scheduled,
+}
+
+/// Whether `view` is a scheduled item (a reminder, a check-in or a routine)
+/// that `runtime/sched.rs` made up for its post, not a task.
+pub(crate) fn is_scheduled(view: &WorkView) -> bool {
+    matches!(view.kind, WorkKind::Wake | WorkKind::Routine)
 }
 
 impl Tag {
@@ -112,18 +122,25 @@ impl Tag {
             Tag::Failed => "failed",
             Tag::Paused => "paused",
             Tag::Stopped => "stopped",
+            Tag::Scheduled => "scheduled",
         }
     }
 
     /// The tag of a task's view: its state, but a paused task that has not
     /// ended is `paused`, and a task stopped by hand or by time `stopped`.
     pub(crate) fn of(view: &WorkView) -> Self {
+        if is_scheduled(view) && !view.state.ended() {
+            return Tag::Scheduled;
+        }
         match view.state {
             WorkState::NeedsYou => Tag::NeedsYou,
             WorkState::Done => Tag::Done,
             WorkState::Failed => Tag::Failed,
             WorkState::Cancelled | WorkState::Expired => Tag::Stopped,
             _ if view.paused => Tag::Paused,
+            // Set to start later and not yet started (needs you, paused and
+            // the ends came first): scheduled until its time, then running.
+            _ if crate::render::task_view::waits_to_start(view) => Tag::Scheduled,
             _ => Tag::Running,
         }
     }
@@ -231,6 +248,8 @@ pub(crate) struct TaskPosts {
     pub(super) home: super::task_home::TaskHome,
     /// Where a task whose post was its place works now, by task.
     moved: Mutex<HashMap<String, String>>,
+    /// The scheduled items' faces, for their posts' cards (`sched.rs`).
+    pub(super) sched: super::sched::Sched,
 }
 
 impl TaskPosts {
@@ -351,6 +370,29 @@ impl TaskPosts {
         let posts = self.posts.lock().unwrap();
         let p = posts.iter().find(|p| p.post == channel)?;
         p.link.clone().or(Some(String::new()))
+    }
+
+    /// The scheduled items as views of their own, each with the link to its
+    /// card in the task home: the worker makes and keeps their posts in the
+    /// default forum, as it does a task's index card. The home is private, so
+    /// is each item.
+    pub(super) fn tell_scheduled(
+        &self,
+        views: Vec<WorkView>,
+        links: HashMap<String, String>,
+        guild: &str,
+    ) {
+        if let Some(tx) = self.tx.get() {
+            let _ = tx.send(Seen {
+                views,
+                private: true,
+                guild: Some(guild.to_string()),
+                links,
+                home: None,
+                homed: HashSet::new(),
+                parent: None,
+            });
+        }
     }
 
     /// Tell the worker to look again (the default forum came up).
@@ -627,7 +669,8 @@ impl Worker {
                 let Some(e) = self.entries.get(&id) else {
                     break;
                 };
-                if !takes(f, e.private, e.guild.as_deref()) {
+                if !takes(f, e.private, e.guild.as_deref()) || (is_scheduled(&e.view) && !f.default)
+                {
                     continue;
                 }
                 let now = Instant::now();
@@ -738,7 +781,7 @@ impl Worker {
             }
             // A task's own post is made on request, not by this sync; one that ended before any sync saw
             // it running is owed an index card in its final state (theseus-hzdlf).
-            if homed || (ended && !self.shared.task_threads.owed(&view)) {
+            if homed || (ended && !self.shared.task_threads.owed(&view) && !is_scheduled(&view)) {
                 return None;
             }
             if let Some(t) = self.failed.get(&key).map(|f| f.until).filter(|t| *t > now) {
@@ -794,7 +837,10 @@ impl Worker {
         let want = Tag::of(&view);
         let slot = self.slots.get(&key)?;
         if slot.tag != Some(want) {
-            match wait(slot.tag_at, self.every.tags, now, ended) {
+            // The one edit that leaves `scheduled` is the item's start: shown
+            // at once, as an end is (it is one more edit, never a stream).
+            let leaving = slot.tag == Some(Tag::Scheduled);
+            match wait(slot.tag_at, self.every.tags, now, ended || leaving) {
                 None => {
                     if self.set_tag(&key, f, want).await {
                         self.failed.remove(&key);
@@ -832,6 +878,12 @@ impl Worker {
     }
 
     fn card_of(&self, view: &WorkView, link: Option<&str>) -> Vec<Value> {
+        if let Some(face) = Some(view)
+            .filter(|v| is_scheduled(v))
+            .and_then(|v| self.shared.task_posts.sched.face(&v.id))
+        {
+            return crate::render::sched::forum_card(&face, link);
+        }
         let calls: Vec<String> = self
             .shared
             .tasks
@@ -938,11 +990,13 @@ impl Worker {
     }
 
     /// The forum's tag ids by state, the missing tags added once.
-    async fn tag_ids(&mut self, f: &Forum) -> HashMap<Tag, String> {
+    async fn tag_ids(&mut self, f: &Forum, need: Tag) -> HashMap<Tag, String> {
         if let Some(t) = self.tags.get(&f.channel) {
-            return t.clone();
+            if need != Tag::Scheduled || t.contains_key(&Tag::Scheduled) {
+                return t.clone();
+            }
         }
-        match self.read_tags(f).await {
+        match self.read_tags(f, need == Tag::Scheduled).await {
             Ok(t) => {
                 self.tags.insert(f.channel, t.clone());
                 t
@@ -956,7 +1010,11 @@ impl Worker {
         }
     }
 
-    async fn read_tags(&self, f: &Forum) -> anyhow::Result<HashMap<Tag, String>> {
+    async fn read_tags(&self, f: &Forum, scheduled: bool) -> anyhow::Result<HashMap<Tag, String>> {
+        let wanted: Vec<Tag> = Tag::ALL
+            .into_iter()
+            .chain(scheduled.then_some(Tag::Scheduled))
+            .collect();
         let http = &self.shared.http;
         let req = Request::builder(&HttpRoute::GetChannel {
             channel_id: f.channel,
@@ -974,8 +1032,9 @@ impl Worker {
                     .is_some_and(|n| n.eq_ignore_ascii_case(t.name()))
             })
         };
-        let missing: Vec<Tag> = Tag::ALL
-            .into_iter()
+        let missing: Vec<Tag> = wanted
+            .iter()
+            .copied()
             .filter(|t| !has(&available, *t))
             .collect();
         if !missing.is_empty() {
@@ -997,7 +1056,7 @@ impl Worker {
                 .unwrap_or_default();
         }
         let mut out = HashMap::new();
-        for t in Tag::ALL {
+        for t in wanted {
             if let Some(id) = available
                 .iter()
                 .find(|x| {
@@ -1023,7 +1082,7 @@ impl Worker {
         name: String,
     ) -> anyhow::Result<()> {
         let want = Tag::of(view);
-        let ids = self.tag_ids(f).await;
+        let ids = self.tag_ids(f, want).await;
         let card = self.card_of(view, link);
         v2::validate(&card).map_err(|e| anyhow::anyhow!("the card does not fit: {e}"))?;
         let mut message = v2::body(&card, true);
@@ -1170,7 +1229,7 @@ impl Worker {
     /// The post's tag, set to the state's. True when it went (or the forum
     /// has no such tag to set).
     async fn set_tag(&mut self, key: &(String, u64), f: &Forum, want: Tag) -> bool {
-        let ids = self.tag_ids(f).await;
+        let ids = self.tag_ids(f, want).await;
         let Some(id) = ids.get(&want) else {
             return true;
         };
@@ -1203,6 +1262,33 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tag of a task set to start later: `scheduled` until it starts,
+    /// `running` once it has, `needs you` over it, `paused` and the ends as
+    /// they were.
+    #[test]
+    fn a_task_set_for_later_is_scheduled_until_its_start_and_running_after() {
+        use crate::render::task_view::tests::{deferred, task};
+        let at = 1_790_003_600_000;
+        assert_eq!(Tag::of(&deferred(at)), Tag::Scheduled);
+        let mut started = deferred(at);
+        started.state = WorkState::Running;
+        assert_eq!(Tag::of(&started), Tag::Running);
+        let mut asks = deferred(at);
+        asks.state = WorkState::NeedsYou;
+        assert_eq!(Tag::of(&asks), Tag::NeedsYou, "a question wins");
+        let mut held = deferred(at);
+        held.paused = true;
+        assert_eq!(Tag::of(&held), Tag::Paused);
+        let mut done = deferred(at);
+        done.state = WorkState::Done;
+        assert_eq!(Tag::of(&done), Tag::Done);
+        // A task started at once, or one that slept after working, is running.
+        assert_eq!(Tag::of(&task()), Tag::Running);
+        let mut slept = deferred(at);
+        slept.doing.as_mut().unwrap().turn = 2;
+        assert_eq!(Tag::of(&slept), Tag::Running);
+    }
 
     fn forum(private: bool) -> Forum {
         Forum {
@@ -1562,10 +1648,10 @@ mod tests {
                 .count()
         };
         let f = w.shared.task_posts.forums.lock().unwrap()[0].clone();
-        let got = w.read_tags(&f).await.unwrap();
+        let got = w.read_tags(&f, false).await.unwrap();
         assert!(got.contains_key(&Tag::Paused) && got.contains_key(&Tag::Stopped));
         assert_eq!(patches(), 1);
-        w.read_tags(&f).await.unwrap();
+        w.read_tags(&f, false).await.unwrap();
         assert_eq!(patches(), 1, "a forum that has them is not changed again");
         let names: Vec<String> = r
             .fake

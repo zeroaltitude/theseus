@@ -131,7 +131,8 @@ fn counts_of(m: &Model) -> Counts {
     for v in m.views.values().filter(|v| counted(v)) {
         if v.state == WorkState::NeedsYou {
             c.needs_you += 1;
-        } else if v.state.working() {
+        } else if v.state.working() && !crate::render::task_view::waits_to_start(v) {
+            // A task set to start later is scheduled, not running.
             c.running += 1;
         }
     }
@@ -307,6 +308,28 @@ impl Tasks {
             .iter()
             .cloned()
             .chain(m.shown.iter().map(|(t, p)| (t.clone(), p.clone())))
+            .collect()
+    }
+
+    /// Every wake view the model holds, whatever its state: a fired one is
+    /// `Done`, a cancelled one `Cancelled`. A routine is not in this model; its
+    /// facts are the future's snapshot's (`runtime/sched.rs`).
+    pub fn scheduled(&self) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        m.views
+            .values()
+            .filter(|v| v.kind == WorkKind::Wake)
+            .cloned()
+            .collect()
+    }
+
+    /// The tasks set to start later that have not (`task_view::waits_to_start`).
+    pub fn waiting_to_start(&self) -> Vec<WorkView> {
+        let m = self.model.lock().unwrap();
+        m.views
+            .values()
+            .filter(|v| crate::render::task_view::waits_to_start(v))
+            .cloned()
             .collect()
     }
 
@@ -707,6 +730,7 @@ fn project(
 /// places' sessions change. It ends with the daemon's stop.
 pub(super) fn watch_loop(shared: &Arc<Shared>) {
     super::horizon::start(shared);
+    super::sched::start(shared);
     let s = shared.clone();
     tokio::spawn(async move {
         let stopped = s.core.outbox.stopped();
@@ -1061,6 +1085,77 @@ mod tests {
                 running: 0,
                 reminder: None
             }
+        );
+    }
+
+    #[test]
+    fn a_task_set_for_later_is_not_a_running_task_in_the_counts() {
+        let t = Tasks::default();
+        let mut rx = t.counts();
+        let mut later = crate::render::task_view::tests::deferred(1_790_003_600_000);
+        later.id = "exe_later".into();
+        later.root = "exe_chat".into();
+        t.changed(changed_of(
+            vec![
+                view(
+                    "exe_chat",
+                    WorkKind::Conversation,
+                    "exe_chat",
+                    WorkState::Ready,
+                    1,
+                ),
+                view("exe_b", WorkKind::Task, "exe_chat", WorkState::Running, 2),
+                later,
+            ],
+            &[],
+        ));
+        assert_eq!(rx.borrow_and_update().running, 1, "only the one that runs");
+        assert_eq!(t.waiting_to_start().len(), 1);
+    }
+
+    /// The bot's status line: a task that only waits for its start time is no
+    /// running task, so with nothing else the status is cleared; one that works
+    /// is as it was.
+    #[test]
+    fn the_status_line_says_running_only_for_work_that_works() {
+        use crate::runtime::presence::line;
+        let conversation = view(
+            "exe_chat",
+            WorkKind::Conversation,
+            "exe_chat",
+            WorkState::Ready,
+            1,
+        );
+        let mut later = crate::render::task_view::tests::deferred(1_790_003_600_000);
+        later.id = "exe_later".into();
+        later.root = "exe_chat".into();
+        let t = Tasks::default();
+        t.changed(changed_of(vec![conversation, later.clone()], &[]));
+        assert_eq!(line(*t.counts().borrow()), None, "only a scheduled task");
+        t.changed(changed_of(
+            vec![view(
+                "exe_b",
+                WorkKind::Task,
+                "exe_chat",
+                WorkState::Running,
+                2,
+            )],
+            &[],
+        ));
+        assert_eq!(
+            line(*t.counts().borrow()).as_deref(),
+            Some("⚙️ 1 running"),
+            "one that works, beside the scheduled one"
+        );
+        t.changed(changed_of(vec![], &["exe_b"]));
+        let mut started = later;
+        started.state = WorkState::Running;
+        started.doing = None;
+        t.changed(changed_of(vec![started], &[]));
+        assert_eq!(
+            line(*t.counts().borrow()).as_deref(),
+            Some("⚙️ 1 running"),
+            "the scheduled task once it has started"
         );
     }
 

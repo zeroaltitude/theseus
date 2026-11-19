@@ -10,6 +10,11 @@
 //! spoken in the owner's DM, the session's place, where a wake was set), once: a post is staged
 //! in the turn's own frame, keyed by the call's id, so a retry that finds the call settled does not
 //! ask again and posts nothing twice. **A turn that was stopped posts none.**
+//!
+//! It is taken once, at the one place every turn's post passes (`stage_turn_post`, just before
+//! the reply), so a call run by the turn's own loop, one the owner's yes let a continuation run,
+//! and any path a third turn takes, post alike. What a turn did not post is dropped at its end
+//! (`profile_tool::Board::forget`).
 
 use super::*;
 

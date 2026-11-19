@@ -74,6 +74,9 @@ pub(crate) struct Snapshot {
 pub(crate) struct Future {
     snap: Mutex<Snapshot>,
     dirty: Notify,
+    /// The same word for the scheduled cards' worker (`sched.rs`): a
+    /// `Notify` wakes one waiter, so each reader has its own.
+    pub(super) sched: Notify,
     /// What the records were read for: `(runs, last started)` of a routine.
     seen: Mutex<HashMap<String, (u32, u64, bool)>>,
     /// Command watches waiting for the owner's yes, by token: when they were
@@ -85,6 +88,7 @@ impl Future {
     /// The future may have changed: read it again, once for a burst.
     pub fn dirty(&self) {
         self.dirty.notify_one();
+        self.sched.notify_one();
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -98,6 +102,10 @@ impl Future {
         b.at_ms = 0;
         let changed = a != b;
         *cur = s;
+        if changed {
+            // The scheduled cards follow what the snapshot holds.
+            self.sched.notify_one();
+        }
         changed
     }
 
@@ -553,9 +561,22 @@ pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<
     }
     let names = shared.conversation_names();
     if shared.task_posts.home.expected() && shared.owner_dm_place().is_some() {
-        return (shared.owner_dm_place().as_deref() == Some(target))
+        let mut parts = (shared.owner_dm_place().as_deref() == Some(target))
             .then(|| shared.tasks.future.parts(None, names))
-            .flatten();
+            .flatten()?;
+        // Where the scheduled items have cards of their own the cards are the
+        // list: a reminder, a check-in, a routine's run and a task's start are
+        // off the board's Coming up, and the Routines with them. What has no
+        // card (a watch's give-up, a milestone) stays, and so do the tasks and
+        // the projects.
+        if shared.sched_target().is_some() {
+            parts.coming.retain(|l| {
+                !(is_wake_of_conversation(l)
+                    || matches!(l.what, AgendaWhat::Run | AgendaWhat::Starts))
+            });
+            parts.routines.clear();
+        }
+        return (!parts.is_empty()).then_some(parts);
     }
     let own = shared.tasks.sessions_shown(session);
     shared.tasks.future.parts(Some(&own), names)

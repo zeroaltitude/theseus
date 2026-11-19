@@ -549,8 +549,14 @@ impl Shared {
             Some(InteractionData::MessageComponent(c)) => {
                 if c.custom_id == REMINDER_PICK {
                     if let Some(choice) = c.values.first() {
-                        self.reminder_pick(i, choice, who).await;
+                        let _ = self.reminder_pick(i, choice, who).await;
                     }
+                    return true;
+                }
+                if c.custom_id.starts_with(CANCEL_PREFIX) || c.custom_id.starts_with(SNOOZE_PREFIX)
+                {
+                    // A scheduled item's card (`runtime/sched.rs`).
+                    self.card_press(i, &c.custom_id, who).await;
                     return true;
                 }
                 if let Some(rest) = c.custom_id.strip_prefix(ROUTINE_PREFIX) {
@@ -588,9 +594,11 @@ impl Shared {
     /// A choice of the board's reminder select: the wake cancelled, or set again
     /// an hour on, by the same calls as `/cancel` and `/snooze`, as the presser.
     /// The presser alone is told what happened.
-    async fn reminder_pick(&self, i: &Interaction, choice: &str, who: &str) {
+    /// True when the call went through.
+    pub(super) async fn reminder_pick(&self, i: &Interaction, choice: &str, who: &str) -> bool {
         if target_of(i).is_none_or(|t| !self.is_private(&t)) {
-            return self.reply_ephemeral(i, SHARED.into()).await;
+            self.reply_ephemeral(i, SHARED.into()).await;
+            return false;
         }
         let author = Some(who.to_string());
         let said = if let Some(wake) = choice.strip_prefix(CANCEL_PREFIX) {
@@ -636,7 +644,67 @@ impl Shared {
             "Unknown option.".into()
         };
         self.tasks.future.dirty();
+        let done = !said.starts_with('⚠');
         self.reply_ephemeral(i, said).await;
+        done
+    }
+
+    /// The card of a task set to start later: cancelled by `task.cancel`, or
+    /// its start moved an hour on by `task.reschedule`, as the presser, told to
+    /// the presser alone. True when the call went through.
+    pub(super) async fn task_pick(
+        &self,
+        i: &Interaction,
+        cancel: bool,
+        task: &str,
+        who: &str,
+    ) -> bool {
+        if target_of(i).is_none_or(|t| !self.is_private(&t)) {
+            self.reply_ephemeral(i, SHARED.into()).await;
+            return false;
+        }
+        let said = if cancel {
+            let r = self
+                .rpc
+                .call::<_, theseus_protocol::TaskCancelResult>(
+                    method::TASK_CANCEL,
+                    theseus_protocol::TaskCancelParams {
+                        task: task.to_string(),
+                        author: Some(who.to_string()),
+                    },
+                )
+                .await;
+            match r {
+                Ok(r) => format!("⏹️ Cancelled: task `{}` will not start.", r.task.short),
+                Err(e) => format!("⚠️ Not cancelled: {}", e.message),
+            }
+        } else {
+            let r = self
+                .rpc
+                .call::<_, theseus_protocol::ops::TaskRescheduleResult>(
+                    method::TASK_RESCHEDULE,
+                    theseus_protocol::ops::TaskRescheduleParams {
+                        task: task.to_string(),
+                        start_at_ms: None,
+                        start_after_ms: None,
+                        start_when: Some("in 1h".into()),
+                        author: Some(who.to_string()),
+                        discord: origin(i),
+                    },
+                )
+                .await;
+            match r {
+                Ok(r) => format!(
+                    "😴 The task will start at <t:{}:t> instead.",
+                    r.starts_at_ms / 1000
+                ),
+                Err(e) => format!("⚠️ Not snoozed: {}", e.message),
+            }
+        };
+        self.tasks.future.dirty();
+        let done = !said.starts_with('⚠');
+        self.reply_ephemeral(i, said).await;
+        done
     }
 
     /// Autocomplete from the snapshot in memory. False for a command that is

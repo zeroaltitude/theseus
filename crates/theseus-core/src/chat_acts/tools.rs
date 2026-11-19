@@ -111,14 +111,15 @@ fn answers_of(q: &ConfirmRequest) -> String {
         return "one of its options, by its number from 1 (or `other` with a note)".into();
     }
     if let Some(why) = crate::config_change::words::by_press_only(q) {
-        return match why == crate::config_change::words::FLOOR_BY_PRESS {
-            true => "`no` only: a yes to a call held by the floor is given by its own button, or \
-                     with `theseus answer` in the owner's own terminal, never in their name here"
-                .into(),
-            false => "`no` only: a yes to a settings card is given by its own button, or with \
-                      `theseus answer` in the owner's own terminal, never in their name here"
-                .into(),
+        let held = match why {
+            w if w == crate::config_change::words::FLOOR_BY_PRESS => "a call held by the floor",
+            w if w == crate::config_change::words::HOLD_BY_PRESS => "a profile hold's card",
+            _ => "a settings card",
         };
+        return format!(
+            "`no` only: a yes to {held} is given by its own button, or with `theseus answer` in \
+             the owner's own terminal, never in their name here"
+        );
     }
     "`yes` or `no`".into()
 }

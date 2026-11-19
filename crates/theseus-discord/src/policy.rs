@@ -254,7 +254,9 @@ pub(crate) fn of_reply(body: &Value) -> Event {
 /// message that holds its thinking (`content`), or its tool line and
 /// anything else live (a notice embed).
 pub(crate) fn of_live(key: &str, owed: bool, content: &str) -> Event {
-    if is_text_part(key) {
+    if key.starts_with("subagent:") {
+        Event::ReplyPart
+    } else if is_text_part(key) {
         if owed {
             Event::Answer
         } else {

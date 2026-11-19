@@ -130,6 +130,15 @@ pub const FLOOR_BY_PRESS: &str = "a call held by the floor (it reaches a protect
 pub const FLOOR_BY_AGENT: &str = "an agent's process cannot approve a call held by the floor (it reaches a protected file or program); \
      the owner approves it by its own button, or with `theseus answer <id> approve` in the owner's own terminal. Nothing ran";
 
+/// What a yes from words is told for the card of `profile.hold`: the owner's yes to it is the
+/// owner's word for that hold, so it is their own press.
+pub const HOLD_BY_PRESS: &str = "the card that holds a conversation to a profile is answered by its own button, or with \
+     `theseus answer <id> approve` in the owner's own terminal: it is never answered in their name from a conversation. Nothing was done";
+
+/// What a yes from an agent's process is told for the card of `profile.hold`.
+pub const HOLD_BY_AGENT: &str = "an agent's process cannot answer the card that holds a conversation to a profile; \
+     the owner answers it by its own button, or with `theseus answer <id> approve` in the owner's own terminal. Nothing was done";
+
 /// Why a yes from words (the model's answer tool) is refused for the waiting
 /// question `q`, or none: a settings question or a call held by the floor is the
 /// owner's own press, whatever else it is. Every other kind (a spend limit, a
@@ -138,6 +147,8 @@ pub const FLOOR_BY_AGENT: &str = "an agent's process cannot approve a call held 
 pub fn by_press_only(q: &theseus_protocol::ConfirmRequest) -> Option<&'static str> {
     if q.plain.as_ref().is_some_and(|p| !p.detail.is_empty()) {
         Some(BY_PRESS)
+    } else if q.tool == crate::profile_tool::HOLD {
+        Some(HOLD_BY_PRESS)
     } else if q.floor {
         Some(FLOOR_BY_PRESS)
     } else {
