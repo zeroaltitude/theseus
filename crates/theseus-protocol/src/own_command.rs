@@ -61,11 +61,14 @@ pub const VERBS: &[Entry] = &[
     e("config", &["show"], Look("config.show")),
     e("config", &["", "history"], Look("config.history")),
     e("config", &[], Unserved),
-    // The looks no tool does yet.
-    e("history", &[], Look("look.work")),
-    e("watch", &[], Unserved),
-    e("status", &[], Look("look.work")),
+    // `look.work` is Theseus's work whole, as `tasks` and `status` are. `history` bare is the most
+    // recently active session's whole transcript (its tool calls and results too), which the tool does
+    // not give, and `history SESSION` is another's: it runs.
     e("tasks", &[""], Look("look.work")),
+    e("status", &[], Look("look.work")),
+    // The looks no tool does yet.
+    e("history", &[], Unserved),
+    e("watch", &[], Unserved),
     e("tasks", &["forecast"], Unserved),
     e("tasks", &[], Unserved),
     e("agenda", &[], Unserved),
@@ -409,7 +412,7 @@ mod tests {
                 "{line}"
             );
         }
-        for line in ["theseus tasks", "theseus status", "theseus history"] {
+        for line in ["theseus tasks", "theseus status"] {
             assert_eq!(said(line).map(|a| a.0), Some("look.work"), "{line}");
         }
         assert_eq!(
@@ -459,6 +462,7 @@ mod tests {
             "theseus ask -P mythos hello",
             "theseus health --watch",
             "theseus tasks forecast",
+            "theseus history",
             "theseus history ses_other",
             "theseus ontology proposals --each",
             "theseus ontology person add Ada",

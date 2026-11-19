@@ -1,37 +1,69 @@
-//! `look.work`: Theseus tells the owner's own turn what this conversation has going on (issue 28):
-//! the tasks it started and what each asks or has spent, what waits on the owner here, and its last
-//! messages.
+//! `look.work`: Theseus tells the owner's own turn what work it has going (issue 28): all of it, as the
+//! command line's `tasks` and `status` do.
 //!
-//! A turn ran `theseus tasks`, `theseus status` and `theseus history` in a shell for exactly this:
-//! the command line is a screen for the owner's terminal, and the daemon now answers it with this
-//! tool (`own_command`). The words are the daemon's own views, read with no shell.
+//! A turn ran `theseus tasks`, `theseus status` and `theseus wake list` in a shell for exactly this: the
+//! command line is a screen for the owner's terminal, and the daemon now answers it with this tool
+//! (`own_command`). The words are the daemon's own views, read with no shell.
 //!
-//! **Whose it is.** Only this conversation's, and only what the owner may already see in this
-//! place: the tasks this session started (`Core::tasks`), the questions that wait here (the place's
-//! own, `chat_acts::waiting_here`: another conversation's never), and this session's own messages.
-//! Another session's history, another place's questions, and the whole fleet of tasks are the
-//! command line's (`theseus history SESSION`, which runs as it does). **Bounded**: at most 20
-//! tasks, 20 messages of at most 600 characters, 8,000 characters in all, and it says what it left
-//! out. **Never** an answer: it lists what waits, and the owner answers it.
-
-use std::fmt::Write;
+//! **Whose it is: Theseus's, whole** (the owner, 2026-11-19: "the scope should be global for tasks,
+//! projects, etc. It's weird if you get bad answers to things you feel like you know about"). The
+//! tasks of every conversation, each with where it was started; what waits on the owner anywhere, each
+//! with where; the open projects; the routines; and the reminders and check-ins coming. This
+//! conversation's come first. The views are the ones the command line reads (`Core::tasks`,
+//! `confirm_list`, `project_list`, `routine_list`, `wakes`), so nothing is given that `theseus tasks`,
+//! `status` and `wake list` would not print. **History stays this conversation's**: its last
+//! messages; another conversation's are `theseus history SESSION`, which runs as it does. A call may
+//! say `scope: here` for this conversation alone.
+//!
+//! **Another conversation's words** are marked as such in the answer, and held back when that
+//! conversation holds data marked anything but open (`reader.rs`); the answer is then judged as every
+//! tool's result is.
+//!
+//! **The wall is unchanged** (`look::refusal`): the owner's own turn in a private place, nobody else.
+//!
+//! **Bounded**, and it says what it left out: per list at most 10 to 15 lines for this conversation
+//! and 15 for the rest (see the constants), a message of at most 600 characters (20 at most), a part
+//! of at most 8,000 characters, and 24,000 in all (a deferred tool: the result is paid only when it is
+//! called). **Never** an answer: it lists what waits, and the owner answers it.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::node::Body;
 use crate::Core;
 
+mod history;
+mod horizon;
+mod reader;
+mod tasks;
+
 /// The parts of the look, in the order they are given.
-const PARTS: [&str; 3] = ["tasks", "needs_you", "history"];
+const PARTS: [&str; 6] = [
+    "tasks",
+    "needs_you",
+    "projects",
+    "routines",
+    "coming",
+    "history",
+];
+/// The parts that are not tied to one conversation: `scope: here` leaves them out.
+const WHOLE_ONLY: [&str; 2] = ["projects", "routines"];
 /// How many messages `history` gives when it is not told, and the most it may.
 const MESSAGES: usize = 6;
 const MESSAGES_MAX: usize = 20;
-/// The most tasks listed.
-const TASKS_MAX: usize = 20;
-/// The most characters of one message, and of the whole answer.
+/// The most tasks listed, from this conversation and from the rest.
+const TASKS_HERE_MAX: usize = 10;
+const TASKS_ELSEWHERE_MAX: usize = 15;
+/// The most questions listed, from this place and from the rest.
+const WAITING_HERE_MAX: usize = 10;
+const WAITING_ELSEWHERE_MAX: usize = 15;
+/// The most projects, routines, and reminders and check-ins listed.
+const PROJECTS_MAX: usize = 12;
+const ROUTINES_MAX: usize = 12;
+const COMING_MAX: usize = 12;
+/// The most characters of one message, of one part, and of the whole answer.
 const LINE_CHARS: usize = 600;
 const TOTAL_CHARS: usize = 8_000;
+const ANSWER_CHARS: usize = 24_000;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,17 +72,25 @@ struct Input {
     what: Option<Vec<String>>,
     #[serde(default)]
     messages: Option<u32>,
+    #[serde(default)]
+    scope: Option<String>,
 }
 
-/// What was asked: the parts, in order, and how many messages.
+/// What was asked: the parts, in order, how many messages, and whether it is this conversation's alone.
 pub(super) struct Ask {
     parts: Vec<&'static str>,
     messages: usize,
+    here: bool,
 }
 
 impl Ask {
     pub(super) fn summary(&self) -> String {
-        self.parts.join(", ")
+        let scope = if self.here {
+            "this conversation"
+        } else {
+            "all"
+        };
+        format!("{} ({scope})", self.parts.join(", "))
     }
 }
 
@@ -74,8 +114,21 @@ pub(super) fn ask_of(input: &Value) -> Result<Ask, String> {
             parts.sort_by_key(|p| PARTS.iter().position(|x| x == p));
         }
     }
+    let here = match i.scope.as_deref().map(str::trim) {
+        None | Some("all") => false,
+        Some("here") => true,
+        Some(other) => {
+            return Err(format!(
+                "`{other}` is not a scope: choose `all` (the default) or `here`"
+            ))
+        }
+    };
     let messages = (i.messages.unwrap_or(MESSAGES as u32) as usize).clamp(1, MESSAGES_MAX);
-    Ok(Ask { parts, messages })
+    Ok(Ask {
+        parts,
+        messages,
+        here,
+    })
 }
 
 pub(super) fn schema() -> Value {
@@ -87,163 +140,46 @@ pub(super) fn schema() -> Value {
                 "description": "Parts; omit for all.",
                 "items": {"type": "string", "enum": PARTS}
             },
+            "scope": {"enum": ["all", "here"]},
             "messages": {
-                "type": "integer", "minimum": 1, "maximum": MESSAGES_MAX,
-                "description": "How many last messages (default 6)."
+                "type": "integer", "minimum": 1, "maximum": MESSAGES_MAX
             }
         },
         "additionalProperties": false
     })
 }
 
-/// The words for each part asked for, about `session` and no other.
+/// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
+/// messages (`session`'s).
 pub(super) fn words(core: &Core, session: &str, ask: &Ask) -> String {
+    let r = reader::Reader::new(core, session);
     let mut out = String::new();
     for p in &ask.parts {
-        let part = match *p {
-            "tasks" => tasks(core, session),
-            "needs_you" => needs_you(core, session),
-            _ => history(core, session, ask.messages),
+        let part = match (*p, ask.here) {
+            (part, true) if WHOLE_ONLY.contains(&part) => format!(
+                "{}: not tied to one conversation; ask for scope `all` to see them.\n",
+                part[..1].to_uppercase() + &part[1..]
+            ),
+            ("tasks", _) => tasks::tasks(&r, ask.here),
+            ("needs_you", _) => tasks::needs_you(&r, ask.here),
+            ("projects", _) => horizon::projects(&r),
+            ("routines", _) => horizon::routines(&r),
+            ("coming", _) => horizon::coming(&r, ask.here),
+            _ => history::history(core, session, ask.messages),
         };
-        out.push_str(&part);
+        out.push_str(&cut(part, TOTAL_CHARS));
         out.push('\n');
     }
-    cut(out, TOTAL_CHARS)
+    cut(out, ANSWER_CHARS)
 }
 
-fn tasks(core: &Core, session: &str) -> String {
-    let list = match core.tasks(Some(session), None) {
-        Ok(l) => l,
-        Err(_) => return "Tasks: they could not be read just now.\n".into(),
-    };
-    if list.is_empty() {
-        return "Tasks: this conversation has started none.\n".into();
-    }
-    let mut out = format!("Tasks this conversation started ({}):\n", list.len());
-    for t in list.iter().take(TASKS_MAX) {
-        out.push_str(&task_line(t));
-    }
-    if list.len() > TASKS_MAX {
-        let _ = writeln!(out, "… and {} older", list.len() - TASKS_MAX);
-    }
-    out
-}
-
-/// One task as a line: its short id, title, state, what it waits on, turns, spend, and what it asks.
-fn task_line(t: &theseus_protocol::TaskInfo) -> String {
-    let title = t
-        .title
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .unwrap_or("(no title)");
-    let waits = t
-        .waiting_on
-        .as_deref()
-        .map(|w| format!(" (waiting on {w})"))
-        .unwrap_or_default();
-    let asks = match t.pending_confirms {
-        0 => String::new(),
-        n => format!(" · asks the owner {n}"),
-    };
-    let ended = t
-        .ended_reason
-        .as_deref()
-        .filter(|r| !r.is_empty())
-        .map(|r| format!(" · {}", clip(r, 120)))
-        .unwrap_or_default();
-    format!(
-        "- {} · {} · {}{waits} · {} turn{} · ${:.2} of ${:.2}{asks}{ended}\n",
-        t.short,
-        clip(title, 100),
-        t.state,
-        t.turns,
-        if t.turns == 1 { "" } else { "s" },
-        t.spent_usd,
-        t.limit_usd
-    )
-}
-
-/// One question that waits for the owner, as a line: no answer to it is offered.
-fn question_line(q: &theseus_protocol::ConfirmRequest) -> String {
-    format!(
-        "- {} · {} · {}\n",
-        crate::task::short(&q.correlation_id),
-        q.tool,
-        clip(&q.reason, 200)
-    )
-}
-
-fn needs_you(core: &Core, session: &str) -> String {
-    let waiting = match crate::chat_acts::waiting_here(core, session) {
-        Ok(w) => w,
-        Err(_) => return "Waiting on the owner: it could not be read just now.\n".into(),
-    };
-    if waiting.is_empty() {
-        return "Waiting on the owner: nothing waits here.\n".into();
-    }
-    let mut out = format!(
-        "Waiting on the owner here ({}); only they answer, this tool answers nothing:\n",
-        waiting.len()
-    );
-    for q in &waiting {
-        out.push_str(&question_line(q));
-    }
-    out
-}
-
-fn history(core: &Core, session: &str, messages: usize) -> String {
-    let nodes = match core.store.session_nodes(session) {
-        Ok(n) => n,
-        Err(_) => return "Messages: they could not be read just now.\n".into(),
-    };
-    let mut lines: Vec<String> = nodes
-        .iter()
-        .filter_map(|(_, n)| match &n.body {
-            Body::UserMessage { text, .. } if !text.trim().is_empty() => {
-                let who = match n.origin {
-                    crate::node::Origin::Operator => "the owner",
-                    crate::node::Origin::Harness => "the harness",
-                    _ => "a message",
-                };
-                Some(format!("{who}: {}", clip(text, LINE_CHARS)))
-            }
-            Body::AssistantMessage { blocks, model, .. } => {
-                let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
-                (!text.trim().is_empty())
-                    .then(|| format!("Theseus ({model}): {}", clip(&text, LINE_CHARS)))
-            }
-            // Another profile's answer, a message of its own (`profile.ask`).
-            Body::ToolResult { meta, .. } => {
-                theseus_protocol::SubagentAnswer::from_meta(meta).map(|a| {
-                    format!(
-                        "{} (a subagent, {}): {}",
-                        a.profile,
-                        a.model,
-                        clip(&a.text, LINE_CHARS)
-                    )
-                })
-            }
-            _ => None,
-        })
-        .collect();
-    let total = lines.len();
-    let kept = lines.split_off(total.saturating_sub(messages));
-    if kept.is_empty() {
-        return "Messages: this conversation has none yet.\n".into();
-    }
-    let mut out = format!(
-        "The last {} of this conversation's {total} messages:\n",
-        kept.len()
-    );
-    for l in &kept {
-        let _ = writeln!(out, "- {l}");
-    }
-    out
-}
-
-/// `s` as one line of at most `max` characters.
+/// `s` as one line of at most `max` characters: control characters and line breaks gone.
 fn clip(s: &str, max: usize) -> String {
-    let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let plain: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let one: String = plain.split_whitespace().collect::<Vec<_>>().join(" ");
     match one.chars().count() > max {
         true => format!("{}…", one.chars().take(max).collect::<String>()),
         false => one,
