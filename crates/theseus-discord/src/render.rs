@@ -1132,6 +1132,8 @@ pub fn report(body: &Value, said: Option<&str>, guests: usize, place: Option<u64
         body["ran_on"]["profile"].as_str(),
         body["ran_on"]["model"].as_str(),
     ) {
+        // A setup with no named profile draws no empty one, as a reply's footer does.
+        (Some(""), Some(m)) => format!("{m} · subagent task report · "),
         (Some(p), Some(m)) => format!("{p} · {m} · subagent task report · "),
         _ => String::new(),
     };
