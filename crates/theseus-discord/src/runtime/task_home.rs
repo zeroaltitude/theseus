@@ -102,6 +102,13 @@ impl TaskHome {
         self.channel() == Some(channel)
     }
 
+    /// Whether a home stands or is still looked for: it is switched on and has
+    /// not been refused. Where the future goes is then the home's alone.
+    pub(crate) fn expected(&self) -> bool {
+        self.channel().is_some()
+            || (self.wanted.lock().unwrap().is_some() && !self.gone.load(Ordering::SeqCst))
+    }
+
     /// Whether `channel` is a voice binding's text chat.
     pub(crate) fn is_voice(&self, channel: u64) -> bool {
         self.voice.lock().unwrap().contains(&channel)
