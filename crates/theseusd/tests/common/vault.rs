@@ -10,7 +10,11 @@ const SCRIPT: &str = r#"#!/bin/sh
 D='@D@'; LOG="$D/op.argv"
 printf '%s\n' "$*" >> "$LOG"
 case "$1 $2" in
-  "vault list") echo '[{"id":"vaultid00000000000000000001","name":"Harbor"}]' ;;
+  "vault list")
+    case " $* " in
+      *" --permission "*) [ -f "$D/op.readonly" ] && echo '[]' || echo '[{"id":"vaultid00000000000000000001","name":"Harbor"}]' ;;
+      *) echo '[{"id":"vaultid00000000000000000001","name":"Harbor"}]' ;;
+    esac ;;
   "item list")
     EXTRA=''
     [ -f "$D/op.created" ] && EXTRA=",{\"id\":\"itemid00000000000000000099\",\"title\":\"$(cat "$D/op.created")\",\"vault\":{\"id\":\"vaultid00000000000000000001\",\"name\":\"Harbor\"},\"category\":\"API_CREDENTIAL\"}"

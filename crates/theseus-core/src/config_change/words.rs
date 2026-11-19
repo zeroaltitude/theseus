@@ -176,7 +176,7 @@ pub fn plain_of(args: &Value) -> Option<PlainWords> {
     let (risk, yes) = match (args.get("merge").is_some(), args["restart_only"] == true) {
         _ if keep => (
             "stores a secret in Theseus's vault",
-            "has the daemon keep the value you type, in the vault, with its own account.",
+            "is not offered: this card takes a value, which you type in your terminal or the cockpit, and the daemon keeps it in the vault with its own account.",
         ),
         (true, _) => (
             "installs a program Theseus runs",

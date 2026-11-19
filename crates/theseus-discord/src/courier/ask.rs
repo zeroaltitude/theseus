@@ -17,8 +17,18 @@ use crate::render::Buttons;
 use crate::runtime::reply::answer;
 
 /// The buttons of a confirm card: an `owner_ask`'s options, a layer-1
-/// change's Accept and Decline, else Approve and Decline.
+/// change's Accept and Decline, a decline alone when the daemon offers no yes
+/// (a secret to keep takes a value, and no button carries one), else Approve and
+/// Decline.
 pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> Buttons {
+    if !req.options.is_empty()
+        && !req
+            .options
+            .iter()
+            .any(|o| theseus_protocol::answer::approves(&o.id))
+    {
+        return Buttons::Decline(q.to_string());
+    }
     if req.tool == theseus_protocol::work::ask::OWNER_ASK {
         return Buttons::Ask(
             q.to_string(),
@@ -75,11 +85,16 @@ impl Lane {
                 ping: false,
             })
             .collect();
+        // A question the daemon offers no yes to (a secret to keep) has a Decline alone.
+        let no_yes = body["settings"]["no_yes"] == true;
         writes.push(Write {
             key,
             channel,
             content: last,
-            buttons: Buttons::Card(q.to_string(), Vec::new()),
+            buttons: match no_yes {
+                true => Buttons::Decline(q.to_string()),
+                false => Buttons::Card(q.to_string(), Vec::new()),
+            },
             reply_to: None,
             message: None,
             mentions: vec![],
@@ -202,5 +217,75 @@ mod tests {
             super::line_of(&json!({"prompt": "p", "card": {"line": ""}})),
             "p"
         );
+    }
+
+    /// A secret to keep takes a value, which no button carries: the daemon offers
+    /// only its decline, and the card says first where the value is typed. Drawn
+    /// in each of Discord's forms (the card, the needs-you post, the V2 buttons),
+    /// there is no Approve, and no sentence about one (issue 29).
+    #[test]
+    fn a_secret_to_keep_is_drawn_with_a_decline_alone_and_says_where_it_is_typed() {
+        use theseus_core::config_change::vault_keep::target::{State, Target};
+        use theseus_core::config_change::{vault_keep, words};
+        use theseus_protocol::work::QuestionKind;
+        use theseus_protocol::ConfirmRequest;
+
+        let t = Target {
+            vault: "Harbor".into(),
+            vault_id: "vaultid00000000000000000001".into(),
+            title: "Lantern new".into(),
+            item_id: None,
+            field: "credential".into(),
+            field_id: None,
+            state: State::New,
+            protected: false,
+        };
+        let q = vault_keep::question(&t, false, false, "the lantern provider's key");
+        let args = json!({"question": q, "settled": vault_keep::settled(&t), "keep": t.args()});
+        let mut req = ConfirmRequest {
+            correlation_id: "act_0000feed".into(),
+            session_id: "ses_00000000harbour".into(),
+            tool: "config.ack".into(),
+            reason: q.clone(),
+            plain: words::plain_of(&args),
+            input: args,
+            needs_proof: true,
+            ..Default::default()
+        };
+        // What the daemon offers: the decline alone.
+        req.options = req
+            .question(QuestionKind::Approval, true)
+            .options
+            .into_iter()
+            .filter(|o| o.id == "decline")
+            .collect();
+        assert_eq!(req.options.len(), 1);
+
+        // The card: where the value is typed comes first, and nothing offers a yes.
+        let card = crate::render::card(&req, &crate::render::Route::Here, "");
+        assert!(
+            card.content
+                .starts_with("Type the value in your own terminal"),
+            "{}",
+            card.content
+        );
+        assert!(!card.content.contains("**Approve**"), "{}", card.content);
+        assert!(!card.content.contains("opens a form"), "{}", card.content);
+        assert!(!card.content.contains("goes through"), "{}", card.content);
+        // Its buttons: a decline alone.
+        assert_eq!(
+            super::card_buttons(&req, "act_0000feed"),
+            crate::render::Buttons::Decline("act_0000feed".into())
+        );
+        let text = format!("{:?}", crate::runtime::decline_buttons("act_0000feed"));
+        assert!(text.contains("confirm:decline:act_0000feed"), "{text}");
+        assert!(!text.contains("approve"), "{text}");
+        // The needs-you post says the same.
+        let body = json!({"settings": {"detail": q, "needs_proof": true, "short": "feed", "no_yes": true}});
+        let (before, last) = crate::render::settings::needs_you(&body).unwrap();
+        let all = format!("{}{last}", before.concat());
+        assert!(all.starts_with("Type the value"), "{all}");
+        assert!(all.contains("tap Decline"), "{all}");
+        assert!(!all.contains("tap Approve"), "{all}");
     }
 }

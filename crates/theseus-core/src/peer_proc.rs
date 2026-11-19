@@ -244,6 +244,15 @@ impl Peer {
         }
     }
 
+    /// The pid of the socket's peer, as the daemon logs it for the connection;
+    /// none for the other sources.
+    pub fn pid(&self) -> Option<u32> {
+        match self.source {
+            Source::Pid(pid) => Some(pid),
+            _ => None,
+        }
+    }
+
     pub fn behind(&self) -> &Behind {
         self.found.get_or_init(|| match self.source {
             Source::Owner => Behind::Owner,

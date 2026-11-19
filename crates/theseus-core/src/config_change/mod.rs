@@ -660,7 +660,7 @@ fn too_big(settings: &[diff::Setting]) -> Result<usize, String> {
 }
 
 /// The question, its card, and the record that answers a call run again, in
-/// one frame on the proposing execution.
+/// one frame on the proposing execution. The question's id.
 pub(crate) fn ask(
     rt: &ToolRuntime,
     tc: &TurnCtx<'_>,
@@ -668,7 +668,7 @@ pub(crate) fn ask(
     correlation_id: &str,
     said: &str,
     needs: proof_seam::Needs,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let target = tc.outbox.target(tc.session_id);
     let mut card = None;
     let a = tc
@@ -714,7 +714,7 @@ pub(crate) fn ask(
         request.needs_fresh_proof = needs == proof_seam::Needs::Fresh;
         tc.record(&crate::fact::tool::CallAsked { request: &request });
     }
-    Ok(())
+    Ok(a.correlation_id.clone())
 }
 
 /// A proposal run again after a restart: what the first run asked, else why
@@ -745,7 +745,8 @@ pub fn confirm_request(
         .map(|p| p.args.clone())
         .unwrap_or_default();
     let plain = words::plain_of(&args);
-    crate::rpc::offer(ConfirmRequest {
+    let keep = vault_keep::is_card(&args);
+    let mut request = crate::rpc::offer(ConfirmRequest {
         correlation_id: a.correlation_id.clone(),
         session_id: session.session_id.clone(),
         execution_id: a.execution_id.clone(),
@@ -771,7 +772,15 @@ pub fn confirm_request(
         needs_proof: false,
         needs_fresh_proof: false,
         proof: None,
-    })
+    });
+    // A secret to keep takes a value, which a yes does not carry, and no place's buttons do
+    // either (the cockpit has a field, the terminal a hidden prompt, Discord nothing yet): the
+    // daemon states it by offering only the decline, so no surface can draw an Approve that
+    // could only be refused (issue 29).
+    if keep {
+        request.options.retain(|o| o.id == "decline");
+    }
+    request
 }
 
 #[cfg(test)]
