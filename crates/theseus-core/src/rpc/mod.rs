@@ -57,7 +57,7 @@ mod modes;
 mod owner_input;
 mod owner_proof;
 mod proof_gate;
-mod vault_keep;
+pub(crate) mod vault_keep;
 pub(crate) use methods::ledger_tags;
 mod agenda;
 mod capture;

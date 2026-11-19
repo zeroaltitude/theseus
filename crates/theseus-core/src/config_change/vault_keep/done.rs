@@ -110,8 +110,14 @@ pub fn words(t: &Target, o: Outcome) -> String {
             }
         ),
         Outcome::NotWritten(f) => format!(
-            "Nothing was kept in {at}: {}. The vault was not changed.",
-            f.words()
+            "Nothing was kept in {at}: {}. {}",
+            f.words(),
+            match f {
+                // A killed program may have been done before it was killed.
+                Failed::TimedOut =>
+                    "The vault may have been changed anyway: check the item before asking again.",
+                _ => "The vault was not changed.",
+            }
         ),
         Outcome::NotChecked(f) => format!(
             "The vault accepted a value for {at}, but reading it back failed ({}). The item \

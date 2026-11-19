@@ -147,24 +147,38 @@ impl Core {
         .map_err(failure)?;
         self.keep_wall(&a, &who)?;
         let value = done::checked(p.value.expose()).map_err(RpcFailure::invalid_text)?;
-        let footing = self
-            .proof_gate(&a, &who, p.code.as_ref(), false)
-            .map_err(|r| failure(r.into()))?;
-        let _ = footing;
+        // One answer at a time for a question: two surfaces answering at once must not both write.
+        let _one = InFlight::take(&a.correlation_id).ok_or_else(|| {
+            refused("another answer to this question is being kept right now: wait for it")
+        })?;
         let reader = self.keep_reader()?;
-        // The target is re-found: the card is the owner's yes to THIS item and field.
+        // The target is re-found BEFORE a code is spent: the card is the owner's yes to THIS
+        // item and field, and a vault that did not answer is no reason to use a code up.
         let refs = target::readers(self);
         let names = (
             recorded.vault_id.as_str(),
             recorded.item_id.as_deref().unwrap_or(&recorded.title),
-            recorded.field.as_str(),
+            recorded.field_id.as_deref().unwrap_or(&recorded.field),
         );
-        let outcome = match target::resolve(&reader, &refs, names).await {
-            Ok(now) if same_place(&now, &recorded) => {
-                let o = done::perform(&reader, &recorded, &value).await;
-                (o, recorded.clone())
-            }
-            _ => (Outcome::Changed, recorded.clone()),
+        let now = target::resolve(&reader, &refs, names)
+            .await
+            .map_err(|why| {
+                refused(format!(
+                    "the vault could not be checked just now, so nothing was written and no code \
+                 was spent: {why}. It keeps waiting for a value"
+                ))
+            })?;
+        let outcome = match same_place(&now, &recorded) {
+            true => (
+                {
+                    // Only now the proof: a code is spent on a write that will be tried.
+                    self.proof_gate(&a, &who, p.code.as_ref(), false)
+                        .map_err(|r| failure(r.into()))?;
+                    done::perform(&reader, &recorded, &value).await
+                },
+                recorded.clone(),
+            ),
+            false => (Outcome::Changed, recorded.clone()),
         };
         drop(value);
         self.keep_settle(&a, &outcome.1, outcome.0, &who)
@@ -279,6 +293,36 @@ impl Core {
     }
 }
 
+/// The questions whose value is being kept now, so a second answer to one waits.
+static KEEPING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// A question's turn at the vault, given back on drop.
+struct InFlight(String);
+
+impl InFlight {
+    fn take(question: &str) -> Option<Self> {
+        let mut held = KEEPING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match held.iter().any(|q| q == question) {
+            true => None,
+            false => {
+                held.push(question.to_string());
+                Some(Self(question.to_string()))
+            }
+        }
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        let mut held = KEEPING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        held.retain(|q| *q != self.0);
+    }
+}
+
 /// Whether the vault still shows the place the card named.
 fn same_place(now: &Target, then: &Target) -> bool {
     now.vault_id == then.vault_id
@@ -290,5 +334,13 @@ fn same_place(now: &Target, then: &Target) -> bool {
 impl RpcFailure {
     fn invalid_text(why: String) -> Self {
         Self::new(error_code::INVALID_PARAMS, why)
+    }
+}
+
+/// The turn at the vault, for the tests of `config_change::vault_keep`.
+#[cfg(test)]
+pub(crate) mod vault_keep_test {
+    pub(crate) fn in_flight(question: &str) -> Option<impl Drop> {
+        super::InFlight::take(question)
     }
 }

@@ -189,8 +189,9 @@ pub enum KeepStop {
 impl OpReader {
     /// `value` into the one concealed field of an item, for a secret the owner
     /// gave (issue 26): the item JSON on **stdin**, never argv; read back and
-    /// compared by sha256 before it is called kept. `exists` says whether the
-    /// item is there; `field_id` is the id of the field when it is (an existing
+    /// compared by sha256 before it is called kept. An item that is there is
+    /// edited as a whole (read, one field changed, written back), never by a
+    /// partial body. `exists` says whether the item is there; `field_id` is the id of the field when it is (an existing
     /// field keeps its id and its label), else a new field is named `label`.
     /// `reference` is what reads it back: by ids for an item that exists.
     pub async fn keep_field(
@@ -206,7 +207,30 @@ impl OpReader {
         });
         let put = match exists {
             true => {
-                let body = serde_json::json!({"fields": [concealed]}).to_string();
+                // The vault's program takes what is piped to `item edit` as the item
+                // itself, so the edit is the item's own JSON with this one field
+                // changed or added: nothing else of the item is left out. Its text holds
+                // the item's other values, so it is read and sent in zeroizing memory
+                // and goes nowhere else.
+                let got = zeroize::Zeroizing::new(
+                    self.run(
+                        &["item", "get", item, "--vault", vault, "--format", "json"],
+                        None,
+                    )
+                    .await
+                    .map_err(|e| KeepStop::NotWritten(class(&e)))?,
+                );
+                let mut doc: serde_json::Value = serde_json::from_slice(&got)
+                    .map_err(|_| KeepStop::NotWritten(super::look::Failed::Unreadable))?;
+                let fields = doc
+                    .get_mut("fields")
+                    .and_then(serde_json::Value::as_array_mut)
+                    .ok_or(KeepStop::NotWritten(super::look::Failed::Unreadable))?;
+                match fields.iter_mut().find(|f| f["id"] == field_id) {
+                    Some(f) => f["value"] = serde_json::json!(value.expose()),
+                    None => fields.push(concealed),
+                }
+                let body = zeroize::Zeroizing::new(doc.to_string());
                 self.run(
                     &["item", "edit", item, "--vault", vault, "--format", "json"],
                     Some(&body),

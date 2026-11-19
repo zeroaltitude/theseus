@@ -33,6 +33,7 @@ const VALUE: &str = "INVENTED-KEEP-VALUE-4417";
 const SCRIPT: &str = r#"#!/bin/sh
 D='@D@'; MODE='@MODE@'; LOG="$D/op.argv"
 printf '%s\n' "$*" >> "$LOG"
+[ "$MODE" = flaky ] && [ "$1 $2" = "vault list" ] && [ "$(grep -c '^vault list' "$LOG")" -gt 1 ] && { echo '[ERROR] 2026/10/19 08:00:00 dial tcp: network is unreachable' >&2; exit 1; }
 case "$1 $2" in
   "vault list") echo '[{"id":"vaultid00000000000000000001","name":"Harbor"},{"id":"vaultid00000000000000000002","name":"Dock"}]' ;;
   "item list")
@@ -49,7 +50,7 @@ case "$1 $2" in
   "item create"|"item edit")
     [ "$MODE" = fail-write ] && { echo '[ERROR] 2026/10/19 08:00:00 you are not authorized: INVENTED-WORDS-IN-STDERR' >&2; exit 1; }
     cat > "$D/op.stdin"
-    sed -n 's/.*"value":"\([^"]*\)".*/\1/p' "$D/op.stdin" > "$D/op.stored"
+    sed -n 's/.*"id":"credential","[^}]*"value":"\([^"]*\)".*/\1/p' "$D/op.stdin" > "$D/op.stored"
     [ "$1 $2" = "item create" ] && sed -n 's/.*"title":"\([^"]*\)".*/\1/p' "$D/op.stdin" > "$D/op.created"
     echo '{}' ;;
   "read --no-newline")
@@ -805,4 +806,88 @@ async fn names_that_cannot_be_a_secrets_place_are_refused() {
                 && !l.starts_with("item edit")
                 && !l.starts_with("read")));
     }
+}
+
+/// The edit of an item that is there is the item's own JSON with the one field
+/// changed or added: the other fields and their values are sent back as they
+/// were, so none is lost; the new value is on the program's stdin once.
+#[tokio::test]
+async fn an_existing_item_is_edited_whole_and_keeps_its_other_fields() {
+    for (field, state, old_gone) in [("credential", "replaces", true), ("backup", "adds", false)] {
+        let (r, dir) = rig_vault("ok");
+        let secret = secret_of(&r);
+        let q = ask(&r, input("Lantern key", field)).await;
+        let said = give(&r, cli(), &q, VALUE, Some(&code(&secret, 0)))
+            .await
+            .unwrap();
+        assert_eq!(said["replaced"], old_gone, "{field}");
+        let lines = argv(dir.path());
+        let get =
+            "item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json";
+        assert!(lines.iter().any(|l| l == get), "{field}: {lines:?}");
+        let sent: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join("op.stdin")).unwrap())
+                .unwrap();
+        let fields = sent["fields"].as_array().unwrap();
+        let by_id = |id: &str| fields.iter().find(|f| f["id"] == id).cloned();
+        // The other field is back as it was, value and all.
+        assert_eq!(
+            by_id("username").unwrap()["value"],
+            "INVENTED-OLD-USER",
+            "{field}"
+        );
+        match old_gone {
+            true => {
+                assert_eq!(by_id("credential").unwrap()["value"], VALUE);
+                assert_eq!(fields.len(), 2, "{field}: no field was added");
+                assert!(!sent.to_string().contains("INVENTED-OLD-VALUE"));
+            }
+            false => {
+                assert_eq!(by_id("credential").unwrap()["value"], "INVENTED-OLD-VALUE");
+                assert_eq!(by_id("backup").unwrap()["value"], VALUE);
+                assert_eq!(by_id("backup").unwrap()["type"], "CONCEALED");
+                assert_eq!(fields.len(), 3);
+            }
+        }
+        assert_eq!(r.rows("vault.keep")[0]["state"], state, "{field}");
+    }
+}
+
+/// A vault that cannot be asked at the answer is no reason to spend a code or to
+/// close the card as "changed": nothing is written, the code is unspent, and it
+/// keeps waiting for a value.
+#[tokio::test]
+async fn a_vault_that_does_not_answer_at_the_value_spends_no_code_and_keeps_the_card() {
+    let (r, dir) = rig_vault("flaky");
+    let secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    let before = checks(&r);
+    let e = give(&r, cli(), &q, VALUE, Some(&code(&secret, 0)))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::REFUSED, "{e:?}");
+    assert!(
+        e.message.contains("no code was spent") && e.message.contains("could not be reached"),
+        "{e:?}"
+    );
+    assert!(!e.message.contains("changed in the vault"), "{e:?}");
+    assert_eq!(checks(&r), before, "no code was checked");
+    assert!(waiting(&r, &q), "the card keeps waiting");
+    assert!(!wrote(dir.path()));
+    assert!(r.rows("vault.keep").is_empty());
+}
+
+/// A second answer to a question that is being kept waits; the turn is given
+/// back, so a later answer goes through.
+#[test]
+fn a_second_answer_to_the_same_question_waits() {
+    use crate::rpc::vault_keep::vault_keep_test::in_flight;
+    let first = in_flight("act_keep_race").expect("the first takes it");
+    assert!(in_flight("act_keep_race").is_none(), "the second waits");
+    assert!(
+        in_flight("act_keep_other").is_some(),
+        "another question is free"
+    );
+    drop(first);
+    assert!(in_flight("act_keep_race").is_some(), "given back on drop");
 }
