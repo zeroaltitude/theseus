@@ -1025,8 +1025,8 @@ impl TurnRunner {
         // Listed from its start until it holds its execution: a `/stop` that
         // lands while this input's turn waits for its secrets, or for
         // admission, reaches it (`AdmitWaiting`).
-        let waiting = (!continuation)
-            .then(|| self.admit_waiting.enter(&req.session.session_id, arrived));
+        let waiting =
+            (!continuation).then(|| self.admit_waiting.enter(&req.session.session_id, arrived));
         // A person's message: Jev's connections open now, beside the
         // admission's frames, for the judgments its input node will ask
         // (theseus-otny). A slash command asks none.
