@@ -463,10 +463,15 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         .as_str()
         .unwrap()
         .to_string();
+    // The wait is the test's input: a `running` answer carries the turn's id only if the turn has started by
+    // the end of it, and under load a turn can take longer than two seconds to start (the answer was
+    // `{"status":"running","turn_id":""}` in 2 of 20 whole runs beside 64 busy loops, theseus-20), so it grows
+    // with how slowly the machine gives a thread its turn: exactly 2 s on a quiet one.
+    let wait_secs = 2 * theseus_sim::bound_factor();
     let sent = r.ok(
         &c,
         "conversation_send",
-        json!({"session_id": sid, "text": "act for me", "wait_secs": 2}),
+        json!({"session_id": sid, "text": "act for me", "wait_secs": wait_secs}),
     );
     assert_eq!(sent["status"], "running", "{sent}");
     assert!(
@@ -508,10 +513,22 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         String::from_utf8_lossy(&answered.stderr)
     );
     r.wait("the call's file", || out.exists().then_some(()));
-    let st = r.wait("the reply", || {
-        let (st, _) = r.tool(&c, "conversation_status", json!({"session_id": sid}));
-        (st["state"] == "waiting" && st["waiting_on"] == "input").then_some(st)
-    });
+    // The reply is waited for on the daemon's own socket (`session.wait`, which answers when the session has
+    // settled), and the status, which the MCP server counts against its sixty requests a minute, is read once:
+    // polling it every 20 ms spent the minute's allowance in a second and a loaded machine was refused with
+    // a 429 before the reply came (theseus-20).
+    let w = r
+        .call(
+            "session.wait",
+            json!({"session_id": sid, "until": "settled", "timeout_ms": 60_000}),
+        )
+        .unwrap();
+    assert_ne!(w["reached"], "timeout", "no reply: {w}\n{}", r.log());
+    let (st, _) = r.tool(&c, "conversation_status", json!({"session_id": sid}));
+    assert!(
+        st["state"] == "waiting" && st["waiting_on"] == "input",
+        "{st}"
+    );
     assert_eq!(st["last_reply"], "Done.", "{st}\n{}", r.log());
 }
 

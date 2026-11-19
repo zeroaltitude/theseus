@@ -230,17 +230,30 @@ fn the_account_is_checked_after_the_socket_answers_with_one_request() {
 fn health_answers_while_aws_does_not() {
     let (url, seen) = fake_aws(Duration::from_secs(30));
     let s = start(&url);
+    // The account reads "checking" a moment before its phase is on the startup list, so wait for both: a read
+    // between them found "no aws.check phase" (one whole run of two beside 64 busy loops, theseus-20).
     let h = until(&s, "the check's request at AWS", |h| {
-        !seen.lock().unwrap().is_empty() && account_state(h) == "checking"
+        !seen.lock().unwrap().is_empty()
+            && account_state(h) == "checking"
+            && h["startup"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|p| p["name"] == "aws.check"))
     });
     let (check_start, check_end, _) = phase(&h, "aws.check");
     assert_eq!(check_end, None, "the check waits on AWS: {check_start}");
-    // The socket answers every request meanwhile, at once.
+    // The socket answers every request meanwhile, at once: five of them in two seconds, a promise about the
+    // daemon, held in proportion to how slowly the machine gives a thread its turn (`Busy`; exactly two seconds
+    // on a quiet one): five took 2.06 s beside 64 busy loops (theseus-20).
+    let busy = theseus_sim::Busy::before();
     let t0 = Instant::now();
     for _ in 0..5 {
         s.call("health", Value::Null).unwrap();
     }
-    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+    let took = t0.elapsed();
+    assert!(
+        busy.keeps(took, Duration::from_secs(2)),
+        "five health calls took {took:?} ({busy})"
+    );
 }
 
 #[test]
