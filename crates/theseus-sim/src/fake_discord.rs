@@ -309,6 +309,22 @@ pub struct Reply {
 }
 
 impl State {
+    /// What an answer to an interaction does to the person's view of it: a deferral that was ephemeral makes what
+    /// completes it ephemeral, as Discord does, and an edit of the response shows in the view they see.
+    fn follow_response(&mut self, id: &str, kind: &str, r: &mut Reply, data: &Value) {
+        match (kind, r.ephemeral) {
+            ("callback", true) => {
+                self.ephemeral_acks.insert(id.to_string());
+            }
+            ("original", false) if self.ephemeral_acks.contains(id) => r.ephemeral = true,
+            _ => {}
+        }
+        if kind == "original" {
+            let content = r.content.clone().unwrap_or_default();
+            self.complete_view(id, &content, &data["components"], data["flags"].as_u64());
+        }
+    }
+
     /// The message an interaction's response shows after an edit of it: its words, and its buttons when the edit
     /// names components. One the interaction never had (a deferral) is made.
     fn complete_view(&mut self, id: &str, content: &str, components: &Value, flags: Option<u64>) {
@@ -1988,21 +2004,8 @@ impl FakeDiscord {
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();
-            // A deferral that was ephemeral makes what completes it ephemeral, as Discord does.
             if let Some(id) = interaction {
-                match (kind, r.ephemeral) {
-                    ("callback", true) => {
-                        st.ephemeral_acks.insert(id.to_string());
-                    }
-                    ("original", false) if st.ephemeral_acks.contains(id) => r.ephemeral = true,
-                    _ => {}
-                }
-            }
-            // An edit of the response an interaction was answered with: the view the person sees follows it.
-            if kind == "original" {
-                if let Some(id) = interaction {
-                    st.complete_view(id, &content, &data["components"], data["flags"].as_u64());
-                }
+                st.follow_response(id, kind, &mut r, data);
             }
             if kind == "callback"
                 && matches!(r.response_type, Some(4 | 7))
