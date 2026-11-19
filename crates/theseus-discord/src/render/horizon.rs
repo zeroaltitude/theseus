@@ -13,10 +13,17 @@ use theseus_protocol::work::progress_line::progress_line;
 use theseus_protocol::work::{WorkKind, WorkState, WorkView};
 
 use super::clip;
-use super::v2::{button, row, text, Look};
+use super::v2::{button, row, select, text, Look};
 
 /// A routine's board buttons: `hr:<verb>:<routine id>`.
 pub const ROUTINE_PREFIX: &str = "hr:";
+/// The select under Coming up that cancels or snoozes a reminder: its
+/// options are `hq:cancel:<wake id>` and `hq:snooze:<wake id>`.
+pub const REMINDER_PICK: &str = "hq:pick";
+/// `hq:cancel:` + a wake's id.
+pub const CANCEL_PREFIX: &str = "hq:cancel:";
+/// `hq:snooze:` + a wake's id: set again an hour on.
+pub const SNOOZE_PREFIX: &str = "hq:snooze:";
 /// How many lines of Coming up the board tries first.
 pub const COMING: usize = 5;
 /// How many routines the board tries first (each is a text and a row of two
@@ -35,6 +42,9 @@ pub struct FutureParts {
     pub projects: Vec<WorkView>,
     /// Each routine's last runs counted: `(ok, failed)`, by routine id.
     pub records: std::collections::HashMap<String, (u32, u32)>,
+    /// The name of each conversation that may have set a wake, by session
+    /// (`#pier`, `DM @name`).
+    pub names: std::collections::HashMap<String, String>,
 }
 
 impl FutureParts {
@@ -75,6 +85,61 @@ pub fn coming_line(l: &AgendaLine, now_ms: u64) -> String {
         emoji(l),
         clip(&l.title.replace('\n', " "), 70)
     )
+}
+
+/// A wake of a conversation that Theseus set for itself: not a person's
+/// reminder.
+fn is_own_check(l: &AgendaLine) -> bool {
+    l.kind == WorkKind::Wake
+        && l.what == AgendaWhat::Due
+        && !matches!(l.purpose.as_deref(), Some("remind" | "watch" | "routine"))
+}
+
+/// One line of the board's Coming up: `coming_line`, and for a conversation's
+/// wake where it came from; one Theseus set for itself says so.
+pub fn board_line(
+    l: &AgendaLine,
+    now_ms: u64,
+    names: &std::collections::HashMap<String, String>,
+) -> String {
+    let line = coming_line(l, now_ms);
+    let from = l.session_id.as_ref().and_then(|s| names.get(s));
+    match (is_own_check(l), from) {
+        (true, Some(n)) => format!("{line} · set by Theseus in {}", clip(n, 40)),
+        (true, None) => format!("{line} · set by Theseus"),
+        (false, Some(n)) if l.kind == WorkKind::Wake => {
+            format!("{line} · from {}", clip(n, 40))
+        }
+        _ => line,
+    }
+}
+
+/// The board's select for the wakes among `lines` (the first `cap`): for each,
+/// Cancel and Snooze 1 h. None when there is no such wake.
+pub fn reminder_select(lines: &[AgendaLine], cap: usize) -> Option<Value> {
+    let mut seen = std::collections::HashSet::new();
+    let options: Vec<(String, String)> = lines
+        .iter()
+        .take(cap)
+        .filter(|l| {
+            l.kind == WorkKind::Wake && l.id.starts_with("wak_") && l.what == AgendaWhat::Due
+        })
+        .filter(|l| seen.insert(l.id.clone()))
+        .flat_map(|l| {
+            let title = clip(&l.title.replace('\n', " "), 60);
+            [
+                (
+                    format!("⏹ Cancel · {title}"),
+                    format!("{CANCEL_PREFIX}{}", l.id),
+                ),
+                (
+                    format!("😴 Snooze 1 h · {title}"),
+                    format!("{SNOOZE_PREFIX}{}", l.id),
+                ),
+            ]
+        })
+        .collect();
+    (!options.is_empty()).then(|| select(REMINDER_PICK, "Cancel or snooze a reminder…", &options))
 }
 
 /// The next `n` lines, soonest first, those an owner reads on a board: a
@@ -240,9 +305,14 @@ pub fn project_line(v: &WorkView) -> String {
 
 /// Coming up as one text display: its heading and lines (at most `cap`, the
 /// rest folded into `+N more · /agenda`).
-pub fn coming_text(lines: &[AgendaLine], now_ms: u64, cap: usize) -> Value {
+pub fn coming_text(
+    lines: &[AgendaLine],
+    now_ms: u64,
+    cap: usize,
+    names: &std::collections::HashMap<String, String>,
+) -> Value {
     let mut out = vec!["**⏰ Coming up**".to_string()];
-    out.extend(lines.iter().take(cap).map(|l| coming_line(l, now_ms)));
+    out.extend(lines.iter().take(cap).map(|l| board_line(l, now_ms, names)));
     if lines.len() > cap {
         out.push(format!("-# +{} more · /agenda", lines.len() - cap));
     }
@@ -446,6 +516,76 @@ pub(crate) mod tests {
         );
         let far = line(NOW + 3 * 86_400_000, "report", AgendaWhat::Run, None);
         assert!(coming_line(&far, NOW).contains(":f> 🔁 report"));
+    }
+
+    #[test]
+    fn a_wake_says_where_it_came_from_and_a_check_in_says_theseus_set_it() {
+        let mut names = std::collections::HashMap::new();
+        names.insert("ses_pier".to_string(), "#pier".to_string());
+        let wake = |purpose: &str, session: &str| AgendaLine {
+            id: "wak_01J0aaaa".into(),
+            kind: WorkKind::Wake,
+            session_id: Some(session.into()),
+            ..line(
+                NOW + 600_000,
+                "see how the tide went",
+                AgendaWhat::Due,
+                Some(purpose),
+            )
+        };
+        let own = board_line(&wake("check", "ses_pier"), NOW, &names);
+        assert!(own.ends_with("· set by Theseus in #pier"), "{own}");
+        let person = board_line(&wake("remind", "ses_pier"), NOW, &names);
+        assert!(
+            person.ends_with("· from #pier") && !person.contains("Theseus"),
+            "{person}"
+        );
+        // A conversation no place runs: no name to give.
+        let nameless = board_line(&wake("check", "ses_cli"), NOW, &names);
+        assert!(nameless.ends_with("· set by Theseus"), "{nameless}");
+        // A routine's run is not a conversation's wake.
+        let run = board_line(
+            &line(NOW + 600_000, "report", AgendaWhat::Run, Some("routine")),
+            NOW,
+            &names,
+        );
+        assert_eq!(
+            run,
+            coming_line(
+                &line(NOW + 600_000, "report", AgendaWhat::Run, Some("routine")),
+                NOW
+            )
+        );
+    }
+
+    #[test]
+    fn the_reminder_select_offers_cancel_and_snooze_for_each_wake_once() {
+        let wake = |id: &str, at: u64| AgendaLine {
+            id: id.into(),
+            kind: WorkKind::Wake,
+            ..line(at, "stretch", AgendaWhat::Due, Some("remind"))
+        };
+        let lines = [wake("wak_a", 1), wake("wak_a", 2), wake("wak_b", 3)];
+        let s = reminder_select(&lines, 5).unwrap();
+        let ids = crate::render::v2::custom_ids(&[s.clone()]);
+        assert_eq!(ids, [REMINDER_PICK], "one select");
+        let text = s.to_string();
+        for want in [
+            "hq:cancel:wak_a",
+            "hq:snooze:wak_a",
+            "hq:cancel:wak_b",
+            "hq:snooze:wak_b",
+        ] {
+            assert!(text.contains(want), "{want} in {text}");
+        }
+        assert_eq!(text.matches("hq:cancel:wak_a").count(), 1, "a series once");
+        // Only the lines the board shows, and only wakes.
+        assert!(!reminder_select(&lines, 2)
+            .unwrap()
+            .to_string()
+            .contains("wak_b"));
+        let run = line(1, "report", AgendaWhat::Run, Some("routine"));
+        assert!(reminder_select(&[run], 5).is_none());
     }
 
     #[test]

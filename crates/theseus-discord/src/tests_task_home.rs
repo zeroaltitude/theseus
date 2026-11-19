@@ -638,9 +638,9 @@ async fn two_places(home: &str) -> Rig {
 }
 
 /// A reminder `note` in the conversation of `session`, as `wake.create` makes it.
-async fn remind_in(r: &Rig, session: &str, note: &str) {
+async fn remind_in(r: &Rig, session: &str, note: &str) -> String {
     let rpc = RpcClient::connect(r.core.clone(), Client::new("test", Surface::Cli)).0;
-    let _: WakeEditResult = rpc
+    let made: WakeEditResult = rpc
         .call(
             theseus_protocol::method::WAKE_CREATE,
             WakeCreateParams {
@@ -652,6 +652,7 @@ async fn remind_in(r: &Rig, session: &str, note: &str) {
         )
         .await
         .unwrap();
+    made.wake.wake_id
 }
 
 fn session_of_place(r: &Rig, place: &str) -> String {
@@ -764,6 +765,68 @@ async fn a_board_drawn_before_the_task_channel_stood_is_edited_to_all_clear() {
         boards(&r, home)
             .first()
             .is_some_and(|b| b.content.contains("lab net mending"))
+    })
+    .await;
+}
+
+/// On the task channel's board, only the owner's press cancels a reminder: a
+/// press by anyone else is refused where every press on a place is, and
+/// writes nothing.
+#[tokio::test]
+async fn only_the_owners_press_cancels_a_reminder_on_the_task_channels_board() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind_in(
+        &r,
+        &session_of_place(&r, &format!("dm:{ANA}")),
+        "dm tide check",
+    )
+    .await;
+    until(&r, "the reminder on the home's board", || {
+        boards(&r, home)
+            .first()
+            .is_some_and(|b| b.content.contains("dm tide check"))
+    })
+    .await;
+    let board = boards(&r, home).remove(0);
+    let press = |user: u64, name: &str| {
+        r.fake
+            .press_values(
+                &theseus_sim::fake_discord::Pressed {
+                    message: &board.id,
+                    button: crate::render::horizon::REMINDER_PICK,
+                    user,
+                    name,
+                },
+                &[&format!("hq:cancel:{wake}")],
+            )
+            .unwrap()
+    };
+    let due = |r: &Rig| {
+        r.core
+            .kernel
+            .pending_wakes()
+            .unwrap()
+            .into_iter()
+            .any(|(_, w)| w.id == wake)
+    };
+    let refused = press(crate::tests_gateway::BEN, "ben");
+    until(&r, "ben's press refused", || {
+        r.fake.replies().iter().any(|x| {
+            x.interaction.as_deref() == Some(refused.as_str())
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.contains("Only the people"))
+        })
+    })
+    .await;
+    assert!(due(&r), "ben's press cancelled nothing");
+    press(ANA, "ana");
+    until(&r, "ana's press cancels it", || !due(&r)).await;
+    until(&r, "the line leaves the home's board", || {
+        boards(&r, home)
+            .first()
+            .is_some_and(|b| !b.content.contains("dm tide check"))
     })
     .await;
 }
