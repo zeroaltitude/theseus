@@ -274,6 +274,7 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
         (pids.len() == 3 && e["state"] == "waiting" && e["outstanding"] == 3).then_some(pids)
     });
 
+    let began = Instant::now();
     let stop = {
         let sock = r.path("sock");
         let eid = eid.clone();
@@ -291,10 +292,12 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
     // While the stop waits out its grace, health answers at once.
     std::thread::sleep(Duration::from_millis(200));
     let mut answers = vec![];
+    let mut asked_at = vec![];
     while !stop.is_finished() {
         let t0 = Instant::now();
         r.call("health", Value::Null).unwrap();
         answers.push(t0.elapsed());
+        asked_at.push(t0.duration_since(began));
         std::thread::sleep(Duration::from_millis(100));
     }
     let (took, answer) = stop.join().unwrap();
@@ -346,7 +349,13 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
     let slowest = answers.iter().max().unwrap();
     assert!(
         *slowest < Duration::from_millis(1500),
-        "health waited on the stop: {answers:?}"
+        "health waited on the stop (the stop took {took:?}; the answers over 100 ms, each asked this long after \
+         the stop began, and how long it took: {:?}): {answers:?}",
+        asked_at
+            .iter()
+            .zip(&answers)
+            .filter(|(_, a)| **a > Duration::from_millis(100))
+            .collect::<Vec<_>>()
     );
     for pid in &jobs {
         assert!(!alive(*pid), "job {pid} is gone");

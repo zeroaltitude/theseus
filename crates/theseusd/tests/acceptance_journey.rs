@@ -386,6 +386,31 @@ impl Rig {
     }
 
     /// Open a gate a job of the script waits at.
+    /// The quay task's history as a failure reads it: each node cut to a line, oldest first, so that a
+    /// report that is not the one the script gives says what the task was shown, and in what order.
+    fn quay_history_words(&self) -> String {
+        let Some(task) = self.task(QUAY) else {
+            return "no quay task".into();
+        };
+        let session = task["task_id"].as_str().unwrap_or_default().to_string();
+        let Ok(h) = self
+            .s
+            .call("session.history", json!({"session_id": session}))
+        else {
+            return "no history".into();
+        };
+        h["nodes"]
+            .as_array()
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .map(|n| n.to_string().chars().take(160).collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join("\n  ")
+            })
+            .unwrap_or_else(|| h.to_string())
+    }
+
     /// Whether the job that waits for gate `name` has started.
     fn gate_is_waited_for(&self, name: &str) -> bool {
         self.scratch
@@ -865,8 +890,9 @@ impl Journey {
         assert!(
             report.versions[0].contains(&format!("finished** · {QUAY}"))
                 && report.versions[0].contains("Quay surveyed: four berths."),
-            "step 7: the report, with the join's answer: {}",
-            report.versions[0]
+            "step 7: the report, with the join's answer: {}\nthe quay task's history:\n  {}",
+            report.versions[0],
+            r.quay_history_words()
         );
         let report = r.latest(&format!("Task `{gulls}` finished")).unwrap();
         let post_card = r.card(&r.post(quay).unwrap());
