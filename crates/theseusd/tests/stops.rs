@@ -242,6 +242,24 @@ fn alive(pid: u32) -> bool {
         .is_some_and(|c| c != 'Z' && c != 'X')
 }
 
+/// Ask `health` every 100 ms until the stop `stop` has answered: how long each answer took, and how long
+/// after `began` each was asked.
+fn health_until_done<T>(
+    r: &Rig,
+    stop: &std::thread::JoinHandle<T>,
+    began: Instant,
+) -> (Vec<Duration>, Vec<Duration>) {
+    let (mut answers, mut asked_at) = (vec![], vec![]);
+    while !stop.is_finished() {
+        let t0 = Instant::now();
+        r.call("health", Value::Null).unwrap();
+        answers.push(t0.elapsed());
+        asked_at.push(t0.duration_since(began));
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    (answers, asked_at)
+}
+
 /// Review 2's S2 (theseus-bzq): three jobs that ignore SIGTERM, then a stop.
 /// It settles within one grace (2 s) and a margin, not three, every job's
 /// command is gone after it, and while it waits, `health` answers at once on
@@ -291,15 +309,7 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
     };
     // While the stop waits out its grace, health answers at once.
     std::thread::sleep(Duration::from_millis(200));
-    let mut answers = vec![];
-    let mut asked_at = vec![];
-    while !stop.is_finished() {
-        let t0 = Instant::now();
-        r.call("health", Value::Null).unwrap();
-        answers.push(t0.elapsed());
-        asked_at.push(t0.duration_since(began));
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let (answers, asked_at) = health_until_done(&r, &stop, began);
     let (took, answer) = stop.join().unwrap();
     let result = &answer["result"];
     assert_eq!(result["stopped"], true, "{answer}");
