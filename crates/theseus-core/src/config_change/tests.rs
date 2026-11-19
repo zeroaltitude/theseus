@@ -93,6 +93,39 @@ struct Model {
     agent_tools: Mutex<Vec<Vec<String>>>,
 }
 
+impl Model {
+    /// What an agent (a request whose first message holds `AGENT:`) answers: the call it was told to
+    /// make before it reports (`Rig::agents_call`), then its report. None for any other request.
+    fn agent_answer(&self, req: &ProviderRequest) -> Option<Scripted> {
+        let agent = req
+            .messages
+            .first()
+            .is_some_and(|m| m.to_string().contains("AGENT:"));
+        if !agent {
+            return None;
+        }
+        self.agent_tools.lock().unwrap().push(
+            req.tools
+                .iter()
+                .filter_map(|t| t["name"].as_str().map(str::to_string))
+                .collect(),
+        );
+        let said = self.agent.lock().unwrap().clone()?;
+        let answers_a_call = req
+            .messages
+            .last()
+            .and_then(|m| m["content"].as_array())
+            .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+        let call = self.agent_call.lock().unwrap().clone();
+        Some(match call {
+            Some((tool, input)) if !answers_a_call => {
+                Scripted::tools("", &[("ag1", tool.as_str(), input)])
+            }
+            _ => Scripted::text(&said),
+        })
+    }
+}
+
 impl Provider for Model {
     fn name(&self) -> &str {
         "fake"
@@ -106,32 +139,8 @@ impl Provider for Model {
             .lock()
             .unwrap()
             .push((req.model.clone(), req.tools.len()));
-        let agent = req
-            .messages
-            .first()
-            .is_some_and(|m| m.to_string().contains("AGENT:"));
-        if agent {
-            self.agent_tools.lock().unwrap().push(
-                req.tools
-                    .iter()
-                    .filter_map(|t| t["name"].as_str().map(str::to_string))
-                    .collect(),
-            );
-        }
-        if let (true, Some(said)) = (agent, self.agent.lock().unwrap().clone()) {
+        if let Some(answer) = self.agent_answer(req) {
             let gate = self.gate.lock().unwrap().clone();
-            let answers_a_call = req
-                .messages
-                .last()
-                .and_then(|m| m["content"].as_array())
-                .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
-            let call = self.agent_call.lock().unwrap().clone();
-            let answer = match call {
-                Some((tool, input)) if !answers_a_call => {
-                    Scripted::tools("", &[("ag1", tool.as_str(), input)])
-                }
-                _ => Scripted::text(&said),
-            };
             return Box::pin(async move {
                 if let Some(g) = gate {
                     g.acquire().await.unwrap().forget();
