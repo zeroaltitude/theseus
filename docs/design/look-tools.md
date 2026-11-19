@@ -63,6 +63,9 @@ test plays each real reason through the gate.
 
 ## What the model is told
 
-The descriptions of the two tools, the family's one summary line (always seen) and `proc.run`'s description say that
-Theseus's own command line and the vault's program are not the way to look, and that the vault's program in a shell has no
-session by design. The family is deferred; the tokens it adds to a request are in `docs/status.md`'s look at issue 26.
+The descriptions of the two tools, the family's one summary line (what `tools_find` answers, and what a call to a tool
+that is not loaded is told) and `proc.run`'s description, which every person's turn carries, say that Theseus's own command
+line and the vault's program are not the way to look, and that the vault's program in a shell has no session by design.
+The family is deferred: measured on 2026-11-18, it adds nothing to a private place's request, and loading it would add 694
+tokens, over the 400 under which it would load by default (`config_change::tests_look`). `proc.run`'s sentence adds 40
+tokens to a direct message's request and 41 to the terminal's (`tests_tasks_wake.rs`).
