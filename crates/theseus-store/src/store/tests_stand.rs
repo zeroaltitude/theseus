@@ -133,10 +133,13 @@ async fn a_position_asked_on_the_worker_waits_without_holding_it() {
         })
     };
     began.recv().unwrap();
-    let ran = tokio::time::timeout(Duration::from_secs(20), tokio::spawn(async { 7 })).await;
+    // Waited for on this thread, not with a timer of the runtime: a worker that was held would hold the timer too.
+    let (done, ran) = mpsc::channel();
+    tokio::spawn(async move { done.send(7).unwrap() });
+    let ran = ran.recv_timeout(Duration::from_secs(20));
     gate.release();
     assert_eq!(
-        ran.map(|r| r.unwrap()),
+        ran,
         Ok(7),
         "another task ran on the one worker while the position was waited for"
     );
