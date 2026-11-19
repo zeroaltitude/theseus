@@ -244,6 +244,8 @@ impl Shared {
             || self.extensions_interaction(i, tx, who, discord).await
             // The future's commands, buttons and modals (theseus-j90w2).
             || self.horizon_interaction(i, who).await
+            // The keep card's form, in the owner's direct messages (issue 29).
+            || self.keep_form_interaction(i, who).await
     }
 
     /// An interaction of `/orders` or its Revoke button: true when it was

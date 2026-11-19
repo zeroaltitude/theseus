@@ -100,6 +100,10 @@ impl ToolRuntime {
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // Theseus and its vault, looked at by name (issue 26).
                 crate::look::FAMILY => self.look.run(tc, tool.name(), &input),
+                // A profile handed a piece of work, as a task (issue 28).
+                crate::profile_tool::FAMILY if tool.name() == crate::profile_tool::RUN => {
+                    self.profile.run_work(tc, correlation_id, &input)
+                }
                 // A profile asked one question, or a conversation held to one (issue 28).
                 crate::profile_tool::FAMILY => self.profile.run(
                     tc,

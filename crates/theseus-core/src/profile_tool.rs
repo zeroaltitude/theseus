@@ -49,15 +49,17 @@ use crate::Core;
 
 mod ask;
 mod hold;
+pub(crate) mod run;
 
 pub use ask::{ANSWER_MAX_TOKENS, QUESTION_MAX_CHARS, TIME_LIMIT};
+pub use run::{ProfileRun, RUN};
 
 pub const ASK: &str = "profile.ask";
 pub const HOLD: &str = "profile.hold";
 /// The family the tools' names give them, and the deferred family's name.
 pub const FAMILY: &str = "profile";
 /// The tools' names, as the config's `[policy.tools]` checks them.
-pub const NAMES: [&str; 2] = [ASK, HOLD];
+pub const NAMES: [&str; 3] = [ASK, HOLD, RUN];
 
 /// Register both tools, in a daemon started from a config (as `look::register` does): no
 /// request a test builds carries them.
@@ -65,6 +67,7 @@ pub fn register(cfg: &crate::Config, r: &mut Registry) {
     if cfg.config_file.is_some() || cfg.config_copy.is_some() {
         r.register(Arc::new(ProfileAsk));
         r.register(Arc::new(ProfileHold));
+        r.register(Arc::new(ProfileRun));
     }
 }
 
@@ -72,6 +75,7 @@ pub fn register(cfg: &crate::Config, r: &mut Registry) {
 fn about(tool: &str) -> &'static str {
     match tool {
         HOLD => "put a conversation on a model profile",
+        RUN => "hand another model profile a piece of work",
         _ => "ask another model profile",
     }
 }
@@ -111,6 +115,20 @@ pub(crate) fn ask_if_outside(tc: &TurnCtx<'_>, name: &str, plan: Plan) -> Plan {
     held(name, outside, steered, plan)
 }
 
+/// Handing work to a profile starts a task, so where `task.create` is held to ask first (its
+/// posture is `approve`) the hand-over asks too: a profile of its own posture must not be the way
+/// round the owner's setting for starting a task.
+pub(crate) fn ask_if_task_asks(name: &str, task_asks: bool, mut plan: Plan) -> Plan {
+    if name == RUN && task_asks && plan.authority.is_none() {
+        plan.authority = Some(
+            "hand another model profile a piece of work: it starts a task, and starting a task is \
+             set to ask first"
+                .into(),
+        );
+    }
+    plan
+}
+
 /// [`ask_if_outside`], on the facts it reads.
 fn held(name: &str, outside: bool, steered: bool, mut plan: Plan) -> Plan {
     if NAMES.contains(&name) && (outside || steered) {
@@ -135,8 +153,8 @@ impl Tool for ProfileAsk {
         "Ask ONE question of another model profile and get its own words back, with its model named: \
          one call, no tools for the asked model, an answer of at most 4,000 tokens, 100 seconds. It is \
          counted and priced as a model call of this turn. Use it for \"use <profile> to say hello\". \
-         Theseus shows the answer to the owner as that profile's own message, so your reply need not repeat it. To put this conversation on a profile, \
-         use profile.hold; Theseus's own command line in a shell is not the way. Offered only to the \
+         Theseus shows the answer to the owner as that profile's own message, so your reply need not repeat it. To have a profile DO work with tools, use \
+         profile.run. To put this conversation on a profile, use profile.hold; Theseus's own command line in a shell is not the way. Offered only to the \
          owner, in a private place."
     }
 

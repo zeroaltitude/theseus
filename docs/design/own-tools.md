@@ -52,6 +52,8 @@ an agent's yes again. The wall is judged again when the approved call runs, and 
 answerer as it judges the command. A restart between the yes and the call loses the kept yes (memory only): the hold is refused
 and the owner says it again, which is the way to fail. A hold in a turn with no card and no owner's message is refused as it was.
 
+`profile.run` (`profile_tool/run.rs`) is the third tool of the family: it hands a profile work to do with tools, as a task (`docs/design/agent-tools.md`).
+
 **The wall** for both is `config.show`'s (`config_change::wall`): the owner's own turn in a private place only they write
 in; refused to a job, a task, the self loop, a session an MCP client opened and a shared place, each in the tool's own
 words. Both are in `routine::grant::NEVER`.
