@@ -311,10 +311,10 @@ async fn a_marked_conversations_words_are_given_marked_to_an_unrestricted_turn()
     assert!(!text.contains("held back"), "{text}");
 }
 
-/// A turn whose model is of restricted origin is not handed another conversation's marked words: they are
+/// (Held back, as before, for the turn the rule is about.) A turn whose model is of restricted origin is not handed another conversation's marked words: they are
 /// held back, said to be, while an open conversation's are given, and this conversation's always.
 #[tokio::test]
-async fn a_marked_conversations_words_are_held_back_from_a_restricted_turn() {
+async fn a_conversation_that_holds_marked_data_has_its_words_held_back() {
     let r = restricted_rig();
     let (here, marked, open) = (
         conversation(&r).await,
