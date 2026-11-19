@@ -202,7 +202,9 @@ fn a_response_after_three_seconds_with_no_acknowledgement_is_refused_as_unknown(
     fake.backdate_interaction("502", 3_500);
     let (s, body) = call("502", 4);
     assert_eq!((s, &body["code"]), (404, &json!(10062)), "{body}");
-    assert_eq!(fake.replies().len(), 1, "{:?}", fake.replies());
+    // The one answer, and the refused one kept beside it.
+    assert_eq!(fake.replies().len(), 2, "{:?}", fake.replies());
+    assert!(fake.replies()[1].kind.starts_with("callback refused"));
     assert!(fake
         .seen()
         .iter()
