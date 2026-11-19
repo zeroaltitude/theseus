@@ -66,5 +66,17 @@ pub(super) async fn running(core: &Arc<Core>, r: &Reader<'_>, here: bool) -> Str
             mine.len() - RUNNING_MAX
         );
     }
+    out.push_str(&own);
     out
+}
+
+/// The daemon's own jobs running (`⚙ importing 41/120`), from the work board's `system` root: what the
+/// first line of `theseus status` says of them. None when none runs.
+fn system_words(core: &Core) -> Option<String> {
+    let scope = crate::push::WorkScope {
+        roots: Some(std::iter::once(theseus_protocol::work_system::ROOT.to_string()).collect()),
+        guarded: false,
+    };
+    let (_, views, _) = core.work_snapshot_marked(0, &scope);
+    theseus_protocol::work_system::status_words(&scope.cut(&views, &core.tools.scrubber))
 }
