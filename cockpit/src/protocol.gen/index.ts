@@ -729,6 +729,7 @@ export type * from './StatusShortResult';
 export type * from './StoreStatus';
 export type * from './StubbedFile';
 export type * from './Style';
+export type * from './SubagentAnswer';
 export type * from './SyncPeople';
 export type * from './SynthesisReport';
 export type * from './Tally';

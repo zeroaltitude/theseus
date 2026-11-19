@@ -28,6 +28,7 @@ mod held;
 mod offer;
 mod persona;
 mod recall;
+mod subagent;
 mod thread;
 pub(crate) mod v2;
 
@@ -936,6 +937,8 @@ impl Lane {
             // A content label (theseus-9ymz0): the one message the locked DM flow gains.
             "content_label" => self.content_label_post(&body, corr).await,
             "report" => self.report_post(&body, corr).await,
+            // Another profile's answer to a call of the turn (issue 28), before its reply.
+            "subagent" => self.subagent_post(&body).await,
             "offer" => Ok(self.offer_post(&body)),
             // A hands group's one line (step 40 part 2): under its group's
             // key, so each new state of it edits the one message.
@@ -2381,6 +2384,8 @@ mod tests_operator;
 mod tests_recall;
 #[cfg(test)]
 mod tests_self_note;
+#[cfg(test)]
+mod tests_subagent;
 #[cfg(test)]
 mod tests_v2;
 

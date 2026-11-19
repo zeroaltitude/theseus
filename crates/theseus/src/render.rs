@@ -235,7 +235,13 @@ pub fn event(e: &Event, show: Show) -> Vec<Line> {
             };
             push(&mut out, Tag::Tool, &format!("  → {}{argv}{l1}", s.tool));
         }
-        Event::ToolEnded(t) => push(&mut out, Tag::Tool, &tool_ended_line(t)),
+        Event::ToolEnded(t) => {
+            push(&mut out, Tag::Tool, &tool_ended_line(t));
+            // Another profile's answer is a message of the conversation (issue 28).
+            if let Some(a) = &t.subagent {
+                out.extend(subagent_lines(a));
+            }
+        }
         // An AWS call's line (row 29, C1): its operation, region, and
         // account, which its `→` line cannot say.
         Event::ToolProposed(p) => {
@@ -717,6 +723,16 @@ pub fn result_word(status: &str, stopped_by: Option<&str>) -> String {
     }
 }
 
+/// A subagent's answer as a message of the conversation (issue 28): its words, a piece of the
+/// reply's stream on stdout, and its footer, in the shape of a reply's status line, on stderr. The
+/// model part of the footer is the profile and model that answered, never the asking turn's.
+pub fn subagent_lines(a: &theseus_protocol::SubagentAnswer) -> Vec<Line> {
+    vec![
+        Line::new(Tag::Reply, format!("{}\n", a.text.trim())),
+        Line::new(Tag::Dim, a.status_line()),
+    ]
+}
+
 /// `theseus watch`'s line for a `tool.ended`: the tool, how it ended, and its
 /// exit code, time, size, and marks.
 pub fn tool_ended_line(t: &ToolEnded) -> String {
@@ -907,6 +923,19 @@ pub fn node_lines(n: &NodeInfo, full: bool) -> Vec<Line> {
                 )
             };
             push(&mut out, Tag::Tool, &text);
+            // Another profile's answer, as a message of its own (issue 28).
+            if let Some(a) = theseus_protocol::SubagentAnswer::from_meta(&d["meta"]) {
+                push(
+                    &mut out,
+                    Tag::Reply,
+                    &format!(
+                        "[{t}] {} · subagent: {}",
+                        theseus_protocol::surface::reply_label(&a.model),
+                        a.text.trim()
+                    ),
+                );
+                push(&mut out, Tag::Dim, &format!("      ↳ {}", a.footer()));
+            }
         }
         other => push(&mut out, Tag::Plain, &format!("[{t}] {other}")),
     }

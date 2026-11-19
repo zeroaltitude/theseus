@@ -25,13 +25,14 @@ import { JudgmentLabels } from '@/components/JudgmentLabels'
 import { authorWord } from '@/ship/words'
 import { ReplyMarkdown } from '@/components/Cites'
 import { replySpeaker } from '@/lib/speaker'
+import { subagentFooter, subagentOf } from '@/lib/subagent'
 
 type D = Record<string, any>
 
 /** A call the model asked for, from its message's `tool_calls`. */
 interface Use { id: string; name: string; input: unknown }
 
-interface Item { kind: 'user' | 'assistant' | 'tool' | 'queued'; node: NodeInfo; result?: NodeInfo; use?: Use }
+interface Item { kind: 'user' | 'assistant' | 'tool' | 'queued' | 'subagent'; node: NodeInfo; result?: NodeInfo; use?: Use }
 
 function items(nodes: NodeInfo[]): Item[] {
   const results = new Map<string, NodeInfo>()
@@ -57,7 +58,12 @@ function items(nodes: NodeInfo[]): Item[] {
       queued = ((Array.isArray(d.tool_calls) ? d.tool_calls : []) as Use[])
         .filter((u) => !planned.has(u.id) && !results.has(u.id))
         .map((u): Item => ({ kind: 'queued', node: n, use: u }))
-    } else if (n.kind === 'tool_call') out.push({ kind: 'tool', node: n, result: d.tool_use_id ? results.get(d.tool_use_id) : undefined })
+    } else if (n.kind === 'tool_call') {
+      const result = d.tool_use_id ? results.get(d.tool_use_id) : undefined
+      out.push({ kind: 'tool', node: n, result })
+      // Another profile's answer is a message of its own, after the call that asked for it (issue 28).
+      if (result && subagentOf(result.detail)) out.push({ kind: 'subagent', node: result })
+    }
     else if (n.kind === 'tool_result' && !d.tool_use_id) out.push({ kind: 'tool', node: n })
   }
   flush()
@@ -138,6 +144,7 @@ export function Transcript({ nodes, turns, live, asking, tightened, scores, noti
               {g.turn_id && !g.items.some((it) => it.kind === 'user') && <Continuation late={late.get(g.turn_id) ?? []} callOf={callOf} />}
               {g.items.map((it, ix) => it.kind === 'user' ? <UserItem key={it.node.node_id} n={it.node} steered={g.items.slice(0, ix).some((x) => x.kind === 'user')} />
                 : it.kind === 'assistant' ? <AssistantItem key={it.node.node_id} n={it.node} cites={cites} away={away} />
+                : it.kind === 'subagent' ? <SubagentItem key={`${it.node.node_id}:subagent`} n={it.node} />
                 : it.kind === 'queued' ? (waits && it.use ? <QueuedItem key={`${it.node.node_id}:${it.use.id}`} at={it.node.at_unix_ms} use={it.use} /> : null)
                 : <ToolItem key={it.node.node_id} call={it.node} result={it.result} asking={asking} tightened={tightened} scores={scores} noticed={noticed} away={away} />)}
               {running && live && <LiveItem live={live} />}
@@ -330,6 +337,25 @@ function AssistantItem({ n, cites, away }: { n: NodeInfo; cites?: Citation[]; aw
           {d.stop_reason && <span className="num">{d.stop_reason}</span>}
           {Array.isArray(d.tool_calls) && d.tool_calls.length > 0 && <span className="num text-tool">→ {d.tool_calls.map((t: D) => t.name).join(', ')}</span>}
           {n.text && <PublishControl nodeId={n.node_id} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Another profile's answer to a call of this turn (`profile.ask`, issue 28): a message of its own, from Theseus, whose
+ *  footer names the profile and model that answered and says it is a subagent's. */
+function SubagentItem({ n }: { n: NodeInfo }) {
+  const a = subagentOf(n.detail)
+  if (!a) return null
+  return (
+    <div className="group flex gap-3" data-subagent={a.call}>
+      <Gutter icon={<Bot size={13} />} at={n.at_unix_ms} tone="bg-model/10 text-model ring-model/30" />
+      <div className="relative min-w-0 flex-1 rounded-lg bg-model/[0.05] px-3 py-2 ring-1 ring-model/15">
+        <ReplyMarkdown text={a.text} />
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
+          <span className="font-medium text-model">{replySpeaker(a.model).name}</span>
+          {subagentFooter(a).map((bit, i) => <span key={bit} className={cn('num', i === 1 && 'text-model')} title={i === 1 ? 'the model that answered' : undefined}>{bit}</span>)}
         </div>
       </div>
     </div>

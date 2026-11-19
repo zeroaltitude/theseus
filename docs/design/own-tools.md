@@ -44,6 +44,38 @@ better way to use the ones it has. What only the owner may do from their own ter
 in; refused to a job, a task, the self loop, a session an MCP client opened and a shared place, each in the tool's own
 words. Both are in `routine::grant::NEVER`.
 
+## The answer is a message of the conversation, from Theseus, with a subagent footer
+
+The owner's rule (2026-11-18, 23:50 MST, on part 1): "When a subagent responds to theseus in chat, the message should be
+delivered back to the chat in an appropriate context, probably as theseus, with a subagent footer, and the appropriate
+model listed in the model part of the footer." So `profile.ask`'s answer is shown, beyond being the tool's result:
+
+- **The footer** is one set of words, `theseus_protocol::SubagentAnswer::footer_bits`, a reply's shape with the model
+  part first: `haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s`. The model part is the
+  profile and the model that ACTUALLY answered (a fallback shows as itself), never the asking turn's; it says it is a
+  subagent's and the profile of the turn that asked; its cost and time are the sub-call's own. Discord, the terminal
+  (`status_line`, `[haiku → anthropic/claude-haiku-5-5 · …]`), the terminal UI and the cockpit print these bits.
+- **The record** is the call's result node, marked `meta.subagent` (the answer, its model, who asked, its cost and
+  time). It is a node of the conversation like a reply, but no new node kind: a new body would change the store's
+  format and every match on it, and a tool result is already written once, compiled once and never read twice by a
+  model. `tool.ended` carries it (`ToolEnded.subagent`) so a live client draws it as it lands; `theseus history` draws it
+  after the call; the cockpit's transcript draws it as a message of its own after the call's card, which is also the
+  inspector's view of the turn; `theseus why` names the profiles a turn asked and says each answer is a subagent's.
+- **Discord** gets it through the outbox, as every post goes: `turn/subagent_step.rs` stages one post per answer in the turn's
+  frame, to the place the turn's reply goes to (`stage_reply`'s own choice: an answer's place, a thread's turn spoken in
+  the owner's DM, the session's place, where a wake was set), after the call and so BEFORE the reply, which is staged
+  when the turn ends; the lane sends a target's posts in the order they were written, once (a post is a kernel action
+  with the nonce key, as every post is). A thread's turn carries the thread's tag, as its reply does. The courier draws it
+  (`courier/subagent.rs`, `render/subagent.rs`): the words, then `-# ` and the footer, split under Discord's limit.
+- **The terminal** prints the words on stdout before the reply that follows, and the footer on stderr; `--json` prints
+  neither (the daemon's result is the whole of it); the terminal UI says the words and a dim footer line.
+- **A turn that was stopped posts none**: the answers wait in memory until the turn stages them after its calls, and a
+  stop that landed since the turn's input arrived drops them; a call a stop aborted never gives one. A session that
+  posts nowhere (the CLI's) stages nothing.
+- **What does NOT name the right model yet** (found, not changed here): a task's report to a chat names no model at all
+  (`render::report`: the task, its turns, its money, its time), and the words of a task are read by the asking turn,
+  whose own reply footer names the asking turn's model.
+
 ## What the model is told, and what it costs
 
 The family is deferred (it adds no tool definition to a request that does not load it) and registered, as the looks are,

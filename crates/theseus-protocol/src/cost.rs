@@ -21,7 +21,7 @@ impl TurnSubmitResult {
 /// Dollars with four decimals under a dollar and two from a dollar up:
 /// `$0.0031`, `$7.86`. Under is judged as four decimals round it, so
 /// $0.99996 is `$1.00`, never `$1.0000`.
-fn usd(dollars: f64) -> String {
+pub(crate) fn usd(dollars: f64) -> String {
     if (dollars * 1e4).round() < 1e4 {
         format!("${dollars:.4}")
     } else {

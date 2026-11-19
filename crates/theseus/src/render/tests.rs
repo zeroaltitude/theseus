@@ -689,6 +689,37 @@ fn a_calls_lines_are_tool_lines() {
     );
 }
 
+/// A subagent's answer (issue 28) is drawn in a history as a message of its own, after the call that
+/// asked for it: from Theseus on the model that answered, with a footer naming the profile and model,
+/// saying it is a subagent's and who asked.
+#[test]
+fn a_history_draws_a_subagents_answer_as_a_message_of_its_own() {
+    let result: NodeInfo = serde_json::from_value(serde_json::json!({"node_id": "nod_1",
+        "kind": "tool_result", "session_id": "ses_a", "position": 1, "at_unix_ms": 1_000,
+        "text": "haiku answered", "bytes": 14,
+        "detail": {"tool": "profile.ask", "status": "ok", "meta": {"subagent": {
+            "profile": "haiku", "provider": "anthropic", "model": "claude-haiku-5-5",
+            "asked_by": "sonnet", "text": "Hello.", "cost_usd": 0.0031, "elapsed_ms": 1300,
+            "output_tokens": 12, "cut": false, "call": "act_1"}}}}))
+    .unwrap();
+    let lines = tagged(node_lines(&result, false));
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines[0].0, Tag::Tool);
+    assert!(
+        lines[1].0 == Tag::Reply
+            && lines[1]
+                .1
+                .ends_with("Theseus (haiku-5-5) · subagent: Hello."),
+        "{lines:?}"
+    );
+    assert!(
+        lines[2].1.contains(
+            "haiku · claude-haiku-5-5 · subagent answer, asked by sonnet · $0.0031 · 1.3 s"
+        ),
+        "{lines:?}"
+    );
+}
+
 /// A row that carries a pill is tagged with its level, and one from a
 /// daemon that sends none is `Plain`.
 #[test]

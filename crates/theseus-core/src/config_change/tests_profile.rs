@@ -11,6 +11,7 @@ use super::tests::{rig, Rig, FAILS};
 use crate::chat_acts::Said;
 use crate::node::{Body, ResultStatus};
 use crate::profile_tool::{ASK, HOLD};
+use theseus_protocol::SubagentAnswer;
 
 /// What the asked model says.
 const HELLO: &str = "Hello from the other model, in my own words.";
@@ -82,7 +83,7 @@ async fn use_a_profile_to_say_hello_is_a_tool_and_its_words_come_back() {
         "{text}"
     );
     assert!(text.contains(HELLO), "{text}");
-    assert!(text.contains("not yours"), "{text}");
+    assert!(text.contains("need not repeat the words"), "{text}");
     assert!(reply(&r, &sid).contains(HELLO), "{}", reply(&r, &sid));
     assert_eq!(called(&r, &sid), [ASK], "no shell");
     assert!(r.asked().is_empty(), "told, not asked: {:?}", r.asked());
@@ -399,4 +400,164 @@ fn the_profile_family_is_deferred_and_adds_nothing_to_a_request() {
     );
     assert_eq!((dm_added, cli_added), (0, 0));
     assert!(fam.tokens > 400, "{}", fam.tokens);
+}
+
+/// The owner's place: a private DM.
+const PLACE: &str = "dm:4100000000000000001";
+
+/// The posts a place was written, in order: their kind and their body.
+fn posts(r: &Rig) -> Vec<(String, serde_json::Value)> {
+    r.core
+        .outbox
+        .open_for(&format!("discord:{PLACE}"))
+        .iter()
+        .map(|a| {
+            (
+                crate::outbox::kind_of(a).to_string(),
+                crate::outbox::body_of(a).clone(),
+            )
+        })
+        .collect()
+}
+
+/// The subagent's answer is a message of its own, posted to the place the turn's reply goes to and
+/// in order BEFORE that reply; its model part is the profile and model that answered, never the
+/// asking turn's, and it says it is a subagent's and who asked.
+#[tokio::test]
+async fn the_answer_is_posted_as_a_message_of_its_own_before_the_reply() {
+    let r = rig();
+    r.answers_plain(HELLO);
+    let sid = r.session_at(PLACE);
+    r.turn_with(
+        "profile_ask",
+        &sid,
+        json!({"profile": "haiku", "question": "Say hello."}),
+    )
+    .await;
+    let posts = posts(&r);
+    let kinds: Vec<&str> = posts.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(kinds, ["subagent", "reply"], "{posts:?}");
+    let said: SubagentAnswer = serde_json::from_value(posts[0].1["answer"].clone()).unwrap();
+    assert_eq!(said.text, HELLO);
+    assert_eq!(
+        (said.profile.as_str(), said.model.as_str()),
+        ("haiku", "claude-haiku-5-5")
+    );
+    assert_eq!(said.asked_by, "sonnet", "the turn's own profile asked");
+    let footer = said.footer();
+    assert!(
+        footer.starts_with("haiku · claude-haiku-5-5 · subagent answer, asked by sonnet"),
+        "{footer}"
+    );
+    assert!(
+        !footer.contains("claude-sonnet-5-5"),
+        "never the asking turn's model: {footer}"
+    );
+    // The reply that follows is the asking turn's own, on its own model.
+    assert_eq!(posts[1].1["result"]["model"], json!("claude-sonnet-5-5"));
+    assert_eq!(posts[0].1["turn_id"], posts[1].1["turn_id"]);
+}
+
+/// A turn that asks two profiles posts two messages, in the order they were asked, each with its
+/// own model, and each once.
+#[tokio::test]
+async fn two_profiles_asked_in_one_turn_post_two_messages_in_order() {
+    let r = rig();
+    r.answers_plain(HELLO);
+    let sid = r.session_at(PLACE);
+    r.steps(
+        &sid,
+        vec![
+            (
+                "profile_ask",
+                json!({"profile": "haiku", "question": "One."}),
+            ),
+            (
+                "profile_ask",
+                json!({"profile": "opus", "question": "Two."}),
+            ),
+        ],
+    )
+    .await;
+    let posts = posts(&r);
+    let kinds: Vec<&str> = posts.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(kinds, ["subagent", "subagent", "reply"], "{posts:?}");
+    let models: Vec<&str> = posts[..2]
+        .iter()
+        .map(|(_, b)| b["answer"]["model"].as_str().unwrap())
+        .collect();
+    assert_eq!(models, ["claude-haiku-5-5", "claude-opus-5-5"]);
+    assert_ne!(posts[0].1["answer"]["call"], posts[1].1["answer"]["call"]);
+}
+
+/// A turn that was stopped while its profile was being asked posts no subagent message.
+#[tokio::test]
+async fn a_stopped_turn_posts_no_subagent_message() {
+    let r = rig();
+    r.answers_plain(HELLO);
+    let sid = r.session_at(PLACE);
+    let warm = r.run_turn(&sid).await;
+    let exec = warm.execution_id.clone().expect("an execution");
+    let core = r.core.clone();
+    r.when_the_profile_is_asked(move || {
+        core.runner.stop_landed(&exec, "tester");
+        core.kernel.stop_execution(&exec, "tester").unwrap();
+    });
+    r.turn_with(
+        "profile_ask",
+        &sid,
+        json!({"profile": "haiku", "question": "Say hello."}),
+    )
+    .await;
+    assert_eq!(r.asked_plain().len(), 1, "the call was made");
+    let kinds: Vec<String> = posts(&r).into_iter().map(|(k, _)| k).collect();
+    assert!(!kinds.contains(&"subagent".to_string()), "{kinds:?}");
+}
+
+/// A session that posts nowhere (the CLI's) stages no post; its answer is in the result node,
+/// which every client draws from.
+#[tokio::test]
+async fn a_session_with_no_place_posts_nothing_and_its_node_holds_the_answer() {
+    let r = rig();
+    r.answers_plain(HELLO);
+    let sid = r.session();
+    r.turn_with(
+        "profile_ask",
+        &sid,
+        json!({"profile": "haiku", "question": "Say hello."}),
+    )
+    .await;
+    let node = r
+        .core
+        .store
+        .session_nodes(&sid)
+        .unwrap()
+        .into_iter()
+        .map(|(_, n)| n)
+        .find(
+            |n| matches!(&n.body, Body::ToolResult { meta, .. } if meta.get("subagent").is_some()),
+        )
+        .expect("the result node is marked as a subagent's");
+    let Body::ToolResult { meta, .. } = &node.body else {
+        unreachable!()
+    };
+    let said = SubagentAnswer::from_meta(meta).unwrap();
+    assert_eq!(
+        (said.text.as_str(), said.model.as_str()),
+        (HELLO, "claude-haiku-5-5")
+    );
+    assert_eq!(said.asked_by, "sonnet");
+    assert!(said.cost_usd.is_some() && said.elapsed_ms < 60_000);
+    // The live event carries the same answer, for the terminal, the terminal UI and the cockpit.
+    use crate::fact::Fact as _;
+    let event = crate::fact::tool::ToolEnded {
+        session_id: &sid,
+        turn_id: node.turn_id.as_deref().unwrap_or_default(),
+        node: &node,
+    }
+    .event();
+    let Some(theseus_protocol::Event::ToolEnded(t)) = event else {
+        panic!("a tool.ended event")
+    };
+    assert_eq!(t.subagent, Some(said));
 }
