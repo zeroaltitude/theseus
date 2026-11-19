@@ -1267,6 +1267,7 @@ impl FakeDiscord {
             }
             ("PUT", ["channels", c, "voice-status"]) => self.voice_status(stream, c, &body),
             ("GET", ["channels", c, "messages", "pins"]) => self.pins(stream, route, c),
+            ("GET", ["channels", c, "messages", m]) => self.message_read(stream, route, c, m),
             _ => {
                 self.record(seen(&method, route, "unknown"));
                 reply(
@@ -1499,6 +1500,37 @@ impl FakeDiscord {
             .map(|m| json!({"pinned_at": "2026-09-30T00:00:00.000000+00:00", "message": message_json(m)}))
             .collect();
         reply(stream, 200, &json!({"items": items, "has_more": false}))
+    }
+
+    /// `GET /channels/<c>/messages/<m>`: the message, or 404.
+    fn message_read(
+        &self,
+        stream: TcpStream,
+        route: &str,
+        channel: &str,
+        id: &str,
+    ) -> std::io::Result<()> {
+        let found = self
+            .state
+            .lock()
+            .unwrap()
+            .messages
+            .iter()
+            .find(|m| m.channel == channel && m.id == id)
+            .map(message_json);
+        self.record(seen(
+            "GET",
+            route,
+            if found.is_some() { "read" } else { "missing" },
+        ));
+        match found {
+            Some(m) => reply(stream, 200, &m),
+            None => reply(
+                stream,
+                404,
+                &json!({"message": "Unknown Message", "code": 10008}),
+            ),
+        }
     }
 
     /// `DELETE /channels/<c>/messages/<m>`: the message goes, or 404.

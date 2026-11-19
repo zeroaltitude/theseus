@@ -20,7 +20,7 @@
 //!   `work.answer` as the presser, which the core judges as it judges the
 //!   CLI's; the message becomes the answer, its buttons gone.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,7 +31,7 @@ use theseus_protocol::routines::{
 };
 use theseus_protocol::wakes::WakeAnswer;
 use theseus_protocol::watches::{WatchInfo, WatchListParams, WatchListResult};
-use theseus_protocol::work::horizon::{AgendaLine, AgendaParams, AgendaResult};
+use theseus_protocol::work::horizon::{AgendaLine, AgendaParams, AgendaResult, AgendaWhat};
 use theseus_protocol::work::WorkKind;
 use theseus_protocol::{method, now_unix_ms, PlaceClass};
 use tokio::sync::Notify;
@@ -102,16 +102,35 @@ impl Future {
     }
 
     /// The board's parts: the next five lines, the routines by their next
-    /// run, the projects. None when there is nothing to show.
-    pub fn parts(&self) -> Option<FutureParts> {
+    /// run, the projects. None when there is nothing to show. With `own`, a
+    /// conversation's reminder or check-in is a line only when that
+    /// conversation is one of `own` (a routine's run, a task's start and a
+    /// watch are not a conversation's).
+    pub fn parts(
+        &self,
+        own: Option<&HashSet<String>>,
+        names: HashMap<String, String>,
+    ) -> Option<FutureParts> {
         let s = self.snapshot();
+        let lines: Vec<AgendaLine> = s
+            .lines
+            .iter()
+            .filter(|l| {
+                own.is_none_or(|own| {
+                    !is_wake_of_conversation(l)
+                        || l.session_id.as_ref().is_some_and(|s| own.contains(s))
+                })
+            })
+            .cloned()
+            .collect();
         let mut routines = s.routines.clone();
         routines.sort_by_key(|r| (r.paused, r.next_ms.unwrap_or(u64::MAX), r.id.clone()));
         let p = FutureParts {
-            coming: words::next_lines(&s.lines, 50),
+            coming: words::next_lines(&lines, 50),
             routines,
             projects: s.projects,
             records: s.records,
+            names,
         };
         (!p.is_empty()).then_some(p)
     }
@@ -136,6 +155,12 @@ impl Future {
         });
         v
     }
+}
+
+/// A reminder or a check-in: a wake that belongs to the conversation that set
+/// it.
+fn is_wake_of_conversation(l: &AgendaLine) -> bool {
+    l.what == AgendaWhat::Due && !matches!(l.purpose.as_deref(), Some("watch" | "routine"))
 }
 
 /// The loop that keeps the snapshot. It ends with the daemon's stop.
@@ -487,12 +512,51 @@ impl Shared {
     }
 }
 
-/// A place's board gets the future when the place is private.
-pub(super) fn parts_for(shared: &Shared, target: &str) -> Option<FutureParts> {
-    shared
-        .is_private(target)
-        .then(|| shared.tasks.future.parts())
-        .flatten()
+impl Shared {
+    /// The name of each conversation by its session, as health lists the
+    /// places: a place's own, Home's by the place that adopts it, a thread's
+    /// by the place it answers at.
+    pub(super) fn conversation_names(&self) -> HashMap<String, String> {
+        let mut names: HashMap<String, String> = self
+            .board
+            .st
+            .lock()
+            .unwrap()
+            .places
+            .iter()
+            .filter_map(|p| {
+                Some((
+                    p.session_id.clone().filter(|s| !s.is_empty())?,
+                    p.label.clone(),
+                ))
+            })
+            .collect();
+        for (session, place) in self.tasks.adopted() {
+            if let Some(name) = names.get(&place).cloned() {
+                names.insert(session, name);
+            }
+        }
+        names
+    }
+}
+
+/// What a place's board shows of the future (issue 30; `docs/design/board-place.md`). Private places only.
+/// While the task channel stands, or is being looked for, the whole future is
+/// on the board the owner's DM place draws into it, and on no other place's.
+/// Without one, a place shows the reminders and check-ins of its own
+/// conversations, and the routines and projects as before.
+pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<FutureParts> {
+    if !shared.is_private(target) {
+        return None;
+    }
+    let names = shared.conversation_names();
+    if shared.task_posts.home.expected() {
+        return (shared.owner_dm_place().as_deref() == Some(target))
+            .then(|| shared.tasks.future.parts(None, names))
+            .flatten();
+    }
+    let own = shared.tasks.sessions_shown(session);
+    shared.tasks.future.parts(Some(&own), names)
 }
 
 #[cfg(test)]

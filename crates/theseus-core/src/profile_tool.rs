@@ -358,7 +358,7 @@ fn hold(
         .session_set_profile(
             &SessionProfileParams {
                 session_id: tc.session_id.to_string(),
-                profile: to.clone(),
+                profile: to,
                 author: None,
                 discord: None,
             },

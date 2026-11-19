@@ -25,7 +25,9 @@ use theseus_protocol::routines::{
     RoutineCreateParams, RoutineEditResult, RoutineInfo, RoutineNameParams, RoutinePauseParams,
 };
 use theseus_protocol::watches::{WatchCheck, WatchCreateParams, WatchCreateResult};
-use theseus_protocol::{DiscordOrigin, WakeEditResult, WakeSnoozeParams};
+use theseus_protocol::{
+    DiscordOrigin, WakeCancelParams, WakeCancelResult, WakeEditResult, WakeSnoozeParams,
+};
 use twilight_model::application::command::{
     Command, CommandOptionChoice, CommandOptionChoiceValue, CommandType,
 };
@@ -41,7 +43,9 @@ use twilight_util::builder::command::{CommandBuilder, StringBuilder, SubCommandB
 use super::prompt::{fields_of, input, labelled};
 use super::Shared;
 use crate::render::clip;
-use crate::render::horizon::{agenda_text, routine_line, Span, ROUTINE_PREFIX};
+use crate::render::horizon::{
+    agenda_text, routine_line, Span, CANCEL_PREFIX, REMINDER_PICK, ROUTINE_PREFIX, SNOOZE_PREFIX,
+};
 
 /// A routine's modal, and a watch's (then `:<kind>`).
 const ROUTINE_MODAL: &str = "hzm:routine";
@@ -543,6 +547,12 @@ impl Shared {
                 }
             }
             Some(InteractionData::MessageComponent(c)) => {
+                if c.custom_id == REMINDER_PICK {
+                    if let Some(choice) = c.values.first() {
+                        self.reminder_pick(i, choice, who).await;
+                    }
+                    return true;
+                }
                 if let Some(rest) = c.custom_id.strip_prefix(ROUTINE_PREFIX) {
                     if let Some((verb, id)) = rest.split_once(':') {
                         self.routine_press(i, verb, id, who).await;
@@ -573,6 +583,60 @@ impl Shared {
             }
             _ => false,
         }
+    }
+
+    /// A choice of the board's reminder select: the wake cancelled, or set again
+    /// an hour on, by the same calls as `/cancel` and `/snooze`, as the presser.
+    /// The presser alone is told what happened.
+    async fn reminder_pick(&self, i: &Interaction, choice: &str, who: &str) {
+        if target_of(i).is_none_or(|t| !self.is_private(&t)) {
+            return self.reply_ephemeral(i, SHARED.into()).await;
+        }
+        let author = Some(who.to_string());
+        let said = if let Some(wake) = choice.strip_prefix(CANCEL_PREFIX) {
+            let r = self
+                .rpc
+                .call::<_, WakeCancelResult>(
+                    method::WAKE_CANCEL,
+                    WakeCancelParams {
+                        wake: wake.to_string(),
+                        author,
+                    },
+                )
+                .await;
+            match r {
+                Ok(r) => format!(
+                    "⏹️ Cancelled: it will not run. It was due <t:{}:t>: {}",
+                    r.wake.due_at_ms / 1000,
+                    clip(r.wake.note.lines().next().unwrap_or_default(), 200)
+                ),
+                Err(e) => format!("⚠️ Not cancelled: {}", e.message),
+            }
+        } else if let Some(wake) = choice.strip_prefix(SNOOZE_PREFIX) {
+            let r = self
+                .rpc
+                .call::<_, WakeEditResult>(
+                    method::WAKE_SNOOZE,
+                    WakeSnoozeParams {
+                        wake: wake.to_string(),
+                        when: Some("in 1h".into()),
+                        fired: false,
+                        author,
+                    },
+                )
+                .await;
+            match r {
+                Ok(r) => format!(
+                    "😴 `{}` is set again for {}.",
+                    r.wake.short, r.wake.due_local
+                ),
+                Err(e) => format!("⚠️ Not snoozed: {}", e.message),
+            }
+        } else {
+            "Unknown option.".into()
+        };
+        self.tasks.future.dirty();
+        self.reply_ephemeral(i, said).await;
     }
 
     /// Autocomplete from the snapshot in memory. False for a command that is

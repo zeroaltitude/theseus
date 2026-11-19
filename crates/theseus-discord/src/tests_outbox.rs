@@ -1437,6 +1437,61 @@ async fn a_lane_after_a_restart_finds_the_pinned_board() {
     assert_eq!(creates(), before, "no create after the restart");
 }
 
+/// Where the bot may not pin, the board is unpinned and the pins cannot find
+/// it after a restart: the lane finds it by the id it recorded when it made it,
+/// and edits it (issue 30).
+#[tokio::test]
+async fn a_lane_after_a_restart_finds_an_unpinned_board() {
+    use crate::courier::{Lane, LaneMsg};
+    use crate::render::{Buttons, Op};
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    fake.refuse_pins(true);
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &dm_only()).await;
+    let shared = crate::runtime::shared_for_tests(&core);
+    let lane = |n: &str| {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let lane = Lane::new(
+            shared.clone(),
+            "discord:test".into(),
+            "channel",
+            format!("#test-{n}"),
+            Some(CHANNEL),
+            None,
+        );
+        tokio::spawn(lane.run(rx));
+        tx
+    };
+    let board = |text: &str| {
+        LaneMsg::Live(Op::Upsert {
+            key: BOARD_KEY.into(),
+            content: format!("{BOARD_HEAD} · {text}"),
+            buttons: Buttons::Keep,
+        })
+    };
+    let first = lane("before");
+    let _ = first.send(board("1 open, 0 closed"));
+    let f = fake.clone();
+    until("the board made", 10, move || {
+        !boards(&f, CHANNEL).is_empty()
+    })
+    .await;
+    assert!(!boards(&fake, CHANNEL)[0].pinned, "the pin was refused");
+    drop(first);
+    fake.set_nonce_window_ms(0);
+    let second = lane("after");
+    let _ = second.send(board("2 open, 0 closed"));
+    let f = fake.clone();
+    until("the board edited", 10, move || {
+        boards(&f, CHANNEL)
+            .first()
+            .is_some_and(|m| m.content.ends_with("2 open, 0 closed"))
+    })
+    .await;
+    assert_eq!(boards(&fake, CHANNEL).len(), 1, "found, not made again");
+}
+
 /// A change made by a session the binding does not watch (here a CLI
 /// session's, its notification published as the core publishes one) still
 /// reaches the board of the task's home: the binding hears every

@@ -585,6 +585,130 @@ async fn snooze_autocomplete_offers_the_pending_wakes_from_memory_and_the_snooze
     assert!(said.contains("is set again"), "{said}");
 }
 
+/// The board's reminder select, chosen by ana: `hq:cancel:` or `hq:snooze:` and
+/// the wake's id. The interaction's id.
+fn pick_reminder(r: &Rig, board: &Msg, choice: &str) -> String {
+    r.fake
+        .press_values(
+            &theseus_sim::fake_discord::Pressed {
+                message: &board.id,
+                button: board_v2_pick(),
+                user: ANA,
+                name: "ana",
+            },
+            &[choice],
+        )
+        .unwrap()
+}
+
+fn board_v2_pick() -> &'static str {
+    crate::render::horizon::REMINDER_PICK
+}
+
+/// When a pending wake is due, as the kernel holds it; none once it is gone.
+fn due_of(r: &Rig, wake: &str) -> Option<u64> {
+    r.core
+        .kernel
+        .pending_wakes()
+        .unwrap()
+        .into_iter()
+        .find(|(_, w)| w.id == wake)
+        .map(|(_, w)| w.due_at_ms)
+}
+
+#[tokio::test]
+async fn a_reminder_on_the_board_is_cancelled_by_a_press() {
+    let r = rig(model(false), false).await;
+    let wake = remind(&r, 3600, "stretch");
+    r.until("the reminder on the board", || {
+        board(&r, ANA_DM).is_some_and(|b| b.content.contains("stretch"))
+    })
+    .await;
+    let b = board(&r, ANA_DM).unwrap();
+    let parts = b.components_json.to_string();
+    assert!(parts.contains(&format!("hq:cancel:{wake}")), "{parts}");
+    assert!(parts.contains(&format!("hq:snooze:{wake}")), "{parts}");
+    let iid = pick_reminder(&r, &b, &format!("hq:cancel:{wake}"));
+    r.until("the press answered", || {
+        r.fake.replies().iter().any(|x| {
+            x.interaction.as_deref() == Some(iid.as_str())
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.contains("Cancelled"))
+        })
+    })
+    .await;
+    assert!(due_of(&r, &wake).is_none(), "the wake is gone");
+    r.until("the line leaves the board", || {
+        board(&r, ANA_DM).is_none_or(|b| !b.content.contains("stretch"))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_reminder_on_the_board_is_snoozed_an_hour_by_a_press() {
+    let r = rig(model(false), false).await;
+    let wake = remind(&r, 600, "stretch");
+    r.until("the reminder on the board", || {
+        board(&r, ANA_DM).is_some_and(|b| b.content.contains("stretch"))
+    })
+    .await;
+    let b = board(&r, ANA_DM).unwrap();
+    let iid = pick_reminder(&r, &b, &format!("hq:snooze:{wake}"));
+    r.until("the press answered", || {
+        r.fake.replies().iter().any(|x| {
+            x.interaction.as_deref() == Some(iid.as_str())
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.contains("is set again"))
+        })
+    })
+    .await;
+    let due = due_of(&r, &wake).expect("still pending");
+    let now = r.core.kernel.now_ms();
+    assert!(
+        due > now + 50 * 60_000,
+        "due in {} min",
+        due.saturating_sub(now) / 60_000
+    );
+}
+
+#[tokio::test]
+async fn a_check_in_theseus_set_for_itself_says_so_and_names_its_conversation() {
+    let r = rig(model(false), false).await;
+    let home = r.core.home().unwrap();
+    r.core
+        .kernel
+        .create_wake(
+            &home.execution_id,
+            None,
+            theseus_kernel::NewWake {
+                due_at_ms: r.core.kernel.now_ms() + 600_000,
+                note: "see whether the tide table loaded".into(),
+                purpose: theseus_kernel::Purpose::Check,
+                ..Default::default()
+            },
+            "the test",
+        )
+        .unwrap();
+    remind(&r, 3600, "stretch");
+    r.until("both lines on the board", || {
+        board(&r, ANA_DM)
+            .is_some_and(|b| b.content.contains("tide table") && b.content.contains("stretch"))
+    })
+    .await;
+    let text = board(&r, ANA_DM).unwrap().content;
+    let line = |needle: &str| {
+        text.lines()
+            .find(|l| l.contains(needle))
+            .unwrap()
+            .to_string()
+    };
+    assert!(line("tide table").contains("set by Theseus in "), "{text}");
+    assert!(!line("stretch").contains("set by Theseus"), "{text}");
+    assert!(line("stretch").contains(" · from "), "{text}");
+}
+
 #[tokio::test]
 async fn a_command_check_is_offered_from_the_dm_only() {
     let r = rig(model(false), false).await;
