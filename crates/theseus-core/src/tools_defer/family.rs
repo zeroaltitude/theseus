@@ -417,6 +417,7 @@ mod tests {
             ("look_work", "look"),
             ("profile_ask", "profile"),
             ("profile_hold", "profile"),
+            ("profile_run", "profile"),
             ("vault_use", "vault"),
             ("config_propose_file", "prompt-files"),
             ("config_read_file", "prompt-files"),

@@ -520,8 +520,26 @@ pub fn create_call<'a>(
 /// (`act_X` gives `exe_X`): the call's own for `task.create`, and for each helper
 /// of a `task.fan_out` call `act_Xh<i>` (theseus-z9mze.3), `helper` being that
 /// call, which groups them (`Opening::helper`).
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 pub fn create<'a>(
+    tc: &TurnCtx<'a>,
+    input: &Value,
+    ids: (&str, &str, Option<&str>),
+    ctx: (
+        &std::collections::BTreeMap<String, TargetRef>,
+        crate::project::Ext<'_>,
+    ),
+    forecasts: &crate::forecast::Book,
+) -> Result<crate::task_graph::tools::Done<'a>, String> {
+    create_on(tc, input, ids, ctx, forecasts, None)
+}
+
+/// [`create`], with the model the task runs on named by the caller, as a check's profile is
+/// (issue 28, `profile.run`). `on` is an argument and not a field of the input, so no call a model
+/// writes can name one: only a tool that has judged the profile passes it. The task is pinned to
+/// it (no brief verdict picks its model) and carries the marker that makes its end speak in the
+/// conversation (`profile_tool::run`).
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
+pub(crate) fn create_on<'a>(
     tc: &TurnCtx<'a>,
     input: &Value,
     (call_id, open_id, helper): (&str, &str, Option<&str>),
@@ -530,6 +548,7 @@ pub fn create<'a>(
         crate::project::Ext<'_>,
     ),
     forecasts: &crate::forecast::Book,
+    on: Option<&TargetRef>,
 ) -> Result<crate::task_graph::tools::Done<'a>, String> {
     let i = input_of(input)?;
     let Some(brief) = i.brief.as_deref() else {
@@ -666,6 +685,10 @@ pub fn create<'a>(
                 pieces.clone(),
                 i.fidelity_ack,
             ));
+            // A task handed to a profile runs on it, and its end speaks in the conversation.
+            if let Some(t) = on {
+                rec.last_target = Some(t.clone());
+            }
             // A check runs on its profile, and reads its claim (M5 28a).
             if let Some(c) = &check {
                 if let Some(t) = &c.target {
@@ -693,6 +716,9 @@ pub fn create<'a>(
                 &rec,
             )?];
             records.push(brief.record()?);
+            if let Some(t) = on {
+                records.push(crate::profile_tool::run::marker(&task.session_id, t, tc)?);
+            }
             if let Some(reply) = &holder {
                 records.push(
                     crate::graph::Edge::new(

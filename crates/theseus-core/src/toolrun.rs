@@ -1217,6 +1217,11 @@ impl ToolRuntime {
         let planned = planned.map(|p| crate::look::ask_if_outside(tc, tool.name(), p));
         // And so is asking a profile, or putting the conversation on one (issue 28).
         let planned = planned.map(|p| crate::profile_tool::ask_if_outside(tc, tool.name(), p));
+        // Handing work to a profile starts a task, so it asks where starting one asks.
+        let task_asks =
+            self.posture_now(crate::task::CREATE).posture == crate::policy::Posture::Approve;
+        let planned =
+            planned.map(|p| crate::profile_tool::ask_if_task_asks(tool.name(), task_asks, p));
         // So is a use of a vault item, before the daemon reads anything from it (issue 26).
         let planned =
             planned.map(|p| crate::config_change::vault_use::ask_if_outside(tc, tool.name(), p));
