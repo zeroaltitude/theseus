@@ -69,3 +69,15 @@ line and the vault's program are not the way to look, and that the vault's progr
 The family is deferred: measured on 2026-11-18, it adds nothing to a private place's request, and loading it would add 694
 tokens, over the 400 under which it would load by default (`config_change::tests_look`). `proc.run`'s sentence adds 40
 tokens to a direct message's request and 41 to the terminal's (`tests_tasks_wake.rs`).
+
+**Issue 28 replaced that sentence** (the daemon now answers a shell look with its tool, `own-tools.md`), at two tokens fewer, measured:
+`Not for `theseus` or the vault's program: look_theseus, look_vault, config_show do that.` A person's direct-message request is 10,090
+tokens (10,093) and the terminal's 7,806 (7,808); the closest small-prefix rig of `tests_wait_cost` reads 20,993 against its 21,000
+line, 7 tokens of room where it had 5.
+
+**And `proc.run`'s schema lost 59 tokens** (a separate change, so the next one has room): a direct message's request is 9,968 (10,026), the
+terminal's first request 7,683 of its 8,000 (7,742), the closest small-prefix rig 20,934 of 21,000 (66 tokens of room). Each cut was words
+that something else already says: `Give exactly one of argv, command and steps` repeated in `command`'s description (`argv`'s keeps it, and
+the call's error says it); the sandbox's `For untrusted code, builds, and tests` (the description above it says what L1 is for); and the
+`steps` description's list of what the one result holds (`each step's exit code, output tail, and time`), which the result shows, keeping that
+it names the steps not run.
