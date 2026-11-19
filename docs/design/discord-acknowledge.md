@@ -39,11 +39,11 @@ place" line), and posts the place's line as a message of its own (a follow-up wi
 `/prompt name:` with no arguments is unchanged: its deferral is public and the place's line completes it, as it always did.
 
 **The table that keeps it so** (`tests_gateway/acks.rs`, `every_handler_the_sweep_changed_acknowledges_as_its_answer_was_before`)
-fires 37 of these handlers' acknowledgements (and `/task share` and a new task's submit as two more, 39 in all), through the real gateway path, with ids the daemon has never heard of (every handler acknowledges before
+fires 36 of these handlers' acknowledgements (and `/task share` and a new task's submit as two more, 38 in all), through the real gateway path, with ids the daemon has never heard of (every handler acknowledges before
 its daemon call, so the first response is the same whatever the daemon then says), and holds each first response to what its answer
-was before the sweep. It does not reach: a scheduled TASK card's Cancel and Snooze (`task_pick`: they need a task that waits to start,
-and answer "that task has started or ended" without one; the scheduled reminder's card, which shares the handler, is in the table),
-and a watch command's approval beyond its `no` button. A routine's button on the list is its own test
+was before the sweep. It does not reach: a scheduled card's Cancel and Snooze, for a reminder or a task (`card_press` refuses an item the board does not
+hold, before `reminder_pick` and `task_pick`, with an immediate private answer, and the table has no such item; `reminder_pick` itself is
+in the table through the board's reminder select, `task_pick` is not reached), and a watch command's approval beyond its `no` button. A routine's button on the list is its own test
 (`a_routines_button_on_the_list_updates_the_private_list`).
 
 ## The proof

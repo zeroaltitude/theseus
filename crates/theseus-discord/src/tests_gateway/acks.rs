@@ -142,12 +142,6 @@ const TABLE: &[Row] = &[
         was: "an ephemeral reply",
     },
     Row {
-        handler: "a scheduled reminder card's Cancel",
-        fire: Press("hq:cancel:wak_0000feed"),
-        ack: Private,
-        was: "an ephemeral reply",
-    },
-    Row {
         handler: "/agenda",
         fire: Slash("agenda", &[]),
         ack: Private,
