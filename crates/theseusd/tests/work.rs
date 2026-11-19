@@ -286,6 +286,19 @@ fn a_fresh_snapshot_and_the_watchers_end(r: &Rig, w: Watcher) {
             )
         })
         .collect();
+    // The daemon may have published a change that the fresh snapshot already holds and the watcher's reader
+    // thread has not yet received (the job's end, in the window of this test's 30 s job: the read took the
+    // position first in 4 of 300 runs beside 64 busy loops, theseus-20): wait until it holds what the snapshot
+    // does, then assert it as before.
+    let caught_up = |held: &std::collections::BTreeMap<String, Value>| {
+        fresh.iter().all(|(id, position)| {
+            held.get(id)
+                .is_some_and(|v| v["position"].as_u64() >= Some(*position))
+        })
+    };
+    r.wait("the watcher holds what a fresh snapshot holds", || {
+        caught_up(&w.held()).then_some(())
+    });
     let held = w.held();
     for (id, position) in &fresh {
         assert!(
