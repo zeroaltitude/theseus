@@ -896,3 +896,35 @@ fn a_second_answer_to_the_same_question_waits() {
     drop(first);
     assert!(in_flight("act_keep_race").is_some(), "given back on drop");
 }
+
+/// The owner's terminal lists the card whatever place it was asked in: a card
+/// put in a direct message is in what `confirm.list` gives a terminal, with
+/// its keep marker, as it is for the binding that drew it (issue 29).
+#[tokio::test]
+async fn a_card_asked_in_a_direct_message_is_in_the_terminals_list() {
+    let (r, _dir) = rig_vault("ok");
+    let sid = r.session();
+    r.core.outbox.bind_place("dm:42", &sid).unwrap();
+    r.turn_with("vault_keep", &sid, input("Lantern new", "credential"))
+        .await;
+    let q = r.asked().pop().expect("one card waits").correlation_id;
+    for (label, p) in [
+        ("the terminal", json!({})),
+        (
+            "the binding",
+            json!({"discord": {"user_id": "42", "channel_id": "7"}}),
+        ),
+    ] {
+        let listed = rpc_as(&r.core, cli(), method::CONFIRM_LIST, p)
+            .await
+            .unwrap();
+        let card = listed["confirms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["correlation_id"] == q.as_str())
+            .unwrap_or_else(|| panic!("{label}: the card is not listed: {listed}"));
+        assert_eq!(card["tool"], "config.ack", "{label}");
+        assert!(card["input"]["keep"].is_object(), "{label}: {card}");
+    }
+}
