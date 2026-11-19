@@ -151,13 +151,12 @@ fn a_source_cannot_carry_a_control_character_or_the_cards_own_markup() {
         plain.matches("\n- ").count(),
         "{q}"
     );
-    assert_eq!(q.matches("Take care").count(), 1, "{q}");
-    assert_eq!(
-        q.matches("Theseus's reason, in its own words").count(),
-        1,
-        "{q}"
-    );
-    assert_eq!(q.matches("Theseus's source for this").count(), 1, "{q}");
+    // The text may name the card's lines; it begins none of them.
+    let begun = |what: &str| q.lines().filter(|l| l.starts_with(what)).count();
+    assert_eq!(begun("Take care"), 1, "{q}");
+    assert_eq!(begun("Theseus's reason, in its own words"), 1, "{q}");
+    assert_eq!(begun("  Theseus's source for this"), 1, "{q}");
+    assert_eq!(begun("Theseus's source for this"), 0, "{q}");
     assert_eq!(
         q.lines().filter(|l| l.contains("```")).count(),
         1,

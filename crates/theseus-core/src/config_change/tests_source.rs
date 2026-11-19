@@ -54,7 +54,7 @@ async fn a_looked_up_address_is_proposed_with_its_source_and_yields_one_card() {
         "the source is under the address, as the model's word: {card}"
     );
     assert!(
-        card.contains("- providers.lantern.kind: \"openai_responses\""),
+        card.contains("- providers.lantern.kind: not set (its default) → \"openai_responses\""),
         "{card}"
     );
     // The model's text is in no line the daemon words as its own.
@@ -89,12 +89,9 @@ async fn a_source_that_pretends_to_be_the_card_adds_one_line_and_nothing_else() 
         3,
         "three settings of the table: {card}"
     );
-    assert_eq!(card.matches("Take care").count(), 0, "{card}");
-    assert_eq!(
-        card.matches("Theseus's reason, in its own words").count(),
-        1,
-        "{card}"
-    );
+    let begun = |what: &str| card.lines().filter(|l| l.starts_with(what)).count();
+    assert_eq!(begun("Take care"), 0, "{card}");
+    assert_eq!(begun("Theseus's reason, in its own words"), 1, "{card}");
     assert!(!card.contains('\u{202e}'), "{card:?}");
     assert_eq!(
         card.matches("Theseus's source for this").count(),

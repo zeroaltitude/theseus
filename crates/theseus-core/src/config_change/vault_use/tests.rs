@@ -690,7 +690,7 @@ async fn a_published_address_beside_a_vault_secret_is_on_the_one_card_with_its_s
     assert!(asks[0].needs_proof, "the second proof stays");
     assert_eq!(
         card.matches("Theseus's source for this").count(),
-        3,
-        "under each setting of the table: {card}"
+        2,
+        "under each setting of the table (the address and the key's name): {card}"
     );
 }

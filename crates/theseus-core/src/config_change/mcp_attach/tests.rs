@@ -1406,7 +1406,7 @@ fn a_source_for_what_will_run_is_the_models_word_on_one_line() {
     assert!(!q.contains('\u{202e}'), "{q:?}");
     assert_eq!(q.lines().count(), plain.lines().count() + 1, "{q}");
     assert_eq!(
-        q.matches("Take care").count(),
+        q.lines().filter(|l| l.starts_with("Take care")).count(),
         1,
         "the care line is the card's own: {q}"
     );
