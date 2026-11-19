@@ -404,7 +404,19 @@ impl Rig {
             .map(|nodes| {
                 nodes
                     .iter()
-                    .map(|n| n.to_string().chars().take(160).collect::<String>())
+                    .map(|n| {
+                        format!(
+                            "{} {} {} bytes {}",
+                            n["kind"].as_str().unwrap_or("?"),
+                            n["author"].as_str().unwrap_or(""),
+                            n["bytes"],
+                            n["detail"]
+                                .to_string()
+                                .chars()
+                                .take(100)
+                                .collect::<String>()
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n  ")
             })
