@@ -551,6 +551,7 @@ facts![
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
     ops::SessionProfileSet<'static>,
+    ops::ProfileAsked<'static>,
     ops::TaskRehomed<'static>,
     ops::TaskRescheduled<'static>,
     task_pause::TaskPaused<'static>,

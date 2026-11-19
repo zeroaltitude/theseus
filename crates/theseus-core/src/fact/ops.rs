@@ -41,6 +41,52 @@ impl Fact for SessionProfileSet<'_> {
     }
 }
 
+/// A turn asked another profile one question (`profile.ask`, issue 28). Counts and names only: the
+/// question and the answer are in the turn's own nodes, never in a row. The call's money is its
+/// action's, which the day ceiling reads; this row carries it for a reader of the books.
+pub struct ProfileAsked<'a> {
+    pub profile: &'a str,
+    pub provider: &'a str,
+    pub model: &'a str,
+    pub correlation_id: &'a str,
+    /// `answered`, `cut` (it hit its cap) or `failed`.
+    pub outcome: &'a str,
+    /// A failure's class.
+    pub class: Option<&'a str>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cost_usd: f64,
+}
+
+impl Fact for ProfileAsked<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ProfileAsked);
+
+    fn row(&self) -> Value {
+        json!({"profile": self.profile, "provider": self.provider, "model": self.model,
+            "correlation_id": self.correlation_id, "outcome": self.outcome, "class": self.class,
+            "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
+            "cost_usd": self.cost_usd})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let line = match self.class {
+            Some(class) => format!(
+                "Asked {} (model {}) one question; it could not answer ({class}).",
+                self.profile, self.model
+            ),
+            None => format!(
+                "Asked {} (model {}) one question; it {} ({} tokens out, {}).",
+                self.profile,
+                self.model,
+                self.outcome,
+                self.output_tokens,
+                format_args!("${:.4}", self.cost_usd)
+            ),
+        };
+        say.line(Session, line);
+    }
+}
+
 /// A task's report was given another home.
 pub struct TaskRehomed<'a> {
     pub task: &'a str,
