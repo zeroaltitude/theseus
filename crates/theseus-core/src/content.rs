@@ -290,6 +290,18 @@ pub mod deterministic {
         }
     }
 
+    /// The source `look.work` shows for the flags it takes on: the words it gave came from another
+    /// conversation that holds them. A name of a tool and a kind, never a path or a word of theirs.
+    pub const LOOK_SOURCE: &str = "look.work: words of another conversation that holds this";
+
+    /// A flag another conversation holds, taken on by the session `look.work` gave its marked words to
+    /// (`flag` is one that keeps a model of restricted origin off): as if this session had read the
+    /// marked text itself, so the data gate's own rule refuses such a model a later turn, with no
+    /// judgment to wait for. `node` is the turn that was given them.
+    pub fn from_look(flag: Flag, node: &str, at_ms: u64) -> Label {
+        label(flag, node, ItemKind::ToolResult, LOOK_SOURCE.into(), at_ms)
+    }
+
     /// `confidential`, if `text` holds one of the operator's names: the first
     /// in the list's order, as the source (`name: <word>`).
     pub fn from_names(
