@@ -10,7 +10,7 @@ use std::fmt::Write;
 use theseus_protocol::{ConfirmRequest, TaskInfo};
 
 use super::owed;
-use super::reader::Reader;
+use super::reader::{field, Reader};
 use super::{
     clip, TASKS_ELSEWHERE_MAX, TASKS_HERE_MAX, TASKS_READ_MAX, WAITING_ELSEWHERE_MAX,
     WAITING_HERE_MAX,
@@ -24,8 +24,8 @@ pub(super) const OTHERS: &str =
 fn state_of(t: &TaskInfo) -> String {
     match (t.starts_at_ms, &t.waiting_on) {
         (Some(at), _) => format!("scheduled for {}", crate::wake::local(at).full()),
-        (None, Some(w)) => format!("{} (waiting on {w})", t.state),
-        (None, None) => t.state.clone(),
+        (None, Some(w)) => format!("{} (waiting on {})", field(&t.state), field(w)),
+        (None, None) => field(&t.state),
     }
 }
 
@@ -174,7 +174,7 @@ fn question(q: &ConfirmRequest, at: Option<String>, reason: String) -> String {
     format!(
         "- {} · {}{at} · {reason}\n",
         crate::task::short(&q.correlation_id),
-        q.tool
+        field(&q.tool)
     )
 }
 

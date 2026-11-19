@@ -309,7 +309,7 @@ impl Core {
         if pending.is_empty() {
             return Ok(out);
         }
-        for rec in self.sessions_by_activity()? {
+        for rec in self.sessions_asking(&pending)? {
             let asks: Vec<&Action> = pending
                 .iter()
                 .filter(|a| a.session_id == rec.session_id)
@@ -339,6 +339,27 @@ impl Core {
             }));
         }
         Ok(out)
+    }
+
+    /// The sessions that have a question in `pending`, the most recently active first: the records of
+    /// those sessions alone, read by id (a session with no record, or an imported one, is left out, as
+    /// the walk of every live session left it). The same sessions in the same order as walking
+    /// `sessions_by_activity` and keeping those with a question, without reading the rest.
+    fn sessions_asking(&self, pending: &[Action]) -> Result<Vec<SessionRecord>> {
+        let ids: std::collections::BTreeSet<&str> =
+            pending.iter().map(|a| a.session_id.as_str()).collect();
+        let mut recs = Vec::new();
+        for id in ids.into_iter().filter(|id| !crate::import::is_imported(id)) {
+            if let Some(r) = self.store.get_session::<SessionRecord>(id)? {
+                recs.push(r);
+            }
+        }
+        recs.sort_by(|a, b| {
+            b.last_active_ms
+                .max(b.created_at_unix_ms)
+                .cmp(&a.last_active_ms.max(a.created_at_unix_ms))
+        });
+        Ok(recs)
     }
 
     /// Answer a confirm: bind it (approve) or decline the action, then wake the

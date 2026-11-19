@@ -15,9 +15,9 @@
 //! messages; another conversation's are `theseus history SESSION`, which runs as it does. A call may
 //! say `scope: here` for this conversation alone.
 //!
-//! **Another conversation's words** are marked as such in the answer, and held back when that
-//! conversation holds data marked anything but open (`reader.rs`); the answer is then judged as every
-//! tool's result is.
+//! **Another conversation's words** are marked as such in the answer, and held back from a turn whose
+//! model the labels could keep off when that conversation holds data marked anything but open
+//! (`reader.rs`); the answer is then judged as every tool's result is.
 //!
 //! **The wall is unchanged** (`look::refusal`): the owner's own turn in a private place, nobody else.
 //!
@@ -160,13 +160,9 @@ pub(super) fn schema() -> Value {
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
 /// messages (`session`'s).
-pub(super) async fn words(
-    core: &std::sync::Arc<Core>,
-    session: &str,
-    ask: &Ask,
-    restricted: bool,
-) -> String {
-    let r = reader::Reader::new(core, session, restricted);
+pub(super) async fn words(core: &std::sync::Arc<Core>, who: &Caller<'_>, ask: &Ask) -> String {
+    let session = who.session;
+    let r = reader::Reader::new(core, session, who.restricted);
     let mut out = String::new();
     for p in &ask.parts {
         let part = match (*p, ask.here) {
@@ -185,7 +181,31 @@ pub(super) async fn words(
         out.push_str(&cut(part, TOTAL_CHARS));
         out.push('\n');
     }
+    // Another conversation's marked words, given to this one: it takes their flags on, before the result
+    // is written, so no later turn on a model of restricted origin waits on a judgment of them.
+    let at = theseus_protocol::now_unix_ms();
+    let flags = r.taken();
+    if !flags.is_empty() {
+        let labels = flags
+            .into_iter()
+            .map(|f| {
+                (
+                    crate::content::deterministic::from_look(f, who.turn, at),
+                    at,
+                )
+            })
+            .collect();
+        core.runner.judge.land_deterministic(session, labels);
+    }
     cut(out, ANSWER_CHARS)
+}
+
+/// Who asks: the conversation, the turn, and whether the turn's own model is one the labels could keep
+/// off.
+pub(super) struct Caller<'a> {
+    pub session: &'a str,
+    pub turn: &'a str,
+    pub restricted: bool,
 }
 
 /// `s` as one line of at most `max` characters: control characters and line breaks gone.

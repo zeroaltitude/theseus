@@ -129,3 +129,57 @@ fn a_line_has_no_control_characters_and_the_caps_hold_the_answer() {
     assert_eq!(ANSWER_CHARS, 24_000);
     assert_eq!(TOTAL_CHARS, 8_000);
 }
+
+/// Every short field is clipped by itself, not left to the part's cut: a place's name, a question's tool
+/// name, a task's state and what it waits on, a routine's series, a wake's span, and a project's state.
+#[test]
+fn each_short_field_is_clipped_by_itself() {
+    use super::horizon::{project_line, routine_row, wake_row};
+    use super::reader::{place_words, FIELD_CHARS};
+    let long = "x".repeat(5_000);
+    let room = |line: &str| line.chars().count() < 1_000;
+    // A place's name, bound or the CLI's.
+    assert!(place_words(&long).chars().count() <= FIELD_CHARS + 1);
+    let cli = place_words(&format!("{long} on the CLI or the web UI"));
+    assert!(
+        cli.starts_with("the CLI or the web UI (…") && room(&cli),
+        "{cli}"
+    );
+    // A question's tool name.
+    let q = theseus_protocol::ConfirmRequest {
+        correlation_id: "act_01abcdef123456".into(),
+        tool: long.clone(),
+        reason: "why".into(),
+        ..Default::default()
+    };
+    assert!(room(&question_line(&q)), "{}", question_line(&q));
+    // A task's state and what it waits on.
+    let t = theseus_protocol::TaskInfo {
+        short: "a1b2c3".into(),
+        state: long.clone(),
+        waiting_on: Some(long.clone()),
+        ..Default::default()
+    };
+    assert!(room(&task_line(&t)), "{}", task_line(&t));
+    // A routine's series, a wake's span and a project's state.
+    let routine: theseus_protocol::routines::RoutineInfo = serde_json::from_value(json!({
+        "id": "ses_x", "short": "x", "title": "t", "schedule": "s", "series": long, "brief": "b",
+        "paused": false, "run_usd": 0.0, "month_usd": 0.0, "month_spent_usd": 0.0,
+        "deliver_to": "dm", "catch_up": "auto", "speak": "always", "carry": "none", "runs": 0
+    }))
+    .unwrap();
+    assert!(room(&routine_row(&routine, "t", None)));
+    let wake = theseus_protocol::WakeInfo {
+        short: long.clone(),
+        due_local: long.clone(),
+        every: Some(long.clone()),
+        ..Default::default()
+    };
+    assert!(room(&wake_row(&wake, "", "note")));
+    let project = theseus_protocol::projects::ProjectInfo {
+        id: "tsk_x".into(),
+        state: long,
+        ..Default::default()
+    };
+    assert!(room(&project_line(&project, None)));
+}
