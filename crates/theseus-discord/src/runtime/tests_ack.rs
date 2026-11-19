@@ -4,7 +4,7 @@
 //! sent to the service by then: the acknowledgement, and nothing else; then they let the call go and read the same
 //! response completed.
 
-use serde_json::{json, Value};
+use serde_json::json;
 use theseus_protocol::method;
 use twilight_model::application::interaction::Interaction;
 
@@ -65,5 +65,4 @@ async fn a_handler_that_waits_for_the_daemon_acknowledges_first_and_completes_af
     assert_eq!(all.len(), 2, "{all:?}");
     assert_eq!(all[1].kind, "followup", "{all:?}");
     assert!(all[1].ephemeral, "{all:?}");
-    let _: Value = Value::Null;
 }
