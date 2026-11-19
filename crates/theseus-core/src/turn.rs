@@ -1217,6 +1217,14 @@ impl TurnRunner {
         let (lock, closing) = Closing::new(&frames.store, task_of.as_ref(), &failure_sink);
         // A late result's wake rides in the end's frame (theseus-6qwr).
         let hold_gone = || task_of.is_some() && !self.task_paused(&task_session);
+        let ran_on = r
+            .as_ref()
+            .ok()
+            .map(|(res, _, _)| crate::session::TargetRef {
+                profile: res.profile.clone(),
+                provider: res.provider.clone(),
+                model: res.model.clone(),
+            });
         let ended = end_step::end_and_wake(&frames.kernel, guard, end, rewake, hold_gone, |e| {
             let Some(task) = task_of.as_ref().filter(|_| e.state.is_terminal()) else {
                 return Ok(vec![]);
@@ -1227,8 +1235,12 @@ impl TurnRunner {
             } else {
                 None
             };
-            let report = crate::task::Report::new(e, task_title.clone(), last)
-                .with_close(crate::task::close_of(&frames.store, &e.session_id));
+            let report = crate::task::Report {
+                // What the task ran on, as its turn says (issue 28).
+                ran_on: ran_on.clone(),
+                ..crate::task::Report::new(e, task_title.clone(), last)
+            }
+            .with_close(crate::task::close_of(&frames.store, &e.session_id));
             let mut records = closing.records(e, report.node.as_deref())?;
             let joined = self.tools.job_waits.steers.joined(&e.session_id);
             records.extend(crate::task::joined_record(&e.session_id, joined)?);

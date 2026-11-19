@@ -54,7 +54,7 @@ mod wakes;
 pub use approval::strip_ask;
 pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
-pub use reply::{reply_parts, thread_tag, wake_header};
+pub use reply::{reply_parts, reply_parts_in, thread_tag, wake_header};
 use step::{render_turn, step_loop, STEP_ROLL};
 pub use subagent::subagent_parts;
 pub use wakes::wakes;
@@ -1125,8 +1125,18 @@ pub fn report(body: &Value, said: Option<&str>, guests: usize, place: Option<u64
         0 => String::new(),
         n => format!(" · {n} guest comment{}", if n == 1 { "" } else { "s" }),
     };
+    // A task is a subagent (issue 28): its report's footer names, first, the profile and model that
+    // gave it, and says it is a subagent's task report, as a subagent's answer in a chat does. A report
+    // staged before the task's model was recorded keeps the footer it had.
+    let ran_on = match (
+        body["ran_on"]["profile"].as_str(),
+        body["ran_on"]["model"].as_str(),
+    ) {
+        (Some(p), Some(m)) => format!("{p} · {m} · subagent task report · "),
+        _ => String::new(),
+    };
     let facts = format!(
-        "-# {turns} turn{} · {} of {} · {took}{guest}",
+        "-# {ran_on}{turns} turn{} · {} of {} · {took}{guest}",
         if turns == 1 { "" } else { "s" },
         dollars(body["spent_usd"].as_f64().unwrap_or(0.0)),
         dollars(body["limit_usd"].as_f64().unwrap_or(0.0)),
@@ -1170,13 +1180,23 @@ pub fn glide(body: &Value) -> Vec<String> {
 pub const RESENT: &str =
     "-# ↻ Sent again after an outage: if the same message is just above, this is a copy.";
 
+#[cfg(test)]
 fn footer(r: &TurnSubmitResult) -> String {
+    footer_in(r, false)
+}
+
+/// [`footer`], for a reply that may be a task's own (issue 28).
+fn footer_in(r: &TurnSubmitResult, task: bool) -> String {
     let mut bits = vec![];
     if !r.profile.is_empty() {
         bits.push(r.profile.clone());
     }
     // A held turn made no model call (theseus-2rvwv).
     bits.push(["held: no model ran", &r.model][usize::from(r.stop_reason != "held")].into());
+    // A task is a subagent (issue 28): what it says in a channel of its own says so.
+    if task {
+        bits.push("subagent task reply".into());
+    }
     // A model the operator named, not Jev's verdict (theseus-h66v4.3).
     bits.extend(
         r.route

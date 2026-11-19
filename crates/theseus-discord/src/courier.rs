@@ -1040,7 +1040,17 @@ impl Lane {
         let turn_id = body["turn_id"].as_str().unwrap_or("").to_string();
         let texts = self.shared.core.outbox.reply_texts(body);
         let result: Option<TurnSubmitResult> = serde_json::from_value(body["result"].clone()).ok();
-        let mut parts = render::reply_parts(&turn_id, &texts, result.as_ref());
+        // A task is a subagent (issue 28): its own channel's reply footer says so.
+        let task = result.as_ref().is_some_and(|r| {
+            self.shared
+                .core
+                .store
+                .get_session::<theseus_core::session::SessionRecord>(&r.session_id)
+                .ok()
+                .flatten()
+                .is_some_and(|s| s.task.is_some())
+        });
+        let mut parts = render::reply_parts_in(&turn_id, &texts, result.as_ref(), task);
         // A wake's turn says which wake woke it (DD8), and a turn a task's
         // report started says which report did (W1).
         let wakes: Vec<String> = ["wakes", "reports"]

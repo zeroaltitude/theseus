@@ -89,3 +89,61 @@ async fn two_answers_are_two_messages_in_order() {
         all[1].content.contains("Second answer.") && all[1].content.contains("claude-opus-5-5")
     );
 }
+
+/// A task's own reply in the place its session posts to says it is a subagent's, after the model it ran
+/// on; an ordinary conversation's reply does not.
+#[tokio::test]
+async fn a_tasks_own_reply_in_a_channel_says_it_is_a_subagents() {
+    use theseus_core::session::{SessionRecord, TaskOf};
+    use theseus_protocol::SessionKind;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane(d.path(), &fake);
+    let core = lane.shared.core.clone();
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    rec.task = Some(TaskOf {
+        parent_session: SESSION.into(),
+        parent_execution: "exe_x".into(),
+        by: "tool_x".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    let a = assistant(&core, &rec.session_id, REPLY);
+    core.outbox
+        .post(
+            &rec.session_id,
+            "",
+            &lane.target,
+            reply_body(TURN, &a, &rec.session_id, vec![]),
+        )
+        .unwrap();
+    assert!(lane.deliver_posts().await);
+    let all = fake.messages(CHANNEL);
+    assert_eq!(all.len(), 1, "{all:#?}");
+    assert!(
+        all[0].content.contains("glm-x · subagent task reply"),
+        "{all:#?}"
+    );
+
+    // The same reply from an ordinary conversation keeps its footer.
+    let d2 = tempfile::tempdir().unwrap();
+    let fake2 = FakeDiscord::start();
+    let mut lane2 = super::tests_bound::lane(d2.path(), &fake2);
+    let core2 = lane2.shared.core.clone();
+    let b = assistant(&core2, SESSION, REPLY);
+    core2
+        .outbox
+        .post(
+            SESSION,
+            "",
+            &lane2.target,
+            reply_body("turn_plain", &b, SESSION, vec![]),
+        )
+        .unwrap();
+    assert!(lane2.deliver_posts().await);
+    let plain = fake2.messages(CHANNEL);
+    assert!(!plain[0].content.contains("subagent"), "{plain:#?}");
+}
