@@ -1683,7 +1683,7 @@ impl Core {
                 self.bus.watch(&a.session_id, conn.client, conn.tx.clone());
             }
         }
-        let who = conn.answerer(p.author, p.discord);
+        let who = conn.answerer(conn.vouched_author(p.author.as_deref()), p.discord);
         match &p.grant {
             // A grant goes with an approval (theseus-drjs).
             Some(_) if !p.approve => Err(anyhow::anyhow!(

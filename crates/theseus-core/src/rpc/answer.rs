@@ -294,7 +294,7 @@ impl Core {
         p: WorkAnswerParams,
         conn: Conn<'_>,
     ) -> Result<WorkAnswerResult, RpcFailure> {
-        let who = conn.answerer(p.author.clone(), p.discord.clone());
+        let who = conn.answerer(conn.vouched_author(p.author.as_deref()), p.discord.clone());
         match self.resolve_question(&p.question_id)? {
             // A routine's failure or block notice is the routine's wake
             // (theseus-52tut): its own answers.

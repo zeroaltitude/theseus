@@ -85,15 +85,6 @@ fn stop(class: &'static str) -> impl Fn(RpcFailure) -> Stop {
     }
 }
 
-/// The author a request names, as the daemon takes it: only the Discord binding names a person (it read the
-/// press); on the terminal and the web UI any process of the owner's own user could name anyone, so the row's
-/// label is the surface's own (`the CLI`, `the web UI`), as it is for every request that names no author.
-fn author_of(conn: &Conn<'_>, named: Option<&str>) -> Option<String> {
-    named
-        .filter(|_| conn.surface == Surface::Discord)
-        .map(str::to_string)
-}
-
 impl Core {
     /// The three methods. An attempt to give a value that stops writes a row
     /// saying what stopped it (a class, never a value) before the client is told.
@@ -113,7 +104,7 @@ impl Core {
             method::VAULT_KEEP_ANSWER => match parse_quiet::<VaultKeepAnswerParams>(params) {
                 Ok(p) => {
                     let q = Some(p.question_id.clone());
-                    let by = (author_of(&conn, p.author.as_deref()), p.discord.clone());
+                    let by = (conn.vouched_author(p.author.as_deref()), p.discord.clone());
                     (q, by, self.keep_answer(p, &conn).await.map(reply))
                 }
                 Err(f) => (None, (None, None), Err(stop("bad_request")(f))),
@@ -182,7 +173,7 @@ impl Core {
     ) -> Result<VaultKept, Stop> {
         // The presser a form's submit names, as the Discord binding read it off the press: judged
         // below as every press is. Any other surface that names one is refused by `judge_act`.
-        let who = conn.answerer(author_of(conn, p.author.as_deref()), p.discord.clone());
+        let who = conn.answerer(conn.vouched_author(p.author.as_deref()), p.discord.clone());
         if let Some(job) = p.from_job.as_deref() {
             return Err(stop("job")(refused(format!(
                 "this shell is a Theseus job's (THESEUS_SESSION={job} is set), so it would give \

@@ -50,6 +50,17 @@ impl Conn<'_> {
         }
     }
 
+    /// The author a request names, as this connection vouches for it: only the Discord binding names a person (it
+    /// read the press, and the place rule judges the ids it gives), so its author is taken as the row's label. On
+    /// the terminal and the web UI any process of the owner's own user could name anyone, so a named author is not
+    /// taken and the label is the surface's own (`the CLI`, `the web UI`). `via` says where the answer came from
+    /// either way.
+    pub fn vouched_author(&self, named: Option<&str>) -> Option<String> {
+        named
+            .filter(|_| self.surface == Surface::Discord)
+            .map(str::to_string)
+    }
+
     /// Who makes an approval-like act on this connection (an answer, a
     /// "should have asked" press, an undo, a trust), as the connection knows
     /// it: the label names, as a cancel's actor does (`the CLI`, never
