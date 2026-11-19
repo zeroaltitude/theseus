@@ -796,6 +796,8 @@ mod tests_look_fields;
 #[cfg(test)]
 mod tests_press;
 #[cfg(test)]
+mod tests_profile;
+#[cfg(test)]
 mod tests_proof;
 #[cfg(test)]
 mod tests_source;

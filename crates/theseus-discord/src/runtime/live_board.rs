@@ -159,8 +159,9 @@ impl Place {
         let also = self.shared.board_sessions(&self.target);
         let p = self.shared.tasks.project_with(&self.session_id, &also);
         let quiet = self.shared.tasks.quiet_until(&self.target);
-        // The future is a private place's alone (theseus-j90w2).
-        let future = super::horizon::parts_for(&self.shared, &self.target);
+        // The future is a private place's alone (theseus-j90w2), and the task
+        // channel's when there is one (issue 30).
+        let future = super::horizon::parts_for(&self.shared, &self.target, &self.session_id);
         let links = self.shared.task_links(&p);
         let comps = board_v2::render(&Parts {
             needs: &p.needs,

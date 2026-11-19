@@ -8,11 +8,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
+use theseus_core::approval::{Client, Surface};
 use theseus_core::provider::{FakeProvider, Scripted};
 use theseus_protocol::threads::ThreadNewParams;
+use theseus_protocol::wakes::{WakeCreateParams, WakeEditResult};
 use theseus_sim::fake_discord::{Msg, BOT_ID, DEFAULT_GUILD};
 
 use crate::render::board_v2;
+use crate::rpc_client::RpcClient;
 use crate::runtime::default_forum::{BOT_BITS, OWNER_BITS};
 use crate::tests_default_forum::{
     bindings, cli, dm_lines, forum_up, guild, post_with, posts, rig_in, tune, REEL,
@@ -603,4 +606,227 @@ async fn a_restart_removes_the_earlier_runs_dm_board_once_the_home_stands() {
         "the home is the one channel the config named"
     );
     again.stop();
+}
+
+// ---- where the future is shown (issue 30) -----------------------------------
+
+/// A rig whose DM and `#lab` each have a conversation (a word said in each),
+/// `#lab` and `#reel` private beside the DM, the home as `home` says.
+async fn two_places(home: &str) -> Rig {
+    let home = home.to_string();
+    let r = rig(
+        vec![Scripted::text("Hello."), Scripted::text("Hello.")],
+        |_| vec![],
+        &bindings(true, ""),
+        |_| {},
+        move |c| c.discord.task_home = home,
+    )
+    .await;
+    r.say((ANA, "ana"), None, "hello");
+    until(&r, "the DM answered", || {
+        r.posted(ANA_DM)
+            .iter()
+            .any(|m| m.content.contains("Hello."))
+    })
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "hello");
+    until(&r, "#lab answered", || {
+        r.posted(LAB).iter().any(|m| m.content.contains("Hello."))
+    })
+    .await;
+    r
+}
+
+/// A reminder `note` in the conversation of `session`, as `wake.create` makes it.
+async fn remind_in(r: &Rig, session: &str, note: &str) -> String {
+    let rpc = RpcClient::connect(r.core.clone(), Client::new("test", Surface::Cli)).0;
+    let made: WakeEditResult = rpc
+        .call(
+            theseus_protocol::method::WAKE_CREATE,
+            WakeCreateParams {
+                when: "in 90m".into(),
+                note: note.into(),
+                session_id: Some(session.into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    made.wake.wake_id
+}
+
+fn session_of_place(r: &Rig, place: &str) -> String {
+    r.core
+        .outbox
+        .place_session(place)
+        .unwrap()
+        .expect("the place's session")
+}
+
+/// With the home standing, a reminder set in the DM or in a channel is on the
+/// home's board and on no other place's, and no other place is given a board.
+#[tokio::test]
+async fn a_reminder_is_on_the_task_channels_board_alone() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    remind_in(
+        &r,
+        &session_of_place(&r, &format!("dm:{ANA}")),
+        "dm tide check",
+    )
+    .await;
+    remind_in(
+        &r,
+        &session_of_place(&r, &format!("channel:{LAB}")),
+        "lab net mending",
+    )
+    .await;
+    until(&r, "both on the home's board", || {
+        boards(&r, home).first().is_some_and(|b| {
+            b.content.contains("dm tide check") && b.content.contains("lab net mending")
+        })
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    for (place, name) in [(ANA_DM, "the DM"), (LAB, "#lab"), (REEL, "#reel")] {
+        assert!(
+            boards(&r, place).is_empty(),
+            "{name} has a board: {:#?}",
+            r.posted(place)
+        );
+    }
+    assert_eq!(boards(&r, home).len(), 1);
+}
+
+/// With no home, a place shows the reminders of its own conversations: a
+/// reminder set in `#lab` is on `#lab`'s board and not on the DM's.
+#[tokio::test]
+async fn without_a_task_channel_a_reminder_is_on_its_own_conversations_board() {
+    let r = two_places("").await;
+    remind_in(
+        &r,
+        &session_of_place(&r, &format!("channel:{LAB}")),
+        "lab net mending",
+    )
+    .await;
+    until(&r, "the reminder on #lab's board", || {
+        boards(&r, LAB)
+            .first()
+            .is_some_and(|b| b.content.contains("lab net mending"))
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    assert!(boards(&r, ANA_DM).is_empty(), "{:#?}", r.posted(ANA_DM));
+    assert!(boards(&r, REEL).is_empty());
+}
+
+/// A board a place drew while it showed the future is edited once, in place,
+/// to its true state when the task channel comes to stand: no "Coming up" is
+/// left on it, and it is the same message.
+#[tokio::test]
+async fn a_board_drawn_before_the_task_channel_stood_is_edited_to_all_clear() {
+    let r = two_places("").await;
+    remind_in(
+        &r,
+        &session_of_place(&r, &format!("channel:{LAB}")),
+        "lab net mending",
+    )
+    .await;
+    until(&r, "the reminder on #lab's board", || {
+        boards(&r, LAB)
+            .first()
+            .is_some_and(|b| b.content.contains("lab net mending"))
+    })
+    .await;
+    let before = boards(&r, LAB)[0].id.clone();
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let home = shared
+        .look_for_task_home(&DEFAULT_GUILD.to_string(), "theseus-tasks")
+        .await
+        .expect("the home stands");
+    until(&r, "#lab's board no longer shows the reminder", || {
+        boards(&r, LAB)
+            .first()
+            .is_some_and(|b| !b.content.contains("lab net mending"))
+    })
+    .await;
+    let b = boards(&r, LAB);
+    assert_eq!(
+        (b.len(), b[0].id.as_str()),
+        (1, before.as_str()),
+        "the same board, edited"
+    );
+    assert!(
+        b[0].content.contains("all clear") && !b[0].content.contains("Coming up"),
+        "{}",
+        b[0].content
+    );
+    until(&r, "the reminder on the home's board", || {
+        boards(&r, home)
+            .first()
+            .is_some_and(|b| b.content.contains("lab net mending"))
+    })
+    .await;
+}
+
+/// On the task channel's board, only the owner's press cancels a reminder: a
+/// press by anyone else is refused where every press on a place is, and
+/// writes nothing.
+#[tokio::test]
+async fn only_the_owners_press_cancels_a_reminder_on_the_task_channels_board() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind_in(
+        &r,
+        &session_of_place(&r, &format!("dm:{ANA}")),
+        "dm tide check",
+    )
+    .await;
+    until(&r, "the reminder on the home's board", || {
+        boards(&r, home)
+            .first()
+            .is_some_and(|b| b.content.contains("dm tide check"))
+    })
+    .await;
+    let board = boards(&r, home).remove(0);
+    let press = |user: u64, name: &str| {
+        r.fake
+            .press_values(
+                &theseus_sim::fake_discord::Pressed {
+                    message: &board.id,
+                    button: crate::render::horizon::REMINDER_PICK,
+                    user,
+                    name,
+                },
+                &[&format!("hq:cancel:{wake}")],
+            )
+            .unwrap()
+    };
+    let due = |r: &Rig| {
+        r.core
+            .kernel
+            .pending_wakes()
+            .unwrap()
+            .into_iter()
+            .any(|(_, w)| w.id == wake)
+    };
+    let refused = press(crate::tests_gateway::BEN, "ben");
+    until(&r, "ben's press refused", || {
+        r.fake.replies().iter().any(|x| {
+            x.interaction.as_deref() == Some(refused.as_str())
+                && x.content
+                    .as_deref()
+                    .is_some_and(|c| c.contains("Only the people"))
+        })
+    })
+    .await;
+    assert!(due(&r), "ben's press cancelled nothing");
+    press(ANA, "ana");
+    until(&r, "ana's press cancels it", || !due(&r)).await;
+    until(&r, "the line leaves the home's board", || {
+        boards(&r, home)
+            .first()
+            .is_some_and(|b| !b.content.contains("dm tide check"))
+    })
+    .await;
 }

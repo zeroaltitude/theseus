@@ -388,7 +388,8 @@ fn future_parts(inner: &mut Vec<Value>, f: &FutureParts, now_ms: u64, caps: [usi
     let [cc, cr, cp] = caps;
     if !f.coming.is_empty() && cc > 0 {
         inner.push(separator());
-        inner.push(horizon::coming_text(&f.coming, now_ms, cc));
+        inner.push(horizon::coming_text(&f.coming, now_ms, cc, &f.names));
+        inner.extend(horizon::reminder_select(&f.coming, cc));
     }
     if !f.routines.is_empty() && cr > 0 {
         inner.push(separator());
