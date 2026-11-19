@@ -403,3 +403,42 @@ fn a_stranger_cannot_give_a_value_in_the_owners_place() {
     );
     r.value_nowhere();
 }
+
+/// `/answer` in the owner's direct messages draws the form's button, as the card does, and its press opens
+/// the form: the view is one more place the keep card is drawn.
+#[test]
+fn the_answer_view_in_the_dm_draws_the_forms_button_and_opens_it() {
+    let r = Rig::start(true);
+    r.pair();
+    let _card = r.card();
+    let iid = r
+        .fake
+        .slash(
+            &theseus_sim::fake_discord::commands::Sender {
+                user: ANA,
+                name: "ana",
+                channel: None,
+            },
+            "answer",
+            &[],
+        )
+        .unwrap();
+    let view = r.wait("the /answer view", || r.fake.reply_message(&iid));
+    let labels: Vec<&str> = view.buttons.iter().map(|b| b.label.as_str()).collect();
+    assert!(labels.contains(&"Type the value here"), "{labels:?}");
+    assert!(labels.contains(&"Decline"), "{labels:?}");
+    let seen = format!("{:?}", view);
+    assert!(
+        seen.contains("Discord's servers"),
+        "the view says what the form costs: {seen}"
+    );
+    let id = view
+        .buttons
+        .iter()
+        .find(|b| b.label == "Type the value here")
+        .unwrap()
+        .custom_id
+        .clone();
+    assert!(id.ends_with(":keep_form"), "{id}");
+    r.value_nowhere();
+}
