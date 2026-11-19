@@ -79,6 +79,8 @@ struct Model {
     /// result quotes it.
     plain: Mutex<Option<String>>,
     asked: Mutex<Vec<ProviderRequest>>,
+    /// Run once, when a model with no tool offered is asked (a stop that lands during the call).
+    on_asked: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Provider for Model {
@@ -96,6 +98,9 @@ impl Provider for Model {
         if let Some(said) = self.plain.lock().unwrap().clone() {
             if req.tools.is_empty() {
                 self.asked.lock().unwrap().push(req.clone());
+                if let Some(f) = self.on_asked.lock().unwrap().take() {
+                    f();
+                }
                 if said == FAILS {
                     return Box::pin(async {
                         Err(anyhow::Error::new(
@@ -112,7 +117,9 @@ impl Provider for Model {
                         .await
                 });
             }
-            if let Some(result) = tool_result_text(req) {
+            if let (true, Some(result)) =
+                (self.steps.lock().unwrap().is_empty(), tool_result_text(req))
+            {
                 let answer = Scripted::text(&format!("It said: {result}"));
                 return Box::pin(async move {
                     FakeProvider::scripted(vec![answer])
@@ -189,6 +196,7 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         first_request: Mutex::default(),
         plain: Mutex::default(),
         asked: Mutex::default(),
+        on_asked: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -263,6 +271,18 @@ impl Rig {
         self.model.asked.lock().unwrap().clone()
     }
 
+    /// Have `f` run when the model with no tool offered is next asked.
+    pub(super) fn when_the_profile_is_asked(&self, f: impl FnOnce() + Send + 'static) {
+        *self.model.on_asked.lock().unwrap() = Some(Box::new(f));
+    }
+
+    /// A session posting to `place` (`dm:<user>`), as a binding's place is.
+    pub(super) fn session_at(&self, place: &str) -> String {
+        let sid = self.session();
+        self.core.outbox.bind_place(place, &sid).unwrap();
+        sid
+    }
+
     pub(super) fn session(&self) -> String {
         let r = SessionRecord::new(SessionKind::Conversation, None);
         self.core.store.put_session(&r.session_id, &r).unwrap();
@@ -291,7 +311,7 @@ impl Rig {
         self.run_turn(sid).await;
     }
 
-    async fn run_turn(&self, sid: &str) {
+    pub(super) async fn run_turn(&self, sid: &str) -> theseus_protocol::TurnSubmitResult {
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();
         let target = self
@@ -316,7 +336,7 @@ impl Rig {
                 answer_at: None,
             })
             .await
-            .unwrap();
+            .unwrap()
     }
 
     pub(super) fn result(&self, sid: &str) -> (ResultStatus, String) {

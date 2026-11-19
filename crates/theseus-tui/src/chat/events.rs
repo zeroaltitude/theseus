@@ -577,6 +577,13 @@ impl Chat {
         let line = self.tool_row(&left, mark, sty, &words);
         self.say(&line);
         self.result_rows(t);
+        // Another profile's answer is a message of the conversation (issue 28): its words, then a
+        // footer naming the profile and model that answered and saying who asked.
+        if let Some(a) = &t.subagent {
+            self.say_reply(&a.text);
+            self.say_plain(Sty::Dim, &format!("  {}", a.footer()));
+            self.gap();
+        }
     }
 
     /// What the call left, under its line: an edit's diff, or the first lines

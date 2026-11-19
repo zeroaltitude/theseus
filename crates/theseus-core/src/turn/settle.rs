@@ -213,6 +213,8 @@ impl TurnRunner {
         let batch = self.tools.run_calls(&tc, &node.id, &calls).await?;
         t.tool_calls += batch.ran.len() as u32;
         calls::trace_calls(&mut t.trace, &self.tools, uses, &batch.ran);
+        // What another profile answered a call, shown before this turn's reply (issue 28).
+        self.post_subagents(t)?;
         let mut answered = 0;
         // One status per judged call, for the repeat cap (`repeat_step`).
         let mut outcomes = Vec::with_capacity(batch.ran.len());

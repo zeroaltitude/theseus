@@ -45,6 +45,7 @@ mod reply;
 pub(crate) mod settings;
 pub(crate) mod snapshot;
 mod step;
+mod subagent;
 pub(crate) mod task_view;
 #[cfg(test)]
 mod tests_pin;
@@ -55,6 +56,7 @@ pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, thread_tag, wake_header};
 use step::{render_turn, step_loop, STEP_ROLL};
+pub use subagent::subagent_parts;
 pub use wakes::wakes;
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.

@@ -20,7 +20,9 @@ impl Lane {
         if self.kind != "dm" {
             return None;
         }
-        let sid = body["result"]["session_id"].as_str()?;
+        let sid = body["result"]["session_id"]
+            .as_str()
+            .or_else(|| body["session_id"].as_str())?;
         let board = self.shared.core.threads();
         let t = board.of_session(sid)?;
         self.shared.replies.thread_turn(turn_id, &t.slug);

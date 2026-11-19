@@ -35,6 +35,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use theseus_protocol::ops::SessionProfileParams;
 use theseus_protocol::Plan;
+use theseus_protocol::SubagentAnswer;
 use theseus_tools::{
     parse, AsyncMediaRun, Backend, Registry, Retry, Tool, ToolClass, ToolCtx, ToolFailure,
     ToolOutput,
@@ -132,7 +133,7 @@ impl Tool for ProfileAsk {
         "Ask ONE question of another model profile and get its own words back, with its model named: \
          one call, no tools for the asked model, an answer of at most 4,000 tokens, 100 seconds. It is \
          counted and priced as a model call of this turn. Use it for \"use <profile> to say hello\". \
-         Give the answer to the owner as that profile's words. To put this conversation on a profile, \
+         Theseus shows the answer to the owner as that profile's own message, so your reply need not repeat it. To put this conversation on a profile, \
          use profile.hold; Theseus's own command line in a shell is not the way. Offered only to the \
          owner, in a private place."
     }
@@ -261,9 +262,31 @@ impl Tool for ProfileHold {
 #[derive(Default)]
 pub struct Board {
     core: OnceLock<Weak<Core>>,
+    /// The answers a turn's calls got, until the turn posts them (`give`, `take`): in memory
+    /// only, as a staged post's source is; the answer itself is in the result node.
+    answers: std::sync::Mutex<std::collections::HashMap<String, Vec<SubagentAnswer>>>,
 }
 
 impl Board {
+    /// A turn's call got `answer`: the turn posts it to its place, in order, before its reply.
+    pub(crate) fn give(&self, turn: &str, answer: SubagentAnswer) {
+        self.answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(turn.to_string())
+            .or_default()
+            .push(answer);
+    }
+
+    /// The answers `turn` has not posted yet, in the order they came; taken once.
+    pub(crate) fn take(&self, turn: &str) -> Vec<SubagentAnswer> {
+        self.answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(turn)
+            .unwrap_or_default()
+    }
+
     pub fn attach(&self, core: &Arc<Core>) {
         let _ = self.core.set(Arc::downgrade(core));
     }

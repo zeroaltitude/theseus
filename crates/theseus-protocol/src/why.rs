@@ -54,6 +54,9 @@ pub struct ToolCalled {
     pub gate: Option<String>,
     /// The gate's reason for it.
     pub reason: Option<String>,
+    /// The profiles a `profile.ask` of the turn asked (issue 28), in the order asked: each
+    /// answer is a subagent's, drawn as a message of its own from the model that gave it.
+    pub asked: Vec<String>,
 }
 
 /// The tools a turn's `tool_call` nodes (`node.list`'s) name, in the order of
@@ -90,6 +93,14 @@ pub fn tools_called(nodes: &NodeListResult, turn: &str) -> Vec<ToolCalled> {
             }
         };
         t.calls += 1;
+        if name.replace('.', "_") == "profile_ask" {
+            t.asked.extend(
+                n.detail
+                    .pointer("/input/profile")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            );
+        }
         t.gate = gate.map(str::to_string).or(t.gate.take());
         t.reason = reason.map(str::to_string).or(t.reason.take());
     }
@@ -699,6 +710,12 @@ fn tools(i: &WhyInput) -> Vec<String> {
     for c in i.tools {
         let found = place.and_then(|p| p.tools.iter().find(|t| same_tool(&t.tool, &c.tool)));
         out.push(tool_line(c, found));
+        if !c.asked.is_empty() {
+            out.push(format!(
+                "    asked as subagents: {} (each answer is a message of its own, from the model that gave it, with a footer that says so)",
+                c.asked.join(", ")
+            ));
+        }
     }
     out
 }
