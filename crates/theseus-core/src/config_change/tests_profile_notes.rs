@@ -362,3 +362,29 @@ async fn a_task_creates_card_says_what_the_task_is_to_do() {
         "start a background task: List the files of the folder and report them."
     );
 }
+
+/// The late message names the asking conversation and turn, not only the task's own session: that is
+/// how a direct message that hosts several thread sessions draws it with its thread's tag. The post is
+/// still the task's (its call, its key), so a retry posts it once.
+#[tokio::test]
+async fn the_report_post_names_the_asking_conversation_and_turn() {
+    let r = rig();
+    r.agents_report(REPORT, None);
+    let sid = r.session_at(PLACE);
+    r.steps(&sid, vec![("profile_run", work("haiku"))]).await;
+    let said = wait_for_spoken(&r, 1).await;
+    assert_eq!(said.len(), 1, "{:?}", posts(&r));
+    assert_eq!(
+        said[0]["session_id"],
+        json!(sid),
+        "the asking conversation's"
+    );
+    let turn = said[0]["turn_id"].as_str().unwrap();
+    assert!(turn.starts_with("turn_"), "the asking turn's: {turn:?}");
+    let t = tasks(&r, &sid).remove(0);
+    assert_eq!(
+        said[0]["answer"]["call"],
+        json!(t.session_id),
+        "keyed to the task"
+    );
+}
