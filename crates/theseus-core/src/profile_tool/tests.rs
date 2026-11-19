@@ -1,0 +1,102 @@
+//! The wall and the gate of `profile.ask` and `profile.hold`, on the facts alone. The
+//! played turns, through the whole core, are `config_change/tests_profile.rs`.
+
+use super::*;
+use crate::config_change::wall;
+
+fn started_from_a_file() -> crate::Config {
+    let mut cfg = crate::Config::example();
+    cfg.config_file = Some("/etc/theseus/theseus.toml".into());
+    cfg
+}
+
+fn plan() -> Plan {
+    Plan {
+        summary: "profile".into(),
+        ..Default::default()
+    }
+}
+
+/// A clean turn is told and not asked; one that read text from outside, or was steered, is
+/// asked; and only the two tools are touched.
+#[test]
+fn a_profile_call_is_free_when_clean_and_asked_after_outside_text() {
+    for tool in NAMES {
+        assert!(
+            held(tool, false, false, plan()).authority.is_none(),
+            "{tool}"
+        );
+        for (outside, steered) in [(true, false), (false, true), (true, true)] {
+            let said = held(tool, outside, steered, plan()).authority.unwrap();
+            assert!(said.contains("read text from outside"), "{said}");
+        }
+    }
+    for other in ["config.show", "proc.run", "profile.other", "look.theseus"] {
+        assert!(
+            held(other, true, true, plan()).authority.is_none(),
+            "{other}"
+        );
+    }
+}
+
+/// Every refusal of the wall is said in the tool's own name, and none of them says it
+/// changes a setting.
+#[test]
+fn every_refusal_is_in_the_tools_own_words() {
+    let walls = [
+        wall::NOT_PRIVATE,
+        wall::NOT_ALONE,
+        wall::NOT_A_TASK,
+        wall::NOT_THE_OWNER,
+    ];
+    for tool in NAMES {
+        for w in walls {
+            let said = worded(Some(w), tool).unwrap();
+            assert!(said.starts_with(tool), "{said}");
+            assert!(!said.contains("config.propose"), "{said}");
+        }
+        assert_eq!(worded(None, tool), None);
+    }
+}
+
+/// The tools are in the names `[policy.tools]` accepts, the registry, and a family of their
+/// own, and a bare config has neither.
+#[test]
+fn a_daemon_started_from_a_config_has_the_tools_and_a_bare_config_has_none() {
+    let count = |cfg: &crate::Config| {
+        let mut r = Registry::default();
+        register(cfg, &mut r);
+        r.len()
+    };
+    assert_eq!(count(&crate::Config::example()), 0);
+    assert_eq!(count(&started_from_a_file()), 2);
+    let mut r = Registry::default();
+    register(&started_from_a_file(), &mut r);
+    for tool in NAMES {
+        let t = r.get(tool).expect(tool);
+        assert_eq!(t.family(), FAMILY);
+        assert_eq!(t.class(), ToolClass::Read);
+        assert!(t
+            .description()
+            .contains("command line in a shell is not the way"));
+    }
+}
+
+/// The hold names a profile or lets one go, never both and never neither.
+#[test]
+fn a_hold_names_a_profile_or_lets_go_and_nothing_else() {
+    assert_eq!(
+        hold_of(&json!({"profile": " haiku "})),
+        Ok(Some("haiku".into()))
+    );
+    assert_eq!(hold_of(&json!({"release": true})), Ok(None));
+    for bad in [
+        json!({}),
+        json!({"profile": ""}),
+        json!({"profile": "haiku", "release": true}),
+        json!({"release": false}),
+        json!({"profile": "haiku", "session_id": "ses_other"}),
+    ] {
+        assert!(hold_of(&bad).is_err(), "{bad}");
+    }
+}

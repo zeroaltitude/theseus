@@ -16,6 +16,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [prompt-file-change.md](prompt-file-change.md): the owner asks Theseus to change a prompt file, or a setting too long for a card, by the same door and the same proof (issue 23).
 - [config-undo.md](config-undo.md): the history of those changes, and undoing one by the same card, without writing the old file back (issue 22).
 - [look-tools.md](look-tools.md): Theseus reads itself and the names its vault holds with tools of its own, so a look is never a card; the floor is untouched (issue 26).
+- [own-tools.md](own-tools.md): Theseus asks a named profile one question, and holds a conversation to a profile, by tools and not by its own command line in a shell; the floor is untouched (issue 28).
 - [vault-use.md](vault-use.md): Theseus uses what its vault holds by name: a field's names (never a value) and one card that puts an item to use after the daemon read it, with a reference the daemon builds and never a turn (issue 26).
 - [vault-keep.md](vault-keep.md): the owner keeps a new secret in the vault with its value typed in a surface's own form (the terminal's hidden prompt, the cockpit's field), never as a chat message and never through a turn (issue 26).
 - [public-facts.md](public-facts.md): a fact its maker publishes (a model's name, a provider's address and protocol) is looked up and shown on the card with its source as the model's word, not asked for; where a secret is sent stays the owner's to confirm (issue 26).

@@ -250,6 +250,7 @@ ledger_kinds! {
     PolicyUntightened = "policy.untightened",
     PrefixPicked = "prefix.picked",
     PrivacyWarned = "privacy.warned",
+    ProfileAsked = "profile.asked",
     ProfileChanged = "profile.changed",
     ProjectChanged = "project.changed",
     ProjectTrust = "project.trust",

@@ -335,7 +335,7 @@ async fn the_shell_on_the_vaults_program_is_still_held_by_the_floor() {
 /// A core as a daemon has it: deferral on (a test's core has it off), started
 /// from a vault's note when `vault_note` (the looks and no settings tools) and
 /// from nothing when not.
-fn deferred_core(vault_note: bool) -> (Arc<crate::Core>, tempfile::TempDir) {
+pub(super) fn deferred_core(vault_note: bool) -> (Arc<crate::Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();

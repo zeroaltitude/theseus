@@ -44,6 +44,26 @@ anthropic_api_key = "op://v/i/f"
 enabled = true   # turn it off to stop the import
 "#;
 
+/// What `Rig::answers_plain` is given for a model that cannot answer.
+pub(super) const FAILS: &str = "<the provider fails>";
+
+/// The text of the tool result a request answers, when it answers one.
+fn tool_result_text(req: &ProviderRequest) -> Option<String> {
+    let blocks = req.messages.last()?["content"].as_array()?.clone();
+    blocks.iter().find(|b| b["type"] == "tool_result").map(|b| {
+        let c = &b["content"];
+        c.as_str().map(str::to_string).unwrap_or_else(|| {
+            c.as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x["text"].as_str())
+                        .collect::<String>()
+                })
+                .unwrap_or_default()
+        })
+    })
+}
+
 /// Answers each turn's first request with the call its input names.
 struct Model {
     calls: Mutex<Vec<(String, Value)>>,
@@ -54,6 +74,11 @@ struct Model {
     /// Run once, when the turn first asks the model: the turn has written its
     /// input by then, as the judge that reads it has had it written.
     first_request: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// What a model with no tool offered answers (a profile asked one question,
+    /// issue 28), and the requests that asked it; the turn's own answer to such a
+    /// result quotes it.
+    plain: Mutex<Option<String>>,
+    asked: Mutex<Vec<ProviderRequest>>,
 }
 
 impl Provider for Model {
@@ -67,6 +92,34 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
+        }
+        if let Some(said) = self.plain.lock().unwrap().clone() {
+            if req.tools.is_empty() {
+                self.asked.lock().unwrap().push(req.clone());
+                if said == FAILS {
+                    return Box::pin(async {
+                        Err(anyhow::Error::new(
+                            crate::provider::ProviderError::Overloaded {
+                                message: "the lighthouse is busy".into(),
+                            },
+                        ))
+                    });
+                }
+                let answer = Scripted::text(&said);
+                return Box::pin(async move {
+                    FakeProvider::scripted(vec![answer])
+                        .stream_message(req, on_delta)
+                        .await
+                });
+            }
+            if let Some(result) = tool_result_text(req) {
+                let answer = Scripted::text(&format!("It said: {result}"));
+                return Box::pin(async move {
+                    FakeProvider::scripted(vec![answer])
+                        .stream_message(req, on_delta)
+                        .await
+                });
+            }
         }
         let answers_a_call = req
             .messages
@@ -134,6 +187,8 @@ pub(super) fn rig_with(tweak: impl FnOnce(&mut Config, &std::path::Path)) -> Rig
         steps: Mutex::default(),
         made: Mutex::default(),
         first_request: Mutex::default(),
+        plain: Mutex::default(),
+        asked: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -197,6 +252,17 @@ pub(super) fn change(path: &str, value: Value) -> Value {
 }
 
 impl Rig {
+    /// A model with no tool offered answers `said`, and the turn's own answer to a tool's
+    /// result quotes the result.
+    pub(super) fn answers_plain(&self, said: &str) {
+        *self.model.plain.lock().unwrap() = Some(said.into());
+    }
+
+    /// The requests a model with no tool offered was asked.
+    pub(super) fn asked_plain(&self) -> Vec<ProviderRequest> {
+        self.model.asked.lock().unwrap().clone()
+    }
+
     pub(super) fn session(&self) -> String {
         let r = SessionRecord::new(SessionKind::Conversation, None);
         self.core.store.put_session(&r.session_id, &r).unwrap();
