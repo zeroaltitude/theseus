@@ -1022,6 +1022,11 @@ impl TurnRunner {
     async fn run_body(&self, mut req: TurnRequest) -> Result<TurnSubmitResult> {
         let arrived = req.arrived.unwrap_or_else(Instant::now);
         let continuation = req.input.is_none();
+        // Listed from its start until it holds its execution: a `/stop` that
+        // lands while this input's turn waits for its secrets, or for
+        // admission, reaches it (`AdmitWaiting`).
+        let waiting = (!continuation)
+            .then(|| self.admit_waiting.enter(&req.session.session_id, arrived));
         // A person's message: Jev's connections open now, beside the
         // admission's frames, for the judgments its input node will ask
         // (theseus-otny). A slash command asks none.
@@ -1135,6 +1140,7 @@ impl TurnRunner {
                 }
             },
         };
+        drop(waiting);
         let steer = self
             .tools
             .job_waits

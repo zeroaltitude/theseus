@@ -80,7 +80,7 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     // reaches it, though it holds nothing yet, so nothing is marked.
     let t0 = std::time::Instant::now();
     while !r.core.runner.admit_waiting.reaches(
-        &exec_b,
+        &b.session_id,
         std::time::Instant::now() + Duration::from_secs(3600),
     ) {
         assert!(
@@ -118,6 +118,94 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     let b3 = turn(&r.core, Some(&b.session_id), "and now?").await;
     assert_eq!(b3.output, "After the stop.");
     assert_ne!(b3.stop_reason, "stopped");
+}
+
+/// A `/stop` that lands while an input's turn still waits for its secrets,
+/// before it has reached `admit()`, reaches that turn as well: the answer and
+/// the kernel's row say a turn was running (the turn stops itself on the
+/// stop's notice when it is admitted, and plans nothing). The turn is known
+/// from the start of its run, not from its admission.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_while_an_inputs_turn_waits_for_its_secrets_counts_that_turn() {
+    use crate::secrets::{Secret, SecretBoard};
+    use theseus_kernel::Authority;
+    let key = "anthropic_api_key".to_string();
+    let board = SecretBoard::new([key.clone()], std::time::Instant::now());
+    let held_board = board.clone();
+    let r = rig_parts(
+        vec![Scripted::text("never sent")],
+        |_| {},
+        move |p| p.secrets = board,
+    );
+    // A session with an execution of its own, as one that has had a turn.
+    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+    let exec = r
+        .core
+        .kernel
+        .open_execution(
+            &rec.session_id,
+            SessionKind::Conversation,
+            Authority {
+                principal: crate::turn::OPERATOR.into(),
+                ..Default::default()
+            },
+            None,
+            None,
+        )
+        .unwrap();
+    rec.execution_id = Some(exec.id.clone());
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let (live, _) = r.core.live_profile();
+    let req = TurnRequest {
+        prompt: None,
+        surface: None,
+        sink: EventSink::new(r.core.bus.clone(), &rec.session_id, None),
+        session: rec.clone(),
+        input: Some("do the thing".into()),
+        target: r
+            .core
+            .runner
+            .resolve_target(&live, None, None, None)
+            .unwrap(),
+        author: "test".into(),
+        recompile: None,
+        attachments: vec![],
+        arrived: Some(std::time::Instant::now()),
+        reply_to: None,
+        answer_at: None,
+    };
+    let core = r.core.clone();
+    let turn = tokio::spawn(async move { core.runner.run(req).await.unwrap() });
+    let t0 = std::time::Instant::now();
+    while !r.core.runner.admit_waiting.reaches(
+        &rec.session_id,
+        std::time::Instant::now() + Duration::from_secs(3600),
+    ) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the turn never began"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(
+        !r.core.kernel.holds_turn(&exec.id),
+        "the turn waits for its secrets, holding nothing"
+    );
+    let stop = r.core.stop_execution(&exec.id, "test").await.unwrap();
+    assert!(stop.stopped && stop.turn_running, "{stop:?}");
+    let rows = ledgered(&r, "execution.stopped");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["turn_running"], true, "the row: {rows:?}");
+    held_board.publish(
+        std::collections::BTreeMap::from([(key, Ok(Secret::new("k-test-0123456789".into())))]),
+        "test",
+    );
+    let res = tokio::time::timeout(Duration::from_secs(20), turn)
+        .await
+        .expect("the turn ended")
+        .unwrap();
+    assert_eq!(res.stop_reason, "stopped", "{res:?}");
+    assert_eq!(r.fake.requests.lock().unwrap().len(), 0, "no model call");
 }
 
 /// theseus-830, changed by theseus-v2dnc: a call's question nobody answers
