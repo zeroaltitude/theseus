@@ -86,6 +86,16 @@ pub(crate) fn hold(method: &str) -> std::sync::Arc<Hold> {
     h
 }
 
+/// A canned answer a test gives a method (no request is made): for a daemon call whose real answer needs a server
+/// the test has not got (an MCP server's prompts).
+#[cfg(test)]
+static STUBBED: Mutex<Vec<(String, Value)>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn stub(method: &str, answer: Value) {
+    STUBBED.lock().unwrap().push((method.to_string(), answer));
+}
+
 #[cfg(test)]
 pub(crate) fn keep_lines() -> Vec<String> {
     KEEP_LINES.lock().unwrap().clone()
@@ -185,6 +195,18 @@ impl RpcClient {
             if let Some(h) = held {
                 h.reached.notify_one();
                 h.release.notified().await;
+            }
+        }
+        #[cfg(test)]
+        {
+            let canned = STUBBED
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(m, _)| m == method)
+                .map(|(_, v)| v.clone());
+            if let Some(v) = canned {
+                return serde_json::from_value(v).map_err(CallError::local);
             }
         }
         let (tx, rx) = oneshot::channel();

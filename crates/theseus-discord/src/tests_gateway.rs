@@ -1078,6 +1078,7 @@ pub(crate) fn injection_jev() -> theseus_judge::fake::FakeJev {
     jev
 }
 
+mod acks;
 mod ask;
 mod calendar;
 mod card_question;

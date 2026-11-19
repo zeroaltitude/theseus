@@ -339,7 +339,14 @@ impl State {
                 return;
             }
             let content = r.content.clone().unwrap_or_default();
-            self.complete_view(id, &content, &data["components"], data["flags"].as_u64());
+            // What completes an ephemeral deferral is an ephemeral message: its flag is the deferral's.
+            let flags = data["flags"].as_u64().unwrap_or(0)
+                | (if self.ephemeral_acks.contains(id) {
+                    64
+                } else {
+                    0
+                });
+            self.complete_view(id, &content, &data["components"], Some(flags));
         }
     }
 
