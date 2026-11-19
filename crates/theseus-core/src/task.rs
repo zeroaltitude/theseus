@@ -617,7 +617,6 @@ pub fn create<'a>(
         Some(c) => (c.pieces.clone(), 0),
         None => arranged(tc, &i, &nodes, holder.as_deref())?,
     };
-    let left = parent.budget.available();
     let want = match i.budget_usd {
         Some(b) => usd_to_micros(b),
         None => default_carve(tc.kernel, &parent),
