@@ -33,6 +33,10 @@ impl ToolRuntime {
             crate::config_change::mcp_attach::DETACH => {
                 crate::config_change::mcp_attach::detach(self, tc, &call.input, correlation_id)
             }
+            // A vault item put to use: the daemon reads the vault before the card (issue 26).
+            crate::config_change::vault_use::USE => {
+                crate::config_change::vault_use::run(self, tc, &call.input, correlation_id).await
+            }
             _ => crate::extend::propose(self, tc, &call.input, correlation_id).await,
         };
         // A trial a cancel or a stop aborted (18a): the cancel settles the

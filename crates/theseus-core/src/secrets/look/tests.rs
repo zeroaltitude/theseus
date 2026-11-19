@@ -19,11 +19,20 @@ printf '%s\n' "$*" >> "$LOG"
 [ "$MODE" = fail-net ] && {{ echo '[ERROR] 2026/10/19 08:00:00 dial tcp: lookup nowhere.example: no such host' >&2; exit 1; }}
 [ "$MODE" = fail-other ] && {{ echo '[ERROR] 2026/10/19 08:00:00 something with INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
 [ "$MODE" = junk ] && {{ echo 'not json'; exit 0; }}
+[ "$MODE" = fail-get ] && [ "$1 $2" = "item get" ] && {{ echo '[ERROR] 2026/10/19 08:00:00 you are not authorized to read INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
+[ "$MODE" = fail-read ] && [ "$1" = read ] && {{ echo '[ERROR] 2026/10/19 08:00:00 you are not authorized to read INVENTED-WORDS-IN-STDERR' >&2; exit 1; }}
+[ "$MODE" = dupfield ] && [ "$1 $2" = "item get" ] && {{ echo '{{"id":"itemid00000000000000000001","fields":[{{"id":"credential","type":"CONCEALED","label":"credential","value":"INVENTED-FIELD-VALUE-9"}},{{"id":"f2id","type":"CONCEALED","label":"Credential","value":"INVENTED-OTHER-VALUE"}},{{"id":"password","type":"CONCEALED","label":"keyword","value":"INVENTED-PW-VALUE"}},{{"id":"f9","type":"CONCEALED","label":"password","value":"INVENTED-PW2-VALUE"}}]}}'; exit 0; }}
+[ "$MODE" = dupsection ] && [ "$1 $2" = "item get" ] && {{ echo '{{"id":"itemid00000000000000000001","fields":[{{"id":"f7","type":"CONCEALED","label":"password","value":"INVENTED-FIELD-VALUE-9"}},{{"id":"p2","type":"CONCEALED","label":"password","section":{{"id":"s1","label":"Extra"}},"value":"INVENTED-OTHER-VALUE"}}]}}'; exit 0; }}
+[ "$MODE" = slash ] && [ "$1 $2" = "item list" ] && {{ echo '[{{"id":"itemid00000000000000000001","title":"Lantern/key","vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL"}}]'; exit 0; }}
+[ "$MODE" = slash ] && [ "$1 $2" = "item get" ] && {{ echo '{{"id":"itemid00000000000000000001","fields":[{{"id":"apikey","type":"CONCEALED","label":"api/key","value":"INVENTED-FIELD-VALUE-9"}}]}}'; exit 0; }}
+[ "$MODE" = dup ] && [ "$1 $2" = "item list" ] && {{ echo '[{{"id":"itemid00000000000000000001","title":"Lantern key","vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL"}},{{"id":"itemid00000000000000000009","title":"Lantern key","vault":{{"id":"vaultid00000000000000000002","name":"Dock"}},"category":"LOGIN"}}]'; exit 0; }}
 [ "$MODE" = big ] && {{ head -c 5000000 /dev/zero | tr '\0' 'x'; exit 0; }}
 case "$1 $2" in
   "whoami --format") echo '{{"url":"https://harbor.example.test/path","account_uuid":"ACCT-UUID-1","user_uuid":"USER-UUID-1","user_type":"SERVICE_ACCOUNT"}}' ;;
   "vault list") echo '[{{"id":"vaultid00000000000000000001","name":"Harbor","content_version":3}},{{"id":"vaultid00000000000000000002","name":"Dock"}}]' ;;
-  "item list") echo '[{{"id":"itemid1","title":"Lantern key","version":2,"vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL","additional_information":"INVENTED-USERNAME","urls":[{{"href":"https://invented.example.test/secret-path"}}],"tags":["invented-tag"],"fields":[{{"id":"credential","value":"INVENTED-VALUE-1234"}}],"notesPlain":"INVENTED-NOTE","last_edited_by":"INVENTED-PERSON"}}]' ;;
+  "item list") echo '[{{"id":"itemid00000000000000000001","title":"Lantern key","version":2,"vault":{{"id":"vaultid00000000000000000001","name":"Harbor"}},"category":"API_CREDENTIAL","additional_information":"INVENTED-USERNAME","urls":[{{"href":"https://invented.example.test/secret-path"}}],"tags":["invented-tag"],"fields":[{{"id":"credential","value":"INVENTED-VALUE-1234"}}],"notesPlain":"INVENTED-NOTE","last_edited_by":"INVENTED-PERSON"}}]' ;;
+  "read --no-newline") case "$3" in *Missing*) echo '[ERROR] 2026/10/19 08:00:00 could not read secret: item not found' >&2; exit 1 ;; *Empty*) printf '' ;; *) printf 'INVENTED-FIELD-VALUE-9' ;; esac ;;
+  "item get") echo '{{"id":"itemid00000000000000000001","title":"Lantern key","category":"API_CREDENTIAL","urls":[{{"href":"https://invented.example.test/secret-path"}}],"notesPlain":"INVENTED-NOTE-TEXT","fields":[{{"id":"username","type":"STRING","purpose":"USERNAME","label":"username","value":"INVENTED-USER-VALUE"}},{{"id":"credential","type":"CONCEALED","label":"credential","value":"INVENTED-FIELD-VALUE-9","reference":"op://Harbor/Lantern key/credential"}},{{"id":"notesPlain","type":"STRING","purpose":"NOTES","label":"notesPlain","value":"INVENTED-NOTE-TEXT"}},{{"id":"f3","type":"CONCEALED","label":"backup code","section":{{"id":"sec1","label":"Recovery"}},"value":"INVENTED-SECTION-VALUE"}},{{"id":"f4","type":"A_TYPE_ADDED_TOMORROW","label":"odd","value":"INVENTED-ODD-VALUE"}}]}}' ;;
   *) echo "[ERROR] unexpected: $*" >&2; exit 1 ;;
 esac
 "#,
@@ -215,4 +224,125 @@ async fn with_no_vault_nothing_is_run() {
     assert!(op.has_no_vault());
     assert_eq!(op.look(&Verb::Whoami).await, Err(Failed::NoVault));
     assert!(logged(dir.path()).is_empty(), "no program was started");
+}
+
+/// An item's id is what `op` gives and nothing else can be one.
+#[test]
+fn an_item_id_cannot_be_a_flag_a_reference_or_a_path() {
+    for hostile in [
+        "",
+        "--reveal",
+        "-h",
+        "--format=json",
+        "op://Harbor/Lantern key/credential",
+        "../../etc/passwd",
+        "id with space",
+        "idididid;rm -rf",
+        "idididid\n--reveal",
+        "idididid=value",
+        &"a".repeat(65),
+    ] {
+        assert_eq!(ItemId::parse(hostile), None, "{hostile:?}");
+    }
+    assert!(ItemId::parse("itemid00000000000000000001").is_some());
+}
+
+/// The one get is of a listed id with its format, and has no way to name a
+/// field, a reveal, or a vault of the model's.
+#[test]
+fn the_item_verb_is_one_get_of_a_listed_id() {
+    let id = ItemId::parse("itemid00000000000000000001").unwrap();
+    assert_eq!(
+        Verb::Item(id).argv(),
+        [
+            "item",
+            "get",
+            "itemid00000000000000000001",
+            "--format",
+            "json"
+        ]
+    );
+    for word in READS.iter().filter(|w| **w != "get") {
+        assert!(
+            !Verb::Item(ItemId::parse("itemid00000000000000000001").unwrap())
+                .argv()
+                .iter()
+                .any(|a| a == word),
+            "{word}"
+        );
+    }
+}
+
+/// The fields come back as a label, a section and a kind: the value key, a
+/// note's text, a field's reference, urls and a key added tomorrow do not ride
+/// through, and a type this does not know is `other`.
+#[test]
+fn a_fields_answer_is_rebuilt_from_labels_and_kinds_only() {
+    let text = r#"{"id":"i1","notesPlain":"INVENTED-NOTE-TEXT","urls":[{"href":"https://x.test/INVENTED-PATH"}],
+        "fields":[
+          {"id":"username","type":"STRING","purpose":"USERNAME","label":"username","value":"INVENTED-USER-VALUE"},
+          {"id":"credential","type":"CONCEALED","label":"credential","value":"INVENTED-FIELD-VALUE-9","reference":"op://Harbor/Lantern key/credential"},
+          {"id":"notesPlain","type":"STRING","purpose":"NOTES","label":"notesPlain","value":"INVENTED-NOTE-TEXT"},
+          {"id":"f3","type":"CONCEALED","label":"backup code","section":{"id":"s","label":"Recovery"},"value":"INVENTED-SECTION-VALUE"},
+          {"id":"f4","type":"A_TYPE_ADDED_TOMORROW","label":"odd\nline","value":"INVENTED-ODD-VALUE","new_key":"INVENTED-NEW"},
+          {"id":"f5","type":"STRING","label":"","value":"INVENTED-UNLABELLED"},
+          {"type":"STRING","label":"no id"}
+        ]}"#;
+    let got = parse_fields(text).unwrap();
+    let shown = format!("{got:?}");
+    for leaked in [
+        "INVENTED-USER-VALUE",
+        "INVENTED-FIELD-VALUE-9",
+        "INVENTED-NOTE-TEXT",
+        "INVENTED-SECTION-VALUE",
+        "INVENTED-ODD-VALUE",
+        "INVENTED-NEW",
+        "INVENTED-PATH",
+        "INVENTED-UNLABELLED",
+        "op://",
+    ] {
+        assert!(!shown.contains(leaked), "{leaked} in {shown}");
+    }
+    let f = |id: &str, section: Option<&str>, label: &str, kind: &'static str| FieldName {
+        id: id.into(),
+        section: section.map(str::to_string),
+        section_id: section.map(|_| "s".to_string()),
+        label: label.into(),
+        kind,
+    };
+    assert_eq!(
+        got,
+        vec![
+            f("username", None, "username", "text"),
+            f("credential", None, "credential", "concealed"),
+            f("notesPlain", None, "notesPlain", "a note"),
+            f("f3", Some("Recovery"), "backup code", "concealed"),
+            f("f4", None, "odd line", "other"),
+            f("f5", None, "f5", "text"),
+            f("", None, "no id", "text"),
+        ]
+    );
+    assert_eq!(parse_fields("not json"), Err(Failed::Unreadable));
+    assert_eq!(parse_fields("[]"), Err(Failed::Unreadable));
+}
+
+/// The item's text is read through the reader, the command is the one get, and
+/// a failure is a class.
+#[tokio::test]
+async fn the_reader_gets_an_item_by_its_id_and_a_failure_is_a_class() {
+    let dir = tempfile::tempdir().unwrap();
+    let op = stub(dir.path(), "ok");
+    let id = ItemId::parse("itemid00000000000000000001").unwrap();
+    let text = op.look_item(&id).await.unwrap();
+    assert_eq!(parse_fields(&text).unwrap().len(), 5);
+    assert_eq!(
+        logged(dir.path()),
+        ["item get itemid00000000000000000001 --format json"]
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let got = stub(dir.path(), "fail-get").look_item(&id).await;
+    assert_eq!(got.err(), Some(Failed::Denied));
+    let mut none = stub(dir.path(), "ok");
+    none.absent = Some("no token".into());
+    assert_eq!(none.look_item(&id).await.err(), Some(Failed::NoVault));
 }

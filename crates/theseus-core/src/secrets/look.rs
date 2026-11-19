@@ -9,9 +9,12 @@
 //!   id `op` itself listed ([`VaultId`], letters and digits only), and a title
 //!   filter is applied here, to what came back.
 //! - What comes back is parsed and rebuilt from the named keys only
-//!   ([`Account`], [`Vault`], [`ItemName`]), so a key `op` adds tomorrow, or a
-//!   field it already lists (an item's username, its web addresses, its tags),
-//!   does not ride through.
+//!   ([`Account`], [`Vault`], [`ItemName`], [`FieldName`]), so a key `op` adds
+//!   tomorrow, or a field it already lists (an item's username, its web
+//!   addresses, its tags), does not ride through. An item's fields are the one
+//!   answer that carries values (`op` lists them beside each label): the item's
+//!   text is held in zeroizing memory, only each field's label, section and a
+//!   kind from a closed list are kept, and the value key is not read.
 //! - A failure is a [`Failed`] class, never `op`'s own stderr.
 //!
 //! The token is the daemon's: `OpReader::op` hands it to the child, and the
@@ -20,6 +23,7 @@
 use std::process::Stdio;
 
 use serde_json::Value;
+use zeroize::Zeroizing;
 
 use super::{OpReader, OP_TIMEOUT};
 
@@ -46,7 +50,25 @@ impl VaultId {
     }
 }
 
-/// What may be asked of `op`: three list verbs, and nothing else exists.
+/// An item's id as `op` lists it: letters and digits, never a flag, a path, a
+/// reference or a space. Made only from what `op` itself answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemId(String);
+
+impl ItemId {
+    /// The id, or `None` for anything that is not one.
+    pub fn parse(s: &str) -> Option<Self> {
+        let ok = (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric());
+        ok.then(|| Self(s.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// What may be asked of `op`: three list verbs and one get of an item by the
+/// id `op` listed, and nothing else exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verb {
     /// Which account the token is.
@@ -55,6 +77,10 @@ pub enum Verb {
     Vaults,
     /// The items of one vault, or of every vault the token sees.
     Items(Option<VaultId>),
+    /// One item, by its id, for the labels of its fields. Its answer holds the
+    /// fields' values, so it is read by [`OpReader::look_item`] alone, which
+    /// keeps its text out of any plain `String`.
+    Item(ItemId),
 }
 
 impl Verb {
@@ -68,6 +94,12 @@ impl Verb {
             Verb::Items(Some(v)) => {
                 let mut a = lit(&["item", "list", "--format", "json", "--vault"]);
                 a.push(v.as_str().to_string());
+                a
+            }
+            Verb::Item(id) => {
+                let mut a = lit(&["item", "get"]);
+                a.push(id.as_str().to_string());
+                a.extend(lit(&["--format", "json"]));
                 a
             }
         }
@@ -134,6 +166,18 @@ pub struct ItemName {
     pub title: String,
     pub category: String,
     pub vault: String,
+}
+
+/// One field of an item as a reference needs to name it: its label and id,
+/// the section it is in (if any, by label and id) and what kind of field it
+/// is. Never its value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldName {
+    pub id: String,
+    pub section: Option<String>,
+    pub section_id: Option<String>,
+    pub label: String,
+    pub kind: &'static str,
 }
 
 /// A name as a line may carry it: control characters and line breaks gone,
@@ -210,9 +254,67 @@ pub fn parse_items(raw: &str) -> Result<Vec<ItemName>, Failed> {
         .collect())
 }
 
+/// The kind of a field, from the closed list: what `op` calls its type, and
+/// its purpose where that says more. A type this does not know is `other`, so
+/// no string of the program's is passed on as a kind.
+fn kind_of(v: &Value) -> &'static str {
+    if text(v, "purpose") == Some("NOTES") {
+        return "a note";
+    }
+    match text(v, "type").unwrap_or("") {
+        "CONCEALED" => "concealed",
+        "STRING" => "text",
+        "EMAIL" => "email address",
+        "URL" => "web address",
+        "OTP" => "one-time code",
+        "DATE" | "MONTH_YEAR" => "date",
+        "PHONE" => "phone number",
+        "MENU" => "choice",
+        "ADDRESS" => "address",
+        "REFERENCE" => "link to an item",
+        "SSHKEY" => "ssh key",
+        "CREDIT_CARD_NUMBER" | "CREDIT_CARD_TYPE" => "card",
+        _ => "other",
+    }
+}
+
+/// `item get`'s answer, as the labels of its fields: each one's label (its id
+/// when it has none), its section's label and a kind. The `value` key of a
+/// field, and everything else the program lists (urls, notes, history), is
+/// never read.
+pub fn parse_fields(raw: &str) -> Result<Vec<FieldName>, Failed> {
+    let v: Value = serde_json::from_str(raw).map_err(|_| Failed::Unreadable)?;
+    let fields = v
+        .get("fields")
+        .and_then(Value::as_array)
+        .ok_or(Failed::Unreadable)?;
+    Ok(fields
+        .iter()
+        .filter_map(|f| {
+            let label = text(f, "label")
+                .filter(|l| !l.trim().is_empty())
+                .or_else(|| text(f, "id"))?;
+            let section = f.get("section");
+            Some(FieldName {
+                id: clean(text(f, "id").unwrap_or_default()),
+                section: section
+                    .and_then(|s| text(s, "label"))
+                    .map(clean)
+                    .filter(|s| !s.is_empty()),
+                section_id: section
+                    .and_then(|s| text(s, "id"))
+                    .map(clean)
+                    .filter(|s| !s.is_empty()),
+                label: clean(label),
+                kind: kind_of(f),
+            })
+        })
+        .collect())
+}
+
 /// The class of a failed run, read from what the program said and never
 /// returned.
-fn class_of(stderr: &[u8]) -> Failed {
+pub(crate) fn class_of(stderr: &[u8]) -> Failed {
     let s = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
     if has(&[
@@ -249,10 +351,9 @@ impl OpReader {
         self.absent.is_some()
     }
 
-    /// One list verb, run under the daemon's token with the same time limit as
-    /// every other `op` call here; its output as text, or the class of its
-    /// failure.
-    pub async fn look(&self, verb: &Verb) -> Result<String, Failed> {
+    /// One verb, run under the daemon's token with the same time limit as
+    /// every other `op` call here; its stdout, or the class of its failure.
+    async fn run_verb(&self, verb: &Verb) -> Result<Vec<u8>, Failed> {
         if self.absent.is_some() {
             return Err(Failed::NoVault);
         }
@@ -270,7 +371,25 @@ impl OpReader {
         if out.stdout.len() > MAX_OUTPUT {
             return Err(Failed::TooLarge);
         }
-        String::from_utf8(out.stdout).map_err(|_| Failed::Unreadable)
+        Ok(out.stdout)
+    }
+
+    /// One list verb: its output as text, or the class of its failure.
+    pub async fn look(&self, verb: &Verb) -> Result<String, Failed> {
+        String::from_utf8(self.run_verb(verb).await?).map_err(|_| Failed::Unreadable)
+    }
+
+    /// One item's text, for [`parse_fields`] and nothing else: it holds the
+    /// item's values, so it is kept in zeroizing memory and dropped as soon as
+    /// the labels are read.
+    pub async fn look_item(&self, id: &ItemId) -> Result<Zeroizing<String>, Failed> {
+        match String::from_utf8(self.run_verb(&Verb::Item(id.clone())).await?) {
+            Ok(text) => Ok(Zeroizing::new(text)),
+            Err(e) => {
+                drop(Zeroizing::new(e.into_bytes()));
+                Err(Failed::Unreadable)
+            }
+        }
     }
 }
 

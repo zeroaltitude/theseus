@@ -137,6 +137,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "look at Theseus itself (models, provider keys, health, build) and at the vault's names, with no shell: a command naming Theseus's own program or the vault's is held, and the vault's has no session by design",
     ),
     (
+        "vault",
+        "use a secret that is in the vault, by its name: the daemon finds the item and field, checks it can read them, and the owner approves one card; its value never reaches you, and the vault's program in a shell has no session by design",
+    ),
+    (
         "prompt-files",
         "read and change the files that are Theseus's own prompt text (its context files and each persona's file), on the owner's word; the daemon writes them after the owner's yes, so do not use the shell or a file tool for them",
     ),
@@ -192,6 +196,7 @@ pub fn of_wire(wire: &str) -> String {
             "extend" => "extensions",
             "config" | "daemon" | "mcp" => "settings",
             "look" => "look",
+            "vault" => "vault",
             "self" => "self",
             _ => OTHER,
         },
@@ -404,6 +409,7 @@ mod tests {
             ("config_show", "settings"),
             ("look_theseus", "look"),
             ("look_vault", "look"),
+            ("vault_use", "vault"),
             ("config_propose_file", "prompt-files"),
             ("config_read_file", "prompt-files"),
             ("daemon_restart", "settings"),

@@ -3,10 +3,14 @@
 //! the items in one, and which setting reads which item.
 //!
 //! The daemon asks, with its own token and its own time limit
-//! (`secrets::look`), and the turn is told what came back. **A value, a field
-//! or a note is not on any path**: the verbs are a closed set of lists, no
-//! string of the model's is in the command line, and the answer is rebuilt from
-//! five named keys (see `secrets::look`). A failure is told by class.
+//! (`secrets::look`), and the turn is told what came back. **A value or a
+//! note's text is not on any path**: the verbs are a closed set (three lists
+//! and one get of an item by the id the program listed), no string of the
+//! model's is in the command line, and the answer is rebuilt from named keys
+//! (see `secrets::look`). The one thing below an item that is given is the
+//! LABEL and kind of each of its fields (`fields_of`), so a reference to one
+//! can be written; the field's value is dropped by construction. A failure is
+//! told by class.
 //!
 //! With no token (an install whose secrets come from the environment or from
 //! files) it says so and still lists where each `[secrets]` entry is read from.
@@ -17,12 +21,15 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::secrets::look::{self as names, Failed, ItemName, Vault, VaultId, Verb};
+use crate::secrets::look::{
+    self as names, Failed, FieldName, ItemId, ItemName, Vault, VaultId, Verb,
+};
 use crate::secrets::{OpReader, SecretState, Source};
 use crate::Core;
 
-/// The parts of the look, in the order they are given.
-const PARTS: [&str; 4] = ["account", "vaults", "items", "settings"];
+/// The parts of the look, in the order they are given. `fields` needs
+/// `fields_of`, and says nothing without it.
+const PARTS: [&str; 5] = ["account", "vaults", "items", "fields", "settings"];
 /// How many item titles a look gives when it is not told, and the most it may.
 pub const DEFAULT_LIMIT: usize = 50;
 pub const MAX_LIMIT: usize = 100;
@@ -38,6 +45,8 @@ struct Input {
     filter: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    fields_of: Option<String>,
 }
 
 /// What a call asks, checked.
@@ -46,6 +55,8 @@ pub(super) struct Ask {
     vault: Option<String>,
     filter: Option<String>,
     limit: usize,
+    /// The item whose field labels are wanted, by its title or id.
+    fields_of: Option<String>,
 }
 
 pub(super) fn ask_of(input: &Value) -> Result<Ask, String> {
@@ -62,6 +73,13 @@ pub(super) fn ask_of(input: &Value) -> Result<Ask, String> {
             parts.push(*part);
         }
     }
+    let fields_of = i
+        .fields_of
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if fields_of.is_some() && !parts.contains(&"fields") {
+        parts.push("fields");
+    }
     if parts.is_empty() {
         parts = PARTS.to_vec();
     }
@@ -72,6 +90,7 @@ pub(super) fn ask_of(input: &Value) -> Result<Ask, String> {
         vault: trimmed(i.vault),
         filter: trimmed(i.filter),
         limit: i.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT),
+        fields_of,
     })
 }
 
@@ -85,6 +104,9 @@ impl Ask {
         if let Some(f) = &self.filter {
             s.push_str(&format!(" matching {}", names::clean(f)));
         }
+        if let Some(i) = &self.fields_of {
+            s.push_str(&format!(" (field names of {})", names::clean(i)));
+        }
         s
     }
 }
@@ -96,12 +118,13 @@ pub(super) fn schema() -> Value {
         "properties": {
             "what": {
                 "type": "array",
-                "description": "Which parts: account, vaults, items, settings. Omit for all.",
+                "description": "Which parts: account, vaults, items, fields, settings. Omit for all.",
                 "items": {"type": "string", "enum": PARTS}
             },
             "vault": {"type": "string", "description": "Only the items of this vault, by its name or id."},
             "filter": {"type": "string", "description": "Only items whose title contains this."},
-            "limit": {"type": "integer", "description": "The most titles to list (default 50, at most 100)."}
+            "limit": {"type": "integer", "description": "The most titles or field names to list (default 50, at most 100)."},
+            "fields_of": {"type": "string", "description": "An item's title or id: lists the names and kinds of its fields (never a value), so a setting can read one. Narrow it with `vault` if two vaults have the title."}
         },
         "additionalProperties": false
     })
@@ -118,7 +141,7 @@ fn vault_and_item(reference: &str) -> Option<(String, String)> {
 /// The vault `wanted` means among the ones `op` listed: by id, else by name
 /// (any case). The id is the one `op` gave, so no string of the model's
 /// reaches the command line.
-fn vault_named<'a>(vaults: &'a [Vault], wanted: &str) -> Option<&'a Vault> {
+pub(crate) fn vault_named<'a>(vaults: &'a [Vault], wanted: &str) -> Option<&'a Vault> {
     vaults
         .iter()
         .find(|v| v.id == wanted)
@@ -185,12 +208,16 @@ pub(super) async fn run(
             None => {}
         }
     }
-    let items = match has("items") && !no_token {
+    let wants_fields = has("fields") && ask.fields_of.is_some();
+    let items = match (has("items") || wants_fields) && !no_token {
         true => Some(items_of(&ask, &vaults, &look).await),
         false => None,
     };
-    if let Some(items) = &items {
+    if let (true, Some(items)) = (has("items"), &items) {
         out.push_str(&items_words(&ask, items));
+    }
+    if let (true, Some(wanted)) = (wants_fields && !no_token, &ask.fields_of) {
+        out.push_str(&fields_words(&ask, wanted, &items, reader).await);
     }
     if has("settings") {
         let seen = items.as_ref().and_then(|i| i.as_ref().ok());
@@ -240,6 +267,92 @@ where
         .map_err(|f| f.words().to_string())?;
     let all = names::parse_items(&raw).map_err(|f| f.words().to_string())?;
     Ok((all, which))
+}
+
+/// The names and kinds of the fields of the one item `wanted` means (a listed
+/// id, else a title in any case): never a value. Two items of one title are
+/// not guessed between: their ids are given and the model names one.
+async fn fields_words(
+    ask: &Ask,
+    wanted: &str,
+    items: &Option<Listed>,
+    reader: Option<&OpReader>,
+) -> String {
+    let Some(Ok((all, _))) = items else {
+        let why = match items {
+            Some(Err(why)) => why.as_str(),
+            _ => "the items could not be listed",
+        };
+        return format!("Fields: not available: {why}.\n");
+    };
+    let mut hit: Vec<&ItemName> = all.iter().filter(|i| i.id == wanted).collect();
+    if hit.is_empty() {
+        hit = all
+            .iter()
+            .filter(|i| i.title.eq_ignore_ascii_case(wanted))
+            .collect();
+    }
+    let shown = names::clean(wanted);
+    let (item, id) = match hit.as_slice() {
+        [] => {
+            return format!(
+                "Fields: no item of that title or id{}: list the items to see the titles.\n",
+                ask.vault
+                    .as_deref()
+                    .map_or(String::new(), |v| format!(" in {}", names::clean(v)))
+            )
+        }
+        [one] => match ItemId::parse(&one.id) {
+            Some(id) => (*one, id),
+            None => return format!("Fields: not available: {}.\n", Failed::Unreadable.words()),
+        },
+        many => {
+            let each: Vec<String> = many
+                .iter()
+                .map(|i| format!("{} (id {}, in {})", i.title, i.id, i.vault))
+                .collect();
+            return format!(
+                "Fields: {} items are titled \"{shown}\": {}. Ask again with the id of the one meant.\n",
+                many.len(),
+                each.join("; ")
+            );
+        }
+    };
+    let Some(reader) = reader else {
+        return format!("Fields: not available: {}.\n", Failed::NoVault.words());
+    };
+    let fields = match reader.look_item(&id).await {
+        Ok(text) => names::parse_fields(&text),
+        Err(f) => Err(f),
+    };
+    match fields {
+        Ok(f) => fields_list(ask, item, &f),
+        Err(f) => format!("Fields: not available: {}.\n", f.words()),
+    }
+}
+
+/// The fields, one to a line: the section (if any), the label and the kind.
+fn fields_list(ask: &Ask, item: &ItemName, fields: &[FieldName]) -> String {
+    let mut out = format!(
+        "Fields of \"{}\" ({}, in {}): {} of {} shown (cap {}); names and kinds only, never a value:\n",
+        item.title,
+        item.category,
+        item.vault,
+        fields.len().min(ask.limit),
+        fields.len(),
+        ask.limit
+    );
+    for f in fields.iter().take(ask.limit) {
+        match &f.section {
+            Some(s) => {
+                let _ = writeln!(out, "- {} › {} · {}", s, f.label, f.kind);
+            }
+            None => {
+                let _ = writeln!(out, "- {} · {}", f.label, f.kind);
+            }
+        }
+    }
+    out
 }
 
 fn items_words(ask: &Ask, items: &Listed) -> String {

@@ -14,8 +14,8 @@
 //!   each provider and whether its key resolved, the daemon's health, the
 //!   build. No secret's value.
 //! - **`look.vault`** (`look/vault.rs`, `secrets/look.rs`): who the daemon's
-//!   token is, the vaults, the titles of the items, and which setting reads
-//!   which item. Never a value, a field or a note.
+//!   token is, the vaults, the titles of the items, one item's field names and
+//!   kinds, and which setting reads which item. Never a value or a note.
 //!
 //! **The wall** is `config.show`'s: the owner's own turn, in a private place
 //! only they write in (`config_change::wall`; a job, a task, the self loop, a
@@ -42,6 +42,8 @@ use crate::Core;
 
 mod theseus;
 mod vault;
+
+pub(crate) use vault::vault_named;
 
 pub const THESEUS: &str = "look.theseus";
 pub const VAULT: &str = "look.vault";
@@ -177,10 +179,11 @@ impl Tool for LookVault {
 
     fn description(&self) -> &str {
         "Look at what Theseus's vault holds, by name: the account the daemon's token is, the vaults, the \
-         titles of the items (a vault and part of a title narrow it; the cap is said), and which setting \
-         reads which item, resolved or not. The daemon asks, with its own token. Never a value, a field \
-         or a note. The vault's program in a shell has no session by design and is not to be tried; \
-         neither is Theseus's own command line. Changes nothing. Offered only to the owner, in a \
+         titles of the items (a vault and part of a title narrow it; the cap is said), for one item (`fields_of`) \
+         the names and kinds of its fields, and which setting reads which item, resolved or not. The daemon \
+         asks, with its own token. Never a value, a field or a note; for one item (`fields_of`) only the names \
+         and kinds of its fields. A secret is used by its name (`vault.use`), never asked for or shown. The vault's program in a shell has no session by design and is not to be \
+         tried; neither is Theseus's own command line. Changes nothing. Offered only to the owner, in a \
          private place."
     }
 
@@ -240,6 +243,13 @@ impl Board {
     /// it: it is read here, in the daemon, for the look alone.
     pub fn set_vault(&self, op: Arc<OpReader>) {
         let _ = self.vault.set(op);
+    }
+
+    /// The daemon's reader of the vault, for the one other thing that checks an
+    /// item before it names it (`vault.use`): the daemon's own code,
+    /// never a turn.
+    pub(crate) fn reader(&self) -> Option<Arc<OpReader>> {
+        self.vault.get().cloned()
     }
 
     fn core(&self) -> Option<Arc<Core>> {

@@ -60,8 +60,17 @@ other call.)
 
 To look at Theseus itself (its models, whether each provider's key resolved, its health and build) or at the names in
 its vault, a turn has `look.theseus` and `look.vault`, on the same terms: free in a clean turn of yours, asked first after
-outside text, never a value, a field or a note (`docs/design/look-tools.md`). A shell command that names Theseus's own
-program or the vault's is still held for you, and its card now says which program and where the look is.
+outside text, never a value or a note's text (for one item, the names and kinds of its fields;
+`docs/design/look-tools.md`). A shell command that names Theseus's own program or the vault's is still held for you, and
+its card now says which program and where the look is.
+
+To use a secret that is in the vault, tell Theseus where it is in words ("the key is in the vault, in the item Lantern key,
+field credential"); `look.vault` can list an item's field names (never a value). Theseus's own code finds the item and the
+field, checks its account can read them, builds the reference itself, and puts **one card** that names them, says it read
+them, and says what is given the secret (a provider's key, a program's variable, a server's key); the value never goes to
+the model, a card or a record. Where its account cannot see the vault, it says so and says what you can do: grant the
+account that vault, or move the item to one it sees. A vault reference is never written as text by a turn
+(`docs/design/vault-use.md`).
 
 ## Which settings need the code
 

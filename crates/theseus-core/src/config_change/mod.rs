@@ -43,6 +43,7 @@ pub mod restart;
 pub mod show;
 pub mod shown;
 pub mod undo;
+pub mod vault_use;
 pub mod waiting;
 pub mod wall;
 pub mod whole;
@@ -68,7 +69,14 @@ pub const RESTART: &str = "daemon.restart";
 /// The question the owner's yes answers: a planned action of this tool.
 pub const ACK: &str = "config.ack";
 /// The tools this module adds, for the template's `[policy.tools]` list.
-pub const NAMES: [&str; 5] = [PROPOSE, RESTART, history::HISTORY, undo::UNDO, show::SHOW];
+pub const NAMES: [&str; 6] = [
+    PROPOSE,
+    RESTART,
+    history::HISTORY,
+    undo::UNDO,
+    show::SHOW,
+    vault_use::USE,
+];
 /// The most settings one proposal may name.
 pub const MAX_CHANGES: usize = 20;
 /// The longest a value a proposal gives may be, as JSON: a setting, not a
@@ -143,8 +151,13 @@ fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
     if reason.is_empty() {
         return Err("give a reason in the owner's words, one line".into());
     }
+    Ok((changes_of(i.changes)?, reason))
+}
+
+/// The edits a list of items names, each checked as a proposal checks it.
+fn changes_of(items: Vec<Item>) -> Result<Vec<edit::Change>, String> {
     let mut changes = Vec::new();
-    for c in i.changes {
+    for c in items {
         let path = edit::parse_path(&c.path)?;
         changes.push(match (c.value, c.remove) {
             (Some(v), false) => {
@@ -166,7 +179,7 @@ fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
             }
         });
     }
-    Ok((changes, reason))
+    Ok(changes)
 }
 
 /// Register the tools, only where Theseus's settings are a file the daemon
@@ -179,6 +192,7 @@ pub fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
         r.register(Arc::new(RestartTool));
         r.register(Arc::new(history::History));
         r.register(Arc::new(show::Show));
+        r.register(Arc::new(vault_use::VaultUse));
         r.register(Arc::new(undo::Undo));
         r.register(Arc::new(mcp_attach::Attach));
         r.register(Arc::new(mcp_attach::Detach));
@@ -204,7 +218,8 @@ impl Tool for Propose {
          (`config.show` reads other settings). Theseus checks that the settings still load, then shows the owner one \
          card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
          A setting that governs what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
-         spending) needs a second proof as well. Offered only to the owner, in a private place."
+         spending) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
+         an `op://` reference here. Offered only to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -471,34 +486,49 @@ pub(crate) fn put(
     reason: &str,
     undoes: Option<&undo::Undoes>,
 ) -> Result<(String, Value), String> {
+    let extra = Extra {
+        undoes,
+        secret: None,
+    };
+    put_using(rt, tc, correlation_id, base, changes, reason, extra)
+}
+
+/// What a change carries beyond its settings: the undo it is, or the vault item
+/// it gives to use.
+pub(crate) struct Extra<'a> {
+    pub undoes: Option<&'a undo::Undoes>,
+    pub secret: Option<&'a vault_use::Chosen>,
+}
+
+/// [`put`], for a change that also gives a vault item to use (`vault.use`):
+/// `secret` is what the daemon checked and built, and it is the only vault
+/// reference the change may write. Any other change that writes one (a
+/// proposal's, an `also` of the tool's) is refused, so every reference on a
+/// card was built by the daemon from names it found (`vault_use`).
+pub(crate) fn put_using(
+    rt: &ToolRuntime,
+    tc: &TurnCtx<'_>,
+    correlation_id: &str,
+    base: &str,
+    changes: &[edit::Change],
+    reason: &str,
+    extra: Extra<'_>,
+) -> Result<(String, Value), String> {
+    let Extra { undoes, secret } = extra;
     let w = &rt.config_change;
     let candidate = edit::apply(base, changes)?;
-    crate::Config::parse(&candidate)
-        .map(drop)
+    let (loaded, _) = crate::Config::parse(&candidate)
         .map_err(|e| format!("the settings with that change do not load: {e:#}"))?;
     let settings = diff::between(base, &candidate)?;
     if settings.is_empty() {
         return Err("that would change nothing: the file already has those values".into());
     }
-    // What cannot be shown whole is refused first, in its own words. A value
-    // too long for a line is not refused: it has its own form on the card
-    // (`long_value.rs`), with its whole text readable before the yes.
-    let short: Vec<diff::Setting> = settings
-        .iter()
-        .filter(|s| !diff::too_long(s))
-        .cloned()
-        .collect();
-    if let Some(why) = card::too_much(&short) {
-        return Err(why);
+    // An undo puts back what an earlier card showed; nothing else writes a
+    // vault reference but the tool that checked it.
+    if undoes.is_none() {
+        vault_use::refuse_other_references(&settings, secret)?;
     }
-    let long = settings.len() - short.len();
-    if long > long_value::MAX_LONG {
-        return Err(format!(
-            "that changes {long} long values, and one card shows at most {} of them, each with \
-             its changed lines: ask for fewer at a time",
-            long_value::MAX_LONG
-        ));
-    }
+    let long = too_big(&settings)?;
     let needs = proof_seam::Needs::of(!sensitive(changes, &settings).is_empty(), &settings);
     let (outside, steered) = outside_text(tc);
     let facts = card::Facts {
@@ -508,12 +538,13 @@ pub(crate) fn put(
         reason,
         wait_secs: RESTART_WAIT_SECS,
     };
-    let question = match undoes {
-        Some(u) => {
+    let question = match (undoes, secret) {
+        (Some(u), _) => {
             let now = theseus_protocol::now_unix_ms();
             card::question_undoing(u.number, &undo::preface(u, now), &facts)
         }
-        None => card::question(&facts),
+        (None, Some(s)) => card::question_using(&s.preface(&loaded, &settings), &facts),
+        (None, None) => card::question(&facts),
     };
     let digest = write::keep_candidate(&w.state, &candidate)
         .map_err(|e| format!("the candidate could not be kept for the card: {e}"))?;
@@ -523,9 +554,13 @@ pub(crate) fn put(
         write::keep_text(&w.state, write::Kept::SettingsBase, base)
             .map_err(|e| format!("the settings could not be kept for the card: {e}"))?;
     }
+    let settled = words::change(&settings, undoes.map(|u| u.number));
     let mut args = json!({
         "question": question,
-        "settled": words::change(&settings, undoes.map(|u| u.number)),
+        "settled": match secret {
+            Some(s) => format!("{}: {settled}", s.settled(&loaded)),
+            None => settled,
+        },
         "base_sha256": crate::config_copy::sha256(base),
         "candidate_sha256": digest,
         "paths": settings.iter().map(|s| edit::dotted(&s.path)).collect::<Vec<_>>(),
@@ -544,6 +579,9 @@ pub(crate) fn put(
     if long > 0 {
         args["whole"] = json!(true);
         args["base_kept"] = json!(true);
+    }
+    if let Some(s) = secret {
+        args["secret"] = s.args();
     }
     let proposal = Proposal {
         tool: ACK.into(),
@@ -568,6 +606,30 @@ pub(crate) fn put(
         said,
         json!({"settings": settings.len(), "candidate": digest}),
     ))
+}
+
+/// What cannot be shown whole is refused first, in its own words; else how many
+/// values are too long for a line. A value too long for a line is not refused:
+/// it has its own form on the card (`long_value.rs`), with its whole text
+/// readable before the yes.
+fn too_big(settings: &[diff::Setting]) -> Result<usize, String> {
+    let short: Vec<diff::Setting> = settings
+        .iter()
+        .filter(|s| !diff::too_long(s))
+        .cloned()
+        .collect();
+    if let Some(why) = card::too_much(&short) {
+        return Err(why);
+    }
+    let long = settings.len() - short.len();
+    if long > long_value::MAX_LONG {
+        return Err(format!(
+            "that changes {long} long values, and one card shows at most {} of them, each with \
+             its changed lines: ask for fewer at a time",
+            long_value::MAX_LONG
+        ));
+    }
+    Ok(long)
 }
 
 /// The question, its card, and the record that answers a call run again, in
@@ -693,6 +755,8 @@ pub(crate) mod tests_answer;
 mod tests_look;
 #[cfg(test)]
 mod tests_look_card;
+#[cfg(test)]
+mod tests_look_fields;
 #[cfg(test)]
 mod tests_press;
 #[cfg(test)]
