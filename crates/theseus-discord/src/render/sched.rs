@@ -22,6 +22,9 @@ pub enum Kind {
     CheckIn,
     /// A standing schedule.
     Routine,
+    /// A task set to start later: the one thing a person scheduled that is
+    /// also a task. Its post on the board is the task's own.
+    Task,
 }
 
 impl Kind {
@@ -30,6 +33,7 @@ impl Kind {
             Kind::Reminder => "reminder",
             Kind::CheckIn => "check-in",
             Kind::Routine => "routine",
+            Kind::Task => "task",
         }
     }
 }
@@ -41,6 +45,8 @@ pub enum Life {
     Scheduled { snoozed: bool },
     /// It fired, at this time.
     Fired(u64),
+    /// A task set to start later began, at this time.
+    Started(u64),
     /// It was cancelled, at this time, by this person when known.
     Cancelled(u64, Option<String>),
     /// A routine that is gone, since this time.
@@ -73,11 +79,13 @@ impl Face {
 fn emoji(f: &Face) -> &'static str {
     match (&f.life, f.kind) {
         (Life::Fired(_), _) => "✅",
+        (Life::Started(_), _) => "▶️",
         (Life::Cancelled(..), _) => "⏹",
         (Life::Removed(_), _) => "🗑",
         (_, Kind::Reminder) => "⏰",
         (_, Kind::CheckIn) => "💬",
         (_, Kind::Routine) => "🔁",
+        (_, Kind::Task) => "🕒",
     }
 }
 
@@ -87,6 +95,7 @@ fn kind_line(f: &Face) -> String {
         Kind::Reminder => "Reminder".to_string(),
         Kind::CheckIn => "Check-in".to_string(),
         Kind::Routine => "Routine".to_string(),
+        Kind::Task => "Task".to_string(),
     }];
     if let Some(e) = &f.every {
         // A routine's series is already words (`weekdays 08:00`).
@@ -99,7 +108,7 @@ fn kind_line(f: &Face) -> String {
     match (f.kind, &f.from) {
         (Kind::CheckIn, Some(n)) => bits.push(format!("set by Theseus in {}", clip(n, 40))),
         (Kind::CheckIn, None) => bits.push("set by Theseus".into()),
-        (Kind::Reminder, Some(n)) => bits.push(format!("from {}", clip(n, 40))),
+        (Kind::Reminder | Kind::Task, Some(n)) => bits.push(format!("from {}", clip(n, 40))),
         _ => {}
     }
     if f.kind != Kind::Routine {
@@ -132,6 +141,7 @@ fn words(f: &Face) -> Vec<Value> {
             s
         }
         Life::Fired(at) => format!("Fired {}", stamp(*at)),
+        Life::Started(at) => format!("Started {}", stamp(*at)),
         Life::Cancelled(at, by) => match by {
             Some(who) => format!("Cancelled by {} · {}", clip(who, 40), stamp(*at)),
             None => format!("Cancelled · {}", stamp(*at)),
@@ -178,7 +188,7 @@ pub fn forum_card(f: &Face, link: Option<&str>) -> Vec<Value> {
 fn accent(f: &Face) -> u32 {
     match f.life {
         Life::Scheduled { .. } => 0x3E_63_DD,
-        Life::Fired(_) => 0x30_A4_6C,
+        Life::Fired(_) | Life::Started(_) => 0x30_A4_6C,
         Life::Cancelled(..) | Life::Removed(_) => 0x8A_8F_98,
     }
 }

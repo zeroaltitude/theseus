@@ -649,6 +649,64 @@ impl Shared {
         done
     }
 
+    /// The card of a task set to start later: cancelled by `task.cancel`, or
+    /// its start moved an hour on by `task.reschedule`, as the presser, told to
+    /// the presser alone. True when the call went through.
+    pub(super) async fn task_pick(
+        &self,
+        i: &Interaction,
+        cancel: bool,
+        task: &str,
+        who: &str,
+    ) -> bool {
+        if target_of(i).is_none_or(|t| !self.is_private(&t)) {
+            self.reply_ephemeral(i, SHARED.into()).await;
+            return false;
+        }
+        let said = if cancel {
+            let r = self
+                .rpc
+                .call::<_, theseus_protocol::TaskCancelResult>(
+                    method::TASK_CANCEL,
+                    theseus_protocol::TaskCancelParams {
+                        task: task.to_string(),
+                        author: Some(who.to_string()),
+                    },
+                )
+                .await;
+            match r {
+                Ok(r) => format!("⏹️ Cancelled: task `{}` will not start.", r.task.short),
+                Err(e) => format!("⚠️ Not cancelled: {}", e.message),
+            }
+        } else {
+            let r = self
+                .rpc
+                .call::<_, theseus_protocol::ops::TaskRescheduleResult>(
+                    method::TASK_RESCHEDULE,
+                    theseus_protocol::ops::TaskRescheduleParams {
+                        task: task.to_string(),
+                        start_at_ms: None,
+                        start_after_ms: None,
+                        start_when: Some("in 1h".into()),
+                        author: Some(who.to_string()),
+                        discord: origin(i),
+                    },
+                )
+                .await;
+            match r {
+                Ok(r) => format!(
+                    "😴 The task will start at <t:{}:t> instead.",
+                    r.starts_at_ms / 1000
+                ),
+                Err(e) => format!("⚠️ Not snoozed: {}", e.message),
+            }
+        };
+        self.tasks.future.dirty();
+        let done = !said.starts_with('⚠');
+        self.reply_ephemeral(i, said).await;
+        done
+    }
+
     /// Autocomplete from the snapshot in memory. False for a command that is
     /// not the future's (`/cancel`'s other options, `/routine`'s add).
     async fn horizon_autocomplete(&self, i: &Interaction, c: &CommandData) -> bool {
