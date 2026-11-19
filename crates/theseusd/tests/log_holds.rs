@@ -154,3 +154,55 @@ fn health_answers_with_the_wal_writer_and_the_log_writer_both_held() {
         held.join().unwrap();
     });
 }
+
+/// A start that fails still says what it logged before, and then why: the queue is written out before the error that
+/// ends the start is printed, in the order the lines were made. The log's write is held until the start has failed
+/// (the FIFO), so a start that did not wait for the queue would end with the line unwritten.
+#[test]
+fn a_start_that_fails_says_what_it_logged_and_then_why() {
+    let home = tempfile::tempdir().unwrap();
+    let hold = home.path().join("log-hold");
+    arm(&hold);
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_theseusd"))
+        .args(["--config", "/nonexistent/theseus.toml", "--state-dir"])
+        .arg(home.path().join("state"))
+        .arg("--socket")
+        .arg(home.path().join("sock"))
+        .env("HOME", home.path())
+        .env("THESEUS_LOG", "info")
+        .env("THESEUS_TEST_LOG_HOLD", &hold)
+        .env_remove("OP_SERVICE_ACCOUNT_TOKEN")
+        .env_remove("THESEUS_OP_TOKEN_FILE")
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    arrived(&hold, "the first line's write");
+    // The line is held, and the start has failed: a start that waits for its queue is still here a moment later,
+    // one that does not has ended with the line unwritten.
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the failed start ended with its log's first line unwritten"
+    );
+    let _end = release(&hold);
+    let t0 = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if t0.elapsed() > Duration::from_secs(20) {
+            let _ = child.kill();
+            panic!("the failed start did not end");
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(!status.success());
+    let mut err = String::new();
+    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut err).unwrap();
+    let logged = err.find("no 1Password access");
+    let why = err.find("Error: reading config file /nonexistent/theseus.toml");
+    assert!(
+        matches!((logged, why), (Some(a), Some(b)) if a < b),
+        "the line logged first, then the error: {err}"
+    );
+}
