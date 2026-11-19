@@ -541,16 +541,18 @@ impl Shared {
 }
 
 /// What a place's board shows of the future (issue 30; `docs/design/board-place.md`). Private places only.
-/// While the task channel stands, or is being looked for, the whole future is
-/// on the board the owner's DM place draws into it, and on no other place's.
-/// Without one, a place shows the reminders and check-ins of its own
+/// While the task channel stands, or is being looked for, and there is an
+/// owner's DM place to draw it from, the whole future is on the board that
+/// place draws into the task channel, and on no other place's. Otherwise (no
+/// task channel, or no DM bound: the task channel then has no place to be
+/// drawn by) a place shows the reminders and check-ins of its own
 /// conversations, and the routines and projects as before.
 pub(super) fn parts_for(shared: &Shared, target: &str, session: &str) -> Option<FutureParts> {
     if !shared.is_private(target) {
         return None;
     }
     let names = shared.conversation_names();
-    if shared.task_posts.home.expected() {
+    if shared.task_posts.home.expected() && shared.owner_dm_place().is_some() {
         return (shared.owner_dm_place().as_deref() == Some(target))
             .then(|| shared.tasks.future.parts(None, names))
             .flatten();

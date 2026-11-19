@@ -830,3 +830,90 @@ async fn only_the_owners_press_cancels_a_reminder_on_the_task_channels_board() {
     })
     .await;
 }
+
+/// The bindings of `bindings(true, "")` with no `[[dm]]`: channels only.
+fn no_dm() -> String {
+    bindings(true, "").replace(&format!("[[dm]]\nuser = \"{ANA}\"\nname = \"ana\"\n"), "")
+}
+
+/// With the task channel expected and no DM bound, there is no place to draw
+/// the task channel's board, so the no-task-channel rule applies: a reminder
+/// set in a private channel is on that channel's board, and is cancelled from it.
+#[tokio::test]
+async fn with_no_dm_bound_a_reminder_is_on_its_own_channels_board_and_is_cancelled_from_it() {
+    let r = rig(
+        vec![Scripted::text("Hello.")],
+        |_| vec![],
+        &no_dm(),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    until(&r, "the task channel is recorded", || {
+        home_record(&r).is_some()
+    })
+    .await;
+    let home = home_record(&r).unwrap();
+    r.say((ANA, "ana"), Some(LAB), "hello");
+    until(&r, "#lab answered", || {
+        r.posted(LAB).iter().any(|m| m.content.contains("Hello."))
+    })
+    .await;
+    let wake = remind_in(
+        &r,
+        &session_of_place(&r, &format!("channel:{LAB}")),
+        "lab net mending",
+    )
+    .await;
+    until(&r, "the reminder on #lab's board", || {
+        boards(&r, LAB)
+            .first()
+            .is_some_and(|b| b.content.contains("lab net mending"))
+    })
+    .await;
+    assert!(
+        boards(&r, home).is_empty(),
+        "the task channel has no place to draw it"
+    );
+    let board = boards(&r, LAB).remove(0);
+    r.fake
+        .press_values(
+            &theseus_sim::fake_discord::Pressed {
+                message: &board.id,
+                button: crate::render::horizon::REMINDER_PICK,
+                user: ANA,
+                name: "ana",
+            },
+            &[&format!("hq:cancel:{wake}")],
+        )
+        .unwrap();
+    until(&r, "the wake is cancelled", || {
+        !r.core
+            .kernel
+            .pending_wakes()
+            .unwrap()
+            .into_iter()
+            .any(|(_, w)| w.id == wake)
+    })
+    .await;
+    until(&r, "the line leaves #lab's board", || {
+        boards(&r, LAB)
+            .first()
+            .is_some_and(|b| !b.content.contains("lab net mending"))
+    })
+    .await;
+}
+
+/// The task channel's board is drawn by an owner's DM place, not by whichever
+/// DM the file names first.
+#[tokio::test]
+async fn the_task_channels_board_is_drawn_by_an_owners_dm_not_the_first_dm() {
+    let first = format!(
+        "[[dm]]\nuser = \"{}\"\nname = \"ben\"\n",
+        crate::tests_gateway::BEN
+    );
+    let binds = bindings(true, "").replace("[[dm]]\n", &format!("{first}[[dm]]\n"));
+    let r = rig(vec![], |_| vec![], &binds, |_| {}, |_| {}).await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    assert_eq!(shared.owner_dm_place(), Some(format!("discord:dm:{ANA}")));
+}

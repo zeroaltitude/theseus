@@ -997,7 +997,7 @@ impl Shared {
         Ok(me)
     }
 
-    fn bot_id(&self) -> u64 {
+    pub(crate) fn bot_id(&self) -> u64 {
         self.bot_id.load(Ordering::Relaxed)
     }
 
