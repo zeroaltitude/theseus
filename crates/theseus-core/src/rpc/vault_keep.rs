@@ -184,6 +184,13 @@ impl Core {
         .map_err(|e| stop("place")(failure(e)))?;
         self.keep_wall(&a, &who).map_err(stop("agent"))?;
         self.keep_place(&a, &who)?;
+        // The binding's form found the value one this daemon would refuse and sent none: the attempt is
+        // recorded by its class and told in the daemon's words. Nothing in `value` is read.
+        if let Some(refusal) = p.refused {
+            return Err(stop(refusal.class())(RpcFailure::invalid_text(
+                done::refusal_words(refusal),
+            )));
+        }
         let value = done::checked(p.value.expose()).map_err(|why| {
             let class = if p.value.is_blank() {
                 "blank"

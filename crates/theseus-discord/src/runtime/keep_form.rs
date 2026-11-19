@@ -273,21 +273,19 @@ impl Shared {
             return self.tell(i, format!("🔐 {GONE}")).await;
         };
         let code = field_of(m, CODE_FIELD);
-        let value = SecretText::new(field_of(m, VALUE_FIELD));
-        // What the daemon would refuse, refused here in its words before anything is sent: the form's own
-        // limit counts characters, the daemon's counts bytes.
-        if let Err(why) = theseus_core::config_change::vault_keep::done::checked(value.expose()) {
-            self.core.binding_ledger(
-                LedgerKind::DiscordConfirm,
-                None,
-                json!({"correlation_id": question, "option": OPTION, "by": who, "ok": false,
-                       "modal": true, "keep": true, "refused": "value", "error": why}),
-            );
-            return self.tell(i, format!("🔐 Nothing was kept: {why}")).await;
-        }
+        let typed = field_of(m, VALUE_FIELD);
+        // What the daemon would refuse is found here, since the form counts characters and the daemon bytes,
+        // and no value is sent for it: the request says only why, and the daemon records the attempt (a
+        // `vault.keep` row by class) and answers in its own words.
+        let refused = theseus_core::config_change::vault_keep::done::refusal_of(&typed);
+        let value = match refused {
+            Some(_) => SecretText::default(),
+            None => SecretText::new(typed),
+        };
         let params = VaultKeepAnswerParams {
             question_id: question.to_string(),
             value,
+            refused,
             code: Some(code.trim())
                 .filter(|c| !c.is_empty())
                 .map(ProofCode::new),

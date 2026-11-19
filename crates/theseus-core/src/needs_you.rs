@@ -310,6 +310,12 @@ pub fn card_body(
     let short = short_id(&a.correlation_id);
     text.push_str(&match kind {
         QuestionKind::Ask => format!("\n-# answer with `theseus answer {short} <number>`"),
+        _ if crate::config_change::vault_keep::is_keep(a) => {
+            format!(
+                "\n-# {}",
+                crate::config_change::vault_keep::answer_line(&short)
+            )
+        }
         _ => format!("\n-# answer with `theseus answer {short} approve` or `decline`"),
     });
     json!({
@@ -406,6 +412,9 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
         .collect();
     let how = match kind {
         QuestionKind::Ask => format!("answer with `theseus answer {short} <number>`"),
+        _ if crate::config_change::vault_keep::is_keep(a) => {
+            crate::config_change::vault_keep::answer_line(&short)
+        }
         _ if settings.is_some() => "this changes Theseus's own text or settings: open Theseus to \
             read the whole card, and answer it there"
             .to_string(),

@@ -109,6 +109,46 @@ pub fn proof_missing_words(by_form: bool) -> String {
     format!("it needs your second proof, which is asked with the value: {how}. Nothing was kept")
 }
 
+/// How the owner gives a secret's value, in a sentence: the form in their direct messages when it is a way,
+/// and always their own terminal.
+fn how_to_give(by_form: bool) -> &'static str {
+    match by_form {
+        true => "press \"Type the value here\" on its card in their direct messages with Theseus, or run \
+                 `theseus vault keep` in their own terminal",
+        false => "run `theseus vault keep` in their own terminal, or use the card's field in the cockpit",
+    }
+}
+
+/// What a yes, or a code, given in a conversation to a secret to keep is told: it takes a value, not a
+/// yes, and nothing is given in the owner's name from a conversation. For the chat's answer tool, which a
+/// model reads.
+pub fn chat_words(by_form: bool) -> String {
+    format!(
+        "this is a secret to keep: a yes carries no value, and neither a yes nor a code is given from a \
+         conversation. The owner gives the value: {}. Nothing changed",
+        how_to_give(by_form)
+    )
+}
+
+/// What a typed or spoken yes to a keep card is told, where the setting is not at hand.
+pub const KEEP_BY_PRESS: &str = "this is a secret to keep: a yes carries no value, so it is not answered in the owner's name from a \
+     conversation. The owner gives the value on its card's form in their direct messages (when it has \
+     one), or with `theseus vault keep` in their own terminal. Nothing was kept";
+
+/// How a notification that cannot hold the card says it is answered: the value is typed, a decline is the
+/// only answer. `short` is the question's short id.
+pub fn answer_line(short: &str) -> String {
+    format!(
+        "give the value with `theseus vault keep` in your terminal, or on its card (a decline is \
+         `theseus answer {short} decline`)"
+    )
+}
+
+/// Whether a listed question is a keep card.
+pub fn is_keep_request(req: &theseus_protocol::ConfirmRequest) -> bool {
+    req.tool == ACK && req.input.get(ARG).is_some_and(Value::is_object)
+}
+
 /// The card, whole: what is kept where, whether it replaces, where the value is
 /// typed, and what a value typed in chat comes to.
 pub fn question(t: &Target, outside: bool, steered: bool, purpose: &str) -> String {

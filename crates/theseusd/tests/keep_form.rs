@@ -442,3 +442,69 @@ fn the_answer_view_in_the_dm_draws_the_forms_button_and_opens_it() {
     assert!(id.ends_with(":keep_form"), "{id}");
     r.value_nowhere();
 }
+
+/// A blank value and one over the limit (in bytes, though under the form's own count of characters), typed in
+/// the form: the presser is told in the daemon's words, nothing is written, and each attempt leaves the keep
+/// path's own `vault.keep` row by class, holding no value or length.
+#[test]
+fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
+    let r = Rig::start(true);
+    r.pair();
+    let card = r.card();
+    r.fake
+        .press(&Pressed {
+            message: &card.id,
+            button: "Type the value here",
+            user: ANA,
+            name: "ana",
+        })
+        .unwrap();
+    let form = r.wait("the form", || {
+        r.fake.replies().into_iter().find_map(|x| x.modal)
+    });
+    let id = form["custom_id"].as_str().unwrap().to_string();
+    let long = format!("{VALUE}{}", "é".repeat(2100));
+    for value in [long.as_str(), "   "] {
+        r.fake
+            .modal(&Modal {
+                user: ANA,
+                name: "ana",
+                channel: ANA + 1,
+                custom_id: &id,
+                fields: &[("code", &r.code_now()), ("value", value)],
+            })
+            .unwrap();
+    }
+    let rows = r.wait("both attempts to leave a row", || {
+        let rows: Vec<Value> = r
+            .ledger("vault.keep")
+            .into_iter()
+            .filter(|x| x["outcome"] == "stopped")
+            .collect();
+        (rows.len() == 2).then_some(rows)
+    });
+    let why: Vec<&str> = rows.iter().map(|x| x["why"].as_str().unwrap()).collect();
+    assert_eq!(why, ["not_a_value", "blank"], "{rows:?}");
+    for row in &rows {
+        assert!(row["via"].as_str().unwrap().contains("discord:dm"), "{row}");
+        assert!(
+            row["question"].as_str().unwrap().starts_with("act_"),
+            "{row}"
+        );
+    }
+    let told: Vec<String> = r.wait("the replies", || {
+        let t: Vec<String> = r
+            .fake
+            .replies()
+            .into_iter()
+            .filter_map(|x| x.content)
+            .filter(|c| c.contains("Nothing was kept"))
+            .collect();
+        (t.len() == 2).then_some(t)
+    });
+    assert!(told[0].contains("a key is at most 4096 bytes"), "{told:?}");
+    assert!(told[1].contains("no value was given"), "{told:?}");
+    assert!(common::vault::stored(r.vault.path()).is_none());
+    assert_eq!(r.cards().len(), 1, "the card still waits");
+    r.value_nowhere();
+}

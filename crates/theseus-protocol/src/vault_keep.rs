@@ -66,6 +66,33 @@ pub struct VaultKeepAnswerParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub discord: Option<crate::DiscordOrigin>,
+    /// The binding's form already found the value one the daemon would refuse, and sends no value: the
+    /// request is how the daemon records the refused attempt, by class. The daemon judges who and where
+    /// first, takes nothing from `value`, and answers in its own words for the class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub refused: Option<ValueRefusal>,
+}
+
+/// Why a value was refused before it was sent: a closed set, so a row says which and holds nothing typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ValueRefusal {
+    /// Nothing was typed.
+    Blank,
+    /// Too long to be a key, or holding a NUL.
+    NotAValue,
+}
+
+impl ValueRefusal {
+    /// The class a row is written with.
+    pub fn class(self) -> &'static str {
+        match self {
+            ValueRefusal::Blank => "blank",
+            ValueRefusal::NotAValue => "not_a_value",
+        }
+    }
 }
 
 /// `vault.keep`: the owner keeps a secret from their own terminal, with no

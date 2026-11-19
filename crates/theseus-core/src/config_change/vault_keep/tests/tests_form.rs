@@ -333,3 +333,121 @@ async fn a_missing_code_is_told_in_the_keep_cards_own_words() {
     assert!(!wrote(dir.path()));
     assert!(waiting(&r, &q));
 }
+
+/// A value the binding's form refused before sending it (`refused`, with no value) is recorded as the
+/// keep path's own row, by class, and told in the daemon's words; nothing is written. The row holds the
+/// class, who, where and the card, and never a value or its length. A value carried beside `refused` is
+/// not read.
+#[tokio::test]
+async fn a_value_the_form_refused_leaves_the_keep_paths_own_row_and_no_value() {
+    let (r, dir) = rig_form(true);
+    let secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    for (class, words) in [
+        ("blank", "no value was given: type it where only you see it"),
+        (
+            "not_a_value",
+            "that is not a secret's value (a key is at most 4096 bytes",
+        ),
+    ] {
+        let mut p = json!({"question_id": q, "value": VALUE, "refused": class,
+                           "author": "discord:dockhand", "discord": dm()});
+        p["code"] = json!(code(&secret, 0));
+        let e = rpc_as(&r.core, discord(), method::VAULT_KEEP_ANSWER, p)
+            .await
+            .unwrap_err();
+        assert!(format!("{e:?}").contains(words), "{class}: {e:?}");
+        assert!(!format!("{e:?}").contains(VALUE), "{class}");
+        assert!(!wrote(dir.path()), "{class}");
+        assert!(waiting(&r, &q), "{class}: the card keeps waiting");
+    }
+    assert_eq!(stopped(&r), ["blank", "not_a_value"]);
+    let rows = r.rows("vault.keep");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    for row in &rows {
+        assert_eq!(row["outcome"], "stopped");
+        assert_eq!(row["question"], q.as_str());
+        assert!(row["via"].as_str().unwrap().contains("discord:dm"), "{row}");
+        let keys: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert!(
+            keys.iter()
+                .all(|k| ["outcome", "why", "approved_by", "via", "pid", "question"].contains(k)),
+            "a row holds names and a class only: {keys:?}"
+        );
+    }
+    assert!(!format!("{rows:?}").contains(VALUE));
+    // A refusal is judged first: from a channel it is the place that refuses, not a class of the value.
+    let mut p = json!({"question_id": q, "value": "", "refused": "blank",
+                       "author": "discord:dockhand", "discord": origin(OWNER, "6001", Some("888"))});
+    p["code"] = json!(code(&secret, 1));
+    let e = rpc_as(&r.core, discord(), method::VAULT_KEEP_ANSWER, p)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, error_code::REFUSED, "{e:?}");
+    assert_eq!(stopped(&r).last().map(String::as_str), Some("place"));
+}
+
+/// A yes, or a code, given to a keep card from a conversation is told the keep card's own way: the owner
+/// gives the value (the card's button in their direct messages, or `theseus vault keep`). The chat's answer
+/// tool, a typed yes where an answer becomes a decision, and the needs-you line all say it; none sends the
+/// owner to `theseus answer ... approve`.
+#[tokio::test]
+async fn a_yes_to_a_keep_card_from_a_conversation_is_told_how_the_value_is_given() {
+    use crate::config_change::tests_answer::owner_in_dm;
+    use crate::rpc::Rides;
+    let (r, _dir) = rig_form(true);
+    let _secret = secret_of(&r);
+    let q = ask(&r, input("Lantern new", "credential")).await;
+    let req = r
+        .core
+        .confirm_list()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.correlation_id == q)
+        .unwrap();
+    let e = r
+        .core
+        .answer_plain_act(&req, "yes", None, owner_in_dm())
+        .unwrap_err();
+    for said in [
+        e.clone(),
+        format!(
+            "{:#}",
+            r.core
+                .confirm_action_with(
+                    &q,
+                    true,
+                    None,
+                    owner_in_dm(),
+                    Rides {
+                        typed: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap_err()
+        ),
+    ] {
+        assert!(said.contains("a secret to keep"), "{said}");
+        assert!(said.contains("theseus vault keep"), "{said}");
+        assert!(
+            !said.contains("approve --code") && !said.contains("answered by its own button"),
+            "{said}"
+        );
+    }
+    assert!(e.contains("Type the value here"), "{e}");
+    // The needs-you line says how the value is given, and that only a decline is an answer.
+    let a = r.core.kernel.action(&q).unwrap().unwrap();
+    let body = crate::needs_you::body_of(&a, &req, "Theseus");
+    let line = body.to_string();
+    assert!(
+        line.contains("theseus vault keep") && line.contains("decline"),
+        "{line}"
+    );
+    assert!(!line.contains("approve"), "{line}");
+    assert!(waiting(&r, &q));
+}

@@ -75,6 +75,13 @@ impl Core {
         }
         // Words are never a proof, and never a card's yes: no code is read
         // from them and no window covers them.
+        if typed && crate::config_change::vault_keep::is_keep(a) {
+            return Err(self.proof_refused(
+                a,
+                who,
+                crate::config_change::vault_keep::chat_words(self.cfg.vault.keep_by_discord),
+            ));
+        }
         if typed {
             return Err(self.proof_refused(
                 a,
@@ -169,6 +176,18 @@ impl Core {
     /// for the owner's second proof, which is typed into a card's own form or
     /// the CLI, never said in chat. `None` for a question that asks for none.
     pub(crate) fn chat_refusal(&self, correlation_id: &str) -> Option<String> {
+        // A secret to keep is not approved at all: the owner gives its value, on its card or in a terminal.
+        if self
+            .kernel
+            .action(correlation_id)
+            .ok()
+            .flatten()
+            .is_some_and(|a| crate::config_change::vault_keep::is_keep(&a))
+        {
+            return Some(crate::config_change::vault_keep::chat_words(
+                self.cfg.vault.keep_by_discord,
+            ));
+        }
         marked(&self.store, correlation_id).map(|_| {
             format!(
                 "this one needs the owner's second proof, a code from their authenticator app, \

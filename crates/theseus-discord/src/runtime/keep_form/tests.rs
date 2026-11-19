@@ -705,14 +705,14 @@ fn the_forms_description_says_replaces_and_clips_the_vault_before_the_word() {
     );
 }
 
-/// A value the daemon would refuse is refused by the form in the daemon's words, before anything is sent:
-/// the form counts characters and the daemon bytes, so a long run of multi-byte characters passes the
-/// form's own limit; and a blank one. Nothing reaches the daemon, and the refusal holds no value.
+/// A value the daemon would refuse is found by the form (it counts characters, the daemon bytes) and goes
+/// to the daemon as a class and no value: the daemon records the attempt and answers in its words. The
+/// request holds no value, and what the presser is told holds none.
 #[tokio::test]
-async fn a_value_the_daemon_would_refuse_is_refused_by_the_form_before_it_is_sent() {
+async fn a_value_the_daemon_would_refuse_is_sent_as_a_class_and_no_value() {
     let (shared, fake, _d, _rx) = rig(true);
     let before = crate::rpc_client::keep_lines().len();
-    let long = "é".repeat(2100); // 2,100 characters, 4,200 bytes
+    let long = format!("{VALUE}{}", "é".repeat(2100)); // 2,100 characters, over 4,096 bytes
     for value in [long.as_str(), "   "] {
         shared
             .clone()
@@ -725,11 +725,14 @@ async fn a_value_the_daemon_would_refuse_is_refused_by_the_form_before_it_is_sen
             ))
             .await;
     }
-    assert_eq!(
-        crate::rpc_client::keep_lines().len(),
-        before,
-        "nothing was sent"
-    );
+    let lines = crate::rpc_client::keep_lines();
+    assert_eq!(lines.len(), before + 2, "{lines:?}");
+    for (line, class) in lines[before..].iter().zip(["not_a_value", "blank"]) {
+        let sent: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(sent["params"]["refused"], class, "{line}");
+        assert_eq!(sent["params"]["value"], "", "{line}");
+        assert!(!line.contains("é") && !line.contains(VALUE), "{line}");
+    }
     let told: Vec<String> = fake
         .replies()
         .into_iter()
@@ -737,12 +740,9 @@ async fn a_value_the_daemon_would_refuse_is_refused_by_the_form_before_it_is_sen
         .collect();
     assert_eq!(told.len(), 2, "{told:?}");
     assert!(
-        told[0].contains("at most 4096 bytes") && told[0].starts_with("🔐 Nothing was kept"),
-        "{}",
-        told[0]
+        told.iter().all(|t| !t.contains("é") && !t.contains(VALUE)),
+        "{told:?}"
     );
-    assert!(told[1].contains("no value was given"), "{}", told[1]);
-    assert!(told.iter().all(|t| !t.contains("é")));
 }
 
 /// `/answer` in the owner's direct messages draws the form's words and its button as the card does; in a
