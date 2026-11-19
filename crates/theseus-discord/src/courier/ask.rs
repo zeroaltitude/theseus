@@ -21,19 +21,21 @@ use crate::runtime::reply::answer;
 /// (a secret to keep takes a value, and no button carries one), else Approve and
 /// Decline.
 pub(super) fn card_buttons(req: &theseus_protocol::ConfirmRequest, q: &str) -> Buttons {
-    if !req.options.is_empty()
+    if req.tool == theseus_protocol::work::ask::OWNER_ASK {
+        return Buttons::Ask(
+            q.to_string(),
+            theseus_protocol::work::ask::choices_of(&req.input),
+        );
+    }
+    // A settings question the daemon offers no yes to takes a value no button carries.
+    if req.tool == theseus_core::config_change::ACK
+        && !req.options.is_empty()
         && !req
             .options
             .iter()
             .any(|o| theseus_protocol::answer::approves(&o.id))
     {
         return Buttons::Decline(q.to_string());
-    }
-    if req.tool == theseus_protocol::work::ask::OWNER_ASK {
-        return Buttons::Ask(
-            q.to_string(),
-            theseus_protocol::work::ask::choices_of(&req.input),
-        );
     }
     if req.change.is_some() {
         Buttons::Accept(q.to_string())
@@ -216,6 +218,33 @@ mod tests {
         assert_eq!(
             super::line_of(&json!({"prompt": "p", "card": {"line": ""}})),
             "p"
+        );
+    }
+
+    /// Only a secret to keep gets a decline alone: an `owner_ask` keeps its choices and an
+    /// ordinary approval keeps Approve and Decline, whatever their options are.
+    #[test]
+    fn only_a_secret_to_keep_is_drawn_with_a_decline_alone() {
+        use theseus_protocol::work::QuestionKind;
+        use theseus_protocol::ConfirmRequest;
+        let mut asks = ConfirmRequest {
+            tool: theseus_protocol::work::ask::OWNER_ASK.into(),
+            input: json!({"options": [{"label": "Careful"}, {"label": "Ship it"}]}),
+            ..Default::default()
+        };
+        asks.options = asks.question(QuestionKind::Ask, true).options;
+        assert!(matches!(
+            super::card_buttons(&asks, "act_1"),
+            crate::render::Buttons::Ask(..)
+        ));
+        let mut call = ConfirmRequest {
+            tool: "fs.write".into(),
+            ..Default::default()
+        };
+        call.options = call.question(QuestionKind::Approval, true).options;
+        assert_eq!(
+            super::card_buttons(&call, "act_1"),
+            crate::render::Buttons::Confirm("act_1".into())
         );
     }
 
