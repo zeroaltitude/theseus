@@ -395,6 +395,7 @@ facts![
     tool::ToolNotified<'static>,
     tool::CallAsked<'static>,
     tool::UnknownTool<'static>,
+    tool::ShellAnswered<'static>,
     tool::InvalidJson<'static>,
     tool::InvalidInput<'static>,
     tool::ToolStarted<'static>,

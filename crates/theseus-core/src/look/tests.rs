@@ -98,8 +98,8 @@ fn a_daemon_started_from_a_config_has_the_looks_and_a_bare_config_has_none() {
         r.len()
     };
     assert_eq!(count(&crate::Config::example()), 0);
-    assert_eq!(count(&started_from_a_file()), 2);
+    assert_eq!(count(&started_from_a_file()), 3);
     let mut vault = crate::Config::example();
     vault.config_copy = Some("/var/lib/theseus/config.copy".into());
-    assert_eq!(count(&vault), 2);
+    assert_eq!(count(&vault), 3);
 }

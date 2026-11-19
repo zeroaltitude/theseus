@@ -416,6 +416,7 @@ ledger_kinds! {
     ToolInvalidInput = "tool.invalid_input",
     ToolJobStarted = "tool.job_started",
     ToolLateResult = "tool.late_result",
+    ShellAnswered = "shell.answered",
     ToolNotified = "tool.notified",
     ToolRaised = "tool.raised",
     ToolsMissed = "tools.missed",

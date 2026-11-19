@@ -44,11 +44,22 @@ pub(crate) fn without_personas(toml: &str) -> String {
 }
 
 pub(crate) fn rig_of(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
+    rig_built(toml, false)
+}
+
+/// [`rig_of`], for a daemon started from a settings file, as every real one is: it has the tools that
+/// only such a daemon registers (the settings', the looks', the profiles').
+pub(crate) fn rig_started(toml: &str) -> (Arc<Core>, tempfile::TempDir) {
+    rig_built(toml, true)
+}
+
+fn rig_built(toml: &str, started: bool) -> (Arc<Core>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = Config::parse(&with_personas(toml, dir.path())).unwrap().0;
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.config_file = started.then(|| dir.path().join("theseus.toml"));
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -143,6 +154,18 @@ fn every_kind_of_place_is_within_its_budget() {
             "the owner's shape, {place}: {tokens} tokens over its budget of {max}"
         );
     }
+    // The same on a daemon started from a settings file, as every real one is: it has the settings', the looks'
+    // and the profiles' tools, which every place defers by default, so the budgets are the owner's own.
+    let (started, _sdir) = rig_started(OWNER_SHAPE);
+    for place in PLACES {
+        let Some(max) = budget(place) else { continue };
+        let tokens = started.first_request(place).unwrap().tokens;
+        eprintln!("first request, the owner's shape, started from a file, {place}: {tokens} tokens (budget {max})");
+        assert!(
+            tokens <= max,
+            "started from a file, {place}: {tokens} tokens over its budget of {max}"
+        );
+    }
     assert_eq!(budget("cli"), Some(8_000));
     assert_eq!(budget("task"), Some(8_000));
     assert_eq!(budget("dm"), Some(15_000));
@@ -156,8 +179,11 @@ fn a_loaded_tool_is_named_in_the_allowlist_with_its_reason() {
     // On the defaults and on the owner's config in shape (its language servers, its web search key).
     let (core, _dir) = rig();
     let (owner, _odir) = rig_of(OWNER_SHAPE);
+    // And a daemon started from a settings file, which has the looks and the profiles: a tool that only
+    // such a daemon registers is named here too if a place ever loads it (issue 28).
+    let (started, _sdir) = rig_started(OWNER_SHAPE);
     let mut seen = std::collections::BTreeSet::new();
-    for core in [&core, &owner] {
+    for core in [&core, &owner, &started] {
         for kind in PlaceKind::ALL {
             let place = kind.as_str();
             for tool in core.first_request(place).unwrap().loaded {

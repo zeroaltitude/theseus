@@ -193,7 +193,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - **The task board and `/tasks`** (39b, theseus-ext.14): `runtime/board.rs` routes a `task.changed` to its home's
   place (`theseus_core::task_graph::home`) and sends the tree to the lane as one live upsert under
   `render::BOARD_KEY` (`render/board.rs`); `courier/board.rs` pins it once (a refusal logged once a lane) and, after
-  a restart, finds the pinned board by `BOARD_HEAD` before making another. `/tasks` is the records' tree, then the
+  a restart, finds its recorded or pinned board before making another. `/tasks` is the records' tree, then the
   task sessions of today. The layer-1 card is `render::board::change_card`, with Accept and Decline on Approve's
   and Decline's ids (`Buttons::Accept`, `runtime::accept_buttons`). The fake Discord pins (`refuse_pins`). This text
   board is the fallback: the live board below replaces it while `[discord] live_board` is on and the bot can send V2.

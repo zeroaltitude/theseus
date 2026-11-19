@@ -794,6 +794,8 @@ mod tests_look_card;
 #[cfg(test)]
 mod tests_look_fields;
 #[cfg(test)]
+mod tests_ontology_look;
+#[cfg(test)]
 mod tests_own_command;
 #[cfg(test)]
 mod tests_press;
@@ -807,3 +809,5 @@ mod tests_source;
 mod tests_undo;
 #[cfg(test)]
 mod tests_withdrawn;
+#[cfg(test)]
+mod tests_work;

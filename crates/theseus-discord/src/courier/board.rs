@@ -31,6 +31,12 @@ struct Recorded {
     v2: bool,
 }
 
+/// Whether a message's author is this bot, when its id is known (0: not yet,
+/// and any bot's message counts, as the pins' search takes it).
+fn ours(author: u64, bot: u64) -> bool {
+    bot == 0 || author == bot
+}
+
 /// META key of a channel's board.
 fn record_key(channel: u64) -> String {
     format!("discord.board:{channel}")
@@ -93,7 +99,7 @@ impl Lane {
     }
 
     /// The board this channel has, by the id recorded when it was made: that
-    /// message, if it is still there and the bot's (of kind `v2` when given).
+    /// message, if it is still there and this bot's (of kind `v2` when given).
     /// Gone is no board; Discord away is an Err, not an answer.
     pub(super) async fn recorded_board(
         &self,
@@ -114,7 +120,9 @@ impl Lane {
             .await;
         match got {
             Ok(r) => match r.model().await {
-                Ok(m) if m.author.bot => Ok(Some(rec.message)),
+                Ok(m) if m.author.bot && ours(m.author.id.get(), self.shared.bot_id()) => {
+                    Ok(Some(rec.message))
+                }
                 _ => Ok(None),
             },
             Err(e) => {
