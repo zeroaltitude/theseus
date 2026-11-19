@@ -118,7 +118,7 @@ async fn a_provider_from_a_vault_item_is_one_card_and_no_value() {
         [
             "vault list --format json",
             "item list --format json --vault vaultid00000000000000000001",
-            "item get itemid00000000000000000001 --format json",
+            "item get itemid00000000000000000001 --vault vaultid00000000000000000001 --format json",
             "read --no-newline op://Harbor/Lantern key/credential"
         ]
     );

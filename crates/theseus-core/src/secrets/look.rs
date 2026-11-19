@@ -77,14 +77,17 @@ pub enum Verb {
     Vaults,
     /// The items of one vault, or of every vault the token sees.
     Items(Option<VaultId>),
-    /// One item, by its id, for the labels of its fields. Its answer holds the
-    /// fields' values, so it is read by [`OpReader::look_item`] alone, which
-    /// keeps its text out of any plain `String`.
-    Item(ItemId),
+    /// One item, by its id in the vault of that id, for the labels of its
+    /// fields. Its answer holds the fields' values, so it is read by
+    /// [`OpReader::look_item`] alone, which keeps its text out of any plain
+    /// `String`. The vault is named because the program refuses a service
+    /// account an `item get` that does not name one.
+    Item(VaultId, ItemId),
 }
 
 impl Verb {
-    /// The arguments, in full. Every one is a literal here but a vault's id.
+    /// The arguments, in full. Every one is a literal here but a vault's id
+    /// and an item's.
     pub fn argv(&self) -> Vec<String> {
         let lit = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         match self {
@@ -96,9 +99,11 @@ impl Verb {
                 a.push(v.as_str().to_string());
                 a
             }
-            Verb::Item(id) => {
+            Verb::Item(vault, id) => {
                 let mut a = lit(&["item", "get"]);
                 a.push(id.as_str().to_string());
+                a.push("--vault".to_string());
+                a.push(vault.as_str().to_string());
                 a.extend(lit(&["--format", "json"]));
                 a
             }
@@ -159,13 +164,17 @@ pub struct Vault {
     pub name: String,
 }
 
-/// One item as the list shows it: nothing but these five.
+/// One item as the list shows it: nothing but these.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemName {
     pub id: String,
     pub title: String,
     pub category: String,
     pub vault: String,
+    /// The id of the vault it is in: an item is asked for by both, since the
+    /// vault's program answers a service account's `item get` only when the
+    /// vault is named.
+    pub vault_id: String,
 }
 
 /// One field of an item as a reference needs to name it: its label and id,
@@ -247,6 +256,11 @@ pub fn parse_items(raw: &str) -> Result<Vec<ItemName>, Failed> {
                 vault: clean(
                     v.get("vault")
                         .and_then(|x| text(x, "name"))
+                        .unwrap_or_default(),
+                ),
+                vault_id: clean(
+                    v.get("vault")
+                        .and_then(|x| text(x, "id"))
                         .unwrap_or_default(),
                 ),
             })
@@ -382,8 +396,15 @@ impl OpReader {
     /// One item's text, for [`parse_fields`] and nothing else: it holds the
     /// item's values, so it is kept in zeroizing memory and dropped as soon as
     /// the labels are read.
-    pub async fn look_item(&self, id: &ItemId) -> Result<Zeroizing<String>, Failed> {
-        match String::from_utf8(self.run_verb(&Verb::Item(id.clone())).await?) {
+    pub async fn look_item(
+        &self,
+        vault: &VaultId,
+        id: &ItemId,
+    ) -> Result<Zeroizing<String>, Failed> {
+        match String::from_utf8(
+            self.run_verb(&Verb::Item(vault.clone(), id.clone()))
+                .await?,
+        ) {
             Ok(text) => Ok(Zeroizing::new(text)),
             Err(e) => {
                 drop(Zeroizing::new(e.into_bytes()));
