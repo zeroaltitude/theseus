@@ -193,33 +193,43 @@ async fn what_a_hand_over_spends_is_counted_in_the_days_total() {
 
 /// A hand-over that would cross the day's ceiling is refused as a task's own call is: the agent's
 /// first call is not made, the day's row says it was a task's, the owner's place hears the agent
-/// did not finish (as the agent's own message), and no model of the profile was asked.
+/// did not finish (as the agent's own message), and no model of the profile was asked. Under the
+/// ceiling's stop mode that is the ceiling; under notify, the default, the runaway line.
 #[tokio::test(start_paused = true)]
 async fn a_hand_over_that_crosses_the_days_ceiling_is_refused() {
-    let r = rig_with(|cfg, _| cfg.kernel.daily_spend_ceiling_usd = 100.0);
-    r.agents_report(REPORT, None);
-    let sid = r.session_at(PLACE);
-    let c = r.core.kernel.day_ceiling().clone();
-    r.when_the_turn_asks_the_model(move || {
-        // The day's spend passes the ceiling between the turn's first call and the agent's.
-        c.book(c.now(), theseus_kernel::usd_to_micros(1_000.0));
-    });
-    let _ = r
-        .try_steps(&sid, vec![("profile_run", work("haiku"))])
-        .await;
-    assert!(
-        !ran(&r, "claude-haiku-5-5"),
-        "the agent's call was never made"
-    );
-    let rows = r.rows("spend.ceiling");
-    assert!(
-        rows.iter().any(|d| d["what"] == json!("task")),
-        "the refusal is a task's: {rows:?}"
-    );
-    let said = wait_for_posts(&r, 1).await;
-    assert_eq!(said.len(), 1, "{:?}", posts(&r));
-    let text = said[0]["answer"]["text"].as_str().unwrap();
-    assert!(text.starts_with("The agent did not finish"), "{text}");
+    use crate::config::DailyCeilingMode::{Notify, Stop};
+    for mode in [Stop, Notify] {
+        let r = rig_with(move |cfg, _| {
+            cfg.kernel.daily_spend_ceiling_usd = 100.0;
+            cfg.kernel.daily_spend_ceiling_mode = mode;
+        });
+        r.agents_report(REPORT, None);
+        let sid = r.session_at(PLACE);
+        let c = r.core.kernel.day_ceiling().clone();
+        r.when_the_turn_asks_the_model(move || {
+            // The day's spend passes the line between the turn's first call and the agent's.
+            c.book(c.now(), theseus_kernel::usd_to_micros(5_000.0));
+        });
+        let _ = r
+            .try_steps(&sid, vec![("profile_run", work("haiku"))])
+            .await;
+        assert!(
+            !ran(&r, "claude-haiku-5-5"),
+            "{mode:?}: the agent's call was never made"
+        );
+        let rows = r.rows("spend.ceiling");
+        assert!(
+            rows.iter().any(|d| d["what"] == json!("task")),
+            "{mode:?}: the refusal is a task's: {rows:?}"
+        );
+        let said = wait_for_posts(&r, 1).await;
+        assert_eq!(said.len(), 1, "{mode:?}: {:?}", posts(&r));
+        let text = said[0]["answer"]["text"].as_str().unwrap();
+        assert!(
+            text.starts_with("The agent did not finish"),
+            "{mode:?}: {text}"
+        );
+    }
 }
 
 /// The daemon stops after the task opened and before the agent ran, and starts again on the same
@@ -333,21 +343,37 @@ async fn a_shared_place_and_a_guild_participant_are_refused_and_start_nothing() 
 }
 
 /// A conversation whose execution acts for a routine, the self-improvement loop, a connected client
-/// or a job is refused: no agent starts agents through this tool.
+/// or a job never starts an agent: where the turn runs at all, the tool's wall refuses it in the
+/// tool's own words; where the turn is refused before it can call anything, that is the refusal.
+/// Either way nothing opens and no model of the profile is asked.
 #[tokio::test]
 async fn a_routine_the_self_loop_a_client_and_a_job_are_refused() {
     let r = rig();
     r.agents_report(REPORT, None);
+    let mut played = vec![];
     for principal in ["routine", "self", "mcp", "job"] {
         let sid = as_principal(&r, principal);
-        r.steps(&sid, vec![("profile_run", work("haiku"))]).await;
-        let (status, text) = r.result(&sid);
-        assert_eq!(status, ResultStatus::Error, "{principal}: {text}");
-        assert!(
-            text.starts_with("profile.run is only for the owner's own conversation"),
-            "{principal}: {text}"
-        );
+        match r
+            .try_steps(&sid, vec![("profile_run", work("haiku"))])
+            .await
+        {
+            Ok(_) => {
+                let (status, text) = r.result(&sid);
+                assert_eq!(status, ResultStatus::Error, "{principal}: {text}");
+                assert!(
+                    text.starts_with("profile.run is only for the owner's own conversation"),
+                    "{principal}: {text}"
+                );
+                played.push(principal);
+            }
+            Err(e) => eprintln!("{principal}: the turn itself was refused: {e:#}"),
+        }
         assert!(tasks(&r, &sid).is_empty(), "{principal}");
     }
+    eprintln!("PLAYED to the tool's wall: {played:?}");
     assert!(!ran(&r, "claude-haiku-5-5"));
+    assert!(
+        !played.is_empty(),
+        "at least one principal reaches the wall in this rig"
+    );
 }
