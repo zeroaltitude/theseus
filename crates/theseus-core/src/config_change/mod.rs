@@ -42,6 +42,7 @@ pub mod proof_seam;
 pub mod restart;
 pub mod show;
 pub mod shown;
+pub mod source;
 pub mod undo;
 pub mod vault_keep;
 pub mod vault_use;
@@ -133,6 +134,9 @@ struct Item {
     value: Option<Value>,
     #[serde(default)]
     remove: bool,
+    /// Where the model found a fact its maker publishes (`source.rs`).
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +146,7 @@ struct Input {
     reason: String,
 }
 
-fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
+fn input_of(input: &Value) -> Result<(Vec<edit::Change>, Vec<source::Sourced>, String), String> {
     let i: Input = parse(input)?;
     if i.changes.is_empty() || i.changes.len() > MAX_CHANGES {
         return Err(format!(
@@ -153,14 +157,18 @@ fn input_of(input: &Value) -> Result<(Vec<edit::Change>, String), String> {
     if reason.is_empty() {
         return Err("give a reason in the owner's words, one line".into());
     }
-    Ok((changes_of(i.changes)?, reason))
+    let (changes, sources) = changes_of(i.changes)?;
+    Ok((changes, sources, reason))
 }
 
-/// The edits a list of items names, each checked as a proposal checks it.
-fn changes_of(items: Vec<Item>) -> Result<Vec<edit::Change>, String> {
+/// The edits a list of items names, each checked as a proposal checks it, and
+/// the sources the model gave for them.
+fn changes_of(items: Vec<Item>) -> Result<(Vec<edit::Change>, Vec<source::Sourced>), String> {
     let mut changes = Vec::new();
+    let mut sources = Vec::new();
     for c in items {
         let path = edit::parse_path(&c.path)?;
+        sources.extend(source::of(&path, c.source.as_deref()));
         changes.push(match (c.value, c.remove) {
             (Some(v), false) => {
                 if v.to_string().len() > MAX_VALUE_BYTES {
@@ -181,7 +189,7 @@ fn changes_of(items: Vec<Item>) -> Result<Vec<edit::Change>, String> {
             }
         });
     }
-    Ok(changes)
+    Ok((changes, sources))
 }
 
 /// Register the tools, only where Theseus's settings are a file the daemon
@@ -222,7 +230,10 @@ impl Tool for Propose {
          card with each value before and after; only their yes changes anything, and the daemon writes it itself. \
          A setting that governs what Theseus may do (approvals, secrets, the sandbox, folders, who the owner is, \
          spending) needs a second proof as well. A secret in the vault is used by `vault.use`, never by writing \
-         an `op://` reference here. Offered only to the owner, in a private place."
+         an `op://` reference here. A fact its maker publishes (a model's exact name, a provider's address and \
+         protocol) may be looked up with the web tools rather than asked for: give it with a `source`, never a \
+         guess. The owner still confirms, on the card, where a secret is sent. Offered only to the owner, in a \
+         private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -237,7 +248,8 @@ impl Tool for Propose {
                         "properties": {
                             "path": {"type": "string", "description": "The setting's path, keys joined by dots; quote a key that has a dot, as providers.\"my.host\"."},
                             "value": {"description": "Its new value: a switch, a number, text, a list, or a whole table."},
-                            "remove": {"type": "boolean", "description": "Remove the setting, so it takes its default. Instead of a value."}
+                            "remove": {"type": "boolean", "description": "Remove the setting, so it takes its default. Instead of a value."},
+                            "source": {"type": "string", "description": "For a published fact: a page's address and what it says, one line. The card shows it as your word, not a check."}
                         },
                         "required": ["path"],
                         "additionalProperties": false
@@ -264,7 +276,7 @@ impl Tool for Propose {
     }
 
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
-        let (changes, _) = input_of(input)?;
+        let (changes, _, _) = input_of(input)?;
         let paths: Vec<String> = changes.iter().map(|c| edit::dotted(c.path())).collect();
         Ok(Plan {
             summary: format!("propose changing {}", paths.join(", ")),
@@ -455,9 +467,13 @@ pub fn propose(
     if let Ok(done) = proposed_by_call(tc, correlation_id) {
         return Ok(done);
     }
-    let (changes, reason) = input_of(input)?;
+    let (changes, sources, reason) = input_of(input)?;
     let base = read_base(rt)?;
-    put(rt, tc, correlation_id, &base, &changes, &reason, None)
+    let extra = Extra {
+        sources: &sources,
+        ..Extra::default()
+    };
+    put_using(rt, tc, correlation_id, &base, &changes, &reason, extra)
 }
 
 /// The settings file as it is on disk, which must load as it is: nothing is
@@ -477,7 +493,7 @@ pub(crate) fn read_base(rt: &ToolRuntime) -> Result<String, String> {
 
 /// Put `changes` to the file `base` to the owner as one card: the candidate,
 /// its check, the sensitive list and the proof seam, the card, the question.
-/// `config.propose` and `config.undo` both come here and nowhere else, so
+/// `config.undo` comes here, and `config.propose` to [`put_using`], so
 /// an undo is held to everything a proposal is (`undoes` is only what an undo
 /// adds to the card and to the question's arguments).
 pub(crate) fn put(
@@ -491,16 +507,19 @@ pub(crate) fn put(
 ) -> Result<(String, Value), String> {
     let extra = Extra {
         undoes,
-        secret: None,
+        ..Extra::default()
     };
     put_using(rt, tc, correlation_id, base, changes, reason, extra)
 }
 
 /// What a change carries beyond its settings: the undo it is, or the vault item
 /// it gives to use.
+#[derive(Default)]
 pub(crate) struct Extra<'a> {
     pub undoes: Option<&'a undo::Undoes>,
     pub secret: Option<&'a vault_use::Chosen>,
+    /// What the model said of where it found a value (`source.rs`).
+    pub sources: &'a [source::Sourced],
 }
 
 /// [`put`], for a change that also gives a vault item to use (`vault.use`):
@@ -517,7 +536,11 @@ pub(crate) fn put_using(
     reason: &str,
     extra: Extra<'_>,
 ) -> Result<(String, Value), String> {
-    let Extra { undoes, secret } = extra;
+    let Extra {
+        undoes,
+        secret,
+        sources,
+    } = extra;
     let w = &rt.config_change;
     let candidate = edit::apply(base, changes)?;
     let (loaded, _) = crate::Config::parse(&candidate)
@@ -540,6 +563,7 @@ pub(crate) fn put_using(
         steered,
         reason,
         wait_secs: RESTART_WAIT_SECS,
+        sources,
     };
     let question = match (undoes, secret) {
         (Some(u), _) => {
@@ -764,6 +788,8 @@ mod tests_look_fields;
 mod tests_press;
 #[cfg(test)]
 mod tests_proof;
+#[cfg(test)]
+mod tests_source;
 #[cfg(test)]
 mod tests_undo;
 #[cfg(test)]

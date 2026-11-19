@@ -90,6 +90,9 @@ struct AttachInput {
     external: Option<bool>,
     #[serde(default)]
     reason: Option<String>,
+    /// Where the model found the server's command or address (`source.rs`).
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +112,7 @@ struct Spec {
     wanted: McpServerConfig,
     trial: McpServerConfig,
     reason: String,
+    source: Option<String>,
 }
 
 /// What an attach names, checked before anything is built: one transport, and
@@ -266,6 +270,7 @@ impl Spec {
             wanted,
             trial,
             reason: super::card::reason_line(i.reason.as_deref().unwrap_or_default()),
+            source: super::source::clean(i.source.as_deref()),
         })
     }
 
@@ -299,7 +304,9 @@ impl Tool for Attach {
          it is given by name, and which hosts it may reach. Only the owner's yes attaches it, \
          with a second proof, and its tools are offered from the next message with no restart. \
          A secret a server needs is named by its `[secrets]` entry (`env`: variable to secret \
-         name; `auth_secret` for HTTP): never a value. Offered only to the owner, in a private place."
+         name; `auth_secret` for HTTP): never a value. A command or address its maker publishes may be \
+         looked up with the web tools rather than asked for: give it with a `source`, never a guess. \
+         Offered only to the owner, in a private place."
     }
 
     fn input_schema(&self) -> Value {
@@ -315,7 +322,8 @@ impl Tool for Attach {
                 "sandbox": {"type": "string", "enum": ["l1", "l0"], "description": "l1 (the default) runs it in the sandbox; l0 outside it, only on the owner's word."},
                 "egress": {"type": "array", "items": {"type": "string"}, "description": "Hosts (host:port) a sandboxed server may reach. Empty: no network."},
                 "external": {"type": "boolean", "description": "true (the default): its results are marked as outside text. false only on the owner's explicit word: the card says so on a line of its own."},
-                "reason": {"type": "string", "description": "One line, in the owner's words: why they want it."}
+                "reason": {"type": "string", "description": "One line, in the owner's words: why they want it."},
+                "source": {"type": "string", "description": "For a published command or address: a page's address and what it says, one line. The card shows it as your word, not a check."}
             },
             "required": ["name"],
             "additionalProperties": false
@@ -645,6 +653,7 @@ pub async fn attach(
         reason: &spec.reason,
         missing: &missing,
         unloaded: &unloaded,
+        source: spec.source.as_deref(),
     };
     let Some((candidate, server, settings)) = built else {
         return Ok((

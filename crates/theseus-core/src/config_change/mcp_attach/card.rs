@@ -51,6 +51,9 @@ pub struct Facts<'a> {
     pub missing: &'a [String],
     /// Those the file has and this daemon has not loaded (it started before).
     pub unloaded: &'a [String],
+    /// What the model said of where it found the command or address: shown
+    /// under it as its word, never as a check (`source.rs`).
+    pub source: Option<&'a str>,
 }
 
 /// A character that shows as nothing, turns the text around it, or breaks a
@@ -356,6 +359,9 @@ fn external(s: &McpServerConfig) -> &'static str {
 pub fn attach(f: &Facts<'_>) -> Result<String, String> {
     let mut out = format!("Attach the MCP server {}?\n", lit(f.name));
     out.push_str(&what_runs(f.server));
+    if let Some(said) = f.source {
+        out.push_str(&super::super::source::line(said));
+    }
     out.push_str(&tools(f.tried, f.server)?);
     out.push_str(&read_only(f.tried, f.server));
     out.push_str(&secrets(f.server));
@@ -446,6 +452,7 @@ pub fn detach(d: &Detach<'_>) -> String {
         reason: d.reason,
         missing: &[],
         unloaded: &[],
+        source: None,
     };
     tail(&f, &mut out);
     out
