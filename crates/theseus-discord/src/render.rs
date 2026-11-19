@@ -42,6 +42,7 @@ mod preview;
 pub(crate) mod process;
 mod refold;
 mod reply;
+pub(crate) mod sched;
 pub(crate) mod settings;
 pub(crate) mod snapshot;
 mod step;

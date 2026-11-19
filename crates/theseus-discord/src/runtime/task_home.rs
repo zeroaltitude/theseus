@@ -97,6 +97,14 @@ impl TaskHome {
         *self.state.borrow()
     }
 
+    /// Where a scheduled item's card goes, when the home stands: its channel,
+    /// its guild and its name as Discord gave it (`runtime/sched.rs`).
+    pub(crate) fn target(&self) -> Option<(u64, String, String)> {
+        let channel = self.channel()?;
+        let (guild, _) = self.wanted.lock().unwrap().clone()?;
+        Some((channel, guild, self.name.lock().unwrap().clone()))
+    }
+
     /// Whether `channel` is the home.
     pub(crate) fn is_home(&self, channel: u64) -> bool {
         self.channel() == Some(channel)
@@ -337,6 +345,8 @@ impl Shared {
                 self.register_task_homes();
                 if was != Some(channel) {
                     self.wake_places();
+                    // The scheduled items get their cards here.
+                    self.tasks_future_dirty();
                     // A board the DM drew before the home answered is stale.
                     if let Some(dm) = self.owner_dm_place().and_then(|t| self.lane(&t)) {
                         let _ = dm.send(crate::courier::LaneMsg::BoardMoved);
