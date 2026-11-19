@@ -9,8 +9,9 @@ use super::*;
 
 /// theseus-hmwv: a `/stop` that lands after an input arrived and before its
 /// turn is admitted stops that turn as it starts: no model call, stop reason
-/// `stopped`, and an `execution.stopped` row for its turn. The session's
-/// next input runs as usual. Here the input's turn waits for admission
+/// `stopped`, and an `execution.stopped` row for its turn. The stop's answer
+/// and its row say a turn was running, as the turn waiting for admission is
+/// the one it reaches. The session's next input runs as usual. Here the input's turn waits for admission
 /// behind another session's turn, whose job's disk check is held (the
 /// ceiling is one); in the daemon the window is a start's wait for the
 /// secrets, or admission under load. Before, the stop found the execution
@@ -75,9 +76,21 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     let b2 = tokio::spawn(async move { core.runner.run(req).await.unwrap() });
     let calls = || r.fake.requests.lock().unwrap().len();
     let before = calls();
-    // The stop lands while B is idle: nothing runs, so nothing is marked.
+    // B's turn is in the admission's queue before the stop lands: the stop
+    // reaches it, though it holds nothing yet, so nothing is marked.
+    let t0 = std::time::Instant::now();
+    while !r.core.runner.admit_waiting.reaches(
+        &exec_b,
+        std::time::Instant::now() + Duration::from_secs(3600),
+    ) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "B's turn never waited"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
     let stop = r.core.stop_execution(&exec_b, "test").await.unwrap();
-    assert!(stop.stopped && !stop.turn_running, "{stop:?}");
+    assert!(stop.stopped && stop.turn_running, "{stop:?}");
     go.send(()).unwrap();
     let a = tokio::time::timeout(Duration::from_secs(20), a)
         .await
@@ -96,6 +109,10 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
     );
     let rows = ledgered(&r, "execution.stopped");
     assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(
+        rows[0]["turn_running"], true,
+        "the stop's own row: {rows:?}"
+    );
     assert_eq!(rows[1]["turn_running"], true);
     // The next input runs.
     let b3 = turn(&r.core, Some(&b.session_id), "and now?").await;

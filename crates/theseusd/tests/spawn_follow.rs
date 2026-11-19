@@ -233,13 +233,16 @@ fn a_late_result_is_followed_and_printed() {
 
 /// `--follow-for 0` ends the run with its turn, as before: the late result
 /// is lost, and the status line and the JSON say the job was left running.
+/// The job is the long one: the run ends when its turn does, and a turn on a
+/// machine that is starved for seconds outlasts a 3 s job, which then ended
+/// before the run did and left nothing running to say.
 #[test]
 fn follow_for_0_leaves_the_job_and_says_so() {
     let model = FakeModel::start(calls);
     let dir = rig(&model);
     let r = run(
         dir.path(),
-        &["--json", "ask", "--follow-for", "0", "run the slow job"],
+        &["--json", "ask", "--follow-for", "0", "run the long job"],
     );
     assert_eq!(r.code, 0, "{}\n{}", r.stdout, r.stderr);
     let v = r.json();
@@ -248,7 +251,7 @@ fn follow_for_0_leaves_the_job_and_says_so() {
     assert_eq!(model.requests().len(), 2, "a later turn ran");
     let r = run(
         dir.path(),
-        &["ask", "--follow-for", "0", "run the slow job"],
+        &["ask", "--follow-for", "0", "run the long job"],
     );
     assert!(
         r.stderr.contains("· 1 job still running: the run ended]"),
