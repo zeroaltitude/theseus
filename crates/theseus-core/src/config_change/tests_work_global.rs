@@ -24,7 +24,7 @@ async fn conversation(r: &Rig) -> String {
 /// A task `parent` started, titled and reporting nowhere; deferred to `start_at_ms` when given.
 fn task(r: &Rig, parent: &str, title: &str, start_at_ms: Option<u64>) -> theseus_kernel::Execution {
     let p: SessionRecord = r.core.store.get_session(parent).unwrap().unwrap();
-    let pe = p.execution_id.clone().unwrap();
+    let pe = p.execution_id.unwrap();
     let opened = r
         .core
         .kernel
@@ -363,7 +363,7 @@ async fn a_task_cancelled_before_it_ran_names_no_model() {
         "{:?}",
         body(&t)
     );
-    let mut ran = t.clone();
+    let mut ran = t;
     ran.turns = 2;
     assert_eq!(body(&ran)["ran_on"]["model"], json!("claude-sonnet-5-5"));
 }

@@ -125,7 +125,7 @@ fn a_message_is_named_for_what_it_is() {
 #[test]
 fn a_line_has_no_control_characters_and_the_caps_hold_the_answer() {
     assert_eq!(clip("a\u{1b}[31mb\u{0}c", 20), "a [31mb c");
-    assert!(TOTAL_CHARS < ANSWER_CHARS);
+    const { assert!(TOTAL_CHARS < ANSWER_CHARS) };
     assert_eq!(ANSWER_CHARS, 24_000);
     assert_eq!(TOTAL_CHARS, 8_000);
 }

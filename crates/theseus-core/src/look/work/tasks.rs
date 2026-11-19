@@ -83,12 +83,15 @@ pub(super) fn task_line(t: &TaskInfo) -> String {
 /// back when that conversation holds marked data.
 fn task_line_in(t: &TaskInfo, r: &Reader<'_>) -> String {
     let at = &t.parent_session_id;
+    if at == r.here {
+        return task_line(t);
+    }
     line(
         t,
         Said {
             title: r.words(at, title_of(t), 100),
             ended: ended_of(t).map(|s| r.words(at, s, 120)),
-            from: (at != r.here).then(|| r.place(at)),
+            from: Some(r.place(at)),
         },
     )
 }
@@ -159,11 +162,10 @@ fn question(q: &ConfirmRequest, at: Option<String>, reason: String) -> String {
 /// that conversation holds marked data.
 fn question_line_in(q: &ConfirmRequest, r: &Reader<'_>) -> String {
     let at = &q.session_id;
-    question(
-        q,
-        (at != r.here).then(|| r.place(at)),
-        r.words(at, &q.reason, 200),
-    )
+    if at == r.here {
+        return question_line(q);
+    }
+    question(q, Some(r.place(at)), r.words(at, &q.reason, 200))
 }
 
 /// What waits on the owner: every question and card anywhere, this place's first. They answer; this

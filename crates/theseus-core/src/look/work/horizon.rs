@@ -30,7 +30,7 @@ fn left_out(out: &mut String, more: usize, what: &str) {
     }
 }
 
-fn project_line(p: &ProjectInfo, r: &Reader<'_>) -> String {
+fn project_line(p: &ProjectInfo) -> String {
     let g = &p.progress;
     let next = match (&p.next_title, g.next_due_ms) {
         (Some(t), Some(ms)) => format!(" · next {} by {}", clip(t, 80), at(ms)),
@@ -64,7 +64,7 @@ pub(super) fn projects(r: &Reader<'_>) -> String {
     }
     let mut out = format!("Projects ({} open). {WRITTEN}:\n", list.len());
     for p in list.iter().take(PROJECTS_MAX) {
-        out.push_str(&project_line(p, r));
+        out.push_str(&project_line(p));
     }
     left_out(
         &mut out,
