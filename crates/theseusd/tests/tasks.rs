@@ -226,8 +226,10 @@ fn a_kill_mid_task_then_a_restart_finishes_it_and_reports_once() {
     );
     // Its last message: the job's result came back after the restart as a
     // late result, which the stand-in model answers so.
+    // The footer names what the task ran on and says it is a subagent's (issue 28), then its turns.
     assert!(
-        got[0].content.contains("\nNothing to do.\n-# 2 turns"),
+        got[0].content.contains("\nNothing to do.\n-# ")
+            && got[0].content.contains(" · subagent task report · 2 turns"),
         "{}",
         got[0].content
     );
@@ -295,7 +297,11 @@ fn a_kill_while_a_task_is_parked_on_its_wake_then_a_restart_reports_once() {
         "{}",
         got[0].content
     );
-    assert!(got[0].content.contains("-# 2 turns"), "{}", got[0].content);
+    assert!(
+        got[0].content.contains(" · subagent task report · 2 turns"),
+        "{}",
+        got[0].content
+    );
     let wakes = r.call("wake.list", json!({})).unwrap()["wakes"].clone();
     assert!(wakes.as_array().unwrap().is_empty(), "{wakes}");
     // The wake's turn ran once: one request ended on its line (the set
