@@ -463,10 +463,15 @@ fn an_acting_call_waits_and_the_cli_approves_it() {
         .as_str()
         .unwrap()
         .to_string();
+    // The wait is the test's input: a `running` answer carries the turn's id only if the turn has started by
+    // the end of it, and under load a turn can take longer than two seconds to start (the answer was
+    // `{"status":"running","turn_id":""}` in 2 of 20 whole runs beside 64 busy loops, theseus-20), so it grows
+    // with how slowly the machine gives a thread its turn: exactly 2 s on a quiet one.
+    let wait_secs = 2 * theseus_sim::bound_factor();
     let sent = r.ok(
         &c,
         "conversation_send",
-        json!({"session_id": sid, "text": "act for me", "wait_secs": 2}),
+        json!({"session_id": sid, "text": "act for me", "wait_secs": wait_secs}),
     );
     assert_eq!(sent["status"], "running", "{sent}");
     assert!(
