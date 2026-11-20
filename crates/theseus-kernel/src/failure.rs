@@ -90,6 +90,10 @@ mod tests {
     fn a_timeout_a_stop_and_a_spawn_failure_outrank_the_exit_they_leave() {
         let t = json!({"timed_out": true, "exit_code": null, "signal": 9});
         assert_eq!(classify(Some(&t)), Some("timeout"));
+        // The limit a cut job records (issue 37) does not change its class, so the nightly read's cause
+        // `action.failed:<producer>:timeout` is the one it was.
+        let cut = json!({"timed_out": true, "limit_ms": 2000, "silent_ms": 2013, "exit_code": null, "signal": 9});
+        assert_eq!(classify(Some(&cut)), Some("timeout"));
         let s = json!({"stopped": true, "signal": 15});
         assert_eq!(classify(Some(&s)), Some("stopped"));
         let p = json!({"spawn_error": "No such file"});
