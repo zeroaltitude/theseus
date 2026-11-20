@@ -86,6 +86,8 @@ struct Model {
     fails_after_a_result: std::sync::atomic::AtomicBool,
     /// Every request's model and how many tools it offered (`profile.run`: an agent has tools).
     seen: Mutex<Vec<(String, usize)>>,
+    /// The requests the turn itself made, whole (an agent's and a tool-less ask are not these).
+    sent: Mutex<Vec<ProviderRequest>>,
     /// What an agent (a request whose first message holds `AGENT:`) reports, and the gate that holds
     /// it until a test lets it go.
     agent: Mutex<Option<String>>,
@@ -166,6 +168,9 @@ impl Provider for Model {
         }
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
+        }
+        if !req.tools.is_empty() {
+            self.sent.lock().unwrap().push(req.clone());
         }
         if self
             .fails_after_a_result
@@ -280,6 +285,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         on_asked: Mutex::default(),
         fails_after_a_result: Default::default(),
         seen: Mutex::default(),
+        sent: Mutex::default(),
         agent: Mutex::default(),
         gate: Mutex::default(),
         agent_call: Mutex::default(),
@@ -417,6 +423,11 @@ impl Rig {
     /// The owner's words the next turns start from (`change a setting` when none are set).
     pub(super) fn says(&self, words: &str) {
         *self.said.lock().unwrap() = Some(words.into());
+    }
+
+    /// The requests the turn itself made, whole.
+    pub(super) fn sent(&self) -> Vec<ProviderRequest> {
+        self.model.sent.lock().unwrap().clone()
     }
 
     /// The model of every request made, and the tools it offered.

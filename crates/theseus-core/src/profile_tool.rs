@@ -49,9 +49,11 @@ use crate::Core;
 
 mod ask;
 mod hold;
+pub(crate) mod names;
 pub(crate) mod run;
 
 pub use ask::{ANSWER_MAX_TOKENS, QUESTION_MAX_CHARS, TIME_LIMIT};
+pub(crate) use names::told;
 pub use run::{ProfileRun, RUN};
 
 pub const ASK: &str = "profile.ask";
