@@ -613,6 +613,21 @@ async fn a_restarted_pass_over_the_list_makes_and_edits_nothing() {
     assert_eq!(edits(&after), edits(&before), "none edited");
 }
 
+/// The worker's list once it holds a row: a card is shown before its row is
+/// written, so a test that reads the list waits for the row.
+async fn listed_once_shown(r: &Rig) -> Vec<crate::runtime::sched::Rec> {
+    let listed = || -> Vec<crate::runtime::sched::Rec> {
+        r.core
+            .store
+            .get_meta("discord.sched")
+            .unwrap()
+            .unwrap_or_default()
+    };
+    r.until("its row is on the list", || !listed().is_empty())
+        .await;
+    listed()
+}
+
 /// An item that was set and is nowhere any more (it fired, or was cancelled,
 /// while the daemon was down) has its card brought to its true end, once.
 #[tokio::test]
@@ -623,12 +638,7 @@ async fn a_card_whose_item_vanished_while_the_daemon_was_down_is_brought_to_its_
     r.until("the card", || card(&r, home, "tide check").is_some())
         .await;
     let c = card(&r, home, "tide check").unwrap();
-    let mut list: Vec<crate::runtime::sched::Rec> = r
-        .core
-        .store
-        .get_meta("discord.sched")
-        .unwrap()
-        .expect("the list");
+    let mut list = listed_once_shown(&r).await;
     // A second item on the list, due an hour ago, that the daemon no longer
     // holds: its card is the message of the first (all the stand-in has to edit).
     let mut ghost = list[0].clone();
@@ -1266,12 +1276,7 @@ async fn an_item_missing_from_a_model_that_is_not_loaded_is_not_cancelled() {
     r.until("the card", || card(&r, home, "tide check").is_some())
         .await;
     let c = card(&r, home, "tide check").unwrap();
-    let mut list: Vec<crate::runtime::sched::Rec> = r
-        .core
-        .store
-        .get_meta("discord.sched")
-        .unwrap()
-        .expect("the list");
+    let mut list = listed_once_shown(&r).await;
     // A second entry on the list, due in two hours, that nothing holds: its
     // card is the first one's message.
     let mut ghost = list[0].clone();
@@ -1491,6 +1496,13 @@ async fn a_post_the_owner_deleted_is_made_again_when_its_reminder_is_set_again()
     let forum = forum_up(&r).await;
     let wake = remind(&r, "tide check", "in 3s").await;
     let (_, post) = fired(&r, home, forum, "tide check").await;
+    // The owner deletes it once its end is fully shown (the name too): a delete
+    // between the tag and the name is the order `a_post_the_owner_deleted_while_its_item_stands_is_made_again`
+    // and the worker's own tests hold.
+    r.until("its end is fully shown", || {
+        last_name(&r, post).contains('✅')
+    })
+    .await;
     r.fake.delete_thread(post);
     snooze_fired(&r, &wake, "in 90m").await;
     r.until("a new post, scheduled", || {
@@ -1513,6 +1525,12 @@ async fn a_post_that_cannot_be_reopened_is_not_tried_again_and_says_so_once() {
     let forum = forum_up(&r).await;
     let wake = remind(&r, "tide check", "in 3s").await;
     let (_, post) = fired(&r, home, forum, "tide check").await;
+    // Its end is fully shown (the name too) before the permission goes: the
+    // refusal must not land in the middle of the end's own writes.
+    r.until("its end is fully shown", || {
+        last_name(&r, post).contains('✅')
+    })
+    .await;
     r.fake.refuse_thread_patch(true);
     snooze_fired(&r, &wake, "in 90m").await;
     let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
@@ -1553,4 +1571,42 @@ async fn a_press_before_the_work_model_is_loaded_says_it_is_still_starting() {
     assert!(alone && said.contains("still starting"), "{said}");
     shared.tasks.loaded_for_tests(true);
     assert!(pending(&r, &wake), "nothing was written");
+}
+
+/// A post the owner deletes while its item stands (every call on it answers 404):
+/// it is made again, `scheduled`, and the 404 is not tried again for ever.
+#[tokio::test]
+async fn a_post_the_owner_deleted_while_its_item_stands_is_made_again() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 90m").await;
+    r.until("its card and its post, scheduled", || {
+        card(&r, home, "tide check").is_some()
+            && post_with(&r, forum, "tide check")
+                .is_some_and(|p| last_tags(&r, p.id) == [tag_id(&r, forum, "scheduled")])
+    })
+    .await;
+    let post = post_with(&r, forum, "tide check").unwrap().id;
+    r.fake.delete_thread(post);
+    // The reminder moves, so its post's card has something to say.
+    let _: WakeEditResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_SNOOZE,
+            theseus_protocol::wakes::WakeSnoozeParams {
+                wake: wake.clone(),
+                when: Some("in 2h".into()),
+                fired: false,
+                author: None,
+            },
+        )
+        .await
+        .unwrap();
+    r.until("a new post, scheduled", || {
+        post_with(&r, forum, "tide check").is_some_and(|p| {
+            p.id != post && last_tags(&r, p.id) == [tag_id(&r, forum, "scheduled")]
+        })
+    })
+    .await;
+    assert_eq!(posts_about(&r, forum, "tide check"), 1);
 }

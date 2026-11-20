@@ -310,6 +310,9 @@ impl FakeDiscord {
     pub fn delete_thread(&self, id: u64) {
         let mut st = self.state.lock().unwrap();
         st.threads.remove(&id);
+        // A deleted thread takes its messages with it: an edit of its first
+        // message answers 404 too.
+        st.messages.retain(|m| m.channel != id.to_string());
         st.deleted_threads.push(id);
     }
 
