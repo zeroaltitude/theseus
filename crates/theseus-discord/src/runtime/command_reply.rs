@@ -145,10 +145,11 @@ impl Shared {
             _ => false,
         };
         let client = self.interact.interaction(i.application_id);
+        let nobody = AllowedMentions::default();
         let mut update = client
             .update_response(&i.token)
             .components(Some(&[]))
-            .allowed_mentions(Some(&AllowedMentions::default()));
+            .allowed_mentions(Some(&nobody));
         if !settled_meanwhile {
             update = update.content(Some(&content));
         }
