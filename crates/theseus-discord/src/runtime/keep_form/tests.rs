@@ -689,6 +689,68 @@ async fn a_submit_the_daemon_is_slow_to_answer_still_shows_the_kept_words_privat
     assert!(!log.text().contains(VALUE), "in a trace");
 }
 
+/// The daemon does not answer (it is stuck, or the vault's program is): the submit does not wait for ever. Past
+/// its bound the presser is told, privately, that Theseus has not answered and cannot say whether the value was
+/// kept (neither kept nor not kept), and where the outcome will show; the press's row says it was not ok; and the
+/// call, released late, sends nothing more. The bound is shortened to one second here (it is 80 in the product).
+#[tokio::test]
+async fn a_daemon_that_does_not_answer_leaves_the_presser_told_it_is_not_known() {
+    let log = tracing_capture::start();
+    super::SHORTER.with(|c| c.set(Some(std::time::Duration::from_secs(1))));
+    let (shared, fake, _d, _rx) = rig(true);
+    let kept = json!({"vault": "Harbor", "title": "Lantern new", "field": "credential",
+                      "replaced": false, "words": "Kept in Harbor: Lantern new, field credential."});
+    let held = crate::rpc_client::slow_once(method::VAULT_KEEP_ANSWER, "act_0000mute", kept);
+    shared
+        .clone()
+        .on_interaction(submitted(
+            None,
+            DM,
+            OWNER,
+            "kf:act_0000mute",
+            &[("value", VALUE)],
+        ))
+        .await;
+    super::SHORTER.with(|c| c.set(None));
+    let replies = said(&fake);
+    assert_eq!(private_kinds(&replies), PRIVATE_THEN_EDITED, "{replies:?}");
+    let told = replies[1].content.clone().unwrap();
+    assert!(
+        told.starts_with(
+            "⏳ Theseus has not answered yet, so it cannot say whether the value was kept."
+        ),
+        "{told}"
+    );
+    assert!(told.contains("The card will change"), "{told}");
+    assert!(
+        !told.starts_with('✅') && !told.contains("Nothing was kept"),
+        "{told}"
+    );
+    assert!(!told.contains(VALUE), "{told}");
+    // The press's row: not ok, and why, with no value.
+    shared.core.store.flush_waiting();
+    let rows = shared
+        .core
+        .store
+        .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
+        .unwrap();
+    let row = rows
+        .iter()
+        .map(|(_, r)| r)
+        .find(|r| r.data["correlation_id"] == "act_0000mute")
+        .unwrap_or_else(|| panic!("the press left its row: {rows:?}"));
+    assert_eq!(row.data["ok"], false, "{row:?}");
+    assert_eq!(row.data["error"], "no answer came in 1 s", "{row:?}");
+    assert!(!format!("{rows:?}").contains(VALUE), "in a ledger row");
+    // The held call is released late: nothing further is sent to anyone, and nothing breaks.
+    let (sent, seen) = (said(&fake).len(), fake.seen().len());
+    held.release.notify_one();
+    tokio::task::yield_now().await;
+    assert_eq!((said(&fake).len(), fake.seen().len()), (sent, seen));
+    assert!(!format!("{:?}{:?}", fake.seen(), fake.all_messages()).contains(VALUE));
+    assert!(!log.text().contains(VALUE), "in a trace");
+}
+
 /// The daemon's error is completed privately as well (a call that failed outright, not a refusal).
 #[tokio::test]
 async fn a_submit_whose_call_fails_completes_its_deferral_privately() {
