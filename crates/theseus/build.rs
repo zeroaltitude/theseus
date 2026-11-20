@@ -42,8 +42,9 @@ fn main() {
             }
         }
     }
-    println!(
-        "cargo:rustc-env=THESEUS_COMMIT={}",
-        commit.unwrap_or_default()
-    );
+    // A file in `OUT_DIR` and not `rustc-env`: an environment value is part of every target's build, so the
+    // library would recompile at each commit as the program does; a file only the program includes does not.
+    let out = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
+    std::fs::write(Path::new(&out).join("commit"), commit.unwrap_or_default())
+        .expect("writing the commit");
 }

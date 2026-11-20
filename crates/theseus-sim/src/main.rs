@@ -469,7 +469,7 @@ fn main() -> Result<()> {
         }
         Cmd::FakeMcp(args) => fake_mcp::run(args),
         Cmd::Stamp => {
-            println!("{}", env!("THESEUS_COMMIT"));
+            println!("{}", include_str!(concat!(env!("OUT_DIR"), "/commit")));
             Ok(())
         }
         Cmd::Discord { cmd } => discord_cli::run(cmd),

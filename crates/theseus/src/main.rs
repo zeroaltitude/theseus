@@ -1367,7 +1367,7 @@ fn main() {
     // it is this tree's (`theseusd`'s `tests/common`). An environment variable, not a flag or a verb:
     // neither the help nor `--version` says it.
     if std::env::var_os("THESEUS_CLI_STAMP").is_some() {
-        println!("{}", env!("THESEUS_COMMIT"));
+        println!("{}", include_str!(concat!(env!("OUT_DIR"), "/commit")));
         return;
     }
     // Rust ignores SIGPIPE, so a closed pipe (`theseus history | head`) would
