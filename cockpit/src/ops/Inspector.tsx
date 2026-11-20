@@ -24,7 +24,7 @@ import { EventDetail } from './EventDetail'
 import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
 import { JoinPane } from './JoinPane'
 import { Live } from './Live'
-import { bodyOf, carriedWords, jobFacts, jobStoppable, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts, type FactLine } from './sections'
+import { bodyOf, carriedWords, dismissOf, jobFacts, jobStoppable, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts, type FactLine } from './sections'
 import type { Bucket } from './address'
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
@@ -187,6 +187,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {running && exe && <ActBtn verb="stop" on={on} tone="wait" busy={busy === `${exe}:stop`} onClick={() => act('stop', `${exe}:stop`, 'execution.stop', { execution_id: exe }, 'Stop its running turn?')}><CircleStop size={11} /> s s · Stop the turn</ActBtn>}
         {running && exe && <ActBtn verb="stop_all" on={on} tone="fault" busy={busy === `${exe}:all`} onClick={() => act('stop_all', `${exe}:all`, 'execution.stop', { execution_id: exe, tasks: true }, 'Stop its turn, and cancel every task under it?')}><OctagonX size={11} /> S · Stop all</ActBtn>}
         {f.stop && <ActBtn verb="cancel" on={on} tone="fault" busy={busy === `${r.id}:cancel`} onClick={() => act('cancel', `${r.id}:cancel`, 'task.cancel', { task: r.id }, `Stop task ${f.short} (${f.title})? Its jobs stop, and it reports that it was cancelled.`)}><OctagonX size={11} /> c c · Cancel</ActBtn>}
+        {dismissOf(r) && <ActBtn verb="dismiss" on={on} tone="fault" busy={busy === `${r.id}:dismiss`} onClick={() => act('dismiss', `${r.id}:dismiss`, dismissOf(r)!.method, dismissOf(r)!.params)} title="you have seen it: it stops asking for you here, and its record stays">d · Dismiss</ActBtn>}
         {r.sessionId && <ActBtn verb="join" on={on} tone="live" onClick={() => cx.onJoin(r.sessionId!)} title="i: talk to it in the Join pane">i · Join</ActBtn>}
         {r.sessionId && <ActBtn verb="model_menu" on={on} tone="model" onClick={() => cx.onMenu('model', r.sessionId!)} title="m: the model for this session"><Box size={11} /> m · Model</ActBtn>}
         {(r.kind === 'conversation' || r.kind === 'task') && r.sessionId && <ActBtn verb="mode_menu" on={on} tone="idle" onClick={() => cx.onMenu('mode', r.sessionId!)} title="M: Ask, Edits, Plan, Auto (a task has a mode of its own)">M · Mode</ActBtn>}
@@ -255,7 +256,8 @@ function Sections({ r, cx, now }: { r: OpsRow; cx: InspectorCx; now: number }) {
 
 /** A job: its command, its time against its usual, its output followed live, and Stop. */
 function JobWhole({ r, now }: { r: OpsRow; now: number }) {
-  const { on, post } = useOpsAct()
+  const { on, post, act, busy: acting } = useOpsAct()
+  const dismiss = dismissOf(r)
   const say = useOpsUi((x) => x.say)
   // The `arm` posture: the first press arms the button, a second within `TWICE_MS` stops the job (the TUI's `s s`).
   const [armed, setArmed] = useState(false)
@@ -279,6 +281,7 @@ function JobWhole({ r, now }: { r: OpsRow; now: number }) {
       <div className="flex items-center gap-1.5"><StatePill state={r.state ?? 'running'} /><span className="num text-[10.5px] text-ink-faint">job · {r.id.slice(-6)}</span></div>
       <Facts lines={jobFacts(r, now)} />
       {jobStoppable(r) && <div className="flex flex-wrap gap-1.5"><ActBtn verb="job_stop" on={on} tone="wait" busy={busy} onClick={stop} title="press twice to stop the job and its tree"><CircleStop size={11} /> {armed ? 'Press again to stop' : 'Stop'}</ActBtn></div>}
+      {dismiss && <div className="flex flex-wrap gap-1.5"><ActBtn verb="dismiss" on={on} tone="fault" busy={acting === `${r.id}:dismiss`} onClick={() => act('dismiss', `${r.id}:dismiss`, dismiss.method, dismiss.params)} title="you have seen it: it stops asking for you here, and its record stays">d · Dismiss</ActBtn></div>}
       <Section title="Output"><Live sessionId={r.sessionId} jobId={r.id} /></Section>
       {r.sessionId && <Link to={`/session/${r.sessionId}`} className="text-[11.5px] text-live hover:underline">its session’s deck</Link>}
     </div>

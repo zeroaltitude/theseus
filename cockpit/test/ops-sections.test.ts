@@ -3,8 +3,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TaskRecord } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
-import { cacheWords, forecastWords, jobFacts, jobStoppable, lastTurnOf, recordFacts, runningJob, standingLines, taskFacts, transcriptTail } from '../src/ops/sections.ts'
-import { board, NOW } from './ops-fixtures.ts'
+import { cacheWords, forecastWords, dismissOf, jobFacts, jobStoppable, lastTurnOf, recordFacts, runningJob, standingLines, taskFacts, transcriptTail } from '../src/ops/sections.ts'
+import { board, NOW, view } from './ops-fixtures.ts'
 
 const rows = new Map(boardRows({ ...board(), now: NOW }).map((r) => [r.id, r]))
 
@@ -66,4 +66,18 @@ test('a job’s panel offers Stop while the job runs, and nothing once it has en
   assert.equal(jobStoppable(job), true)
   assert.equal(jobStoppable({ ...job, state: 'queued' }), true)
   for (const state of ['failed', 'done', 'cancelled', 'expired']) assert.equal(jobStoppable({ ...job, state }), false, state)
+})
+
+test('Dismiss is offered to a failed item that asks for the owner, by the id its act takes, and to no ask', () => {
+  const needs = (id: string, kind: 'task' | 'conversation' | 'job', over = {}, state = 'failed') => boardRows({ views: [view(id, kind, state as never, { session_id: 'ses_x', ...over }, state === 'failed' ? 'needs_you' : undefined)], tasks: [], sessions: [], records: [], now: NOW, past: false })[0]
+  assert.deepEqual(dismissOf(needs('exe_c', 'conversation'))?.params, { execution_id: 'exe_c' })
+  assert.deepEqual(dismissOf(needs('exe_k', 'task'))?.params, { execution_id: 'exe_k' })
+  assert.deepEqual(dismissOf(needs('act_j', 'job')), { method: 'execution.dismiss', params: { execution_id: 'act_j' } })
+  // A job a turn read is not under Needs you, so there is nothing to clear; nor for one already dismissed or still running.
+  assert.equal(dismissOf(needs('act_r', 'job', { read: true, attention: { level: 'idle', label: 'failed', since_ms: NOW } })), null)
+  assert.equal(dismissOf(needs('act_d', 'job', { dismissed: true })), null)
+  assert.equal(dismissOf(needs('act_u', 'job', {}, 'running')), null)
+  // An approval, a question or a budget stop is answered, never dismissed.
+  for (const kind of ['question', 'ask', 'step'] as const) assert.equal(dismissOf({ ...needs('exe_b', 'task'), kind }), null, kind)
+  assert.equal(dismissOf(needs('exe_b', 'task', {}, 'needs_you')), null)
 })

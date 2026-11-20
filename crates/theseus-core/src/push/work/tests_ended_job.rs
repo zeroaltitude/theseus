@@ -212,3 +212,39 @@ fn the_open_views_under_a_task_hold_what_asks_for_the_owner_alone() {
     let ids: Vec<&str> = open.iter().map(|v| v.id.as_str()).collect();
     assert_eq!(ids, ["act_orphan"], "the read job is over; the other asks");
 }
+
+/// The owner's dismissal of a failed job nothing read: the action carries the
+/// kernel's mark (`dismissed_by_owner_at_ms`), and its view is `Idle` with
+/// "failed · dismissed", the word kept, and out of every count that reads the
+/// level, as a dismissed task's is.
+#[test]
+fn a_failed_job_the_owner_dismissed_is_idle_and_counted_by_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core(&dir);
+    let corr = "act_dis";
+    let mut w = failed_job(&core, &execution(ExecState::Waiting, &[corr]), corr);
+    let level = |w: &WorkBoard| {
+        let a = attention_of(&job_view(w, corr));
+        (a.level, a.label)
+    };
+    assert_eq!(level(&w), (Level::NeedsYou, "failed".to_string()));
+    let mut dismissed = job_action(corr, ActionState::Failed, 10_000, Some(10_019));
+    dismissed.detail = Some(serde_json::json!({ theseus_kernel::retry::JOB_DISMISSED: 20_000u64 }));
+    let mut d = Dirty::default();
+    w.take_action(&Board::default(), 30, &dismissed, &mut d);
+    assert!(d.acts.contains(corr), "the view is rebuilt");
+    assert_eq!(level(&w), (Level::Idle, "failed · dismissed".to_string()));
+    let mut v = job_view(&w, corr);
+    v.attention = attention_of(&v);
+    w.views.insert(corr.to_string(), v);
+    w.kids
+        .entry("exe_a".into())
+        .or_default()
+        .insert(corr.to_string());
+    let mut open = Vec::new();
+    w.open_below("exe_a", &mut open);
+    assert!(open.is_empty(), "no tree counts it");
+    let mut r = theseus_protocol::work::Rollup::default();
+    super::settle::bump(&mut r, &job_view(&w, corr));
+    assert_eq!((r.needs_you, r.failed), (0, 0), "nor the rollup");
+}

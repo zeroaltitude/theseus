@@ -87,6 +87,16 @@ export function jobFacts(r: OpsRow, now: number): FactLine[] {
  *  job (`dismiss` is a task's or a conversation's), so its panel offers nothing but its output. */
 export const jobStoppable = (r: OpsRow): boolean => !isEndedState(r.state)
 
+/** The `execution.dismiss` that clears a failed row from Needs you: a task's or conversation's by its execution id, a job's
+ *  by its call id. Null for anything else: an approval, a question or a budget stop is answered, never dismissed, and a
+ *  failure already dismissed (or one no longer asking) has nothing left to clear. */
+export function dismissOf(r: OpsRow): { method: 'execution.dismiss'; params: { execution_id: string } } | null {
+  const v = r.view
+  if (!v || v.state !== 'failed' || v.dismissed || r.bucket !== 'needs') return null
+  if (r.kind === 'job') return { method: 'execution.dismiss', params: { execution_id: r.id } }
+  return r.kind === 'task' || r.kind === 'conversation' ? { method: 'execution.dismiss', params: { execution_id: v.id } } : null
+}
+
 /** The job to follow for a session: its first running job on the board. */
 export function runningJob(rows: readonly OpsRow[], sessionId: string | undefined): OpsRow | undefined {
   return sessionId ? rows.find((r) => r.kind === 'job' && r.sessionId === sessionId && alive(r)) : undefined

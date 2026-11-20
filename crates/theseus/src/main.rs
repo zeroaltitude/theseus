@@ -618,7 +618,8 @@ enum Cmd {
         timeout: Option<String>,
     },
     /// Dismiss a failed task: it stops needing you on every surface, and its record stays. ID is
-    /// the task's id, or at least its last four characters.
+    /// the task's id, or at least its last four characters; a failed job is named by its whole
+    /// call id (`act_…`).
     #[command(hide = true)]
     Dismiss {
         #[arg(value_name = "ID")]
