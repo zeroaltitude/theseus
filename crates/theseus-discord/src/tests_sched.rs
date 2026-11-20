@@ -1293,6 +1293,150 @@ async fn an_item_missing_from_a_model_that_is_not_loaded_is_not_cancelled() {
     assert!(ended.content.contains("Cancelled"), "{}", ended.content);
 }
 
+// ---- the review of the card and post intents ------------------------------------
+
+/// The task's card, deleted at the stand-in, with the list emptied and an intent
+/// standing (a kill before the create arrived): the pinned board, which lists the
+/// scheduled task with the very marker the card carries, is never taken for the
+/// card; the task's own card is made.
+#[tokio::test]
+async fn an_intent_with_no_card_does_not_adopt_the_pinned_board() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let task = start_task(&r, Some("in 90m"));
+    r.until("its card and the board", || {
+        card(&r, home, "Buoy-paint").is_some() && !boards(&r, home).is_empty()
+    })
+    .await;
+    let c = card(&r, home, "Buoy-paint").unwrap();
+    let board = boards(&r, home).remove(0);
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    shared
+        .http
+        .delete_message(
+            twilight_model::id::Id::new(home),
+            twilight_model::id::Id::new(c.id.parse().unwrap()),
+        )
+        .await
+        .unwrap();
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": task, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms()}]),
+        )
+        .unwrap();
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(pass.sync().await);
+    let made = card(&r, home, "Buoy-paint").expect("the task's own card is made");
+    assert_ne!(made.id, board.id, "not the board");
+    assert_ne!(made.id, c.id, "a new message: the old was deleted");
+    let after = boards(&r, home).remove(0);
+    assert!(
+        after.versions.iter().all(|v| v.starts_with("📋")),
+        "the board never showed a card: {:?}",
+        after.versions
+    );
+}
+
+/// Two items whose cards are lost (their entries gone), one with an intent
+/// standing that cannot be read for: that one gets no card made blind, and the
+/// other's card is made all the same.
+#[tokio::test]
+async fn a_read_that_fails_for_one_item_leaves_the_others_cards_to_be_made() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let a = remind(&r, "first tide check", "in 90m").await;
+    remind(&r, "second tide check", "in 91m").await;
+    r.until("both cards", || {
+        card(&r, home, "first tide check").is_some()
+            && card(&r, home, "second tide check").is_some()
+    })
+    .await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    for note in ["first tide check", "second tide check"] {
+        let c = card(&r, home, note).unwrap();
+        shared
+            .http
+            .delete_message(
+                twilight_model::id::Id::new(home),
+                twilight_model::id::Id::new(c.id.parse().unwrap()),
+            )
+            .await
+            .unwrap();
+    }
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": a, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms()}]),
+        )
+        .unwrap();
+    r.fake.fail_message_lists(true);
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(!pass.sync().await, "the pass says it failed");
+    assert!(
+        card(&r, home, "second tide check").is_some(),
+        "the other item's card is made"
+    );
+    assert!(
+        card(&r, home, "first tide check").is_none(),
+        "nothing is made blind for the item whose read failed"
+    );
+    r.fake.fail_message_lists(false);
+    assert!(pass.sync().await);
+    assert!(
+        card(&r, home, "first tide check").is_some(),
+        "made once the read works"
+    );
+}
+
+/// Before the bot knows its own id no card is adopted (and none is made):
+/// an error and a retry.
+#[tokio::test]
+async fn no_card_is_adopted_while_the_bots_own_id_is_unknown() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind(&r, "tide check", "in 90m").await;
+    r.until("its card", || card(&r, home, "tide check").is_some())
+        .await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let known = shared.bot_id();
+    // The card is at Discord, its entry lost, an intent standing.
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": wake, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms()}]),
+        )
+        .unwrap();
+    shared.set_bot_id_for_tests(0);
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(
+        !pass.sync().await,
+        "no adoption: the pass fails and retries"
+    );
+    assert_eq!(cards(&r, home).len(), 1, "and none was made");
+    shared.set_bot_id_for_tests(known);
+    assert!(pass.sync().await);
+    assert_eq!(cards(&r, home).len(), 1, "found, not made again");
+}
+
 // ---- the second snooze of a fired reminder, and the review's notes (issue 30) ---
 
 fn pending_notes(r: &Rig, note: &str) -> usize {
