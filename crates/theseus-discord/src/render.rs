@@ -227,6 +227,11 @@ enum ToolState {
         status: String,
         ms: u64,
     },
+    /// A job ended at its time limit: what happened, never a failure's word (issue 37).
+    Cut {
+        words: String,
+        ms: u64,
+    },
     /// Declined, superseded, or cancelled before it ran.
     NotRun,
     Answered {
@@ -279,8 +284,19 @@ impl ToolState {
     /// The state a call is in once its end says `status` (`ms` long): the one
     /// mapping the live `tool.ended` and a turn read back from its nodes
     /// (`refold.rs`) both use. `stopped_by` names who a `/stop` ended it for.
-    fn ended(prior: &ToolState, status: &str, ms: u64, stopped_by: Option<String>) -> ToolState {
+    fn ended(
+        prior: &ToolState,
+        status: &str,
+        ms: u64,
+        stopped_by: Option<String>,
+        cut: Option<String>,
+    ) -> ToolState {
         match (status, stopped_by) {
+            // Cut at its limit, which the result carries: `error` is only how it settles the call (issue 37).
+            ("error", None) if cut.is_some() => ToolState::Cut {
+                words: cut.unwrap_or_default(),
+                ms,
+            },
             (_, Some(by)) => ToolState::Stopped { by },
             // A stop that declined it while it waited said so already
             // (`confirm.resolved`); its not-run result keeps that.
@@ -332,6 +348,7 @@ impl ToolLine {
             status,
             t.duration_ms.unwrap_or(0),
             stopped.map(|by| format!("{by}{verified}")),
+            t.cut_words(),
         );
         // Its end will come back in a turn of its own, so the step's message
         // keeps its line from here on.
@@ -572,6 +589,9 @@ impl Renderer {
                     let outcome = match (status, &stopped) {
                         (_, Some(by)) => format!("⏹️ stopped by {by}{verified} · {ms} ms"),
                         ("ok", _) => format!("✅ ok · {ms} ms"),
+                        ("error", None) if t.cut_words().is_some() => {
+                            format!("⏱️ {} · {ms} ms", t.cut_words().unwrap_or_default())
+                        }
                         ("background", _) => "⏳ running in the background".to_string(),
                         (other, _) => format!("❌ {other} · {ms} ms"),
                     };

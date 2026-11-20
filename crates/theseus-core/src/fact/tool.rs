@@ -565,6 +565,12 @@ impl Fact for ToolEnded<'_> {
                 .get("stopped_by")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            // A job cut at its time limit, and the limit (issue 37).
+            cut_at_ms: meta
+                .pointer("/detail/timed_out")
+                .and_then(Value::as_bool)
+                .filter(|t| *t)
+                .and_then(|_| meta.pointer("/detail/limit_ms")?.as_u64()),
             preview: content.chars().take(2000).collect(),
             scratch: meta
                 .pointer("/detail/scratch/summary")

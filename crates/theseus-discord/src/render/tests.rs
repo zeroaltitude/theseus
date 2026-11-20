@@ -1680,3 +1680,48 @@ fn a_tasks_own_reply_footer_says_it_is_a_subagents() {
     assert!(t.contains(&format!("{model} · subagent task reply")), "{t}");
     assert_eq!(t.replace(" · subagent task reply", ""), *p);
 }
+
+/// A job cut at its time limit is not drawn as a failure (issue 37): the clock and the words `cut at its 2 s
+/// limit`, on its tool line and on its notice card, and a job that failed is still the cross and `error`.
+#[test]
+fn a_job_cut_at_its_limit_reads_as_cut_not_failed() {
+    let line_of = |end: Value| {
+        let mut r = Renderer::new(true);
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let (proposed, notice) = notified("u1", "sleep 30");
+        r.on_notification("tool.proposed", &proposed);
+        r.on_notification("policy.notified", &notice);
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": "u1"}),
+        );
+        let ops = r.on_notification("tool.ended", &end);
+        let outcome = ops.iter().find_map(|o| match o {
+            Op::Notice { card, .. } => card
+                .fields
+                .iter()
+                .find(|(n, _)| n == "Outcome")
+                .map(|f| f.1.clone()),
+            _ => None,
+        });
+        let lines =
+            upserts(&r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0})));
+        (lines[0].1.clone(), outcome.unwrap_or_default())
+    };
+    let (line, card) = line_of(
+        json!({"turn_id": "t1", "tool_use_id": "u1", "status": "error",
+        "duration_ms": 2022, "cut_at_ms": 2000}),
+    );
+    assert!(line.contains("⏱️ `proc.run` sleep 30"), "{line}");
+    assert!(line.ends_with("· cut at its 2 s limit · 2022 ms"), "{line}");
+    assert!(!line.contains('❌') && !line.contains("error"), "{line}");
+    assert_eq!(card, "⏱️ cut at its 2 s limit · 2022 ms");
+    // A job that failed is as it was.
+    let (line, card) = line_of(
+        json!({"turn_id": "t1", "tool_use_id": "u1", "status": "error",
+        "duration_ms": 900, "exit_code": 1}),
+    );
+    assert!(line.contains("❌ `proc.run` sleep 30"), "{line}");
+    assert!(line.ends_with("· error · 900 ms"), "{line}");
+    assert_eq!(card, "❌ error · 900 ms");
+}
