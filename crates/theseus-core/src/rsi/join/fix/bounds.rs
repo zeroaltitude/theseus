@@ -29,6 +29,7 @@ pub const JUDGE: &[&str] = &[
     "crates/theseus-core/src/rsi/pipeline.rs",
     "crates/theseus-core/src/rsi/pipeline/",
     "crates/theseus-core/src/rsi/pr.rs",
+    "crates/theseus-core/src/rsi/pr_fix.rs",
     "crates/theseus-core/src/config/self_fix.rs",
 ];
 

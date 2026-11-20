@@ -39,7 +39,8 @@ refusal with its own bound's name:
 - `size`: over `[self_fix] lines` (added and removed together) or `files`;
 - `second`: a fix at this point of this branch was tried already;
 - `guarded-path`: a path the join's keel table holds (`join::keel::classify`), or the loop's own judge
-  (`fix::bounds::JUDGE`: gate.sh, keel-guard.py, `rsi/join`, `rsi/pipeline`, `rsi/pr.rs`, `config/self_fix.rs`);
+  (`fix::bounds::JUDGE`: gate.sh, keel-guard.py, `rsi/join`, `rsi/pipeline`, `rsi/pr.rs` and its module
+  `rsi/pr_fix.rs`, `config/self_fix.rs`);
 - `tests`: main's own keel guard run on the fix's commit alone (`--base <before> --head <fix>`), AND a narrow rule that
   needs no guard: no test file on the merge-base changed at all, and in any file on the merge-base no assertion or
   test attribute removed or changed and no `#[ignore]` added. Tests the branch added are the fixer's to repair;
