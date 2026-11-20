@@ -137,7 +137,13 @@ impl Place {
     /// engine's tasks changed (the live one), or a button was pressed.
     pub(super) async fn task_msg(&mut self, m: PlaceMsg) {
         match m {
-            PlaceMsg::Press(p) => self.task_press(*p).await,
+            PlaceMsg::Press(p) => {
+                #[cfg(test)]
+                let id = p.i.id.to_string();
+                self.task_press(*p).await;
+                #[cfg(test)]
+                super::thread::lane_has_handled(id);
+            }
             PlaceMsg::Cmd(c) => self.task_cmd(*c).await,
             PlaceMsg::Board => self.board(),
             _ => {

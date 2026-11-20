@@ -210,6 +210,25 @@ pub(crate) fn handled(id: &str) -> bool {
     HANDLED.with(|h| h.borrow().iter().any(|x| x == id))
 }
 
+// The presses a place's lane has finished: a press on a board's card is handed to the lane, so the binding's own
+// handling of it is over long before the press is (`handled` is true at once).
+#[cfg(test)]
+thread_local! {
+    static LANE_HANDLED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether the place's lane has finished the press of interaction `id`.
+#[cfg(test)]
+pub(crate) fn lane_handled(id: &str) -> bool {
+    LANE_HANDLED.with(|h| h.borrow().iter().any(|x| x == id))
+}
+
+/// The lane has finished the press of interaction `id`.
+#[cfg(test)]
+pub(super) fn lane_has_handled(id: String) {
+    LANE_HANDLED.with(|h| h.borrow_mut().push(id));
+}
+
 impl Shared {
     /// An interaction, from the gateway: `/thread bind` typed in a Discord
     /// thread that is not a place yet, under one that is (or under `[threads]

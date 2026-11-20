@@ -630,8 +630,10 @@ async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card
         .collect();
     assert_eq!(acks, [Some(6)], "acknowledged as a deferred update");
     // One writer per card: the daemon's settle wrote it, and the press wrote nothing (not even the same words).
-    r.until("the press is over", || crate::runtime::handled(&pressed))
-        .await;
+    r.until("the press is over", || {
+        crate::runtime::lane_handled(&pressed)
+    })
+    .await;
     let card = r.card(LAB).unwrap();
     let writes: Vec<_> = r
         .fake
@@ -668,7 +670,7 @@ async fn a_pressed_approval_card_is_written_by_the_settle_alone() {
     r.fake.withhold_edits(true);
     let pressed = r.press(&card.id, "Approve", (ANA, "ana"));
     r.until("the press is over and the settle waits", || {
-        crate::runtime::handled(&pressed) && r.fake.withheld() >= 1
+        crate::runtime::lane_handled(&pressed) && r.fake.withheld() >= 1
     })
     .await;
     let waiting = r.card(LAB).unwrap();

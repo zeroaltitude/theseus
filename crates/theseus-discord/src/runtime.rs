@@ -590,7 +590,7 @@ async fn event_loop(
 }
 
 #[cfg(test)]
-pub(crate) use thread::handled;
+pub(crate) use thread::{handled, lane_handled};
 
 async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Board) {
     let cmds = commands();
