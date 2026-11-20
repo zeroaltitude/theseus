@@ -39,7 +39,8 @@ impl Core {
             via,
             option: Some(if approve { "approve" } else { "decline" }),
         };
-        let rows = vec![crate::fact::row(&answered, session, None)?];
+        let mut rows = vec![crate::fact::row(&answered, session, None)?];
+        rows.extend(super::told(a, &words).map(|n| n.record()).transpose()?);
         let proposal = a.proposal.clone().unwrap_or_default();
         self.kernel.frame(&[&a.execution_id], |k| {
             match approve {
