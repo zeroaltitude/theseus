@@ -1852,7 +1852,7 @@ impl ToolRuntime {
             ResultNode {
                 correlation_id: Some(correlation_id),
                 duration_ms: Some(dur),
-                meta: meta.clone(),
+                meta,
                 ..ResultNode::new(&call.id, tool.name(), status, text)
             },
         );
