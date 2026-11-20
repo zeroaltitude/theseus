@@ -66,6 +66,11 @@ impl TurnRunner {
             text.push('\n');
             text.push_str(&line);
         }
+        // The configured profiles, where the tools that take them may be used (issue 37).
+        if let Some(line) = crate::profile_tool::told(&self.cfg, &self.tools, place, &t.tc) {
+            text.push('\n');
+            text.push_str(&line);
+        }
         Self::attach_hint(compiled, &text);
     }
 }
