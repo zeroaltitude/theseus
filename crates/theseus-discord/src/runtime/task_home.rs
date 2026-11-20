@@ -67,6 +67,8 @@ pub(crate) struct TaskHome {
     gone: AtomicBool,
     /// The owner has been told.
     said: AtomicBool,
+    /// A task home that everyone can read has been said once (`say_if_open`).
+    open_said: AtomicBool,
     /// One search at a time.
     gate: tokio::sync::Mutex<()>,
     /// The bindings' voice channels.
@@ -81,6 +83,7 @@ impl Default for TaskHome {
             name: Mutex::new(String::new()),
             gone: AtomicBool::new(false),
             said: AtomicBool::new(false),
+            open_said: AtomicBool::new(false),
             gate: tokio::sync::Mutex::new(()),
             voice: Mutex::new(HashSet::new()),
         }
@@ -175,6 +178,21 @@ struct Record {
     wanted: String,
     #[serde(default)]
     name: String,
+}
+
+/// Whether nothing hides the channel `c` from `@everyone` (no overwrite for the
+/// guild's own role denies View Channel). Categories and other roles are not
+/// read: this is the channel's own word.
+fn open_to_everyone(c: &Value, guild: &str) -> bool {
+    !c["permission_overwrites"].as_array().is_some_and(|all| {
+        all.iter().any(|o| {
+            o["id"].as_str() == Some(guild)
+                && o["deny"]
+                    .as_str()
+                    .and_then(|d| d.parse::<u64>().ok())
+                    .is_some_and(|d| d & VIEW_CHANNEL != 0)
+        })
+    })
 }
 
 /// A Discord id: 15 to 21 digits.
@@ -426,12 +444,38 @@ impl Shared {
     }
 
     /// The home: recorded, or a configured id, or one of that name, or made.
+    /// A task home that was not made by this binding (found by its record, its
+    /// id or its name) is not refused when it is open to everyone (the owner may
+    /// have chosen it), but it is said once, in health and the log: the channel's
+    /// id and no text.
+    fn say_if_open(&self, c: &Value, guild: &str) {
+        if !open_to_everyone(c, guild)
+            || self.task_posts.home.open_said.swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        let id = c["id"].as_str().unwrap_or("?");
+        tracing::warn!(
+            channel = id,
+            "the task channel can be read by everyone in the server"
+        );
+        self.board.error(
+            "task home",
+            None,
+            format!(
+                "the task channel ({id}) can be read by everyone in the server: its cards carry \
+                 reminders' and tasks' words (hide it from @everyone to keep them private)"
+            ),
+        );
+    }
+
     async fn find_task_home(&self, guild: &str, wanted: &str) -> Result<(u64, String), Why> {
         let name_of = |c: &Value| c["name"].as_str().unwrap_or("").to_string();
         let recorded: Option<Record> = self.core.store.get_meta(RECORD_KEY).ok().flatten();
         if let Some(r) = recorded.filter(|r| r.wanted == wanted && r.guild == guild) {
             if let Some(c) = self.get_channel_json(r.channel).await? {
                 if let Some(id) = text_in(&c, guild) {
+                    self.say_if_open(&c, guild);
                     return Ok((id, name_of(&c)));
                 }
             }
@@ -454,7 +498,10 @@ impl Shared {
             })
         };
         let c = match found {
-            Some(c) => c,
+            Some(c) => {
+                self.say_if_open(&c, guild);
+                c
+            }
             None => self.make_task_home(guild, wanted).await?,
         };
         let id = text_in(&c, guild)

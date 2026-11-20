@@ -947,6 +947,16 @@ impl Shared {
     /// owners). A card whose item is over says so, and the worker brings the
     /// card to how it ended.
     pub(super) async fn card_press(&self, i: &Interaction, custom_id: &str, who: &str) {
+        // Before the work model has been read the board knows of nothing: an item
+        // it does not hold is not yet an item gone. Nothing is written.
+        if !self.tasks.loaded() {
+            return self
+                .reply_ephemeral(
+                    i,
+                    "Theseus is still starting: try again in a moment.".into(),
+                )
+                .await;
+        }
         let cancel = custom_id.starts_with(CANCEL_PREFIX);
         let wake = custom_id
             .strip_prefix(CANCEL_PREFIX)
