@@ -1554,3 +1554,52 @@ async fn a_press_before_the_work_model_is_loaded_says_it_is_still_starting() {
     shared.tasks.loaded_for_tests(true);
     assert!(pending(&r, &wake), "nothing was written");
 }
+
+/// A series' occurrence that fired is snoozed twice (its notice's button, then
+/// the CLI): the series stands, and the occurrence is ONE extra reminder, with
+/// one card and one post of its own, moved by the second snooze (the review's
+/// N-c; the kernel's link is proven in its own test).
+#[tokio::test]
+async fn two_snoozes_of_a_fired_series_occurrence_give_one_extra_card_and_one_post() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let made: WakeEditResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_CREATE,
+            WakeCreateParams {
+                when: "in 3s".into(),
+                note: "water the plants".into(),
+                every: Some("30m".into()),
+                session_id: Some(session_of_place(&r, &format!("dm:{ANA}"))),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let series = made.wake.wake_id;
+    r.until("the series' card and post", || {
+        card(&r, home, "water the plants").is_some()
+            && posts_about(&r, forum, "water the plants") == 1
+    })
+    .await;
+    r.until("the occurrence fired", || {
+        !r.ledger("wake.fired").is_empty()
+    })
+    .await;
+    snooze_fired(&r, &series, "in 90m").await;
+    r.until("the occurrence's own card and post", || {
+        cards(&r, home).len() == 2 && posts_about(&r, forum, "water the plants") == 2
+    })
+    .await;
+    snooze_fired(&r, &series, "in 120m").await;
+    // Time for any third card or post to be made.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(
+        pending_notes(&r, "water the plants"),
+        2,
+        "the series and one extra"
+    );
+    assert_eq!(cards(&r, home).len(), 2, "{:#?}", cards(&r, home));
+    assert_eq!(posts_about(&r, forum, "water the plants"), 2);
+}
