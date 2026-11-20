@@ -155,6 +155,16 @@ impl Rig {
         r.session_id
     }
 
+    /// A call the next request that asks first takes: a nested turn's (a fixer's, a reviewer's).
+    pub(crate) fn queue_call(&self, tool: &str, input: Value) {
+        self.model.calls.lock().unwrap().push((tool.into(), input));
+    }
+
+    /// Every request the stand-in model was sent.
+    pub(crate) fn requests(&self) -> Vec<crate::provider::ProviderRequest> {
+        self.model.requests.lock().unwrap().clone()
+    }
+
     /// One turn whose model makes `call`, and the result it read.
     pub(crate) async fn turn(&self, sid: &str, tool: &str, input: Value) -> String {
         self.model.calls.lock().unwrap().push((tool.into(), input));

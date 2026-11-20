@@ -196,28 +196,32 @@ impl Reviewer for CheckTurn {
                 None,
             )?;
             let session = rec.session_id.clone();
+            let exec = rec.execution_id.clone();
+            // A reviewer's session is offered a reviewer's tools, and builds nothing (`rsi::roles`).
+            core.tools
+                .self_pr
+                .set_role(&session, crate::rsi::roles::Role::Reviewer)?;
             // Its scratch is what it may remove while it runs (`rsi::own_removals`).
             core.tools
                 .self_pr
                 .review_opened(&session, std::path::Path::new(&ask.scratch));
             let sink = crate::bus::EventSink::new(core.bus.clone(), &session, None);
-            let r = core
-                .runner
-                .run(TurnRequest {
-                    session: rec,
-                    input: Some(prompt(ask)),
-                    target: ask.target.clone(),
-                    sink,
-                    author: "self:review".into(),
-                    recompile: None,
-                    attachments: vec![],
-                    arrived: None,
-                    reply_to: None,
-                    surface: None,
-                    answer_at: None,
-                    prompt: None,
-                })
-                .await;
+            let run = core.runner.run(TurnRequest {
+                session: rec,
+                input: Some(prompt(ask)),
+                target: ask.target.clone(),
+                sink,
+                author: "self:review".into(),
+                recompile: None,
+                attachments: vec![],
+                arrived: None,
+                reply_to: None,
+                surface: None,
+                answer_at: None,
+                prompt: None,
+            });
+            let limit = crate::rsi::join::fix::turns::limit(core);
+            let r = crate::rsi::join::fix::turns::within(core, exec.as_deref(), limit, run).await;
             core.tools.self_pr.review_closed(&session);
             let r = r?;
             let (word, reasons) = word_of(&r.output);

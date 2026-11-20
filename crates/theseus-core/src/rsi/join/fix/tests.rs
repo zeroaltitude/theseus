@@ -249,7 +249,9 @@ async fn the_fixers_session_has_the_builders_tree_and_only_while_it_runs() {
 /// is no reason to skip its own tests.
 #[test]
 fn the_builder_is_told_a_fix_is_no_reason_to_skip_its_tests() {
-    let text = crate::rsi::backlog::brief::rules(3);
+    use crate::rsi::backlog::brief::{rules, rules_now};
+    let mut cfg = crate::Config::example();
+    let text = rules_now(&cfg, 3);
     assert!(
         text.ends_with(
             "A small fault your gate or your review finds may be repaired in place by another \
@@ -257,6 +259,10 @@ fn the_builder_is_told_a_fix_is_no_reason_to_skip_its_tests() {
         ),
         "{text}"
     );
+    // Off is what a builder was told before: the rules alone.
+    cfg.self_fix.mode = crate::config::self_fix::FixMode::Off;
+    assert_eq!(rules_now(&cfg, 3), rules(3));
+    assert!(!rules(3).contains("repaired in place"));
 }
 
 /// The reviewer is offered `fix` with its bounds only while the setting is on and the head was not
@@ -367,6 +373,10 @@ fn the_digest_counts_fixes_made_approved_and_refused() {
         row("self.fix.verdict", serde_json::json!({"verdict": "accept"})),
         row("self.fix.verdict", serde_json::json!({"verdict": "reject"})),
         row("self.fix.refused", serde_json::json!({"bound": "size"})),
+        row(
+            "self.fix.refused",
+            serde_json::json!({"bound": "not-independent"}),
+        ),
     ];
     let text = Outcomes::of_rows(&rows, 0, 100).lines(0.0, false);
     assert!(
@@ -376,4 +386,5 @@ fn the_digest_counts_fixes_made_approved_and_refused() {
         ),
         "{text}"
     );
+    assert!(text.contains("- Not fixed in place 1 times"), "{text}");
 }

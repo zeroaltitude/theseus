@@ -150,6 +150,8 @@ struct Seen {
     conflicted: Vec<(String, String)>,
     /// Each fix begun (issue 36), and whether it has ended.
     fixes: Vec<Fixing>,
+    /// How many times each head's join gate has run because main moved under it.
+    again: HashMap<(String, String), u64>,
 }
 
 /// A fix begun, as its rows say it.
@@ -206,6 +208,7 @@ impl Seen {
                 "self.joined",
                 "self.join.stopped",
                 "self.join.reopened",
+                "self.join.again",
                 "self.fix.started",
                 "self.fix.refused",
                 "self.fix.none",
@@ -216,6 +219,7 @@ impl Seen {
             return Ok(None);
         };
         let mut fixes: Vec<Fixing> = Vec::new();
+        let mut again: HashMap<(String, String), u64> = HashMap::new();
         let mut greens: Vec<Green> = Vec::new();
         let mut verdicts: HashMap<(String, String), (String, String)> = HashMap::new();
         let mut joined: Vec<String> = Vec::new();
@@ -261,6 +265,11 @@ impl Seen {
                 "self.join.reopened" => {
                     stopped.remove(&(s(d, "branch"), s(d, "head")));
                 }
+                "self.join.again" => {
+                    let n = d["runs"].as_u64().unwrap_or(1);
+                    let e = again.entry((s(d, "branch"), s(d, "head"))).or_default();
+                    *e = (*e).max(n);
+                }
                 "self.fix.started" => fixes.push(Fixing {
                     item: s(d, "item"),
                     branch: s(d, "branch"),
@@ -298,6 +307,7 @@ impl Seen {
             stopped,
             conflicted,
             fixes,
+            again,
         }))
     }
 }
@@ -418,6 +428,12 @@ fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
             }
             Some(("accept", _)) => {
                 let mut e = e;
+                // A join main moved under, as it happens (issue 36, round 2).
+                if let Some(n) = seen.again.get(&key) {
+                    e.why = Some(format!(
+                        "its gate has run {n} times: main moved under it before its push"
+                    ));
+                }
                 e.place = q.joining.len() as u32 + 1;
                 q.joining.push(e);
             }

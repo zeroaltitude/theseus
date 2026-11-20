@@ -38,6 +38,10 @@ pub struct SelfFixConfig {
     /// The most files one fix may change.
     #[serde(default = "default_files")]
     pub files: u64,
+    /// The wall-clock limit, in minutes, of one turn of a fixer, of the approver of a fix, and
+    /// of an independent reviewer: past it the turn is stopped and counts as no answer.
+    #[serde(default = "default_turn_minutes")]
+    pub turn_minutes: u64,
 }
 
 /// A fix of 60 changed lines is a small repair, not a second change (the issue's default).
@@ -49,12 +53,19 @@ fn default_files() -> u64 {
     6
 }
 
+/// An hour: a review that checks out the branch and builds its tests takes tens of minutes on a
+/// cold build folder, and a fixer runs the tests it touches.
+fn default_turn_minutes() -> u64 {
+    60
+}
+
 impl Default for SelfFixConfig {
     fn default() -> Self {
         Self {
             mode: FixMode::On,
             lines: default_lines(),
             files: default_files(),
+            turn_minutes: default_turn_minutes(),
         }
     }
 }
@@ -79,7 +90,7 @@ mod tests {
     fn it_is_on_with_its_bounds_by_default_and_off_is_read() {
         let c = SelfFixConfig::default();
         assert!(c.on());
-        assert_eq!((c.lines, c.files), (60, 6));
+        assert_eq!((c.lines, c.files, c.turn_minutes), (60, 6, 60));
         let off: SelfFixConfig = toml::from_str("mode = \"off\"\nlines = 10").unwrap();
         assert_eq!(off.mode, FixMode::Off);
         assert_eq!((off.lines, off.files), (10, 6));

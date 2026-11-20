@@ -334,6 +334,12 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "A build ended with no green branch: its turn ended, or a halt or a drop stopped it.",
     },
     SelfRowKind {
+        name: "self.join.again",
+        fields: &["item", "branch", "head", "runs"],
+        doc: "A join's gate starts again because main moved under it before the push: how many \
+              times its gate has run.",
+    },
+    SelfRowKind {
         name: "self.fix.started",
         fields: &["item", "branch", "head", "point", "fixer"],
         doc: "A small fault of a self branch was given to a fixer on the reviewer's profile: at \

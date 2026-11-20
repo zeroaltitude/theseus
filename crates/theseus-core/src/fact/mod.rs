@@ -587,6 +587,7 @@ facts![
     rsi_join::SelfInstalled,
     rsi_join::SelfJoinStopped,
     rsi_join::SelfJoinReopened,
+    rsi_join::SelfJoinAgain,
     rsi_fix::Started,
     rsi_fix::Made,
     rsi_fix::Refused,

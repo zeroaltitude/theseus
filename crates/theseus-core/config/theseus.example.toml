@@ -1708,6 +1708,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # mode = "on"                             # "off": nothing is repaired in place, and the loop is as it was
 # lines = 60                              # the most lines one fix may add and remove, together
 # files = 6                               # the most files one fix may change
+# turn_minutes = 60                       # the wall-clock limit of one turn of a fixer, of the approver of a fix, and of an independent reviewer
 
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)

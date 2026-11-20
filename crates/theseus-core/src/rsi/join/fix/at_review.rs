@@ -9,6 +9,8 @@
 //! word (one try, as a reject is), and the words say a fix was tried. A fix cut short by a restart
 //! (started, never ended) is ended so at the next pass, never made twice.
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use serde_json::Value;
 
@@ -44,6 +46,20 @@ impl Run<'_> {
             .with("point", Point::Review.name())
             .why(why.clone());
             self.core.rec(None).record(&NoFix(m));
+            // The tree it reopened goes with it, so nothing of the fixer's is built on.
+            let (p, item, branch) = (
+                self.place.clone(),
+                self.b.item.clone(),
+                self.b.branch.clone(),
+            );
+            let closed = blocking(move || match tree::find(&p, &item) {
+                Some(t) if t.branch == branch => tree::close(&p, &t),
+                _ => Ok(()),
+            })
+            .await;
+            if let Err(e) = closed {
+                tracing::warn!(error = %format!("{e:#}"), "self fix: a cut-short fix's tree was not closed");
+            }
             self.fix_returned(&format!("a fix was tried at review and {why}"))?;
             return Ok(true);
         }
@@ -75,6 +91,8 @@ impl Run<'_> {
                 return Ok(true);
             }
         };
+        let core: &Arc<crate::rpc::Core> = self.core;
+        let _live = core.tools.self_pr.live_fix(&t.branch);
         let job = Job {
             core: self.core,
             place: &self.place,

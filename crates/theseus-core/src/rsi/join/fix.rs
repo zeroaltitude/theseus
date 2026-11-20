@@ -26,6 +26,7 @@
 pub(crate) mod at_review;
 pub(crate) mod bounds;
 pub(crate) mod make;
+pub(crate) mod regions;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -270,14 +271,62 @@ pub(crate) fn ends(kind: &str) -> bool {
     )
 }
 
-/// The head a branch's next attempt starts from when its fix at the gate was committed and did
-/// not hold (a bound refused the commit, the gate was red again, or it was rejected): the head before the fix, so the builder's next
-/// attempt does not carry a fix nobody approved. None when there was no such fix.
+/// The head a branch's next attempt starts from when a fix of it, at either point, did not hold
+/// (a bound refused it, the gate was red again, it was rejected, or a restart cut it short): the
+/// head the newest fix started from, so the next attempt carries nothing of a fixer's that no
+/// other model approved. None when its newest fix was accepted, or there was none.
 pub(crate) fn unfixed_base(store: &crate::store::Store, branch: &str) -> Option<String> {
-    let rows = rows_of(store, branch, Point::Gate).ok()??;
-    let made = rows.iter().rev().find(|r| r.data["from"].is_string())?;
-    let held = rows
+    let rows = super::rows_of(store, &KINDS).ok()??;
+    let rows: Vec<_> = rows.iter().filter(|r| r.data["branch"] == branch).collect();
+    let at = rows.iter().rposition(|r| r.kind == "self.fix.started")?;
+    let held = rows[at + 1..]
         .iter()
         .any(|r| r.kind == "self.fix.verdict" && r.data["verdict"] == "accept");
-    (!held).then(|| made.data["from"].as_str().map(str::to_string))?
+    (!held).then(|| rows[at].data["head"].as_str().map(str::to_string))?
+}
+
+/// The trailer every fix commit carries, with its point: how [`unapproved`] knows one by itself.
+pub const TRAILER: &str = "Self-Fix-Point:";
+
+/// The one rule every green head is held to (issue 36, round 2), whatever path led to it: a
+/// fixer's commit in `range` (read in `dir`) is there only if the builder's model accepted THAT
+/// commit (`self.fix.verdict` accept with its head). A fixer's commit is one that carries
+/// [`TRAILER`] or that a `self.fix.made` row names. Why not, or none when the range holds no
+/// unapproved fix.
+pub(crate) fn unapproved(
+    store: &crate::store::Store,
+    place: &crate::rsi::tree::Place,
+    dir: &std::path::Path,
+    range: &str,
+) -> Result<Option<String>> {
+    let Some(rows) = super::rows_of(store, &["self.fix.made", "self.fix.verdict"])? else {
+        return Ok(Some(
+            "the record is still being read, so no fix in the branch can be shown approved".into(),
+        ));
+    };
+    let made: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.kind == "self.fix.made")
+        .filter_map(|r| r.data["head"].as_str())
+        .collect();
+    let approved: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.kind == "self.fix.verdict" && r.data["verdict"] == "accept")
+        .filter_map(|r| r.data["head"].as_str())
+        .collect();
+    let log = place.git_ok(dir, &["log", "--format=%H%x1f%B%x1e", range])?;
+    for entry in log.split('\x1e') {
+        let Some((hash, body)) = entry.trim().split_once('\x1f') else {
+            continue;
+        };
+        let fix = made.contains(&hash) || body.lines().any(|l| l.trim().starts_with(TRAILER));
+        if fix && !approved.contains(&hash) {
+            return Ok(Some(format!(
+                "the branch holds commit {}, a fixer's, which no other model approved: a fixer's \
+                 commit goes green only once the model that built the branch accepts it",
+                &hash[..hash.len().min(12)]
+            )));
+        }
+    }
+    Ok(None)
 }

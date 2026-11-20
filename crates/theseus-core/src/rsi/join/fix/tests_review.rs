@@ -302,3 +302,230 @@ async fn a_branch_being_fixed_is_named_so_in_the_view() {
         .unwrap();
     assert_eq!(row.what, "given to a fixer");
 }
+
+// ---------------------------------------------------------------- round 2 (review B2, the join)
+
+/// The review's `fix` verdict on a head, as a pass writes it before its fix.
+fn asked_fix(r: &Rig, branch: &str, head: &str) {
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfReviewVerdict {
+            item: "trim".into(),
+            branch: branch.into(),
+            head: head.into(),
+            reviewer: "fable (claude-fable-5-2)".into(),
+            model: "claude-fable-5-2".into(),
+            asked: "claude-fable-5-2".into(),
+            verdict: "fix".into(),
+            planted_revert: "failed".into(),
+            reasons: vec!["rename it".into()],
+            cost_usd: 0.0,
+        });
+}
+
+/// Review round 1, B2 at review: a restart cut a fix at review short after the fixer's commit
+/// was made in the reopened tree. The next pass ends it, closes that tree (so nothing builds on
+/// it), returns the item as a reject does, and the view says no fix runs; the item's next attempt
+/// starts from before the fix.
+#[tokio::test]
+async fn a_fix_at_review_cut_short_by_a_restart_is_ended_and_its_tree_closed() {
+    let r = rig(|_| {});
+    let (branch, head) = r.seed("trim", PROVED, SONNET);
+    item(&r, "trim");
+    asked_fix(&r, &branch, &head);
+    let m = crate::fact::rsi_fix::Moved::new("trim", "given to a fixer")
+        .with("branch", branch.clone())
+        .with("head", head.clone())
+        .with("point", "review")
+        .with("fixer", "fable (claude-fable-5-2)");
+    r.core.rec(None).record(&crate::fact::rsi_fix::Started(m));
+    let t = crate::rsi::tree::reopen(&r.f.place, "trim", &branch, &head).unwrap();
+    std::fs::write(t.dir.join("note.txt"), "the fixer's\n").unwrap();
+    git(&t.dir, &["add", "-A"]);
+    git(&t.dir, &["commit", "-q", "-m", "self: fix at review"]);
+    let review = scripted(&[]);
+    let fixer = StandIn::writing(&[]);
+    let one = r
+        .core
+        .self_join_pass(&seams(&review, &fixer))
+        .await
+        .unwrap();
+    assert!(one.joined.is_empty(), "{one:?}");
+    assert_eq!(fixer.fixed(), 0, "never made twice");
+    let none = r.rows("self.fix.none").pop().unwrap();
+    assert!(none["why"].as_str().unwrap().contains("restart"), "{none}");
+    assert!(!t.dir.exists(), "the reopened tree is closed");
+    assert_eq!(task(&r, "trim").state, TaskState::Proposed);
+    assert_eq!(
+        super::unfixed_base(&r.core.store, &branch).as_deref(),
+        Some(head.as_str()),
+        "the next attempt starts from before the fix"
+    );
+    let view = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert!(
+        view.reviewing
+            .iter()
+            .chain(&view.ready)
+            .all(|e| e.fixing.is_none()),
+        "{view:?}"
+    );
+}
+
+/// The one rule at review, whatever path led to the head: a head that holds a fixer's commit no
+/// other model approved is rejected before any reviewer is asked.
+#[tokio::test]
+async fn a_head_with_an_unapproved_fixers_commit_is_not_reviewed() {
+    let r = rig(|_| {});
+    let (branch, head) = r.seed("trim", PROVED, SONNET);
+    item(&r, "trim");
+    let session = r
+        .core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .find(|(_, row)| row.kind == "self.branch.built")
+        .and_then(|(_, row)| row.session_id)
+        .unwrap();
+    // The seeded head was judged before: only the head with the fixer's commit is up now.
+    let v = crate::fact::rsi_join::SelfReviewVerdict {
+        item: "trim".into(),
+        branch: branch.clone(),
+        head: head.clone(),
+        reviewer: "fable (claude-fable-5-2)".into(),
+        model: "claude-fable-5-2".into(),
+        asked: "claude-fable-5-2".into(),
+        verdict: "reject".into(),
+        planted_revert: "failed".into(),
+        reasons: vec!["an earlier reading".into()],
+        cost_usd: 0.0,
+    };
+    r.core.rec(None).record(&v);
+    let t = crate::rsi::tree::reopen(&r.f.place, "trim", &branch, &head).unwrap();
+    std::fs::write(t.dir.join("note.txt"), "the fixer's\n").unwrap();
+    git(&t.dir, &["add", "-A"]);
+    let msg = format!("self: fix\n\n{} review\n", super::TRAILER);
+    git(&t.dir, &["commit", "-q", "-m", &msg]);
+    let fixed = git(&t.dir, &["rev-parse", "HEAD"]);
+    crate::rsi::tree::close(&r.f.place, &t).unwrap();
+    r.core
+        .rec(Some(&session))
+        .record(&crate::fact::rsi_pr::SelfBranchBuilt {
+            item: "trim",
+            issue: "theseus-sail1",
+            branch: &branch,
+            head: Some(&fixed),
+            gate: "green",
+            report: None,
+            cost_usd: 0.0,
+            stopped_at: None,
+            why: "Trim the sails before the wind.",
+            numbers: serde_json::Value::Null,
+        });
+    let review = scripted(&["accept"]);
+    let fixer = StandIn::writing(&[]);
+    let one = r
+        .core
+        .self_join_pass(&seams(&review, &fixer))
+        .await
+        .unwrap();
+    assert!(
+        one.reviewed
+            .contains(&(branch.clone(), "reject".to_string())),
+        "{one:?}"
+    );
+    assert!(one.joined.is_empty(), "{one:?}");
+    let v = r.rows("self.review.verdict").pop().unwrap();
+    assert!(
+        v["reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("no other model approved"),
+        "{v}"
+    );
+    assert!(
+        review.asks.lock().unwrap().iter().all(|a| a.head != fixed),
+        "never asked"
+    );
+}
+
+/// A join main moves under says so as it happens (a row, and the joining queue's words), and the
+/// joined row says how many times its gate ran.
+#[tokio::test]
+async fn a_join_main_moved_under_says_how_often_its_gate_ran() {
+    let r = crate::rsi::join::tests::rig(SelfMode::Act);
+    let (branch, head) = r.seed("trim", PROVED, SONNET);
+    let (root, up) = (
+        r.f.place.state.parent().unwrap().to_path_buf(),
+        r.f.upstream.clone(),
+    );
+    let seams = Seams {
+        before_push: Some(Arc::new(move |attempt| {
+            if attempt == 1 {
+                let other = root.join("mover");
+                git(
+                    &root,
+                    &["clone", "-q", up.to_str().unwrap(), other.to_str().unwrap()],
+                );
+                std::fs::write(other.join("elsewhere.txt"), "elsewhere\n").unwrap();
+                git(&other, &["add", "-A"]);
+                git(&other, &["commit", "-q", "-m", "elsewhere"]);
+                git(&other, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+            }
+        })),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(pass.joined.len(), 1, "{pass:?}");
+    let again = r.rows("self.join.again");
+    assert_eq!(again.len(), 1, "{again:?}");
+    assert_eq!(
+        (again[0]["branch"].as_str(), again[0]["runs"].as_u64()),
+        (Some(branch.as_str()), Some(1))
+    );
+    let joined = &r.rows("self.joined")[0];
+    assert!(
+        joined["what"]
+            .as_str()
+            .unwrap()
+            .ends_with("its gate ran 2 times: main moved under it"),
+        "{joined}"
+    );
+    // While it waits, the joining queue says it.
+    let r = crate::rsi::join::tests::rig(SelfMode::Act);
+    let (branch, head2) = r.seed("trim", PROVED, SONNET);
+    let _ = head;
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfReviewVerdict {
+            item: "trim".into(),
+            branch: branch.clone(),
+            head: head2.clone(),
+            reviewer: "fable (claude-fable-5-2)".into(),
+            model: "claude-fable-5-2".into(),
+            asked: "claude-fable-5-2".into(),
+            verdict: "accept".into(),
+            planted_revert: "failed".into(),
+            reasons: vec![],
+            cost_usd: 0.0,
+        });
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_join::SelfJoinAgain {
+            item: "trim".into(),
+            branch,
+            head: head2,
+            runs: 2,
+        });
+    let view = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert_eq!(
+        view.joining[0].why.as_deref(),
+        Some("its gate has run 2 times: main moved under it before its push")
+    );
+}

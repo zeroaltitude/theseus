@@ -36,6 +36,9 @@ pub struct Ceiling {
     pub profile: Option<String>,
     /// As the bindings file says it, for health.
     pub wire: PlaceCeiling,
+    /// Whose word it is, as its refusals and its note say: the bindings file's, or the self
+    /// loop's for a session it opened for one job (`rsi::roles`).
+    pub source: &'static str,
 }
 
 impl Ceiling {
@@ -56,17 +59,20 @@ impl Ceiling {
             spend_limit_micros: c.spend_limit_usd.map(theseus_kernel::usd_to_micros),
             profile: c.profile.clone(),
             wire: c.clone(),
+            source: "the bindings file",
         })
     }
 
     /// Whether this ceiling offers the tool `name`: its family, or its MCP
-    /// server, is listed, or nothing is.
+    /// server, is listed, or nothing is. The self loop's own ceilings may also
+    /// list a tool by its whole name (`rsi::roles`); a bindings file cannot
+    /// (`check_entry`).
     pub fn offers(&self, name: &str) -> bool {
         let Some(tools) = &self.tools else {
             return true;
         };
         let family = family(name);
-        tools.iter().any(|t| t == family)
+        tools.iter().any(|t| t == family || t == name)
     }
 
     /// Why the gate refuses `name` here, or None: a tool this ceiling does
@@ -81,8 +87,8 @@ impl Ceiling {
             false => format!("only {}", listed.join(", ")),
         };
         Some(format!(
-            "{name} is not offered in {}: its ceiling in the bindings file offers {offered}",
-            self.place
+            "{name} is not offered in {}: its ceiling in {} offers {offered}",
+            self.place, self.source
         ))
     }
 
@@ -104,8 +110,12 @@ impl Ceiling {
         if said.is_empty() {
             return String::new();
         }
+        let whose = match self.source {
+            "the bindings file" => "the operator's word in the bindings file".to_string(),
+            other => other.to_string(),
+        };
         format!(
-            "\n- This place has a ceiling, the operator's word in the bindings file: {}.",
+            "\n- This place has a ceiling, {whose}: {}.",
             said.join("; ")
         )
     }
@@ -215,15 +225,25 @@ impl crate::turn::TurnRunner {
     /// (`/new`), the place its wakes and reports answer in (theseus-4lx).
     /// With neither, the CLI's or the web UI's: private, with no ceiling.
     /// Shared when where it goes cannot be read.
+    ///
+    /// A session the self loop opened for one job (a fixer, an approver, a reviewer:
+    /// `rsi::roles`) has that job's ceiling, whatever its place's.
     pub fn view_of(&self, session_id: &str) -> PlaceView {
         let place = self.outbox.speaks_at(session_id);
-        match place {
+        let view = match place {
             Ok(p) => self.place_rule.place(&self.cfg, p.as_deref()),
             Err(e) => {
                 tracing::warn!(session_id, error = %format!("{e:#}"),
                     "where a session speaks cannot be read: its turn is a shared place's");
                 PlaceClass::Shared.into()
             }
+        };
+        match self.role_of(session_id) {
+            Some(role) => PlaceView {
+                ceiling: Some(role.ceiling()),
+                ..view
+            },
+            None => view,
         }
     }
 }

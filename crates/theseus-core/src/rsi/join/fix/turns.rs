@@ -6,14 +6,20 @@
 //! reads): the file tools write there and nowhere else, its commands run in L1 with the item's
 //! build folder, exactly as the builder's do. Nothing more: no other tree, no git of its own (the
 //! code commits), and its root is taken back when its turn ends.
+//!
+//! Each session is registered for its role before its first turn (`rsi::roles`): what it is
+//! offered is that role's, and `self.propose_change` refuses it. Each turn has a wall-clock limit,
+//! `[self_fix] turn_minutes` ([`within`]), as the review's turn now does.
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use theseus_protocol::SessionOpenParams;
+use theseus_protocol::{SessionOpenParams, TurnSubmitResult};
 
 use super::{fix_of, ApproveAsk, FixAsk, FixFut, Fixed, Fixer};
 use crate::rpc::Core;
 use crate::rsi::join::review::{self, word_of, Review};
+use crate::rsi::roles::Role;
 use crate::turn::{Target, TurnRequest};
 
 /// The most of a diff the fixer is given, in characters.
@@ -68,7 +74,10 @@ pub fn approve_prompt(a: &ApproveAsk) -> String {
          found a small fault, and another model, {fixer}, repaired it with the one commit below. \
          Nobody approves their own work, so you read that commit alone and judge it: does it \
          repair the fault, and nothing else? It must not change what the change is for, weaken \
-         a test, or reach beyond the fault.\n\n\
+         a test, or reach beyond the fault. Theseus refuses a fix that edits a test that was \
+         there before the branch, but it cannot tell a repair from a changed value that an \
+         existing test reads (a constant or a limit its assertion compares with): look for that, \
+         and reject it.\n\n\
          End your reply with one line, `VERDICT: accept` or `VERDICT: reject`, and after it one \
          line per reason.\n\n## The fault it answered\n\n```text\n{failure}\n```\n\n\
          ## The fixer's reason\n\n{reason}\n\n## The commit {head}, alone\n\n```diff\n{diff}\n```",
@@ -106,15 +115,48 @@ pub(crate) fn release(core: &Core, session: &str) {
         .remove(session);
 }
 
-/// One turn in a new `"self"` session: its output, cost, profile and model.
+/// The wall-clock limit of a fixer's, an approver's and a reviewer's turn.
+pub(crate) fn limit(core: &Core) -> Duration {
+    Duration::from_secs(core.cfg.self_fix.turn_minutes.max(1) * 60)
+}
+
+/// `turn` (of the session whose execution is `exec`) to its end, or stopped once it has run for
+/// `limit`: its execution is stopped, the turn is let reach its next step, and the answer says it
+/// ran past its limit.
+pub(crate) async fn within(
+    core: &Core,
+    exec: Option<&str>,
+    limit: Duration,
+    turn: impl std::future::Future<Output = anyhow::Result<TurnSubmitResult>>,
+) -> anyhow::Result<TurnSubmitResult> {
+    tokio::pin!(turn);
+    tokio::select! {
+        r = &mut turn => r,
+        () = tokio::time::sleep(limit) => {
+            if let Some(e) = exec {
+                if let Err(err) = core.stop_execution(e, "self loop: the turn ran past its limit").await {
+                    tracing::warn!(error = %format!("{err:#}"), "a self turn past its limit was not stopped");
+                }
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(60), &mut turn).await;
+            anyhow::bail!(
+                "the turn ran past its limit of {} minutes and was stopped",
+                limit.as_secs() / 60
+            )
+        }
+    }
+}
+
+/// One turn in a new `"self"` session opened for `role`: its output, cost, profile and model.
 async fn turn(
     core: &Arc<Core>,
+    role: Role,
     label: String,
     author: &str,
     input: String,
     target: Target,
     root: Option<&str>,
-) -> anyhow::Result<(String, theseus_protocol::TurnSubmitResult)> {
+) -> anyhow::Result<(String, TurnSubmitResult)> {
     let rec = core.open_session_as(
         SessionOpenParams {
             label: Some(label),
@@ -127,27 +169,27 @@ async fn turn(
         None,
     )?;
     let session = rec.session_id.clone();
+    let exec = rec.execution_id.clone();
+    core.tools.self_pr.set_role(&session, role)?;
     if let Some(slug) = root {
         confine(core, &session, slug);
     }
     let sink = crate::bus::EventSink::new(core.bus.clone(), &session, None);
-    let r = core
-        .runner
-        .run(TurnRequest {
-            session: rec,
-            input: Some(input),
-            target,
-            sink,
-            author: author.into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            surface: None,
-            answer_at: None,
-            prompt: None,
-        })
-        .await;
+    let run = core.runner.run(TurnRequest {
+        session: rec,
+        input: Some(input),
+        target,
+        sink,
+        author: author.into(),
+        recompile: None,
+        attachments: vec![],
+        arrived: None,
+        reply_to: None,
+        surface: None,
+        answer_at: None,
+        prompt: None,
+    });
+    let r = within(core, exec.as_deref(), limit(core), run).await;
     if root.is_some() {
         release(core, &session);
     }
@@ -159,6 +201,7 @@ impl Fixer for Turns {
         Box::pin(async move {
             let (session, r) = turn(
                 core,
+                Role::Fixer,
                 format!("self fix: {}", ask.branch),
                 "self:fix",
                 fix_prompt(ask),
@@ -182,6 +225,7 @@ impl Fixer for Turns {
         Box::pin(async move {
             let (session, r) = turn(
                 core,
+                Role::Approver,
                 format!("self fix check: {}", ask.branch),
                 "self:fix-check",
                 approve_prompt(ask),

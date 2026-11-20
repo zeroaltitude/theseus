@@ -607,3 +607,498 @@ async fn a_second_fix_at_one_point_of_a_branch_is_refused() {
         "second"
     );
 }
+
+// ---------------------------------------------------------------- round 2 (review B1, B2, notes)
+
+/// The green `self.branch.built` rows: (session, head).
+pub(super) fn green_builds(r: &Rig) -> Vec<(Option<String>, String)> {
+    r.core
+        .store
+        .ledger_tail::<crate::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, row)| row.kind == "self.branch.built" && row.data["gate"] == "green")
+        .map(|(_, row)| {
+            let head = row.data["head"].as_str().unwrap_or("").to_string();
+            (row.session_id, head)
+        })
+        .collect()
+}
+
+/// The tool names a request offered.
+fn offered(q: &crate::provider::ProviderRequest) -> Vec<String> {
+    q.tools
+        .iter()
+        .filter_map(|t| t["name"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// The first request whose first message begins as `words` do.
+fn request_of(r: &Rig, words: &str) -> crate::provider::ProviderRequest {
+    r.requests()
+        .into_iter()
+        .find(|q| {
+            q.messages
+                .first()
+                .is_some_and(|m| m.to_string().contains(words))
+        })
+        .unwrap_or_else(|| panic!("no request says {words:?}"))
+}
+
+/// A fixer that writes the repair and then runs the core's REAL fixer turn, whose stand-in
+/// model makes whatever call the test queued; it approves as its stand-in does.
+struct Proposing(Arc<StandIn>);
+
+impl super::Fixer for Proposing {
+    fn fix<'a>(
+        &'a self,
+        core: &'a Arc<crate::rpc::Core>,
+        ask: &'a super::FixAsk,
+    ) -> super::FixFut<'a> {
+        write(Path::new(&ask.tree), REPAIR);
+        super::Fixer::fix(&super::turns::Turns, core, ask)
+    }
+    fn approve<'a>(
+        &'a self,
+        core: &'a Arc<crate::rpc::Core>,
+        ask: &'a super::ApproveAsk,
+    ) -> crate::rsi::join::review::Fut<'a> {
+        self.0.approve(core, ask)
+    }
+}
+
+/// Review round 1, B1: the fixer's own turn calls `self.propose_change` for the item whose tree
+/// it was lent. It is not offered the verb (nor any self verb: only its tree's file and command
+/// tools), its call is refused, and no green branch exists that a session other than the
+/// builder's built.
+#[tokio::test]
+async fn a_fixer_turn_that_calls_propose_change_builds_no_branch() {
+    let r = rig(|_| {});
+    r.core.tools.self_pr.set_fix(GateSeams {
+        fixer: Arc::new(Proposing(StandIn::writing(&[]))),
+        main: green(),
+    });
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    write(&tree_of(&r), LINTED);
+    // Taken by the first request after the builder's own: the fixer's turn.
+    r.queue_call(WIRE, input());
+    r.turn(&sid, WIRE, input()).await;
+    let tools = offered(&request_of(&r, "You are the fixer"));
+    assert!(!tools.iter().any(|n| n == WIRE), "{tools:?}");
+    for n in &tools {
+        let family = n.split('_').next().unwrap_or(n);
+        assert!(
+            ["fs", "proc", "git", "job", "tools"].contains(&family),
+            "a fixer is offered {n}: {tools:?}"
+        );
+    }
+    assert!(tools.iter().any(|n| n == "fs_write"), "{tools:?}");
+    for (s, _) in green_builds(&r) {
+        assert_eq!(
+            s.as_deref(),
+            Some(sid.as_str()),
+            "built by a session not the builder's"
+        );
+    }
+    let said = serde_json::to_string(&r.requests()).unwrap();
+    assert!(
+        said.contains("is not offered in a fixer's session"),
+        "the gate refused it"
+    );
+}
+
+/// The same, with the role's ceiling switched off: `self.propose_change` refuses a role's session
+/// itself, whatever the session was offered.
+#[tokio::test]
+async fn propose_change_refuses_a_fixers_session_whatever_it_was_offered() {
+    let r = rig(|_| {});
+    r.core.tools.self_pr.set_role_ceilings_off();
+    r.core.tools.self_pr.set_fix(GateSeams {
+        fixer: Arc::new(Proposing(StandIn::writing(&[]))),
+        main: green(),
+    });
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    write(&tree_of(&r), LINTED);
+    r.queue_call(WIRE, input());
+    r.turn(&sid, WIRE, input()).await;
+    let tools = offered(&request_of(&r, "You are the fixer"));
+    assert!(
+        tools.iter().any(|n| n == WIRE),
+        "the ceiling is off: {tools:?}"
+    );
+    let said = serde_json::to_string(&r.requests()).unwrap();
+    assert!(
+        said.contains("this session is a fixer of a self branch"),
+        "propose refused it itself"
+    );
+    for (s, _) in green_builds(&r) {
+        assert_eq!(s.as_deref(), Some(sid.as_str()));
+    }
+}
+
+/// An approver's turn is offered no tool, and its call of the builder's verb builds nothing.
+#[tokio::test]
+async fn an_approvers_turn_is_offered_nothing_and_builds_no_branch() {
+    use super::Fixer;
+    let r = rig(|_| {});
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    write(&tree_of(&r), LINTED);
+    let live = r.core.live_profile().0;
+    let ask = super::ApproveAsk {
+        item: ITEM.into(),
+        branch: "self/20261014-trim".into(),
+        head: "abc".into(),
+        point: super::Point::Gate,
+        diff: "+x".into(),
+        reason: "it repairs it".into(),
+        failure: "gate: FAILED in clippy".into(),
+        fixer: "fable (claude-fable-5-2)".into(),
+        target: r
+            .core
+            .runner
+            .resolve_target(&live, Some("sonnet"), None, None)
+            .unwrap(),
+    };
+    r.queue_call(WIRE, input());
+    let review = super::turns::Turns.approve(&r.core, &ask).await.unwrap();
+    let session = review.session.unwrap();
+    assert_eq!(
+        r.core.tools.self_pr.role(&session),
+        Some(crate::rsi::roles::Role::Approver)
+    );
+    let tools = offered(&request_of(&r, "You built branch"));
+    assert!(
+        tools.iter().all(|n| n.starts_with("tools")),
+        "an approver is offered no tool: {tools:?}"
+    );
+    assert!(green_builds(&r).is_empty());
+    assert!(
+        rows(&r, "self.branch.built").is_empty(),
+        "nothing built at all"
+    );
+}
+
+/// A reviewer's turn (the review's own check turn, which was offered the verb before issue 36) is
+/// offered the read-only tools and its build's, never a self verb, and builds nothing. Its role
+/// is kept in the store, so a restarted daemon still knows it.
+#[tokio::test]
+async fn a_reviewers_turn_is_offered_no_self_verb_and_builds_no_branch() {
+    use crate::rsi::join::review::{Ask, CheckTurn, Reviewer};
+    let r = rig(|_| {});
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    write(&tree_of(&r), LINTED);
+    let live = r.core.live_profile().0;
+    let scratch = r.f.place.state.join("scratch-review");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let ask = Ask {
+        branch: "self/20261014-trim".into(),
+        head: "abc".into(),
+        item: ITEM.into(),
+        diff: String::new(),
+        report: String::new(),
+        evidence: String::new(),
+        target: r
+            .core
+            .runner
+            .resolve_target(&live, Some("fable"), None, None)
+            .unwrap(),
+        built_ms: 0,
+        scratch: scratch.display().to_string(),
+        repo: r.f.place.repo.display().to_string(),
+        offer_fix: None,
+        fixed: None,
+    };
+    r.queue_call(WIRE, input());
+    let review = CheckTurn.review(&r.core, &ask).await.unwrap();
+    let session = review.session.unwrap();
+    let tools = offered(&request_of(&r, "Check: you check task"));
+    assert!(!tools.iter().any(|n| n.starts_with("self_")), "{tools:?}");
+    assert!(
+        !tools
+            .iter()
+            .any(|n| n == "fs_write" || n == "extend_propose"),
+        "{tools:?}"
+    );
+    assert!(tools.iter().any(|n| n == "fs_read") && tools.iter().any(|n| n == "proc_run"));
+    assert!(green_builds(&r).is_empty());
+    r.core.tools.self_pr.forget_roles();
+    assert_eq!(
+        r.core.tools.self_pr.role(&session),
+        Some(crate::rsi::roles::Role::Reviewer),
+        "read back from the store"
+    );
+    assert_eq!(
+        r.core.tools.self_pr.role(&sid),
+        None,
+        "a builder has no role"
+    );
+}
+
+/// Review round 1, B2: a restart between the code's fix commit and the gate's second run (the
+/// fixer's commit made, never approved). The builder calls again, as `INTERRUPTED` tells it to:
+/// the fix is ended as cut short, the tree is put back to before it, nothing of the fixer's goes
+/// green, and the view no longer says the build is being fixed.
+#[tokio::test]
+async fn after_a_restart_mid_fix_no_unapproved_fix_goes_green() {
+    let r = rig(|_| {});
+    let fixer = StandIn::writing(&[]);
+    r.core.tools.self_pr.set_fix(GateSeams {
+        fixer: fixer.clone(),
+        main: green(),
+    });
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    let tree = tree_of(&r);
+    // What the cut-short attempt left: the builder's commit, the code's fix commit, and the rows
+    // `make` wrote before the restart.
+    write(&tree, LINTED);
+    git(&tree, &["add", "-A"]);
+    git(
+        &tree,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "self: trim the sails (trim-the-sails)",
+        ],
+    );
+    let before = git(&tree, &["rev-parse", "HEAD"]);
+    let branch = git(&tree, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    write(&tree, REPAIR);
+    git(&tree, &["add", "-A"]);
+    git(
+        &tree,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "self: fix at the gate by claude-fable-5-2 for clippy",
+        ],
+    );
+    let fix = git(&tree, &["rev-parse", "HEAD"]);
+    let m = crate::fact::rsi_fix::Moved::new(ITEM, "given to a fixer")
+        .with("branch", branch.clone())
+        .with("head", before.clone())
+        .with("point", "gate")
+        .with("fixer", "fable (claude-fable-5-2)");
+    r.core
+        .rec(None)
+        .record(&crate::fact::rsi_fix::Started(m.clone()));
+    r.core.rec(None).record(&crate::fact::rsi_fix::Made(
+        m.with("head", fix.clone()).with("from", before.clone()),
+    ));
+    let said = r.turn(&sid, WIRE, input()).await;
+    assert!(said.contains("a restart cut the fix short"), "{said}");
+    assert!(said.contains("the gate is red"), "{said}");
+    let none = rows(&r, "self.fix.none").pop().unwrap();
+    assert_eq!(none["why"], "a restart cut the fix short");
+    assert_eq!(none["head"], before.as_str());
+    assert!(
+        rows(&r, "self.fix.verdict").is_empty(),
+        "nobody approved {fix}"
+    );
+    assert!(
+        green_builds(&r).is_empty(),
+        "nothing of the fixer's went green"
+    );
+    assert_eq!(
+        git(&tree, &["rev-parse", "HEAD"]),
+        before,
+        "put back to before the fix"
+    );
+    assert_eq!(fixer.fixed(), 0, "no second fix after the cut");
+    // The view: the build is no longer being fixed.
+    let view = r
+        .core
+        .self_pipeline(&theseus_protocol::rsi::SelfPipelineParams::default())
+        .unwrap();
+    assert!(view.building.iter().all(|e| e.fixing.is_none()), "{view:?}");
+}
+
+/// The one rule every green head is held to, whatever path led to it: a head that holds a fixer's
+/// commit no other model approved is not green, however the gate ran.
+#[tokio::test]
+async fn a_green_head_with_an_unapproved_fixers_commit_is_red() {
+    let r = rig(|c| c.self_fix.mode = crate::config::self_fix::FixMode::Off);
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    let tree = tree_of(&r);
+    write(&tree, &[("sails.txt", "trimmed\n")]);
+    git(&tree, &["add", "-A"]);
+    let msg = format!("self: fix at the gate\n\n{} gate\n", super::TRAILER);
+    git(&tree, &["commit", "-q", "-m", &msg]);
+    let said = r.turn(&sid, WIRE, input()).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    assert!(green_builds(&r).is_empty());
+    let report = std::fs::read_to_string(built(&r)["report"].as_str().unwrap()).unwrap();
+    assert!(report.contains("which no other model approved"), "{report}");
+}
+
+/// Review round 1, note 2: an approval answered by the fixer's own model (a fallback route, a
+/// profile changed in flight) is refused, never an accept.
+#[tokio::test]
+async fn an_approval_answered_by_the_fixers_model_is_refused() {
+    struct AnswersAsFixer(Arc<StandIn>);
+    impl super::Fixer for AnswersAsFixer {
+        fn fix<'a>(
+            &'a self,
+            core: &'a Arc<crate::rpc::Core>,
+            ask: &'a super::FixAsk,
+        ) -> super::FixFut<'a> {
+            self.0.fix(core, ask)
+        }
+        fn approve<'a>(
+            &'a self,
+            _core: &'a Arc<crate::rpc::Core>,
+            _ask: &'a super::ApproveAsk,
+        ) -> crate::rsi::join::review::Fut<'a> {
+            Box::pin(async move {
+                Ok(crate::rsi::join::review::Review {
+                    accept: true,
+                    fix: false,
+                    reasons: vec!["fine".into()],
+                    cost_usd: 0.05,
+                    session: None,
+                    profile: "sonnet".into(),
+                    model: "claude-fable-5-2-20261101".into(),
+                })
+            })
+        }
+    }
+    let r = rig(|_| {});
+    let (_, said) = {
+        r.core.tools.self_pr.set_fix(GateSeams {
+            fixer: Arc::new(AnswersAsFixer(StandIn::writing(REPAIR))),
+            main: green(),
+        });
+        let sid = item(&r);
+        r.turn(&sid, WIRE, input()).await;
+        write(&tree_of(&r), LINTED);
+        (sid.clone(), r.turn(&sid, WIRE, input()).await)
+    };
+    assert!(said.contains("the gate is red"), "{said}");
+    let refused = rows(&r, "self.fix.refused");
+    assert_eq!(
+        refused.last().unwrap()["bound"],
+        "not-independent",
+        "{refused:?}"
+    );
+    assert!(rows(&r, "self.fix.verdict").is_empty());
+    assert!(green_builds(&r).is_empty());
+}
+
+/// Push `files` onto the fixture's main.
+fn onto_main(r: &Rig, name: &str, files: &[(&str, &str)]) {
+    let root = r.f.upstream.parent().unwrap().to_path_buf();
+    let work = root.join(name);
+    git(
+        &root,
+        &[
+            "clone",
+            "-q",
+            r.f.upstream.to_str().unwrap(),
+            work.to_str().unwrap(),
+        ],
+    );
+    write(&work, files);
+    git(&work, &["add", "-A"]);
+    git(&work, &["commit", "-q", "-m", name]);
+    git(&work, &["push", "-q", "origin", "HEAD:main"]);
+}
+
+/// Note 2: main's own keel guard is present and judges the fix's commit alone; a raised cap the
+/// line rules cannot see is refused by it.
+#[tokio::test]
+async fn main_s_keel_guard_judges_the_fix_commit_alone() {
+    let r = rig(|_| {});
+    let guard = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/keel-guard.py"),
+    )
+    .unwrap();
+    onto_main(
+        &r,
+        "with-guard",
+        &[
+            ("scripts/keel-guard.py", &guard),
+            ("src/limits.rs", "pub const SPEND_CAP_USD: f64 = 1.0;\n"),
+        ],
+    );
+    let mut writes = REPAIR.to_vec();
+    writes.push(("src/limits.rs", "pub const SPEND_CAP_USD: f64 = 2.0;\n"));
+    let fixer = StandIn::writing(&writes);
+    let (_, said) = build(&r, &fixer, green(), LINTED).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    let refused = rows(&r, "self.fix.refused");
+    assert_eq!(refused[0]["bound"], "tests", "{refused:?}");
+    let why = refused[0]["why"].as_str().unwrap();
+    assert!(
+        why.contains("main's keel guard found") && why.contains("cap-raised"),
+        "{why}"
+    );
+}
+
+/// Note 2: the line rule in a file that is not named as a test: an assertion removed from it is
+/// refused.
+#[tokio::test]
+async fn a_fix_that_removes_an_assertion_from_an_old_file_is_refused() {
+    let r = rig(|_| {});
+    onto_main(
+        &r,
+        "with-check",
+        &[(
+            "src/sails.rs",
+            "pub fn trim(x: u32) {\n    debug_assert!(x < 9);\n}\n",
+        )],
+    );
+    let mut writes = REPAIR.to_vec();
+    writes.push(("src/sails.rs", "pub fn trim(x: u32) {\n    let _ = x;\n}\n"));
+    let fixer = StandIn::writing(&writes);
+    let (_, said) = build(&r, &fixer, green(), LINTED).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    let refused = rows(&r, "self.fix.refused");
+    assert_eq!(refused[0]["bound"], "tests", "{refused:?}");
+    assert!(refused[0]["why"]
+        .as_str()
+        .unwrap()
+        .contains("weakens a test in src/sails.rs"));
+}
+
+/// Note 1: a test inline in an ordinary file that was on main: an early return in it is refused.
+#[tokio::test]
+async fn a_fix_that_silences_an_old_inline_test_is_refused() {
+    let r = rig(|_| {});
+    let file = "pub fn add(a: u32) -> u32 {\n    a + 1\n}\n\n#[cfg(test)]\nmod tests {\n    \
+                use super::*;\n\n    #[test]\n    fn adds() {\n        let two = add(1);\n        \
+                assert_eq!(two, 2);\n    }\n}\n";
+    onto_main(&r, "with-inline", &[("src/add.rs", file)]);
+    let silenced = file.replace(
+        "        let two = add(1);\n",
+        "        return;\n        let two = add(1);\n",
+    );
+    let mut writes = REPAIR.to_vec();
+    writes.push(("src/add.rs", &silenced));
+    let fixer = StandIn::writing(&writes);
+    let (_, said) = build(&r, &fixer, green(), LINTED).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    let refused = rows(&r, "self.fix.refused");
+    assert_eq!(refused[0]["bound"], "tests", "{refused:?}");
+    assert!(refused[0]["why"]
+        .as_str()
+        .unwrap()
+        .contains("the test tests in src/add.rs"));
+}
+
+/// Note 7: a turn past its limit is stopped and answers that it ran past it.
+#[tokio::test]
+async fn a_turn_past_its_limit_is_stopped() {
+    let r = rig(|_| {});
+    let never = std::future::pending::<anyhow::Result<theseus_protocol::TurnSubmitResult>>();
+    let e = super::turns::within(&r.core, None, std::time::Duration::from_millis(30), never)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("ran past its limit"), "{e}");
+}

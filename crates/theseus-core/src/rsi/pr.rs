@@ -68,6 +68,14 @@ pub struct Board {
     env: Mutex<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
     /// A test's fixer and main (`fixing`); none in a daemon, which uses its own.
     fix: Mutex<Option<fixing::GateSeams>>,
+    /// Each session's role, once read (`super::roles`): none for a session the loop did not open
+    /// for one job.
+    roles: Mutex<std::collections::HashMap<String, Option<super::roles::Role>>>,
+    /// The branches whose fix runs now in this process: a fix row with no end is cut short only
+    /// when its branch is not here (`fixing::resumed`).
+    live_fixes: Mutex<std::collections::HashSet<String>>,
+    /// A test's switch (`set_role_ceilings_off`); never set in a daemon.
+    role_ceilings_off: std::sync::atomic::AtomicBool,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1
     /// (`set_jailed`); a daemon's never does (`Place::jail`).
     #[cfg(test)]
@@ -93,6 +101,84 @@ impl Board {
     /// The state dir the self trees, reports and gates live under.
     pub(crate) fn state_dir(&self) -> &Path {
         &self.state
+    }
+
+    /// Record that the self loop opened `session` for `role` (`super::roles`), in memory and in
+    /// the store, before its first turn.
+    pub(crate) fn set_role(&self, session: &str, role: super::roles::Role) -> anyhow::Result<()> {
+        if let Some(core) = self.core() {
+            core.store.append(&[role.record(session)?])?;
+        }
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session.to_string(), Some(role));
+        Ok(())
+    }
+
+    /// `session`'s role, if the self loop opened it for one: what memory holds, else the store's
+    /// record, kept once read.
+    pub(crate) fn role(&self, session: &str) -> Option<super::roles::Role> {
+        if let Some(r) = self
+            .roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session)
+        {
+            return *r;
+        }
+        let read = self.core().and_then(|c| {
+            c.store
+                .get_meta::<super::roles::Role>(&super::roles::key(session))
+                .ok()
+                .flatten()
+        });
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session.to_string(), read);
+        read
+    }
+
+    /// `branch`'s fix runs now in this process, until what this returns is dropped.
+    pub(crate) fn live_fix(&self, branch: &str) -> LiveFix<'_> {
+        self.live_fixes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(branch.to_string());
+        LiveFix(self, branch.to_string())
+    }
+
+    /// Whether `branch`'s fix runs now in this process.
+    pub(crate) fn fix_is_live(&self, branch: &str) -> bool {
+        self.live_fixes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(branch)
+    }
+
+    /// A test's switch: a role's session is offered what any self session is, so that
+    /// `self.propose_change`'s own refusal is shown to hold without the role's ceiling.
+    #[cfg(test)]
+    pub(crate) fn set_role_ceilings_off(&self) {
+        self.role_ceilings_off
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether a role's session has its role's ceiling (always, but in a test that switched it off).
+    pub(crate) fn role_ceilings(&self) -> bool {
+        !self
+            .role_ceilings_off
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// What this process remembers of the roles, gone: as after a restart.
+    #[cfg(test)]
+    pub(crate) fn forget_roles(&self) {
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     pub fn attach(&self, core: &Arc<Core>) {
@@ -199,6 +285,19 @@ pub(super) fn notice_body(halt: bool, text: String) -> serde_json::Value {
     match halt {
         true => json!({"kind": "self_halt", "text": text}),
         false => json!({"kind": "notice", "text": text, "quiet": true}),
+    }
+}
+
+/// A fix that runs now (`Board::live_fix`): its branch is no longer live once this is dropped.
+pub(crate) struct LiveFix<'a>(&'a Board, String);
+
+impl Drop for LiveFix<'_> {
+    fn drop(&mut self) {
+        self.0
+            .live_fixes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.1);
     }
 }
 
@@ -323,6 +422,9 @@ pub async fn propose(
     tc: &TurnCtx<'_>,
     input: &Value,
 ) -> Result<(String, Value), String> {
+    // A session the loop opened as a fixer, an approver or a reviewer builds nothing, whatever it
+    // was offered (issue 36, round 2: `super::roles`).
+    fixing::not_a_role(board, tc.session_id)?;
     let i = input_of(input)?;
     let core = board
         .core
@@ -395,10 +497,10 @@ pub async fn propose(
             i.item
         ));
     }
-    // A branch that has its report is done: another attempt is a new branch.
-    if report_path(&place, &t.branch).exists() {
-        t = fixing::next_attempt(&core, &place, t).await?;
-    }
+    // A branch that has its report is done: another attempt is a new branch; one whose fix a
+    // restart cut short is put back to before the fix first (issue 36, round 2).
+    let cut;
+    (t, cut) = fixing::prepared(&core, board, &place, t).await?;
     let mut a = Attempt {
         i: &i,
         tree: t,
@@ -410,7 +512,7 @@ pub async fn propose(
         verdict: "halted",
         diff: (0, 0, 0),
         reran: vec![],
-        fix: None,
+        fix: cut,
     };
     let said = attempt(&core, board, &place, tc, &mut a).await;
     super::infra::watch(

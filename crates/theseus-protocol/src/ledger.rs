@@ -305,6 +305,7 @@ ledger_kinds! {
     SelfInstallVerified = "self.install.verified",
     SelfJoinStopped = "self.join.stopped",
     SelfJoinReopened = "self.join.reopened",
+    SelfJoinAgain = "self.join.again",
     SelfJoined = "self.joined",
     SelfReviewVerdict = "self.review.verdict",
     SelfFixStarted = "self.fix.started",

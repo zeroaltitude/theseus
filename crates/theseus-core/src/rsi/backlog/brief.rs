@@ -22,10 +22,23 @@ pub fn rules(tries: u32) -> String {
          That runs in your own sandbox and nobody has to answer for it. Run the existing tests \
          of every file you changed too: a change that breaks one has failed.\n\
          4. Theseus does not start a build while main itself is failing. If a test fails and \
-         your change did not cause it, say so in your why instead of working around it.\n\
-         A small fault your gate or your review finds may be repaired in place by another model, \
-         which is no reason to skip running your own tests."
+         your change did not cause it, say so in your why instead of working around it."
     )
+}
+
+/// The rule's last sentence while `[self_fix]` is on (issue 36), after [`rules`]: with it off, a
+/// builder is told what it was told before.
+pub const FIX_RULE: &str =
+    "A small fault your gate or your review finds may be repaired in place by \
+     another model, which is no reason to skip running your own tests.";
+
+/// [`rules`] as a builder is told them under `cfg`: with [`FIX_RULE`] after them while `[self_fix]`
+/// is on.
+pub fn rules_now(cfg: &crate::Config, tries: u32) -> String {
+    match cfg.self_fix.on() {
+        true => format!("{}\n{FIX_RULE}", rules(tries)),
+        false => rules(tries),
+    }
 }
 
 /// What a builder is told when its change came back because main had moved (issue 20): its tree

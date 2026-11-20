@@ -330,12 +330,14 @@ impl Job<'_> {
         );
         let subject: String = subject.chars().take(120).collect();
         let body = format!(
-            "{}\n\nFixed {} by {model}, for: {}\nItem: {}\n\nCo-Authored-By: Theseus (self) \
-             <noreply@anthropic.com>",
+            "{}\n\nFixed {} by {model}, for: {}\nItem: {}\n\n{} {}\nCo-Authored-By: Theseus \
+             (self) <noreply@anthropic.com>",
             why.trim(),
             self.point.words(),
             self.fault,
-            self.item
+            self.item,
+            super::TRAILER,
+            self.point.name()
         );
         let (p, t) = (self.place.clone(), self.tree.clone());
         blocking(move || {
@@ -359,7 +361,7 @@ impl Job<'_> {
             let base = git::merge_base(&p, &main, &b)?;
             let refusal = bounds::size(&c, lines, files)
                 .or_else(|| bounds::guarded(&c))
-                .or_else(|| bounds::tests(&p, &dir, &base, &c))
+                .or_else(|| bounds::tests(&p, &dir, &base, &b, &c))
                 .or_else(|| bounds::guard(&p, &dir, &main, &b, &h));
             Ok((c, refusal))
         })

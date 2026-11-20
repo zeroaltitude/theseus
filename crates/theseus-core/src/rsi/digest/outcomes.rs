@@ -33,8 +33,11 @@ pub struct Outcomes {
     pub fixes_made: u64,
     /// Fixes the builder's model accepted: `self.fix.verdict` rows that say accept.
     pub fixes_approved: u64,
-    /// Fixes a bound refused: `self.fix.refused` rows.
+    /// Fixes a bound refused: `self.fix.refused` rows but the ones below.
     pub fixes_refused: u64,
+    /// Fixes not tried because no model other than the builder's could make or approve one
+    /// (`self.fix.refused` with the bound `not-independent`): a setting, not a fault of a fix.
+    pub fixes_not_independent: u64,
 }
 
 impl Outcomes {
@@ -59,6 +62,9 @@ impl Outcomes {
                 "self.reverted" | "self.vetoed" => o.undone += 1,
                 "self.fix.made" => o.fixes_made += 1,
                 "self.fix.verdict" if r.data["verdict"] == "accept" => o.fixes_approved += 1,
+                "self.fix.refused" if r.data["bound"] == "not-independent" => {
+                    o.fixes_not_independent += 1;
+                }
                 "self.fix.refused" => o.fixes_refused += 1,
                 _ => {}
             }
@@ -131,6 +137,13 @@ impl Outcomes {
                 "- Fixed in place: {} made, {} approved by the model that built the branch, {} \
                  refused by a bound.\n",
                 self.fixes_made, self.fixes_approved, self.fixes_refused
+            ));
+        }
+        if self.fixes_not_independent > 0 {
+            out.push_str(&format!(
+                "- Not fixed in place {} times: the fixer or its approver would have been the \
+                 model that built the branch, so set [self] reviewer_profile to another model.\n",
+                self.fixes_not_independent
             ));
         }
         let floor = if cost_is_floor { "at least " } else { "" };

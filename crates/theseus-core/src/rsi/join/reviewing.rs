@@ -164,6 +164,12 @@ impl Run<'_> {
         let Some(target) = who.target.clone() else {
             return Ok(None);
         };
+        // Every head that reaches a review, whatever path led to it, holds no fixer's commit that
+        // no other model approved, and was built by a builder (issue 36, round 2).
+        if let Some(why) = self.not_a_builders().await {
+            self.verdict(said("reject", "not-run", vec![why], 0.0))?;
+            return Ok(Some("reject".into()));
+        }
         let Some(planted) = self.planted().await else {
             return Ok(None);
         };
@@ -291,6 +297,40 @@ impl Run<'_> {
             ),
             numbers,
         );
+    }
+
+    /// Why this head may not be reviewed: a fixer's commit in it that no other model approved
+    /// (`fix::unapproved`), or a build by a session the loop opened for another job
+    /// (`rsi::roles`). None when it may.
+    async fn not_a_builders(&self) -> Option<String> {
+        if let Some(role) = self
+            .b
+            .session
+            .as_deref()
+            .and_then(|s| self.core.tools.self_pr.role(s))
+        {
+            return Some(format!(
+                "it was built by a session the self loop opened as {}, not by a builder",
+                role.words()
+            ));
+        }
+        let (s, p, r, h) = (
+            self.core.store.clone(),
+            self.place.clone(),
+            remote_of(&self.core.cfg),
+            self.b.head.clone(),
+        );
+        let found = blocking(move || {
+            let main = git::main_of(&p, &r)?;
+            super::fix::unapproved(&s, &p, &p.repo, &format!("{main}..{h}"))
+        })
+        .await;
+        match found {
+            Ok(w) => w,
+            Err(e) => Some(format!(
+                "whether the branch holds an unapproved fix could not be read: {e:#}"
+            )),
+        }
     }
 
     /// The planted revert on the remote's main; none when it stopped.

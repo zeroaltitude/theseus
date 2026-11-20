@@ -22,8 +22,17 @@ use crate::rsi::tree::{Place, Tree};
 
 /// The loop's own judge, which no fix may touch (beside every path the keel table holds).
 pub const JUDGE: &[&str] = &[
-    "scripts/gate.sh",
-    "scripts/keel-guard.py",
+    // Every script, the gate and the keel guard among them, and the lints the gate holds.
+    "scripts/",
+    "clippy.toml",
+    // The fixer's own confinement and roles, the jail its commands run in, how a red is read
+    // (the second look, the machine's fault), and what a builder is told.
+    "crates/theseus-core/src/rsi/own_tree.rs",
+    "crates/theseus-core/src/rsi/roles.rs",
+    "crates/theseus-core/src/rsi/jail.rs",
+    "crates/theseus-core/src/rsi/rerun.rs",
+    "crates/theseus-core/src/rsi/infra.rs",
+    "crates/theseus-core/src/rsi/backlog/brief.rs",
     "crates/theseus-core/src/rsi/join.rs",
     "crates/theseus-core/src/rsi/join/",
     "crates/theseus-core/src/rsi/pipeline.rs",
@@ -146,10 +155,12 @@ fn is_check(line: &str) -> bool {
         || l.contains("should_panic")
 }
 
-/// (d) The narrow rule, on the fix's own diff: no test file that is on the merge-base `base` is
-/// changed at all, and in any file that is, no check is removed or changed and no `#[ignore]` is
-/// added. Files the branch itself added are the fixer's to repair.
-pub fn tests(p: &Place, dir: &Path, base: &str, c: &Change) -> Option<Refusal> {
+/// (d) The narrow rule, on the fix's own diff (made from `before`): no test file that is on the
+/// merge-base `base` is changed at all; in any file that is, no check is removed or changed and no
+/// `#[ignore]` is added, and no line of a test that was in it on the merge-base is changed, nor a
+/// line put right above one (`super::regions`). Files the branch itself added are the fixer's to
+/// repair.
+pub fn tests(p: &Place, dir: &Path, base: &str, before: &str, c: &Change) -> Option<Refusal> {
     let existed: Vec<&str> = c
         .files
         .iter()
@@ -194,7 +205,52 @@ pub fn tests(p: &Place, dir: &Path, base: &str, c: &Change) -> Option<Refusal> {
             ));
         }
     }
+    inline(p, dir, base, before, c, &existed)
+}
+
+/// The region half of the narrow rule (`super::regions`), for each file on the merge-base.
+fn inline(
+    p: &Place,
+    dir: &Path,
+    base: &str,
+    before: &str,
+    c: &Change,
+    existed: &[&str],
+) -> Option<Refusal> {
+    let show = |rev: &str, path: &str| p.git_ok(dir, &["show", &format!("{rev}:{path}")]).ok();
+    for path in existed.iter().filter(|f| f.ends_with(".rs")) {
+        let hunks = hunks_of(&c.diff, path);
+        if hunks.is_empty() {
+            continue;
+        }
+        let (Some(was), Some(on_base)) = (show(before, path), show(base, path)) else {
+            continue;
+        };
+        if let Some(r) = super::regions::touched(&was, &on_base, &hunks) {
+            return Some(Refusal::new(
+                "tests",
+                format!(
+                    "the fix changes the test {} in {path} (lines {} to {}), which was there \
+                     before the branch: a fix may not change a test the branch did not write",
+                    r.name, r.start, r.end
+                ),
+            ));
+        }
+    }
     None
+}
+
+/// The `@@` lines of `path`'s part of a `-U0` diff.
+fn hunks_of<'a>(diff: &'a str, path: &str) -> Vec<&'a str> {
+    let (mut on, mut out) = (false, Vec::new());
+    for l in diff.lines() {
+        if let Some(f) = l.strip_prefix("--- ") {
+            on = f.strip_prefix("a/") == Some(path);
+        } else if on && l.starts_with("@@ ") {
+            out.push(l);
+        }
+    }
+    out
 }
 
 /// (d) Main's own keel guard on the fix's commit alone: any finding refuses it. A main with no
@@ -209,10 +265,16 @@ pub fn guard(p: &Place, dir: &Path, main: &str, before: &str, head: &str) -> Opt
             ))
         }
     };
-    let h = hits.into_iter().next()?;
+    // The guard's own lines: its summary first, then each finding; the finding is what is said.
+    let first = hits.first()?.at.clone();
+    let finding = hits
+        .iter()
+        .map(|h| h.at.trim())
+        .find(|a| !a.starts_with("keel:"))
+        .map_or(first, str::to_string);
     Some(Refusal::new(
         "tests",
-        format!("main's keel guard found, in the fix alone: {}", h.at),
+        format!("main's keel guard found, in the fix alone: {finding}"),
     ))
 }
 

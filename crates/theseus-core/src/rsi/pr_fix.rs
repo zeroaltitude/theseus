@@ -29,6 +29,16 @@ pub(super) struct Note {
 }
 
 impl Note {
+    /// A fix of this branch that a restart cut short, before this call.
+    fn cut_short(words: String) -> Self {
+        Self {
+            phase: "an earlier attempt of this branch".into(),
+            words,
+            made: None,
+            approver: None,
+        }
+    }
+
     /// The report's section.
     pub(super) fn section(&self) -> String {
         let made = self.made.as_ref().map_or_else(
@@ -106,8 +116,93 @@ pub(super) async fn next_attempt(core: &Core, place: &Place, mut t: Tree) -> Res
     .await
 }
 
+/// The builder's verb refuses a session the loop opened as a fixer, an approver or a reviewer,
+/// before anything else (`crate::rsi::roles`).
+pub(super) fn not_a_role(board: &Board, session: &str) -> Result<(), String> {
+    match board.role(session) {
+        Some(role) => Err(format!(
+            "Not run: this session is {} of a self branch, and only the builder of an item calls \
+             {}.",
+            role.words(),
+            super::PROPOSE
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The tree an attempt works in: a branch that has its report is done, so the attempt is a new
+/// branch ([`next_attempt`]); otherwise the same one, put back first when a restart cut its fix
+/// short ([`resumed`]), with the words that say so.
+pub(super) async fn prepared(
+    core: &Core,
+    board: &Board,
+    place: &Place,
+    t: Tree,
+) -> Result<(Tree, Option<Note>), String> {
+    if super::report_path(place, &t.branch).exists() {
+        return Ok((next_attempt(core, place, t).await?, None));
+    }
+    let cut = resumed(core, board, place, &t).await?;
+    Ok((t, cut))
+}
+
+/// A tree resumed after a restart whose branch's newest fix at the gate has no end (`started`, or
+/// `made` and never approved): the fix is ended (`self.fix.none`) and the tree put back to the head
+/// before it, before anything is committed or gated, so no fixer's change reaches a gate as the
+/// builder's. The words the attempt says; none when there was no such fix. A fix this process
+/// runs now is no restart's (`Board::live_fixes`).
+pub(super) async fn resumed(
+    core: &Core,
+    board: &Board,
+    place: &Place,
+    t: &Tree,
+) -> Result<Option<Note>, String> {
+    if board.fix_is_live(&t.branch) {
+        return Ok(None);
+    }
+    let Some(rows) =
+        fix::rows_of(&core.store, &t.branch, Point::Gate).map_err(|e| format!("{e:#}"))?
+    else {
+        return Err(
+            "Not run: the record is still being read after a start, so whether a fix of this \
+             branch was cut short cannot be told yet. Call again in a minute."
+                .into(),
+        );
+    };
+    let Some(at) = rows.iter().rposition(|r| r.kind == "self.fix.started") else {
+        return Ok(None);
+    };
+    if rows[at + 1..].iter().any(|r| fix::ends(&r.kind)) {
+        return Ok(None);
+    }
+    let d = &rows[at].data;
+    let head = d["head"].as_str().unwrap_or_default().to_string();
+    if head.is_empty() {
+        return Ok(None);
+    }
+    let why = "a restart cut the fix short";
+    let m = crate::fact::rsi_fix::Moved::new(
+        d["item"].as_str().unwrap_or_default(),
+        format!("no fix of {} at the gate", t.branch),
+    )
+    .with("branch", t.branch.clone())
+    .with("head", head.clone())
+    .with("point", Point::Gate.name())
+    .with("fixer", d["fixer"].clone())
+    .why(why);
+    core.rec(None).record(&crate::fact::rsi_fix::NoFix(m));
+    let (p, tr, h) = (place.clone(), t.clone(), head.clone());
+    super::blocking(move || super::tree::reset_to(&p, &tr, &h)).await?;
+    Ok(Some(Note::cut_short(format!(
+        "{why}, so the tree was put back to {}, the commit before the fix, and what was not \
+         committed since is gone",
+        &head[..head.len().min(12)]
+    ))))
+}
+
 /// The gate's reading of the tree (`judged`), and a red given once to a fixer when it may be: the
-/// run the attempt goes on with and the branch's commits, or the way out of a halt.
+/// run the attempt goes on with and the branch's commits, or the way out of a halt. A head that
+/// would be green and holds a fixer's commit no other model approved is red (`fix::unapproved`).
 pub(super) async fn gated(
     core: &Arc<Core>,
     board: &Board,
@@ -117,7 +212,22 @@ pub(super) async fn gated(
     commits: Vec<(String, String)>,
 ) -> Result<(GateRun, Vec<(String, String)>), Result<(String, Value), String>> {
     let run = judged(a, place).await?;
-    let run = after_red(core, board, place, tc, a, run).await?;
+    let mut run = after_red(core, board, place, tc, a, run).await?;
+    if run.verdict == Verdict::Green {
+        let (s, p, dir) = (core.store.clone(), place.clone(), a.tree.dir.clone());
+        let found =
+            super::blocking(move || fix::unapproved(&s, &p, &dir, "origin/main..HEAD")).await;
+        let why = match found {
+            Ok(w) => w,
+            Err(e) => Some(format!(
+                "whether the branch holds an unapproved fix could not be read: {e}"
+            )),
+        };
+        if let Some(why) = why {
+            run.verdict = Verdict::Red;
+            run.tail = format!("fix: {why}\n{}", run.tail);
+        }
+    }
     if a.fix.is_none() {
         return Ok((run, commits));
     }
@@ -138,7 +248,12 @@ async fn after_red(
     a: &mut Attempt<'_>,
     run: GateRun,
 ) -> Result<GateRun, Result<(String, Value), String>> {
-    if run.verdict != Verdict::Red || !core.cfg.self_fix.on() || super::stopped(core).is_some() {
+    // A fix this call put back after a restart is this attempt's one (`resumed`).
+    if run.verdict != Verdict::Red
+        || !core.cfg.self_fix.on()
+        || super::stopped(core).is_some()
+        || a.fix.is_some()
+    {
         return Ok(run);
     }
     let Ok(phase) = fix::own_work(&run) else {
@@ -171,6 +286,7 @@ async fn after_red(
         made,
         approver,
     };
+    let _live = board.live_fix(&tree.branch);
     let made = match job.make().await {
         Ok(m) => m,
         Err(why) => {
