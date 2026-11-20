@@ -156,8 +156,15 @@ async fn a_tool_message_offers_small_buttons_and_a_press_tightens_that_tool_as_t
             .any(|x| x.id == m.id && x.buttons.is_empty() && x.content.contains("tightened by"))
     })
     .await;
+}
 
-    // A pull-down an older build posted: its pick still tightens.
+/// A pull-down an older build posted, in a message already in the channel: its
+/// pick still tightens the tool, as the presser.
+#[tokio::test]
+async fn a_pull_down_an_older_build_posted_still_answers_its_pick() {
+    let model =
+        |_: &std::path::Path, _| -> Arc<dyn Provider> { Arc::new(FakeProvider::scripted(vec![])) };
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |_| {}).await;
     let old = forged(
         &r,
         ANA_DM,
@@ -184,5 +191,5 @@ async fn a_tool_message_offers_small_buttons_and_a_press_tightens_that_tool_as_t
         told(&r, &pick, "🔒 `git.log` asks first from now on"),
     )
     .await;
-    assert_eq!(tightened(&r), ["fs.read", "git.log", "proc.run"]);
+    assert_eq!(tightened(&r), ["git.log"]);
 }
