@@ -105,13 +105,13 @@ impl FakeDiscord {
                 j
             })
             .collect();
-        // The text channels the bot made outside a category (the task home,
-        // theseus-xlxp4); a task channel sits under its category and is not
-        // listed.
+        // The channels and categories the bot made (the task home,
+        // theseus-xlxp4; a task's own channel and its category), with their
+        // names, topics and parents, as Discord lists them.
         list.extend(
             st.channels
                 .values()
-                .filter(|c| c.kind == 0 && c.parent.is_none() && !c.deleted)
+                .filter(|c| !c.deleted)
                 .map(super::channels::channel_json),
         );
         drop(st);

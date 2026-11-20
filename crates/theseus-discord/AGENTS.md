@@ -361,7 +361,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
     task's card (`task_view::post_card`, no button that acts; a link to its thread), edited on change at most once in 2 s; the six
     tags `needs you`, `running`, `done`, `failed`, `paused` (a paused task, `running` again on resume) and `stopped` (cancelled or expired) are made once if the forum lacks them, so a forum made before them gains the last two at its first use; a tag edit is made at most once in 5 minutes
     (`Pace`/`wait`) and the final state at once. The DM's board row, and a channel's, link to the task's post or thread
-    (`Parts.links`). Open posts: META `discord.task_posts`; a post is found again after a kill by its intent (`discord.post_intents`, `forum/intent.rs`). Tests: `forum.rs`'s and `tests_task_threads.rs`.
+    (`Parts.links`). Open posts: META `discord.task_posts`; a post is found again after a kill by its intent (`discord.post_intents`, `forum/intent.rs`); a task's thread and channel by theirs (`discord.place_intents`, `threads/intent.rs`). Tests: `forum.rs`'s and `tests_task_threads.rs`.
   - **The busy day** (10 tasks, 200 transitions): a thread costs one `GET` of its channel, one `POST`, one quiet notice and one
     `PATCH` rename, so 40 requests a day; the worst minute (ten tasks started in it) is ten of each create and notice, and the
     transitions cost no request on the thread side. On the forum side a post is written at most 30 times a minute (its card), so

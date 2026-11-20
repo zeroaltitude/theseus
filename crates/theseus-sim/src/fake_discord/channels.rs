@@ -11,6 +11,7 @@ use std::net::TcpStream;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use super::threads::HoldAt;
 use super::{reply, seen, FakeDiscord, Overwrite, DEFAULT_GUILD};
 
 /// A channel the bot made.
@@ -100,6 +101,36 @@ impl FakeDiscord {
         self.state.lock().unwrap().channels.contains_key(&c)
     }
 
+    /// Hold every task channel's create (a text channel under a category) at
+    /// `at` until `None` lifts it (or a minute passes): a test kills the daemon
+    /// while one waits (see `HoldAt`).
+    pub fn hold_channel_creates(&self, at: Option<HoldAt>) {
+        self.state.lock().unwrap().channel_hold = at;
+    }
+
+    /// How many channel creates wait at the hold now.
+    pub fn held_channel_creates(&self) -> usize {
+        self.state.lock().unwrap().channel_held
+    }
+
+    /// Wait at the hold `at` while it stands, counted as held. True when it
+    /// waited.
+    fn wait_channel_at(&self, at: HoldAt) -> bool {
+        if self.state.lock().unwrap().channel_hold != Some(at) {
+            return false;
+        }
+        self.state.lock().unwrap().channel_held += 1;
+        for _ in 0..60_000 {
+            if self.state.lock().unwrap().channel_hold != Some(at) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let mut st = self.state.lock().unwrap();
+        st.channel_held = st.channel_held.saturating_sub(1);
+        true
+    }
+
     /// `POST /guilds/<guild>/channels`.
     pub(super) fn channel_create(
         &self,
@@ -112,6 +143,13 @@ impl FakeDiscord {
             return self.forum_create(stream, guild, body);
         }
         let path = format!("/guilds/{guild}/channels");
+        // A task channel's create is held: a text channel under a category (not
+        // the category's own create, nor the task home's, which has no parent).
+        let text = body["type"].as_u64().unwrap_or(0) == 0
+            && body.get("parent_id").is_some_and(|p| !p.is_null());
+        if text && self.wait_channel_at(HoldAt::BeforeApply) {
+            return Ok(());
+        }
         let (code, out) = {
             let mut st = self.state.lock().unwrap();
             let guild_id = st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id);
@@ -167,6 +205,9 @@ impl FakeDiscord {
             &path,
             if code == 200 { "channel" } else { "refused" },
         ));
+        if code == 200 && text {
+            let _ = self.wait_channel_at(HoldAt::AfterApply);
+        }
         reply(stream, code, &out)
     }
 
