@@ -7,7 +7,8 @@
 //! - the monitor off: `the_file_system_monitor_never_runs`;
 //! - the editors: `no_editor_runs`;
 //! - a nested repository: `a_tree_that_holds_a_repository_of_its_own_is_not_committed`;
-//! - the one way git is spawned: `every_daemon_git_in_rsi_goes_through_the_one_command`.
+//! - the one way git is spawned: `every_daemon_git_in_rsi_goes_through_the_one_command`;
+//! - an L0 removal after L1 code ran in the tree: `rv_undo_fix_removes_nothing_outside_the_tree`.
 //!
 //! A marker command here is a script that touches one file in the test's own temp dir.
 
@@ -316,4 +317,55 @@ fn every_daemon_git_in_rsi_goes_through_the_one_command() {
         raw.is_empty(),
         "git spawned outside `Place::git_command`: {raw:?}"
     );
+}
+
+/// PROBE (git-pin review r1, note 2): `undo_fix` removes a path the branch added with
+/// `std::fs::remove_file` at L0, after the branch's tests ran in L1 with the tree read-write. A
+/// test that replaced the path's parent directory with a link would make that removal land
+/// outside the tree; the step stops instead, in plain words.
+#[test]
+fn rv_undo_fix_removes_nothing_outside_the_tree() {
+    let f = fixture();
+    let t = tree::open(&f.place, "planted probe", NOW).unwrap();
+    let outside = f.place.state.join("owners-files");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("added.txt"), "the owner's\n").unwrap();
+    // What the branch's test code would leave behind in L1: `src` is now a link out.
+    std::fs::create_dir_all(t.dir.join("src")).ok();
+    std::fs::remove_dir_all(t.dir.join("src")).unwrap();
+    std::os::unix::fs::symlink(&outside, t.dir.join("src")).unwrap();
+    let paths = vec![('A', "src/added.txt".to_string())];
+    let said = super::join::planted::undo_fix(&f.place, &t, "HEAD", &paths);
+    assert!(
+        outside.join("added.txt").exists(),
+        "undo_fix removed a file outside the tree through a link"
+    );
+    let e = format!("{:#}", said.unwrap_err());
+    assert!(e.contains("lies through a link in the tree"), "{e}");
+    // A path the branch added under no link is still removed; a link it added is removed as a
+    // link, and its target is untouched.
+    std::fs::remove_file(t.dir.join("src")).unwrap();
+    std::fs::create_dir_all(t.dir.join("src")).unwrap();
+    std::fs::write(t.dir.join("src/added.txt"), "the branch's\n").unwrap();
+    std::os::unix::fs::symlink(outside.join("added.txt"), t.dir.join("src/link")).unwrap();
+    let paths = vec![
+        ('A', "src/added.txt".to_string()),
+        ('A', "src/link".to_string()),
+    ];
+    let undone = super::join::planted::undo_fix(&f.place, &t, "HEAD", &paths).unwrap();
+    assert_eq!(undone.len(), 2);
+    assert!(!t.dir.join("src/added.txt").exists());
+    assert!(t.dir.join("src/link").symlink_metadata().is_err());
+    assert!(outside.join("added.txt").exists(), "the link's target");
+}
+
+/// The words a tampered tree stops with say how to clear it, naming the tree's item.
+#[test]
+fn a_tampered_trees_words_say_how_to_clear_it() {
+    let (f, t) = opened();
+    std::fs::write(t.dir.join(".git"), "gitdir: /elsewhere\n").unwrap();
+    let e = format!("{:#}", f.place.git_ok(&t.dir, &["status"]).unwrap_err());
+    assert!(e.contains(tree_git::TAMPERED), "{e}");
+    assert!(e.contains("remove the tree for trim-the-sails"), "{e}");
+    assert!(e.contains("git worktree prune"), "{e}");
 }

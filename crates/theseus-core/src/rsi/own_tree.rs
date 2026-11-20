@@ -50,6 +50,12 @@ fn self_session(
         .then_some((core, trees))
 }
 
+/// The self loop's own directory (`<state>/self`), canonical: its trees, build folders and review
+/// scratch, where a self branch's code writes in L1.
+pub(crate) fn self_dir(rt: &ToolRuntime) -> PathBuf {
+    paths::canonical_best_effort(&rt.self_pr.state.join("self"))
+}
+
 /// Whether `session` belongs to a task of the self principal. No trees
 /// needed: the fail-open rule (theseus-cudar) holds in any `[self] mode`.
 pub(crate) fn is_self(rt: &ToolRuntime, session: &str) -> bool {

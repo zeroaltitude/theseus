@@ -134,11 +134,17 @@ pub(crate) fn intact(dir: &Path, admin: &Path) -> bool {
 pub(crate) fn place(repo: &Path, dir: &Path) -> Result<Vec<OsString>> {
     let (args, admin) = located(repo, dir)?;
     if let Some(admin) = admin.filter(|a| !intact(dir, a)) {
+        let item = dir
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         bail!(
             "{TAMPERED} ({}, which should name {}): something rewrote it, so Theseus runs no \
-             git in this tree. Nothing was repaired.",
+             git in this tree. Nothing was repaired. To clear it, remove the tree for {item} \
+             ({}), then run `git worktree prune` in {}; the item's next build opens a new one.",
             dir.join(".git").display(),
-            admin.display()
+            admin.display(),
+            dir.display(),
+            repo.display()
         );
     }
     Ok(args)
@@ -190,6 +196,30 @@ pub(crate) fn nested_repo(dir: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// The first directory on the way from `dir` to `rel` (a path git named, relative to the tree)
+/// that is a link, read without following, or the path itself when it is not a plain relative
+/// one: what an L0 step that removes or restores `rel` after L1 code ran in the tree must not
+/// pass through. The last component is not judged: removing a link removes the link.
+pub(crate) fn link_below(dir: &Path, rel: &str) -> Option<PathBuf> {
+    let parts: Vec<Component<'_>> = Path::new(rel).components().collect();
+    let mut at = dir.to_path_buf();
+    for c in &parts[..parts.len().saturating_sub(1)] {
+        let Component::Normal(n) = c else {
+            return Some(dir.join(rel));
+        };
+        at.push(n);
+        match std::fs::symlink_metadata(&at) {
+            Ok(m) if m.file_type().is_symlink() => return Some(at),
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    }
+    match parts.last() {
+        Some(Component::Normal(_)) => None,
+        _ => Some(dir.join(rel)),
+    }
 }
 
 /// Whether `path` has a component named `.git` (any case: git treats `.GIT` as its own on a
