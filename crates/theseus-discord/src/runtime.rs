@@ -840,6 +840,14 @@ fn stop_answer(r: &theseus_protocol::ExecutionStopResult) -> String {
             going.join(" and ")
         ));
     }
+    // An agent the turn handed work to is one of those tasks: say so, and how to stop it.
+    if !r.agents_running.is_empty() {
+        out.push(' ');
+        out.push_str(&theseus_protocol::StopAgent::words(
+            &r.agents_running,
+            "/cancel",
+        ));
+    }
     out
 }
 

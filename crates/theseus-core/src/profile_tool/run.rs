@@ -150,6 +150,13 @@ pub(crate) struct Marker {
     pub asked_by: String,
     /// The place of the conversation that asked: where the report speaks.
     pub place: Option<String>,
+    /// The conversation that asked and the turn that did, so the late message is drawn as that turn's
+    /// reply is (a thread's tag in a direct message that hosts several): the post's own session is
+    /// the task's.
+    #[serde(default)]
+    pub session: String,
+    #[serde(default)]
+    pub turn_id: String,
 }
 
 fn key(task_session: &str) -> String {
@@ -169,6 +176,8 @@ pub(crate) fn marker(
         model: on.model.clone(),
         asked_by: tc.target.map(|t| t.profile.clone()).unwrap_or_default(),
         place: tc.outbox.target(tc.session_id),
+        session: tc.session_id.to_string(),
+        turn_id: tc.turn_id.to_string(),
     };
     NewRecord::json(kinds::META, Some(&key(task_session)), &m)
 }
@@ -176,6 +185,30 @@ pub(crate) fn marker(
 /// The marker of a task handed to a profile, if it is one.
 pub(crate) fn read(store: &Store, task_session: &str) -> Option<Marker> {
     store.get_meta::<Marker>(&key(task_session)).ok().flatten()
+}
+
+/// The tasks of `execution` that a turn handed to a profile and that are still working, for a stop to
+/// say (`theseus_protocol::StopAgent`): each one's profile, the model, and the id its own cancel takes.
+pub(crate) fn agents_working(
+    kernel: &theseus_kernel::Kernel,
+    store: &Store,
+    execution: &str,
+) -> Vec<theseus_protocol::StopAgent> {
+    let Ok(tasks) = kernel.tasks(Some(execution)) else {
+        return vec![];
+    };
+    tasks
+        .iter()
+        .filter(|t| !t.state.is_terminal())
+        .filter_map(|t| {
+            let m = read(store, &t.session_id)?;
+            Some(theseus_protocol::StopAgent {
+                profile: m.profile,
+                model: m.model,
+                task: task::short(&t.session_id),
+            })
+        })
+        .collect()
 }
 
 /// The post that makes the end of a handed task speak in the conversation.
@@ -223,11 +256,19 @@ pub(crate) fn speak(
         output_tokens: 0,
         cut: false,
         call: e.session_id.clone(),
+        outcome: match report.outcome {
+            "complete" => String::new(),
+            other => other.to_string(),
+        },
+    };
+    let asked = |own: &String, task: &String| match own.is_empty() {
+        true => task.clone(),
+        false => own.clone(),
     };
     let body = json!({
         "kind": "subagent",
-        "turn_id": "",
-        "session_id": e.session_id,
+        "turn_id": m.turn_id,
+        "session_id": asked(&m.session, &e.session_id),
         "answer": answer,
         "reply_to": Value::Null,
     });
@@ -343,10 +384,27 @@ impl Board {
     }
 }
 
+/// A hand-over opens a task, so the place's ceiling must offer one: a ceiling that lists the `profile`
+/// family and not `task` does not let a task start here, by this tool either. The task's own turns have
+/// the place's ceiling as any task's do (`TurnRunner::view_of`: a task speaks in its parent's place).
+fn allowed_here(tc: &TurnCtx<'_>) -> Result<(), String> {
+    match tc.ceiling.and_then(|c| c.refusal(task::CREATE)) {
+        None => Ok(()),
+        Some(why) => Err(format!(
+            "Not started: profile.run opens a task, and this place does not allow one ({why}). \
+             Nothing was started."
+        )),
+    }
+}
+
 /// The floor `task.fan_out` keeps (`call_floor`, the same function): a task whose default share of what
 /// this conversation has left cannot afford one call of the asked profile's model is refused up front,
 /// in words that say what is left and what one call needs, and nothing is opened.
 fn afford(core: &Core, tc: &TurnCtx<'_>, profile: &str, on: &TargetRef) -> Result<(), String> {
+    // A model with no price cannot be reserved for: `profile.ask` refuses it up front, in these words.
+    if core.catalog.get(&on.model).is_none() {
+        return Err(super::ask::unpriced(&on.model));
+    }
     let parent = tc
         .kernel
         .execution(tc.execution_id)
@@ -377,6 +435,7 @@ fn open(
 ) -> Result<(String, String, Value), String> {
     let (profile, work) = input_of(input)?;
     crate::task_lineage::check_depth(tc.kernel, tc.execution_id)?;
+    allowed_here(tc)?;
     let on = target_of(core, tc, &profile)?;
     afford(core, tc, &profile, &on)?;
     let node = owner_message(tc, call_id)?;

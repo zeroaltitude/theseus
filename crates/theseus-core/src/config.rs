@@ -2168,6 +2168,16 @@ impl Config {
             .model = model.into();
     }
 
+    /// A test's `haiku` profile on a model the catalog has no price for.
+    #[cfg(test)]
+    pub(crate) fn unprice_haiku(&mut self) {
+        self.resolved
+            .profiles
+            .get_mut("haiku")
+            .expect("the haiku profile")
+            .model = "claude-unpriced-9".into();
+    }
+
     /// A test's `zai` provider vouched of `origin`.
     #[cfg(test)]
     pub(crate) fn vouch_zai(&mut self, origin: crate::catalog::ModelOrigin) {

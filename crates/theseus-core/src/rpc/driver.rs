@@ -190,11 +190,11 @@ impl Core {
         id: &str,
         by: &str,
     ) -> Result<(Execution, Vec<String>, Vec<theseus_protocol::CancelVerdict>)> {
-        let mut report = None;
+        let mut reports = Vec::new();
         let cancel = self.kernel.cancel_execution_with(id, by, |end| {
-            let (mut records, post) =
-                crate::task::cancelled_report(&self.outbox, &self.store, end.execution)?;
-            report = post;
+            let (mut records, posts) =
+                crate::task::cancelled_reports(&self.outbox, &self.store, end.execution)?;
+            reports = posts;
             if !end.turn_running {
                 records.extend(crate::toolrun::not_run_results(
                     &self.store,
@@ -206,7 +206,7 @@ impl Core {
         })?;
         // Marked: the next request on its client's lane may run (theseus-klo2).
         super::ordered::applied();
-        if let Some(post) = report {
+        for post in reports {
             self.outbox.posted(&post);
         }
         for a in &cancel.not_run {
@@ -559,6 +559,7 @@ impl Core {
                 turn_running: false,
                 tasks_running: 0,
                 wakes_pending: 0,
+                agents_running: vec![],
                 cancelled: vec![],
                 left_ended: vec![],
                 left_kept: vec![],
@@ -609,6 +610,8 @@ impl Core {
             .filter(|t| !t.state.is_terminal())
             .count() as u32;
         let turn_running = stop.turn_running || self.runner.stop_taken_by_a_turn(id, landed);
+        // An agent the turn handed work to goes on as any task does: the stop says so, and how to stop it.
+        let agents = crate::profile_tool::run::agents_working(&self.kernel, &self.store, id);
         self.session_rec(&e.session_id)
             .record(&fact::driver::ExecutionStopped {
                 execution: &e,
@@ -617,6 +620,7 @@ impl Core {
                 declined: stop.declined.len(),
                 turn_running,
                 tasks_running,
+                agents: &agents,
             });
         Ok(theseus_protocol::ExecutionStopResult {
             execution: Self::execution_info(&e),
@@ -630,6 +634,7 @@ impl Core {
             turn_running,
             tasks_running,
             wakes_pending: e.wakes.len() as u32,
+            agents_running: agents,
             verdicts,
             cancelled: vec![],
             left_ended: left.ended,

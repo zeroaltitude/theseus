@@ -53,6 +53,7 @@ fn stop_result(killed: Option<u32>) -> Value {
         turn_running: true,
         tasks_running: 0,
         wakes_pending: 0,
+        agents_running: vec![],
         cancelled: vec![],
         left_ended: vec![],
         left_kept: vec![],

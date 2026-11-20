@@ -92,6 +92,41 @@ struct Model {
     gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     /// A call the agent makes before it reports (`Rig::agents_call`).
     agent_call: Mutex<Option<(String, Value)>>,
+    /// The tool names each agent request offered, by wire name.
+    agent_tools: Mutex<Vec<Vec<String>>>,
+}
+
+impl Model {
+    /// What an agent (a request whose first message holds `AGENT:`) answers: the call it was told to
+    /// make before it reports (`Rig::agents_call`), then its report. None for any other request.
+    fn agent_answer(&self, req: &ProviderRequest) -> Option<Scripted> {
+        let agent = req
+            .messages
+            .first()
+            .is_some_and(|m| m.to_string().contains("AGENT:"));
+        if !agent {
+            return None;
+        }
+        self.agent_tools.lock().unwrap().push(
+            req.tools
+                .iter()
+                .filter_map(|t| t["name"].as_str().map(str::to_string))
+                .collect(),
+        );
+        let said = self.agent.lock().unwrap().clone()?;
+        let answers_a_call = req
+            .messages
+            .last()
+            .and_then(|m| m["content"].as_array())
+            .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
+        let call = self.agent_call.lock().unwrap().clone();
+        Some(match call {
+            Some((tool, input)) if !answers_a_call => {
+                Scripted::tools("", &[("ag1", tool.as_str(), input)])
+            }
+            _ => Scripted::text(&said),
+        })
+    }
 }
 
 /// A call the provider cannot take: it is busy.
@@ -118,24 +153,8 @@ impl Provider for Model {
             .lock()
             .unwrap()
             .push((req.model.clone(), req.tools.len()));
-        let agent = req
-            .messages
-            .first()
-            .is_some_and(|m| m.to_string().contains("AGENT:"));
-        if let (true, Some(said)) = (agent, self.agent.lock().unwrap().clone()) {
+        if let Some(answer) = self.agent_answer(req) {
             let gate = self.gate.lock().unwrap().clone();
-            let answers_a_call = req
-                .messages
-                .last()
-                .and_then(|m| m["content"].as_array())
-                .is_some_and(|c| c.iter().any(|b| b["type"] == "tool_result"));
-            let call = self.agent_call.lock().unwrap().clone();
-            let answer = match call {
-                Some((tool, input)) if !answers_a_call => {
-                    Scripted::tools("", &[("ag1", tool.as_str(), input)])
-                }
-                _ => Scripted::text(&said),
-            };
             return Box::pin(async move {
                 if let Some(g) = gate {
                     g.acquire().await.unwrap().forget();
@@ -223,6 +242,7 @@ pub(super) struct Rig {
     _dir: tempfile::TempDir,
     /// The driver `Rig::drive` started: it takes a task's turns, as the daemon's does.
     driver: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    said: Mutex<Option<String>>,
 }
 
 pub(super) fn rig() -> Rig {
@@ -263,6 +283,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         agent: Mutex::default(),
         gate: Mutex::default(),
         agent_call: Mutex::default(),
+        agent_tools: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -272,6 +293,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         state,
         _dir: dir,
         driver: Mutex::default(),
+        said: Mutex::default(),
     }
 }
 
@@ -387,6 +409,16 @@ impl Rig {
         r
     }
 
+    /// The tool names each agent request was offered, in the order the requests came.
+    pub(super) fn agent_tools(&self) -> Vec<Vec<String>> {
+        self.model.agent_tools.lock().unwrap().clone()
+    }
+
+    /// The owner's words the next turns start from (`change a setting` when none are set).
+    pub(super) fn says(&self, words: &str) {
+        *self.said.lock().unwrap() = Some(words.into());
+    }
+
     /// The model of every request made, and the tools it offered.
     pub(super) fn seen(&self) -> Vec<(String, usize)> {
         self.model.seen.lock().unwrap().clone()
@@ -478,7 +510,16 @@ impl Rig {
         &self,
         sid: &str,
     ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
-        self.run(sid, Some("change a setting".into())).await
+        self.run(sid, Some(self.owner_words())).await
+    }
+
+    /// The owner's words a turn starts from: `says`, else `change a setting`.
+    fn owner_words(&self) -> String {
+        self.said
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "change a setting".into())
     }
 
     /// [`Rig::try_turn`], for a turn that answers in another place (`answer_at`).
@@ -487,7 +528,7 @@ impl Rig {
         sid: &str,
         answer_at: &str,
     ) -> anyhow::Result<theseus_protocol::TurnSubmitResult> {
-        self.run_at(sid, Some("change a setting".into()), Some(answer_at.into()))
+        self.run_at(sid, Some(self.owner_words()), Some(answer_at.into()))
             .await
     }
 

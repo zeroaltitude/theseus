@@ -388,6 +388,7 @@ mod tests {
                 output_tokens: 12,
                 cut: false,
                 call: "act_1".into(),
+                outcome: String::new(),
             }),
             ..theseus_protocol::ToolEnded::default()
         })

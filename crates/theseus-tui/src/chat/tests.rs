@@ -573,6 +573,7 @@ async fn a_subagents_answer_is_a_message_with_its_own_footer() {
             output_tokens: 12,
             cut: false,
             call: "act_1".into(),
+            outcome: String::new(),
         }),
         ..Default::default()
     }));
