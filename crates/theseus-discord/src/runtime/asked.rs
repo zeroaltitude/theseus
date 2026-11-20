@@ -5,8 +5,9 @@
 //! the one way a pick and a card's button always did (`should_have_asked`, which
 //! sends `policy.tighten` as the presser); a pull-down an older build posted is
 //! still answered. A message with a tool name too long for a button's id keeps
-//! the pull-down, which carries a tool up to 100 characters. A child of
-//! `runtime`, apart from it for the file ceiling.
+//! the pull-down, which carries a tool up to 100 characters; a notice card has
+//! no pull-down, so its button is left off. A child of `runtime`, apart from it
+//! for the file ceiling.
 
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
 
@@ -48,10 +49,17 @@ fn button(a: &Asked) -> Component {
     })
 }
 
+/// Whether a button's id is past Discord's limit, counted in characters as
+/// its validator counts.
+fn id_too_long(a: &Asked) -> bool {
+    button_id(a).chars().count() > ID_LIMIT
+}
+
 /// A notice card's button (with `[discord] notice_embeds`), or none once its
-/// tool asks first.
+/// tool asks first. A tool name too long for a button's id gets none: a card
+/// has no pull-down to fall back to, and Discord would refuse the whole card.
 pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
-    let Some(a) = ask else {
+    let Some(a) = ask.filter(|a| !id_too_long(a)) else {
         return vec![];
     };
     vec![Component::ActionRow(ActionRow {
@@ -64,15 +72,14 @@ pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
 /// pull-down for more, nothing for none. A button's id counts in characters, as
 /// Discord's validator does: one past `ID_LIMIT` is a pull-down for all.
 pub(crate) fn asked_controls(options: &[Asked]) -> Vec<Component> {
-    let id_too_long = options
-        .iter()
-        .any(|a| button_id(a).chars().count() > ID_LIMIT);
     match options.len() {
         0 => vec![],
-        n if n <= MAX_BUTTONS && !id_too_long => vec![Component::ActionRow(ActionRow {
-            id: None,
-            components: options.iter().map(button).collect(),
-        })],
+        n if n <= MAX_BUTTONS && !options.iter().any(id_too_long) => {
+            vec![Component::ActionRow(ActionRow {
+                id: None,
+                components: options.iter().map(button).collect(),
+            })]
+        }
         _ => asked_menu(options),
     }
 }
@@ -210,6 +217,27 @@ mod tests {
                 .tool,
             long.tool
         );
+    }
+
+    /// A notice card's button follows the same edge: a tool of 92 characters
+    /// keeps its button, with an id of exactly 100; one of 93 gets none, so
+    /// the card is posted without it (planted: take the condition out).
+    #[test]
+    fn a_notice_cards_button_is_left_off_when_its_id_would_pass_the_limit() {
+        let edge = ID_LIMIT - format!("{ASKED_MENU}:").chars().count();
+        let fits = asked(&"t".repeat(edge), Some("act_001"));
+        let rows = asked_button(Some(&fits));
+        let Component::ActionRow(row) = &rows[0] else {
+            panic!("{rows:?}")
+        };
+        let Component::Button(b) = &row.components[0] else {
+            panic!("{rows:?}")
+        };
+        assert_eq!(b.custom_id.as_deref().unwrap().chars().count(), ID_LIMIT);
+        for n in [edge + 1, 95, 100] {
+            let over = asked(&"t".repeat(n), Some("act_001"));
+            assert!(asked_button(Some(&over)).is_empty(), "{n} characters");
+        }
     }
 
     fn label_of(c: &Component) -> String {

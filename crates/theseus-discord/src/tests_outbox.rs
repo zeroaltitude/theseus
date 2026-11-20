@@ -1986,3 +1986,54 @@ async fn a_notice_embed_is_a_tool_line_and_keeps_the_window() {
         assert_eq!(got, want, "{words:?}");
     }
 }
+
+/// A notice card whose tool name is too long for a button's id is still
+/// posted, without the button (Discord refuses a message whose id is past
+/// 100 characters); one that fits keeps its button.
+#[tokio::test]
+async fn a_notice_card_with_a_tool_name_too_long_for_a_button_is_posted_without_it() {
+    use crate::courier::{Lane, LaneMsg};
+    use crate::render::{Asked, NoticeCard, Op};
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let core = core_at(d.path(), &fake, vec![], |_| {});
+    let _rpc = bind(&core, d.path(), &dm_only()).await;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let lane = Lane::new(
+        crate::runtime::shared_for_tests(&core),
+        "discord:test".into(),
+        "channel",
+        "#test".into(),
+        Some(CHANNEL),
+        None,
+    );
+    tokio::spawn(lane.run(rx));
+    // 92 characters is an id of exactly 100; 93 is one over.
+    for (i, n) in [92, 93].into_iter().enumerate() {
+        let card = NoticeCard {
+            title: "🔔 notified".into(),
+            color: 0,
+            description: format!("a call {i}"),
+            fields: vec![],
+            ask: Some(Asked {
+                tool: "t".repeat(n),
+                correlation_id: Some("act_001".into()),
+            }),
+        };
+        let key = format!("turn_tide:notice:tu_{i}");
+        let _ = tx.send(LaneMsg::Live(Op::Notice { key, card }));
+    }
+    let f = fake.clone();
+    until("both cards", 10, move || f.messages(CHANNEL).len() == 2).await;
+    let got: Vec<Vec<usize>> = fake
+        .messages(CHANNEL)
+        .iter()
+        .map(|m| {
+            m.buttons
+                .iter()
+                .map(|b| b.custom_id.chars().count())
+                .collect()
+        })
+        .collect();
+    assert_eq!(got, [vec![100], vec![]]);
+}
