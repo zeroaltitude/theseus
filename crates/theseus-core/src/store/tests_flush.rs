@@ -33,6 +33,7 @@ fn refusing() -> (Store, tempfile::TempDir) {
         faults: Default::default(),
         plain_faults: Default::default(),
         page_fault: Default::default(),
+        page_window: Default::default(),
         scope_fault: Default::default(),
     };
     store.defer_within(Duration::from_millis(100));

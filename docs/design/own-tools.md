@@ -176,6 +176,16 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
     (`wake.create` is not judged as an owner's act, and its `by` is a label any caller names), so it stays the words of the session that holds it. A task's
     title is quoted from its parent conversation's brief; why it ended was written in the task's own session. `look.work` still reads no project objective,
     outcome, step name or thread title.
+  - **A retitle made before the mark** (an older store) is read from the ledger: with no mark and a record `version` above 1 (a record starts at 1 and every
+    change moves it), `title_hands` walks the newest `task.updated` and `task.change_accepted` rows, newest first, through the ledger's tag index, for the newest whose
+    `fields` holds `title`; its `session_id` is the retitling session. **One walk is shared by every title a look asks for** (up to 24: 12 projects and their next
+    milestones) and is capped at 2,000 rows read (four pages of 500): the worst case of a look is those 2,000 rows once, however many titles were edited and never
+    retitled, and a never-edited record reads none. With no row found the title is
+    **unproven** (`Hand::Unproven`) when the walk was cut short (the cap reached with rows left, or the shape-building window after a start, in which the walk
+    reads the newest 2,000 rows of every kind instead) or the ledger begins after the record was created; a walk that ran to the end over a ledger that reaches back
+    past the record's creation found no retitle, and the record's own word stands (a model's if it says a model made it, else the owner's). An unproven title is held
+    from a restricted turn ("its writer could not be established", naming no conversation: a text nothing proves the owner's is a model's) and given to any other with
+    no flags taken, since there is no session to take them from.
   - **Content judging switched off** (`session_flags = false`): no source raises a label, so the look takes none and still answers; `cn_models` alone then
     decides what a restricted model is sent (the setting refuses `follow_flags` without the flags). **A flag that cannot be written** fails the look: the
     words are not given without their flags.
