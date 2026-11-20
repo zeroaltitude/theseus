@@ -1,6 +1,6 @@
 //! How a change was proved reaches the review that follows: a failing test as a sentence, a
-//! build that only broke as a paragraph that asks the reviewer to check it by an experiment in its
-//! scratch, and how the reviewer says it did that (`proof_check`). Also the proof step's stop that
+//! build that only broke as a paragraph that asks the reviewer to check it by reading (the
+//! experiment waits for the sandbox), and how the reviewer says it did that (`proof_check`). Also the proof step's stop that
 //! repeats, held for the owner. Through the whole join over the throwaway repository, with
 //! stand-ins for the test runs and the reviewer.
 
@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use theseus_protocol::rsi::SelfMode;
 
-use super::planted::{Outcome, Ran, Tests};
+use super::planted::{self, Outcome, Ran, Tests};
 use super::review::{self, Ask, Fut, Review, Reviewer};
 use super::tests::{rig, Rig, PROVED, SONNET};
 use super::Seams;
@@ -95,17 +95,30 @@ async fn a_failing_test_reaches_the_reviewer_as_one_sentence() {
     );
     assert!(said.contains(&asks[0].proof), "{said}");
     assert!(!said.contains("no longer compile"), "{said}");
-    for not in ["CHANGED:", "CHECKED BY READING ONLY:", "scratch checkout"] {
+    for not in ["CHANGED:", "CHECKED BY READING", "experiment"] {
         assert!(!said.contains(not), "{not}: {said}");
     }
     assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
 }
 
+/// What a reviewer says when it checked by reading: its test and its assertion.
+const READ_IT: &[&str] = &[
+    "CHECKED BY READING: the_fix_holds, whose assert_eq of the return value would fail if f were wrong",
+    "it names the new function and checks what it returns",
+];
+
+/// What a reviewer would say if it had run the experiment.
+const RAN_IT: &[&str] = &[
+    "CHANGED: made `f` return 1 in the scratch copy",
+    "FAILED: the_fix_holds, on its assert_eq of the return value",
+];
+
 /// A build that only broke: the record says `build-broke`, and the reviewer's ask has the
-/// paragraph that says what that shows and what it must therefore find.
+/// paragraph the daemon uses today: an experiment would be stronger but is not available, so it
+/// must not build or run the change's code, and must name a test and an assertion by reading.
 #[tokio::test]
-async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_asking_for_the_assertion() {
-    let (pass, asks, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, RAN_IT).await;
+async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_that_says_to_read_and_not_to_build() {
+    let (pass, asks, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, READ_IT).await;
     assert_eq!(pass.reviewed.len(), 1, "{pass:?}");
     assert_eq!(rows[0]["planted_revert"], "build-broke");
     assert_eq!(rows[0]["verdict"], "accept");
@@ -114,19 +127,48 @@ async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_asking_for_the_asser
     for want in [
         "the tests no longer compile (tests/fix.sh)",
         "a test mentions the fix and not that it checks what the fix does",
-        "find, in the diff, at least one new or changed test whose assertion would fail if the \
-         fix's behaviour were wrong",
-        "name that test and that assertion in your reasons",
+        "would be the stronger check, but it is not available yet, because a reviewer cannot build \
+         inside the sandbox",
+        "you must NOT build or run this change's code in order to check this proof",
+        "at least one new or changed test whose assertion would fail if the fix's behaviour were \
+         wrong",
+        "name that test and that assertion in a line that begins `CHECKED BY READING:`",
         "If there is none, reject, and say so.",
-        // The experiment, in the scratch the ask names and nowhere else.
-        "check it by an experiment, not only by reading",
+        "An accept without that line does not count",
+    ] {
+        assert!(said.contains(want), "{want}: {said}");
+    }
+    for not in [
+        "CHANGED:",
+        "FAILED:",
+        "sandbox: true",
+        "check it by an experiment",
+        "scratch checkout",
         &format!("{}/tree", asks[0].scratch),
+    ] {
+        assert!(!said.contains(not), "{not}: {said}");
+    }
+}
+
+/// The experiment's text, which the daemon does not use yet: every command of it runs with the
+/// sandbox on and never outside it, and it stays in the scratch the ask names.
+#[test]
+fn the_experiments_text_runs_every_command_with_the_sandbox_on() {
+    let o = Outcome::BuildBroke {
+        tests: vec!["t".into()],
+    };
+    let text = o.proof_note("/s", true).unwrap();
+    for want in [
+        "the tests no longer compile (t)",
+        "check it by an experiment, not only by reading",
+        "/s/tree",
         "keep the fix's new names so that everything still compiles",
         "make the fix's behaviour wrong by the smallest change that does it",
         "Make the change with a command",
+        "Run every command of the experiment with the sandbox on (`sandbox: true`), and never \
+         outside it",
         "see at least one of them FAIL on its assertion",
         "The experiment is not the branch",
-        "changes only files under",
         "nothing is committed, pushed or written anywhere else",
         "`CHANGED:` what you changed",
         "`FAILED:` which test failed and on which assertion",
@@ -134,42 +176,50 @@ async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_asking_for_the_asser
         "`CHECKED BY READING ONLY:`",
         "does not count",
     ] {
-        assert!(said.contains(want), "{want}: {said}");
+        assert!(text.contains(want), "{want}: {text}");
     }
-}
-
-const RAN_IT: &[&str] = &[
-    "CHANGED: made `f` return 1 in the scratch copy",
-    "FAILED: the_fix_holds, on its assert_eq of the return value",
-];
-
-/// The reply says it ran the experiment: the row says `running`.
-#[tokio::test]
-async fn a_reply_that_ran_the_experiment_is_recorded_as_running() {
-    let (pass, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, RAN_IT).await;
-    assert_eq!(
-        pass.reviewed,
-        [(pass.reviewed[0].0.clone(), "accept".to_string())]
+    let today = o.proof_note("/s", false).unwrap();
+    assert!(
+        !today.contains("sandbox: true") && !today.contains("/s/tree"),
+        "{today}"
     );
-    assert_eq!(rows[0]["planted_revert"], "build-broke");
-    assert_eq!(rows[0]["proof_check"], "running", "{:?}", rows[0]);
+    // What the daemon says is today's text, whichever switch a test gives.
+    assert!(!planted::REVIEWER_CAN_RUN_THE_EXPERIMENT);
+    assert_eq!(o.ask_text("/s"), today.clone() + "\n\n");
 }
 
-/// The reply says it could only read: the row says `reading`, and the accept stands.
+/// A reply that names its test and assertion in a `CHECKED BY READING:` line is recorded as
+/// `reading` and its accept stands; the earlier spelling `CHECKED BY READING ONLY:` is read too.
 #[tokio::test]
-async fn a_reply_that_could_only_read_is_recorded_as_reading() {
-    let reasons = [
-        "CHECKED BY READING ONLY: no way to break the behaviour without breaking the build",
-        "the_fix_holds asserts the return value",
-    ];
-    let (pass, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, &reasons).await;
+async fn a_reply_that_checked_by_reading_is_recorded_as_reading() {
+    let (pass, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, READ_IT).await;
     assert_eq!(pass.reviewed[0].1, "accept");
-    assert_eq!(rows[0]["verdict"], "accept");
     assert_eq!(rows[0]["proof_check"], "reading", "{:?}", rows[0]);
+    let earlier = [
+        "CHECKED BY READING ONLY: no way to break it",
+        "the_fix_holds asserts it",
+    ];
+    let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, &earlier).await;
+    assert_eq!(
+        (&rows[0]["verdict"], &rows[0]["proof_check"]),
+        (&"accept".into(), &"reading".into())
+    );
 }
 
-/// An accept of a build-broke proof that says neither is not an accept: a reject that says why,
-/// with the reply's own reasons after it, and no `proof_check`.
+/// While a reviewer cannot run the experiment, `running` is never recorded: an accept that gives
+/// the experiment's lines and no reading line is a reject.
+#[tokio::test]
+async fn running_is_never_recorded_while_the_experiment_is_off() {
+    let (pass, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, RAN_IT).await;
+    assert_eq!(pass.reviewed[0].1, "reject");
+    assert_eq!(rows[0]["verdict"], "reject");
+    assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
+    let first = rows[0]["reasons"][0].as_str().unwrap();
+    assert!(first.contains("no `CHECKED BY READING:` line"), "{first}");
+}
+
+/// An accept of a build-broke proof that says nothing of how is not an accept: a reject that says
+/// why, with the reply's own reasons after it, and no `proof_check`.
 #[tokio::test]
 async fn a_build_broke_accept_that_says_how_it_checked_nothing_is_a_reject() {
     let (pass, _, rows) =
@@ -190,24 +240,47 @@ async fn a_build_broke_accept_that_says_how_it_checked_nothing_is_a_reject() {
 /// needs no such words and records none.
 #[tokio::test]
 async fn only_a_build_broke_proof_needs_and_records_how_it_was_checked() {
-    let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], false, RAN_IT).await;
+    let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], false, READ_IT).await;
     assert_eq!(
         (&rows[0]["verdict"], &rows[0]["proof_check"]),
-        (&"reject".into(), &"running".into())
+        (&"reject".into(), &"reading".into())
     );
     let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::Failed], true, &["it looks fine"]).await;
     assert_eq!(rows[0]["verdict"], "accept");
     assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
-    // And the words are read the way the verdict line is: a case, a space do not matter.
+}
+
+/// The markers, and the switch: the experiment's lines count as `running` only when it is on, in a
+/// case and with a space as the verdict line is read; reading wins when both are said.
+#[test]
+fn the_markers_are_read_by_the_switch() {
+    use super::proof_check::{how, judge_with};
+    let r = |l: &[&str]| l.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let built = Outcome::BuildBroke { tests: vec![] };
     assert_eq!(
-        super::proof_check::how(&["  checked by reading only: no time".into()]),
+        how(&r(&["  checked by reading: x"]), false),
         Some("reading")
     );
     assert_eq!(
-        super::proof_check::how(&["changed: x".into(), "failed: y".into()]),
-        Some("running")
+        how(&r(&["checked by reading only: x"]), false),
+        Some("reading")
     );
-    assert_eq!(super::proof_check::how(&["changed: x".into()]), None);
+    assert_eq!(how(&r(&["changed: x", "failed: y"]), false), None);
+    assert_eq!(how(&r(&["changed: x", "failed: y"]), true), Some("running"));
+    assert_eq!(how(&r(&["changed: x"]), true), None);
+    assert_eq!(
+        how(
+            &r(&["changed: x", "failed: y", "checked by reading: z"]),
+            true
+        ),
+        Some("reading")
+    );
+    // The true branch, exercised though the daemon never uses it yet.
+    let (v, _, c) = judge_with(&built, true, r(&["CHANGED: a", "FAILED: b"]), true);
+    assert_eq!((v, c), ("accept", Some("running")));
+    let (v, why, c) = judge_with(&built, true, r(&["fine"]), true);
+    assert_eq!((v, c), ("reject", None));
+    assert!(why[0].contains("neither the experiment's"), "{why:?}");
 }
 
 /// An end that is neither a failing test nor a failing build proves nothing and rejects nothing:
@@ -226,7 +299,7 @@ async fn any_other_end_stops_and_neither_proves_nor_rejects() {
 /// change proved some other way is told nothing.
 #[tokio::test]
 async fn the_proof_is_told_after_the_diff_whatever_its_length() {
-    let (_, asks, _) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, RAN_IT).await;
+    let (_, asks, _) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, READ_IT).await;
     let mut ask = asks[0].clone();
     ask.diff = "+x\n".repeat(review::DIFF_CHARS);
     let said = review::prompt(&ask);
@@ -240,7 +313,7 @@ async fn the_proof_is_told_after_the_diff_whatever_its_length() {
     ask.proof = String::new();
     assert!(!review::prompt(&ask).contains("How it was proved"));
     for o in [Outcome::NoTests, Outcome::Passed { tests: vec![] }] {
-        assert_eq!(o.proof_note("/s"), None);
+        assert_eq!(o.proof_note("/s", false), None);
     }
 }
 

@@ -30,9 +30,10 @@ pub struct SelfReviewVerdict {
     /// which the reviewer is told to check), `passed` (unproved), `no-tests`, `base-red`,
     /// `not-found`, `unbuilt`, or `not-run`.
     pub planted_revert: String,
-    /// How the reviewer checked a `build-broke` proof: `running` (it broke the fix's behaviour in
-    /// its scratch and saw a test fail) or `reading` (it could not, and said so). Absent for any
-    /// other proof, and for a reply that said neither.
+    /// How the reviewer checked a `build-broke` proof: `reading` (it named a test and assertion
+    /// from the diff, which is all a reviewer can do for now), or `running` (it broke the fix's
+    /// behaviour in a copy and saw a test fail, which is recorded only once a reviewer can do that
+    /// in the sandbox). Absent for any other proof, and for a reply that said neither.
     pub proof_check: Option<String>,
     pub reasons: Vec<String>,
     pub cost_usd: f64,

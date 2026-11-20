@@ -36,7 +36,8 @@
 //! proof too, but a weaker one, so it is its own outcome, [`Outcome::BuildBroke`]:
 //! it shows that a test mentions the fix, not that it checks what the fix does.
 //! It is marked in the verdict's record, and the model review is told
-//! ([`Outcome::proof_note`]) to check the test by an experiment in its own scratch.
+//! ([`Outcome::proof_note`]) to check the test by reading, until a reviewer can run an
+//! experiment inside the sandbox ([`REVIEWER_CAN_RUN_THE_EXPERIMENT`]).
 //! Any other exit (a setup error, a signal, a run cut short), on either run, answers
 //! nothing: the step stops ([`Undecided`]), and neither proves nor rejects the change;
 //! the same stop on the same head, repeated, is held for the owner (`stopped_planted`).
@@ -52,6 +53,13 @@ use theseus_kernel::children::{self, Kind};
 use super::git;
 use crate::rsi::jail::{Jail, Job};
 use crate::rsi::tree::{self, Place, Tree};
+
+/// Whether a reviewer can run the experiment that checks a build-broke proof inside the sandbox.
+/// It cannot yet: a reviewer's commands run outside the sandbox by default, where the experiment
+/// would build and run the change's own code as the owner before any review accepted it, and a
+/// reviewer cannot build inside the sandbox. While this is `false` a broken-build proof is
+/// checked by reading, and recorded so. Not a setting: it is turned on in code when it is true.
+pub const REVIEWER_CAN_RUN_THE_EXPERIMENT: bool = false;
 
 /// What the planted revert found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,20 +98,35 @@ impl Outcome {
         matches!(self, Outcome::Failed { .. } | Outcome::BuildBroke { .. })
     }
 
-    /// [`Self::proof_note`] as the reviewer's ask carries it: a blank line after, empty when none.
+    /// [`Self::proof_note`] as the reviewer's ask carries it, for what a reviewer can do today
+    /// ([`REVIEWER_CAN_RUN_THE_EXPERIMENT`]): a blank line after, empty when none.
     pub fn ask_text(&self, scratch: &str) -> String {
-        self.proof_note(scratch)
+        self.proof_note(scratch, REVIEWER_CAN_RUN_THE_EXPERIMENT)
             .map(|n| n + "\n\n")
             .unwrap_or_default()
     }
 
     /// How the change was proved, for the model review that follows: what it must check.
-    /// `scratch` is the directory the reviewer may work in (`scratch::dir`).
-    pub fn proof_note(&self, scratch: &str) -> Option<String> {
+    /// `scratch` is the directory the reviewer may work in (`scratch::dir`); `experiment` says
+    /// whether the reviewer can run an experiment inside the sandbox.
+    pub fn proof_note(&self, scratch: &str, experiment: bool) -> Option<String> {
         match self {
             Outcome::Failed { tests } => Some(format!(
                 "How it was proved: with the fix undone, at least one of its new or changed tests \
                  failed ({}).",
+                tests.join(", ")
+            )),
+            Outcome::BuildBroke { tests } if !experiment => Some(format!(
+                "How it was proved: the mechanical step could show only that, with the fix undone, \
+                 the tests no longer compile ({}). That shows that a test mentions the fix and not \
+                 that it checks what the fix does. An experiment (breaking the fix's behaviour in a \
+                 copy and seeing a test fail) would be the stronger check, but it is not available \
+                 yet, because a reviewer cannot build inside the sandbox. So you must NOT build or \
+                 run this change's code in order to check this proof. Find, in the diff, at least \
+                 one new or changed test whose assertion would fail if the fix's behaviour were \
+                 wrong, and name that test and that assertion in a line that begins `CHECKED BY \
+                 READING:`. If there is none, reject, and say so. An accept without that line does \
+                 not count.",
                 tests.join(", ")
             )),
             Outcome::BuildBroke { tests } => Some(format!(
@@ -114,8 +137,10 @@ impl Outcome {
                  there), keep the fix's new names so that everything still compiles, and make the \
                  fix's behaviour wrong by the smallest change that does it: a wrong return value, \
                  the old logic back inside the new function, the changed branch inverted. Make the \
-                 change with a command (for example `git apply` or `sed -i`, run in that checkout), \
-                 then run the named tests there with the build under `{scratch}/target`, and see at \
+                 change with a command (for example `git apply` or `sed -i`, run in that checkout). \
+                 Run every command of the experiment with the sandbox on (`sandbox: true`), and \
+                 never outside it. Then run the named tests there with the build under \
+                 `{scratch}/target`, and see at \
                  least one of them FAIL on its assertion. The experiment is not the branch: it \
                  changes only files under `{scratch}`, is thrown away with it, and nothing is \
                  committed, pushed or written anywhere else. After it, your reasons must say, one \
