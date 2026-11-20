@@ -393,40 +393,41 @@ impl Job<'_> {
         )
     }
 
-    /// The builder's profile reads the fix's commit alone: who accepted it, or the words of why
-    /// it did not hold.
-    pub(crate) async fn approve(&self, m: &Made) -> Result<String, String> {
+    /// The builder's profile, with the model it ran on: a profile renamed since is the live
+    /// profile's settings with that model, which is the model that must approve. Refused, with its
+    /// row, when the builder is not known or cannot run.
+    fn approver(&self, m: &Made) -> Result<crate::turn::Target, String> {
+        let refused = |why: String| {
+            let r = Refusal {
+                bound: "not-independent",
+                why,
+            };
+            self.refused(&m.head, &r)
+        };
         let Some(built) = builder_target(self.core, self.builder) else {
-            let why = "the model that built the branch is not known, so nobody can approve the fix";
-            return Err(self.refused(
-                &m.head,
-                &Refusal {
-                    bound: "not-independent",
-                    why: why.into(),
-                },
+            return Err(refused(
+                "the model that built the branch is not known, so nobody can approve the fix"
+                    .into(),
             ));
         };
-        // The builder's profile, with the model it ran on; a profile renamed since is the live
-        // profile's settings with that model, which is the model that must approve.
         let live = self.core.live_profile().0;
         let runner = &self.core.runner;
         let model = (Some(built.provider.as_str()), Some(built.model.as_str()));
-        let target = match runner
+        runner
             .resolve_target(&live, Some(&built.profile), model.0, model.1)
             .or_else(|_| runner.resolve_target(&live, None, model.0, model.1))
-        {
-            Ok(t) => t,
-            Err(e) => {
-                let why = format!("the builder's profile {} cannot run: {e:#}", built.profile);
-                return Err(self.refused(
-                    &m.head,
-                    &Refusal {
-                        bound: "not-independent",
-                        why,
-                    },
-                ));
-            }
-        };
+            .map_err(|e| {
+                refused(format!(
+                    "the builder's profile {} cannot run: {e:#}",
+                    built.profile
+                ))
+            })
+    }
+
+    /// The builder's profile reads the fix's commit alone: who accepted it, or the words of why
+    /// it did not hold.
+    pub(crate) async fn approve(&self, m: &Made) -> Result<String, String> {
+        let target = self.approver(m)?;
         let (p, dir) = (self.place.clone(), self.tree.dir.clone());
         let range = format!("{}..{}", m.before, m.head);
         let diff = blocking(move || p.git_ok(&dir, &["diff", "--no-color", "-U3", &range]))
@@ -464,7 +465,7 @@ impl Job<'_> {
             }
             Err(e) => (
                 "reject",
-                built.profile.clone(),
+                ask.target.profile.clone(),
                 vec![format!(
                     "the model that built the branch did not answer: {e:#}"
                 )],
