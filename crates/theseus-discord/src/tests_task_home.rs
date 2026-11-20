@@ -1016,3 +1016,66 @@ async fn the_task_channels_old_pinned_board_shows_a_new_reminder_at_once() {
     let still = card_in(&again, home, "first tide check").expect("the older card is still there");
     assert_eq!(still.id, old.id, "the older run's card, untouched");
 }
+
+/// A task channel found by its name that everyone in the server can read is not
+/// refused (the owner may have chosen it), but it is said once, in health and
+/// the log: the channel's id, no text. One this binding made is private and
+/// says nothing.
+#[tokio::test]
+async fn a_task_channel_found_by_name_that_everyone_can_read_is_said_once() {
+    const OPEN: u64 = 900_000_000_000_000_050;
+    let said = |r: &Rig| -> Vec<serde_json::Value> {
+        r.core
+            .store
+            .ledger_tail::<theseus_core::ledger::LedgerRow>(4000)
+            .unwrap()
+            .into_iter()
+            .map(|(_, row)| row)
+            .filter(|row| row.kind == "discord.error" && row.data["op"] == "task home")
+            .map(|row| row.data)
+            .collect()
+    };
+    let r = rig_in(
+        guild(false).channel(OPEN, "theseus-tasks"),
+        vec![],
+        |_| vec![],
+        &bindings(true, ""),
+        |_| {},
+        |c| c.discord.task_home = "theseus-tasks".into(),
+    )
+    .await;
+    until(&r, "the task channel is recorded", || {
+        home_record(&r).is_some()
+    })
+    .await;
+    assert_eq!(home_record(&r), Some(OPEN), "found by its name, not made");
+    until(&r, "it is said", || !said(&r).is_empty()).await;
+    let row = said(&r).remove(0);
+    let text = row["error"].as_str().unwrap_or_default();
+    assert!(
+        text.contains(&OPEN.to_string()) && text.contains("everyone"),
+        "{text}"
+    );
+    // Once: a second look (each READY looks again) says nothing more.
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let _ = shared
+        .look_for_task_home(&DEFAULT_GUILD.to_string(), "theseus-tasks")
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(said(&r).len(), 1, "said once");
+    // One this binding made is private and says nothing.
+    let made = rig(
+        vec![Scripted::text("Hello.")],
+        |_| vec![],
+        &bindings(true, ""),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    until(&made, "its task channel is recorded", || {
+        home_record(&made).is_some()
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(said(&made).is_empty(), "{:?}", said(&made));
+}

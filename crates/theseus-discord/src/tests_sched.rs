@@ -1292,3 +1292,121 @@ async fn an_item_missing_from_a_model_that_is_not_loaded_is_not_cancelled() {
     let ended = card(&r, home, "ghost check").expect("brought to its end once loaded");
     assert!(ended.content.contains("Cancelled"), "{}", ended.content);
 }
+
+// ---- the second snooze of a fired reminder, and the review's notes (issue 30) ---
+
+fn pending_notes(r: &Rig, note: &str) -> usize {
+    r.core
+        .kernel
+        .pending_wakes()
+        .unwrap()
+        .into_iter()
+        .filter(|(_, w)| w.note == note)
+        .count()
+}
+
+fn posts_about(r: &Rig, forum: u64, note: &str) -> usize {
+    posts(r, forum)
+        .iter()
+        .filter(|p| {
+            r.fake
+                .messages(p.id)
+                .first()
+                .is_some_and(|m| m.content.contains(note))
+        })
+        .count()
+}
+
+/// The reminder's snooze from its notice, twice (the card's press, then the
+/// notice's; or a double tap), leaves one reminder, one card and one post.
+#[tokio::test]
+async fn two_snoozes_of_a_fired_reminder_leave_one_reminder_one_card_and_one_post() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    fired(&r, home, forum, "tide check").await;
+    snooze_fired(&r, &wake, "in 90m").await;
+    snooze_fired(&r, &wake, "in 120m").await;
+    r.until("the card stands again", || {
+        card(&r, home, "tide check").is_some_and(|m| m.buttons.len() == 2)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(pending_notes(&r, "tide check"), 1, "one reminder");
+    assert_eq!(cards(&r, home).len(), 1, "{:#?}", cards(&r, home));
+    assert_eq!(posts_about(&r, forum, "tide check"), 1);
+}
+
+/// A post the owner deleted cannot be reopened (404): the item is given a first
+/// post, and the 404 is not tried again.
+#[tokio::test]
+async fn a_post_the_owner_deleted_is_made_again_when_its_reminder_is_set_again() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    let (_, post) = fired(&r, home, forum, "tide check").await;
+    r.fake.delete_thread(post);
+    snooze_fired(&r, &wake, "in 90m").await;
+    r.until("a new post, scheduled", || {
+        post_with(&r, forum, "tide check").is_some_and(|p| {
+            p.id != post && last_tags(&r, p.id) == [tag_id(&r, forum, "scheduled")]
+        })
+    })
+    .await;
+    assert_eq!(posts_about(&r, forum, "tide check"), 1);
+    let gone = r.fake.seen().iter().filter(|s| s.outcome == "gone").count();
+    assert_eq!(gone, 1, "the 404 is told once, not tried again");
+}
+
+/// A post the bot may not edit (403) is not tried again at every pass; it is
+/// said once what is missing, and it is opened once the permission is back.
+#[tokio::test]
+async fn a_post_that_cannot_be_reopened_is_not_tried_again_and_says_so_once() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    let (_, post) = fired(&r, home, forum, "tide check").await;
+    r.fake.refuse_thread_patch(true);
+    snooze_fired(&r, &wake, "in 90m").await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    for _ in 0..8 {
+        let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+        assert!(pass.sync().await);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let refused = r
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| s.outcome == "refused")
+        .count();
+    assert!(refused <= 2, "tried {refused} times in a second");
+    r.fake.refuse_thread_patch(false);
+    r.until("the post opens once it may", || {
+        last_tags(&r, post) == [tag_id(&r, forum, "scheduled")]
+    })
+    .await;
+}
+
+/// A press before the work model has loaded is not "gone": it says Theseus is
+/// still starting, and writes nothing.
+#[tokio::test]
+async fn a_press_before_the_work_model_is_loaded_says_it_is_still_starting() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind(&r, "tide check", "in 90m").await;
+    r.until("the card", || card(&r, home, "tide check").is_some())
+        .await;
+    let c = card(&r, home, "tide check").unwrap();
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    shared.tasks.loaded_for_tests(false);
+    let pressed = press(&r, &c, &format!("hq:cancel:{wake}"), ANA, "ana");
+    r.until("told", || told(&r, &pressed).is_some()).await;
+    let (said, alone) = told(&r, &pressed).unwrap();
+    assert!(alone && said.contains("still starting"), "{said}");
+    shared.tasks.loaded_for_tests(true);
+    assert!(pending(&r, &wake), "nothing was written");
+}
