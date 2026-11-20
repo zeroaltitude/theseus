@@ -438,6 +438,47 @@ async fn a_fired_reminder_set_again_under_its_id_is_pending_on_the_board_not_don
         .any(|s| s.id == id && s.state == WorkState::Waiting));
 }
 
+/// A fired reminder snoozed twice with `fired` set (the notice's button after the
+/// card's, `theseus wake snooze <whole id>` twice, a double tap) is ONE reminder
+/// moved, not two under two ids (the review's B1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fired_reminder_snoozed_twice_is_one_reminder_not_two() {
+    let r = rig();
+    let mut w = Watcher::start(&r.core).await;
+    let made = rpc(
+        &r.core,
+        "wake.create",
+        json!({"when": "in 2s", "note": "Call the harbour master"}),
+    )
+    .await
+    .unwrap();
+    let id = made["wake"]["wake_id"].as_str().unwrap().to_string();
+    until("the reminder fired", 30, || {
+        w.held()
+            .get(&id)
+            .is_some_and(|v| v.state == WorkState::Done)
+    })
+    .await;
+    for when in ["in 90m", "in 120m"] {
+        rpc(
+            &r.core,
+            "wake.snooze",
+            json!({"wake": id, "when": when, "fired": true}),
+        )
+        .await
+        .unwrap();
+    }
+    let listed = rpc(&r.core, "wake.list", json!({})).await.unwrap();
+    let mine: Vec<&Value> = listed["wakes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|x| x["note"] == "Call the harbour master")
+        .collect();
+    assert_eq!(mine.len(), 1, "one reminder, not two: {mine:#?}");
+    assert_eq!(mine[0]["wake_id"], id.as_str(), "the same id, moved");
+}
+
 /// The owner's own `routine.skip` does not count toward the routine's 30-day
 /// skipped tally: that count is for skips the routine made for cause (an
 /// overlapping run, a spent month, catching up), not a skip the owner asked

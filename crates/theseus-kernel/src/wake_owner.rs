@@ -33,6 +33,12 @@ use crate::wakes::{wake_id, FiredWake, WakeMoved, WakeSet};
 /// a snooze can set it again after it has left the execution.
 pub const FIRED_PREFIX: &str = "wake.fired.";
 
+/// The META key of the one-shot copy a series' fired occurrence was snoozed
+/// into (`<prefix><series wake id>`): `(that occurrence's due time, its number,
+/// the copy's id)`. A second snooze of the same occurrence moves the copy; it
+/// does not make another.
+pub const SNOOZED_PREFIX: &str = "wake.snoozed.";
+
 /// A notice fired: the wake, and the post that carries its note.
 #[derive(Debug, Clone)]
 pub struct NoticeFired {
@@ -46,6 +52,19 @@ pub struct NoticeFired {
 pub struct NoticePost {
     pub post: Option<Post>,
     pub extra: Vec<NewRecord>,
+}
+
+/// The pending wake `i` of `e` moved to `due_at_ms` (a paused one is resumed by
+/// it): what it was, and what it is. A watch is not snoozed.
+fn move_pending(e: &mut Execution, i: usize, due_at_ms: u64) -> Result<(PendingWake, PendingWake)> {
+    anyhow::ensure!(
+        e.wakes[i].probe().is_none(),
+        "a watch is not snoozed: it checks on its own interval. Cancel it and set another"
+    );
+    let from = e.wakes[i].clone();
+    e.wakes[i].due_at_ms = due_at_ms;
+    e.wakes[i].paused_at_ms = None;
+    Ok((from, e.wakes[i].clone()))
 }
 
 impl Kernel {
@@ -194,8 +213,12 @@ impl Kernel {
     /// `wake.snoozed`. A pending wake moves (a paused one is resumed by it);
     /// with `fired`, or when it is no longer pending, the wake that fired is set
     /// again from its record, a one-shot for the new time (a series' fired
-    /// occurrence gets an id of its own, since the series goes on). `None` when
-    /// there is neither a pending wake nor a fired one of that id.
+    /// occurrence gets an id of its own, since the series goes on). **A snooze
+    /// of what fired is one wake, moved by the next:** a one-shot that is
+    /// pending again under its own id moves (a second `fired` snooze, the
+    /// notice's after the card's, a double tap), and a series' fired occurrence
+    /// already snoozed into a copy moves that copy (`SNOOZED_PREFIX`). `None`
+    /// when there is neither a pending wake nor a fired one of that id.
     pub fn snooze_wake(
         &self,
         execution_id: &str,
@@ -228,16 +251,19 @@ impl Kernel {
         } else {
             None
         };
+        // A one-shot pending under the id is moved, whether or not the call says
+        // it fired: it was set again, and this is the same reminder.
+        let one_shot_pending = pending.filter(|i| e.wakes[*i].repeat.is_none());
+        let mut link: Option<NewRecord> = None;
         let (from, wake) = match (pending, record) {
-            (Some(i), None) => {
-                anyhow::ensure!(
-                    e.wakes[i].probe().is_none(),
-                    "a watch is not snoozed: it checks on its own interval. Cancel it and set another"
-                );
-                let from = e.wakes[i].clone();
-                e.wakes[i].due_at_ms = due_at_ms;
-                e.wakes[i].paused_at_ms = None;
-                (from, e.wakes[i].clone())
+            (Some(i), None) => move_pending(&mut e, i, due_at_ms)?,
+            (Some(i), Some(_)) if one_shot_pending == Some(i) => {
+                move_pending(&mut e, i, due_at_ms)?
+            }
+            (Some(_), Some((_, was))) if self.snoozed_copy(&e, wake_id, &was)?.is_some() => {
+                // The occurrence was snoozed already: its copy moves.
+                let j = self.snoozed_copy(&e, wake_id, &was)?.unwrap_or(0);
+                move_pending(&mut e, j, due_at_ms)?
             }
             (_, Some((_, was))) => {
                 anyhow::ensure!(
@@ -268,6 +294,15 @@ impl Kernel {
                     ..was.clone()
                 };
                 e.wakes.push(again.clone());
+                if pending.is_some() {
+                    // A series' fired occurrence, snoozed into a copy: the link
+                    // that makes a second snooze move it.
+                    link = Some(NewRecord::json(
+                        kinds::META,
+                        Some(&format!("{SNOOZED_PREFIX}{wake_id}")),
+                        &(was.due_at_ms, was.occurrence, &again.id),
+                    )?);
+                }
                 (was, again)
             }
             (None, None) => return Ok(None),
@@ -281,12 +316,38 @@ impl Kernel {
                    "from": from.due_at_ms, "to": due_at_ms, "by": by,
                    "fired": fired || wake.id != wake_id || pending.is_none()}),
         )?;
-        self.commit(&[exec_record(&e)?, row])?;
+        let mut frame = vec![exec_record(&e)?, row];
+        frame.extend(link);
+        self.commit(&frame)?;
         Ok(Some(WakeMoved {
             from,
             wake,
             list: e.wakes,
         }))
+    }
+
+    /// The pending copy a series' fired occurrence `was` was snoozed into, if it
+    /// still is one: its place in `e.wakes`. The link names the occurrence by its
+    /// due time and number, so the next occurrence's snooze is not mistaken for it.
+    fn snoozed_copy(
+        &self,
+        e: &Execution,
+        series: &str,
+        was: &PendingWake,
+    ) -> Result<Option<usize>> {
+        let Some(r) = self
+            .store()
+            .latest_by_key(kinds::META, &format!("{SNOOZED_PREFIX}{series}"))?
+        else {
+            return Ok(None);
+        };
+        let (due, occurrence, copy): (u64, u32, String) = r.decode()?;
+        if (due, occurrence) != (was.due_at_ms, was.occurrence) {
+            return Ok(None);
+        }
+        Ok(e.wakes
+            .iter()
+            .position(|w| w.id == copy && w.repeat.is_none()))
     }
 
     /// Pause the wake `wake_id`, in one frame with the row `wake.paused`: the
