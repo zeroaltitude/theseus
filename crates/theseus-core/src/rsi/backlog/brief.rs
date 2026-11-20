@@ -19,7 +19,9 @@ pub fn rules(tries: u32) -> String {
          file go with the change: it then says your change is unproved. Declare the new file with \
          a line of its own, `mod tests_<what>;` with `#[cfg(test)]` above it, at the start of a line \
          in the file that holds your other modules: the review keeps that line, and only that line, \
-         when it undoes the rest.\n\
+         when it undoes the rest. A test that only stops compiling without your change is weaker \
+         proof and the review will look for an assertion, so a new test should assert what your \
+         change changes.\n\
          3. Run the tests your change touches before you call self.propose_change, from your \
          tree, with proc.run and sandbox: true, for example `cargo test -p <crate> <module>`. \
          That runs in your own sandbox and nobody has to answer for it. Run the existing tests \

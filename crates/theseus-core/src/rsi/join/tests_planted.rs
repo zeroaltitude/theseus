@@ -1,6 +1,7 @@
 //! The planted revert's proof step (theseus-pw1q.9) on throwaway repositories: what the undo keeps
-//! (the lines that only make a test file part of the build), and how a run in which no test ran
-//! is told from one that passed or failed.
+//! (the lines that only make a test file part of the build), how a run in which no test ran
+//! is told from one that passed or failed, and how a failing test, a failing build and any other
+//! end of the second run are told apart.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -193,10 +194,16 @@ impl Tests for Says {
 }
 
 fn outcome(runs: &[Ran]) -> (Outcome, Vec<(String, String)>) {
+    let (o, seen) = answer(runs);
+    (o.unwrap(), seen)
+}
+
+/// [`outcome`], where the run may end in an error (a stop) instead of an outcome.
+fn answer(runs: &[Ran]) -> (anyhow::Result<Outcome>, Vec<(String, String)>) {
     let f = fixture();
     let (base, head) = morning(&f);
     let says = Says::new(runs);
-    let o = planted::run(&f.place, &says, "self/x", &base, &head).unwrap();
+    let o = planted::run(&f.place, &says, "self/x", &base, &head);
     let seen = says.seen.into_inner().unwrap();
     (o, seen)
 }
@@ -268,17 +275,69 @@ fn the_ordinary_outcomes_are_unchanged() {
     assert!(matches!(o, Outcome::BaseRed { .. }), "{o:?}");
 }
 
-/// nextest's exit codes: 0 passed, 4 none ran, anything else failed, a red build (101) included:
-/// a test that uses what the fix added fails without it, as it always has.
+/// nextest's exit codes: 0 passed, 4 none ran, 100 a test failed, 101 the build failed, and any
+/// other (a setup error, a bad filter, a run left incomplete, a signal) is none of those.
 #[test]
 fn nextests_exit_codes_say_what_ran() {
     for (code, want) in [
         (Some(0), Ran::Passed),
         (Some(4), Ran::NoneRan),
         (Some(100), Ran::Failed),
-        (Some(101), Ran::Failed),
-        (None, Ran::Failed),
+        (Some(101), Ran::BuildFailed),
+        (Some(94), Ran::Other(Some(94))),
+        (Some(96), Ran::Other(Some(96))),
+        (Some(102), Ran::Other(Some(102))),
+        (Some(106), Ran::Other(Some(106))),
+        (Some(1), Ran::Other(Some(1))),
+        (None, Ran::Other(None)),
     ] {
         assert_eq!(Ran::of(code), want, "{code:?}");
+    }
+}
+
+/// With the fix undone, a failing test and a failing build are each proof, each under its own
+/// name; the test's name in the record is the one it always had.
+#[test]
+fn the_second_runs_failing_test_and_failing_build_are_each_proof_under_their_own_name() {
+    let (o, _) = outcome(&[Ran::Passed, Ran::Failed]);
+    assert!(matches!(o, Outcome::Failed { .. }), "{o:?}");
+    assert_eq!(o.name(), "failed");
+    let (b, _) = outcome(&[Ran::Passed, Ran::BuildFailed]);
+    assert!(matches!(b, Outcome::BuildBroke { .. }), "{b:?}");
+    assert_eq!(b.name(), "build-broke");
+    for o in [&o, &b] {
+        assert!(o.proved(), "{o:?}");
+        assert_eq!(o.reason(), None);
+    }
+}
+
+/// Any other end of the second run answers nothing: an error (the step's stop, which is tried
+/// again), so it is neither an outcome that proves nor one that rejects, and it says what it was.
+#[test]
+fn any_other_end_of_the_second_run_is_a_stop_that_says_what_it_was() {
+    let (o, seen) = answer(&[Ran::Passed, Ran::Other(Some(106))]);
+    assert_eq!(seen.len(), 2);
+    let why = format!("{:#}", o.unwrap_err());
+    assert!(why.contains("exited with code 106"), "{why}");
+    assert!(
+        why.contains("neither a failing test nor a failing build"),
+        "{why}"
+    );
+    let (o, _) = answer(&[Ran::Passed, Ran::Other(None)]);
+    assert!(format!("{:#}", o.unwrap_err()).contains("cut short by a signal"));
+}
+
+/// The first run is as it was: a red build or any other end on the branch's own head is `BaseRed`.
+#[test]
+fn the_first_run_reads_a_failing_build_and_any_other_end_as_before() {
+    for ran in [
+        Ran::Failed,
+        Ran::BuildFailed,
+        Ran::Other(Some(96)),
+        Ran::Other(None),
+    ] {
+        let (o, seen) = outcome(&[ran]);
+        assert!(matches!(o, Outcome::BaseRed { .. }), "{ran:?}: {o:?}");
+        assert_eq!(seen.len(), 1);
     }
 }

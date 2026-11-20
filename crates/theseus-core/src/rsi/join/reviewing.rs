@@ -165,7 +165,10 @@ impl Run<'_> {
             blocking(move || Ok(scratch::close(&p, &own)))
         };
         let ask = match self.ask(&remote, target, &own.dir).await {
-            Ok(a) => a,
+            Ok(a) => Ask {
+                proof: planted.proof_note().map(|n| n + "\n\n").unwrap_or_default(),
+                ..a
+            },
             Err(e) => {
                 let _ = closed(own).await;
                 return Err(e);
@@ -315,6 +318,7 @@ impl Run<'_> {
             diff,
             report,
             evidence,
+            proof: String::new(),
             target,
             built_ms: self.b.at_ms,
             scratch: scratch.display().to_string(),

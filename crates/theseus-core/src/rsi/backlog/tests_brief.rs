@@ -12,6 +12,8 @@ fn the_rules_name_formatting_a_tests_file_and_where_to_run_tests() {
         "never in the file you changed",
         "go with the change",
         "mod tests_<what>;",
+        "weaker proof",
+        "should assert what your change changes",
         "cargo clippy -p <crate> --all-targets -- -D warnings",
         "the gate fails on any warning",
         "proc.run and sandbox: true",

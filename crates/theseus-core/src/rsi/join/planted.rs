@@ -28,14 +28,22 @@
 //! "No tests ran" is never an answer either way ([`Ran`]): the runs use
 //! nextest's `--no-tests=fail`, whose exit code 4 says none of the named
 //! tests is in the build. With the fix in place that is [`Outcome::NotFound`];
-//! with it undone, [`Outcome::Unbuilt`]: neither passed nor failed. A red
-//! build (a test that uses what the fix added) is, as before, a failed run:
-//! the test does fail without the fix.
+//! with it undone, [`Outcome::Unbuilt`]: neither passed nor failed.
+//!
+//! With the fix undone, how the run failed is told by nextest's exit code
+//! ([`Ran::of`]). A test that failed is the proof ([`Outcome::Failed`]). A build
+//! that failed (a test that names what the fix added no longer compiles) is a
+//! proof too, but a weaker one, so it is its own outcome, [`Outcome::BuildBroke`]:
+//! it shows that a test mentions the fix, not that it checks what the fix does.
+//! It is marked in the verdict's record, and the model review is told
+//! ([`Outcome::proof_note`]) to find the test that asserts. Any other exit (a
+//! setup error, a signal, a run cut short) answers nothing: the run stops, and
+//! neither proves nor rejects the change.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use theseus_kernel::children::{self, Kind};
 
 use super::git;
@@ -47,6 +55,8 @@ use crate::rsi::tree::{self, Place, Tree};
 pub enum Outcome {
     /// A test failed with the fix undone: the branch is proved.
     Failed { tests: Vec<String> },
+    /// Only the build failed with the fix undone: proved, but by a test that no longer compiles.
+    BuildBroke { tests: Vec<String> },
     /// Every test passed with the fix undone: unproved.
     Passed { tests: Vec<String> },
     /// The branch has no new or changed test to run.
@@ -64,6 +74,7 @@ impl Outcome {
     pub fn name(&self) -> &'static str {
         match self {
             Outcome::Failed { .. } => "failed",
+            Outcome::BuildBroke { .. } => "build-broke",
             Outcome::Passed { .. } => "passed",
             Outcome::NoTests => "no-tests",
             Outcome::BaseRed { .. } => "base-red",
@@ -73,13 +84,34 @@ impl Outcome {
     }
 
     pub fn proved(&self) -> bool {
-        matches!(self, Outcome::Failed { .. })
+        matches!(self, Outcome::Failed { .. } | Outcome::BuildBroke { .. })
+    }
+
+    /// How the change was proved, for the model review that follows: what it must check.
+    pub fn proof_note(&self) -> Option<String> {
+        match self {
+            Outcome::Failed { tests } => Some(format!(
+                "How it was proved: with the fix undone, at least one of its new or changed tests \
+                 failed ({}).",
+                tests.join(", ")
+            )),
+            Outcome::BuildBroke { tests } => Some(format!(
+                "How it was proved: the mechanical step could show only that, with the fix undone, \
+                 the tests no longer compile ({}). That shows that a test mentions the fix and not \
+                 that it checks what the fix does. So you must find, in the diff, at least one new \
+                 or changed test whose assertion would fail if the fix's behaviour were wrong, and \
+                 name that test and that assertion in your reasons. If there is none, reject, and say \
+                 so.",
+                tests.join(", ")
+            )),
+            _ => None,
+        }
     }
 
     /// Why it does not prove the branch, in a sentence.
     pub fn reason(&self) -> Option<String> {
         match self {
-            Outcome::Failed { .. } => None,
+            Outcome::Failed { .. } | Outcome::BuildBroke { .. } => None,
             Outcome::Passed { tests } => Some(format!(
                 "unproved: with every non-test change undone, its tests still pass ({})",
                 tests.join(", ")
@@ -113,14 +145,20 @@ impl Outcome {
 pub enum Ran {
     /// They ran, and every one passed.
     Passed,
-    /// A test failed, or the build did.
+    /// A test ran and failed.
     Failed,
+    /// The build failed, so no test ran.
+    BuildFailed,
     /// None of them is in the build, so none ran.
     NoneRan,
+    /// Any other end (a setup error, a signal, a run cut short): the exit code, none for a signal.
+    Other(Option<i32>),
 }
 
-/// nextest's exit code for a run in which no test matched.
+// nextest's exit codes (`nextest_metadata::NextestExitCode`).
 const NONE_RAN: i32 = 4;
+const TEST_RUN_FAILED: i32 = 100;
+const BUILD_FAILED: i32 = 101;
 
 impl Ran {
     /// A nextest run's exit code, as `--no-tests=fail` gives it.
@@ -128,7 +166,9 @@ impl Ran {
         match code {
             Some(0) => Ran::Passed,
             Some(NONE_RAN) => Ran::NoneRan,
-            _ => Ran::Failed,
+            Some(TEST_RUN_FAILED) => Ran::Failed,
+            Some(BUILD_FAILED) => Ran::BuildFailed,
+            other => Ran::Other(other),
         }
     }
 }
@@ -466,17 +506,29 @@ pub fn run(p: &Place, tests: &dyn Tests, branch: &str, base: &str, head: &str) -
         let (ran, tail) = tests.run(p, &t, &names)?;
         match ran {
             Ran::Passed => {}
-            Ran::Failed => return Ok(Outcome::BaseRed { tail }),
+            Ran::Failed | Ran::BuildFailed | Ran::Other(_) => return Ok(Outcome::BaseRed { tail }),
             Ran::NoneRan => return Ok(Outcome::NotFound { tests: names }),
         }
         if undo_fix(p, &t, base, &paths)?.is_empty() {
             return Ok(Outcome::Passed { tests: names });
         }
-        let (ran, _) = tests.run(p, &t, &names)?;
+        let (ran, tail) = tests.run(p, &t, &names)?;
         Ok(match ran {
             Ran::Passed => Outcome::Passed { tests: names },
             Ran::Failed => Outcome::Failed { tests: names },
+            Ran::BuildFailed => Outcome::BuildBroke { tests: names },
             Ran::NoneRan => Outcome::Unbuilt { tests: names },
+            Ran::Other(code) => {
+                let ended = code.map_or_else(
+                    || "was cut short by a signal".to_string(),
+                    |c| format!("exited with code {c}, which is neither a failing test nor a failing build"),
+                );
+                bail!(
+                    "with the fix undone its tests were run and the run {ended}, so it shows nothing \
+                     either way: {}",
+                    tail.lines().last().unwrap_or("").trim()
+                )
+            }
         })
     })();
     let _ = tree::close(p, &t);

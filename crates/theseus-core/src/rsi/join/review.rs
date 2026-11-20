@@ -29,6 +29,10 @@ pub struct Ask {
     pub diff: String,
     pub report: String,
     pub evidence: String,
+    /// How the planted revert proved the change and what that asks of the reviewer
+    /// (`Outcome::proof_note`, then a blank line), or empty. Not part of the claim, so the diff's
+    /// cut never reaches it.
+    pub proof: String,
     /// What it asks to run on: `[self] reviewer_profile`'s target, held as a pin when that is set
     /// (`Target::chosen`), else the reviewer's pick. What ran is `Review::model`.
     pub target: Target,
@@ -80,7 +84,7 @@ pub fn prompt(a: &Ask) -> String {
         ),
     };
     format!(
-        "{}\n\nYou are the independent reviewer of a change Theseus made to its own source. Judge \
+        "{}\n\n{proof}You are the independent reviewer of a change Theseus made to its own source. Judge \
          whether the diff does what the report claims, fixes what the evidence shows, and breaks \
          nothing else; a test that would pass without the fix proves nothing. Then end your reply \
          with one line, `VERDICT: accept` or `VERDICT: reject`, and after it one line per reason.\n\n\
@@ -90,6 +94,7 @@ pub fn prompt(a: &Ask) -> String {
          add --detach {scratch}/tree {head}`) and point any build at `{scratch}/target`. Your commands' `TMPDIR` is `{scratch}/tmp`. Add no \
          worktree to any other checkout, and write nothing under the self trees directory.",
         crate::check::render(&[], Some(&claim)),
+        proof = a.proof,
         scratch = a.scratch,
         repo = a.repo,
         head = a.head,

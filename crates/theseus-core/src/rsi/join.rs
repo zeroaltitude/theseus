@@ -88,6 +88,8 @@ mod tests_notify;
 #[cfg(test)]
 mod tests_planted;
 #[cfg(test)]
+mod tests_proof_kind;
+#[cfg(test)]
 mod tests_reap;
 #[cfg(test)]
 mod tests_retry;
