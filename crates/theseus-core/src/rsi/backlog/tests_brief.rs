@@ -2,6 +2,12 @@
 
 use super::brief::rules;
 
+// The judge-wrong tests are wired here, in a tests file, and not in `backlog.rs`: a review that
+// undoes every non-test change would otherwise take the `mod` line with the fix and run no test
+// at all.
+#[path = "tests_judge_wrong.rs"]
+mod judge_wrong;
+
 #[test]
 fn the_rules_name_formatting_a_tests_file_and_where_to_run_tests() {
     let text = rules(3);
