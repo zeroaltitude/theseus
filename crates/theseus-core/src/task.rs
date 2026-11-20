@@ -975,6 +975,7 @@ fn graph_record(
         // The owner's unless it started itself: its objective and
         // acceptance are the arrangement's.
         by_model: false,
+        project: crate::project::involved::attached(tc.store, tc.session_id),
         ..Default::default()
     };
     own.apply(&mut origin);

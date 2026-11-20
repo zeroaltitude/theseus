@@ -133,6 +133,8 @@ export const BUTTON_ACTS = ['answer', 'seal', 'seal_dismiss', 'unseal', 'thread_
   'job_stop', 'watch_cancel',
   // issue 17: a project's own step list, added to and closed from the Inspector's Horizon section (both pages).
   'project_item_add', 'project_item_close',
+  // issue 37: the owner's end of a project, from its panel's sheet.
+  'project_close',
   'bulk_pause', 'bulk_stop', 'bulk_cancel', 'bulk_rehome', 'bulk_approve', 'bulk_decline', 'bulk_attach', 'drop'] as const
 export type ButtonAct = (typeof BUTTON_ACTS)[number]
 export const ACTS: ReadonlySet<string> = new Set<string>([...KEYS.filter((k) => k.act).map((k) => k.verb), ...BUTTON_ACTS])

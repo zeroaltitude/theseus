@@ -263,6 +263,8 @@ mod tests_activation_search;
 #[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
+mod tests_apart;
+#[cfg(test)]
 mod tests_approvals;
 #[cfg(test)]
 mod tests_arrangement;
@@ -559,7 +561,11 @@ mod tests_proc_cap;
 #[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
+mod tests_project_close;
+#[cfg(test)]
 mod tests_project_context;
+#[cfg(test)]
+mod tests_project_tasks;
 #[cfg(test)]
 mod tests_projects;
 #[cfg(test)]

@@ -9,11 +9,14 @@ import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 import type { ButtonAct, Verb } from './keys'
 
-export function Sheet({ title, note, help, verb, submit, busy, disabled, result, onSubmit, onClose, wide, children }: {
+export function Sheet({ title, note, help, verb, submit, busy, disabled, result, onSubmit, onClose, wide, also, children }: {
   title: string; note?: string; help?: string; verb: Verb | ButtonAct; submit: string; busy?: boolean; disabled?: boolean
   /** The act's answer, in the daemon's words. */
   result?: { ok: boolean; text: string } | null
-  onSubmit: () => void; onClose: () => void; wide?: boolean; children: ReactNode
+  onSubmit: () => void; onClose: () => void; wide?: boolean
+  /** A second answer, drawn beside the submit button. */
+  also?: ReactNode
+  children: ReactNode
 }) {
   const { on } = useOpsAct()
   useEffect(() => {
@@ -36,6 +39,7 @@ export function Sheet({ title, note, help, verb, submit, busy, disabled, result,
         {result && <div role="status" className={cn('num text-[11.5px]', result.ok ? 'text-ok' : 'text-fault')}>{result.text}</div>}
         <div className="flex items-center justify-end gap-2">
           <span className="mr-auto text-[10.5px] text-ink-faint"><span className="kbd">esc</span> closes · <span className="kbd">⌘⏎</span> sends</span>
+          {also}
           <ActBtn verb={verb} on={on} busy={busy} tone="live" onClick={send}>{submit}</ActBtn>
         </div>
       </form>

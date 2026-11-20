@@ -47,8 +47,17 @@ pub(super) fn project_line(p: &ProjectInfo, title: &str, next: Option<String>) -
         0 => String::new(),
         n => format!(" · {n} overdue"),
     };
+    let tasks = match (p.tasks, p.tasks_running) {
+        (0, _) => String::new(),
+        (n, 0) => format!(" · {} {}", n, if n == 1 { "task" } else { "tasks" }),
+        (n, r) => format!(
+            " · {} {}, {r} running",
+            n,
+            if n == 1 { "task" } else { "tasks" }
+        ),
+    };
     format!(
-        "- {} · {} · {} · {}/{} steps · {}/{} milestones{overdue}{next}\n",
+        "- {} · {} · {} · {}/{} steps · {}/{} milestones{overdue}{next}{tasks}\n",
         crate::task::short(&p.id),
         title,
         field(&p.state),

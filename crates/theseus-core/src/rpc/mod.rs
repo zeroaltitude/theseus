@@ -91,6 +91,7 @@ mod persona_write;
 mod policy;
 mod prefix;
 mod profile_pins;
+pub(crate) mod project_close;
 mod project_items;
 mod project_trust;
 mod projects;

@@ -127,6 +127,12 @@ pub struct TaskOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub because: Option<String>,
+    /// The project the starting conversation served when the task was started (`project.attach`; store format
+    /// 60): the one mark that says a task was started for a project, which nothing else in the record does.
+    /// Absent for a task that was not, and for every record written before this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub project: Option<String>,
 }
 
 impl TaskOrigin {
@@ -390,6 +396,11 @@ pub struct TaskListResult {
     /// the whole report and whether the task is held. Empty otherwise.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<TaskDetail>,
+    /// The ids of records the daemon keeps out of any list of what is planned or next: the container the
+    /// self-improvement backlog files its items under, which is the loop's and no plan of the owner's.
+    /// The record is still in `records`, so its items keep their parent; a list of plans leaves it out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apart: Vec<String>,
 }
 
 /// A task's report and hold, beside its `TaskInfo` (`task.list` with a filter).

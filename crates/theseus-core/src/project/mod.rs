@@ -15,6 +15,10 @@
 //!   milestone closes, and an overdue notice a grace after it.
 //! - **The review** (`review.rs`): the routine made with the project, whose
 //!   brief reads the project and proposes next week's steps.
+//! - **Involved** (`involved.rs`): the tasks that worked on a project, read from the records and never
+//!   stored: started from a conversation attached to it (the mark `TaskOrigin::project`, store format 60),
+//!   hung under it, holding a step of it, or a run of its review; `project.show` lists them and the look
+//!   counts them.
 //! - **Create** (`create.rs`): the project and its milestones in one frame.
 //! - **Items** (`items.rs`): the project's own list, add, close and list: the
 //!   steps, under their own names, from a command and from chat.
@@ -26,6 +30,7 @@
 
 pub mod create;
 pub mod info;
+pub mod involved;
 pub mod items;
 pub mod progress;
 pub mod remind;

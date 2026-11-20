@@ -66,6 +66,7 @@ fn item(state: TaskState, created_ms: u64) -> (State, BTreeMap<String, TaskRecor
             by_model: true,
             self_started: true,
             because: None,
+            project: None,
         },
         state,
     }

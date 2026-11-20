@@ -21,7 +21,7 @@ import { useHistoryRows } from '@/lib/history'
 import { useThreadBoard } from '@/lib/threadwatch'
 import { useWidth } from '@/lib/chartview'
 import { usePref } from '@/lib/usePref'
-import { reportLineOf } from '@/lib/taskboard'
+import { plannedRecords, reportLineOf } from '@/lib/taskboard'
 import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
@@ -112,7 +112,7 @@ export default function Ops() {
   const tasks = world?.tasks ?? tl?.tasks ?? NONE
   const sessions = world?.sessions ?? sl?.sessions ?? NONE
   const confirms = world?.confirms ?? cl?.confirms ?? NONE
-  const records = tl?.records ?? NONE
+  const records = useMemo(() => plannedRecords(tl), [tl])
   const titleOf = useCallback((sid: string) => { const s = sessions.find((x) => x.session_id === sid); return s?.title || s?.label || sid.slice(-6) }, [sessions])
 
   // An ended task the board no longer holds has its report in its session: the first fifty, read once each.
