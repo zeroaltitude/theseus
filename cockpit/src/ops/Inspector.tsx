@@ -33,6 +33,7 @@ import { targetOf, verbEntries } from './palette'
 import { isRunning } from './state'
 import { useRunEntry } from './useRunEntry'
 import { Horizon } from '../simple/ops/Horizon'
+import { ProjectTasks } from '../simple/ops/ProjectTasks'
 
 /** What the inspector needs of the page beyond the selection. */
 export interface InspectorCx {
@@ -231,6 +232,7 @@ function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readon
         </Section>
       )}
       {proj && <Horizon project={proj.id} now={now} onPick={select} />}
+      {proj && <ProjectTasks project={proj.id} now={now} onPick={select} />}
       {proj && canCloseProject(proj) && <div className="flex gap-1.5"><ActBtn verb="project_close" on={on} tone="idle" onClick={() => setClosing(true)} title="end the project and stop its review and reminders (asks)">Close project…</ActBtn></div>}
       {closing && proj && <CloseProjectSheet project={proj.id} title={r.title} onClose={() => setClosing(false)} />}
       {rec && <Section title="Record"><RecordBlock f={rec} /></Section>}
