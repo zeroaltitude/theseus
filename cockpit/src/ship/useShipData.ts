@@ -3,8 +3,10 @@
 //
 // - The fleet: session.list, execution.list, task.list, and confirm.list, which the push keeps fresh
 //   (executions.watch, bound in rpc.ts).
-// - The lights: node.list, all sessions at once (the newest 2,000); past that, each session by itself. A session
-//   that works is watched (session.watch) while it works, and each node.written reads its nodes again.
+// - The lights: node.list, one session at a time (its newest 2,000), for the ships the page shows and no others: the
+//   live ones at open, then the newest twenty of another state when it is chosen, the rest on "Load all"
+//   (`readplan.ts`, GitHub issue 37). A session that works is watched (session.watch) while it works, and each
+//   node.written reads its nodes again.
 // - L1 and jobs: a call node's gate decision (`class: "l1"`); for a node from before, tool.job_started rows and
 //   tool.started pushes; and tool.ended and the actions in flight: action.list's newest 500, and every action not
 //   settled however old (its `unsettled` read, theseus-hnof.3), so a job that has run for hours keeps its gear.
@@ -23,12 +25,14 @@ import type {
 } from '@protocol'
 import { onNewRows } from '@/lib/history'
 import { call, client, useConn, useRpc } from '@/lib/rpc'
+import type { ShipFilter } from '@/lib/sessionState'
 import type { World } from '@/lib/timemachine'
 import { flareOf, flaresOfRows, isStoppingFailure, newFlares } from './flares.ts'
 import { buildModel, type ReachLink, type ShipModel } from './model'
 import { tpmOf } from './sea.ts'
 import { mergeActions } from './watch.ts'
 import { endsJob, jobsRunning } from './jobs.ts'
+import { createReader, readPlan, SESSION_NODES_N, type Reader } from './readplan.ts'
 
 type D = Record<string, unknown>
 
@@ -53,11 +57,15 @@ export interface ShipData {
   actions?: ActionInfo[]
   /** The questions waiting for the operator (confirm.list), or the fold's. */
   confirms?: ConfirmRequest[]
+  /** The sessions whose nodes were read: the Ship draws these, and the visitors. Absent: all of them (synthetic). */
+  readIds?: ReadonlySet<string>
+  /** Of the chosen state's conversations, how many there are and how many wait for `loadAll`. */
+  reads?: { total: number; rest: number; loadAll: () => void }
+  /** How much of a later read (another state, "Load all") is done, 0 to 1; absent when none is under way. */
+  batch?: number
 }
 
 const NONE = new Map<string, number>()
-
-const GLOBAL_N = 2000
 
 /** The nodes of the selected vessel whose reach is read (`node.reach` is one call a node): the newest. */
 export const REACH_N = 160
@@ -66,6 +74,9 @@ interface Live {
   nodes: Map<string, NodeInfo>
   /** The node ids of the first read: anything not among them arrived while we watched. */
   known: Set<string> | null
+  /** The sessions whose nodes were read (the Ship draws these), and how much of a later read is done. */
+  read: Set<string>
+  batch?: number
   born: Map<string, number>
   l1: Set<string>
   running: Set<string>
@@ -89,12 +100,13 @@ interface Live {
 }
 
 const fresh = (): Live => ({
-  nodes: new Map(), known: null, born: new Map(), l1: new Set(), running: new Set(), ended: new Set(), streaming: new Map(), failedAt: new Map(),
+  nodes: new Map(), known: null, read: new Set(), born: new Map(), l1: new Set(), running: new Set(), ended: new Set(), streaming: new Map(), failedAt: new Map(),
   reports: new Map(), active: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
 })
 
-/** Merge nodes into the store; ids the first read did not have arrived live (their flare). */
-function mergeNodes(s: Live, list: NodeInfo[]): Partial<Live> | Live {
+/** Merge nodes into the store; ids the first read did not have arrived live (their flare), unless `arrivals` is off:
+ *  the nodes of a session read for the first time are its history, not news. */
+function mergeNodes(s: Live, list: NodeInfo[], arrivals = true): Partial<Live> | Live {
   let nodes: Map<string, NodeInfo> | null = null
   let born: Map<string, number> | null = null
   const t = Date.now()
@@ -103,13 +115,20 @@ function mergeNodes(s: Live, list: NodeInfo[]): Partial<Live> | Live {
     if (o && o.text === n.text && JSON.stringify(o.detail) === JSON.stringify(n.detail)) continue
     nodes ??= new Map(s.nodes)
     nodes.set(n.node_id, n)
-    if (!o && s.known && !s.known.has(n.node_id)) {
+    if (!o && arrivals && s.known && !s.known.has(n.node_id)) {
       born ??= new Map(s.born)
       born.set(n.node_id, t)
     }
   }
   if (!nodes) return s
   return born ? { nodes, born, arrivals: [...s.arrivals, t] } : { nodes }
+}
+
+/** A session's nodes merged, and the session marked read; a first read of it is history, a later one news. */
+function mergeRead(s: Live, sid: string, list: NodeInfo[]): Partial<Live> {
+  const m = mergeNodes(s, list, s.read.has(sid))
+  const read = withSet(s.read, sid, true)
+  return m === s ? { read } : { ...m, read }
 }
 
 const withSet = <T,>(set: Set<T>, v: T, on: boolean): Set<T> => {
@@ -128,7 +147,7 @@ const withMap = <K, V>(m: Map<K, V>, k: K, v: V | undefined): Map<K, V> => {
 
 /** The live fleet, from the daemon; or, with the time machine's `world`, the fleet as it was at its moment: the
  *  sessions, executions, questions, jobs, and shields folded from the ledger, and the lights up to that moment. */
-export function useShipLive(selected: string | undefined, world: World | null): ShipData {
+export function useShipLive(selected: string | undefined, world: World | null, filter: ShipFilter = 'live'): ShipData {
   const queries = useQueryClient()
   const open = useConn((s) => s.status === 'open')
   const [store] = useState(() => createStore<Live>(fresh))
@@ -157,48 +176,40 @@ export function useShipLive(selected: string | undefined, world: World | null): 
     if (pending.current.has(sid)) return
     pending.current.set(sid, setTimeout(() => {
       pending.current.delete(sid)
-      call<{ nodes: NodeInfo[] }>('node.list', { session_id: sid, kind: null, n: GLOBAL_N })
-        .then((r) => store.setState((s) => mergeNodes(s, r.nodes)))
+      call<{ nodes: NodeInfo[] }>('node.list', { session_id: sid, kind: null, n: SESSION_NODES_N })
+        .then((r) => store.setState((s) => mergeRead(s, sid, r.nodes)))
         .catch(() => {})
     }, delay))
   })
 
-  // The first read: everything at once, then each session it did not cover, four at a time, newest first.
+  // What is read (GitHub issue 37): the live ships at open, the newest twenty of another state when it is chosen, the
+  // rest on "Load all", four at a time. Under the time machine the same plan runs over the fleet as it was then. The
+  // history of a session read for the first time is not news (no flare, no arrival).
+  const planned = world ? world.sessions : sl?.sessions
+  const [loadedAll, setLoadedAll] = useState<ReadonlySet<ShipFilter>>(() => new Set())
+  const all = loadedAll.has(filter)
+  const plan = useMemo(() => (planned ? readPlan(planned, filter, all) : null), [planned, filter, all])
+  const planKey = plan ? plan.ids.join(',') : null
+  const reader = useRef<Reader | null>(null)
   useEffect(() => {
     if (!open) return
-    let gone = false
-    ;(async () => {
-      try {
-        store.setState({ progress: 0.08 })
-        const r = await call<{ nodes: NodeInfo[]; total: number }>('node.list', { session_id: null, kind: null, n: GLOBAL_N })
-        if (gone) return
-        store.setState((s) => mergeNodes(s, r.nodes))
-        if (r.nodes.length < r.total) {
-          const ss = await call<{ sessions: SessionInfo[] }>('session.list')
-          const order = [...ss.sessions].sort((a, b) => b.last_active_ms - a.last_active_ms).map((s) => s.session_id)
-          let done = 0
-          const next = async (): Promise<void> => {
-            const sid = order.shift()
-            if (!sid || gone) return
-            try {
-              const x = await call<{ nodes: NodeInfo[] }>('node.list', { session_id: sid, kind: null, n: GLOBAL_N })
-              store.setState((s) => mergeNodes(s, x.nodes))
-            } catch { /* a session that went away */ }
-            done++
-            store.setState({ progress: 0.1 + 0.9 * (done / Math.max(1, ss.sessions.length)) })
-            return next()
-          }
-          await Promise.all([next(), next(), next(), next()])
-        }
-        store.setState({ progress: 1 })
-      } catch (e) {
-        store.setState({ error: String((e as { message?: string })?.message ?? e) })
-      } finally {
-        if (!gone) store.setState((s) => (s.known ? s : { known: new Set(s.nodes.keys()) }))
-      }
-    })()
-    return () => { gone = true }
+    store.setState({ progress: 0.08 })
+    const r = createReader({
+      call: (method, params) => call<{ nodes: NodeInfo[] }>(method, params),
+      merge: (sid, nodes) => store.setState((s) => mergeRead(s, sid, nodes)),
+      progress: (f) => store.setState((s) => (s.known ? { batch: f ?? undefined } : { progress: f === null ? s.progress : 0.1 + 0.9 * f })),
+      idle: () => store.setState((s) => ({ progress: 1, batch: undefined, ...(s.known ? {} : { known: new Set(s.nodes.keys()) }) })),
+    })
+    reader.current = r
+    return () => { r.stop(); reader.current = null }
   }, [open, store])
+  // After the reader's own effect, so a reconnect's new reader is asked again for what the plan names.
+  useEffect(() => {
+    if (!open || planKey === null) return
+    const have = store.getState().read
+    reader.current?.enqueue(planKey ? planKey.split(',').filter((id) => !have.has(id)) : [])
+  }, [open, planKey, store])
+  const loadAll = useMemo(() => () => setLoadedAll((a) => (a.has(filter) ? a : new Set(a).add(filter))), [filter])
 
   // What the pushes say.
   const turnSession = useRef(new Map<string, string>())
@@ -447,6 +458,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
     model, progress: st.progress, reachCap: !world && st.reachOf && st.reachOf.total > st.reachOf.read ? st.reachOf : undefined, health, profiles, tpm: world ? world.gauges.tpm : tpm, arrivals: world ? 0 : st.arrivals.length,
     synthetic: false, error: st.error, ...(world ? { past: world } : {}),
     actions: world ? world.actions : actions, confirms: world ? world.confirms : cl?.confirms,
+    readIds: st.read, ...(plan ? { reads: { total: plan.total, rest: plan.rest, loadAll } } : {}), ...(st.batch !== undefined ? { batch: st.batch } : {}),
   }
 }
 
