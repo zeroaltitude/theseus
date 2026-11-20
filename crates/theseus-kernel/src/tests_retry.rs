@@ -283,3 +283,73 @@ fn a_retry_is_refused_for_what_is_no_failed_task_with_a_live_parent() {
         "nothing dismissed"
     );
 }
+
+/// A failed job is dismissed by its call id: one frame on its action's `detail`
+/// with its row, again writes nothing, it survives a crash, and only a job that
+/// failed takes it (a running one, a succeeded one, a call that is no job, an
+/// unknown id are refused with nothing written).
+#[test]
+fn a_failed_jobs_dismissal_is_one_frame_on_its_action_and_only_a_failed_job_takes_it() {
+    let w = world();
+    let (_, e, g) = running(&w);
+    let job = dispatched(&w, &g, "proc.run", 0);
+    let ok = dispatched(&w, &g, "proc.run", 0);
+    let read = dispatched(&w, &g, "fs.read", 0);
+    let id = job.correlation_id.clone();
+    let refused = |w: &World, id: &str| {
+        let before = theseus_store::frames_written_here();
+        let e = w.kernel.dismiss_job(id).unwrap_err();
+        assert_eq!(theseus_store::frames_written_here(), before, "{id}");
+        e
+    };
+    // Still running: not a failure.
+    assert!(matches!(
+        refused(&w, &id).downcast_ref::<crate::retry::RetryError>(),
+        Some(crate::retry::RetryError::NotAFailure { .. })
+    ));
+    for (c, outcome) in [
+        (&id, Outcome::Failed),
+        (&ok.correlation_id, Outcome::Succeeded),
+        (&read.correlation_id, Outcome::Failed),
+    ] {
+        w.kernel
+            .accept_completion(&completion(c, outcome, None))
+            .unwrap();
+    }
+    refused(&w, &ok.correlation_id);
+    refused(&w, &read.correlation_id);
+    refused(&w, "act_nope");
+
+    w.clock.advance(5_000);
+    let before = theseus_store::frames_written_here();
+    let d = w.kernel.dismiss_job(&id).unwrap();
+    assert_eq!(
+        theseus_store::frames_written_here() - before,
+        1,
+        "one frame"
+    );
+    assert!(d.written);
+    let a = w.kernel.action(&id).unwrap().unwrap();
+    assert_eq!(
+        a.state,
+        ActionState::Failed,
+        "nothing is retried or resumed"
+    );
+    assert_eq!(a.detail.unwrap()[crate::retry::JOB_DISMISSED], d.at_ms);
+    let row = &rows(&w, &job.session_id, "execution.dismissed")[0];
+    assert_eq!(
+        (row["correlation_id"].as_str(), row["kind"].as_str()),
+        (Some(id.as_str()), Some("job"))
+    );
+    assert_eq!(row["execution_id"], e.id);
+
+    w.clock.advance(5_000);
+    let before = theseus_store::frames_written_here();
+    let again = w.kernel.dismiss_job(&id).unwrap();
+    assert_eq!(theseus_store::frames_written_here(), before, "no frame");
+    assert_eq!((again.at_ms, again.written), (d.at_ms, false));
+
+    let (w, _) = crash(w, KernelConfig::default());
+    let a = w.kernel.action(&id).unwrap().unwrap();
+    assert_eq!(a.detail.unwrap()[crate::retry::JOB_DISMISSED], d.at_ms);
+}

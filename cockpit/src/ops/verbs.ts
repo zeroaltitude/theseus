@@ -50,7 +50,7 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'answer', label: 'Answer', on: ['question'], methods: ['work.answer'], posture: 'floor' },
   { id: 'unlabel', label: 'Remove a label', on: ['session', 'conversation'], methods: ['content.unlabel'], posture: 'ask' },
   { id: 'retry', label: 'Retry the failed task', on: ['task'], methods: ['task.retry'], posture: 'do' },
-  { id: 'dismiss', label: 'Dismiss the failure', on: ['task', 'conversation'], methods: ['execution.dismiss'], posture: 'do' },
+  { id: 'dismiss', label: 'Dismiss the failure', on: ['task', 'conversation', 'job'], methods: ['execution.dismiss'], posture: 'do' },
   { id: 'new_task', label: 'Start a task', on: ['daemon', ...SESSIONISH], methods: ['task.start'], posture: 'do' },
   { id: 'thread_new', label: 'New thread', on: ['thread'], methods: ['thread.new'], posture: 'do' },
   { id: 'thread_edit', label: 'Edit the thread', on: ['thread'], methods: ['thread.edit'], posture: 'do' },

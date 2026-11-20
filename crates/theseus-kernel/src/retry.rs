@@ -20,7 +20,7 @@ use serde_json::json;
 use theseus_protocol::LedgerKind;
 use theseus_store::NewRecord;
 
-use crate::kernel::{exec_record, Kernel, KernelError};
+use crate::kernel::{action_record, exec_record, Kernel, KernelError};
 
 /// Why a dismissal or a retry was refused (theseus-7zgsm); nothing is written.
 #[derive(Debug, thiserror::Error)]
@@ -37,6 +37,10 @@ pub enum RetryError {
 }
 use crate::tasks::{carve_key, task_ids};
 use crate::types::*;
+
+/// The key of a dismissed job's `detail` (`Kernel::dismiss_job`): when the owner
+/// dismissed its failure, in ms. The work board reads it off the action.
+pub const JOB_DISMISSED: &str = "dismissed_by_owner_at_ms";
 
 /// What `dismiss_execution` did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +88,48 @@ impl Kernel {
         });
         e.updated_at_ms = now;
         self.commit(&[exec_record(&e)?, self.dismissed_row(&e, "dismiss", None)?])?;
+        Ok(Dismissed {
+            at_ms: now,
+            written: true,
+        })
+    }
+
+    /// The owner dismisses the failure of the job `correlation_id`: a `proc.run`
+    /// that settled `failed`. A job has no record of its own to mark, so the mark
+    /// is on its action's `detail` (as `settle_held_spend`'s `settled_by_owner`
+    /// is), written with an `execution.dismissed` row naming the job, in one
+    /// frame. Dismissing again writes nothing and answers the first time. It
+    /// changes no state: nothing is retried or resumed.
+    pub fn dismiss_job(&self, correlation_id: &str) -> Result<Dismissed> {
+        self.require_accepting()?;
+        let (_w, mut a) = self.locked_known_action(correlation_id)?;
+        if a.tool != "proc.run" || a.state != ActionState::Failed {
+            return Err(RetryError::NotAFailure {
+                id: a.correlation_id,
+                state: a.state.as_str().into(),
+            }
+            .into());
+        }
+        if let Some(at_ms) = a.detail.as_ref().and_then(|d| d[JOB_DISMISSED].as_u64()) {
+            return Ok(Dismissed {
+                at_ms,
+                written: false,
+            });
+        }
+        let now = self.now_ms();
+        let mut detail = match a.detail.take() {
+            Some(serde_json::Value::Object(m)) => m,
+            _ => serde_json::Map::new(),
+        };
+        detail.insert(JOB_DISMISSED.into(), json!(now));
+        a.detail = Some(serde_json::Value::Object(detail));
+        let row = self.ledger(
+            LedgerKind::ExecutionDismissed,
+            Some(&a.session_id),
+            json!({"execution_id": a.execution_id, "correlation_id": a.correlation_id,
+                   "kind": "job", "state": a.state, "via": "dismiss"}),
+        )?;
+        self.commit(&[action_record(&a)?, row])?;
         Ok(Dismissed {
             at_ms: now,
             written: true,

@@ -70,6 +70,7 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         expect: None,
         flagged: false,
         dismissed: false,
+        read: false,
         retry_of: None,
         thread: None,
         forum_url: None,
@@ -383,6 +384,12 @@ impl WorkBoard {
         v.root = self.root_of(&ei.x.execution_id);
         v.session_id = Some(a.session_id.clone());
         v.title = job_title(ai);
+        v.read = ai.read;
+        // The owner dismissed its failure (`Kernel::dismiss_job`): asks for no one.
+        v.dismissed = a
+            .detail
+            .as_ref()
+            .is_some_and(|d| d[theseus_kernel::retry::JOB_DISMISSED].is_u64());
         v.started_at_ms = started;
         v.state_since_ms = started;
         v.state = match a.state {

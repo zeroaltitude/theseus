@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { WorkView } from '../src/protocol.gen/index.ts'
 import { bucketOf, bucketOfNode, bucketOfRecord, bucketOfSession, isEnded, isEndedState, isOpen, isRunning, look, FADED, FILTERED_OUT, bucketGlyph } from '../src/ops/state.ts'
-import { boardRows, countersOf, shown } from '../src/ops/board.ts'
+import { boardRows, countersOf, needsOf, shown } from '../src/ops/board.ts'
 import { targetOf } from '../src/ops/palette.ts'
 import { bulkVerbs } from '../src/ops/selection.ts'
 import { nodeIdOf, opsLayout, viewsOf } from '../src/ops/graph.ts'
@@ -185,4 +185,16 @@ test('bucketOfCard has one path for a task: a failure not dismissed needs you, a
   const later = { kind: 'task', task: { section: 'working', paused: false, info: { starts_at_ms: NOW + 30 * HOUR, state: 'queued' } as never } }
   assert.equal(bucketOfCard(later, NOW), 'paused')
   assert.equal(bucketOfCard({ kind: 'task', task: { section: 'working', paused: false, info: { starts_at_ms: NOW + HOUR, state: 'queued' } as never } }, NOW), 'scheduled')
+})
+
+test('a failed job whose result a turn read is counted under no Needs you, a failed turn and a job nothing read are', () => {
+  const views: WorkView[] = [
+    view('exe_turn', 'task', 'failed', { session_id: 'ses_turn' }, 'needs_you'),
+    view('act_read', 'job', 'failed', { session_id: 'ses_turn', parent: 'exe_turn', read: true } as Partial<WorkView>, 'idle'),
+    view('act_orphan', 'job', 'failed', { session_id: 'ses_gone', parent: 'exe_gone' }, 'needs_you'),
+  ]
+  const rows = boardRows({ views, tasks: [], sessions: [], records: [], now: NOW, past: false })
+  const by = Object.fromEntries(rows.map((r) => [r.id, r.bucket]))
+  assert.deepEqual([by.ses_turn, by.act_read, by.act_orphan], ['needs', 'ended', 'needs'])
+  assert.equal(needsOf(rows), 2, 'the turn and the orphan job; the read job is in no count')
 })

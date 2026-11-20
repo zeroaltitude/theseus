@@ -47,6 +47,7 @@ pub(crate) fn view(kind: WorkKind, state: WorkState, question: Option<Question>)
         expect: None,
         flagged: false,
         dismissed: false,
+        read: false,
         retry_of: None,
         thread: None,
         purpose: None,
@@ -555,4 +556,33 @@ fn a_paused_waiting_view_reads_paused_and_is_not_working() {
     let mut v = view(WorkKind::Task, WorkState::Running, None);
     v.paused = true;
     assert_eq!(attention_of(&v).level, Level::Working);
+}
+
+/// A failed job a turn has the result of is that turn's to deal with: idle,
+/// with the word `failed` (rule 3a). A job nothing read, and a failed turn or
+/// task whatever its `read`, still ask for the owner (rule 3).
+#[test]
+fn a_failed_job_a_turn_read_does_not_ask_but_a_failed_turn_or_task_does() {
+    let at = |kind, read| {
+        let mut v = view(kind, WorkState::Failed, None);
+        v.read = read;
+        let a = attention_of(&v);
+        (a.level, a.label)
+    };
+    assert_eq!(
+        at(WorkKind::Job, true),
+        (Level::Idle, "failed".to_string()),
+        "read: the word stays, the level is a thing over"
+    );
+    for (kind, read) in [
+        (WorkKind::Job, false),
+        (WorkKind::Task, true),
+        (WorkKind::Conversation, true),
+    ] {
+        assert_eq!(
+            at(kind, read),
+            (Level::NeedsYou, "failed".to_string()),
+            "{kind:?} read={read}"
+        );
+    }
 }
