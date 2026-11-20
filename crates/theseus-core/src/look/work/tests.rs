@@ -145,6 +145,11 @@ fn each_short_field_is_clipped_by_itself() {
         cli.starts_with("the CLI or the web UI (…") && room(&cli),
         "{cli}"
     );
+    // The id's own end, not the end of a clipped id.
+    assert!(
+        place_words(&format!("ses_{long}abcdef on the CLI or the web UI")).ends_with("(…abcdef)"),
+        "the id's own end"
+    );
     // A question's tool name.
     let q = theseus_protocol::ConfirmRequest {
         correlation_id: "act_01abcdef123456".into(),

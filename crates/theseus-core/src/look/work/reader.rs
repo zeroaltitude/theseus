@@ -153,10 +153,7 @@ pub(super) fn field(s: &str) -> String {
 /// the bound name; clipped.
 pub(super) fn place_words(name: &str) -> String {
     match name.strip_suffix(" on the CLI or the web UI") {
-        Some(id) => format!(
-            "the CLI or the web UI (…{})",
-            crate::task::short(&field(id))
-        ),
+        Some(id) => format!("the CLI or the web UI (…{})", crate::task::short(id)),
         None => field(name),
     }
 }
