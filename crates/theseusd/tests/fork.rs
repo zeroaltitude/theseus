@@ -66,7 +66,7 @@ fn rig(model: &FakeModel) -> tempfile::TempDir {
 /// `theseus --spawn <theseusd> ARGS…` in `dir`, run to its end.
 fn cli(dir: &Path, args: &[&str]) -> (i32, String, String) {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .current_dir(dir.join("projects"))
         .arg("--spawn")
         .arg(&theseusd)

@@ -70,7 +70,7 @@ fn trial(model: &FakeModel, jev: &FakeJev, spend_limit_usd: f64) -> tempfile::Te
 /// adapter's run script runs it, with both keys in its environment.
 fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--spawn")
         .arg(&theseusd)
         .arg("--json")

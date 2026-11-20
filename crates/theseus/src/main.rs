@@ -1363,6 +1363,13 @@ enum SessionsCmd {
 }
 
 fn main() {
+    // The commit this program was built from, for a test that spawns it beside the daemon and must know
+    // it is this tree's (`theseusd`'s `tests/common`). An environment variable, not a flag or a verb:
+    // neither the help nor `--version` says it.
+    if std::env::var_os("THESEUS_CLI_STAMP").is_some() {
+        println!("{}", env!("THESEUS_COMMIT"));
+        return;
+    }
     // Rust ignores SIGPIPE, so a closed pipe (`theseus history | head`) would
     // panic in println!. Restore the default: exit quietly like other tools.
     #[cfg(unix)]

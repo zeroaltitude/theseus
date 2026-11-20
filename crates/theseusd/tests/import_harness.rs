@@ -19,8 +19,7 @@ fn token() -> String {
 }
 
 fn cli(s: &Served, args: &[&str]) -> (i32, String, String) {
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(s.path("sock"))
         .args(args)
@@ -216,8 +215,7 @@ fn codex_and_erase(s: &Served, codex: &Path, tag: &str) {
 fn the_import_is_refused_inside_a_job() {
     let s = Served::start(|_| {}, |_| {});
     let (claude, _) = fixtures(s.dir.path());
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(s.path("sock"))
         .args(["import", "claude-code", claude.to_str().unwrap()])

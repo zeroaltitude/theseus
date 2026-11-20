@@ -74,7 +74,7 @@ fn rig(model: &FakeModel, jev: &FakeJev, stop_nudge: bool) -> tempfile::TempDir 
 /// `theseus --spawn <theseusd> --json ask PROMPT` in `dir`, to its end.
 fn ask(dir: &Path, prompt: &str) -> (Value, String) {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--spawn")
         .arg(&theseusd)
         .args(["--json", "ask", prompt])

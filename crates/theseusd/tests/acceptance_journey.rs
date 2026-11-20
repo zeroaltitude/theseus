@@ -301,7 +301,7 @@ impl Rig {
     /// from a process with no controlling terminal as an agent's, and these answers are the
     /// owner's. Its output is the terminal's one stream.
     fn cli_on_a_terminal(&self, args: &[&str]) -> (i32, String, String) {
-        let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+        let bin = common::cli_bin();
         let mut argv = vec![
             bin.display().to_string(),
             "--socket".into(),
@@ -321,7 +321,7 @@ impl Rig {
     }
 
     fn cli_in(&self, args: &[&str], stdin: &str) -> (i32, String, String) {
-        let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+        let bin = common::cli_bin();
         let mut child = Command::new(bin)
             .arg("--socket")
             .arg(self.s.path("sock"))
@@ -1439,7 +1439,7 @@ static UNIQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 /// `theseus-tui` beside the CLI has no terminal to run it in, and says so.
 #[test]
 fn a_task_started_in_the_chat_has_a_short_id_and_a_title() {
-    let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+    let bin = common::cli_bin();
     if !bin.with_file_name("theseus-tui").exists() {
         eprintln!("skipped: no theseus-tui beside {}", bin.display());
         return;

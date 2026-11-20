@@ -143,7 +143,7 @@ impl Rig {
 
     /// The real `theseus` binary beside the daemon's, on this daemon.
     fn cli(&self, args: &[&str]) -> Option<std::process::Output> {
-        let bin = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+        let bin = common::cli_bin();
         bin.exists().then(|| {
             std::process::Command::new(bin)
                 .arg("--socket")

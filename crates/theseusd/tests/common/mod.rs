@@ -10,10 +10,12 @@ use std::process::{Child, Command, ExitStatus};
 ///
 /// `cargo test -p theseusd` builds the daemon and its tests and not another package's program, so a
 /// target directory serves whatever copy it already holds (an older build, or the image's), and a test
-/// that spawns it fails in ways that say nothing about the helper (the journey's timeouts of
-/// 2026-11-19). `stamp_of` is what that copy says it was built from; this says at once, in one line,
-/// where there is none or it is another commit's than the daemon's.
+/// that spawns it fails in ways that say nothing about the program (the journey's timeouts of
+/// 2026-11-19; `unrecognized subcommand 'owner'` from an older CLI). `stamp_of` is what that copy says it
+/// was built from; this says at once, in one line, where there is none or it is another commit's than the
+/// daemon's. `what` names the program as the line says it (`the helper`, `the CLI`).
 pub fn beside_daemon(
+    what: &str,
     package: &str,
     bin: &str,
     stamp_of: impl Fn(&Path) -> Option<String>,
@@ -21,7 +23,7 @@ pub fn beside_daemon(
     let path = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name(bin);
     assert!(
         path.is_file(),
-        "the helper {bin} is not built at {}: build -p {package}",
+        "{what} is not built: {bin} is missing at {}: build -p {package}",
         path.display()
     );
     let commit = env!("THESEUS_COMMIT");
@@ -29,7 +31,7 @@ pub fn beside_daemon(
         let built = stamp_of(&path);
         assert!(
             built.as_deref() == Some(commit),
-            "the helper is stale: {bin} at {} was built from {} and this tree is {commit}: build -p {package}",
+            "{what} is stale: {bin} at {} was built from {} and this tree is {commit}: build -p {package}",
             path.display(),
             built.as_deref().unwrap_or("a build that predates its stamp")
         );
@@ -39,7 +41,7 @@ pub fn beside_daemon(
 
 /// The simulator's program (`theseus-sim`: the fake model, the fake MCP server), current.
 pub fn sim_bin() -> PathBuf {
-    beside_daemon("theseus-sim", "theseus-sim", |p| {
+    beside_daemon("the helper", "theseus-sim", "theseus-sim", |p| {
         let out = Command::new(p).arg("stamp").output().ok()?;
         out.status
             .success()
@@ -344,3 +346,16 @@ pub mod rpc;
 pub mod stdio;
 pub mod terminal;
 pub mod vault;
+
+/// The CLI's program (`theseus`), this tree's: it prints its commit when `THESEUS_CLI_STAMP` is set.
+pub fn cli_bin() -> PathBuf {
+    beside_daemon("the CLI", "theseus", "theseus", |p| {
+        let out = Command::new(p)
+            .env("THESEUS_CLI_STAMP", "1")
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    })
+}
