@@ -32,7 +32,9 @@
 //! - **Fallbacks.** A 403 turns channels off until the next start (the owner
 //!   gets one DM line saying which permissions are missing) and the task goes
 //!   on as before; so does a task past `task_channel_cap` open channels, and
-//!   one whose create failed otherwise.
+//!   one whose create failed otherwise. A create that may have gone through
+//!   (a timeout, a 5xx) is no failure: the task is tried again after `RETRY`
+//!   and has no thread meanwhile (`threads/intent.rs`).
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
