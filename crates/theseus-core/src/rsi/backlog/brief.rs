@@ -16,12 +16,18 @@ pub fn rules(tries: u32) -> String {
          2. Put the tests for your change in a tests file of its own (a file named \
          tests_<what>.rs, or in a tests folder), never in the file you changed. A review undoes \
          your change to see whether your tests fail without it, and tests that sit in the same \
-         file go with the change: it then says your change is unproved.\n\
+         file go with the change: it then says your change is unproved. Declare the new file with \
+         a line of its own, `mod tests_<what>;` with `#[cfg(test)]` above it, at the start of a line \
+         in the file that holds your other modules: the review keeps that line, and only that line, \
+         when it undoes the rest.\n\
          3. Run the tests your change touches before you call self.propose_change, from your \
          tree, with proc.run and sandbox: true, for example `cargo test -p <crate> <module>`. \
          That runs in your own sandbox and nobody has to answer for it. Run the existing tests \
          of every file you changed too: a change that breaks one has failed.\n\
-         4. Theseus does not start a build while main itself is failing. If a test fails and \
+         4. Run the lint the gate runs on each crate you changed, the same way and before you call \
+         self.propose_change: `cargo clippy -p <crate> --all-targets -- -D warnings`, from your \
+         tree, with proc.run and sandbox: true. Fix what it says: the gate fails on any warning.\n\
+         5. Theseus does not start a build while main itself is failing. If a test fails and \
          your change did not cause it, say so in your why instead of working around it."
     )
 }
