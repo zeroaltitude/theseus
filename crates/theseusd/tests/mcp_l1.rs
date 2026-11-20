@@ -11,21 +11,10 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use common::Served;
+use common::{sim_bin, Served};
 use serde_json::Value;
-
-fn sim_bin() -> PathBuf {
-    let p = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus-sim");
-    assert!(
-        p.is_file(),
-        "no theseus-sim at {}: build the workspace",
-        p.display()
-    );
-    p
-}
 
 fn root() -> bool {
     // SAFETY: no arguments.

@@ -143,6 +143,8 @@ pub struct ExecutionStopped<'a> {
     pub tasks_running: u32,
     /// The tasks among them that a turn handed to a profile (`profile.run`).
     pub agents: &'a [theseus_protocol::StopAgent],
+    /// The stop goes on to cancel the tasks (`execution.stop { tasks }`): none of them goes on.
+    pub cancelling: bool,
 }
 
 impl Fact for ExecutionStopped<'_> {
@@ -160,8 +162,17 @@ impl Fact for ExecutionStopped<'_> {
                 } else {
                     ""
                 },
-                match (self.tasks_running, self.execution.wakes.len()) {
+                match (
+                    if self.cancelling {
+                        0
+                    } else {
+                        self.tasks_running
+                    },
+                    self.execution.wakes.len(),
+                ) {
                     (0, 0) => String::new(),
+                    (0, w) if self.cancelling =>
+                        format!(" ({} go on)", narrative::count(w as u64, "wake", "wakes")),
                     (t, w) => format!(
                         " ({} and {} go on)",
                         narrative::count(t as u64, "task", "tasks"),
@@ -261,6 +272,36 @@ impl Fact for ExecutionStoppedAll<'_> {
                 "Stop all by {}: {} cancelled with the conversation's stop; its wakes stay.",
                 self.by,
                 narrative::count(self.cancelled.len() as u64, "task", "tasks"),
+            ),
+        );
+    }
+}
+
+/// A stop that cancelled the conversation's tasks and left some going: a cancel could not end them, or
+/// one opened after the walk. Said once, after the cancels, so the note of the stop (written before
+/// them) is not the last word on what goes on.
+pub struct StopTasksLeft<'a> {
+    pub by: &'a str,
+    pub left: u32,
+    /// The agents among them that a turn handed work to (`profile.run`).
+    pub agents: &'a [theseus_protocol::StopAgent],
+}
+
+impl Fact for StopTasksLeft<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Stop all by {}: {} could not be cancelled and go on.{}",
+                self.by,
+                narrative::count(self.left as u64, "task", "tasks"),
+                match self.agents.is_empty() {
+                    true => String::new(),
+                    false => format!(
+                        " {}",
+                        theseus_protocol::StopAgent::words(self.agents, "theseus cancel")
+                    ),
+                }
             ),
         );
     }

@@ -76,7 +76,7 @@ impl Rig {
         for d in ["bin", "projects/bin", OUT] {
             std::fs::create_dir_all(path(d)).unwrap();
         }
-        let cli = theseusd.with_file_name("theseus");
+        let cli = common::cli_bin();
         assert!(
             cli.exists(),
             "no {} to run: build the CLI (cargo build -p theseus)",

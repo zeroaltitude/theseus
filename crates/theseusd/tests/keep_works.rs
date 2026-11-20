@@ -71,7 +71,7 @@ impl Rig {
                 cmd.env("PATH", &path);
             },
         );
-        let cli = PathBuf::from(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus");
+        let cli = common::cli_bin();
         assert!(cli.exists(), "no {}: build the CLI", cli.display());
         Self {
             s,

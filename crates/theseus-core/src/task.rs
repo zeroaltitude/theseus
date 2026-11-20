@@ -1478,24 +1478,13 @@ pub fn resolve<'a>(tasks: &'a [Execution], name: &str) -> Result<&'a Execution, 
     }
 }
 
-/// The report of a task a cancel ended, for the cancel's frame: its post,
-/// staged where the task reports, and the post itself for `posted` once the
-/// frame is written. Nothing for an execution that is not a task, or a task
-/// that reports nowhere. (`cancelled_reports` is this and the conversation's
-/// own word of work handed to a profile.)
-pub fn cancelled_report(
-    outbox: &crate::outbox::Outbox,
-    store: &crate::store::Store,
-    e: &Execution,
-) -> anyhow::Result<(Vec<NewRecord>, Option<theseus_kernel::Action>)> {
-    let (records, mut posts) = cancelled_reports(outbox, store, e)?;
-    Ok((records, posts.pop()))
-}
-
-/// [`cancelled_report`], and, for a task a turn handed to a profile (`profile.run`), the subagent's
-/// message that says in the conversation that the agent's work was cancelled, marked so, once: the
-/// cancel's frame is the only one that speaks for it (a turn that ends after a cancel writes no report
-/// frame). Where the task's own report would go to that same place, the one message stands for both.
+/// The report of a task a cancel ended, for the cancel's frame: its posts, staged where the task
+/// reports, and the posts themselves for `posted` once the frame is written. Nothing for an execution
+/// that is not a task, or a task that reports nowhere. For a task a turn handed to a profile
+/// (`profile.run`) it is also the subagent's message that says in the conversation that the agent's
+/// work was cancelled, marked so, once: the cancel's frame is the only one that speaks for it (a turn
+/// that ends after a cancel writes no report frame). Where the task's own report would go to that same
+/// place, the one message stands for both.
 pub fn cancelled_reports(
     outbox: &crate::outbox::Outbox,
     store: &crate::store::Store,

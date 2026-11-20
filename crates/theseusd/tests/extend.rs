@@ -37,7 +37,13 @@ struct Rig {
     _model: FakeModel,
 }
 
+/// A program of the build beside the daemon's; the simulator's is checked to be this tree's (`common::sim_bin`).
 fn bin(name: &str) -> PathBuf {
+    match name {
+        "theseus-sim" => return common::sim_bin(),
+        "theseus" => return common::cli_bin(),
+        _ => {}
+    }
     let p = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name(name);
     assert!(
         p.is_file(),

@@ -40,7 +40,7 @@ impl Rig {
         let path = |p: &str| dir.path().join(p);
         let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
         std::fs::create_dir_all(path("projects")).unwrap();
-        let cli = theseusd.with_file_name("theseus");
+        let cli = common::cli_bin();
         assert!(
             cli.exists(),
             "no {} to run: build the CLI (cargo build -p theseus)",

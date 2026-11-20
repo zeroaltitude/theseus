@@ -244,6 +244,9 @@ enum Cmd {
     /// The fake MCP server (M7 36b), for a scratch daemon's `[mcp.servers]`:
     /// stdio by default, as a daemon starts it, or `--http`.
     FakeMcp(fake_mcp::FakeMcpArgs),
+    /// Print the commit this program was built from (empty outside a checkout): a test that spawns it
+    /// compares it with the daemon's.
+    Stamp,
     /// Discord without a person (theseus-9kjv): the kl8m proof against a real
     /// daemon, and a typed message, a press, and a read for a live check
     /// against a running fake-discord.
@@ -465,6 +468,10 @@ fn main() -> Result<()> {
             }
         }
         Cmd::FakeMcp(args) => fake_mcp::run(args),
+        Cmd::Stamp => {
+            println!("{}", include_str!(concat!(env!("OUT_DIR"), "/commit")));
+            Ok(())
+        }
         Cmd::Discord { cmd } => discord_cli::run(cmd),
         Cmd::SynthMemory { dir, nodes, seed } => {
             let m = memsynth::generate(&dir, nodes, seed)?;
