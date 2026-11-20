@@ -18,6 +18,17 @@ use super::{
     Seen, APP_ID, BOT_ID, DEFAULT_GUILD, IS_COMPONENTS_V2,
 };
 
+/// Where a held thread create waits: before the stand-in applies it (the post
+/// does not exist yet, and a create released from here is dropped unapplied and
+/// unanswered, as one whose sender was killed never arrives), or after (the post
+/// exists and the answer is withheld, which is a daemon killed between Discord's
+/// accepting a post and recording it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoldAt {
+    BeforeApply,
+    AfterApply,
+}
+
 /// A thread the bot made in a channel.
 #[derive(Debug, Clone, Serialize)]
 pub struct FakeThread {
@@ -215,6 +226,55 @@ impl FakeDiscord {
         st.next_big
     }
 
+    /// Hold every thread create at `at` until `None` lifts it (or a minute
+    /// passes): a test kills the daemon while one waits.
+    pub fn hold_thread_creates(&self, at: Option<HoldAt>) {
+        self.state.lock().unwrap().thread_hold = at;
+    }
+
+    /// How many thread creates wait at the hold now.
+    pub fn held_thread_creates(&self) -> usize {
+        self.state.lock().unwrap().thread_held
+    }
+
+    /// Wait at the hold `at` while it stands, counted as held. True when it
+    /// waited.
+    fn wait_at(&self, at: HoldAt) -> bool {
+        if self.state.lock().unwrap().thread_hold != Some(at) {
+            return false;
+        }
+        self.state.lock().unwrap().thread_held += 1;
+        for _ in 0..60_000 {
+            if self.state.lock().unwrap().thread_hold != Some(at) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let mut st = self.state.lock().unwrap();
+        st.thread_held = st.thread_held.saturating_sub(1);
+        true
+    }
+
+    /// `GET /guilds/<id>/threads/active`: the guild's threads that are not
+    /// archived.
+    pub(super) fn threads_active(&self, stream: TcpStream, guild: &str) -> std::io::Result<()> {
+        let g: u64 = guild.parse().unwrap_or(0);
+        let threads: Vec<Value> = {
+            let st = self.state.lock().unwrap();
+            st.threads
+                .values()
+                .filter(|t| t.guild == g && !t.archived)
+                .map(thread_json)
+                .collect()
+        };
+        self.record(seen(
+            "GET",
+            &format!("/guilds/{guild}/threads/active"),
+            "other",
+        ));
+        reply(stream, 200, &json!({"threads": threads, "members": []}))
+    }
+
     /// `POST /channels/<id>/threads`: a thread, with a first message in a forum.
     pub(super) fn thread_create(
         &self,
@@ -223,6 +283,9 @@ impl FakeDiscord {
         body: &Value,
     ) -> std::io::Result<()> {
         let path = format!("/channels/{parent}/threads");
+        if self.wait_at(HoldAt::BeforeApply) {
+            return Ok(());
+        }
         let p: u64 = parent.parse().unwrap_or(0);
         let (forum, guild) = {
             let st = self.state.lock().unwrap();
@@ -284,6 +347,7 @@ impl FakeDiscord {
             message_id: None,
             ..seen("POST", &path, "thread")
         });
+        let _ = self.wait_at(HoldAt::AfterApply);
         reply(stream, 200, &out)
     }
 

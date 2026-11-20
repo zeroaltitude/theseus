@@ -66,7 +66,7 @@ mod threads;
 pub use channels::FakeChannel;
 pub use emojis::FakeEmoji;
 pub use events::{FakeEvent, GUILD_EVENT_LIMIT};
-pub use threads::{FakeHook, FakeTag, FakeThread};
+pub use threads::{FakeHook, FakeTag, FakeThread, HoldAt};
 
 use crate::fake_gateway::{self, FakeGateway, GatewayState, Where};
 
@@ -540,6 +540,10 @@ struct State {
     /// A write whose content holds this text waits for its answer until the
     /// hold is lifted.
     hold: Option<String>,
+    /// Where a forum post's create waits (`hold_thread_creates`), and how many
+    /// creates wait there now.
+    thread_hold: Option<threads::HoldAt>,
+    thread_held: usize,
     /// The guild the viewer check reads, when one is set.
     guild: Option<Guild>,
     /// Each DM channel the bot opened, and its user.
@@ -1254,6 +1258,7 @@ impl FakeDiscord {
             (_, ["guilds", g, "scheduled-events", id]) => {
                 self.event_route(stream, &method, route, (g, Some(id)), &body)
             }
+            ("GET", ["guilds", g, "threads", "active"]) => self.threads_active(stream, g),
             ("GET", ["guilds", g, rest @ ..]) => self.guild_read(stream, route, g, rest, &full),
             ("POST" | "PATCH", ["interactions" | "webhooks", ..]) => {
                 self.interaction_route(stream, &method, &segs, &body)
@@ -1271,6 +1276,7 @@ impl FakeDiscord {
             }
             ("PUT", ["channels", c, "voice-status"]) => self.voice_status(stream, c, &body),
             ("GET", ["channels", c, "messages", "pins"]) => self.pins(stream, route, c),
+            ("GET", ["channels", c, "messages"]) => self.messages_list(stream, route, c),
             ("GET", ["channels", c, "messages", m]) => self.message_read(stream, route, c, m),
             _ => {
                 self.record(seen(&method, route, "unknown"));
@@ -1504,6 +1510,24 @@ impl FakeDiscord {
             .map(|m| json!({"pinned_at": "2026-09-30T00:00:00.000000+00:00", "message": message_json(m)}))
             .collect();
         reply(stream, 200, &json!({"items": items, "has_more": false}))
+    }
+
+    /// `GET /channels/<c>/messages`: the channel's newest 100 messages, newest
+    /// first (`before`, `after` and `around` are not honoured).
+    fn messages_list(&self, stream: TcpStream, route: &str, channel: &str) -> std::io::Result<()> {
+        self.record(seen("GET", route, "read"));
+        let items: Vec<Value> = self
+            .state
+            .lock()
+            .unwrap()
+            .messages
+            .iter()
+            .rev()
+            .filter(|m| m.channel == channel)
+            .take(100)
+            .map(message_json)
+            .collect();
+        reply(stream, 200, &Value::Array(items))
     }
 
     /// `GET /channels/<c>/messages/<m>`: the message, or 404.
