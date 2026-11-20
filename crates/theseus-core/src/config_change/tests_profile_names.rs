@@ -2,13 +2,22 @@
 //! turn "use <profile> to ..." in the owner's own private place is sent the profiles' names, and a
 //! place, a task or a setup with one profile that the tools refuse or have no use for is not.
 
-use super::tests::{rig, rig_with, Rig, OWNER};
+use super::tests::{rig_with, Rig, OWNER};
 use crate::profile_tool::{ASK, RUN};
 use crate::session::{SessionRecord, TaskOf};
+use crate::Config;
 
 /// The owner's place: a private DM.
 const PLACE: &str = "dm:4100000000000000001";
 const LEAD: &str = "Model profiles configured here: ";
+
+/// The settings rig with the tail on, as a daemon has it (a test's settings leave it off), and `tweak`.
+fn rig(tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_with(|cfg, _| {
+        cfg.project.tail_facts = Some(true);
+        tweak(cfg);
+    })
+}
 
 /// Everything the turn's first request says, as text.
 fn first_request(r: &Rig) -> String {
@@ -35,7 +44,7 @@ async fn played(r: &Rig, place: &str) -> String {
 /// is sent them in the turn that says "use haiku to ...".
 #[tokio::test]
 async fn the_owners_private_place_is_sent_the_names() {
-    let r = rig();
+    let r = rig(|_| {});
     let names = names(&r);
     assert!(names.len() > 1, "{names:?}");
     let sent = played(&r, PLACE).await;
@@ -53,7 +62,7 @@ async fn the_owners_private_place_is_sent_the_names() {
 #[tokio::test]
 async fn a_shared_place_and_a_task_are_not_told() {
     use crate::places::BoundPlace;
-    let r = rig();
+    let r = rig(|_| {});
     let shared = played(&r, &format!("dm:{}", OWNER + 1)).await;
     assert!(!shared.contains(LEAD), "{shared}");
     r.core.runner.place_rule.bind(vec![BoundPlace {
@@ -88,7 +97,8 @@ async fn a_shared_place_and_a_task_are_not_told() {
 /// offer there is no way to use one: no line.
 #[tokio::test]
 async fn one_profile_or_none_is_not_told() {
-    let r = rig_with(|cfg, _| {
+    let r = rig(|cfg| {
+        cfg.model.live = "haiku".into();
         for n in cfg.all_profiles().keys().cloned().collect::<Vec<_>>() {
             if n != "haiku" {
                 cfg.remove_profile(&n);
@@ -103,7 +113,7 @@ async fn one_profile_or_none_is_not_told() {
 /// A profile added or removed is in the line, as it is in the tools' own list.
 #[tokio::test]
 async fn the_line_follows_the_settings() {
-    let r = rig_with(|cfg, _| {
+    let r = rig(|cfg| {
         cfg.copy_profile("mythos", "haiku");
         cfg.remove_profile("opus");
     });
