@@ -443,7 +443,6 @@ impl Shared {
         }
     }
 
-    /// The home: recorded, or a configured id, or one of that name, or made.
     /// A task home that was not made by this binding (found by its record, its
     /// id or its name) is not refused when it is open to everyone (the owner may
     /// have chosen it), but it is said once, in health and the log: the channel's
@@ -469,6 +468,7 @@ impl Shared {
         );
     }
 
+    /// The home: recorded, or a configured id, or one of that name, or made.
     async fn find_task_home(&self, guild: &str, wanted: &str) -> Result<(u64, String), Why> {
         let name_of = |c: &Value| c["name"].as_str().unwrap_or("").to_string();
         let recorded: Option<Record> = self.core.store.get_meta(RECORD_KEY).ok().flatten();
