@@ -23,6 +23,8 @@
 //! reply (the reply is the daemon's words by name, or its refusal). The submit's reply is private to
 //! the presser, and the card itself is edited to its outcome by the daemon's own settle.
 
+use std::time::Duration;
+
 use serde_json::{json, Value};
 use theseus_core::config_change::vault_keep::FORM_BUTTON;
 use theseus_protocol::answer::ConfirmListParams;
@@ -38,6 +40,7 @@ use super::persona_soul::field_of;
 use super::proof_form::keeps;
 use super::{origin_of, Shared};
 use crate::render::clip;
+use crate::rpc_client::CallError;
 
 /// The V2 card's option for the form, beside Decline.
 pub(crate) const OPTION: &str = "keep_form";
@@ -55,6 +58,32 @@ const LABEL: u64 = 18;
 const LABEL_LIMIT: usize = 45;
 const DESCRIPTION: usize = 100;
 const VALUE_MAX: usize = 4000;
+
+/// How long a submit waits for the daemon's answer before it says so. The daemon has no deadline of its own for
+/// a whole keep, but each call it makes to the vault's program has `OP_TIMEOUT` (10 s), and one keep makes at most
+/// seven in a row (the vault list, the items, the permission, the item's fields, then the item read, the write and
+/// the read back), so its own answer, or its refusal, comes within 70 s. Eight of them is that and a little more,
+/// well under the 15 minutes Discord leaves to complete a deferred response.
+const KEEP_WAIT: Duration = Duration::from_secs(8 * theseus_core::secrets::OP_TIMEOUT.as_secs());
+
+#[cfg(test)]
+thread_local! {
+    /// A shorter wait, for the test of a daemon that does not answer (the thread is the test's own).
+    static SHORTER: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
+fn keep_wait() -> Duration {
+    #[cfg(test)]
+    if let Some(d) = SHORTER.with(std::cell::Cell::get) {
+        return d;
+    }
+    KEEP_WAIT
+}
+
+/// What the presser is told when the daemon has not answered: not that it was kept, and not that it was not,
+/// since the write is the daemon's and goes on. The card is what the daemon edits when the write ends.
+const NOT_YET: &str = "⏳ Theseus has not answered yet, so it cannot say whether the value was kept. \
+     The card will change to show the outcome when Theseus finishes: look there before typing the value again.";
 
 /// What a press is told where no form opens, to the presser alone.
 const NOT_HERE: &str =
@@ -296,10 +325,23 @@ impl Shared {
             discord,
             ..Default::default()
         };
-        let r = self
-            .rpc
-            .call::<_, VaultKept>(method::VAULT_KEEP_ANSWER, params)
-            .await;
+        // The wait is bounded here, for this call alone: abandoning it leaves the daemon's write going (the request
+        // is sent), and a late answer finds no one waiting and is dropped by the client.
+        let wait = keep_wait();
+        let answer = tokio::time::timeout(
+            wait,
+            self.rpc
+                .call::<_, VaultKept>(method::VAULT_KEEP_ANSWER, params),
+        )
+        .await;
+        let timed_out = answer.is_err();
+        let r = answer.unwrap_or_else(|_| {
+            Err(CallError {
+                code: 0,
+                message: format!("no answer came in {} s", wait.as_secs()),
+                data: Value::Null,
+            })
+        });
         // The outcome, and never the field.
         self.core.binding_ledger(
             LedgerKind::DiscordConfirm,
@@ -314,6 +356,7 @@ impl Shared {
                 let why = e.data.get("why").and_then(Value::as_str);
                 format!("🔐 Nothing was kept: {}", why.unwrap_or(&e.message))
             }
+            Err(_) if timed_out => NOT_YET.to_string(),
             Err(e) => format!("⚠️ Nothing was kept: {}", e.message),
         };
         self.finish_command(i, &told, "keep form reply").await;
