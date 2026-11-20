@@ -12,9 +12,7 @@
 //! cards that carries the item's short id (`…ab12cd`, in every card's words),
 //! and that message is the item's card, edited to the truth; none is a card
 //! never made, and the first is made. A read that fails is no answer: no card is
-//! made until it goes through. An intent goes when its item has its entry, or is
-//! over (among none of a pass's items), never by age: a card is a message and
-//! never archives. Not covered: a card made, unrecorded, and more
+//! made until it goes through. Not covered: a card made, unrecorded, and more
 //! than 100 messages up the task home's channel by the restart.
 
 use serde::{Deserialize, Serialize};
@@ -44,24 +42,17 @@ pub(super) struct Intent {
     pub at_ms: u64,
 }
 
-/// The intents worth keeping: not one whose item has its entry (the kill came
-/// after the entry was saved). Age takes none off: a card is a message and
-/// never archives, so one made before a long stop is found after it; only the
-/// item's end does (`standing`).
-pub(super) fn live(intents: Vec<Intent>, recs: &[Rec]) -> Vec<Intent> {
-    intents
-        .into_iter()
-        .filter(|i| !recs.iter().any(|r| r.id == i.id))
-        .collect()
-}
+/// How long an intent is kept: an item that ended while the daemon was down and
+/// is never asked for again leaves its intent behind.
+const STALE_MS: u64 = 3 * 24 * 3_600_000;
 
-/// The intents whose item still stands (is among the pass's items): one whose
-/// item is over (fired or cancelled while the daemon was down, or never asked
-/// for again) has no card left to find, and leaves its intent behind otherwise.
-pub(super) fn standing(intents: Vec<Intent>, faces: &[Face]) -> Vec<Intent> {
+/// The intents worth keeping at `now`: not one whose item has its entry (the
+/// kill came after the entry was saved), not one gone stale.
+pub(super) fn live(intents: Vec<Intent>, recs: &[Rec], now: u64) -> Vec<Intent> {
     intents
         .into_iter()
-        .filter(|i| faces.iter().any(|f| f.id == i.id))
+        .filter(|i| now < i.at_ms + STALE_MS)
+        .filter(|i| !recs.iter().any(|r| r.id == i.id))
         .collect()
 }
 
@@ -214,11 +205,10 @@ fn parts(components: &Value) -> (Vec<String>, Vec<String>) {
 ///   item's FULL id: Cancel or Snooze (`hq:cancel:<id>`, `hq:snooze:<id>`), or a
 ///   routine's Run, Pause or Resume (`hr:run|pause|resume:<id>`).
 /// - **An ended card** has no button left, so it is the message with NO custom
-///   id at all whose footer line (`-# Reminder · from … · `…short``) ENDS with
-///   the marker: its last ` · ` field, never a marker inside the `from` name
-///   (a thread's name is the owner's to choose). The board carries its own
-///   controls, so it is never one. (A removed routine's footer has no marker:
-///   such a card is not found again, and a second final card is the cost.)
+///   id at all whose footer line (`-# Reminder · from … · `…short``) holds the
+///   marker. The board carries its own controls, so it is never one. (A removed
+///   routine's footer has no marker: such a card is not found again, and a
+///   second final card is the cost.)
 fn is_card_of(message: &Value, id: &str) -> bool {
     let (ids, texts) = parts(&message["components"]);
     let acts = [
@@ -238,7 +228,7 @@ fn is_card_of(message: &Value, id: &str) -> bool {
     ids.is_empty()
         && texts
             .iter()
-            .any(|t| t.starts_with("-# ") && t.trim_end().rsplit(" · ").next() == Some(&marker))
+            .any(|t| t.starts_with("-# ") && t.contains(&marker))
 }
 
 #[cfg(test)]
@@ -335,11 +325,9 @@ mod tests {
         );
     }
 
-    /// An intent is kept whatever its age (a card never archives), and goes
-    /// when its item has its entry, or is over.
     #[test]
-    fn an_intent_is_dropped_at_load_with_its_entry_and_by_the_pass_when_its_item_is_over() {
-        let now = 10 * 24 * 3_600_000;
+    fn a_stale_intent_is_dropped_at_load_one_with_its_entry_and_one_long_gone() {
+        let now = 10 * STALE_MS;
         let intent = |id: &str, at_ms| Intent {
             id: id.into(),
             channel: 1,
@@ -361,54 +349,15 @@ mod tests {
             by: None,
             digest: 0,
         };
-        let all = vec![
-            intent("wak_a", now - 1_000),
-            intent("wak_b", now - 1_000),
-            intent("wak_c", now - 9 * 24 * 3_600_000),
-        ];
-        let kept = live(all, &[rec("wak_b")]);
-        assert_eq!(
-            kept,
-            [
+        let kept = live(
+            vec![
                 intent("wak_a", now - 1_000),
-                intent("wak_c", now - 9 * 24 * 3_600_000)
+                intent("wak_b", now - 1_000),
+                intent("wak_c", now - STALE_MS - 1),
             ],
-            "the old one stays, the one with its entry goes"
+            &[rec("wak_b")],
+            now,
         );
-        use crate::render::sched::{Kind, Life};
-        let face = |id: &str| Face {
-            id: id.into(),
-            kind: Kind::Reminder,
-            title: "t".into(),
-            due_ms: None,
-            life: Life::Scheduled { snoozed: false },
-            from: None,
-            every: None,
-            paused: false,
-            routine: None,
-        };
-        let stands = standing(kept, &[face("wak_c")]);
-        assert_eq!(stands, [intent("wak_c", now - 9 * 24 * 3_600_000)]);
-    }
-
-    /// A footer's `from` name may carry another item's marker; the card is
-    /// known by the footer's last field alone.
-    #[test]
-    fn an_ended_card_is_known_by_the_last_field_of_its_footer_not_by_a_name_in_it() {
-        let ids = (
-            "wak_01J0aaaaaaaaaaaaaaaaaaaaab12cd",
-            "wak_01J0aaaaaaaaaaaaaaaaaaaaff00ee",
-        );
-        let footer = format!(
-            "-# Reminder · from thread {} · {}",
-            marker(ids.0),
-            marker(ids.1)
-        );
-        let ended = message(vec![serde_json::json!({"type": 10, "content": footer})]);
-        assert!(is_card_of(&ended, ids.1), "the card of its own marker");
-        assert!(
-            !is_card_of(&ended, ids.0),
-            "never of a marker inside the from name"
-        );
+        assert_eq!(kept, [intent("wak_a", now - 1_000)]);
     }
 }

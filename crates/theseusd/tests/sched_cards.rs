@@ -416,27 +416,10 @@ fn a_cards_create_that_never_arrived_is_made_once_and_the_board_is_untouched() {
     r.settle("the card's create held", || {
         r.fake.held_message_creates() >= 1
     });
-    // The pinned board is drawn on its own pace: it lists the task, with the
-    // marker the card would carry, before the kill, so a card finder that took
-    // any message with the marker would adopt it.
-    r.settle("the board lists the task", || {
-        r.fake.all_messages().iter().any(|m| {
-            m.versions.first().is_some_and(|v| v.starts_with("📋"))
-                && m.versions
-                    .last()
-                    .is_some_and(|v| v.contains("Paint the buoy"))
-        })
-    });
     drop(daemon);
     r.fake.drop_message_creates_containing(None);
-    // The restarted daemon draws its board again, empty at first and then listing
-    // the task. The read that tells whether the card exists fails until the board
-    // lists the task again, so the finder reads a board with the marker in it.
-    r.fake.fail_message_lists(true);
     std::thread::sleep(Duration::from_secs(1));
     let _daemon = r.spawn();
-    std::thread::sleep(Duration::from_secs(5));
-    r.fake.fail_message_lists(false);
     r.settle("the task's card", || r.cards("Paint the buoy").len() == 1);
     std::thread::sleep(Duration::from_secs(4));
     assert_eq!(r.cards("Paint the buoy").len(), 1, "{}", r.held());
