@@ -25,11 +25,12 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use theseus_kernel::Proposal;
+use theseus_kernel::{Action, Proposal};
 use theseus_protocol::Plan;
 use theseus_tools::{parse, Backend, Retry, Tool, ToolClass, ToolCtx};
 
 use super::{card, outside_text, proof_seam, wall, ACK};
+use crate::node::{Node, Origin};
 use crate::toolrun::{ToolRuntime, TurnCtx};
 
 pub mod done;
@@ -200,6 +201,31 @@ pub fn settled(t: &Target) -> String {
     )
 }
 
+/// The note the conversation that asked reads when its keep card is settled, in the frame that settles
+/// it: the tool's own result, "Asked the owner", is all the model was given before, and it says the
+/// card waits. `words` are the owner's own, by name and never the value. None for a card that is not a
+/// keep card.
+pub fn told(a: &Action, words: &str) -> Option<Node> {
+    is_keep(a).then(|| {
+        let text =
+            format!("Your `{KEEP}` card is settled and no longer waits for the owner: {words}");
+        Node::relayed(&a.session_id, None, Origin::Harness, "vault", &text)
+    })
+}
+
+/// What the tool answers the model: the card, without its first lines (where the value is typed in a
+/// place with no form, and this card may be drawn where there is one), and where the owner gives the value.
+fn told_the_model(q: &str) -> String {
+    let asked = q.strip_prefix(HEAD).unwrap_or(q);
+    format!(
+        "Asked the owner:\n{asked}The owner gives the value themselves, on the card's own form or field \
+         when it has one or with `theseus vault keep` in their own terminal, and a code. \
+         Nothing is kept until then. You never see the value. When it is settled you are told, by \
+         name, in a later message; then, if they want it used, put it to use with `vault.use` (a \
+         second card).",
+    )
+}
+
 /// Run `vault.keep` for the call `correlation_id` of the turn `tc`. An error is
 /// the result the model reads.
 pub async fn run(
@@ -270,11 +296,7 @@ pub async fn run(
         resource: Some("config".into()),
         policy_context: json!({}),
     };
-    let said = format!(
-        "Asked the owner:\n{q}Nothing is kept until they give the value on the card and a code. \
-         You never see the value. When it is kept they are told, by name; then, if they want it \
-         used, put it to use with `vault.use` (a second card).",
-    );
+    let said = told_the_model(&q);
     super::ask(rt, tc, proposal, correlation_id, &said, needs)?;
     Ok((said, json!({"keep": t.state.as_str()})))
 }
