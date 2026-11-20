@@ -86,6 +86,8 @@ const GATEWAY_GUILD_MEMBERS_LIMITED: u64 = 1 << 15;
 
 /// An interaction's token, as the fake mints it: its id follows.
 const TOKEN_PREFIX: &str = "fake-interaction-token-";
+/// What an interaction's first response is allowed to wait: Discord's three seconds.
+const FIRST_RESPONSE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -306,6 +308,20 @@ pub struct Reply {
     /// A modal the binding answered with (type 9): its `data`.
     #[serde(default)]
     pub modal: Option<Value>,
+}
+
+impl State {
+    /// Whether a first response (`callback`) to interaction `id` comes after Discord's three seconds.
+    fn late(&self, kind: &str, id: &str) -> bool {
+        let waited = self.arrived.get(id).map(|t| t.elapsed());
+        kind == "callback" && waited.is_some_and(|w| w > FIRST_RESPONSE)
+    }
+
+    /// Whether interaction `id` was answered with a private message: what completes it is private too.
+    fn deferred_private(&self, id: &str) -> bool {
+        let first = |p: &&Reply| p.kind == "callback" && p.interaction.as_deref() == Some(id);
+        self.replies.iter().find(first).is_some_and(|p| p.ephemeral)
+    }
 }
 
 /// A guild, as the binding's viewer check reads it (theseus-ck0k): its
@@ -564,6 +580,10 @@ struct State {
     replies: Vec<Reply>,
     /// Each interaction `press` sent, by id, and its channel.
     pressed: BTreeMap<String, u64>,
+    /// When a test says an interaction arrived (`backdate_interaction`): Discord's rule is that its first
+    /// response comes within three seconds, or the interaction is unknown (10062) and the person sees
+    /// "Something went wrong". An interaction not named here is never late.
+    arrived: BTreeMap<String, std::time::Instant>,
     /// The messages the binding answered an interaction with (an ephemeral
     /// view, say), by the interaction's id: kept apart from the channel's
     /// messages, and pressable (`press_reply`).
@@ -662,6 +682,18 @@ impl FakeDiscord {
 
     pub fn set_mode(&self, mode: Mode) {
         self.state.lock().unwrap().mode = Some(mode);
+    }
+
+    /// Treat interaction `id` as having arrived `ms` ago: a test of the three-second rule without waiting.
+    pub fn backdate_interaction(&self, id: &str, ms: u64) {
+        let then = std::time::Instant::now()
+            .checked_sub(Duration::from_millis(ms))
+            .unwrap_or_else(std::time::Instant::now);
+        self.state
+            .lock()
+            .unwrap()
+            .arrived
+            .insert(id.to_string(), then);
     }
 
     /// Discord keeps a nonce for a few minutes; the fake, forever unless told.
@@ -1949,7 +1981,7 @@ impl FakeDiscord {
         } else {
             body
         };
-        let r = Reply {
+        let mut r = Reply {
             at_ms: now_ms(),
             interaction: interaction.map(str::to_string),
             kind: kind.to_string(),
@@ -1975,6 +2007,19 @@ impl FakeDiscord {
                 .collect(),
             modal: (kind == "callback" && body["type"].as_u64() == Some(9)).then(|| data.clone()),
         };
+        {
+            let id = interaction.unwrap_or_default();
+            let mut st = self.state.lock().unwrap();
+            if st.late(kind, id) {
+                // Past the three seconds: refused, and kept under a kind of its own, which a person never sees.
+                r.kind = "refused".into();
+                st.replies.push(r);
+                drop(st);
+                let unknown = json!({"message": "Unknown interaction", "code": 10062});
+                return reply(stream, 404, &unknown);
+            }
+            r.ephemeral |= kind == "original" && st.deferred_private(id);
+        }
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();

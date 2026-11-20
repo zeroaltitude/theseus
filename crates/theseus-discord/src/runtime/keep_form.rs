@@ -272,6 +272,9 @@ impl Shared {
         let Some(question) = question_of(&m.custom_id) else {
             return self.tell(i, format!("🔐 {GONE}")).await;
         };
+        // The daemon writes to the vault, which can take over Discord's three seconds for a first response: the
+        // presser is answered at once, privately, and the words complete that answer below.
+        self.ack_ephemeral(i).await;
         let code = field_of(m, CODE_FIELD);
         let typed = field_of(m, VALUE_FIELD);
         // What the daemon would refuse is found here, since the form counts characters and the daemon bytes,
@@ -305,21 +308,15 @@ impl Shared {
                    "ok": r.is_ok(), "modal": true, "keep": true,
                    "error": r.as_ref().err().map(|e| e.message.clone())}),
         );
-        match r {
-            Ok(kept) => self.tell(i, format!("✅ {}", kept.words)).await,
+        let told = match r {
+            Ok(kept) => format!("✅ {}", kept.words),
             Err(e) if e.code == theseus_protocol::error_code::REFUSED => {
                 let why = e.data.get("why").and_then(Value::as_str);
-                self.tell(
-                    i,
-                    format!("🔐 Nothing was kept: {}", why.unwrap_or(&e.message)),
-                )
-                .await;
+                format!("🔐 Nothing was kept: {}", why.unwrap_or(&e.message))
             }
-            Err(e) => {
-                self.tell(i, format!("⚠️ Nothing was kept: {}", e.message))
-                    .await
-            }
-        }
+            Err(e) => format!("⚠️ Nothing was kept: {}", e.message),
+        };
+        self.finish_command(i, &told, "keep form reply").await;
     }
 }
 
