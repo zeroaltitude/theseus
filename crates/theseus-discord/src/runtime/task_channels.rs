@@ -33,8 +33,8 @@
 //!   gets one DM line saying which permissions are missing) and the task goes
 //!   on as before; so does a task past `task_channel_cap` open channels, and
 //!   one whose create failed otherwise. A create that may have gone through
-//!   (a timeout, a 5xx) is no failure: the task is tried again after `RETRY`
-//!   and has no thread meanwhile (`threads/intent.rs`).
+//!   (a timeout, a 5xx) keeps its intent, and a later make for the task finds
+//!   the channel instead of making another (`threads/intent.rs`).
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
