@@ -280,6 +280,26 @@ struct ToolLine {
     ended_by: Vec<String>,
 }
 
+/// The notice card's `Outcome` field once the call `t` has ended: `stopped` names who a `/stop` ended it for,
+/// and `verified` how that stop is known.
+fn card_outcome(
+    t: &theseus_protocol::ToolEnded,
+    stopped: &Option<String>,
+    verified: &str,
+) -> String {
+    let ms = t.duration_ms.unwrap_or(0);
+    match (t.status.as_str(), stopped) {
+        (_, Some(by)) => format!("⏹️ stopped by {by}{verified} · {ms} ms"),
+        ("ok", _) => format!("✅ ok · {ms} ms"),
+        // Cut at its time limit: what happened, not a failure (issue 37).
+        ("error", None) if t.cut_words().is_some() => {
+            format!("⏱️ {} · {ms} ms", t.cut_words().unwrap_or_default())
+        }
+        ("background", _) => "⏳ running in the background".to_string(),
+        (other, _) => format!("❌ {other} · {ms} ms"),
+    }
+}
+
 impl ToolState {
     /// The state a call is in once its end says `status` (`ms` long): the one
     /// mapping the live `tool.ended` and a turn read back from its nodes
@@ -579,22 +599,13 @@ impl Renderer {
             }
             Event::ToolEnded(t) => {
                 let status = t.status.as_str();
-                let ms = t.duration_ms.unwrap_or(0);
                 let use_id = &t.tool_use_id;
                 // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
                 let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
                 let verified = theseus_protocol::cancel::note(t.verified.as_deref());
                 let (mut ops, key) = (vec![], self.notice_key(use_id));
                 if let Some((card, _)) = self.notices.get_mut(use_id) {
-                    let outcome = match (status, &stopped) {
-                        (_, Some(by)) => format!("⏹️ stopped by {by}{verified} · {ms} ms"),
-                        ("ok", _) => format!("✅ ok · {ms} ms"),
-                        ("error", None) if t.cut_words().is_some() => {
-                            format!("⏱️ {} · {ms} ms", t.cut_words().unwrap_or_default())
-                        }
-                        ("background", _) => "⏳ running in the background".to_string(),
-                        (other, _) => format!("❌ {other} · {ms} ms"),
-                    };
+                    let outcome = card_outcome(t, &stopped, &verified);
                     if let Some(f) = card.fields.iter_mut().find(|(n, _)| n == "Outcome") {
                         f.1 = outcome;
                     }
