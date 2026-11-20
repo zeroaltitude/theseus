@@ -242,6 +242,68 @@ async fn a_task_that_holds_a_claim_on_a_step_stops_the_close() {
     assert!(r.task(&step.id).claim.is_none());
 }
 
+/// A conversation that holds a claim on a step stops the close too, but `theseus cancel` knows no
+/// conversation: the refusal says so, says when the claim frees, and gives no cancel command; once the claim
+/// has lapsed the close goes through.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conversation_that_holds_a_claim_is_told_when_it_frees() {
+    let r = rig();
+    let id = project(&r).await;
+    let chat = r
+        .core
+        .open_session(theseus_protocol::SessionOpenParams {
+            dir: None,
+            kind: None,
+            label: None,
+            opened_from: None,
+            persona: None,
+        })
+        .unwrap();
+    let mut step = below(&r, &id)
+        .into_iter()
+        .find(|t| t.kind == TaskKind::Item)
+        .unwrap();
+    let until = r.core.kernel.now_ms() + 1_800_000;
+    step.claim = Some(TaskClaim {
+        by: chat.execution_id.clone().unwrap(),
+        session: chat.session_id.clone(),
+        until_ms: until,
+    });
+    step.version += 1;
+    r.core
+        .store
+        .append(&[graph::record(&step).unwrap()])
+        .unwrap();
+    let e = rpc(&r.core, "project.close", json!({"project": id}))
+        .await
+        .unwrap_err();
+    let tail = &chat.session_id[chat.session_id.len() - 6..];
+    assert!(
+        e.contains(&format!("a conversation (…{tail}) holds a claim")),
+        "{e}"
+    );
+    assert!(
+        e.contains(&format!("until {}", crate::push::hm(until))),
+        "{e}"
+    );
+    assert!(
+        !e.contains("theseus cancel"),
+        "no command that finds nothing: {e}"
+    );
+    assert_eq!(r.task(&id).state, TaskState::Accepted);
+    // The lease lapses: the conversation carries nothing, though it still lives.
+    step.claim.as_mut().unwrap().until_ms = r.core.kernel.now_ms() - 1;
+    step.version += 1;
+    r.core
+        .store
+        .append(&[graph::record(&step).unwrap()])
+        .unwrap();
+    rpc(&r.core, "project.close", json!({"project": id}))
+        .await
+        .unwrap();
+    assert_eq!(r.task(&id).state, TaskState::Done);
+}
+
 /// A shared place is turned away, and the refusal is ledgered; nothing ends.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shared_place_cannot_close_a_project() {

@@ -53,25 +53,37 @@ pub(crate) fn carried_by(
             .iter()
             .filter(|t| t.id != project.id && !t.state.is_closed())
     };
-    let (id, title) = under()
-        .find(|t| live(t))
-        .map(|t| (short(&t.id), t.title.as_str()))
-        .or_else(|| {
-            let c = under().find_map(|t| t.claim.as_ref().filter(|c| held(c)))?;
-            let holder = tasks
-                .iter()
-                .find(|t| t.session.as_deref() == Some(c.session.as_str()));
-            Some((short(&c.session), holder.map_or("", |t| t.title.as_str())))
-        })?;
-    let named = if title.is_empty() {
-        format!("task {id}")
-    } else {
-        format!("task {id} (\"{title}\")")
+    let task_words = |id: &str, title: &str| {
+        let named = if title.is_empty() {
+            format!("task {id}")
+        } else {
+            format!("task {id} (\"{title}\")")
+        };
+        format!(
+            "{named} still carries part of this project: cancel it (`theseus cancel {id}`) or let \
+             it finish first, since closing a project does not stop a task that carries part of it"
+        )
     };
-    Some(format!(
-        "{named} still carries part of this project: cancel it (`theseus cancel {id}`) or let it \
-         finish first, since closing a project never stops running work"
-    ))
+    if let Some(t) = under().find(|t| live(t)) {
+        return Some(task_words(short(&t.id), &t.title));
+    }
+    let c = under().find_map(|t| t.claim.as_ref().filter(|c| held(c)))?;
+    // The holder of a claim is a task, which `theseus cancel` stops, or a conversation, which it does not
+    // know: nothing of the owner's releases a claim, so the answer for a conversation is when it frees.
+    Some(
+        match tasks
+            .iter()
+            .find(|t| t.session.as_deref() == Some(c.session.as_str()))
+        {
+            Some(holder) => task_words(short(&c.session), &holder.title),
+            None => format!(
+                "a conversation (…{}) holds a claim on a step of this project until {}: close the \
+                 project after that, since closing a project does not stop a conversation that holds part of it",
+                short(&c.session),
+                crate::push::hm(c.until_ms)
+            ),
+        },
+    )
 }
 
 impl Core {
@@ -170,7 +182,10 @@ impl Core {
                 continue;
             }
             if t.id != project.id
-                && (self.runs(&t) || t.claim.as_ref().is_some_and(|c| self.holds(c)))
+                && (self.runs(&t)
+                    || t.claim
+                        .as_ref()
+                        .is_some_and(|c| c.until_ms > now && self.holds(c)))
             {
                 return Err(invalid(
                     "a task took hold of this project while it was being closed: try again",
