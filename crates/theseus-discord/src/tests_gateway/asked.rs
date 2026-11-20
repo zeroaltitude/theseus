@@ -98,7 +98,7 @@ async fn a_tool_message_offers_small_buttons_and_a_press_tightens_that_tool_as_t
             .custom_id
             .clone()
     };
-    let (run_id, read_id) = (id_of("proc.run"), id_of("fs.read"));
+    let run_id = id_of("proc.run");
 
     // A copy of a button in a shared place, pressed by a guest the place is not
     // bound to, is refused as it always was, and nothing is tightened.
@@ -140,7 +140,9 @@ async fn a_tool_message_offers_small_buttons_and_a_press_tightens_that_tool_as_t
     })
     .await;
 
-    // The second tool's button still works, and the last one takes the row.
+    // The second tool's button still works (its id as the message now carries it,
+    // which a re-render may have changed), and the last one takes the row.
+    let read_id = tool_message(&r).unwrap().buttons[0].custom_id.clone();
     let pressed = r.press(&m.id, &read_id, (ANA, "ana"));
     r.until(
         "the second tightening",
