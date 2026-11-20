@@ -40,6 +40,7 @@ import { useWorld } from '@/lib/world'
 import { ago, cn, short, stamp } from '@/lib/format'
 import { contextHref } from '@/lib/explorer'
 import { countsOf, FILTERS, filterOf, paramOf, shownIds, type Counts, type ShipFilter } from '@/lib/sessionState'
+import { drawnIds, openAddress, readLine } from '@/ship/readplan'
 import { hiddenOf, viewOf, type Hidden } from '@/ship/states'
 import { RetireButton, SessionLinks, StateBadge } from '@/components/SessionLife'
 
@@ -62,9 +63,18 @@ export default function ShipRoute() {
 type OnFail = (reason: string) => void
 
 function ShipLive({ onFail }: { onFail: OnFail }) {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const world = useWorld()
-  return <ShipView data={useShipLive(params.get('s') ?? undefined, world)} onFail={onFail} />
+  // The Ship always opens on Live (GitHub issue 37): a `?st=` the address came with is dropped at mount, and nothing
+  // is read for it. The choice is made afterwards, with the state bar, and is the address's alone, never stored.
+  const [at] = useState(() => openAddress(params))
+  const [opened, setOpened] = useState(!at.dropped)
+  useEffect(() => {
+    if (at.dropped) setParams(at.search, { replace: true })
+    setOpened(true)
+  }, [at, setParams])
+  const data = useShipLive(params.get('s') ?? undefined, world, opened ? filterOf(params.get('st')) : 'live')
+  return opened ? <ShipView data={data} onFail={onFail} /> : null
 }
 
 function ShipSynthetic({ onFail }: { onFail: OnFail }) {
@@ -107,8 +117,11 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
   const counts = useMemo(() => countsOf(fleet), [fleet])
   // A ship that flares (a failure, its seconds of burst) shows whatever the filter, as the watch's plates do.
   const flaring = useMemo(() => (whole ? whole.vessels.filter((v) => v.flareAt > 0).map((v) => v.id) : []), [whole])
-  const model = useMemo(() => (whole ? viewOf(whole, shownIds(fleet, filter, [selId, flySession, ...flaring])) : null), [whole, fleet, filter, selId, flySession, flaring])
-  const hidden = whole && model ? hiddenOf(whole, model) : undefined
+  // What is drawn is what was read: a ship of the chosen state whose nodes are not read yet waits for them (the
+  // count line says how many), and is not counted among those the filter hides.
+  const visitors = useMemo(() => [selId, flySession, ...flaring], [selId, flySession, flaring])
+  const model = useMemo(() => (whole ? viewOf(whole, data.readIds ? drawnIds(fleet, filter, visitors, data.readIds) : shownIds(fleet, filter, visitors)) : null), [whole, fleet, filter, visitors, data.readIds])
+  const hidden = useMemo(() => (whole ? hiddenOf(whole, viewOf(whole, shownIds(fleet, filter, visitors))) : undefined), [whole, fleet, filter, visitors])
   const setFilter = (f: ShipFilter) => setParams((p) => { const v = paramOf(f); if (v) p.set('st', v); else p.delete('st'); return p }, { replace: true })
   const sel = model && selId ? model.byId.get(selId) ?? -1 : -1
   const hlId = params.get('n') ?? undefined
@@ -390,10 +403,10 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
       <div ref={host} className="absolute inset-0" />
       <div ref={labelsRoot} className="ship-labels pointer-events-none absolute inset-0 overflow-hidden" />
       <SonarRing />
-      {data.progress < 1 && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress} height={6} /></div>}
+      {(data.progress < 1 || data.batch !== undefined) && <div className="pointer-events-none absolute inset-x-0 top-0" title="Reading the graph"><PlankStrip progress={data.progress < 1 ? data.progress : data.batch ?? 1} height={6} /></div>}
 
-      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} hidden={hidden} filter={filter} />
-      <StateBar filter={filter} counts={counts} onPick={setFilter} />
+      <Cartouche model={model} synthetic={data.synthetic} live={status === 'open'} error={data.error} asOf={data.past?.t} hidden={hidden} filter={filter} reads={data.reads} />
+      <StateBar filter={filter} counts={counts} onPick={setFilter} reads={data.reads} />
 
       <div data-ship-ui className="absolute right-3 top-4 flex items-center gap-1.5">
         <BrassButton title="Fly to a session or a call (Ctrl+K)" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}>
@@ -455,9 +468,10 @@ function BrassButton({ children, onClick, title, on, className }: { children: Re
 
 /** The Ship's title, its counts, and the time machine's moment ("as of"). What the top bar's readouts said then (the
  *  profile, the uptime, or that the daemon was down) the top bar says itself, marked "then" (theseus-hnof). */
-function Cartouche({ model, synthetic, live, error, asOf, hidden, filter }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number; hidden?: Hidden; filter: ShipFilter }) {
+function Cartouche({ model, synthetic, live, error, asOf, hidden, filter, reads }: { model: ShipModel | null; synthetic: boolean; live: boolean; error?: string; asOf?: number; hidden?: Hidden; filter: ShipFilter; reads?: ShipData['reads'] }) {
   const s = model?.stats
   const failed = model?.vessels.filter((v) => v.rig === 'flare').length ?? 0
+  const line = reads ? readLine(filter === 'all' ? '' : (FILTERS.find((f) => f.key === filter)?.word ?? filter).toLowerCase(), reads.total, reads.rest) : null
   return (
     <div data-ship-ui className="ship-cartouche pointer-events-none absolute left-4 top-4">
       <div className="flex items-baseline gap-3">
@@ -472,6 +486,7 @@ function Cartouche({ model, synthetic, live, error, asOf, hidden, filter }: { mo
         <span className={s?.running ? 'text-live' : ''}><b className="num">{s?.running ?? 0}</b> working</span>
         {!!s?.waiting && <span className="text-wait"><b className="num">{s.waiting}</b> waiting for you</span>}
         {!!failed && <span className="text-fault"><b className="num">{failed}</b> failed</span>}
+        {line && <span className="text-ink-faint" title="A state at rest reads its newest twenty ships; Load all reads the rest">{line}</span>}
         {!!hidden && hidden.sessions + hidden.tasks > 0 && (
           <span className="text-ink-faint" title="Nothing is deleted: the filter above chooses what the Ship draws, and All shows every session">
             <b className="num">{hidden.sessions}</b> {hidden.sessions === 1 ? 'session' : 'sessions'}{hidden.tasks ? ` and ${hidden.tasks} ${hidden.tasks === 1 ? 'task' : 'tasks'}` : ''} hidden by {FILTERS.find((f) => f.key === filter)?.word ?? filter}
@@ -486,7 +501,7 @@ function Cartouche({ model, synthetic, live, error, asOf, hidden, filter }: { mo
 
 /** The state filter: Live · Quiet · Retired · All, each with its count (conversations; a task sails with its parent).
  *  Live is the default, and the choice is the address's `st`. */
-function StateBar({ filter, counts, onPick }: { filter: ShipFilter; counts: Counts; onPick: (f: ShipFilter) => void }) {
+function StateBar({ filter, counts, onPick, reads }: { filter: ShipFilter; counts: Counts; onPick: (f: ShipFilter) => void; reads?: ShipData['reads'] }) {
   return (
     <div data-ship-ui className="ship-statebar pointer-events-auto absolute left-4 top-[98px] flex items-center gap-1" role="radiogroup" aria-label="Which sessions the Ship draws">
       {FILTERS.map((f) => (
@@ -495,6 +510,11 @@ function StateBar({ filter, counts, onPick }: { filter: ShipFilter; counts: Coun
           {f.word} <b className="num ml-1 text-ink">{counts[f.key]}</b>
         </button>
       ))}
+      {reads && reads.rest > 0 && filter !== 'live' && (
+        <button type="button" title="Read the rest of this state's ships (the Ship reads its newest twenty first)" onClick={reads.loadAll} className="brass-button !px-2 !py-0.5 text-[11.5px]">
+          Load all <b className="num ml-1 text-ink">({reads.rest})</b>
+        </button>
+      )}
     </div>
   )
 }

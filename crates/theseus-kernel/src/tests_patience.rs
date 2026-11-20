@@ -66,6 +66,8 @@ fn a_job_that_goes_quiet_is_stopped_at_its_limit() {
     assert_eq!(detail["timed_out"], true, "{detail}");
     assert!(detail["silent_ms"].as_u64().unwrap() >= 400, "{detail}");
     assert!(detail.get("ran_past_limit_ms").is_none(), "{detail}");
+    // The result says what the limit was (issue 37).
+    assert_eq!(detail["limit_ms"], 400, "{detail}");
     assert!(took < Duration::from_secs(10), "{took:?}");
 }
 

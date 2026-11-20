@@ -530,3 +530,111 @@ fn a_batchs_deadline_covers_every_steps_timeout() {
     assert_eq!(one, (7 + 30) * 1000);
     assert_eq!(both, (7 + 20 + 30) * 1000);
 }
+
+impl Rig {
+    /// The `tool.ended` event of the session's first result.
+    fn ended(&self, sid: &str) -> theseus_protocol::ToolEnded {
+        use crate::fact::Fact;
+        let (_, node) = self
+            .core
+            .store
+            .session_nodes(sid)
+            .unwrap()
+            .into_iter()
+            .find(|(_, n)| matches!(n.body, Body::ToolResult { .. }))
+            .expect("a result");
+        let fact = crate::fact::tool::ToolEnded {
+            session_id: sid,
+            turn_id: "turn_test",
+            node: &node,
+        };
+        match fact.event() {
+            Some(theseus_protocol::Event::ToolEnded(t)) => t,
+            other => panic!("not a tool.ended: {other:?}"),
+        }
+    }
+}
+
+/// A job cut at its limit says what the limit was, how long it ran and where, in the line a finished job's exit
+/// code takes (issue 37). It ran from its start to its cut: at least the limit, and at most the limit and the
+/// longest a cut takes (`CUT_WORST`).
+#[tokio::test]
+async fn a_job_cut_at_its_limit_says_the_limit_how_long_it_ran_and_where() {
+    let r = rig(
+        vec![
+            run(json!({"argv": ["sleep", "30"], "timeout_secs": 1})),
+            Scripted::text("Cut."),
+        ],
+        |_| {},
+    );
+    let res = r.turn("sleep").await;
+    let results = r.results(&res.session_id);
+    let (status, text, meta) = &results[0];
+    assert_eq!(*status, ResultStatus::Error, "{text}");
+    assert!(text.starts_with("[timed out and killed]\n"), "{text}");
+    assert!(
+        text.contains("[cut at its 1 s limit, a limit on silence: it printed nothing for "),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(" · in {}]\n", r.root.display())),
+        "{text}"
+    );
+    assert!(text.ends_with("(no output)"), "{text}");
+    let ran = meta["detail"]["duration_ms"].as_u64().unwrap();
+    let worst = theseus_kernel::job::CUT_WORST.as_millis() as u64;
+    assert!(ran >= 1000 && ran <= 1000 + worst, "{ran} ms");
+    assert!(
+        text.contains(&format!(" · ran {:.1} s ·", ran as f64 / 1000.0)),
+        "{text} {ran}"
+    );
+    // The step's end carries the limit, so each surface says it was cut and not that it failed.
+    let ended = r.ended(&res.session_id);
+    assert_eq!(ended.cut_at_ms, Some(1000));
+    assert_eq!(ended.cut_words().as_deref(), Some("cut at its 1 s limit"));
+}
+
+/// A batch's step that is cut says the same, under the steps before it.
+#[tokio::test]
+async fn a_batch_step_cut_at_its_limit_says_so_too() {
+    let r = rig(
+        vec![
+            run(json!({"steps": [
+                {"argv": ["printf", "one"]},
+                {"argv": ["sleep", "30"], "timeout_secs": 1},
+                {"argv": ["touch", "never"]},
+            ]})),
+            Scripted::text("Cut."),
+        ],
+        |_| {},
+    );
+    let res = r.turn("batch").await;
+    let (status, text, _) = &r.results(&res.session_id)[0];
+    assert_eq!(*status, ResultStatus::Error, "{text}");
+    assert!(text.contains("[exit code 0, "), "{text}");
+    assert!(
+        text.contains("[timed out and killed]\n[cut at its 1 s limit"),
+        "{text}"
+    );
+    assert!(text.contains(" · ran "), "{text}");
+    assert_eq!(r.ended(&res.session_id).cut_at_ms, Some(1000));
+}
+
+/// A job that fails with an exit code is not a cut: no limit rides on its end.
+#[tokio::test]
+async fn a_failed_job_is_not_a_cut_one() {
+    let r = rig(
+        vec![
+            run(json!({"argv": ["sh", "-c", "exit 1"]})),
+            Scripted::text("Failed."),
+        ],
+        |_| {},
+    );
+    let res = r.turn("fail").await;
+    let (status, text, _) = &r.results(&res.session_id)[0];
+    assert_eq!(*status, ResultStatus::Error, "{text}");
+    assert!(text.starts_with("[exit code 1 · in "), "{text}");
+    assert!(!text.contains("cut at its"), "{text}");
+    let ended = r.ended(&res.session_id);
+    assert_eq!((ended.cut_at_ms, ended.cut_words()), (None, None));
+}

@@ -28,6 +28,11 @@ exit_code: number | null,
  */
 stopped_by: string | null, 
 /**
+ * The limit, in ms, a job was cut at: it ended at its time limit, which is not a failure, and every
+ * place that draws the end says so (issue 37). Absent for every other end.
+ */
+cut_at_ms?: number, 
+/**
  * The result's first 2,000 characters.
  */
 preview: string, 

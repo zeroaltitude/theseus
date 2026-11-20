@@ -811,6 +811,12 @@ fn outcome(t: &ToolEnded, ms: u64) -> (&'static str, Sty, String) {
     match t.status.as_str() {
         "ok" if t.late => ("✓", Sty::Green, format!("finished · {}", took(ms))),
         "ok" => ("✓", Sty::Green, took(ms)),
+        // Cut at its time limit: what happened, not a failure (issue 37).
+        "error" if t.cut_words().is_some() => (
+            "⏱",
+            Sty::Yellow,
+            format!("{} · {}", t.cut_words().unwrap_or_default(), took(ms)),
+        ),
         "background" => ("◐", Sty::Cyan, "running in the background".to_string()),
         "declined" | "denied" => ("✗", Sty::Yellow, "declined".to_string()),
         "cancelled" => {

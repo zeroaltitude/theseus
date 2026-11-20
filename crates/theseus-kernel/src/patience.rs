@@ -150,6 +150,10 @@ impl Patience {
                 "ceiling_ms": self.ceiling_ms(),
             });
         }
+        // The limit a cut job was held to, so its result can say what it was (issue 37).
+        if self.cut.is_some() {
+            detail["limit_ms"] = json!(self.limit_ms());
+        }
         match self.cut {
             Some(Cut::Silent(q)) => detail["silent_ms"] = json!(q.as_millis() as u64),
             Some(Cut::Ceiling(_)) => detail["ceiling_hit"] = json!(true),

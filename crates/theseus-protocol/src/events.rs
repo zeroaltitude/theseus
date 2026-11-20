@@ -399,6 +399,11 @@ pub struct ToolEnded {
     pub exit_code: Option<i64>,
     /// Who stopped it, when a `/stop` ended it (theseus-4uw).
     pub stopped_by: Option<String>,
+    /// The limit, in ms, a job was cut at: it ended at its time limit, which is not a failure, and every
+    /// place that draws the end says so (issue 37). Absent for every other end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cut_at_ms: Option<u64>,
     /// The result's first 2,000 characters.
     pub preview: String,
     /// An L1 job's scratch (M4 17b): what it wrote there, which was
@@ -427,6 +432,19 @@ pub struct ToolEnded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub subagent: Option<crate::SubagentAnswer>,
+}
+
+impl ToolEnded {
+    /// What every surface says of a job cut at its time limit, in place of the failure's word: `cut at its
+    /// 2 s limit` (issue 37). `None` for any other end.
+    pub fn cut_words(&self) -> Option<String> {
+        let ms = self.cut_at_ms?;
+        let limit = match ms % 1000 {
+            0 => format!("{} s", ms / 1000),
+            _ => format!("{:.1} s", ms as f64 / 1000.0),
+        };
+        Some(format!("cut at its {limit} limit"))
+    }
 }
 
 /// `confirm.resolved`: a question waiting for the operator closed.

@@ -754,7 +754,9 @@ pub fn tool_ended_line(t: &ToolEnded) -> String {
     format!(
         "  ← {} {}{}",
         t.tool,
-        result_word(&t.status, t.stopped_by.as_deref()),
+        // A job cut at its time limit says so, not `error` (issue 37).
+        t.cut_words()
+            .unwrap_or_else(|| result_word(&t.status, t.stopped_by.as_deref())),
         if extra.is_empty() {
             String::new()
         } else {
