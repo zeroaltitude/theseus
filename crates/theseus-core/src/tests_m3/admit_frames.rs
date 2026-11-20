@@ -247,7 +247,7 @@ async fn a_stop_whose_notice_the_turn_took_answers_that_a_turn_was_running() {
     let landed = landed.lock().unwrap().expect("the hook ran");
     let stop = r
         .core
-        .stop_after_landing(&exec, "operator", false, landed)
+        .stop_after_landing(&exec, "operator", false, landed, false)
         .await
         .unwrap();
     assert!(stop.stopped, "{stop:?}");

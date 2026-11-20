@@ -527,8 +527,30 @@ impl Core {
         cancelling: bool,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
         let landed = self.runner.stop_landed(id, by);
-        self.stop_after_landing_as(id, by, keep_jobs, landed, cancelling)
+        self.stop_after_landing(id, by, keep_jobs, landed, cancelling)
             .await
+    }
+
+    /// The answer of a stop that found nothing to stop: the execution had ended.
+    fn nothing_to_stop(&self, id: &str) -> Result<theseus_protocol::ExecutionStopResult> {
+        let e = self
+            .kernel
+            .execution(id)?
+            .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        Ok(theseus_protocol::ExecutionStopResult {
+            execution: Self::execution_info(&e),
+            stopped: false,
+            stopped_actions: vec![],
+            verdicts: vec![],
+            declined: vec![],
+            turn_running: false,
+            tasks_running: 0,
+            wakes_pending: 0,
+            agents_running: vec![],
+            cancelled: vec![],
+            left_ended: vec![],
+            left_kept: vec![],
+        })
     }
 
     /// The rest of `stop_execution_with`, once its notice has landed (`landed`
@@ -540,20 +562,8 @@ impl Core {
     /// secrets, or in `admit()`) and arrived before the notice: it stops itself on the notice when admitted. The kernel is
     /// told of both, so that its row, the answer and the session's note say
     /// the same.
+    /// `cancelling` is that the caller cancels the session's tasks next.
     pub(crate) async fn stop_after_landing(
-        &self,
-        id: &str,
-        by: &str,
-        keep_jobs: bool,
-        landed: std::time::Instant,
-    ) -> Result<theseus_protocol::ExecutionStopResult> {
-        self.stop_after_landing_as(id, by, keep_jobs, landed, false)
-            .await
-    }
-
-    /// [`stop_after_landing`](Self::stop_after_landing); `cancelling` is that the caller cancels the
-    /// session's tasks next.
-    async fn stop_after_landing_as(
         &self,
         id: &str,
         by: &str,
@@ -575,24 +585,7 @@ impl Core {
             .stop_execution_reaching(id, by, &keep, reached)?;
         super::ordered::applied();
         let Some(stop) = stop else {
-            let e = self
-                .kernel
-                .execution(id)?
-                .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
-            return Ok(theseus_protocol::ExecutionStopResult {
-                execution: Self::execution_info(&e),
-                stopped: false,
-                stopped_actions: vec![],
-                verdicts: vec![],
-                declined: vec![],
-                turn_running: false,
-                tasks_running: 0,
-                wakes_pending: 0,
-                agents_running: vec![],
-                cancelled: vec![],
-                left_ended: vec![],
-                left_kept: vec![],
-            });
+            return self.nothing_to_stop(id);
         };
         // The model call the running turn waits on is cut now, and not left to
         // finish (theseus-yey): the kernel's record of the stop is written, so
