@@ -629,7 +629,17 @@ async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card
         .map(|a| a.response_type)
         .collect();
     assert_eq!(acks, [Some(6)], "acknowledged as a deferred update");
+    // One writer per card: the daemon's settle wrote it, and the press wrote nothing (not even the same words).
+    r.until("the press is over", || crate::runtime::handled(&pressed))
+        .await;
     let card = r.card(LAB).unwrap();
+    let writes = r
+        .fake
+        .seen()
+        .into_iter()
+        .filter(|s| s.method == "PATCH" && s.message_id.as_deref() == Some(card.id.as_str()))
+        .count();
+    assert_eq!(writes, 1, "the settle only");
     assert_eq!(card.versions.len(), 2, "{:?}", card.versions);
     assert!(
         card.content

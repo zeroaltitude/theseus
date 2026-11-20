@@ -336,6 +336,8 @@ impl Shared {
                    "option": option, "by": who, "ok": r.is_ok(), "modal": true,
                    "error": r.as_ref().err().map(|e| e.message.clone())}),
         );
+        // The id the daemon answered, whole: the modal's own is the question's last characters.
+        let whole = r.as_ref().ok().map(|d| d.question_id.clone());
         let line = match r {
             Ok(done) => format!("✅ **Answered** by {who} · `…{}`", short(&done.question_id)),
             Err(e) if e.code == theseus_protocol::error_code::REFUSED => {
@@ -348,7 +350,7 @@ impl Shared {
             Err(e) => format!("⚠️ Could not answer: {e}"),
         };
         match (on_message, line.starts_with('✅')) {
-            (true, true) if self.settled_by_daemon(question) => {}
+            (true, true) if whole.is_some_and(|q| self.settled_by_daemon(&q)) => {}
             (true, true) => self.edit_original_v2(i, &card_v2::closed(&line)).await,
             (true, false) => self.followup(i, &line).await,
             (false, _) => self.finish_command(i, &line, "answer response").await,

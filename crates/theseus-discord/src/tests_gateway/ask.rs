@@ -244,3 +244,29 @@ async fn a_pressed_card_ends_with_the_settle_when_the_press_completes_after_the_
         .await;
     assert_settled_alone(&r, &card, &pressed);
 }
+
+/// An answer typed in the answer form (`wm:`), submitted from the card: the form's submit is acknowledged as an
+/// update of the card and writes nothing to it; the settle is the card's one writer.
+#[tokio::test]
+async fn an_answer_from_the_form_on_a_card_leaves_the_card_to_the_settle() {
+    let r = rig().await;
+    let card = the_dm_card(&r).await;
+    let corr = r.core.confirm_list().unwrap().remove(0).correlation_id;
+    let ana = theseus_sim::fake_discord::commands::Sender {
+        user: ANA,
+        name: "ana",
+        channel: None,
+    };
+    let form = crate::render::answer_v2::modal_id(&corr, "choice:0");
+    let pressed = r
+        .fake
+        .submit_modal_from(&ana, &card.id, &form, &[], &[])
+        .unwrap();
+    r.until("the card is settled", || {
+        card_now(&r, &card.id).content.contains("Answered")
+    })
+    .await;
+    r.until("the submit is over", || crate::runtime::handled(&pressed))
+        .await;
+    assert_settled_alone(&r, &card, &pressed);
+}
