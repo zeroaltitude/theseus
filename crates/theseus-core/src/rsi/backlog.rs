@@ -69,6 +69,8 @@ mod tender;
 mod tests_attempts;
 #[cfg(test)]
 mod tests_brief;
+#[cfg(test)]
+mod tests_judge_wrong;
 pub(crate) mod tool;
 mod word;
 
