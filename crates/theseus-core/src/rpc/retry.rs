@@ -91,6 +91,21 @@ impl Core {
                 what: &what,
             },
         )?;
+        // A job is dismissed by its call's id (`act_…`) through the same act: it
+        // has no execution of its own, so the mark is on its action.
+        if execution_id.starts_with("act_") {
+            let done = self.kernel.dismiss_job(execution_id)?;
+            if let (true, Some(a)) = (done.written, self.kernel.action(execution_id)?) {
+                self.rec_for(&a.session_id)
+                    .announce(&fact::retry::FailureDismissed {
+                        execution_id: &a.correlation_id,
+                        session_id: &a.session_id,
+                        state: "failed job",
+                        by: &who.label,
+                    });
+            }
+            return Ok(done);
+        }
         let done = self.kernel.dismiss_execution(execution_id)?;
         if done.written {
             if let Some(e) = self.kernel.execution(execution_id)? {

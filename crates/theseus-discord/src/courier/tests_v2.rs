@@ -66,6 +66,7 @@ fn task(n: usize) -> theseus_protocol::work::WorkView {
         expect: None,
         flagged: false,
         dismissed: false,
+        read: false,
         retry_of: None,
         forecast: None,
         thread: None,

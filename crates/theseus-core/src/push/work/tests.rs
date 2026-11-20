@@ -169,7 +169,12 @@ fn the_rollup_counts_what_needs_you_works_and_failed() {
     );
 }
 
-fn job_action(corr: &str, state: ActionState, dispatched: u64, settled: Option<u64>) -> Action {
+pub(super) fn job_action(
+    corr: &str,
+    state: ActionState,
+    dispatched: u64,
+    settled: Option<u64>,
+) -> Action {
     Action {
         correlation_id: corr.into(),
         schema: 2,

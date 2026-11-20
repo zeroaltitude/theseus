@@ -5,7 +5,7 @@ import type { NodeInfo, StandingInfo, TaskRecord, WorkForecast } from '@protocol
 import { ago, clock, ms, short, usd } from '../lib/figures.ts'
 import { alive, counterLabel, selects, type AllCounters, type OpsRow } from './board.ts'
 import type { Bucket } from './address.ts'
-import { bucketGlyph } from './state.ts'
+import { bucketGlyph, isEndedState } from './state.ts'
 
 export interface FactLine { label: string; value: string; tone?: 'money' | 'wait' | 'fault' | 'ok' | 'think' | 'dim' }
 
@@ -81,6 +81,20 @@ export function jobFacts(r: OpsRow, now: number): FactLine[] {
     if (r.sessionId) out.push({ label: 'session', value: short(r.sessionId) })
   }
   return out
+}
+
+/** Whether a job's panel offers Stop: only while the job runs. An ended job has nothing to stop; a failed one still
+ *  under Needs you offers Dismiss instead (`dismissOf`), and any other offers nothing but its output. */
+export const jobStoppable = (r: OpsRow): boolean => !isEndedState(r.state)
+
+/** The `execution.dismiss` that clears a failed row from Needs you: a task's or conversation's by its execution id, a job's
+ *  by its call id. Null for anything else: an approval, a question or a budget stop is answered, never dismissed, and a
+ *  failure already dismissed (or one no longer asking) has nothing left to clear. */
+export function dismissOf(r: OpsRow): { method: 'execution.dismiss'; params: { execution_id: string } } | null {
+  const v = r.view
+  if (!v || v.state !== 'failed' || v.dismissed || r.bucket !== 'needs') return null
+  if (r.kind === 'job') return { method: 'execution.dismiss', params: { execution_id: r.id } }
+  return r.kind === 'task' || r.kind === 'conversation' ? { method: 'execution.dismiss', params: { execution_id: v.id } } : null
 }
 
 /** The job to follow for a session: its first running job on the board. */

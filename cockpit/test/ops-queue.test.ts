@@ -187,3 +187,15 @@ test('the present is told, not guessed: past false with no views reads no execut
   assert.deepEqual(queueOf({ confirms: [], views: [], executions: ex, past: false }), [])
   assert.equal(queueOf({ confirms: [], views: [], executions: ex, past: true }).length, 1)
 })
+
+test('a failed conversation under Needs you dismisses through execution.dismiss, and leaves the queue once dismissed; an ask has no dismiss', () => {
+  const failedConv = (over = {}) => view('exe_cv', 'conversation', 'failed', { session_id: 'ses_cv', ...over }, 'needs_you')
+  const q = queueOf({ confirms: [], views: [failedConv()] })
+  assert.deepEqual(q.map((i) => i.kind), ['failure'])
+  assert.deepEqual(answerOf(q[0], { verb: 'dismiss' }), { method: 'execution.dismiss', params: { execution_id: 'exe_cv' } })
+  assert.equal(answerOf(q[0], { verb: 'retry' }), null, 'a conversation is dismissed, not retried')
+  assert.equal(queueOf({ confirms: [], views: [failedConv({ dismissed: true, attention: { level: 'idle', label: 'failed · dismissed', since_ms: NOW } })] }).length, 0)
+  const asks = full().filter((i) => i.kind !== 'failure')
+  assert.ok(asks.some((i) => i.kind === 'approval') && asks.some((i) => i.kind === 'budget'))
+  for (const i of asks) assert.equal(answerOf(i, { verb: 'dismiss' }), null, i.kind)
+})

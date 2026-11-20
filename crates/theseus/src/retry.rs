@@ -73,9 +73,14 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: crate::Cmd) -> Result<()> {
 
 /// `theseus dismiss ID`.
 pub async fn dismiss(conn: &mut Conn, json: bool, id: String) -> Result<()> {
-    resolve::long_enough(&id, "task")?;
-    let execs = resolve::executions(conn).await?;
-    let execution_id = target(&id, &execs, false)?.execution_id.clone();
+    // A failed job is named by its whole call id (`act_…`), as the Ops page shows it.
+    let execution_id = if id.starts_with("act_") {
+        id
+    } else {
+        resolve::long_enough(&id, "task")?;
+        let execs = resolve::executions(conn).await?;
+        target(&id, &execs, false)?.execution_id.clone()
+    };
     let v = conn
         .request(
             method::EXECUTION_DISMISS,
