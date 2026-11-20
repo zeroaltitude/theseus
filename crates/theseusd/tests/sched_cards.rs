@@ -19,7 +19,7 @@ use std::time::Duration;
 use common::model::FakeModel;
 use common::Daemon;
 use serde_json::{json, Value};
-use theseus_sim::fake_discord::{FakeDiscord, Guild, Msg, DEFAULT_GUILD};
+use theseus_sim::fake_discord::{FakeDiscord, Guild, HoldAt, Msg, DEFAULT_GUILD};
 
 const USER: u64 = 271_828_182_845_904_523;
 /// Components V2.
@@ -224,10 +224,6 @@ fn a_restart_keeps_one_card_and_one_post_each_in_their_true_states() {
     });
     assert_eq!(r.posts("tide check")[0].1, ["scheduled"]);
     assert_eq!(r.posts("Paint the buoy")[0].1, ["scheduled"]);
-    // The stand-in shows a post the moment it is made, before the daemon has
-    // recorded it in its list: a kill that close would lose the row (as it would
-    // for a task's post), so the daemon is given a second to write it.
-    std::thread::sleep(Duration::from_secs(1));
     // Killed before the reminder is due, and down for nine seconds.
     drop(daemon);
     std::thread::sleep(Duration::from_secs(9));
@@ -297,4 +293,112 @@ fn a_fired_reminder_set_again_stands_again_on_its_card_and_post() {
     assert_eq!(r.cards("tide check").len(), 1);
     assert_eq!(r.cards("tide check")[0].id, first, "the same card");
     assert_eq!(r.posts("tide check").len(), 1);
+}
+
+/// What is set for later, as a post is made for it.
+#[derive(Clone, Copy)]
+enum Item {
+    Reminder,
+    Task,
+}
+
+impl Item {
+    fn words(self) -> &'static str {
+        match self {
+            Item::Reminder => "tide check",
+            Item::Task => "Paint the buoy",
+        }
+    }
+
+    fn set(self, r: &Rig, sid: &str) {
+        match self {
+            Item::Reminder => r
+                .call(
+                    "wake.create",
+                    json!({"when": "in 90m", "note": self.words(), "session_id": sid}),
+                )
+                .map(|_| ()),
+            Item::Task => r
+                .call(
+                    "task.start",
+                    json!({"brief": self.words(), "home": sid, "start_when": "in 90m"}),
+                )
+                .map(|_| ()),
+        }
+        .unwrap();
+    }
+}
+
+/// The daemon killed while its create of the item's forum post is held at `at`
+/// (not yet at Discord, or at Discord and unanswered, so before the daemon's row
+/// of it), then started again: one post for the item, and its first card and tag.
+fn killed_with_the_post_held(item: Item, at: HoldAt) {
+    let r = Rig::new();
+    r.fake.hold_thread_creates(Some(at));
+    let daemon = r.spawn();
+    let sid = r.session();
+    item.set(&r, &sid);
+    r.settle("the post's create held", || {
+        r.fake.held_thread_creates() >= 1
+    });
+    drop(daemon);
+    r.fake.hold_thread_creates(None);
+    std::thread::sleep(Duration::from_secs(1));
+    let _daemon = r.spawn();
+    r.settle("the item's post, scheduled", || {
+        r.posts(item.words()).first().map(|p| p.1.clone()) == Some(vec!["scheduled".to_string()])
+    });
+    // Time for any second post to be made.
+    std::thread::sleep(Duration::from_secs(4));
+    assert_eq!(r.posts(item.words()).len(), 1, "{}", r.held());
+    assert_eq!(r.cards(item.words()).len(), 1);
+}
+
+/// The post is at Discord and unanswered: the restarted daemon finds it by its
+/// marker and makes none.
+#[test]
+fn a_reminders_post_made_at_discord_before_the_kill_is_found_not_made_again() {
+    killed_with_the_post_held(Item::Reminder, HoldAt::AfterApply);
+}
+
+#[test]
+fn a_tasks_post_made_at_discord_before_the_kill_is_found_not_made_again() {
+    killed_with_the_post_held(Item::Task, HoldAt::AfterApply);
+}
+
+/// The create never reached Discord: the restarted daemon makes the item's
+/// first post, and only one.
+#[test]
+fn a_reminders_post_whose_create_never_arrived_is_made_once_after_the_kill() {
+    killed_with_the_post_held(Item::Reminder, HoldAt::BeforeApply);
+}
+
+#[test]
+fn a_tasks_post_whose_create_never_arrived_is_made_once_after_the_kill() {
+    killed_with_the_post_held(Item::Task, HoldAt::BeforeApply);
+}
+
+/// The card is at Discord and unanswered when the daemon is killed, and Discord's
+/// nonce window has closed by the restart (as the real one does): the restarted
+/// daemon finds the card by the item's short id in its words, and makes no second.
+#[test]
+fn a_card_made_at_discord_before_the_kill_is_found_not_made_again() {
+    let r = Rig::new();
+    r.fake.set_nonce_window_ms(1);
+    r.fake.hold_writes_containing(Some("tide check"));
+    let daemon = r.spawn();
+    let sid = r.session();
+    Item::Reminder.set(&r, &sid);
+    r.settle("the card at Discord, unanswered", || {
+        r.cards("tide check").len() == 1
+    });
+    drop(daemon);
+    r.fake.hold_writes_containing(None);
+    std::thread::sleep(Duration::from_secs(2));
+    let _daemon = r.spawn();
+    r.settle("the item's post, scheduled", || {
+        r.posts("tide check").first().map(|p| p.1.clone()) == Some(vec!["scheduled".to_string()])
+    });
+    std::thread::sleep(Duration::from_secs(4));
+    assert_eq!(r.cards("tide check").len(), 1, "{}", r.held());
 }

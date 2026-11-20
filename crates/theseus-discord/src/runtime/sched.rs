@@ -43,6 +43,8 @@ use twilight_http::request::Request;
 use twilight_http::routing::Route as HttpRoute;
 use twilight_model::application::interaction::Interaction;
 
+mod intent;
+
 use super::Shared;
 use crate::courier::{nonce, SendErr};
 use crate::render::horizon::CANCEL_PREFIX;
@@ -455,6 +457,8 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
 pub(crate) struct Worker {
     shared: Arc<Shared>,
     recs: Vec<Rec>,
+    /// Cards about to be made, or made and not yet recorded (`intent.rs`).
+    intents: Vec<intent::Intent>,
     retry: Duration,
     loaded: bool,
     /// Cards made in this pass, and the gap kept between those after the first
@@ -472,6 +476,7 @@ pub(super) fn start(shared: &Arc<Shared>) {
         let mut w = Worker {
             shared: s.clone(),
             recs: Vec::new(),
+            intents: Vec::new(),
             retry: Duration::ZERO,
             loaded: false,
             made: 0,
@@ -506,6 +511,7 @@ impl Worker {
         Self {
             shared,
             recs: Vec::new(),
+            intents: Vec::new(),
             retry: Duration::ZERO,
             loaded: false,
             made: 0,
@@ -521,6 +527,14 @@ impl Worker {
                 .core
                 .store
                 .get_meta::<Vec<Rec>>(KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            self.intents = self
+                .shared
+                .core
+                .store
+                .get_meta::<Vec<intent::Intent>>(intent::KEY)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
@@ -751,6 +765,16 @@ impl Worker {
             tokio::time::sleep(self.space).await;
         }
         self.made += 1;
+        // A card a stop cut off before it was recorded is found, not made again.
+        match self.settle_intent(f, home, now).await {
+            Ok(true) => return self.edit_found(f, card, dig, home, now).await,
+            Ok(false) => {}
+            Err(e) => {
+                self.failed("schedule card", format!("{e:#}"));
+                return false;
+            }
+        }
+        self.intend(&f.id, home.channel);
         match self.create(home.channel, &f.id, card, after).await {
             Ok(message) => {
                 self.recs.push(Rec {
@@ -773,7 +797,41 @@ impl Worker {
                     digest: dig,
                 });
                 self.save();
+                self.settle(&f.id);
                 self.log(&home.label, message, f, "posted");
+                true
+            }
+            Err(e) => {
+                // A create that certainly made nothing leaves no intent; one
+                // that may have gone keeps it, and is settled before the next.
+                if !e.away && !e.unsure {
+                    self.settle(&f.id);
+                }
+                self.failed("schedule card", &e.message);
+                false
+            }
+        }
+    }
+
+    /// The card found again after a stop is edited to the item's truth now.
+    async fn edit_found(
+        &mut self,
+        f: &Face,
+        card: &[Value],
+        dig: u64,
+        home: &Home,
+        now: u64,
+    ) -> bool {
+        let Some(i) = self.recs.iter().position(|r| r.id == f.id) else {
+            return true;
+        };
+        let rec = self.recs[i].clone();
+        match self.edit(&rec, card).await {
+            Ok(()) => {
+                let r = &mut self.recs[i];
+                r.digest = dig;
+                r.ended_ms = f.is_over().then_some(now);
+                self.log(&home.label, rec.card, f, "found");
                 true
             }
             Err(e) => {
