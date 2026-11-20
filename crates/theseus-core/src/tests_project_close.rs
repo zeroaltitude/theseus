@@ -374,9 +374,9 @@ fn only_a_live_task_or_a_held_claim_carries() {
     // A claim names its holder, not the step; one whose holder ended carries nothing.
     let said = carried(&all, &project, (no, yes)).unwrap();
     assert!(
-        said.contains("holder1") && said.contains("Sound the channel"),
+        said.contains("older1") && said.contains("Sound the channel"),
         "{said}"
     );
-    assert!(!said.contains("item001"), "{said}");
+    assert!(!said.contains("em001"), "{said}");
     assert!(carried(&all, &project, (no, &|_| false)).is_none());
 }
