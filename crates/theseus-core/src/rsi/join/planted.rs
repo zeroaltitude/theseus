@@ -288,9 +288,17 @@ pub fn undo_fix(p: &Place, t: &Tree, base: &str, paths: &[(char, String)]) -> Re
         if is_test_path(path) {
             continue;
         }
+        // The branch's tests ran in this tree with it writable: a link they left is not followed.
+        if let Some(at) = crate::rsi::tree_git::link_below(&t.dir, path) {
+            anyhow::bail!(
+                "{path} lies through a link in the tree ({}), which the branch's tests left \
+                 there, so nothing was removed or restored through it",
+                at.display()
+            );
+        }
         if *status == 'A' {
             let f = t.dir.join(path);
-            if f.exists() {
+            if f.symlink_metadata().is_ok() {
                 std::fs::remove_file(&f)?;
             }
         } else {

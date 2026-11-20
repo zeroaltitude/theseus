@@ -291,6 +291,9 @@ impl ToolRuntime {
         // read board, asked per target. `holds` is one `stat` and a compare,
         // never a transcript scan, so it belongs on this path.
         let holds = |p: &std::path::Path| self.reads.holds(tc.session_id, p);
+        // The self loop's own directory, where a self branch's code writes in L1: the probe
+        // starts no git there (`state::NoGitUnder`).
+        let own = crate::rsi::own_tree::self_dir(self);
         let call = undo::state::UndoCall::of(
             tc.session_id,
             tc.turn_id,
@@ -301,6 +304,7 @@ impl ToolRuntime {
                 is_program,
                 l1,
                 holds: &holds,
+                no_git_under: Some(&own),
             },
         );
         if !call.worth_asking() {

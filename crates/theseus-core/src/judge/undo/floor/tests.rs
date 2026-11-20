@@ -28,6 +28,7 @@ fn write_of(tool: &str, access: &str, recovery: Recovery) -> (UndoCall, UndoInpu
         is_program: false,
         l1: false,
         held: Default::default(),
+        no_git_under: None,
     };
     let input = UndoInput {
         tool: tool.into(),

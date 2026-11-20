@@ -1667,6 +1667,8 @@ async fn the_floor_never_lowers_a_final_verdict_to_a_hold() {
     );
 }
 
+#[path = "tests_undo/probe_in_self_tree.rs"]
+mod probe_in_self_tree;
 #[path = "tests_undo/self_floor.rs"]
 mod self_floor;
 #[path = "tests_undo/self_own.rs"]

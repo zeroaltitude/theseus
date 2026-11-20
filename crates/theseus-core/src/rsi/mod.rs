@@ -100,8 +100,11 @@ mod tests_reach_within;
 mod tests_rerun;
 #[cfg(test)]
 pub(crate) mod tests_tree;
+#[cfg(test)]
+mod tests_tree_git;
 pub mod tree;
 pub mod tree_fmt;
+pub(crate) mod tree_git;
 pub mod tree_lease;
 pub mod tree_main;
 

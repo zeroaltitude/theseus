@@ -224,6 +224,7 @@ fn call() -> UndoCall {
         is_program: false,
         l1: false,
         held: Default::default(),
+        no_git_under: None,
     }
 }
 
@@ -354,6 +355,7 @@ fn the_gate_asks_the_record_about_each_target_path_and_no_other() {
             is_program: false,
             l1: false,
             holds: &holds,
+            no_git_under: None,
         },
     );
 
