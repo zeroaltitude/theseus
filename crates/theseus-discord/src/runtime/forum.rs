@@ -53,6 +53,7 @@ use crate::bindings::Bindings;
 use crate::render::{board_v2, task_view, v2};
 
 pub(crate) mod archive;
+mod intent;
 
 /// A card is edited at most once in this long.
 pub(crate) const CARD_EVERY: Duration = Duration::from_secs(2);
@@ -257,6 +258,8 @@ pub(crate) struct TaskPosts {
     moved: Mutex<HashMap<String, String>>,
     /// The scheduled items' faces, for their posts' cards (`sched.rs`).
     pub(super) sched: super::sched::Sched,
+    /// Posts about to be made or made and not yet recorded (`intent.rs`).
+    intents: Mutex<Vec<intent::Intent>>,
 }
 
 impl TaskPosts {
@@ -302,6 +305,7 @@ impl TaskPosts {
             .into_iter()
             .filter(|p| archive::kept(p, now, LINK_KEPT_MS))
             .collect();
+        self.load_intents(store);
     }
 
     pub(super) fn save(&self, store: &theseus_core::store::Store) {
@@ -790,6 +794,19 @@ impl Worker {
         if let Some(wait) = self.reopen_if_rearmed(key, view).await {
             return Some(wait);
         }
+        // A post a stop cut off before it was recorded is found, not made again
+        // (the read waits out the key's backoff as a create does).
+        if self.shared.task_posts.intent_of(&key.0, key.1).is_some() {
+            if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
+                return Some(t - now);
+            }
+        }
+        if let Err(e) = self.settle_intent(key, &f.guild).await {
+            self.shared
+                .board
+                .error("task forum post", None, format!("{e:#}"));
+            return Some(self.backed_off(key));
+        }
         // A post the last run made (the list has it): taken up again.
         if let Some(held) = self.adopt(key) {
             return held;
@@ -935,6 +952,9 @@ impl Worker {
             .forum()
             .ok_or_else(|| anyhow::anyhow!("the default forum is not standing"))?;
         let key = (view.id.clone(), f.channel);
+        if !self.slots.contains_key(&key) {
+            self.settle_intent(&key, &f.guild).await?;
+        }
         if !self.slots.contains_key(&key) && self.adopt(&key).is_none() {
             let name = task_name(Mark::of(view.state), &view.id, &view.title);
             self.create(&key, &f, view, None, name).await?;
@@ -1203,17 +1223,34 @@ impl Worker {
         })
         .json(&body)
         .build()?;
-        let made: Value = self
-            .shared
-            .http
-            .request::<Value>(req)
-            .await?
-            .model()
-            .await?;
-        let post: u64 = made["id"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| anyhow::anyhow!("the new post has no id"))?;
+        // The intent is on the list before the create goes out (`intent.rs`).
+        let store = &self.shared.core.store;
+        self.shared.task_posts.intend(store, &key.0, f.channel);
+        let sent: anyhow::Result<u64> = async {
+            let made: Value = self
+                .shared
+                .http
+                .request::<Value>(req)
+                .await?
+                .model()
+                .await?;
+            made["id"]
+                .as_str()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| anyhow::anyhow!("the new post has no id"))
+        }
+        .await;
+        let post = match sent {
+            Ok(post) => post,
+            Err(e) => {
+                // A create that certainly made nothing leaves no intent; one that
+                // may have gone keeps it, and is settled before the next try.
+                if intent::made_nothing(&e) {
+                    self.shared.task_posts.settle(store, &key.0, f.channel);
+                }
+                return Err(e);
+            }
+        };
         let post = Post {
             task: key.0.clone(),
             forum: f.channel,
@@ -1241,6 +1278,7 @@ impl Worker {
         let s = &self.shared;
         s.task_posts.posts.lock().unwrap().push(post);
         s.task_posts.save(&s.core.store);
+        s.task_posts.settle(&s.core.store, &key.0, f.channel);
         // The place's board draws its row's link to the post.
         if let Some(home) = self.entries.get(&key.0).and_then(|e| e.home.as_ref()) {
             let _ = home.send(super::PlaceMsg::Tasks);
@@ -1445,12 +1483,12 @@ mod tests {
         assert_eq!(wait(Some(t0), TAGS_EVERY, t0 + TAGS_EVERY, false), None);
     }
 
-    const FORUM: u64 = 900_000_000_000_000_030;
+    pub(super) const FORUM: u64 = 900_000_000_000_000_030;
 
     /// A rig for the stand-in's REST, and a worker over it with short
     /// intervals (the binding is not asked about the forum: the worker is run
     /// by hand).
-    async fn worker_over_the_fake() -> (crate::tests_gateway::Rig, Worker) {
+    pub(super) async fn worker_over_the_fake() -> (crate::tests_gateway::Rig, Worker) {
         use crate::tests_gateway::{Rig, ANA, BEN, CY, LAB};
         use theseus_core::provider::FakeProvider;
         use theseus_sim::fake_discord::{Guild, DEFAULT_GUILD};
