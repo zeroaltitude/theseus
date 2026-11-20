@@ -107,6 +107,21 @@ its item stands, and one whose item has ended is not; cancelled-by is the presse
 own record keeps the user name), a cancel from the CLI says "Cancelled from the terminal", and one the record names no one for says
 "Cancelled" alone.
 
+## A post found gone is made again at a pace (issue 30)
+
+A post whose calls fail is read once, after the key's backoff (`forum.rs::forget_if_gone`: the thread, then its starter message, which
+is the card); a thread that answers 404, or one that stands with no starter message, is gone. Its row and slot go, and what follows is in
+`runtime/forum/remake.rs`:
+
+- **An item that stands** is given a post again. The first one found gone is made again at once (the owner deleted it). A post that is found
+  gone before it had stood five minutes (`STOOD`) counts as one in a row with the one before: the wait before the next is 2 s, 4 s, 8 s ... up
+  to the retry ceiling (60 s), and after five posts made again that way (`MAX_REMAKES`) the key is given up until the next start, with one
+  health line and one `discord.error` row (the forum's id and the count, no title). The count is `Worker::remakes`, not `failed`, which a
+  success clears; it starts again at one when a post that had stood five minutes is found gone.
+- **An item that is over** is not given a post again. The mark lives in META `discord.task_posts_gone` (the key and when), so a restart does
+  not make the post again; it leaves when the item stands again and a day after it was made.
+- A key that has a failed call waits out the backoff for the whole pass, the read of the post included, as a create does.
+
 ## A task set to start later is `scheduled` (issue 30, the owner's addition)
 
 "Asking it to schedule the task results in a task in the forum in status 'running'; it should be 'scheduled' until it runs, then

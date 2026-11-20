@@ -54,6 +54,9 @@ use crate::render::{board_v2, task_view, v2};
 
 pub(crate) mod archive;
 mod intent;
+mod remake;
+#[cfg(test)]
+mod remake_tests;
 
 /// A card is edited at most once in this long.
 pub(crate) const CARD_EVERY: Duration = Duration::from_secs(2);
@@ -462,13 +465,17 @@ impl Slot {
     }
 }
 
-/// The three paces (a test shortens them): how often a card and a post's
-/// tags may be edited, and the longest a failing call waits between tries.
+/// The paces (a test shortens them): how often a card and a post's tags may
+/// be edited, the longest a failing call waits between tries, and the two of
+/// a post made again (`remake.rs`): the wait before the second, and how long a
+/// post must stand for its going to be the owner's.
 #[derive(Clone, Copy)]
 struct Every {
     card: Duration,
     tags: Duration,
     retry: Duration,
+    remake: Duration,
+    stood: Duration,
 }
 
 /// A key whose last call failed: when it may be tried again, and how many
@@ -482,11 +489,14 @@ struct Worker {
     shared: Arc<Shared>,
     every: Every,
     entries: HashMap<String, Entry>,
-    /// Posts the owner deleted while their item was over: not made again.
-    deleted: HashSet<(String, u64)>,
+    /// Posts the owner deleted while their item was over, and when: not made
+    /// again, a restart included (`remake.rs`).
+    deleted: HashMap<(String, u64), u64>,
     slots: HashMap<(String, u64), Slot>,
     tags: HashMap<u64, HashMap<Tag, String>>,
     failed: HashMap<(String, u64), Failed>,
+    /// Posts found gone, per key, that are made again at a pace (`remake.rs`).
+    remakes: HashMap<(String, u64), remake::Remakes>,
 }
 
 fn digest(s: &str) -> u64 {
@@ -614,19 +624,16 @@ async fn run(
     let core = shared.core.clone();
     let stopped = core.outbox.stopped();
     tokio::pin!(stopped);
-    let mut w = Worker {
+    let mut w = Worker::new(
         shared,
-        every: Every {
+        Every {
             card: CARD_EVERY,
             tags: TAGS_EVERY,
             retry: RETRY,
+            remake: remake::REMAKE_FIRST,
+            stood: remake::STOOD,
         },
-        entries: HashMap::new(),
-        deleted: HashSet::new(),
-        slots: HashMap::new(),
-        tags: HashMap::new(),
-        failed: HashMap::new(),
-    };
+    );
     let mut next: Option<Instant> = None;
     loop {
         let sleep = async {
@@ -708,6 +715,7 @@ impl Worker {
                 self.entries.remove(&id);
             }
         }
+        self.forget_remakes();
         let now = Instant::now();
         for t in self.failed.values().map(|f| f.until) {
             if t > now {
@@ -831,10 +839,14 @@ impl Worker {
             return None;
         }
         // The owner deleted it once its item was over: no post is made again.
-        if ended && self.deleted.contains(key) {
+        if ended && self.deleted.contains_key(key) {
             return None;
         }
-        self.deleted.remove(key);
+        self.unmark_deleted(key);
+        // A post found gone is made again at a pace, and not for ever.
+        if let Some(wait) = self.remake_gate(key) {
+            return wait;
+        }
         if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
             return Some(t - now);
         }
@@ -867,6 +879,10 @@ impl Worker {
             return self
                 .without_a_slot(&key, f, (&view, link.as_deref(), homed, index))
                 .await;
+        }
+        // A call on the post failed: it waits out its backoff, as a create does.
+        if let Some(t) = self.failed.get(&key).map(|f| f.until).filter(|t| *t > now) {
+            return Some(t - now);
         }
         // A post the owner deleted under a live slot: every call on it failed.
         if let Some(wait) = self.forget_if_gone(&key, ended).await {
@@ -996,9 +1012,12 @@ impl Worker {
 
     /// A post the owner deleted under a live slot: its calls fail (404) and the
     /// slot would be tried again for ever, with an error row each time. After a
-    /// failure the post is read once; if it is gone the slot and the row go. A
-    /// standing item is looked at again at once, and gets a first post; an item
-    /// that is over is left without (the owner deleted it). `None`: nothing was
+    /// failure the post is read once, and its starter message (the card) with
+    /// it; if either is gone the slot and the row go (a thread left standing
+    /// with no card is not edited again: its item is given a post of its own). A
+    /// standing item is looked at again, and gets a first post, at once for the
+    /// first one found gone and at a pace for those in a row (`remake.rs`); an
+    /// item that is over is left without (the owner deleted it). `None`: nothing was
     /// wrong, the caller goes on; `Some(wait)`: the key is settled for this pass.
     async fn forget_if_gone(
         &mut self,
@@ -1008,14 +1027,20 @@ impl Worker {
         if !self.failed.contains_key(key) {
             return None;
         }
-        let post = self.slots.get(key)?.post.post;
-        let req = Request::builder(&HttpRoute::GetChannel { channel_id: post })
-            .build()
-            .ok()?;
-        let gone = match self.shared.http.request::<Value>(req).await {
-            Err(e) => status_of(&anyhow::Error::from(e)) == Some(404),
-            Ok(_) => false,
+        let (post, made_ms) = {
+            let p = &self.slots.get(key)?.post;
+            (p.post, p.created_ms)
         };
+        // The thread is gone, or it stands and its starter message (the card) is not.
+        let gone = self
+            .answers_404(&HttpRoute::GetChannel { channel_id: post })
+            .await?
+            || self
+                .answers_404(&HttpRoute::GetMessage {
+                    channel_id: post,
+                    message_id: post,
+                })
+                .await?;
         if !gone {
             return None;
         }
@@ -1023,9 +1048,20 @@ impl Worker {
         self.failed.remove(key);
         self.forget_post(key);
         if ended {
-            self.deleted.insert(key.clone());
+            self.mark_deleted(key);
+            return Some(None);
         }
-        Some((!ended).then_some(Duration::ZERO))
+        Some(self.remade_after(key, made_ms))
+    }
+
+    /// Whether Discord answers the read `route` with 404. None: the request
+    /// could not be built.
+    async fn answers_404(&self, route: &HttpRoute<'_>) -> Option<bool> {
+        let req = Request::builder(route).build().ok()?;
+        Some(match self.shared.http.request::<Value>(req).await {
+            Err(e) => status_of(&anyhow::Error::from(e)) == Some(404),
+            Ok(_) => false,
+        })
     }
 
     /// A scheduled item that stands has its ended post opened again
@@ -1633,6 +1669,14 @@ mod tests {
         )
         .await;
         r.fake.set_forum(FORUM);
+        let w = worker_on(shared_over(&r));
+        (r, w)
+    }
+
+    /// The binding's state over the rig's core, as a start makes it: nothing
+    /// in memory, the store as the last run left it.
+    pub(super) fn shared_over(r: &crate::tests_gateway::Rig) -> Arc<Shared> {
+        use theseus_sim::fake_discord::DEFAULT_GUILD;
         let shared = crate::runtime::shared_for_tests(&r.core);
         // The id the stand-in's `users/@me` gives: this shared state is not the
         // running binding's, so its preamble did not set it.
@@ -1643,20 +1687,21 @@ mod tests {
             private: true,
             default: false,
         }];
-        let w = Worker {
+        shared
+    }
+
+    /// A worker over `shared`, with short intervals.
+    pub(super) fn worker_on(shared: Arc<Shared>) -> Worker {
+        Worker::new(
             shared,
-            every: Every {
+            Every {
                 card: Duration::from_millis(40),
                 tags: Duration::from_millis(600),
                 retry: Duration::from_millis(200),
+                remake: Duration::from_millis(60),
+                stood: Duration::from_secs(300),
             },
-            entries: HashMap::new(),
-            deleted: HashSet::new(),
-            slots: HashMap::new(),
-            tags: HashMap::new(),
-            failed: HashMap::new(),
-        };
-        (r, w)
+        )
     }
 
     /// A post the owner deleted under a live slot (every call on it answers 404):
