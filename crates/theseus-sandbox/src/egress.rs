@@ -539,6 +539,9 @@ impl Shared {
     }
 }
 
+/// How long `finish` waits, after it has shut every open tunnel, for their threads to be gone.
+pub const CLOSE_WAIT: Duration = Duration::from_secs(2);
+
 /// A proxy at work.
 pub struct Running {
     shared: Arc<Shared>,
@@ -588,7 +591,7 @@ impl Running {
             let _ = a.shutdown(Shutdown::Both);
             let _ = b.shutdown(Shutdown::Both);
         }
-        idle(Instant::now() + Duration::from_secs(2));
+        idle(Instant::now() + CLOSE_WAIT);
         (self.connections(), self.dropped())
     }
 

@@ -109,7 +109,15 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   clean stop, before a restart's exec, before a failed start's error, and first in the panic hook. The record (the
   ledger, the store) never goes through it; the commands that run and end write stderr themselves. A debug build's
   `THESEUS_TEST_LOG_HOLD` and `THESEUS_TEST_WAL_HOLD` name a FIFO that holds the log's or the store's writer inside
-  its write (`theseus_store::hold_by_fifo`), for `tests/log_holds.rs`; a release build has neither.
+  its write (`theseus_store::hold_by_fifo`), for `tests/log_holds.rs`; a release build has neither. What writes
+  stderr directly in a serving daemon: the panic path (the crash file's warning, the panic's own message), which
+  runs after the queue's flush, and the error that ends a start, printed after it; the index tender and any child
+  that inherits stderr are other processes, so their lines are not ordered against the queue's.
+- **A position read on a worker waits off it** (`Wal::last_position_off_worker`): `Store::last_position` is a locked
+  read that decides what the kernel stages; when the writer holds the lock across a write it is waited for inside
+  `blocking`, which hands the worker's role to another thread first (tokio's blocking pool, 512 threads at most, one
+  per caller that waits at once), so a stalled disk holds the callers that need the position and not the daemon.
+  `tests/log_holds.rs` holds both writers on one worker and reads `health` and another session meanwhile.
 - **A serving daemon is a child subreaper** (`children::adopt`): a job's orphans are its to adopt and reap.
 - **One index tender per state dir**, and none outlives its daemon: it holds `<state>/index/LOCK`, exits when the
   daemon's pid does (`--parent`), and after a restart in place the new image takes it over (`children::relearn`
