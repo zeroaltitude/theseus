@@ -79,6 +79,9 @@ pub struct Board {
     /// A test's switch (`set_index_unread`): the fix rows read as a ledger index still being
     /// built reads; never set in a daemon.
     index_unread: std::sync::atomic::AtomicBool,
+    /// A test's switch (`set_resets_fail`): how many resets of a self tree after a fix fail;
+    /// never set in a daemon.
+    resets_fail: std::sync::atomic::AtomicUsize,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1
     /// (`set_jailed`); a daemon's never does (`Place::jail`).
     #[cfg(test)]
@@ -188,6 +191,21 @@ impl Board {
     pub(crate) fn set_index_unread(&self) {
         self.index_unread
             .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A test's switch: the next `n` resets of a tree after a fix that did not hold fail.
+    #[cfg(test)]
+    pub(crate) fn set_resets_fail(&self, n: usize) {
+        self.resets_fail
+            .store(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether this reset fails (a test's switch; never in a daemon): one of the `n` is used.
+    pub(crate) fn reset_fails(&self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.resets_fail
+            .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1))
+            .is_ok()
     }
 
     /// Whether the fix rows are read as unreadable (a test's switch; never in a daemon).
@@ -534,7 +552,7 @@ pub async fn propose(
     // A branch that has its report is done: another attempt is a new branch; one whose fix a
     // restart cut short is put back to before the fix first (issue 36, round 2).
     let cut;
-    (t, cut) = fixing::prepared(&core, board, &place, t).await?;
+    (t, cut) = fixing::prepared(&core, board, &place, t, i.item.trim()).await?;
     let mut a = Attempt {
         i: &i,
         tree: t,

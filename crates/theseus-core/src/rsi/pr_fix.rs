@@ -170,9 +170,11 @@ pub(super) async fn prepared(
     board: &Board,
     place: &Place,
     t: Tree,
+    item: &str,
 ) -> Result<(Tree, Option<Note>), String> {
     if super::report_path(place, &t.branch).exists() {
-        return Ok((next_attempt(place, t).await?, None));
+        let owed = owed(core, board, place, &t, item).await;
+        return Ok((next_attempt(place, t).await?, owed));
     }
     let cut = resumed(core, board, place, &t).await?;
     Ok((t, cut))
@@ -337,8 +339,25 @@ async fn after_red(
     // A fix that did not hold leaves nothing of the fixer's in the tree (review round 2, R2-1):
     // it is put back to the head before the fix now, before the builder reads the red, so the
     // repair the builder makes next is made in the tree it will build on, and kept.
+    let mut run = run;
     if !held {
-        put_back(place, a, &before).await;
+        if let Err(e) = put_back(board, place, a, &before).await {
+            let words = format!(
+                "the tree could not be put back to {}, the commit before the fix ({e}); the \
+                 fixer's commit is still in it, and the next call puts it back",
+                &before[..before.len().min(12)]
+            );
+            // The red's head is the one the tree holds, the fixer's commit in it.
+            let (p, t) = (place.clone(), a.tree.clone());
+            if let Ok(h) = super::blocking(move || p.git_ok(&t.dir, &["rev-parse", "HEAD"])).await {
+                a.head = Some(h);
+            }
+            run.verdict = Verdict::Red;
+            run.tail = format!("fix: {words}\n{}", run.tail);
+            if let Some(f) = a.fix.as_mut() {
+                f.words = format!("{}; {words}", f.words);
+            }
+        }
     }
     Ok(run)
 }
@@ -388,19 +407,99 @@ async fn after_made(
 }
 
 /// The tree back to `before`, the head before a fix that did not hold, on its branch: the fix's
-/// commit and anything of the fixer's gone, and the attempt's head and size said again.
-async fn put_back(place: &Place, a: &mut Attempt<'_>, before: &str) {
+/// commit and anything of the fixer's gone, and the attempt's head and size said again. When the
+/// reset fails, the attempt's head stays the one the tree holds, and the next call puts it back
+/// (`owed`).
+async fn put_back(
+    board: &Board,
+    place: &Place,
+    a: &mut Attempt<'_>,
+    before: &str,
+) -> Result<(), String> {
     let (p, t, b) = (place.clone(), a.tree.clone(), before.to_string());
-    let back = super::blocking(move || {
+    let d = reset(board, move || {
         super::tree::reset_to(&p, &t, &b)?;
         super::tree::diffstat(&p, &t)
     })
-    .await;
-    match back {
-        Ok(d) => a.diff = d,
-        Err(e) => {
-            tracing::warn!(error = %e, branch = %a.tree.branch, "self fix: the tree was not put back")
-        }
-    }
+    .await
+    .inspect_err(|e| {
+        tracing::warn!(error = %e, branch = %a.tree.branch, "self fix: the tree was not put back");
+    })?;
+    a.diff = d;
     a.head = Some(before.to_string());
+    Ok(())
+}
+
+/// A reset of a self tree, which a test can make fail (`Board::set_resets_fail`).
+async fn reset<T: Send + 'static>(
+    board: &Board,
+    f: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, String> {
+    match board.reset_fails() {
+        true => Err("a test's refusal".into()),
+        false => super::blocking(f).await,
+    }
+}
+
+/// The words of a tree the last call could not put back (`put_back`), put back now, before
+/// anything is committed: a commit of the item's fixer at the gate that was never accepted is
+/// still under the tree's head, on this branch or an earlier one. The tree goes back to the
+/// commit before the oldest such fix; like a restart's put-back (`resumed`), what was made since
+/// is gone, none of which could go green on top of that fix. When it fails again, the fixer's
+/// commit stays and the attempt is red by the green rule (`fix::unapproved`): a try, so the item
+/// is held for the owner when its tries run out (`backlog::attempts`), and every call tries again.
+/// None when nothing is owed, or the record cannot be read yet (the green rule still holds).
+async fn owed(core: &Core, board: &Board, place: &Place, t: &Tree, item: &str) -> Option<Note> {
+    if board.index_unread() {
+        return None;
+    }
+    let rows = fix::item_rows(&core.store, item, Point::Gate)
+        .ok()
+        .flatten()?;
+    let accepted: Vec<String> = rows
+        .iter()
+        .filter(|r| r.kind == "self.fix.verdict" && r.data["verdict"] == "accept")
+        .filter_map(|r| r.data["head"].as_str().map(str::to_string))
+        .collect();
+    let made: Vec<(String, String)> = rows
+        .iter()
+        .filter(|r| r.kind == "self.fix.made" || r.kind == "self.fix.refused")
+        .filter_map(|r| {
+            Some((
+                r.data["head"].as_str()?.into(),
+                r.data["from"].as_str()?.into(),
+            ))
+        })
+        .filter(|(head, _)| !accepted.contains(head))
+        .collect();
+    if made.is_empty() {
+        return None;
+    }
+    let (p, tr) = (place.clone(), t.clone());
+    let under = super::blocking(move || {
+        Ok(made.into_iter().find(|(head, _)| {
+            p.git_ok(&tr.dir, &["merge-base", "--is-ancestor", head, "HEAD"])
+                .is_ok()
+        }))
+    })
+    .await
+    .ok()
+    .flatten()?;
+    let before = under.1;
+    let short = before[..before.len().min(12)].to_string();
+    let (p, tr) = (place.clone(), t.clone());
+    let words = match reset(board, move || super::tree::reset_to(&p, &tr, &before)).await {
+        Ok(()) => format!(
+            "a fixer's commit that did not hold was still in the tree, which an earlier call \
+             could not put back, so it is put back now to {short}, the commit before that fix, \
+             and what was made since is gone"
+        ),
+        Err(e) => format!(
+            "a fixer's commit that did not hold is still in the tree, which could not be put \
+             back to {short}, the commit before that fix, again ({e}): this attempt is red and \
+             counts as a try, the item waits for the owner when its tries run out, and the next \
+             call tries again"
+        ),
+    };
+    Some(Note::cut_short(words))
 }

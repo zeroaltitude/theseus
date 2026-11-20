@@ -1309,3 +1309,126 @@ async fn a_turn_past_its_limit_is_a_failure_that_does_not_clear() {
     );
     assert!(format!("{e:#}").contains("ran past its limit"), "{e:#}");
 }
+
+// ---------------------------------------------------------------- round 4 (review R3-1, note 1)
+
+/// A gate that, like the real one's "protocol types" phase, writes its own repair into the tree
+/// and fails: `gen.txt` must equal `schema.txt`.
+const GEN_GATE: &str = r#"#!/bin/bash
+cd "${THESEUS_GATE_ROOT:-$(dirname "$0")/..}"
+sleep 1
+if [ -f schema.txt ] && ! cmp -s schema.txt gen.txt; then cp schema.txt gen.txt; echo "gen.txt was stale: git add it"; echo "gate: FAILED in protocol types"; exit 1; fi
+echo "gate: ok"
+"#;
+
+fn gen_rig(edit: impl FnOnce(&mut Config)) -> Rig {
+    rig_on(fixture_with(GEN_GATE), SelfMode::Act, Some("origin"), |c| {
+        c.self_improve.reviewer_profile = Some("fable".into());
+        edit(c);
+    })
+}
+
+/// The gate's own repair (it rewrote gen.txt in the tree) is in the tree after the red, and the
+/// builder's next call commits it and goes green, as on main.
+async fn gen_heals(r: &Rig, fixer: &Arc<StandIn>) {
+    let (sid, said) = build(r, fixer, green(), &[("schema.txt", "field\n")]).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    let gen = std::fs::read_to_string(tree_of(r).join("gen.txt")).ok();
+    assert_eq!(
+        gen.as_deref(),
+        Some("field\n"),
+        "the gate's repair is gone from the tree"
+    );
+    let said = r.turn(&sid, WIRE, input()).await;
+    assert!(said.contains("the gate is green"), "{said}");
+}
+
+/// The control: with the mode off, the gate's own repair heals the next attempt.
+#[tokio::test]
+async fn with_fix_off_the_gates_own_repair_heals_the_next_attempt() {
+    let r = gen_rig(|c| c.self_fix.mode = crate::config::self_fix::FixMode::Off);
+    gen_heals(&r, &StandIn::writing(&[])).await;
+}
+
+/// Review round 3, R3-1: with the mode on, a red in "protocol types" is not given to a fixer,
+/// whose fix that did not hold would put the tree back and throw the gate's repair away.
+#[tokio::test]
+async fn after_a_fix_that_made_nothing_the_gates_own_repair_heals_the_next_attempt() {
+    let r = gen_rig(|_| {});
+    let none = stand_in(false, true, &[]);
+    gen_heals(&r, &none).await;
+    assert_eq!(none.fixed(), 0, "no fixer was asked");
+    assert!(rows(&r, "self.fix.started").is_empty());
+}
+
+/// A fixer whose fix makes the gate green but is refused for its size (the lint repaired, and
+/// notes.txt over the 2 lines allowed).
+fn too_big() -> Arc<StandIn> {
+    stand_in(
+        true,
+        true,
+        &[
+            ("lint-fixed.txt", "the fixer's\n"),
+            ("notes.txt", "a\nb\nc\n"),
+        ],
+    )
+}
+
+/// Whether the tree's head holds notes.txt, the refused fix's file.
+fn tree_holds_the_fix(r: &Rig) -> bool {
+    let head = git(&tree_of(r), &["rev-parse", "HEAD"]);
+    holds(r, &head, "notes.txt")
+}
+
+/// Review round 3, note 1: a tree a failed reset could not put back says so, its red's head is
+/// the head the tree holds, and the next call puts it back before anything is committed.
+#[tokio::test]
+async fn a_tree_that_could_not_be_put_back_is_put_back_at_the_next_call() {
+    let r = rig(|c| c.self_fix.lines = 2);
+    r.core.tools.self_pr.set_resets_fail(1);
+    let (sid, said) = build(&r, &too_big(), green(), LINTED).await;
+    assert!(said.contains("could not be put back"), "{said}");
+    assert!(
+        tree_holds_the_fix(&r),
+        "the reset failed, so the fix is still in the tree"
+    );
+    let tree_head = git(&tree_of(&r), &["rev-parse", "HEAD"]);
+    assert_eq!(
+        built(&r)["head"],
+        tree_head.as_str(),
+        "the red's head is the tree's"
+    );
+    let said = r.turn(&sid, WIRE, input()).await;
+    assert!(said.contains("it is put back now"), "{said}");
+    assert!(!tree_holds_the_fix(&r));
+    write(&tree_of(&r), REPAIR);
+    let said = r.turn(&sid, WIRE, input()).await;
+    assert!(said.contains("the gate is green"), "{said}");
+    let head = built(&r)["head"].as_str().unwrap().to_string();
+    assert!(holds(&r, &head, "lint-fixed.txt") && !holds(&r, &head, "notes.txt"));
+}
+
+/// Review round 3, note 1: a tree that cannot be put back at all is not red for ever. Each call
+/// tries again; each attempt on it is red (the green rule: the fixer's commit is unapproved) and a
+/// try, so the item is held for the owner when its tries run out, with the cap's one notice.
+#[tokio::test]
+async fn a_tree_that_cannot_be_put_back_is_held_for_the_owner_when_its_tries_run_out() {
+    let r = rig(|c| c.self_fix.lines = 2);
+    r.core.tools.self_pr.set_resets_fail(usize::MAX);
+    let (sid, said) = build(&r, &too_big(), green(), LINTED).await;
+    assert!(said.contains("could not be put back"), "{said}");
+    for _ in 0..2 {
+        let said = r.turn(&sid, WIRE, input()).await;
+        assert!(said.contains("again"), "{said}");
+        assert_eq!(built(&r)["gate"], "red", "{said}");
+    }
+    let t = crate::task_graph::get(&r.core.store, ITEM)
+        .unwrap()
+        .unwrap();
+    assert!(
+        attempts::capped(&t),
+        "three red tries hold the item for the owner"
+    );
+    let said = r.turn(&sid, WIRE, input()).await;
+    assert!(said.contains("used all its tries"), "{said}");
+}

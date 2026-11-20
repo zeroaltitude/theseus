@@ -74,7 +74,11 @@ impl Point {
 
 /// The gate's phases whose failure is the change's own work: `scripts/gate.sh`'s own names. A
 /// phase not listed (the door and the keel, the scrub, the disk floor, the benches, the cockpit's
-/// modules, the dependency check) is never given to a fixer.
+/// modules, the dependency check) is never given to a fixer. Nor is "protocol types": that phase
+/// writes its own repair into the tree (the regenerated `cockpit/src/protocol.gen`) and fails
+/// with "git add it", and the builder's next call commits it, as on main; a fix that did not
+/// hold would put the tree back and throw the gate's repair away (review round 3, R3-1). No phase
+/// listed writes into the tree.
 pub const OWN_WORK: &[&str] = &[
     "fmt",
     "clippy",
@@ -83,7 +87,6 @@ pub const OWN_WORK: &[&str] = &[
     "test build",
     "suite",
     "reader rule",
-    "protocol types",
 ];
 
 /// What the fixer is given.
@@ -250,6 +253,23 @@ pub(crate) fn rows_of(
     Ok(Some(
         rows.into_iter()
             .filter(|r| r.data["branch"] == branch && r.data["point"] == point.name())
+            .collect(),
+    ))
+}
+
+/// The `self.fix.*` rows of one item, every branch of it, at one point, oldest first; none while
+/// the index is built.
+pub(crate) fn item_rows(
+    store: &crate::store::Store,
+    item: &str,
+    point: Point,
+) -> Result<Option<Vec<crate::ledger::LedgerRow>>> {
+    let Some(rows) = super::rows_of(store, &KINDS)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        rows.into_iter()
+            .filter(|r| r.data["item"] == item && r.data["point"] == point.name())
             .collect(),
     ))
 }
