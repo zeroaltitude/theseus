@@ -5,69 +5,46 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
-use std::sync::Mutex;
 
-/// A binary of another package, beside the daemon's, and current.
+/// A binary of another package, beside the daemon's.
 ///
 /// `cargo test -p theseusd` builds the daemon and its tests and not another package's program, so a
-/// target directory serves whatever copy it already holds (an older build, or one from an image) and a
-/// test that spawns it fails in ways that say nothing about the helper (the journey's timeouts of
-/// 2026-11-19). The toolchain's artifact dependencies are not stable, so cargo itself builds the program
-/// here, into the daemon's own target directory and profile: a no-op when it is current, and cargo's own
-/// lock keeps concurrent tests from building it twice. Once per program per test process.
-pub fn built_beside_daemon(package: &str, bin: &str) -> PathBuf {
-    static BUILT: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    let daemon = Path::new(env!("CARGO_BIN_EXE_theseusd"));
-    let path = daemon.with_file_name(bin);
-    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
-    if built.iter().any(|b| b == bin) {
-        return path;
+/// target directory serves whatever copy it already holds (an older build, or the image's), and a test
+/// that spawns it fails in ways that say nothing about the helper (the journey's timeouts of
+/// 2026-11-19). `stamp_of` is what that copy says it was built from; this says at once, in one line,
+/// where there is none or it is another commit's than the daemon's.
+pub fn beside_daemon(
+    package: &str,
+    bin: &str,
+    stamp_of: impl Fn(&Path) -> Option<String>,
+) -> PathBuf {
+    let path = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name(bin);
+    assert!(
+        path.is_file(),
+        "the helper {bin} is not built at {}: build -p {package}",
+        path.display()
+    );
+    let commit = env!("THESEUS_COMMIT");
+    if !commit.is_empty() {
+        let built = stamp_of(&path);
+        assert!(
+            built.as_deref() == Some(commit),
+            "the helper is stale: {bin} at {} was built from {} and this tree is {commit}: build -p {package}",
+            path.display(),
+            built.as_deref().unwrap_or("a build that predates its stamp")
+        );
     }
-    let profile_dir = daemon.parent().expect("the daemon's directory");
-    let target = profile_dir.parent().expect("the target directory");
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.current_dir(env!("CARGO_MANIFEST_DIR"))
-        .args(["build", "--quiet", "-p", package, "--bin", bin])
-        .arg("--target-dir")
-        .arg(target);
-    match profile_dir.file_name().and_then(|n| n.to_str()) {
-        Some("debug") => {}
-        Some("release") => {
-            cmd.arg("--release");
-        }
-        Some(other) => {
-            cmd.args(["--profile", other]);
-        }
-        None => {}
-    }
-    match cmd.output() {
-        Ok(out) if out.status.success() => {}
-        Ok(out) => panic!(
-            "the helper {bin} could not be built (`cargo build -p {package} --bin {bin}`):\n{}",
-            String::from_utf8_lossy(&out.stderr)
-                .lines()
-                .rev()
-                .take(15)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join("\n")
-        ),
-        // No cargo to run (a test binary run from an archive): the copy beside the daemon is all there is.
-        Err(e) => assert!(
-            path.is_file(),
-            "no {bin} at {} and cargo cannot be run to build it ({e}): build -p {package}",
-            path.display()
-        ),
-    }
-    built.push(bin.to_string());
     path
 }
 
 /// The simulator's program (`theseus-sim`: the fake model, the fake MCP server), current.
 pub fn sim_bin() -> PathBuf {
-    built_beside_daemon("theseus-sim", "theseus-sim")
+    beside_daemon("theseus-sim", "theseus-sim", |p| {
+        let out = Command::new(p).arg("stamp").output().ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    })
 }
 
 /// A spawned `theseusd`, killed and reaped when dropped, so a test that

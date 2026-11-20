@@ -37,21 +37,18 @@ struct Rig {
     _model: FakeModel,
 }
 
-/// A program of the build beside the daemon's, current (`common::built_beside_daemon`).
+/// A program of the build beside the daemon's; the simulator's is checked to be this tree's (`common::sim_bin`).
 fn bin(name: &str) -> PathBuf {
-    match name {
-        "theseus-sim" => common::sim_bin(),
-        "theseus" => common::built_beside_daemon("theseus", "theseus"),
-        other => {
-            let p = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name(other);
-            assert!(
-                p.is_file(),
-                "no {other} at {}: build the workspace",
-                p.display()
-            );
-            p
-        }
+    if name == "theseus-sim" {
+        return common::sim_bin();
     }
+    let p = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name(name);
+    assert!(
+        p.is_file(),
+        "no {name} at {}: build the workspace",
+        p.display()
+    );
+    p
 }
 
 fn root() -> bool {
