@@ -193,3 +193,36 @@ async fn a_pull_down_an_older_build_posted_still_answers_its_pick() {
     .await;
     assert_eq!(tightened(&r), ["git.log"]);
 }
+
+/// The same for a button, after a restart: a message this binding never
+/// posted carries a `tighten:<tool>` button, and the owner's press of it
+/// tightens the tool. A press is read from the id alone, so nothing is lost
+/// when the binding forgets a message.
+#[tokio::test]
+async fn a_button_on_a_message_this_binding_never_posted_still_tightens_its_tool() {
+    let model =
+        |_: &std::path::Path, _| -> Arc<dyn Provider> { Arc::new(FakeProvider::scripted(vec![])) };
+    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |_| {}).await;
+    let old = forged(
+        &r,
+        ANA_DM,
+        json!([{"type": 1, "components": [{"type": 2, "style": 2,
+            "custom_id": "tighten:git.log", "label": "🔔 git.log"}]}]),
+    )
+    .await;
+    let press = r
+        .fake
+        .press(&theseus_sim::fake_discord::Pressed {
+            message: &old,
+            button: "tighten:git.log",
+            user: ANA,
+            name: "ana",
+        })
+        .unwrap();
+    r.until(
+        "the press told to ana",
+        told(&r, &press, "🔒 `git.log` asks first from now on"),
+    )
+    .await;
+    assert_eq!(tightened(&r), ["git.log"]);
+}
