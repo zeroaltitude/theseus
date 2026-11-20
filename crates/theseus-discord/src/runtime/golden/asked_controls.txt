@@ -1,0 +1,136 @@
+=== 1 tool
+[
+  {
+    "type": 1,
+    "components": [
+      {
+        "type": 2,
+        "custom_id": "tighten:proc.run|act_000",
+        "label": "🔔 proc.run",
+        "style": 2
+      }
+    ]
+  }
+]
+
+=== 3 tools
+[
+  {
+    "type": 1,
+    "components": [
+      {
+        "type": 2,
+        "custom_id": "tighten:proc.run|act_000",
+        "label": "🔔 proc.run",
+        "style": 2
+      },
+      {
+        "type": 2,
+        "custom_id": "tighten:fs.write|act_001",
+        "label": "🔔 fs.write",
+        "style": 2
+      },
+      {
+        "type": 2,
+        "custom_id": "tighten:git.commit|act_002",
+        "label": "🔔 git.commit",
+        "style": 2
+      }
+    ]
+  }
+]
+
+=== 5 tools
+[
+  {
+    "type": 1,
+    "components": [
+      {
+        "type": 2,
+        "custom_id": "tighten:proc.run|act_000",
+        "label": "🔔 proc.run",
+        "style": 2
+      },
+      {
+        "type": 2,
+        "custom_id": "tighten:fs.write|act_001",
+        "label": "🔔 fs.write",
+        "style": 2
+      },
+      {
+        "type": 2,
+        "custom_id": "tighten:git.commit|act_002",
+        "label": "🔔 git.commit",
+        "style": 2
+      },
+      {
+        "type": 2,
+        "custom_id": "tighten:web.fetch|act_003",
+        "label": "🔔 web.fetch",
+        "style": 2
+      },
+      {
+        "type": 2,
+        "custom_id": "tighten:aws.call|act_004",
+        "label": "🔔 aws.call",
+        "style": 2
+      }
+    ]
+  }
+]
+
+=== 6 tools
+[
+  {
+    "type": 1,
+    "components": [
+      {
+        "type": 3,
+        "options": [
+          {
+            "default": false,
+            "description": "Every proc.run call asks you first",
+            "label": "Make actions like this ask in the future",
+            "value": "proc.run|act_000"
+          },
+          {
+            "default": false,
+            "description": "Every fs.write call asks you first",
+            "label": "Make actions like this ask in the future",
+            "value": "fs.write|act_001"
+          },
+          {
+            "default": false,
+            "description": "Every git.commit call asks you first",
+            "label": "Make actions like this ask in the future",
+            "value": "git.commit|act_002"
+          },
+          {
+            "default": false,
+            "description": "Every web.fetch call asks you first",
+            "label": "Make actions like this ask in the future",
+            "value": "web.fetch|act_003"
+          },
+          {
+            "default": false,
+            "description": "Every aws.call call asks you first",
+            "label": "Make actions like this ask in the future",
+            "value": "aws.call|act_004"
+          },
+          {
+            "default": false,
+            "description": "Every mcp.tool call asks you first",
+            "label": "Make actions like this ask in the future",
+            "value": "mcp.tool|act_005"
+          }
+        ],
+        "custom_id": "tighten",
+        "disabled": false,
+        "max_values": 1,
+        "min_values": 1,
+        "placeholder": "Should I have asked?"
+      }
+    ]
+  }
+]
+
