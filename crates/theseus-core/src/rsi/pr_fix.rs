@@ -2,8 +2,9 @@
 //! to a fixer before the attempt ends. The fixer's commit is gated again by the same reading
 //! (`judged`), and on green the builder's profile reads it alone; accepted, the attempt goes on
 //! green, as any green attempt does. Anything else ends the attempt red, as today: one try, with
-//! the report, the task's word and the model's result saying a fix was tried, and the item's next
-//! attempt starting from before the fix (`fix::unfixed_base`). With `[self_fix] mode = "off"`, or a
+//! the report, the task's word and the model's result saying a fix was tried, and the tree put
+//! back to the head before the fix at once (`put_back`), so the builder's next repair is made where
+//! it will be built, and kept. With `[self_fix] mode = "off"`, or a
 //! red that is not the change's own (a keel stop, a red main, a fault of the machine, a check that
 //! kept aborting, a gate that named no phase), nothing here runs.
 
@@ -29,6 +30,16 @@ pub(super) struct Note {
 }
 
 impl Note {
+    /// A fix at the gate for a red in `phase`.
+    fn of(phase: &str, words: String, made: Option<Made>, approver: Option<String>) -> Self {
+        Self {
+            phase: phase.to_string(),
+            words,
+            made,
+            approver,
+        }
+    }
+
     /// A fix of this branch that a restart cut short, before this call.
     fn cut_short(words: String) -> Self {
         Self {
@@ -101,24 +112,45 @@ impl Board {
     }
 }
 
-/// A branch that has its report is done: another attempt is a new branch, from before a fix of
-/// it that did not hold.
-pub(super) async fn next_attempt(core: &Core, place: &Place, mut t: Tree) -> Result<Tree, String> {
+/// A branch that has its report is done: another attempt is a new branch, cut from where the tree
+/// stands, so the builder's edits since its red are kept. A fix that did not hold was put back
+/// already, when it failed (`put_back`).
+pub(super) async fn next_attempt(place: &Place, mut t: Tree) -> Result<Tree, String> {
     let p = place.clone();
-    let from = fix::unfixed_base(&core.store, &t.branch);
     super::blocking(move || {
         super::tree::next_branch(&p, &mut t)?;
-        if let Some(from) = from {
-            super::tree::reset_to(&p, &t, &from)?;
-        }
         Ok(t)
     })
     .await
 }
 
+/// The builder's verb's input, once it may run for `session`: never for a session the loop
+/// opened as a fixer, an approver or a reviewer (first, before anything else), and, for a session
+/// that builds an item of the backlog, only for that item (the review's round-2 note 3: another
+/// open item's tree is not its own to commit and gate).
+pub(super) fn builder_input(
+    board: &Board,
+    session: &str,
+    input: &Value,
+) -> Result<super::Input, String> {
+    not_a_role(board, session)?;
+    let i = super::input_of(input)?;
+    let own = board
+        .core()
+        .and_then(|c| crate::rsi::own_tree::item_slug(&c.store, session));
+    match own {
+        Some(slug) if slug != super::tree::slug(&i.item) => Err(format!(
+            "Not run: this session builds the item whose tree is {slug}, and {} is another \
+             item's: a session commits and gates only its own item's tree.",
+            i.item.trim()
+        )),
+        _ => Ok(i),
+    }
+}
+
 /// The builder's verb refuses a session the loop opened as a fixer, an approver or a reviewer,
 /// before anything else (`crate::rsi::roles`).
-pub(super) fn not_a_role(board: &Board, session: &str) -> Result<(), String> {
+fn not_a_role(board: &Board, session: &str) -> Result<(), String> {
     match board.role(session) {
         Some(role) => Err(format!(
             "Not run: this session is {} of a self branch, and only the builder of an item calls \
@@ -140,7 +172,7 @@ pub(super) async fn prepared(
     t: Tree,
 ) -> Result<(Tree, Option<Note>), String> {
     if super::report_path(place, &t.branch).exists() {
-        return Ok((next_attempt(core, place, t).await?, None));
+        return Ok((next_attempt(place, t).await?, None));
     }
     let cut = resumed(core, board, place, &t).await?;
     Ok((t, cut))
@@ -160,9 +192,18 @@ pub(super) async fn resumed(
     if board.fix_is_live(&t.branch) {
         return Ok(None);
     }
-    let Some(rows) =
-        fix::rows_of(&core.store, &t.branch, Point::Gate).map_err(|e| format!("{e:#}"))?
+    let Some(rows) = (!board.index_unread())
+        .then(|| fix::rows_of(&core.store, &t.branch, Point::Gate))
+        .transpose()
+        .map_err(|e| format!("{e:#}"))?
+        .flatten()
     else {
+        // With the mode off no fix runs, and a build waits on no index, as before issue 36: a
+        // committed fixer's commit, if one was ever left, is still caught by the green rule from
+        // the commits' own trailers (`fix::unapproved`).
+        if !core.cfg.self_fix.on() {
+            return Ok(None);
+        }
         return Err(
             "Not run: the record is still being read after a start, so whether a fix of this \
              branch was cut short cannot be told yet. Call again in a minute."
@@ -280,20 +321,37 @@ async fn after_red(
         main,
         fixer: seams.fixer,
     };
-    let note = |words: String, made: Option<Made>, approver: Option<String>| Note {
-        phase: phase.clone(),
-        words,
-        made,
-        approver,
-    };
     let _live = board.live_fix(&tree.branch);
-    let made = match job.make().await {
-        Ok(m) => m,
-        Err(why) => {
-            a.fix = Some(note(why, None, None));
-            return Ok(run);
-        }
+    let before = {
+        let (p, t) = (place.clone(), tree.clone());
+        super::blocking(move || p.git_ok(&t.dir, &["rev-parse", "HEAD"])).await
     };
+    let Ok(before) = before else {
+        return Ok(run);
+    };
+    let (run, note, held) = match job.make().await {
+        Ok(made) => after_made(&job, a, place, made).await?,
+        Err(why) => (run, Note::of(&phase, why, None, None), false),
+    };
+    a.fix = Some(note);
+    // A fix that did not hold leaves nothing of the fixer's in the tree (review round 2, R2-1):
+    // it is put back to the head before the fix now, before the builder reads the red, so the
+    // repair the builder makes next is made in the tree it will build on, and kept.
+    if !held {
+        put_back(place, a, &before).await;
+    }
+    Ok(run)
+}
+
+/// The fix's commit made: the gate again, then the builder's profile. The run, the fix's note, and
+/// whether the fix held.
+async fn after_made(
+    job: &Job<'_>,
+    a: &mut Attempt<'_>,
+    place: &Place,
+    made: Made,
+) -> Result<(GateRun, Note, bool), Result<(String, Value), String>> {
+    let phase = job.fault.clone();
     a.head = Some(made.head.clone());
     let (p, t) = (place.clone(), a.tree.clone());
     if let Ok(d) = super::blocking(move || super::tree::diffstat(&p, &t)).await {
@@ -302,8 +360,7 @@ async fn after_red(
     let again = judged(a, place).await?;
     if again.verdict != Verdict::Green {
         let why = job.red_again(&made, &again.tail);
-        a.fix = Some(note(why, Some(made), None));
-        return Ok(again);
+        return Ok((again, Note::of(&phase, why, Some(made), None), false));
     }
     match job.approve(&made).await {
         Ok(approver) => {
@@ -312,8 +369,11 @@ async fn after_red(
                  accepted the fix",
                 made.fixer
             );
-            a.fix = Some(note(words, Some(made), Some(approver)));
-            Ok(again)
+            Ok((
+                again,
+                Note::of(&phase, words, Some(made), Some(approver)),
+                true,
+            ))
         }
         Err(why) => {
             let mut red = again;
@@ -322,8 +382,25 @@ async fn after_red(
                 "fix: the gate was green on the fix, but {why}\n{}",
                 red.tail
             );
-            a.fix = Some(note(why, Some(made), None));
-            Ok(red)
+            Ok((red, Note::of(&phase, why, Some(made), None), false))
         }
     }
+}
+
+/// The tree back to `before`, the head before a fix that did not hold, on its branch: the fix's
+/// commit and anything of the fixer's gone, and the attempt's head and size said again.
+async fn put_back(place: &Place, a: &mut Attempt<'_>, before: &str) {
+    let (p, t, b) = (place.clone(), a.tree.clone(), before.to_string());
+    let back = super::blocking(move || {
+        super::tree::reset_to(&p, &t, &b)?;
+        super::tree::diffstat(&p, &t)
+    })
+    .await;
+    match back {
+        Ok(d) => a.diff = d,
+        Err(e) => {
+            tracing::warn!(error = %e, branch = %a.tree.branch, "self fix: the tree was not put back")
+        }
+    }
+    a.head = Some(before.to_string());
 }

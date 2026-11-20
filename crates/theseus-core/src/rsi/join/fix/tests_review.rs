@@ -357,9 +357,12 @@ async fn a_fix_at_review_cut_short_by_a_restart_is_ended_and_its_tree_closed() {
     assert!(!t.dir.exists(), "the reopened tree is closed");
     assert_eq!(task(&r, "trim").state, TaskState::Proposed);
     assert_eq!(
-        super::unfixed_base(&r.core.store, &branch).as_deref(),
-        Some(head.as_str()),
-        "the next attempt starts from before the fix"
+        git(
+            &r.f.place.repo,
+            &["rev-parse", &format!("refs/heads/{branch}^")]
+        ),
+        head,
+        "the fixer's commit is on the branch, and the tree that held it is gone"
     );
     let view = r
         .core
@@ -527,5 +530,80 @@ async fn a_join_main_moved_under_says_how_often_its_gate_ran() {
     assert_eq!(
         view.joining[0].why.as_deref(),
         Some("its gate has run 2 times: main moved under it before its push")
+    );
+}
+
+// ---------------------------------------------------------------- round 3 (item 2)
+
+/// A reviewer whose turn never ends, stopped at a short limit by the real `within`.
+struct PastLimit;
+
+impl crate::rsi::join::review::Reviewer for PastLimit {
+    fn review<'a>(
+        &'a self,
+        core: &'a Arc<crate::rpc::Core>,
+        _ask: &'a crate::rsi::join::review::Ask,
+    ) -> crate::rsi::join::review::Fut<'a> {
+        Box::pin(async move {
+            let never =
+                std::future::pending::<anyhow::Result<theseus_protocol::TurnSubmitResult>>();
+            let limit = Duration::from_millis(30);
+            super::turns::within(core, "ses_review", None, limit, never).await?;
+            unreachable!("a pending turn never ends")
+        })
+    }
+}
+
+/// Item 2: a review stopped at its limit is an outcome of its own, said in plain words, and it is
+/// not asked again for ever: the third such stop in a row holds the change for the owner with its
+/// card, the hold the review already has for a failure that asking again does not clear.
+#[tokio::test]
+async fn a_review_stopped_at_its_limit_three_times_is_held_for_the_owner() {
+    let r = rig(|_| {});
+    let (branch, _) = r.seed("trim", PROVED, SONNET);
+    item(&r, "trim");
+    let s = Seams {
+        reviewer: Arc::new(PastLimit),
+        ..seams(&scripted(&[]), &StandIn::writing(&[]))
+    };
+    for _ in 0..4 {
+        r.core.self_join_pass(&s).await.unwrap();
+    }
+    let stops: Vec<_> = r
+        .rows("self.join.stopped")
+        .into_iter()
+        .filter(|d| d["phase"] == "review")
+        .collect();
+    assert_eq!(
+        stops.len(),
+        3,
+        "asked three times, never a fourth: {stops:?}"
+    );
+    assert!(
+        stops[0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("ran past its limit"),
+        "{}",
+        stops[0]
+    );
+    assert_eq!(stops[0]["numbers"]["class"], super::turns::LIMIT_CLASS);
+    assert_eq!(stops[2]["numbers"]["held"], true, "{}", stops[2]);
+    let posts = r.posts();
+    assert!(
+        posts
+            .iter()
+            .any(|p| p.contains("failed the same way 3 times")),
+        "{posts:?}"
+    );
+    let view = r
+        .core
+        .self_pipeline(&SelfPipelineParams::default())
+        .unwrap();
+    assert!(
+        view.held
+            .iter()
+            .any(|e| e.branch.as_deref() == Some(branch.as_str())),
+        "{view:?}"
     );
 }

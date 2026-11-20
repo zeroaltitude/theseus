@@ -220,8 +220,14 @@ impl Reviewer for CheckTurn {
                 answer_at: None,
                 prompt: None,
             });
-            let limit = crate::rsi::join::fix::turns::limit(core);
-            let r = crate::rsi::join::fix::turns::within(core, exec.as_deref(), limit, run).await;
+            // Bounded while `[self_fix]` is on; with it off a review runs as long as it did before.
+            let r = match crate::rsi::join::fix::turns::review_limit(core) {
+                Some(limit) => {
+                    let within = crate::rsi::join::fix::turns::within;
+                    within(core, &session, exec.as_deref(), limit, run).await
+                }
+                None => run.await,
+            };
             core.tools.self_pr.review_closed(&session);
             let r = r?;
             let (word, reasons) = word_of(&r.output);

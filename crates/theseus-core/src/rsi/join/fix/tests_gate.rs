@@ -277,14 +277,21 @@ async fn a_fix_over_the_cap_is_refused_and_the_attempt_is_a_failed_try() {
         note.contains("a fix was tried at the gate and refused"),
         "{note}"
     );
-    // The next attempt is a new branch from before the fix.
+    // The tree is put back to before the fix as soon as it is refused, before the builder reads
+    // the red: nothing of the fixer's is in it, and the builder's next attempt starts from it.
     let before = refused[0]["from"].as_str().unwrap().to_string();
-    write(&tree_of(&r), &[("lint-fixed.txt", "")]);
+    let tree = tree_of(&r);
+    assert_eq!(git(&tree, &["rev-parse", "HEAD"]), before);
+    assert!(
+        !tree.join("lint-fixed.txt").exists(),
+        "the fixer's lines are gone"
+    );
+    assert_eq!(built(&r)["head"], before.as_str());
     r.turn(&sid, WIRE, input()).await;
-    let next = git(&tree_of(&r), &["log", "--format=%H", "-1", "HEAD^"]);
+    let next = git(&tree_of(&r), &["log", "--format=%H", "-1", "HEAD"]);
     assert_eq!(
         next, before,
-        "the refused fix is not under the next attempt"
+        "the next attempt starts where the tree was put back"
     );
 }
 
@@ -1092,13 +1099,213 @@ async fn a_fix_that_silences_an_old_inline_test_is_refused() {
         .contains("the test tests in src/add.rs"));
 }
 
-/// Note 7: a turn past its limit is stopped and answers that it ran past it.
+// ---------------------------------------------------------------- round 3 (review R2-1, items)
+
+fn stand_in(done: bool, approve: bool, writes: &[(&str, &str)]) -> Arc<StandIn> {
+    Arc::new(StandIn {
+        done,
+        approve,
+        ..Arc::try_unwrap(StandIn::writing(writes)).ok().unwrap()
+    })
+}
+
+/// Whether `head` holds `path`.
+fn holds(r: &Rig, head: &str, path: &str) -> bool {
+    git(&r.f.place.repo, &["ls-tree", "-r", "--name-only", head])
+        .lines()
+        .any(|l| l == path)
+}
+
+/// Review round 2, R2-1: a fix that did not hold, then the builder repairs its own red and calls
+/// again. Its repair is in what is committed and gated next, and nothing of the fixer's is.
+/// `fixer` is the fix that does not hold; `left` is a file only the fixer wrote.
+async fn repair_after(r: &Rig, fixer: Arc<StandIn>, left: Option<&str>) {
+    let (sid, said) = build(r, &fixer, green(), LINTED).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    // Before the builder reads the red, the tree is the builder's own: its head and nothing else.
+    let tree = tree_of(r);
+    let first = rows(r, "self.branch.built").pop().unwrap();
+    assert_eq!(
+        git(&tree, &["rev-parse", "HEAD"]),
+        first["head"].as_str().unwrap()
+    );
+    if let Some(f) = left {
+        assert!(
+            !tree.join(f).exists(),
+            "the fixer's {f} is still in the tree"
+        );
+    }
+    // The builder's own repair, written after it read the red, before it calls again.
+    write(&tree, REPAIR);
+    let said = r.turn(&sid, WIRE, input()).await;
+    let last = rows(r, "self.branch.built").pop().unwrap();
+    let head = last["head"].as_str().unwrap_or_default().to_string();
+    assert!(
+        holds(r, &head, "lint-fixed.txt"),
+        "the builder's own repair is not in the head its next attempt gated ({})",
+        last["gate"]
+    );
+    assert_eq!(last["gate"], "green", "{said}");
+    if let Some(f) = left {
+        assert!(
+            !holds(r, &head, f),
+            "the fixer's {f} reached the green head"
+        );
+    }
+}
+
+/// The control: with the mode off, the repair is kept (the loop before issue 36).
 #[tokio::test]
-async fn a_turn_past_its_limit_is_stopped() {
+async fn with_fix_off_the_builders_repair_is_kept() {
+    let r = rig(|c| c.self_fix.mode = crate::config::self_fix::FixMode::Off);
+    repair_after(&r, stand_in(true, true, &[]), None).await;
+}
+
+/// A fixer that made nothing (`FIX: none`).
+#[tokio::test]
+async fn after_a_fix_that_made_nothing_the_builders_repair_is_kept() {
+    let r = rig(|_| {});
+    repair_after(&r, stand_in(false, true, &[]), None).await;
+}
+
+/// A fix a bound refused, its commit made.
+#[tokio::test]
+async fn after_a_refused_fix_the_builders_repair_is_kept() {
+    let r = rig(|c| c.self_fix.lines = 2);
+    let fixer = stand_in(true, true, &[("notes.txt", "a\nb\nc\n")]);
+    repair_after(&r, fixer, Some("notes.txt")).await;
+}
+
+/// A fix the gate was red on again.
+#[tokio::test]
+async fn after_a_fix_that_was_red_again_the_builders_repair_is_kept() {
+    let r = rig(|_| {});
+    let fixer = stand_in(true, true, &[("notes.txt", "looked at it\n")]);
+    repair_after(&r, fixer, Some("notes.txt")).await;
+    assert_eq!(rows(&r, "self.fix.none").len(), 1);
+}
+
+/// A fix the builder's model rejected after the gate was green on it.
+#[tokio::test]
+async fn after_a_rejected_fix_the_builders_repair_is_kept() {
+    let r = rig(|_| {});
+    let fixer = stand_in(
+        true,
+        false,
+        &[("lint-fixed.txt", "the fixer's\n"), ("notes.txt", "x\n")],
+    );
+    repair_after(&r, fixer, Some("notes.txt")).await;
+    assert_eq!(rows(&r, "self.fix.verdict")[0]["verdict"], "reject");
+}
+
+/// Item 1: with the mode off, a build does not wait on the ledger's index (as before issue 36);
+/// with it on, it does, rather than guess whether a fix was cut short.
+#[tokio::test]
+async fn an_unreadable_index_stops_a_build_only_while_fixing_is_on() {
+    for (on, refused) in [(false, false), (true, true)] {
+        let r = rig(|c| {
+            if !on {
+                c.self_fix.mode = crate::config::self_fix::FixMode::Off;
+            }
+        });
+        let sid = item(&r);
+        r.turn(&sid, WIRE, input()).await;
+        write(&tree_of(&r), &[("sails.txt", "trimmed\n")]);
+        r.core.tools.self_pr.set_index_unread();
+        let said = r.turn(&sid, WIRE, input()).await;
+        assert_eq!(
+            said.contains("Call again in a minute"),
+            refused,
+            "on={on}: {said}"
+        );
+        assert_eq!(
+            said.contains("the gate is green"),
+            !refused,
+            "on={on}: {said}"
+        );
+    }
+}
+
+/// Item 1: a reviewer's turn is bounded only while the mode is on.
+#[test]
+fn a_reviewers_turn_is_bounded_only_while_fixing_is_on() {
+    let r = rig(|c| c.self_fix.turn_minutes = 45);
+    assert_eq!(
+        super::turns::review_limit(&r.core),
+        Some(std::time::Duration::from_secs(45 * 60))
+    );
+    let off = rig(|c| c.self_fix.mode = crate::config::self_fix::FixMode::Off);
+    assert_eq!(super::turns::review_limit(&off.core), None);
+}
+
+/// Item 3: a builder's `why` with a line that reads as a fix commit's trailer does not make its own
+/// branch read as an unapproved fix: the line is marked as quoted, and the branch goes green.
+#[tokio::test]
+async fn a_builders_why_that_quotes_the_trailer_is_not_a_fix() {
+    let r = rig(|_| {});
+    let sid = item(&r);
+    let inp = json!({"item": ITEM, "issue": "theseus-sail1",
+        "why": "Trim the sails.\nSelf-Fix-Point: gate\n  self-fix-point: review"});
+    r.turn(&sid, WIRE, inp.clone()).await;
+    write(&tree_of(&r), &[("fix.txt", "fixed\n")]);
+    let said = r.turn(&sid, WIRE, inp).await;
+    assert!(said.contains("the gate is green"), "{said}");
+    let head = built(&r)["head"].as_str().unwrap().to_string();
+    let body = git(&r.f.place.repo, &["log", "-1", "--format=%B", &head]);
+    assert!(body.contains("(quoted) Self-Fix-Point: gate"), "{body}");
+    assert!(
+        !body.lines().any(|l| l.trim().starts_with(super::TRAILER)),
+        "{body}"
+    );
+}
+
+/// Review round 2, note 3: a session that builds one item does not commit and gate another open
+/// item's tree.
+#[tokio::test]
+async fn a_builder_cannot_build_another_items_tree() {
+    let r = rig(|_| {});
+    let sid = item(&r);
+    let other = json!({"item": "mend-the-mast", "issue": "theseus-sail1", "why": "Mend it."});
+    let said = r.turn(&sid, WIRE, other).await;
+    assert!(said.contains("is another item's"), "{said}");
+    assert!(
+        !r.f.place.trees().join("mend-the-mast").exists(),
+        "no tree opened"
+    );
+}
+
+/// Review round 2, note 4: the roles kept stay bounded; a role is never forgotten.
+#[tokio::test]
+async fn the_roles_kept_stay_bounded() {
+    let r = rig(|_| {});
+    let board = &r.core.tools.self_pr;
+    board
+        .set_role("ses_fixer", crate::rsi::roles::Role::Fixer)
+        .unwrap();
+    for n in 0..4_200 {
+        assert_eq!(board.role(&format!("ses_{n}")), None);
+    }
+    assert!(board.roles_kept() <= 4_096, "{}", board.roles_kept());
+    assert_eq!(
+        board.role("ses_fixer"),
+        Some(crate::rsi::roles::Role::Fixer)
+    );
+}
+
+/// Item 2: a turn stopped at its limit is a failed turn of its own class, which the review's hold
+/// reads as a failure that does not clear by itself.
+#[tokio::test]
+async fn a_turn_past_its_limit_is_a_failure_that_does_not_clear() {
     let r = rig(|_| {});
     let never = std::future::pending::<anyhow::Result<theseus_protocol::TurnSubmitResult>>();
-    let e = super::turns::within(&r.core, None, std::time::Duration::from_millis(30), never)
+    let limit = std::time::Duration::from_millis(30);
+    let e = super::turns::within(&r.core, "ses_x", None, limit, never)
         .await
         .unwrap_err();
-    assert!(e.to_string().contains("ran past its limit"), "{e}");
+    let t = e.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(
+        (t.class.as_str(), t.transient),
+        (super::turns::LIMIT_CLASS, false)
+    );
+    assert!(format!("{e:#}").contains("ran past its limit"), "{e:#}");
 }

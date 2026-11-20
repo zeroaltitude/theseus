@@ -76,6 +76,9 @@ pub struct Board {
     live_fixes: Mutex<std::collections::HashSet<String>>,
     /// A test's switch (`set_role_ceilings_off`); never set in a daemon.
     role_ceilings_off: std::sync::atomic::AtomicBool,
+    /// A test's switch (`set_index_unread`): the fix rows read as a ledger index still being
+    /// built reads; never set in a daemon.
+    index_unread: std::sync::atomic::AtomicBool,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1
     /// (`set_jailed`); a daemon's never does (`Place::jail`).
     #[cfg(test)]
@@ -127,6 +130,14 @@ impl Board {
         {
             return *r;
         }
+        // What is kept stays small: the sessions with no role are forgotten past a bound (each is
+        // read again from the store if it asks again).
+        {
+            let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
+            if kept.len() >= ROLES_KEPT {
+                kept.retain(|_, r| r.is_some());
+            }
+        }
         let read = self.core().and_then(|c| {
             c.store
                 .get_meta::<super::roles::Role>(&super::roles::key(session))
@@ -170,6 +181,27 @@ impl Board {
         !self
             .role_ceilings_off
             .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A test's switch: the fix rows read as unreadable, as while the ledger's index is built.
+    #[cfg(test)]
+    pub(crate) fn set_index_unread(&self) {
+        self.index_unread
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the fix rows are read as unreadable (a test's switch; never in a daemon).
+    pub(crate) fn index_unread(&self) -> bool {
+        self.index_unread.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// How many sessions' roles this process keeps.
+    #[cfg(test)]
+    pub(crate) fn roles_kept(&self) -> usize {
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 
     /// What this process remembers of the roles, gone: as after a restart.
@@ -287,6 +319,9 @@ pub(super) fn notice_body(halt: bool, text: String) -> serde_json::Value {
         false => json!({"kind": "notice", "text": text, "quiet": true}),
     }
 }
+
+/// How many sessions' roles `Board::role` keeps before it forgets those with none.
+const ROLES_KEPT: usize = 4_096;
 
 /// A fix that runs now (`Board::live_fix`): its branch is no longer live once this is dropped.
 pub(crate) struct LiveFix<'a>(&'a Board, String);
@@ -424,8 +459,7 @@ pub async fn propose(
 ) -> Result<(String, Value), String> {
     // A session the loop opened as a fixer, an approver or a reviewer builds nothing, whatever it
     // was offered (issue 36, round 2: `super::roles`).
-    fixing::not_a_role(board, tc.session_id)?;
-    let i = input_of(input)?;
+    let i = fixing::builder_input(board, tc.session_id, input)?;
     let core = board
         .core
         .get()
@@ -572,12 +606,13 @@ async fn attempt(
     }
     let (p, t) = (place.clone(), a.tree.clone());
     let subject = subject(a.i);
-    let body = format!(
+    // The model's words, with no line that reads as a fix commit's trailer (`fix::neutralised`).
+    let body = super::join::fix::neutralised(&format!(
         "{}\n\nIssue: {}\nItem: {}\n\nCo-Authored-By: Theseus (self) <noreply@anthropic.com>",
         a.i.why.trim(),
         a.i.issue.trim(),
         a.i.item.trim()
-    );
+    ));
     let (head, commits, diff) = blocking(move || {
         // Formatted first, so the gate's formatting phase never fails an attempt.
         let body = match super::tree_fmt::format_tree(&p, &t).line() {

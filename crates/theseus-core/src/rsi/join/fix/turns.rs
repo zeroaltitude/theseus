@@ -120,11 +120,23 @@ pub(crate) fn limit(core: &Core) -> Duration {
     Duration::from_secs(core.cfg.self_fix.turn_minutes.max(1) * 60)
 }
 
-/// `turn` (of the session whose execution is `exec`) to its end, or stopped once it has run for
-/// `limit`: its execution is stopped, the turn is let reach its next step, and the answer says it
-/// ran past its limit.
+/// The limit of a reviewer's turn: [`limit`] while `[self_fix]` is on; none with it off, where a
+/// review runs as long as it did before issue 36.
+pub(crate) fn review_limit(core: &Core) -> Option<Duration> {
+    core.cfg.self_fix.on().then(|| limit(core))
+}
+
+/// The class of a turn stopped at its limit: a failure that does not clear by itself, so a review
+/// stopped there three times in a row holds the change for the owner (`join::unreviewable`), and a
+/// fixer or an approver stopped there is a fix that did not hold.
+pub const LIMIT_CLASS: &str = "turn_limit";
+
+/// `turn` (of `session`, whose execution is `exec`) to its end, or stopped once it has run for
+/// `limit`: its execution is stopped, the turn is let reach its next step, and the answer is a
+/// failed turn of [`LIMIT_CLASS`] that says it ran past its limit.
 pub(crate) async fn within(
     core: &Core,
+    session: &str,
     exec: Option<&str>,
     limit: Duration,
     turn: impl std::future::Future<Output = anyhow::Result<TurnSubmitResult>>,
@@ -133,16 +145,30 @@ pub(crate) async fn within(
     tokio::select! {
         r = &mut turn => r,
         () = tokio::time::sleep(limit) => {
+            // Its execution is stopped, and the turn is given a minute to reach its next step and
+            // settle what it holds; a turn with no execution has nothing to stop or wait for.
             if let Some(e) = exec {
                 if let Err(err) = core.stop_execution(e, "self loop: the turn ran past its limit").await {
                     tracing::warn!(error = %format!("{err:#}"), "a self turn past its limit was not stopped");
                 }
+                let _ = tokio::time::timeout(Duration::from_secs(60), &mut turn).await;
             }
-            let _ = tokio::time::timeout(Duration::from_secs(60), &mut turn).await;
-            anyhow::bail!(
-                "the turn ran past its limit of {} minutes and was stopped",
-                limit.as_secs() / 60
-            )
+            Err(anyhow::Error::new(crate::turn::TurnError {
+                class: LIMIT_CLASS.into(),
+                transient: false,
+                usage_unknown: true,
+                turn_id: session.to_string(),
+                session_id: session.to_string(),
+                elapsed_ms: u64::try_from(limit.as_millis()).unwrap_or(u64::MAX),
+                trace: None,
+                usage: theseus_protocol::Usage::default(),
+                cost_usd: None,
+                tool_calls: 0,
+                source: anyhow::anyhow!(
+                    "it ran past its limit of {} minutes, [self_fix] turn_minutes, and was stopped",
+                    limit.as_secs() / 60
+                ),
+            }))
         }
     }
 }
@@ -189,7 +215,7 @@ async fn turn(
         answer_at: None,
         prompt: None,
     });
-    let r = within(core, exec.as_deref(), limit(core), run).await;
+    let r = within(core, &session, exec.as_deref(), limit(core), run).await;
     if root.is_some() {
         release(core, &session);
     }

@@ -271,18 +271,18 @@ pub(crate) fn ends(kind: &str) -> bool {
     )
 }
 
-/// The head a branch's next attempt starts from when a fix of it, at either point, did not hold
-/// (a bound refused it, the gate was red again, it was rejected, or a restart cut it short): the
-/// head the newest fix started from, so the next attempt carries nothing of a fixer's that no
-/// other model approved. None when its newest fix was accepted, or there was none.
-pub(crate) fn unfixed_base(store: &crate::store::Store, branch: &str) -> Option<String> {
-    let rows = super::rows_of(store, &KINDS).ok()??;
-    let rows: Vec<_> = rows.iter().filter(|r| r.data["branch"] == branch).collect();
-    let at = rows.iter().rposition(|r| r.kind == "self.fix.started")?;
-    let held = rows[at + 1..]
-        .iter()
-        .any(|r| r.kind == "self.fix.verdict" && r.data["verdict"] == "accept");
-    (!held).then(|| rows[at].data["head"].as_str().map(str::to_string))?
+/// `text` (a model's words, for a commit's body) with every line that reads as a fix commit's
+/// [`TRAILER`], in any case, marked as quoted: only the code writes that trailer, so a builder's
+/// `why` that carries it does not make its own commit read as a fixer's (review round 2, note 2).
+pub fn neutralised(text: &str) -> String {
+    let key = TRAILER.to_ascii_lowercase();
+    text.lines()
+        .map(|l| match l.trim().to_ascii_lowercase().starts_with(&key) {
+            true => format!("(quoted) {}", l.trim()),
+            false => l.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The trailer every fix commit carries, with its point: how [`unapproved`] knows one by itself.
@@ -299,11 +299,9 @@ pub(crate) fn unapproved(
     dir: &std::path::Path,
     range: &str,
 ) -> Result<Option<String>> {
-    let Some(rows) = super::rows_of(store, &["self.fix.made", "self.fix.verdict"])? else {
-        return Ok(Some(
-            "the record is still being read, so no fix in the branch can be shown approved".into(),
-        ));
-    };
+    // While the ledger's index is still built, no fix can be shown approved: a commit that carries
+    // the trailer (every fixer's commit does) is then refused, and a branch with none passes.
+    let rows = super::rows_of(store, &["self.fix.made", "self.fix.verdict"])?.unwrap_or_default();
     let made: Vec<&str> = rows
         .iter()
         .filter(|r| r.kind == "self.fix.made")
