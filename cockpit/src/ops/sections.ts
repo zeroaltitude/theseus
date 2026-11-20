@@ -83,8 +83,8 @@ export function jobFacts(r: OpsRow, now: number): FactLine[] {
   return out
 }
 
-/** Whether a job's panel offers Stop: only while the job runs. An ended job has nothing to stop, and no verb dismisses a
- *  job (`dismiss` is a task's or a conversation's), so its panel offers nothing but its output. */
+/** Whether a job's panel offers Stop: only while the job runs. An ended job has nothing to stop; a failed one still
+ *  under Needs you offers Dismiss instead (`dismissOf`), and any other offers nothing but its output. */
 export const jobStoppable = (r: OpsRow): boolean => !isEndedState(r.state)
 
 /** The `execution.dismiss` that clears a failed row from Needs you: a task's or conversation's by its execution id, a job's
