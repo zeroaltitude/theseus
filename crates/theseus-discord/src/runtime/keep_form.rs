@@ -81,9 +81,12 @@ fn keep_wait() -> Duration {
 }
 
 /// What the presser is told when the daemon has not answered: not that it was kept, and not that it was not,
-/// since the write is the daemon's and goes on. The card is what the daemon edits when the write ends.
+/// since the write is the daemon's and goes on. The card is what the daemon edits when the write ends. A value
+/// given again is safe in every case: a second answer while the first is being kept is refused at once, and a
+/// card that has settled takes no second value.
 const NOT_YET: &str = "⏳ Theseus has not answered yet, so it cannot say whether the value was kept. \
-     The card will change to show the outcome when Theseus finishes: look there before typing the value again.";
+     The card will change to show the outcome when Theseus finishes: look there before typing the value again. \
+     If it still asks for the value, giving it again is safe.";
 
 /// What a press is told where no form opens, to the presser alone.
 const NOT_HERE: &str =
