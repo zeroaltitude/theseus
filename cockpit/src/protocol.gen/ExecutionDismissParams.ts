@@ -7,7 +7,7 @@ import type { DiscordOrigin } from "./DiscordOrigin";
 export type ExecutionDismissParams = { 
 /**
  * The whole id (`exe_…`) of a failed, blocked or budget-exhausted
- * execution.
+ * execution, or the call id (`act_…`) of a job that failed.
  */
 execution_id: string, 
 /**
