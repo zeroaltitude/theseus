@@ -65,6 +65,8 @@ A card is written by exactly one thing, and which one is decided by who settles 
 | Handler | Its card | Its one writer |
 |---|---|---|
 | `ask_press`, `confirm` buttons (`on_interaction`), `answer_modal` and `proof_form` from a card | a question's card or needs-you post | the daemon's settle (the press writes only where `has_post` is false: a card from before the outbox) |
+| the task board's answer press (`live_board.rs`, V2 cards) | an outbox card, or the ephemeral view of a task | the daemon's settle for an outbox card (`has_card`); the press for an ephemeral view and for a message that is no outbox card |
+| `stop_task` (`live_board.rs`) | a task's view | the press |
 | `keep_form` | the keep card | the daemon's settle (`vault_keep/settle.rs`); the press completes its own private response only |
 | `ask_again_press` | the settled card of an expired question | the press |
 | `thread_ask_press` | a thread question's card | the press |
