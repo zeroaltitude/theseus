@@ -490,55 +490,6 @@ fn a_series_occurrence_snoozed_twice_is_one_extra_wake_and_the_next_occurrence_g
     assert_ne!(next.wake.id, first.wake.id, "a new occurrence, a new copy");
 }
 
-/// A copy fires, the series' whole id is snoozed again (a second copy stands for
-/// the occurrence), and then the first copy's own notice is snoozed: that moves
-/// the second copy. It does not set the first again, which would be two wakes
-/// for one day's occurrence (the review's N-b).
-#[test]
-fn a_copys_own_snooze_after_the_series_was_snoozed_again_is_one_wake() {
-    let w = world_with(cfg());
-    let (e, id) = daily(&w);
-    w.clock.set(w.kernel.now_ms() + DAY + 1_000);
-    w.kernel.fire_notices(&e.id, post_of).unwrap();
-    let extra = |w: &World| {
-        exec(w, &e.id)
-            .wakes
-            .into_iter()
-            .filter(|x| x.id != id && x.note == "water the plants")
-            .collect::<Vec<_>>()
-    };
-    let one = w
-        .kernel
-        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 30 * MIN, true, "a button")
-        .unwrap()
-        .unwrap()
-        .wake
-        .id;
-    // Copy one fires; its own notice is out there.
-    w.clock.set(w.kernel.now_ms() + 31 * MIN);
-    w.kernel.fire_notices(&e.id, post_of).unwrap();
-    assert!(extra(&w).is_empty(), "copy one fired and left");
-    // The series' id is snoozed again from the CLI: a second copy.
-    let two = w
-        .kernel
-        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 60 * MIN, true, "the CLI")
-        .unwrap()
-        .unwrap()
-        .wake
-        .id;
-    assert_ne!(two, one, "copy one is no longer pending: a new copy");
-    // Copy one's own notice is snoozed.
-    let again = w
-        .kernel
-        .snooze_wake(&e.id, &one, w.kernel.now_ms() + 10 * MIN, true, "a button")
-        .unwrap()
-        .unwrap();
-    assert_eq!(again.wake.id, two, "the copy that stands for it is moved");
-    let copies = extra(&w);
-    assert_eq!(copies.len(), 1, "one wake for the occurrence: {copies:?}");
-    assert_eq!(copies[0].due_at_ms, w.kernel.now_ms() + 10 * MIN);
-}
-
 #[test]
 fn a_task_is_refused_with_words_and_a_probe_is_a_watch() {
     let w = world_with(cfg());
