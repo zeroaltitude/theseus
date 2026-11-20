@@ -90,7 +90,10 @@ which also rejects a head a role's session built). On the paths themselves:
 - a tree resumed after a restart whose newest fix at the gate has no end (`started`, or `made` and never approved) has
   it ended as cut short (`self.fix.none`) and is put back to the head before it, before anything is committed or gated;
 - a fix at review cut short is ended at the next pass, and the tree it reopened is closed;
-- the next attempt of a branch whose newest fix (at either point) did not hold starts from the head before it.
+- a fix at the gate that does not hold (a bound's refusal, red again, a rejection, no fix made, a fixer turn that
+  failed) puts the tree back to the head before the fix at once, before the builder reads the red: the builder's next
+  repair is made in the tree it will build on, and the next attempt is cut from where the tree stands, its edits kept
+  (round 3; round 2 reset at the next attempt, which threw the builder's own repair away).
 
 ## The test bound in an ordinary file (round 2)
 
@@ -101,8 +104,28 @@ from a repair by its lines; the approver is told to look for it.
 
 ## Turn limits, and a join main moves under (round 2)
 
-`[self_fix] turn_minutes` (60) bounds one turn of a fixer, of an approver and of a reviewer (a review had no limit): past
-it the turn's execution is stopped and it counts as no answer. A join whose gate starts again because main moved before
+`[self_fix] turn_minutes` (60) bounds one turn of a fixer, of an approver, and, while the mode is on, of a reviewer
+(a review had no limit, and with the mode off it still has none). Past it the turn's execution is stopped and the turn
+fails with the class `turn_limit`, a failure that does not clear by itself: a fixer's is a fix that did not hold (its
+`self.fix.none`, and the attempt's red is the try); an approver's is a rejection; a review's is a `self.join.stopped`
+row saying the review ran past its limit, and the third such stop in a row holds the change for the owner with the card
+the review already has for such failures (`join::unreviewable`, `HOLD_AFTER`). A join whose gate starts again because main moved before
 its push writes `self.join.again` (its gate's runs so far); the joining queue says "its gate has run N times: main moved
 under it", the `self.joined` row says how many times its gate ran, and `TRIES` (3) bounds it, as before. The branch's
 frozen report is written before the review and never again, so the count is in those rows, not in it.
+
+## What the mode off still changes (round 3)
+
+With `[self_fix] mode = "off"` no fix is tried, no `self.fix.*` row is written, the builder's brief and the reviewer's
+prompt are main's, a review's `fix` answer is a reject, a build does not wait on the ledger's index, and a review's turn
+has no limit. What still differs from the loop before issue 36, and why each is harmless:
+
+- **A reviewer's session is offered a reviewer's tools** (the read-only file and git tools, `proc.run`, `job.*`), not
+  the whole self catalog. Its instructions use no other tool, and it cannot reject a change by itself.
+- **`self.propose_change` refuses a fixer's, an approver's or a reviewer's session, and a builder's call for another
+  item's tree.** Neither is a path the loop takes when it works as meant.
+- **A join that main moves under writes `self.join.again`, and its `self.joined` row says how often its gate ran.** True
+  words; no decision reads them.
+- **The green rule** (`fix::unapproved`) runs at the gate and before a review. A branch with no fix commit passes it,
+  and a builder's `why` that quotes the fix commit's trailer has the line marked as quoted, so it does not trip it.
+- **A ceiling may name a tool whole.** A bindings file still cannot (`check_entry`).
