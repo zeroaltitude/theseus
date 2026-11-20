@@ -19,8 +19,7 @@ use serde_json::{json, Value};
 const KEY_VAR: &str = "THESEUS_CARD_TEST_KEY";
 
 fn cli(dir: &Path, args: &[&str]) -> (String, String, i32) {
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(dir.join("sock"))
         .args(args)
@@ -238,8 +237,7 @@ fn a_second_run_proposes_nothing_new(r: &Rig) {
 
 /// A job's shell may not answer for the owner.
 fn a_jobs_shell_may_not_answer(r: &Rig) {
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let refused = Command::new(theseusd.with_file_name("theseus"))
+    let refused = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(r.dir.path().join("sock"))
         .args(["card", "propose"])

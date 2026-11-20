@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(
             said,
             format!(
-                "{plain} The agent haiku was handed work (claude-haiku-5-5) is still working: \
+                "{plain} The agent haiku, handed work (claude-haiku-5-5), is still working: \
                  `/cancel a1b2c3` stops it."
             )
         );

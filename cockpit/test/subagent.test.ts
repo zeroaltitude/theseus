@@ -15,6 +15,11 @@ test("the footer's model part is the profile and model that answered, then who a
   assert.deepEqual(subagentFooter(answer({ asked_by: '', cost_usd: null, cut: true })), ['haiku', 'claude-haiku-5-5', 'subagent answer', 'cut at its cap', '1.3 s'])
 })
 
+test('work that was cancelled or failed says so after what it is, and finished work and an answer say nothing more', () => {
+  assert.deepEqual(subagentFooter(answer({ outcome: 'cancelled' })), ['haiku', 'claude-haiku-5-5', 'subagent answer, asked by sonnet', 'cancelled', '$0.0031', '1.3 s'])
+  assert.deepEqual(subagentFooter(answer()), subagentFooter(answer({ outcome: '' })))
+})
+
 test('only a result node that holds words is a subagent message', () => {
   assert.equal(subagentOf({ meta: { subagent: answer() } })?.model, 'claude-haiku-5-5')
   assert.equal(subagentOf({ meta: { subagent: answer({ text: '  ' }) } }), null)

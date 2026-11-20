@@ -26,8 +26,52 @@ impl Core {
         id: &str,
         by: &str,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
-        let mut result = self.stop_execution(id, by).await?;
+        let mut result = self.stop_execution_cancelling(id, by, false, true).await?;
         let mut cancelled: Vec<String> = Vec::new();
+        let walked = self.cancel_tasks_under(id, by, &mut cancelled).await;
+        let e = self
+            .kernel
+            .execution(id)?
+            .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
+        result.tasks_running = self
+            .kernel
+            .tasks(Some(id))?
+            .iter()
+            .filter(|t| !t.state.is_terminal())
+            .count() as u32;
+        // The agents the stop named were cancelled with the rest: name only one still working.
+        result.agents_running =
+            crate::profile_tool::run::agents_working(&self.kernel, &self.store, id);
+        // The stop's note was written before the cancels and says none go on: a task a cancel could not end
+        // (or one opened after the rounds) goes on, and the note is corrected here, once, by a line of its own.
+        if result.tasks_running > 0 {
+            self.session_rec(&e.session_id)
+                .record(&fact::driver::StopTasksLeft {
+                    by,
+                    left: result.tasks_running,
+                    agents: &result.agents_running,
+                });
+        }
+        // A cancel that failed ends the call, after the note says what is left.
+        walked?;
+        self.session_rec(&e.session_id)
+            .record(&fact::driver::ExecutionStoppedAll {
+                execution: &e,
+                by,
+                cancelled: &cancelled,
+            });
+        result.cancelled = cancelled;
+        Ok(result)
+    }
+
+    /// The rounds of the walk: each live task under `id`, children first, cancelled and named in `cancelled`
+    /// as it ends. A cancel that errors ends the walk with its error, with what was cancelled so far kept.
+    async fn cancel_tasks_under(
+        &self,
+        id: &str,
+        by: &str,
+        cancelled: &mut Vec<String>,
+    ) -> Result<()> {
         let mut seen: HashSet<String> = HashSet::new();
         for _ in 0..ROUNDS {
             // Children before the task they belong to; one read of the task index per task.
@@ -46,26 +90,6 @@ impl Core {
                 cancelled.push(task);
             }
         }
-        let e = self
-            .kernel
-            .execution(id)?
-            .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
-        result.tasks_running = self
-            .kernel
-            .tasks(Some(id))?
-            .iter()
-            .filter(|t| !t.state.is_terminal())
-            .count() as u32;
-        // The agents the stop named were cancelled with the rest: name only one still working.
-        result.agents_running =
-            crate::profile_tool::run::agents_working(&self.kernel, &self.store, id);
-        self.session_rec(&e.session_id)
-            .record(&fact::driver::ExecutionStoppedAll {
-                execution: &e,
-                by,
-                cancelled: &cancelled,
-            });
-        result.cancelled = cancelled;
-        Ok(result)
+        Ok(())
     }
 }

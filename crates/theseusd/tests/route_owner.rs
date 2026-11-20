@@ -58,8 +58,7 @@ fn trial(model: &FakeModel, jev: &FakeJev) -> tempfile::TempDir {
 }
 
 fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(dir.join("sock"))
         .arg("--json")
