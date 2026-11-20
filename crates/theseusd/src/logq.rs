@@ -2,8 +2,9 @@
 //!
 //! The log is diagnostic; the ledger and the store are the record. A log line written straight to standard error
 //! waits for whatever standard error is (a file on a disk whose journal is full, a service manager's journal that has
-//! stalled), and the thread that logged waits with it: found holding the daemon's one runtime worker, and `health`
-//! with it, for seconds. So a line is formatted by the thread that logs it, handed to a bounded queue, and written by
+//! stalled), and the thread that logged waits with it: found holding a runtime worker, and `health` with it, for
+//! seconds. (A test's daemon has ONE worker, and there it held every request; the installed daemon has one per core,
+//! and each such wait held one of them.) So a line is formatted by the thread that logs it, handed to a bounded queue, and written by
 //! one thread of its own, in the order it was handed over, unchanged.
 //!
 //! - **Lossy when full.** At [`LINES`] lines or [`BYTES`] bytes waiting, a new line is dropped and counted, and once
