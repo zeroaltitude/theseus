@@ -496,3 +496,30 @@ async fn the_forum_link_survives_a_restart_seed_first() {
     );
     assert_eq!(work_view(&again, &conv.id).forum_url, None);
 }
+
+/// A failed job's dismissal is the same owner's act as a task's, judged before
+/// the id is looked at: a person in a shared place and an MCP client are
+/// refused (`Refusal`, a row each) and nothing is written, while the owner's
+/// own surface reaches the job (an id nothing knows is then said to be unknown).
+#[tokio::test]
+async fn a_jobs_dismissal_is_judged_as_the_owners_act_and_refused_in_a_shared_place_and_for_mcp() {
+    let r = rig_with_a_failing_task();
+    let mcp = Answerer {
+        label: "an MCP client".into(),
+        surface: Surface::Mcp,
+        discord: None,
+        agent: None,
+    };
+    for who in [stranger(), mcp] {
+        let e = r.core.dismiss_failure("act_job", &who).unwrap_err();
+        assert!(
+            e.downcast_ref::<Refusal>().is_some(),
+            "{}: {e:#}",
+            who.label
+        );
+    }
+    assert_eq!(rows(&r.core, "approval.refused").len(), 2);
+    let e = r.core.dismiss_failure("act_job", &cli()).unwrap_err();
+    assert!(format!("{e:#}").contains("unknown action"), "{e:#}");
+    assert!(rows(&r.core, "execution.dismissed").is_empty());
+}

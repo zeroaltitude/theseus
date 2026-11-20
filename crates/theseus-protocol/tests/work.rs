@@ -153,6 +153,7 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         expect: None,
         flagged: true,
         dismissed: false,
+        read: false,
         retry_of: None,
         thread: None,
         purpose: None,

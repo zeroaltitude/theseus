@@ -62,6 +62,7 @@ fn root(state: WorkState, at: u64, since: u64) -> WorkView {
         expect: None,
         flagged: false,
         dismissed: false,
+        read: false,
         retry_of: None,
         thread: None,
         purpose: None,

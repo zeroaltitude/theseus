@@ -240,6 +240,11 @@ pub struct WorkView {
     /// the view keeps its `report` and asks for no one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dismissed: bool,
+    /// A job: a turn has its result (the turn that ran it read it as its
+    /// call's answer, or took it as a late result). A failed job whose
+    /// result was read is that turn's to deal with, and asks for no one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read: bool,
     /// The failed task this one retries (`task.retry`), by execution id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -609,6 +614,7 @@ pub fn answer_options(q: &Question) -> Vec<AnswerOption> {
 /// |---|---|---|---|
 /// | 1 | a budget question | needs you | `budget: $10.02 of $10` |
 /// | 2 | any other question | needs you | `confirm proc.run: run cargo test` |
+/// | 3a | `failed` job whose result a turn read | idle | `failed` |
 /// | 3 | `failed` | needs you | `failed: <reason>`; idle `failed: <reason> · dismissed` once dismissed (theseus-7zgsm) |
 /// | 4 | `needs_you`, no question | needs you | `blocked: <reason>`, `waiting on you` |
 /// | 5 | `running` | working | its doing's label, `turn 4`, `running` |
@@ -618,8 +624,13 @@ pub fn answer_options(q: &Question) -> Vec<AnswerOption> {
 /// | 9 | `done`, `cancelled`, `expired` | idle | `complete`, `done`, `cancelled`, `expired` |
 /// | 10 | a state this build doesn't know | working | `working` |
 ///
-/// A failed task stays needs you until someone looks (rule 3). `since_ms`
-/// is the view's `state_since_ms`.
+/// A failed task stays needs you until someone looks (rule 3). A failed job
+/// does too, unless a turn has its result (rule 3a): a job's result goes to
+/// the turn that ran it, as its `proc.run` or `job.wait` answer or as a late
+/// result that turn took, and there the failure is that turn's to deal with.
+/// The view keeps the word `failed`; only its level is that of a thing read
+/// and over. A job nothing read (its turn ended or its session is gone, or
+/// no turn was there) still asks. `since_ms` is the view's `state_since_ms`.
 pub fn attention_of(v: &WorkView) -> Attention {
     let (level, label) = work_level_and_label(v);
     Attention {
@@ -669,6 +680,7 @@ fn work_level_and_label(v: &WorkView) -> (Level, String) {
             .filter(|l| !l.is_empty())
     };
     match v.state {
+        WorkState::Failed if v.kind == WorkKind::Job && v.read => (Level::Idle, reason("failed")),
         WorkState::Failed => (Level::NeedsYou, reason("failed")),
         WorkState::NeedsYou => match v.report.as_ref().map(|r| r.outcome.as_str()) {
             Some("budget_exhausted") => (Level::NeedsYou, "budget exhausted".into()),
@@ -869,6 +881,7 @@ impl WorkView {
             expect: None,
             flagged: false,
             dismissed: x.dismissed,
+            read: false,
             retry_of: x.retry_of.clone(),
             thread: None,
             forum_url: None,

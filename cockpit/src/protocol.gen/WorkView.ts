@@ -127,6 +127,12 @@ flagged?: boolean,
  */
 dismissed?: boolean, 
 /**
+ * A job: a turn has its result (the turn that ran it read it as its
+ * call's answer, or took it as a late result). A failed job whose
+ * result was read is that turn's to deal with, and asks for no one.
+ */
+read?: boolean, 
+/**
  * The failed task this one retries (`task.retry`), by execution id.
  */
 retry_of?: string, 

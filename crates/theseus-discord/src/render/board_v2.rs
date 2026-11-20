@@ -551,6 +551,7 @@ mod tests {
             expect: None,
             flagged: false,
             dismissed: false,
+            read: false,
             retry_of: None,
             forecast: None,
             thread: None,

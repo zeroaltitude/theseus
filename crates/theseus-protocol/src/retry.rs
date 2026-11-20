@@ -23,7 +23,7 @@ use crate::work::{AnswerOption, Style, WorkKind, WorkState, WorkView};
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExecutionDismissParams {
     /// The whole id (`exe_…`) of a failed, blocked or budget-exhausted
-    /// execution.
+    /// execution, or the call id (`act_…`) of a job that failed.
     pub execution_id: String,
     /// Set by the Discord binding: the channel and user the press came from,
     /// which the place rule judges (theseus-a5uds).

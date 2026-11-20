@@ -447,6 +447,7 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
         expect: None,
         flagged: false,
         dismissed: false,
+        read: false,
         retry_of: None,
         forecast: None,
         thread: None,
