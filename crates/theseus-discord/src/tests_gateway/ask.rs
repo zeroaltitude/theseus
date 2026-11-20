@@ -119,7 +119,12 @@ async fn a_question_that_waited_pings_the_dm_and_a_press_answers_it() {
     })
     .await;
     let _ = corr;
-    let pressed = r.fake.replies().into_iter().find_map(|x| x.interaction).unwrap();
+    let pressed = r
+        .fake
+        .replies()
+        .into_iter()
+        .find_map(|x| x.interaction)
+        .unwrap();
     r.until("the press is over", || crate::runtime::handled(&pressed))
         .await;
     assert_settled_alone(&r, &post, &pressed);
@@ -152,10 +157,22 @@ fn assert_settled_alone(r: &Rig, card: &theseus_sim::fake_discord::Msg, pressed:
     assert_eq!(now.versions[0], card.content, "{now:?}");
     let settle = &now.versions[1];
     assert!(settle.starts_with("✅ **Answered** by "), "{settle}");
-    assert!(settle.contains("Which plan for the harbour survey?"), "the question's own words: {settle}");
-    assert_eq!(&now.content, settle, "the card says the settle, word for word");
-    assert!(!now.content.contains("chose"), "the press wrote none: {now:?}");
-    assert!(now.buttons.is_empty(), "the settle took the buttons: {now:?}");
+    assert!(
+        settle.contains("Which plan for the harbour survey?"),
+        "the question's own words: {settle}"
+    );
+    assert_eq!(
+        &now.content, settle,
+        "the card says the settle, word for word"
+    );
+    assert!(
+        !now.content.contains("chose"),
+        "the press wrote none: {now:?}"
+    );
+    assert!(
+        now.buttons.is_empty(),
+        "the settle took the buttons: {now:?}"
+    );
     let mine: Vec<_> = r
         .fake
         .replies()
@@ -217,7 +234,10 @@ async fn a_pressed_card_ends_with_the_settle_when_the_settle_lands_after_the_pre
     })
     .await;
     let waiting = card_now(&r, &card.id);
-    assert_eq!(waiting.content, card.content, "the press wrote nothing: {waiting:?}");
+    assert_eq!(
+        waiting.content, card.content,
+        "the press wrote nothing: {waiting:?}"
+    );
     assert!(!waiting.buttons.is_empty(), "its buttons stay: {waiting:?}");
     r.fake.withhold_edits(false);
     r.until("the settle lands", || {

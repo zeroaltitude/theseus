@@ -672,7 +672,10 @@ async fn a_pressed_approval_card_is_written_by_the_settle_alone() {
     })
     .await;
     let waiting = r.card(LAB).unwrap();
-    assert_eq!(waiting.content, card.content, "the press wrote nothing: {waiting:?}");
+    assert_eq!(
+        waiting.content, card.content,
+        "the press wrote nothing: {waiting:?}"
+    );
     assert!(!waiting.buttons.is_empty(), "its buttons stay: {waiting:?}");
     r.fake.withhold_edits(false);
     r.until("the settle lands", || {
@@ -680,7 +683,12 @@ async fn a_pressed_approval_card_is_written_by_the_settle_alone() {
     })
     .await;
     let card = r.card(LAB).unwrap();
-    assert!(card.content.starts_with("✅ **Approved** by discord:ana · "), "{}", card.content);
+    assert!(
+        card.content
+            .starts_with("✅ **Approved** by discord:ana · "),
+        "{}",
+        card.content
+    );
 }
 
 /// The place rule (theseus-zmgb): `#lab` is bound shared, so a call that

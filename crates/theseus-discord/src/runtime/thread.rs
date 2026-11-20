@@ -197,11 +197,35 @@ fn typed_in(d: &DiscordOrigin) -> String {
     }
 }
 
+// The interactions this test's binding has finished handling, by id: a test waits for the end of a press instead of
+// guessing when it is over (a test runs on one thread, so the list is its own).
+#[cfg(test)]
+thread_local! {
+    static HANDLED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether the binding has finished handling interaction `id`.
+#[cfg(test)]
+pub(crate) fn handled(id: &str) -> bool {
+    HANDLED.with(|h| h.borrow().iter().any(|x| x == id))
+}
+
 impl Shared {
     /// An interaction, from the gateway: `/thread bind` typed in a Discord
     /// thread that is not a place yet, under one that is (or under `[threads]
     /// discord_channel`), is answered here (theseus-sjzm; the core judges the
     /// presser as it does everywhere); every other goes to its place.
+    /// Handle an interaction on a task of its own.
+    pub(super) fn spawn_interacted(self: Arc<Self>, i: Interaction) {
+        tokio::spawn(async move {
+            #[cfg(test)]
+            let id = i.id.to_string();
+            self.interacted(i).await;
+            #[cfg(test)]
+            HANDLED.with(|h| h.borrow_mut().push(id));
+        });
+    }
+
     pub(super) async fn interacted(self: Arc<Self>, i: Interaction) {
         if !self.unplaced_thread_bind(&i).await {
             self.on_interaction(i).await;
