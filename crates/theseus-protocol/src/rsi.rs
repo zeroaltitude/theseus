@@ -71,7 +71,9 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         doc: "An independent review's verdict on a branch, from a different session, with its \
               planted revert's result: `failed` (a test failed without the fix), `build-broke` \
               (only the build failed without it, so the reviewer was told to check the test \
-              itself), `passed`, `no-tests`, `base-red`, `not-found`, `unbuilt` or `not-run`.",
+              itself, and the row's optional `proof_check` says whether it did by running an \
+              experiment, `running`, or could only read, `reading`), `passed`, `no-tests`, \
+              `base-red`, `not-found`, `unbuilt` or `not-run`.",
     },
     SelfRowKind {
         name: "self.joined",

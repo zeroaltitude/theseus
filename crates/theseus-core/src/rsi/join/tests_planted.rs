@@ -18,7 +18,11 @@ const HEAD_BACKLOG: &str = "mod read;\n#[cfg(test)]\nmod tests_judge;\npub mod o
 
 /// A base commit with `base` files and a head on it with `head` files, in a throwaway worktree of
 /// the fixture's repo; the two commits.
-fn commits(f: &Fixture, base: &[(&str, &str)], head: &[(&str, &str)]) -> (String, String) {
+pub(super) fn commits(
+    f: &Fixture,
+    base: &[(&str, &str)],
+    head: &[(&str, &str)],
+) -> (String, String) {
     let repo = &f.place.repo;
     let wt = repo.parent().unwrap().join("seed-planted");
     run_git(
@@ -318,7 +322,10 @@ fn any_other_end_of_the_second_run_is_a_stop_that_says_what_it_was() {
     let (o, seen) = answer(&[Ran::Passed, Ran::Other(Some(106))]);
     assert_eq!(seen.len(), 2);
     let why = format!("{:#}", o.unwrap_err());
-    assert!(why.contains("exited with code 106"), "{why}");
+    assert!(
+        why.contains("with the fix undone exited with code 106"),
+        "{why}"
+    );
     assert!(
         why.contains("neither a failing test nor a failing build"),
         "{why}"
@@ -327,17 +334,48 @@ fn any_other_end_of_the_second_run_is_a_stop_that_says_what_it_was() {
     assert!(format!("{:#}", o.unwrap_err()).contains("cut short by a signal"));
 }
 
-/// The first run is as it was: a red build or any other end on the branch's own head is `BaseRed`.
+/// On the branch's own head a failing test and a failing build are its own fault, `BaseRed`, and
+/// the words say which of the two it was.
 #[test]
-fn the_first_run_reads_a_failing_build_and_any_other_end_as_before() {
-    for ran in [
-        Ran::Failed,
-        Ran::BuildFailed,
-        Ran::Other(Some(96)),
-        Ran::Other(None),
+fn the_first_run_reads_a_failing_test_and_a_failing_build_as_the_branchs_own_fault() {
+    for (ran, build_failed, words) in [
+        (
+            Ran::Failed,
+            false,
+            "do not pass on its own head (a test failed)",
+        ),
+        (
+            Ran::BuildFailed,
+            true,
+            "do not build on its own head (the build failed)",
+        ),
     ] {
         let (o, seen) = outcome(&[ran]);
-        assert!(matches!(o, Outcome::BaseRed { .. }), "{ran:?}: {o:?}");
+        assert!(
+            matches!(&o, Outcome::BaseRed { build_failed: b, .. } if *b == build_failed),
+            "{ran:?}: {o:?}"
+        );
         assert_eq!(seen.len(), 1);
+        let why = o.reason().unwrap();
+        assert!(why.contains(words), "{why}");
     }
+}
+
+/// On the branch's own head any other end answers nothing either: a stop that says which run and
+/// what the exit was, not a rejection of the change for something that may not be its fault.
+#[test]
+fn any_other_end_of_the_first_run_is_a_stop_that_says_which_run_it_was() {
+    for (code, words) in [
+        (Some(96), "on its own head exited with code 96"),
+        (None, "on its own head was cut short by a signal"),
+    ] {
+        let (o, seen) = answer(&[Ran::Other(code)]);
+        assert_eq!(seen.len(), 1);
+        let why = format!("{:#}", o.unwrap_err());
+        assert!(why.contains(words), "{why}");
+        assert!(!why.contains("with the fix undone"), "{why}");
+    }
+    let (o, _) = answer(&[Ran::Passed, Ran::Other(Some(96))]);
+    let u = planted::Undecided::of(&o.unwrap_err()).cloned().unwrap();
+    assert_eq!(u.class(), "second-run-exit-96");
 }

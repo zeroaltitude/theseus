@@ -205,6 +205,7 @@ impl Rig {
             asked: "claude-fable-5-2".into(),
             verdict: "reject".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec![finding.into()],
             cost_usd: 0.5,
         };

@@ -36,14 +36,17 @@
 //! proof too, but a weaker one, so it is its own outcome, [`Outcome::BuildBroke`]:
 //! it shows that a test mentions the fix, not that it checks what the fix does.
 //! It is marked in the verdict's record, and the model review is told
-//! ([`Outcome::proof_note`]) to find the test that asserts. Any other exit (a
-//! setup error, a signal, a run cut short) answers nothing: the run stops, and
-//! neither proves nor rejects the change.
+//! ([`Outcome::proof_note`]) to check the test by an experiment in its own scratch.
+//! Any other exit (a setup error, a signal, a run cut short), on either run, answers
+//! nothing: the step stops ([`Undecided`]), and neither proves nor rejects the change;
+//! the same stop on the same head, repeated, is held for the owner (`stopped_planted`).
+//! On the branch's own head a failing test (100) or a failing build (101) is its own
+//! fault, [`Outcome::BaseRed`], and says which.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use theseus_kernel::children::{self, Kind};
 
 use super::git;
@@ -62,7 +65,7 @@ pub enum Outcome {
     /// The branch has no new or changed test to run.
     NoTests,
     /// Its tests do not pass on its own head.
-    BaseRed { tail: String },
+    BaseRed { tail: String, build_failed: bool },
     /// None of its tests is in the build on its own head.
     NotFound { tests: Vec<String> },
     /// With the fix undone none of its tests is in the build.
@@ -88,7 +91,8 @@ impl Outcome {
     }
 
     /// How the change was proved, for the model review that follows: what it must check.
-    pub fn proof_note(&self) -> Option<String> {
+    /// `scratch` is the directory the reviewer may work in (`scratch::dir`).
+    pub fn proof_note(&self, scratch: &str) -> Option<String> {
         match self {
             Outcome::Failed { tests } => Some(format!(
                 "How it was proved: with the fix undone, at least one of its new or changed tests \
@@ -98,10 +102,26 @@ impl Outcome {
             Outcome::BuildBroke { tests } => Some(format!(
                 "How it was proved: the mechanical step could show only that, with the fix undone, \
                  the tests no longer compile ({}). That shows that a test mentions the fix and not \
-                 that it checks what the fix does. So you must find, in the diff, at least one new \
-                 or changed test whose assertion would fail if the fix's behaviour were wrong, and \
-                 name that test and that assertion in your reasons. If there is none, reject, and say \
-                 so.",
+                 that it checks what the fix does. So check it by an experiment, not only by \
+                 reading. In your scratch checkout, `{scratch}/tree` (made as below if it is not \
+                 there), keep the fix's new names so that everything still compiles, and make the \
+                 fix's behaviour wrong by the smallest change that does it: a wrong return value, \
+                 the old logic back inside the new function, the changed branch inverted. Make the \
+                 change with a command (for example `git apply` or `sed -i`, run in that checkout), \
+                 then run the named tests there with the build under `{scratch}/target`, and see at \
+                 least one of them FAIL on its assertion. The experiment is not the branch: it \
+                 changes only files under `{scratch}`, is thrown away with it, and nothing is \
+                 committed, pushed or written anywhere else. After it, your reasons must say, one \
+                 line each, `CHANGED:` what you changed, and `FAILED:` which test failed and on \
+                 which assertion. If the named tests still pass with the behaviour broken, reject, \
+                 and say: its tests do not check what the fix does. If you could not run the \
+                 experiment (no way to break the behaviour without breaking the build, the build \
+                 could not be made, no time), say so in a line that begins `CHECKED BY READING \
+                 ONLY:` with the reason, and then find, in the diff, at least one new or changed \
+                 test whose assertion would fail if the fix's behaviour were wrong, and name that \
+                 test and that assertion in your reasons. If there is none, reject, and say so. An \
+                 accept that gives neither the `CHANGED:` and `FAILED:` lines nor a `CHECKED BY \
+                 READING ONLY:` line does not count.",
                 tests.join(", ")
             )),
             _ => None,
@@ -121,8 +141,14 @@ impl Outcome {
                  (inline tests go with the revert; put them in a tests file)"
                     .into(),
             ),
-            Outcome::BaseRed { tail } => Some(format!(
-                "its tests do not pass on its own head, so nothing can be proved: {}",
+            Outcome::BaseRed { tail, build_failed } => Some(format!(
+                "its tests do not {} on its own head, so nothing can be proved ({}): {}",
+                if *build_failed { "build" } else { "pass" },
+                if *build_failed {
+                    "the build failed"
+                } else {
+                    "a test failed"
+                },
                 tail.lines().last().unwrap_or("").trim()
             )),
             Outcome::NotFound { tests } => Some(format!(
@@ -139,6 +165,72 @@ impl Outcome {
         }
     }
 }
+
+/// A run of the tests that answered nothing: it ended in none of the ways nextest ends when the
+/// tests passed, a test failed, the build failed or no test was found. The step stops on it
+/// (the error `run` returns), and the stop says which run and what the exit was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Undecided {
+    /// The run: with the branch's own head, or with the fix undone.
+    pub second: bool,
+    /// Its exit code; none for a signal.
+    pub code: Option<i32>,
+    /// The last line of its output.
+    pub last: String,
+}
+
+impl Undecided {
+    fn new(second: bool, code: Option<i32>, tail: &str) -> Self {
+        let last = tail.lines().last().unwrap_or("").trim().to_string();
+        Undecided { second, code, last }
+    }
+
+    /// The stop's class, for counting identical stops: which run, and the exit.
+    pub fn class(&self) -> String {
+        let run = if self.second {
+            "second-run"
+        } else {
+            "first-run"
+        };
+        match self.code {
+            Some(c) => format!("{run}-exit-{c}"),
+            None => format!("{run}-signal"),
+        }
+    }
+
+    /// What stopped, in words: which run and what the exit was.
+    pub fn what(&self) -> String {
+        let run = if self.second {
+            "the run of its tests with the fix undone"
+        } else {
+            "the run of its tests on its own head"
+        };
+        match self.code {
+            Some(c) => format!(
+                "{run} exited with code {c}, which is neither a failing test nor a failing build"
+            ),
+            None => format!("{run} was cut short by a signal"),
+        }
+    }
+
+    /// The `Undecided` an error from [`run`] is, if it is one.
+    pub fn of(e: &anyhow::Error) -> Option<&Undecided> {
+        e.downcast_ref::<Undecided>()
+    }
+}
+
+impl std::fmt::Display for Undecided {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}, so it shows nothing either way: {}",
+            self.what(),
+            self.last
+        )
+    }
+}
+
+impl std::error::Error for Undecided {}
 
 /// What a run of the named tests came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -506,7 +598,19 @@ pub fn run(p: &Place, tests: &dyn Tests, branch: &str, base: &str, head: &str) -
         let (ran, tail) = tests.run(p, &t, &names)?;
         match ran {
             Ran::Passed => {}
-            Ran::Failed | Ran::BuildFailed | Ran::Other(_) => return Ok(Outcome::BaseRed { tail }),
+            Ran::Failed => {
+                return Ok(Outcome::BaseRed {
+                    tail,
+                    build_failed: false,
+                })
+            }
+            Ran::BuildFailed => {
+                return Ok(Outcome::BaseRed {
+                    tail,
+                    build_failed: true,
+                })
+            }
+            Ran::Other(code) => return Err(Undecided::new(false, code, &tail).into()),
             Ran::NoneRan => return Ok(Outcome::NotFound { tests: names }),
         }
         if undo_fix(p, &t, base, &paths)?.is_empty() {
@@ -518,17 +622,7 @@ pub fn run(p: &Place, tests: &dyn Tests, branch: &str, base: &str, head: &str) -
             Ran::Failed => Outcome::Failed { tests: names },
             Ran::BuildFailed => Outcome::BuildBroke { tests: names },
             Ran::NoneRan => Outcome::Unbuilt { tests: names },
-            Ran::Other(code) => {
-                let ended = code.map_or_else(
-                    || "was cut short by a signal".to_string(),
-                    |c| format!("exited with code {c}, which is neither a failing test nor a failing build"),
-                );
-                bail!(
-                    "with the fix undone its tests were run and the run {ended}, so it shows nothing \
-                     either way: {}",
-                    tail.lines().last().unwrap_or("").trim()
-                )
-            }
+            Ran::Other(code) => return Err(Undecided::new(true, code, &tail).into()),
         })
     })();
     let _ = tree::close(p, &t);

@@ -108,6 +108,11 @@ fn fixed(r: &LedgerRow, rows: &[LedgerRow]) -> String {
             "failed" => line.push_str(", planted revert failed the new tests"),
             "build-broke" => {
                 line.push_str(", planted revert broke the build (the new tests no longer compile)");
+                match s(&v.data, "proof_check") {
+                    "running" => line.push_str(", reviewer checked it by running"),
+                    "reading" => line.push_str(", reviewer could only read"),
+                    _ => {}
+                }
             }
             "" => {}
             other => line.push_str(&format!(", planted revert {other}")),

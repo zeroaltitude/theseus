@@ -1359,6 +1359,7 @@ fn legacy_row(r: &Rig, branch: &str, head: &str, verdict: &str) {
             asked: String::new(),
             verdict: verdict.into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec!["from before".into()],
             cost_usd: 0.25,
         });
@@ -1454,6 +1455,7 @@ async fn an_accept_that_says_what_was_asked_is_trusted() {
             asked: "claude-fable-5-2".into(),
             verdict: "accept".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec![],
             cost_usd: 0.25,
         });

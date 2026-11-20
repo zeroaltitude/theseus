@@ -639,8 +639,11 @@ under its own text; there is no shadow period and no ladder wait.
 - **It reviews and joins them.** Each branch goes through, in order:
   1. a planted revert, run by code: if no test fails with the fix undone, the branch is rejected. A test that
      fails is the proof. A build that only breaks (a test that names what the fix added) is accepted as proof but marked
-     `build-broke` in the verdict's record, and the review is told to find a test whose assertion fails without the
-     fix, and to reject if there is none. Any other end of the run stops it, and neither proves nor rejects;
+     `build-broke` in the verdict's record, and the review is told to check it by an experiment in its own scratch
+     (break the fix's behaviour there, run the named tests, see one fail) and to say which it did (`proof_check`:
+     `running`, or `reading` when it could not); a review that says neither does not count. If a test is only read,
+     it must name an asserting test, or reject. Any other end of a run (on either run) stops it and neither proves nor rejects;
+     the same stop on the same head three times in a row holds it for the owner, as a review that keeps failing is;
   2. a review on a different model from the builder's;
   3. the keel check;
   4. a check against the sealed holdout sets, when the change touches behaviour (prompts, tool descriptions,

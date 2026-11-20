@@ -214,3 +214,34 @@ fn nothing_to_say_is_no_notice() {
         "{t}"
     );
 }
+
+/// A fix proved only by a broken build is told so, with how the reviewer checked it: by running an
+/// experiment, or by reading only; no such words when the row has none.
+#[test]
+fn a_build_broke_proof_is_told_with_how_it_was_checked() {
+    let line = |check: Option<&str>| {
+        let mut verdict = json!({"branch": "self/b", "head": "h", "reviewer": "fable (claude-fable-5-2)",
+                                 "verdict": "accept", "planted_revert": "build-broke"});
+        if let Some(c) = check {
+            verdict["proof_check"] = json!(c);
+        }
+        let rows = vec![
+            row("self.review.verdict", DAY0, verdict),
+            row(
+                "self.joined",
+                DAY0 + 1,
+                json!({"item": "tsk", "branch": "self/b", "head": "h", "merge": "4a1c9e0b77",
+                       "gate": "green", "why": "a thing", "undo": "u"}),
+            ),
+        ];
+        notice_text(&rows, &waits()).expect("something landed")
+    };
+    let broke = "planted revert broke the build (the new tests no longer compile)";
+    assert!(
+        line(None).contains(&format!("review (fable) ✔, {broke} ·")),
+        "{}",
+        line(None)
+    );
+    assert!(line(Some("running")).contains(&format!("{broke}, reviewer checked it by running")));
+    assert!(line(Some("reading")).contains(&format!("{broke}, reviewer could only read")));
+}
