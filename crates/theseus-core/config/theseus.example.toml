@@ -1696,6 +1696,19 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # version_label = "1.0.6"                 # keep only the issues carrying this label (unset: every open issue)
 # max = 20                                # the most issues one night takes, most recently updated first
 
+# The self loop's repair in place (issue 36). A self build whose gate is red in
+# its own work (formatting, lint, a build error, a failing test), or whose
+# independent review answers `fix`, is given ONCE at each point to a fixer on
+# the reviewer's profile; the code makes its one commit, the gate runs again,
+# and the model that built the branch must accept that commit before the branch
+# goes on. A fix uses none of the item's tries. A red main, a fault of the
+# machine and a keel stop are never given to a fixer. These keys are a section
+# of their own for the same reason as [self_issues].
+# [self_fix]
+# mode = "on"                             # "off": nothing is repaired in place, and the loop is as it was
+# lines = 60                              # the most lines one fix may add and remove, together
+# files = 6                               # the most files one fix may change
+
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
 # l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)

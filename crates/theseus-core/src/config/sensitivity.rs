@@ -24,7 +24,7 @@
 //! index, or a renamed key reaches the same keys, and each is classified.
 
 /// A top-level table every key of which is sensitive, and why.
-pub const SENSITIVE_TABLES: [(&str, &str); 16] = [
+pub const SENSITIVE_TABLES: [(&str, &str); 17] = [
     ("policy", "what needs approval"),
     ("secrets", "where secrets come from"),
     ("sandbox", "the sandbox and the hosts it allows"),
@@ -34,6 +34,10 @@ pub const SENSITIVE_TABLES: [(&str, &str); 16] = [
     (
         "self_issues",
         "self-improvement: where it files and what it spends",
+    ),
+    (
+        "self_fix",
+        "self-improvement: whether a fix is made in place, and how large it may be",
     ),
     ("aws", "AWS accounts, roles and budgets"),
     ("google", "Google access: credentials and trusted senders"),
