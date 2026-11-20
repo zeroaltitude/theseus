@@ -1510,6 +1510,9 @@ mod tests {
         .await;
         r.fake.set_forum(FORUM);
         let shared = crate::runtime::shared_for_tests(&r.core);
+        // The id the stand-in's `users/@me` gives: this shared state is not the
+        // running binding's, so its preamble did not set it.
+        shared.set_bot_id_for_tests(theseus_sim::fake_discord::BOT_ID);
         *shared.task_posts.forums.lock().unwrap() = vec![Forum {
             channel: FORUM,
             guild: DEFAULT_GUILD.to_string(),

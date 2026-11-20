@@ -27,9 +27,15 @@
 //! intent off, so it does not wait on a read; one that may have gone (a
 //! timeout, a 5xx) keeps it.
 //!
+//! **Whose post.** Only a thread the bot itself owns, in that forum, is
+//! adopted (a shared forum's member may name a post with a marker), and none
+//! while the bot's own id is not yet known.
+//!
 //! **What this does not do.** A post that was made, left unrecorded, and
 //! archived before the restart (a day of quiet: the post's auto archive) is
-//! not among the active threads and is taken for not made.
+//! not among the active threads and is taken for not made. A create in flight at
+//! Discord that applies after the read is the one race left, with a restart or
+//! without (a create that timed out is read for after `FIRST_RETRY`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,14 +58,42 @@ pub(super) struct Intent {
     pub at_ms: u64,
 }
 
+/// How long an intent is kept: past this, a post made and not recorded has
+/// archived (a day of quiet), so there is nothing left to find.
+const STALE_MS: u64 = 3 * 24 * 3_600_000;
+
+/// The intents worth keeping at `now`.
+fn live(intents: Vec<Intent>, posts: &[Post], now: u64) -> Vec<Intent> {
+    intents
+        .into_iter()
+        .filter(|i| now < i.at_ms + STALE_MS)
+        .filter(|i| !posts.iter().any(|p| p.task == i.task && p.forum == i.forum))
+        .collect()
+}
+
 /// What an item's post carries in its name, whatever mark it later takes.
 pub(super) fn marker(task: &str) -> String {
     format!("{} · ", short(task))
 }
 
 impl TaskPosts {
+    /// The intents the store holds, the stale ones left out: one whose post has
+    /// its row (the kill came after the row, and the intent was not taken off),
+    /// and one older than `STALE_MS` (an item that ended while the daemon was
+    /// down and was never asked for again; a post made so long ago and not
+    /// recorded has archived and cannot be found anyway).
     pub(super) fn load_intents(&self, store: &theseus_core::store::Store) {
-        *self.intents.lock().unwrap() = store.get_meta(KEY).ok().flatten().unwrap_or_default();
+        let held: Vec<Intent> = store.get_meta(KEY).ok().flatten().unwrap_or_default();
+        let live = live(
+            held.clone(),
+            &self.posts.lock().unwrap(),
+            theseus_protocol::now_unix_ms(),
+        );
+        let changed = live.len() != held.len();
+        *self.intents.lock().unwrap() = live;
+        if changed {
+            self.save_intents(store);
+        }
     }
 
     fn save_intents(&self, store: &theseus_core::store::Store) {
@@ -166,6 +200,10 @@ impl Worker {
     /// carrying its marker in its name.
     async fn find_post(&self, guild: &str, intent: &Intent) -> anyhow::Result<Option<u64>> {
         let guild_id: u64 = guild.parse()?;
+        // Until the bot knows its own id a post of anyone's could be taken for
+        // its own: no adoption, and the caller tries again.
+        let bot = self.shared.bot_id();
+        anyhow::ensure!(bot != 0, "the bot's own id is not known yet");
         let req = Request::builder(&HttpRoute::GetActiveThreads { guild_id }).build()?;
         let active: Value = self
             .shared
@@ -179,7 +217,11 @@ impl Worker {
             .into_iter()
             .flatten()
             .filter(|t| {
-                t["parent_id"].as_str().and_then(|p| p.parse::<u64>().ok()) == Some(intent.forum)
+                // The bot's own post, in that forum: a member's post that
+                // happens to carry the marker is never adopted.
+                t["owner_id"].as_str().and_then(|o| o.parse::<u64>().ok()) == Some(bot)
+                    && t["parent_id"].as_str().and_then(|p| p.parse::<u64>().ok())
+                        == Some(intent.forum)
                     && t["name"]
                         .as_str()
                         .is_some_and(|n| n.contains(&intent.marker))
@@ -347,5 +389,87 @@ mod tests {
         r.fake.set_mode(Mode::Up);
         assert_eq!(posts(&r), 0);
         assert!(w.shared.task_posts.intent_of(TASK, FORUM).is_some());
+    }
+
+    #[test]
+    fn a_stale_intent_is_dropped_at_load_one_with_its_row_and_one_long_gone() {
+        let now = 10 * STALE_MS;
+        let intent = |task: &str, at_ms| Intent {
+            task: task.into(),
+            forum: 7,
+            marker: marker(task),
+            at_ms,
+        };
+        let row = |task: &str| Post {
+            task: task.into(),
+            forum: 7,
+            post: 1,
+            guild: "2".into(),
+            created_ms: 0,
+            ended_ms: None,
+            link: None,
+            bound: None,
+            read_ms: None,
+            archived_ms: None,
+        };
+        let kept = live(
+            vec![
+                intent("exe_a", now - 1_000),
+                intent("exe_b", now - 1_000),
+                intent("exe_c", now - STALE_MS - 1),
+            ],
+            &[row("exe_b")],
+            now,
+        );
+        assert_eq!(kept, [intent("exe_a", now - 1_000)]);
+    }
+
+    /// A member's post that happens to carry the marker is never adopted: it is
+    /// left as it is, and the bot's own first post is made.
+    #[tokio::test]
+    async fn a_members_post_named_with_the_marker_is_left_alone_and_the_bots_is_made() {
+        use crate::tests_gateway::BEN;
+        let (r, mut w) = worker_over_the_fake().await;
+        let theirs = r
+            .fake
+            .member_thread(FORUM, BEN, &format!("{}Chart the reef", marker(TASK)));
+        w.shared
+            .task_posts
+            .intend(&w.shared.core.store, TASK, FORUM);
+        tell(&mut w);
+        w.drive().await;
+        let threads = r.fake.threads();
+        assert_eq!(threads.iter().filter(|t| t.parent == FORUM).count(), 2);
+        let held = w.shared.task_posts.posts.lock().unwrap().clone();
+        assert_eq!(held.len(), 1);
+        assert_ne!(held[0].post, theirs, "the row is the bot's own post");
+        let member = threads.iter().find(|t| t.id == theirs).unwrap();
+        assert_eq!(
+            (member.names.len(), member.tag_sets.len(), member.archived),
+            (1, 1, false),
+            "never renamed, tagged or archived: {member:?}"
+        );
+    }
+
+    /// While the bot's own id is unknown nothing is adopted and nothing is made:
+    /// an error, and a retry once it is known.
+    #[tokio::test]
+    async fn no_post_is_adopted_while_the_bots_own_id_is_unknown() {
+        let (r, mut w) = worker_over_the_fake().await;
+        tell(&mut w);
+        w.drive().await;
+        killed_after_the_create(&mut w);
+        let known = w.shared.bot_id();
+        w.shared.set_bot_id_for_tests(0);
+        w.drive().await;
+        assert_eq!(
+            (posts(&r), rows(&w)),
+            (1, 0),
+            "nothing adopted, nothing made"
+        );
+        w.shared.set_bot_id_for_tests(known);
+        tokio::time::sleep(std::time::Duration::from_millis(1_300)).await;
+        w.drive().await;
+        assert_eq!((posts(&r), rows(&w)), (1, 1), "found once the id is known");
     }
 }

@@ -540,6 +540,13 @@ struct State {
     /// A write whose content holds this text waits for its answer until the
     /// hold is lifted.
     hold: Option<String>,
+    /// A message create whose content holds this text waits and, released, is
+    /// dropped unapplied and unanswered (`drop_message_creates_containing`), and
+    /// how many wait now.
+    drop_creates: Option<String>,
+    drop_held: usize,
+    /// Listing a channel's messages answers 503 (`fail_message_lists`).
+    fail_message_lists: bool,
     /// Where a forum post's create waits (`hold_thread_creates`), and how many
     /// creates wait there now.
     thread_hold: Option<threads::HoldAt>,
@@ -711,6 +718,32 @@ impl FakeDiscord {
     /// hold is lifted (`None`), or after a minute (theseus-pfv).
     pub fn hold_writes_containing(&self, text: Option<&str>) {
         self.state.lock().unwrap().hold = text.map(str::to_string);
+    }
+
+    /// A message create whose content holds `text` waits at the stand-in, not
+    /// yet applied; lifted (`None`), or after a minute, it is dropped: the
+    /// message never exists and the sender, killed, never hears. The card's
+    /// create that never arrived.
+    pub fn drop_message_creates_containing(&self, text: Option<&str>) {
+        self.state.lock().unwrap().drop_creates = text.map(str::to_string);
+    }
+
+    /// While `on`, `GET /channels/<id>/messages` answers 503 (a read that fails).
+    pub fn fail_message_lists(&self, on: bool) {
+        self.state.lock().unwrap().fail_message_lists = on;
+    }
+
+    /// How many message creates wait at that hold now.
+    pub fn held_message_creates(&self) -> usize {
+        self.state.lock().unwrap().drop_held
+    }
+
+    /// Whether a message create of `content` is held to be dropped now.
+    fn dropping(&self, content: &str) -> bool {
+        let st = self.state.lock().unwrap();
+        st.drop_creates
+            .as_deref()
+            .is_some_and(|h| content.contains(h))
     }
 
     /// Whether a write of `content` is held now.
@@ -1343,6 +1376,23 @@ impl FakeDiscord {
                 "errors": {"components": why}}),
             );
         }
+        let said = format!(
+            "{}{}",
+            body["content"].as_str().unwrap_or_default(),
+            v2_text(&body["components"])
+        );
+        if self.dropping(&said) {
+            self.state.lock().unwrap().drop_held += 1;
+            for _ in 0..60_000 {
+                if !self.dropping(&said) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let mut st = self.state.lock().unwrap();
+            st.drop_held = st.drop_held.saturating_sub(1);
+            return Ok(());
+        }
         let nonce = match &body["nonce"] {
             Value::String(s) => Some(s.clone()),
             Value::Number(n) => Some(n.to_string()),
@@ -1515,6 +1565,14 @@ impl FakeDiscord {
     /// `GET /channels/<c>/messages`: the channel's newest 100 messages, newest
     /// first (`before`, `after` and `around` are not honoured).
     fn messages_list(&self, stream: TcpStream, route: &str, channel: &str) -> std::io::Result<()> {
+        if self.state.lock().unwrap().fail_message_lists {
+            self.record(seen("GET", route, "failed"));
+            return reply(
+                stream,
+                503,
+                &json!({"message": "Service Unavailable (fake)", "code": 0}),
+            );
+        }
         self.record(seen("GET", route, "read"));
         let items: Vec<Value> = self
             .state

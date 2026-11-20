@@ -465,6 +465,9 @@ pub(crate) struct Worker {
     /// `BURST`.
     made: usize,
     space: Duration,
+    /// The last failure was a read for an intent (the pass goes on with the other
+    /// items, and makes nothing for that one).
+    read_failed: bool,
 }
 
 /// Start the worker, once. It ends with the daemon's stop.
@@ -481,6 +484,7 @@ pub(super) fn start(shared: &Arc<Shared>) {
             loaded: false,
             made: 0,
             space: space(),
+            read_failed: false,
         };
         let mut wait = IDLE;
         loop {
@@ -516,6 +520,7 @@ impl Worker {
             loaded: false,
             made: 0,
             space: space(),
+            read_failed: false,
         }
     }
 
@@ -530,7 +535,7 @@ impl Worker {
                 .ok()
                 .flatten()
                 .unwrap_or_default();
-            self.intents = self
+            let held = self
                 .shared
                 .core
                 .store
@@ -538,6 +543,10 @@ impl Worker {
                 .ok()
                 .flatten()
                 .unwrap_or_default();
+            self.intents = intent::live(held.clone(), &self.recs, now_unix_ms());
+            if self.intents.len() != held.len() {
+                self.save_intents();
+            }
         }
     }
 
@@ -584,9 +593,20 @@ impl Worker {
                 break;
             }
         }
-        for f in faces.iter().filter(|_| ok) {
+        // A write that fails stops the pass; a READ for an item's intent that
+        // fails leaves that item alone (nothing is made for it blind) and the
+        // pass goes on with the rest, which need no read.
+        let mut stopped = !ok;
+        for f in &faces {
+            if stopped {
+                break;
+            }
             if !self.card_for(f, &home, now).await {
                 ok = false;
+                if std::mem::take(&mut self.read_failed) {
+                    continue;
+                }
+                stopped = true;
                 break;
             }
             shown.push(f.clone());
@@ -594,7 +614,7 @@ impl Worker {
         // Only once the work model has been read: before it, an item that is
         // not in it is an item it has not told of (a task set for later, a
         // reminder over 30 days out, the Home conversation's), not one gone.
-        if ok && s.tasks.loaded() {
+        if !stopped && s.tasks.loaded() {
             // An item that is nowhere any more: fired or cancelled while the
             // daemon was down, or a routine removed.
             let gone: Vec<Rec> = self
@@ -605,8 +625,15 @@ impl Worker {
                 .collect();
             for r in gone {
                 let mut f = gone_face(&r, now, &s.task_posts.sched);
-                if !self.name_canceller(&mut f).await || !self.card_for(&f, &home, now).await {
+                if !self.name_canceller(&mut f).await {
                     ok = false;
+                    break;
+                }
+                if !self.card_for(&f, &home, now).await {
+                    ok = false;
+                    if std::mem::take(&mut self.read_failed) {
+                        continue;
+                    }
                     break;
                 }
                 shown.push(f);
@@ -770,6 +797,9 @@ impl Worker {
             Ok(true) => return self.edit_found(f, card, dig, home, now).await,
             Ok(false) => {}
             Err(e) => {
+                // A read that failed: no card is made for this item blind, and
+                // the others do not wait for it.
+                self.read_failed = true;
                 self.failed("schedule card", format!("{e:#}"));
                 return false;
             }
