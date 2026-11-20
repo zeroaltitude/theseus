@@ -510,7 +510,12 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.note = format!("routing corrected to {to}");
             (o.person, o.work) = (true, 2);
         }
-        "judge.label" if is_wrong(&d["label"]) => {
+        // A system label is the nightly run's own guess from the record (weight 0.5): a
+        // `{"not": "complete"}` there says a later task looked like a re-ask, not that Jev
+        // answered wrongly, and no person labeled anything. How often those guesses
+        // disagree with Jev is the judge report's to say (`judge.report`), so only a
+        // person's or an audit's label files a wrong judgment.
+        "judge.label" if d["source"].as_str() != Some("system") && is_wrong(&d["label"]) => {
             let p = word(&d["pack"]);
             o.key = format!("judge.wrong:{p}");
             o.title = format!("Jev's {p} judgments are labeled wrong");

@@ -86,6 +86,8 @@ struct Model {
     fails_after_a_result: std::sync::atomic::AtomicBool,
     /// Every request's model and how many tools it offered (`profile.run`: an agent has tools).
     seen: Mutex<Vec<(String, usize)>>,
+    /// The requests the turn itself made, whole (an agent's and a tool-less ask are not these).
+    sent: Mutex<Vec<ProviderRequest>>,
     /// What an agent (a request whose first message holds `AGENT:`) reports, and the gate that holds
     /// it until a test lets it go.
     agent: Mutex<Option<String>>,
@@ -94,6 +96,8 @@ struct Model {
     agent_call: Mutex<Option<(String, Value)>>,
     /// The tool names each agent request offered, by wire name.
     agent_tools: Mutex<Vec<Vec<String>>>,
+    /// Every request the turn's own model was asked, whole, in order.
+    requests: Mutex<Vec<ProviderRequest>>,
 }
 
 impl Model {
@@ -164,8 +168,12 @@ impl Provider for Model {
                     .await
             });
         }
+        self.requests.lock().unwrap().push(req.clone());
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
+        }
+        if !req.tools.is_empty() {
+            self.sent.lock().unwrap().push(req.clone());
         }
         if self
             .fails_after_a_result
@@ -280,10 +288,12 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         on_asked: Mutex::default(),
         fails_after_a_result: Default::default(),
         seen: Mutex::default(),
+        sent: Mutex::default(),
         agent: Mutex::default(),
         gate: Mutex::default(),
         agent_call: Mutex::default(),
         agent_tools: Mutex::default(),
+        requests: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -355,6 +365,12 @@ impl Rig {
         *self.model.plain.lock().unwrap() = Some(said.into());
     }
 
+    /// What the turn's own model was given in each request it was asked, as the provider's messages.
+    pub(super) fn requests(&self) -> Vec<Vec<Value>> {
+        let all = self.model.requests.lock().unwrap();
+        all.iter().map(|r| r.messages.clone()).collect()
+    }
+
     /// The requests a model with no tool offered was asked.
     pub(super) fn asked_plain(&self) -> Vec<ProviderRequest> {
         self.model.asked.lock().unwrap().clone()
@@ -417,6 +433,11 @@ impl Rig {
     /// The owner's words the next turns start from (`change a setting` when none are set).
     pub(super) fn says(&self, words: &str) {
         *self.said.lock().unwrap() = Some(words.into());
+    }
+
+    /// The requests the turn itself made, whole.
+    pub(super) fn sent(&self) -> Vec<ProviderRequest> {
+        self.model.sent.lock().unwrap().clone()
     }
 
     /// The model of every request made, and the tools it offered.

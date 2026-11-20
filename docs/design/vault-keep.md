@@ -160,3 +160,18 @@ Replace an item the settings read (refused). Overwrite another item (shown on th
 The proof: `config_change/vault_keep/tests/tests_form.rs` (the daemon, from the Discord surface, against the stand-in vault: the
 planted value, every refusal), `runtime/keep_form/tests.rs` (the drawn card and form, with a golden; the binding's one request) and
 `crates/theseusd/tests/keep_form.rs` (a real daemon, the fake gateway and the stand-in vault, end to end).
+
+## What the conversation that asked is told (issue 37)
+
+The tool answers at once, with what it asked and where the owner gives the value, and no value. The card then
+settles by whichever end: kept (a new item, a field added, a value replaced), refused with its reason, declined,
+or expired. Before issue 37 nothing the model reads changed at that point: the settle wrote the answer's row, the
+session's narrative and the card's close, and the model's next turn was given only the first result, which says the
+card waits. A late result could not carry it (it needs a background placeholder and a queued result, and a bound or
+declined question queues none), and a settings card has no such path either.
+
+So the frame that settles a keep card also writes ONE note into the asking session, as a thread's move writes one:
+`Your vault.keep card is settled and no longer waits for the owner: <the owner's own words>`, by name and never the
+value. The frame is the one that binds or declines the question, so a second answer (refused as already answered), a
+replay and a restart add none. The tool's own words no longer quote the card's first lines (where the value is typed
+in a place with no form), because the card may be drawn in a place with one.

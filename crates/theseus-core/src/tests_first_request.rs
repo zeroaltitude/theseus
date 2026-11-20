@@ -207,3 +207,33 @@ fn a_loaded_tool_is_named_in_the_allowlist_with_its_reason() {
         }
     }
 }
+
+/// The line that names the profiles (issue 37) rides in the turn's tail, which the census does not
+/// read, so its cost is counted here the census's own way (its characters at the model's rate for
+/// text) and added to every kind of place's first request on the owner's shape: no place is put
+/// over its budget by it, and no budget moves.
+#[test]
+fn the_profile_line_fits_every_places_room() {
+    let (owner, _dir) = rig_of(OWNER_SHAPE);
+    let names = owner.cfg.all_profiles().keys().map(String::as_str);
+    let line =
+        crate::profile_tool::names::line(names).expect("the owner's shape has several profiles");
+    for place in PLACES {
+        let Some(max) = budget(place) else { continue };
+        let first = owner.first_request(place).unwrap().tokens;
+        let rates = crate::catalog::TokenRates::of(
+            &owner.cfg.profile(&owner.cfg.model.live).unwrap().model,
+        );
+        let cost = (line.len() as f64 / rates.text).ceil() as u64;
+        eprintln!(
+            "first request, the owner's shape, {place}, with the profile line ({cost} tokens): {}{}",
+            first + cost,
+            pressure(first + cost, max)
+        );
+        assert!(
+            first + cost <= max,
+            "the owner's shape, {place}: {} tokens with the profile line, over its budget of {max}",
+            first + cost
+        );
+    }
+}
