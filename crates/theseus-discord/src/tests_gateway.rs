@@ -657,6 +657,32 @@ async fn approve_pressed_in_a_private_channel_runs_the_call_and_settles_the_card
     assert_eq!(r.waiting(), 0);
 }
 
+/// One writer per approval card: the stand-in applies the daemon's settle only once the press is over, and until
+/// then the card is what it was posted as (the press wrote nothing, not even the words the settle will say).
+#[tokio::test]
+async fn a_pressed_approval_card_is_written_by_the_settle_alone() {
+    let r = Rig::start(write_script, false).await;
+    r.say((ANA, "ana"), Some(LAB), "Write the proof file.");
+    r.until("the card in #lab", || r.card(LAB).is_some()).await;
+    let card = r.card(LAB).unwrap();
+    r.fake.withhold_edits(true);
+    let pressed = r.press(&card.id, "Approve", (ANA, "ana"));
+    r.until("the press is over and the settle waits", || {
+        crate::runtime::handled(&pressed) && r.fake.withheld() >= 1
+    })
+    .await;
+    let waiting = r.card(LAB).unwrap();
+    assert_eq!(waiting.content, card.content, "the press wrote nothing: {waiting:?}");
+    assert!(!waiting.buttons.is_empty(), "its buttons stay: {waiting:?}");
+    r.fake.withhold_edits(false);
+    r.until("the settle lands", || {
+        r.card(LAB).is_some_and(|c| c.buttons.is_empty())
+    })
+    .await;
+    let card = r.card(LAB).unwrap();
+    assert!(card.content.starts_with("✅ **Approved** by discord:ana · "), "{}", card.content);
+}
+
 /// The place rule (theseus-zmgb): `#lab` is bound shared, so a call that
 /// waits there sends its card to ana's DM, an owner's, with a note in `#lab`,
 /// and her press there approves it.
