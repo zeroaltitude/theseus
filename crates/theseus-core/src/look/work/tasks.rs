@@ -94,7 +94,9 @@ fn task_line_in(t: &TaskInfo, r: &Reader<'_>) -> String {
         t,
         Said {
             title: r.words(at, title_of(t), 100),
-            ended: ended_of(t).map(|s| r.words(at, s, 120)),
+            // Why it ended was written in the task's own session (its failure, its stop), which carries
+            // what it read: its labels, not its parent's, mark those words.
+            ended: ended_of(t).map(|s| r.words(&t.task_id, s, 120)),
             from: Some(r.place(at)),
         },
     )

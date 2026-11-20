@@ -61,6 +61,16 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// `text`, as a line of at most `max` characters, in the hand that wrote it: the owner's, given as
+    /// theirs; a model's, the words of the session it wrote them in ([`Reader::words`]: held back from a
+    /// restricted turn when that conversation is marked, taken on by an unrestricted one).
+    pub(super) fn hand(&self, hand: &crate::content::Hand, text: &str, max: usize) -> String {
+        match hand {
+            crate::content::Hand::Owner => super::clip(text, max),
+            crate::content::Hand::Model(session) => self.words(session, text, max),
+        }
+    }
+
     /// `text` from notes Theseus imported (a proposal's words), as a line: held back from a model that
     /// could not be sent them, as another conversation's marked words are.
     pub(super) fn imported(&self, text: &str, max: usize) -> String {
@@ -143,10 +153,7 @@ pub(super) fn field(s: &str) -> String {
 /// the bound name; clipped.
 pub(super) fn place_words(name: &str) -> String {
     match name.strip_suffix(" on the CLI or the web UI") {
-        Some(id) => format!(
-            "the CLI or the web UI (…{})",
-            crate::task::short(&field(id))
-        ),
+        Some(id) => format!("the CLI or the web UI (…{})", crate::task::short(id)),
         None => field(name),
     }
 }
