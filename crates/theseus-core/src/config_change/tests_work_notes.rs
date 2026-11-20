@@ -259,3 +259,46 @@ async fn the_project_view_is_read_to_a_limit_and_says_how_many_older_it_left() {
         "{text}"
     );
 }
+
+/// A project the model makes in `sid`, by `task_create`; `sid` back.
+async fn model_project(r: &Rig, sid: String) -> String {
+    r.turn_with(
+        "task_create",
+        &sid,
+        json!({"kind": "project", "title": "Harbour survey", "review": "none"}),
+    )
+    .await;
+    let made = crate::task_graph::all(&r.core.store)
+        .unwrap()
+        .into_iter()
+        .find(|t| t.kind == theseus_protocol::tasks::TaskKind::Project)
+        .expect("the model made the project");
+    assert!(made.origin.by_model, "{:?}", made.origin);
+    assert_eq!(made.origin.session, sid);
+    sid
+}
+
+/// A project a model made in a conversation (`task_create` with `kind: "project"`) has a title that
+/// conversation's model wrote, not the owner's: it is that conversation's words, held back from a restricted
+/// turn and taken on by an unrestricted one, as a task's title is. Review finding (issue 28, after landing):
+/// `horizon::project_line` gives `p.title` as the owner's whatever made it.
+#[tokio::test]
+#[ignore = "review finding: a model-made project's title is given unheld and its flags are not taken"]
+async fn a_project_a_model_made_has_that_conversations_words_for_its_title() {
+    // Restricted: held back.
+    let r = restricted_rig();
+    let wrote = model_project(&r, conversation(&r).await).await;
+    mark(&r, &wrote);
+    let here = conversation(&r).await;
+    let text = said(&r, &here, json!({"what": ["projects"]})).await;
+    assert!(!text.contains("Harbour survey"), "{text}");
+    assert!(text.contains("held back"), "{text}");
+    // Unrestricted: given, and that conversation's flags are taken on.
+    let r = rig();
+    let wrote = model_project(&r, conversation(&r).await).await;
+    mark(&r, &wrote);
+    let here = conversation(&r).await;
+    let text = said(&r, &here, json!({"what": ["projects"]})).await;
+    assert!(text.contains("Harbour survey"), "{text}");
+    assert!(flags(&r, &here).is_some(), "taken on");
+}
