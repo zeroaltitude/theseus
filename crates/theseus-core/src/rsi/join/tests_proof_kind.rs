@@ -105,7 +105,7 @@ async fn a_failing_test_reaches_the_reviewer_as_one_sentence() {
 /// paragraph that says what that shows and what it must therefore find.
 #[tokio::test]
 async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_asking_for_the_assertion() {
-    let (pass, asks, rows) = joined(&[Ran::Passed, Ran::BuildFailed]).await;
+    let (pass, asks, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, RAN_IT).await;
     assert_eq!(pass.reviewed.len(), 1, "{pass:?}");
     assert_eq!(rows[0]["planted_revert"], "build-broke");
     assert_eq!(rows[0]["verdict"], "accept");
@@ -198,9 +198,9 @@ async fn only_a_build_broke_proof_needs_and_records_how_it_was_checked() {
     let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::Failed], true, &["it looks fine"]).await;
     assert_eq!(rows[0]["verdict"], "accept");
     assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
-    // And the words are read the way the verdict line is: a case, a dash, a space do not matter.
+    // And the words are read the way the verdict line is: a case, a space do not matter.
     assert_eq!(
-        super::proof_check::how(&["- checked by reading only: no time".into()]),
+        super::proof_check::how(&["  checked by reading only: no time".into()]),
         Some("reading")
     );
     assert_eq!(

@@ -342,12 +342,12 @@ fn the_first_run_reads_a_failing_test_and_a_failing_build_as_the_branchs_own_fau
         (
             Ran::Failed,
             false,
-            "do not pass on its own head (a test failed)",
+            "do not pass on its own head, so nothing can be proved (a test failed)",
         ),
         (
             Ran::BuildFailed,
             true,
-            "do not build on its own head (the build failed)",
+            "do not build on its own head, so nothing can be proved (the build failed)",
         ),
     ] {
         let (o, seen) = outcome(&[ran]);
