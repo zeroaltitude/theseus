@@ -31,7 +31,7 @@ use crate::session::{SessionRecord, TargetRef};
 use crate::store::Store;
 use crate::{Config, Core};
 
-const FAKE_GPG: &str = "#!/bin/bash\n\
+pub(crate) const FAKE_GPG: &str = "#!/bin/bash\n\
 echo '[GNUPG:] KEY_CONSIDERED FIXTURE 0' >&2\n\
 echo '[GNUPG:] SIG_CREATED D 1 8 00 1792000000 FIXTURE' >&2\n\
 cat >/dev/null\n\
@@ -110,6 +110,7 @@ impl Reviewer for Stand {
         Box::pin(async {
             Ok(Review {
                 accept: true,
+                fix: false,
                 reasons: vec!["the stand-in accepts".into()],
                 cost_usd: 0.25,
                 session: None,
@@ -121,7 +122,7 @@ impl Reviewer for Stand {
 }
 
 /// `tests/*.sh`, each run with bash in the tree: all must exit 0.
-struct Scripts;
+pub(crate) struct Scripts;
 
 impl Tests for Scripts {
     fn run(&self, _p: &Place, t: &Tree, tests: &[String]) -> anyhow::Result<(bool, String)> {
@@ -191,6 +192,7 @@ impl Reviewer for Slow {
             self.now.fetch_sub(1, SeqCst);
             Ok(Review {
                 accept: true,
+                fix: false,
                 reasons: vec!["the slow stand-in accepts".into()],
                 cost_usd: 0.25,
                 session: None,
@@ -1222,6 +1224,7 @@ impl Reviewer for Strays {
         Box::pin(async {
             Ok(Review {
                 accept: true,
+                fix: false,
                 reasons: vec!["the stray accepts".into()],
                 cost_usd: 0.25,
                 session: None,

@@ -20,16 +20,17 @@ use crate::fact::rsi_join::SelfReviewVerdict;
 use crate::job_model::How;
 use crate::turn::Target;
 
-/// Who would review, and whether that review would be independent.
-struct Reviewer {
-    target: Option<Target>,
+/// Who would review, and whether that review would be independent. The fixer (`fix`) is resolved
+/// by the same rule, on the same profile, and refused the same way.
+pub(crate) struct Reviewer {
+    pub(crate) target: Option<Target>,
     /// `fable (claude-fable-5-2)`.
-    name: String,
+    pub(crate) name: String,
     /// The model it asks to run on; empty when none resolved.
-    model: String,
+    pub(crate) model: String,
     /// The builder's model, which the model that answers must not be.
-    builder: Option<String>,
-    refusal: Option<String>,
+    pub(crate) builder: Option<String>,
+    pub(crate) refusal: Option<String>,
 }
 
 /// A pin is held where it names: the turn is the owner's choice, so routing never moves it
@@ -43,7 +44,7 @@ fn held(mut t: Target, how: How) -> Target {
 
 /// Why a review that ran on `ran` does not count against a branch built on `builder`; none when it
 /// is another model. A model that is not known cannot be shown to differ.
-fn not_independent(builder: &str, ran: &str) -> Option<String> {
+pub(crate) fn not_independent(builder: &str, ran: &str) -> Option<String> {
     if ran.is_empty() {
         return Some(
             "the review did not say which model answered, so it cannot be shown independent of \
@@ -59,72 +60,91 @@ fn not_independent(builder: &str, ran: &str) -> Option<String> {
     })
 }
 
-impl Run<'_> {
-    /// The reviewer's target against the builder's model: `[self]
-    /// reviewer_profile` when it is set (a pin), else Jev's choice for the
-    /// review, told the builder's model (route.v10, theseus-ej6bj). Review
-    /// independence holds either way: a reviewer on the builder's model is
-    /// refused, as it always was, and the rule is not a cap.
-    async fn reviewer(&self) -> Reviewer {
-        let core = self.core;
-        let builder = self
-            .b
-            .session
-            .as_deref()
-            .and_then(|s| {
-                core.store
-                    .get_session::<crate::session::SessionRecord>(s)
-                    .ok()
-                    .flatten()
-            })
-            .and_then(|r| r.last_target)
-            .map(|t| t.model);
-        let live = core.live_profile().0;
-        let site = crate::job_model::Site {
-            name: "self reviewer",
-            pin: core.cfg.self_improve.reviewer_profile.as_deref(),
-            job: theseus_judge::builders::JobKind::SelfReviewer {
-                diff_summary: self.b.why.clone(),
-                builder_model: builder.clone(),
-                // The change is the assistant's own code, written from the
-                // owner's sessions: owner material, US options only.
-                private: true,
-            },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
-        };
-        let target = core
-            .runner
-            .job_target(&live, site)
-            .await
-            .map(|(t, how)| held(t, how));
-        let profile = match &target {
-            Ok(t) => t.profile.clone(),
-            Err(e) => e.profile.clone(),
-        };
-        let refusal = match (&target, &builder) {
-            (Err(e), _) => Some(format!("[self] reviewer_profile {e}")),
-            (_, None) => Some(
-                "the builder's model is not known, so no review can be shown independent of it"
-                    .into(),
-            ),
-            (Ok(t), Some(m)) if crate::catalog::same_model(m, &t.model) => Some(format!(
-                "the reviewer would run on {m}, the model that built the branch: an independent \
-                 review is on another model, so set [self] reviewer_profile to one"
-            )),
-            _ => None,
-        };
-        let target = target.ok();
-        Reviewer {
-            name: target
-                .as_ref()
-                .map_or_else(|| profile.clone(), |t| format!("{profile} ({})", t.model)),
-            model: target.as_ref().map(|t| t.model.clone()).unwrap_or_default(),
-            builder,
-            target,
-            refusal,
-        }
-    }
+/// The model the session `builder` last ran on: the model that built a branch.
+pub(crate) fn builder_model(core: &crate::rpc::Core, builder: Option<&str>) -> Option<String> {
+    builder_target(core, builder).map(|t| t.model)
+}
 
+/// The profile and the model the session `builder` last ran on.
+pub(crate) fn builder_target(
+    core: &crate::rpc::Core,
+    builder: Option<&str>,
+) -> Option<crate::session::TargetRef> {
+    builder
+        .and_then(|s| {
+            core.store
+                .get_session::<crate::session::SessionRecord>(s)
+                .ok()
+                .flatten()
+        })
+        .and_then(|r| r.last_target)
+}
+
+impl Run<'_> {
+    /// [`reviewer_for`] this branch.
+    async fn reviewer(&self) -> Reviewer {
+        reviewer_for(self.core, self.b.session.as_deref(), &self.b.why).await
+    }
+}
+
+/// The reviewer's target against the builder's model: `[self]
+/// reviewer_profile` when it is set (a pin), else Jev's choice for the
+/// review, told the builder's model (route.v10, theseus-ej6bj). Review
+/// independence holds either way: a reviewer on the builder's model is
+/// refused, as it always was, and the rule is not a cap. `builder` is the
+/// session that built the branch, `why` the change's own words.
+pub(crate) async fn reviewer_for(
+    core: &std::sync::Arc<crate::rpc::Core>,
+    builder: Option<&str>,
+    why: &str,
+) -> Reviewer {
+    let builder = builder_model(core, builder);
+    let live = core.live_profile().0;
+    let site = crate::job_model::Site {
+        name: "self reviewer",
+        pin: core.cfg.self_improve.reviewer_profile.as_deref(),
+        job: theseus_judge::builders::JobKind::SelfReviewer {
+            diff_summary: why.to_string(),
+            builder_model: builder.clone(),
+            // The change is the assistant's own code, written from the
+            // owner's sessions: owner material, US options only.
+            private: true,
+        },
+        restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
+    };
+    let target = core
+        .runner
+        .job_target(&live, site)
+        .await
+        .map(|(t, how)| held(t, how));
+    let profile = match &target {
+        Ok(t) => t.profile.clone(),
+        Err(e) => e.profile.clone(),
+    };
+    let refusal = match (&target, &builder) {
+        (Err(e), _) => Some(format!("[self] reviewer_profile {e}")),
+        (_, None) => Some(
+            "the builder's model is not known, so no review can be shown independent of it".into(),
+        ),
+        (Ok(t), Some(m)) if crate::catalog::same_model(m, &t.model) => Some(format!(
+            "the reviewer would run on {m}, the model that built the branch: an independent \
+             review is on another model, so set [self] reviewer_profile to one"
+        )),
+        _ => None,
+    };
+    let target = target.ok();
+    Reviewer {
+        name: target
+            .as_ref()
+            .map_or_else(|| profile.clone(), |t| format!("{profile} ({})", t.model)),
+        model: target.as_ref().map(|t| t.model.clone()).unwrap_or_default(),
+        builder,
+        target,
+        refusal,
+    }
+}
+
+impl Run<'_> {
     /// The review: the verdict written, or none when a halt stopped it.
     pub(super) async fn review(&mut self) -> Result<Option<String>> {
         let who = self.reviewer().await;
@@ -215,13 +235,32 @@ impl Run<'_> {
             })?;
             return Ok(Some("refused".into()));
         }
-        let v = if r.accept { "accept" } else { "reject" };
+        let (v, reasons) = self.word(&r);
         self.verdict(Said {
             verdict: v,
-            reasons: r.reasons,
+            reasons,
             ..ran
         })?;
         Ok(Some(v.into()))
+    }
+
+    /// The verdict's word (issue 36): a `fix` is one only while `[self_fix]` is on and this head
+    /// was not fixed at review already; a second `fix` is a reject, and says so.
+    fn word(&self, r: &super::review::Review) -> (&'static str, Vec<String>) {
+        match (r.accept, r.fix) {
+            (true, _) => ("accept", r.reasons.clone()),
+            (false, true) if self.b.fixed.is_some() => {
+                let mut why = vec![
+                    "it asked for a second fix at review, which is a reject: a branch is fixed at \
+                     review once"
+                        .to_string(),
+                ];
+                why.extend(r.reasons.iter().cloned());
+                ("reject", why)
+            }
+            (false, true) if self.core.cfg.self_fix.on() => ("fix", r.reasons.clone()),
+            _ => ("reject", r.reasons.clone()),
+        }
     }
 
     /// A review whose turn failed. A failure that will not clear by itself, the same one for the
@@ -319,6 +358,9 @@ impl Run<'_> {
             built_ms: self.b.at_ms,
             scratch: scratch.display().to_string(),
             repo: self.place.repo.display().to_string(),
+            offer_fix: (self.core.cfg.self_fix.on() && self.b.fixed.is_none())
+                .then_some((self.core.cfg.self_fix.lines, self.core.cfg.self_fix.files)),
+            fixed: self.b.fixed.clone(),
         })
     }
 
@@ -348,6 +390,9 @@ impl Run<'_> {
     /// frame.
     fn verdict(&mut self, v: Said) -> Result<()> {
         let reasons = v.reasons.clone();
+        if v.verdict == "fix" {
+            self.asked.clone_from(&reasons);
+        }
         let fact = SelfReviewVerdict {
             item: self.b.item.clone(),
             branch: self.b.branch.clone(),

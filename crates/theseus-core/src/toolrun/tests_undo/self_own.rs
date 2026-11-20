@@ -870,6 +870,8 @@ async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
         built_ms: 0,
         scratch: scratch(&r.target).display().to_string(),
         repo: base(&r.target).join("repo").display().to_string(),
+        offer_fix: None,
+        fixed: None,
     };
     let review = CheckTurn.review(&r.core, &ask).await.unwrap();
     let session = review.session.expect("the review's session");

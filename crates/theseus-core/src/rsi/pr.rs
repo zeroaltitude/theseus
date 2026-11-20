@@ -66,6 +66,8 @@ pub struct Board {
     pub(super) reviews: Mutex<std::collections::HashMap<String, PathBuf>>,
     /// Added to every git call and the gate's (a test's hermetic git).
     env: Mutex<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
+    /// A test's fixer and main (`fixing`); none in a daemon, which uses its own.
+    fix: Mutex<Option<fixing::GateSeams>>,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1
     /// (`set_jailed`); a daemon's never does (`Place::jail`).
     #[cfg(test)]
@@ -280,6 +282,10 @@ struct Input {
 #[path = "tests_pr/gated.rs"]
 mod tests_gated;
 
+#[path = "pr_fix.rs"]
+mod fixing;
+pub use fixing::GateSeams;
+
 fn input_of(v: &Value) -> Result<Input, String> {
     let i: Input = serde_json::from_value(v.clone()).map_err(|e| format!("invalid input: {e}"))?;
     if i.item.trim().is_empty() || i.why.trim().is_empty() {
@@ -306,6 +312,8 @@ struct Attempt<'a> {
     diff: (u64, u64, u64),
     /// The suite's failures that were run once more and passed (`rerun`).
     reran: Vec<String>,
+    /// A fix at the gate, when one was tried (issue 36, `fixing`).
+    fix: Option<fixing::Note>,
 }
 
 /// Run `self.propose_change` for the call of `tc`. An error is the result
@@ -389,12 +397,7 @@ pub async fn propose(
     }
     // A branch that has its report is done: another attempt is a new branch.
     if report_path(&place, &t.branch).exists() {
-        let p = place.clone();
-        t = blocking(move || {
-            tree::next_branch(&p, &mut t)?;
-            Ok(t)
-        })
-        .await?;
+        t = fixing::next_attempt(&core, &place, t).await?;
     }
     let mut a = Attempt {
         i: &i,
@@ -407,8 +410,9 @@ pub async fn propose(
         verdict: "halted",
         diff: (0, 0, 0),
         reran: vec![],
+        fix: None,
     };
-    let said = attempt(&core, &place, tc, &mut a).await;
+    let said = attempt(&core, board, &place, tc, &mut a).await;
     super::infra::watch(
         &core,
         &place,
@@ -444,7 +448,8 @@ pub(super) fn stop_of(core: &Arc<Core>, execution_id: &str) -> tree::Stop {
 
 /// The attempt's phases after the tree is open: commit, gate, report, push.
 async fn attempt(
-    core: &Core,
+    core: &Arc<Core>,
+    board: &Board,
     place: &Place,
     tc: &TurnCtx<'_>,
     a: &mut Attempt<'_>,
@@ -494,8 +499,9 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, GATE, &why);
     }
-    let run = match judged(a, place).await {
-        Ok(run) => run,
+    // The gate, and a red in the change's own work once to a fixer (issue 36).
+    let (run, commits) = match fixing::gated(core, board, place, tc, a, commits).await {
+        Ok(r) => r,
         Err(out) => return out,
     };
     a.verdict = run.verdict.name();
@@ -675,7 +681,8 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
     let quiet = task
         .as_ref()
         .is_some_and(crate::rsi::backlog::attempts::red_tonight);
-    let capped = told_on_task(core, task, &e, run);
+    let fixed = a.fix.as_ref().map(|f| f.words.as_str());
+    let capped = told_on_task(core, task, &e, run, fixed);
     told_where_it_reports(core, tc, &e, run, quiet);
     if let Some(text) = capped {
         core.stage_self_digest(&text);
@@ -760,6 +767,7 @@ fn told_on_task(
     task: Option<theseus_protocol::tasks::TaskRecord>,
     e: &crate::rsi::backlog::Ended,
     run: &GateRun,
+    fixed: Option<&str>,
 ) -> Option<String> {
     let mut t = task?;
     let now = theseus_protocol::now_unix_ms();
@@ -772,11 +780,12 @@ fn told_on_task(
         node: None,
         identity: format!("gate:{}", e.verdict),
         note: Some(format!(
-            "{}{} (exit {}, {} s)",
+            "{}{} (exit {}, {} s){}",
             kept_aborting.unwrap_or_default(),
             e.line(),
             run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
-            run.secs
+            run.secs,
+            fixed.map(|f| format!("; {f}")).unwrap_or_default()
         )),
         by: "self-pr".into(),
         at_ms: now,
@@ -872,8 +881,13 @@ fn keel(
 /// The result the model reads: the gate's verdict and where to look.
 fn said(a: &Attempt<'_>, after: &str) -> (String, Value) {
     let g = a.gate.as_ref();
+    let fixed = a
+        .fix
+        .as_ref()
+        .map(|f| format!("A fix was tried at the gate: {}. ", f.words))
+        .unwrap_or_default();
     let text = format!(
-        "{}: the gate is {} (exit {}, {} s); report {}. {after}",
+        "{}: the gate is {} (exit {}, {} s); report {}. {fixed}{after}",
         a.tree.branch,
         a.verdict,
         g.and_then(|g| g.exit)
@@ -978,7 +992,7 @@ fn write_report(
          - Gate log: {log}\n- Change: {files} files, +{added} -{removed}\n\
          - Cost: ${cost:.4} (the self session's model spend so far)\n- Remote: {remote}\n\n\
          ## What and why\n\n{why}\n\n## Commits\n\n{commits}\n\
-         ## The gate's last lines\n\n```text\n{tail}\n```\n\n{COMPLETE}\n",
+         {fix}## The gate's last lines\n\n```text\n{tail}\n```\n\n{COMPLETE}\n",
         branch = a.tree.branch,
         item = a.i.item.trim(),
         issue = a.i.issue.trim(),
@@ -993,6 +1007,11 @@ fn write_report(
         removed = a.diff.2,
         cost = cost_usd(tc),
         why = a.i.why.trim(),
+        fix = a
+            .fix
+            .as_ref()
+            .map(fixing::Note::section)
+            .unwrap_or_default(),
         tail = g.tail,
     );
     let (text, _) = core.tools.scrubber.scrub(&text);

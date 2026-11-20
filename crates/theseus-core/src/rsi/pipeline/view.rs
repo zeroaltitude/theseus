@@ -41,6 +41,7 @@ fn item(e: &Entry, queue: &str) -> SelfPipelineItem {
         since_ms: e.since_ms,
         rejections: e.rejections,
         why: e.why.clone(),
+        fixing: e.fixing.clone(),
     }
 }
 

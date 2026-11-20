@@ -22,7 +22,9 @@ pub fn rules(tries: u32) -> String {
          That runs in your own sandbox and nobody has to answer for it. Run the existing tests \
          of every file you changed too: a change that breaks one has failed.\n\
          4. Theseus does not start a build while main itself is failing. If a test fails and \
-         your change did not cause it, say so in your why instead of working around it."
+         your change did not cause it, say so in your why instead of working around it.\n\
+         A small fault your gate or your review finds may be repaired in place by another model, \
+         which is no reason to skip running your own tests."
     )
 }
 

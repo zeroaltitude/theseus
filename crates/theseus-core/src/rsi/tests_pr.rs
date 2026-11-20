@@ -70,10 +70,10 @@ impl Provider for Model {
     }
 }
 
-struct Rig {
-    core: Arc<Core>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
     model: Arc<Model>,
-    f: Fixture,
+    pub(crate) f: Fixture,
     _work: tempfile::TempDir,
 }
 
@@ -86,7 +86,12 @@ fn rig_with(mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)
 }
 
 /// [`rig_with`] over a fixture the test made (a gate of its own).
-fn rig_on(f: Fixture, mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_on(
+    f: Fixture,
+    mode: SelfMode,
+    remote: Option<&str>,
+    edit: impl FnOnce(&mut Config),
+) -> Rig {
     rig_launching(f, mode, remote, edit, None)
 }
 
@@ -129,7 +134,7 @@ fn rig_launching(
 
 impl Rig {
     /// A session whose execution's principal is `principal`.
-    fn session(&self, principal: &str) -> String {
+    pub(crate) fn session(&self, principal: &str) -> String {
         let mut r = SessionRecord::new(SessionKind::Conversation, None);
         let e = self
             .core
@@ -151,7 +156,7 @@ impl Rig {
     }
 
     /// One turn whose model makes `call`, and the result it read.
-    async fn turn(&self, sid: &str, tool: &str, input: Value) -> String {
+    pub(crate) async fn turn(&self, sid: &str, tool: &str, input: Value) -> String {
         self.model.calls.lock().unwrap().push((tool.into(), input));
         let rec: SessionRecord = self.core.store.get_session(sid).unwrap().unwrap();
         let (live, _) = self.core.live_profile();

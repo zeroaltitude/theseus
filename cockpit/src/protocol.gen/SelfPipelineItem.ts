@@ -23,4 +23,9 @@ rejections?: number,
 /**
  * Why it waits, for one held or returned.
  */
-why?: string, };
+why?: string, 
+/**
+ * A small fault of its branch is being repaired in place (issue 36): where (`at the gate`,
+ * `at review`) and by which model, as `theseus self pipeline` says it.
+ */
+fixing?: string, };

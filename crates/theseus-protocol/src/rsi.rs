@@ -333,6 +333,36 @@ pub const SELF_ROWS: &[SelfRowKind] = &[
         fields: &["item", "session", "reason"],
         doc: "A build ended with no green branch: its turn ended, or a halt or a drop stopped it.",
     },
+    SelfRowKind {
+        name: "self.fix.started",
+        fields: &["item", "branch", "head", "point", "fixer"],
+        doc: "A small fault of a self branch was given to a fixer on the reviewer's profile: at \
+              its gate, or at its review.",
+    },
+    SelfRowKind {
+        name: "self.fix.made",
+        fields: &["item", "branch", "head", "point", "fixer", "lines", "files"],
+        doc: "The fixer's change, committed by Theseus as one commit: its head, and how many \
+              lines and files it changed.",
+    },
+    SelfRowKind {
+        name: "self.fix.refused",
+        fields: &["item", "branch", "head", "point", "bound"],
+        doc: "A fix was refused by one of its bounds (its size, a second fix, a guarded path, a \
+              test that existed before, the branch's history, or two profiles on one model).",
+    },
+    SelfRowKind {
+        name: "self.fix.none",
+        fields: &["item", "branch", "head", "point", "fixer"],
+        doc: "The fixer made no fix, or the fix did not hold: it said it would not, or the gate \
+              was red again.",
+    },
+    SelfRowKind {
+        name: "self.fix.verdict",
+        fields: &["item", "branch", "head", "point", "fixer", "approver", "verdict"],
+        doc: "The model that built the branch read the fix's commit alone, and accepted or \
+              rejected it.",
+    },
 ];
 
 /// `[self] mode`, as the daemon read it at its start.
@@ -1079,6 +1109,11 @@ pub struct SelfPipelineItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub why: Option<String>,
+    /// A small fault of its branch is being repaired in place (issue 36): where (`at the gate`,
+    /// `at review`) and by which model, as `theseus self pipeline` says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub fixing: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {

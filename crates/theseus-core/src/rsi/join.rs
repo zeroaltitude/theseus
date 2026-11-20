@@ -58,6 +58,7 @@
 
 mod contains;
 pub mod dependencies;
+pub(crate) mod fix;
 pub mod git;
 pub mod guard;
 pub mod install;
@@ -132,6 +133,8 @@ pub struct Seams {
     pub installer: Arc<dyn install::Installer>,
     /// Scores a build on the sealed sets (theseus-pw1q.21.7).
     pub sealed: Arc<dyn super::sealed::hold::Scorer>,
+    /// Fixes what a review asked to repair, and has the builder's model approve it (issue 36).
+    pub fixer: Arc<dyn fix::Fixer>,
     pub lock_wait: Duration,
     pub lock_every: Duration,
     /// Called with each phase's name before its gate is asked.
@@ -147,6 +150,7 @@ impl Default for Seams {
             tests: Arc::new(planted::Cargo),
             installer: Arc::new(install::Systemd),
             sealed: Arc::new(super::sealed::hold::Scratch),
+            fixer: Arc::new(fix::turns::Turns),
             lock_wait: Duration::from_secs(2 * 3600),
             lock_every: Duration::from_secs(30),
             on_phase: None,
@@ -179,6 +183,9 @@ struct Built {
     why: String,
     session: Option<String>,
     at_ms: u64,
+    /// This head is a fix's, made at review and approved (issue 36): what the fresh review is
+    /// told of it. A second `fix` at it is a reject.
+    fixed: Option<String>,
 }
 
 /// An `accept` row with no `asked` is from before the review recorded the model that answered: it
@@ -199,6 +206,8 @@ struct Prior {
     model: String,
     asked: String,
     verdict: String,
+    /// What it said: for a `fix`, what to repair.
+    reasons: Vec<String>,
 }
 
 /// What the ledger holds of the joins so far.
@@ -263,6 +272,7 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
             "self.joined",
             "self.join.stopped",
             "self.join.reopened",
+            "self.fix.verdict",
         ],
     )?
     else {
@@ -294,7 +304,19 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
                     why: s(d, "why"),
                     session: r.session_id.clone(),
                     at_ms: r.at_unix_ms,
+                    fixed: None,
                 });
+            }
+            // A fix made at review and accepted by the builder's model is the branch's new
+            // head: its proof step and a fresh review come next (issue 36).
+            "self.fix.verdict" if fix::accepted_at_review(d) => {
+                if let Some(b) = out.built.iter().rev().find(|b| b.branch == s(d, "branch")) {
+                    let mut b = b.clone();
+                    b.head = s(d, "head");
+                    b.at_ms = r.at_unix_ms;
+                    b.fixed = Some(fix::told(d));
+                    out.built.push(b);
+                }
             }
             "self.review.verdict" => out.verdicts.push(Prior {
                 branch: s(d, "branch"),
@@ -302,6 +324,12 @@ fn seen(store: &crate::store::Store) -> Result<Option<Seen>> {
                 model: s(d, "model"),
                 asked: s(d, "asked"),
                 verdict: s(d, "verdict"),
+                reasons: d["reasons"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect(),
             }),
             "self.joined" => out.joined.push(s(d, "branch")),
             // A head already on main, closed as joined by hand on the owner's retry
@@ -386,6 +414,8 @@ struct Run<'a> {
     reopened: bool,
     /// This head's stops since its last verdict or retry, oldest first (`unreviewable`).
     earlier: Vec<unreviewable::Stop>,
+    /// What a review that answered `fix` asked to repair (`fix::at_review`).
+    asked: Vec<String>,
     pass: &'a mut Pass,
 }
 
@@ -497,6 +527,7 @@ impl Core {
                         || v.asked == model
                         || v.verdict == "accept"
                         || v.verdict == "reject"
+                        || v.verdict == "fix"
                 });
             let mut run = Run {
                 core: self,
@@ -510,10 +541,11 @@ impl Core {
                     .filter(|(sb, sh, _)| (sb, sh) == (&b.branch, &b.head))
                     .map(|(_, _, st)| st.clone())
                     .collect(),
+                asked: vec![],
                 pass: &mut pass,
             };
-            let verdict = match mine {
-                Some(v) => v.verdict.clone(),
+            let (verdict, asked) = match mine {
+                Some(v) => (v.verdict.clone(), v.reasons.clone()),
                 None => {
                     // Before its review is spent: a change main has moved under goes back to
                     // its builder (`moved`).
@@ -525,11 +557,18 @@ impl Core {
                         continue;
                     }
                     match run.review().await? {
-                        Some(v) => v,
+                        Some(v) => (v, run.asked_fix()),
                         None => break,
                     }
                 }
             };
+            // A review that asked for a fix: the fix runs, once (issue 36; `fix`).
+            if verdict == "fix" {
+                if !run.fix_at_review(&asked).await? {
+                    break;
+                }
+                continue;
+            }
             if verdict != "accept" || joined_one {
                 continue;
             }

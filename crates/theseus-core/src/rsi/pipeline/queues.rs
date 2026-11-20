@@ -56,6 +56,8 @@ pub(crate) struct Entry {
     pub why: Option<String>,
     /// Every rejecting review's note since the last retry, oldest first.
     pub findings: Vec<String>,
+    /// A fix of its branch is under way (issue 36): where, and by which model.
+    pub fixing: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -146,6 +148,52 @@ struct Seen {
     joined: Vec<String>,
     stopped: HashMap<(String, String), String>,
     conflicted: Vec<(String, String)>,
+    /// Each fix begun (issue 36), and whether it has ended.
+    fixes: Vec<Fixing>,
+}
+
+/// A fix begun, as its rows say it.
+struct Fixing {
+    item: String,
+    branch: String,
+    point: String,
+    fixer: String,
+    at_ms: u64,
+    ended: bool,
+}
+
+impl Seen {
+    /// The fix under way of `branch` at `point`, in the view's words; none when there is none.
+    fn fixing(&self, branch: &str, point: &str) -> Option<String> {
+        let f = self
+            .fixes
+            .iter()
+            .rev()
+            .find(|f| f.branch == branch && f.point == point)?;
+        (!f.ended).then(|| fixing_words(f))
+    }
+
+    /// The fix at the gate of `item`'s build that began at `since`, under way (issue 36).
+    fn fixing_at_gate(&self, item: &str, since: u64) -> Option<String> {
+        self.fixes
+            .iter()
+            .rev()
+            .find(|f| f.item == item && f.point == "gate" && f.at_ms >= since)
+            .filter(|f| !f.ended)
+            .map(fixing_words)
+    }
+}
+
+/// `at the gate, by fable (claude-fable-5-2)`.
+fn fixing_words(f: &Fixing) -> String {
+    let at = match f.point.as_str() {
+        "gate" => "at the gate",
+        _ => "at review",
+    };
+    match f.fixer.as_str() {
+        "" => at.to_string(),
+        by => format!("{at}, by {by}"),
+    }
 }
 
 impl Seen {
@@ -158,11 +206,16 @@ impl Seen {
                 "self.joined",
                 "self.join.stopped",
                 "self.join.reopened",
+                "self.fix.started",
+                "self.fix.refused",
+                "self.fix.none",
+                "self.fix.verdict",
             ],
         )?
         else {
             return Ok(None);
         };
+        let mut fixes: Vec<Fixing> = Vec::new();
         let mut greens: Vec<Green> = Vec::new();
         let mut verdicts: HashMap<(String, String), (String, String)> = HashMap::new();
         let mut joined: Vec<String> = Vec::new();
@@ -208,6 +261,33 @@ impl Seen {
                 "self.join.reopened" => {
                     stopped.remove(&(s(d, "branch"), s(d, "head")));
                 }
+                "self.fix.started" => fixes.push(Fixing {
+                    item: s(d, "item"),
+                    branch: s(d, "branch"),
+                    point: s(d, "point"),
+                    fixer: s(d, "fixer"),
+                    at_ms: r.at_unix_ms,
+                    ended: false,
+                }),
+                kind if kind.starts_with("self.fix.") => {
+                    let (b, p) = (s(d, "branch"), s(d, "point"));
+                    if let Some(f) = fixes
+                        .iter_mut()
+                        .rev()
+                        .find(|f| f.branch == b && f.point == p)
+                    {
+                        f.ended = true;
+                    }
+                    // An accepted fix at review is the branch's new green head: reviewed afresh.
+                    if crate::rsi::join::fix::accepted_at_review(d) {
+                        greens.push(Green {
+                            item: s(d, "item"),
+                            branch: b,
+                            head: s(d, "head"),
+                            at_ms: r.at_unix_ms,
+                        });
+                    }
+                }
                 _ => {}
             }
         }
@@ -217,6 +297,7 @@ impl Seen {
             joined,
             stopped,
             conflicted,
+            fixes,
         }))
     }
 }
@@ -291,6 +372,7 @@ fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
         joined,
         stopped,
         conflicted,
+        ..
     } = seen;
     for g in newest(greens) {
         let title = by_id
@@ -338,6 +420,24 @@ fn branches(q: &mut Queues, seen: &Seen, by_id: &HashMap<&str, &TaskRecord>) {
                 let mut e = e;
                 e.place = q.joining.len() as u32 + 1;
                 q.joining.push(e);
+            }
+            // A review that asked for a fix: reviewing while the fix is under way or not begun;
+            // a fix that did not hold sent the item back, as a reject does (issue 36).
+            Some(("fix", _)) => {
+                let begun = seen
+                    .fixes
+                    .iter()
+                    .any(|f| f.branch == g.branch && f.point == "review");
+                if begun && seen.fixing(&g.branch, "review").is_none() {
+                    continue;
+                }
+                let mut e = e;
+                e.fixing = Some(
+                    seen.fixing(&g.branch, "review")
+                        .unwrap_or_else(|| "at review".into()),
+                );
+                e.place = q.reviewing.len() as u32 + 1;
+                q.reviewing.push(e);
             }
             Some(("refused", why)) => {
                 let mut e = e;
@@ -502,6 +602,7 @@ impl Core {
                         crate::rsi::tree_lease::held(&[&tr.dir, &tr.target]).is_some()
                     });
                     if e.live || gating || now.saturating_sub(at) < grace.as_millis() as u64 {
+                        e.fixing = seen.fixing_at_gate(&t.id, at);
                         e.place = q.building.len() as u32 + 1;
                         q.building.push(e);
                     } else {
