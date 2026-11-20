@@ -24,7 +24,7 @@ import { EventDetail } from './EventDetail'
 import { Facts, RecordBlock, Section, StandingBlock } from './InspectorSections'
 import { JoinPane } from './JoinPane'
 import { Live } from './Live'
-import { bodyOf, carriedWords, jobFacts, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts, type FactLine } from './sections'
+import { bodyOf, carriedWords, jobFacts, jobStoppable, NONE_KEYS, NONE_WORDS, recordFacts, runningJob, stepView, taskFacts, type FactLine } from './sections'
 import type { Bucket } from './address'
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
@@ -278,7 +278,7 @@ function JobWhole({ r, now }: { r: OpsRow; now: number }) {
     <div className="flex flex-col gap-2 p-2.5" data-testid="inspector-job">
       <div className="flex items-center gap-1.5"><StatePill state={r.state ?? 'running'} /><span className="num text-[10.5px] text-ink-faint">job · {r.id.slice(-6)}</span></div>
       <Facts lines={jobFacts(r, now)} />
-      <div className="flex flex-wrap gap-1.5"><ActBtn verb="job_stop" on={on} tone="wait" busy={busy} onClick={stop} title="press twice to stop the job and its tree"><CircleStop size={11} /> {armed ? 'Press again to stop' : 'Stop'}</ActBtn></div>
+      {jobStoppable(r) && <div className="flex flex-wrap gap-1.5"><ActBtn verb="job_stop" on={on} tone="wait" busy={busy} onClick={stop} title="press twice to stop the job and its tree"><CircleStop size={11} /> {armed ? 'Press again to stop' : 'Stop'}</ActBtn></div>}
       <Section title="Output"><Live sessionId={r.sessionId} jobId={r.id} /></Section>
       {r.sessionId && <Link to={`/session/${r.sessionId}`} className="text-[11.5px] text-live hover:underline">its session’s deck</Link>}
     </div>

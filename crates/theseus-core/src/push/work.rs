@@ -181,6 +181,9 @@ struct ActIn {
     expires_at_ms: Option<u64>,
     /// Its time joined its program's.
     noted: bool,
+    /// A settled job's result went to a turn (`result_read`): latched, so the
+    /// execution's own end later does not undo it.
+    read: bool,
 }
 
 /// A wake that left an execution's list.
@@ -504,6 +507,7 @@ impl WorkBoard {
             self.take_action(board, *pos, a, &mut d);
         }
         self.take_execs(core, board, &taken, changed, &mut d);
+        self.take_reads(&taken, &mut d);
         self.system.sweep(f.at_ms, &mut d.system);
         if d.is_empty() {
             return None;
@@ -847,6 +851,28 @@ impl WorkBoard {
         }
     }
 
+    /// A frame's execution records say which settled jobs a turn has the
+    /// result of (`result_read`); a job's view is rebuilt when that turns true.
+    fn take_reads(&mut self, taken: &Taken, d: &mut Dirty) {
+        for (_, e) in &taken.execs {
+            let Some(corrs) = self.acts_by_exec.get(&e.id) else {
+                continue;
+            };
+            for corr in corrs {
+                let Some(ai) = self.acts.get_mut(corr) else {
+                    continue;
+                };
+                if ai.read || !is_job(&ai.a) || !ai.a.state.is_settled() {
+                    continue;
+                }
+                if result_read(e, corr) {
+                    ai.read = true;
+                    d.acts.insert(corr.clone());
+                }
+            }
+        }
+    }
+
     /// Keep an action's inputs: the open ones, and an ended job or question
     /// until its view is built.
     fn track(&mut self, a: &Action, pos: u64) {
@@ -874,6 +900,7 @@ impl WorkBoard {
                 floor: false,
                 expires_at_ms: None,
                 noted: false,
+                read: false,
             });
         ai.a = a.clone();
         ai.pos = pos;
@@ -888,6 +915,16 @@ impl WorkBoard {
             .or_default()
             .insert(a.correlation_id.clone());
     }
+}
+
+/// Whether a settled job's result has gone to a turn, from its execution's
+/// record as the frame wrote it. A result a turn settles itself (its `proc.run`
+/// answer, a job it waited for) is not queued: that turn read it. One that
+/// settles outside a turn waits in `queued_results` until a turn takes it as a
+/// late result, which writes the queue empty. An execution that has ended
+/// takes no turn, so nothing reads what settles after it, or is still queued.
+fn result_read(e: &Execution, corr: &str) -> bool {
+    !e.state.is_terminal() && !e.queued_results.iter().any(|c| c == corr)
 }
 
 /// A dispatched `proc.run` is a job: it runs on its own, past its call.
@@ -1124,6 +1161,8 @@ mod seed;
 mod settle;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ended_job;
 #[cfg(test)]
 mod tests_forecast;
 #[cfg(test)]

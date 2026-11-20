@@ -5,7 +5,7 @@ import type { NodeInfo, StandingInfo, TaskRecord, WorkForecast } from '@protocol
 import { ago, clock, ms, short, usd } from '../lib/figures.ts'
 import { alive, counterLabel, selects, type AllCounters, type OpsRow } from './board.ts'
 import type { Bucket } from './address.ts'
-import { bucketGlyph } from './state.ts'
+import { bucketGlyph, isEndedState } from './state.ts'
 
 export interface FactLine { label: string; value: string; tone?: 'money' | 'wait' | 'fault' | 'ok' | 'think' | 'dim' }
 
@@ -82,6 +82,10 @@ export function jobFacts(r: OpsRow, now: number): FactLine[] {
   }
   return out
 }
+
+/** Whether a job's panel offers Stop: only while the job runs. An ended job has nothing to stop, and no verb dismisses a
+ *  job (`dismiss` is a task's or a conversation's), so its panel offers nothing but its output. */
+export const jobStoppable = (r: OpsRow): boolean => !isEndedState(r.state)
 
 /** The job to follow for a session: its first running job on the board. */
 export function runningJob(rows: readonly OpsRow[], sessionId: string | undefined): OpsRow | undefined {

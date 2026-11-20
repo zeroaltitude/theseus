@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TaskRecord } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
-import { cacheWords, forecastWords, jobFacts, lastTurnOf, recordFacts, runningJob, standingLines, taskFacts, transcriptTail } from '../src/ops/sections.ts'
+import { cacheWords, forecastWords, jobFacts, jobStoppable, lastTurnOf, recordFacts, runningJob, standingLines, taskFacts, transcriptTail } from '../src/ops/sections.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
 const rows = new Map(boardRows({ ...board(), now: NOW }).map((r) => [r.id, r]))
@@ -58,4 +58,12 @@ test('the job to follow is the session’s running one; the last turn is the new
   const led = [{ kind: 'turn.ended', session_id: 'ses_a', turn_id: 't1' }, { kind: 'turn.failed', session_id: 'ses_a', turn_id: 't2' }, { kind: 'turn.ended', session_id: 'ses_b', turn_id: 't9' }, { kind: 'provider.call', session_id: 'ses_a', turn_id: 't3' }]
   assert.equal(lastTurnOf(led, 'ses_a'), 't2')
   assert.equal(lastTurnOf(led, 'ses_zz'), undefined)
+})
+
+test('a job’s panel offers Stop while the job runs, and nothing once it has ended', () => {
+  const job = rows.get('act_j1')!
+  assert.equal(job.state, 'running')
+  assert.equal(jobStoppable(job), true)
+  assert.equal(jobStoppable({ ...job, state: 'queued' }), true)
+  for (const state of ['failed', 'done', 'cancelled', 'expired']) assert.equal(jobStoppable({ ...job, state }), false, state)
 })

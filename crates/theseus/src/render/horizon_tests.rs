@@ -61,6 +61,7 @@ fn view(id: &str, kind: WorkKind, title: &str, state: WorkState, level: Level) -
         watch: None,
         project: None,
         dismissed: false,
+        read: false,
         retry_of: None,
         forecast: None,
         thread: None,
