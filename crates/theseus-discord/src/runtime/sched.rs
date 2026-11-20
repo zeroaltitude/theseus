@@ -14,14 +14,15 @@
 //!   changed (`Future::dirty`), and reads the pending wakes and routines the
 //!   future's snapshot holds, and the states the binding's work model holds
 //!   (fired, cancelled). A write that fails is tried again after a wait that
-//!   doubles to a minute, and the pass stops at the first failure. Discord's
-//!   own limits pace a burst: twenty reminders are twenty creates in the
-//!   channel's bucket, five in five seconds, so the last card is a few
-//!   seconds behind the first, and no reply waits for any of it.
+//!   doubles to a minute, and the pass stops at the first failure. A pass
+//!   that makes many cards makes the first `BURST` at once and the rest a
+//!   `SPACE` apart, so the channel keeps room for a task's report, and no
+//!   reply waits for any of it.
 //! - **A restart** finds each card in one META list (`discord.sched`: the
 //!   item, its card, the digest last sent), makes none twice (a create carries
 //!   the item's nonce), and brings a card whose item fired or was cancelled
-//!   while the daemon was down to its true state once.
+//!   while the daemon was down to its true state once, after the work model
+//!   has been read (`Tasks::loaded`).
 //! - **Where it is used**: only where the task home stands and the owner's DM
 //!   place draws its board (`Shared::sched_target`). Elsewhere the place's own
 //!   board shows its own reminders, as before.
@@ -1040,6 +1041,16 @@ impl Shared {
     /// owners). A card whose item is over says so, and the worker brings the
     /// card to how it ended.
     pub(super) async fn card_press(&self, i: &Interaction, custom_id: &str, who: &str) {
+        // Before the work model has been read the board knows of nothing: an item
+        // it does not hold is not yet an item gone. Nothing is written.
+        if !self.tasks.loaded() {
+            return self
+                .reply_ephemeral(
+                    i,
+                    "Theseus is still starting: try again in a moment.".into(),
+                )
+                .await;
+        }
         let cancel = custom_id.starts_with(CANCEL_PREFIX);
         let wake = custom_id
             .strip_prefix(CANCEL_PREFIX)

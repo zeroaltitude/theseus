@@ -305,6 +305,19 @@ impl FakeDiscord {
         reply(stream, 200, &json!({"threads": threads, "members": []}))
     }
 
+    /// The owner deletes the thread `id`: it leaves the guild's threads and an
+    /// edit of it answers 404.
+    pub fn delete_thread(&self, id: u64) {
+        let mut st = self.state.lock().unwrap();
+        st.threads.remove(&id);
+        st.deleted_threads.push(id);
+    }
+
+    /// An edit (rename, tags, archive) of a thread answers 403 while `on`.
+    pub fn refuse_thread_patch(&self, on: bool) {
+        self.state.lock().unwrap().refuse_thread_patch = on;
+    }
+
     /// `POST /channels/<id>/threads`: a thread, with a first message in a forum.
     pub(super) fn thread_create(
         &self,

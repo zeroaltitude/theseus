@@ -551,6 +551,11 @@ struct State {
     /// creates wait there now.
     thread_hold: Option<threads::HoldAt>,
     thread_held: usize,
+    /// Threads the owner deleted (`delete_thread`): an edit of one answers 404.
+    deleted_threads: Vec<u64>,
+    /// An edit of a thread answers 403, as a bot without Manage Threads is
+    /// answered (`refuse_thread_patch`).
+    refuse_thread_patch: bool,
     /// The guild the viewer check reads, when one is set.
     guild: Option<Guild>,
     /// Each DM channel the bot opened, and its user.
