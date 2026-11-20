@@ -84,6 +84,33 @@ pub(crate) fn refuse_once(method: &str, text: &str) {
         .push((method.to_string(), text.to_string()));
 }
 
+/// A call a test holds open (`slow_once`): it says it was made (`reached`) and goes no further until the test
+/// lets it (`release`), with no sleep.
+#[cfg(test)]
+pub(crate) struct Hold {
+    pub(crate) reached: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+type Slow = (String, String, Value, Arc<Hold>);
+
+#[cfg(test)]
+static SLOW: Mutex<Vec<Slow>> = Mutex::new(Vec::new());
+
+/// The next call of `method` whose request line holds `text` is held until the test releases it, and then
+/// answers `answer` (no request is sent): a daemon that takes its time.
+#[cfg(test)]
+pub(crate) fn slow_once(method: &str, text: &str, answer: Value) -> Arc<Hold> {
+    let hold = Arc::new(Hold {
+        reached: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let slow = (method.to_string(), text.to_string(), answer, hold.clone());
+    SLOW.lock().unwrap().push(slow);
+    hold
+}
+
 impl RpcClient {
     /// Open a connection as `client` (its label and surface) and return the
     /// client plus the stream of notifications (turn events for the sessions
@@ -171,6 +198,22 @@ impl RpcClient {
                 refusals.remove(i);
                 self.pending.lock().unwrap().remove(&id);
                 return Err(CallError::local(format!("{method} refused by the test")));
+            }
+        }
+        #[cfg(test)]
+        {
+            let slow = {
+                let mut slow = SLOW.lock().unwrap();
+                let at = slow
+                    .iter()
+                    .position(|(m, t, ..)| m == method && line.contains(t.as_str()));
+                at.map(|i| slow.remove(i))
+            };
+            if let Some((_, _, answer, hold)) = slow {
+                self.pending.lock().unwrap().remove(&id);
+                hold.reached.notify_one();
+                hold.release.notified().await;
+                return serde_json::from_value(answer).map_err(CallError::local);
             }
         }
         if self.out.send(line).is_err() {

@@ -503,6 +503,17 @@ fn a_value_the_form_refuses_leaves_the_keep_paths_own_row() {
             .collect();
         (t.len() == 2).then_some(t)
     });
+    // The refusal's words complete the private deferral the submit was answered with: private still.
+    let all = r.fake.replies();
+    let mut refusals = all.iter().filter(|x| {
+        x.content
+            .as_deref()
+            .is_some_and(|c| c.contains("Nothing was kept"))
+    });
+    assert!(
+        refusals.all(|x| x.kind == "original" && x.ephemeral),
+        "{all:?}"
+    );
     // (The replies come back in either order.)
     assert!(
         told.iter()

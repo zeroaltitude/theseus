@@ -23,7 +23,10 @@ use twilight_model::application::interaction::application_command::{
     CommandData, CommandOptionValue,
 };
 use twilight_model::application::interaction::{Interaction, InteractionData, InteractionType};
-use twilight_model::http::interaction::{InteractionResponseData, InteractionResponseType};
+use twilight_model::channel::message::MessageFlags;
+use twilight_model::http::interaction::{
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
+};
 use twilight_model::id::marker::UserMarker;
 use twilight_model::id::Id;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder, UserBuilder};
@@ -399,6 +402,27 @@ impl Shared {
     /// An ephemeral line, to the presser alone.
     pub(super) async fn tell(&self, i: &Interaction, text: String) {
         self.say_ephemeral(i, text).await;
+    }
+
+    /// The interaction's first response at once, private to the presser, for a handler that waits on the daemon
+    /// (Discord refuses a first response after three seconds): its flag is what keeps what completes it private,
+    /// and `finish_command` completes it.
+    pub(super) async fn ack_ephemeral(&self, i: &Interaction) {
+        let deferred = InteractionResponse {
+            kind: InteractionResponseType::DeferredChannelMessageWithSource,
+            data: Some(InteractionResponseData {
+                flags: Some(MessageFlags::EPHEMERAL),
+                ..Default::default()
+            }),
+        };
+        if let Err(e) = self
+            .interact
+            .interaction(i.application_id)
+            .create_response(i.id, &i.token, &deferred)
+            .await
+        {
+            self.board.error("interaction response", None, e);
+        }
     }
 }
 

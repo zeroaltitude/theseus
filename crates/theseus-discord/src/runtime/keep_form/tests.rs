@@ -286,12 +286,15 @@ fn the_card_and_the_form_are_drawn_as_the_golden_says() {
     );
 }
 
+/// The id every interaction here has; its token is the stand-in's, so that an edit finds its interaction.
+const ID: &str = "1000000000000000011";
+
 /// A press (`pressed`) or a submit (`submitted`), as the gateway delivers one, from `user` in
 /// `channel` of `guild` (none: a direct message).
 fn interaction(kind: u8, guild: Option<&str>, channel: u64, user: u64, data: Value) -> Interaction {
     let mut v = json!({
-        "id": "1000000000000000011", "application_id": "1000000000000000002", "type": kind,
-        "token": "not-a-token", "version": 1, "authorizing_integration_owners": {},
+        "id": ID, "application_id": "1000000000000000002", "type": kind,
+        "token": format!("fake-interaction-token-{ID}"), "version": 1, "authorizing_integration_owners": {},
         "channel": {"id": channel.to_string(), "type": if guild.is_some() { 0 } else { 1 }},
         "user": {"id": user.to_string(), "username": if user == OWNER { "dockhand" } else { "mallory" },
                  "discriminator": "0", "avatar": null},
@@ -371,6 +374,21 @@ const CHANNEL: u64 = 900_000_000_000_000_001;
 fn said(fake: &theseus_sim::fake_discord::FakeDiscord) -> Vec<theseus_sim::fake_discord::Reply> {
     fake.replies()
 }
+
+/// Each answer to the interaction as (kind, callback type, private): a submit is acknowledged at once with a
+/// deferred message (type 5) that is private, and its words arrive as an edit of it, private too.
+type Kinds<'a> = Vec<(&'a str, Option<u64>, bool)>;
+
+fn private_kinds(replies: &[theseus_sim::fake_discord::Reply]) -> Kinds<'_> {
+    let mut kinds = Vec::new();
+    for r in replies {
+        kinds.push((r.kind.as_str(), r.response_type, r.ephemeral));
+    }
+    kinds
+}
+
+const PRIVATE_THEN_EDITED: [(&str, Option<u64>, bool); 2] =
+    [("callback", Some(5), true), ("original", None, true)];
 
 /// With the setting off, a press says so to the presser alone, opens no form and asks the daemon
 /// nothing; in a channel it says where a value is typed, and opens none either.
@@ -587,11 +605,13 @@ async fn a_submit_is_one_request_and_the_value_is_nowhere_else() {
     // The value is in that one field of that one request.
     assert_eq!(lines[0].matches(VALUE).count(), 1, "{}", lines[0]);
 
-    // The presser is told, privately, what the daemon said, and it holds no value.
+    // The presser is answered at once, privately, and told what the daemon said by the edit that completes
+    // that answer, still private; it holds no value.
     let replies = said(&fake);
-    assert_eq!(replies.len(), 1, "{replies:?}");
-    assert!(replies[0].ephemeral, "{replies:?}");
-    let told = replies[0].content.clone().unwrap();
+    assert_eq!(replies.len(), 2, "{replies:?}");
+    assert!(replies[1].ephemeral, "{replies:?}");
+    assert_eq!(private_kinds(&replies), PRIVATE_THEN_EDITED, "{replies:?}");
+    let told = replies[1].content.clone().unwrap();
     assert!(
         told.starts_with("🔐 Nothing was kept") || told.starts_with("⚠️ Nothing was kept"),
         "{told}"
@@ -617,6 +637,79 @@ async fn a_submit_is_one_request_and_the_value_is_nowhere_else() {
     assert!(!log.text().contains(VALUE), "in a trace");
     let on_disk = tracing_capture::files_holding(d.path(), VALUE);
     assert!(on_disk.is_empty(), "on disk: {on_disk:?}");
+}
+
+/// The daemon is slow to answer (it writes to the vault): past Discord's three seconds. The first response has
+/// gone already, as a private deferral, so the service does not refuse it; the kept words complete it, private
+/// still, and no value is in what the presser sees, in the row, or in the log.
+#[tokio::test]
+async fn a_submit_the_daemon_is_slow_to_answer_still_shows_the_kept_words_privately() {
+    let log = tracing_capture::start();
+    let (shared, fake, _d, _rx) = rig(true);
+    let kept = json!({"vault": "Harbor", "title": "Lantern new", "field": "credential",
+                      "replaced": false, "words": "Kept in Harbor: Lantern new, field credential."});
+    let held = crate::rpc_client::slow_once(method::VAULT_KEEP_ANSWER, "act_0000slow", kept);
+    let submit = shared.clone().on_interaction(submitted(
+        None,
+        DM,
+        OWNER,
+        "kf:act_0000slow",
+        &[("value", VALUE)],
+    ));
+    // Three and a half seconds go by while the daemon call is held: the stand-in is told they did (a test
+    // does not wait them), after the deferral and before the words.
+    let takes_its_time = async {
+        held.reached.notified().await;
+        fake.backdate_interaction(ID, 3_500);
+        held.release.notify_one();
+    };
+    tokio::join!(submit, takes_its_time);
+    let replies = said(&fake);
+    assert!(replies.iter().all(|r| r.kind != "refused"), "{replies:?}");
+    assert_eq!(private_kinds(&replies), PRIVATE_THEN_EDITED, "{replies:?}");
+    assert_eq!(
+        replies[1].content.as_deref(),
+        Some("✅ Kept in Harbor: Lantern new, field credential."),
+        "{replies:?}"
+    );
+    assert!(!format!("{:?}{:?}", fake.seen(), replies).contains(VALUE));
+    shared.core.store.flush_waiting();
+    let rows = format!(
+        "{:?}",
+        shared
+            .core
+            .store
+            .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
+            .unwrap()
+    );
+    assert!(
+        rows.contains("keep_form") && !rows.contains(VALUE),
+        "{rows}"
+    );
+    assert!(!log.text().contains(VALUE), "in a trace");
+}
+
+/// The daemon's error is completed privately as well (a call that failed outright, not a refusal).
+#[tokio::test]
+async fn a_submit_whose_call_fails_completes_its_deferral_privately() {
+    let (shared, fake, _d, _rx) = rig(true);
+    crate::rpc_client::refuse_once(method::VAULT_KEEP_ANSWER, "act_0000fail");
+    shared
+        .clone()
+        .on_interaction(submitted(
+            None,
+            DM,
+            OWNER,
+            "kf:act_0000fail",
+            &[("value", VALUE)],
+        ))
+        .await;
+    let replies = said(&fake);
+    assert!(replies.iter().all(|r| r.kind != "refused"), "{replies:?}");
+    assert_eq!(private_kinds(&replies), PRIVATE_THEN_EDITED, "{replies:?}");
+    let told = replies[1].content.clone().unwrap();
+    assert!(told.starts_with("⚠️ Nothing was kept"), "{told}");
+    assert!(!told.contains(VALUE), "{told}");
 }
 
 /// A form's reply, when the daemon's `why` or message is long or odd, is still the daemon's own
@@ -742,6 +835,16 @@ async fn a_value_the_daemon_would_refuse_is_sent_as_a_class_and_no_value() {
     assert!(
         told.iter().all(|t| !t.contains("é") && !t.contains(VALUE)),
         "{told:?}"
+    );
+    // (This daemon has no such question waiting, so its answer is the error arm, through the real daemon.)
+    assert!(
+        told.iter().all(|t| t.starts_with("⚠️ Nothing was kept")),
+        "{told:?}"
+    );
+    let replies = said(&fake);
+    assert!(
+        replies.iter().all(|r| r.ephemeral && r.kind != "refused"),
+        "{replies:?}"
     );
 }
 
