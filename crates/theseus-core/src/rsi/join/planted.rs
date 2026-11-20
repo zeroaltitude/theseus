@@ -12,6 +12,25 @@
 //! of them in a new file); any other test file is one test, its path.
 //! Inline tests in a non-test file go with the revert, so they cannot prove
 //! it: a branch whose only tests are inline is `no-tests`.
+//!
+//! What only makes a test file part of the build stays. A new tests file needs
+//! one declaring line in a non-test file (`#[cfg(test)]` / `mod tests_x;`), and
+//! undoing that file would take the line with the fix and leave the tests not
+//! built at all. So when a changed non-test Rust file is put back, the lines
+//! the branch added to it that are `mod <name>;` at the start of a line (not
+//! `pub mod`, not a `use`, not inside a `mod { }` block, whose indent says so)
+//! for a module whose file (`<dir>/<name>.rs` or `<dir>/<name>/mod.rs`,
+//! relative to the declaring file as Rust resolves it) is a test path the
+//! branch touched stay, with the added attribute lines directly above (a
+//! `#[path]` one is not kept: that file cannot be resolved here). They are put
+//! back at the end of the file, where a declaration's place does not matter.
+//!
+//! "No tests ran" is never an answer either way ([`Ran`]): the runs use
+//! nextest's `--no-tests=fail`, whose exit code 4 says none of the named
+//! tests is in the build. With the fix in place that is [`Outcome::NotFound`];
+//! with it undone, [`Outcome::Unbuilt`]: neither passed nor failed. A red
+//! build (a test that uses what the fix added) is, as before, a failed run:
+//! the test does fail without the fix.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -34,6 +53,10 @@ pub enum Outcome {
     NoTests,
     /// Its tests do not pass on its own head.
     BaseRed { tail: String },
+    /// None of its tests is in the build on its own head.
+    NotFound { tests: Vec<String> },
+    /// With the fix undone none of its tests is in the build.
+    Unbuilt { tests: Vec<String> },
 }
 
 impl Outcome {
@@ -44,6 +67,8 @@ impl Outcome {
             Outcome::Passed { .. } => "passed",
             Outcome::NoTests => "no-tests",
             Outcome::BaseRed { .. } => "base-red",
+            Outcome::NotFound { .. } => "not-found",
+            Outcome::Unbuilt { .. } => "unbuilt",
         }
     }
 
@@ -68,13 +93,49 @@ impl Outcome {
                 "its tests do not pass on its own head, so nothing can be proved: {}",
                 tail.lines().last().unwrap_or("").trim()
             )),
+            Outcome::NotFound { tests } => Some(format!(
+                "unproved: its tests could not be found in the build of its own head, so nothing ran \
+                 ({}); declare each tests file with a `mod` line",
+                tests.join(", ")
+            )),
+            Outcome::Unbuilt { tests } => Some(format!(
+                "unproved: with the fix undone its tests are not built, so nothing shows they fail \
+                 without it ({}); declare the test module where the revert does not reach it, with a \
+                 `mod` line of its own",
+                tests.join(", ")
+            )),
         }
     }
 }
 
-/// Runs a branch's tests in a tree: `true` when every one passed. Blocking.
+/// What a run of the named tests came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ran {
+    /// They ran, and every one passed.
+    Passed,
+    /// A test failed, or the build did.
+    Failed,
+    /// None of them is in the build, so none ran.
+    NoneRan,
+}
+
+/// nextest's exit code for a run in which no test matched.
+const NONE_RAN: i32 = 4;
+
+impl Ran {
+    /// A nextest run's exit code, as `--no-tests=fail` gives it.
+    pub fn of(code: Option<i32>) -> Ran {
+        match code {
+            Some(0) => Ran::Passed,
+            Some(NONE_RAN) => Ran::NoneRan,
+            _ => Ran::Failed,
+        }
+    }
+}
+
+/// Runs a branch's tests in a tree, and says how they came out. Blocking.
 pub trait Tests: Send + Sync {
-    fn run(&self, p: &Place, t: &Tree, tests: &[String]) -> Result<(bool, String)>;
+    fn run(&self, p: &Place, t: &Tree, tests: &[String]) -> Result<(Ran, String)>;
 }
 
 /// The workspace's tests through nextest, in the tree's own build tree, at
@@ -82,14 +143,14 @@ pub trait Tests: Send + Sync {
 pub struct Cargo;
 
 impl Tests for Cargo {
-    fn run(&self, p: &Place, t: &Tree, tests: &[String]) -> Result<(bool, String)> {
+    fn run(&self, p: &Place, t: &Tree, tests: &[String]) -> Result<(Ran, String)> {
         let names: Vec<&str> = tests
             .iter()
             .filter_map(|s| s.strip_prefix("rust:"))
             .filter_map(|s| s.rsplit_once("::").map(|(_, n)| n))
             .collect();
         if names.is_empty() {
-            return Ok((true, "no Rust test to run".into()));
+            return Ok((Ran::Passed, "no Rust test to run".into()));
         }
         let expr = names
             .iter()
@@ -109,7 +170,7 @@ impl Tests for Cargo {
             "--workspace",
             "--no-fail-fast",
         ])
-        .args(["--no-tests=pass", "-E", &expr])
+        .args(["--no-tests=fail", "-E", &expr])
         .current_dir(&t.dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -130,14 +191,14 @@ impl Tests for Cargo {
         let text = String::from_utf8_lossy(&o.stderr);
         let lines: Vec<&str> = text.lines().collect();
         let tail = lines[lines.len().saturating_sub(20)..].join("\n");
-        Ok((o.status.success(), tail))
+        Ok((Ran::of(o.status.code()), tail))
     }
 }
 
 /// The same run in L1 (theseus-pw1q.21.1): the branch's tests are the
 /// branch's code, and run below the floor like its gate. Its output is a
 /// log under the gates, whose tail is the verdict's words.
-pub(super) fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(bool, String)> {
+pub(super) fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(Ran, String)> {
     // A branch that changed its lock files has its packages in the cache the gate made for the
     // same lock files, and made again here when that one is gone (`deps`).
     crate::rsi::deps::provide_blocking(p, t)?;
@@ -152,7 +213,7 @@ pub(super) fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(boo
         "run",
         "--workspace",
         "--no-fail-fast",
-        "--no-tests=pass",
+        "--no-tests=fail",
         "-E",
         expr,
     ]
@@ -172,7 +233,7 @@ pub(super) fn in_l1(jail: &Jail, p: &Place, t: &Tree, expr: &str) -> Result<(boo
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
     Ok((
-        code == Some(0),
+        Ran::of(code),
         lines[lines.len().saturating_sub(20)..].join("\n"),
     ))
 }
@@ -281,8 +342,10 @@ pub fn tests_of(
 }
 
 /// Undo every non-test change in the tree: each path back as `base` has it,
-/// or removed when `base` has none. The paths undone.
+/// or removed when `base` has none, except the lines that only declare a
+/// test file ([`kept_declarations`]). The paths undone.
 pub fn undo_fix(p: &Place, t: &Tree, base: &str, paths: &[(char, String)]) -> Result<Vec<String>> {
+    let touched = |f: &str| paths.iter().any(|(s, q)| *s != 'D' && q == f);
     let mut undone = Vec::new();
     for (status, path) in paths {
         if is_test_path(path) {
@@ -294,11 +357,97 @@ pub fn undo_fix(p: &Place, t: &Tree, base: &str, paths: &[(char, String)]) -> Re
                 std::fs::remove_file(&f)?;
             }
         } else {
+            let mut keep = Vec::new();
+            if *status == 'M' && path.ends_with(".rs") {
+                let text = std::fs::read_to_string(t.dir.join(path)).unwrap_or_default();
+                let d = p.git_ok(&t.dir, &["diff", "-U0", base, "--", path])?;
+                keep = kept_declarations(path, &text, &added_ranges(&d), &touched);
+            }
             p.git_ok(&t.dir, &["checkout", "-q", base, "--", path])?;
+            if !keep.is_empty() {
+                let f = t.dir.join(path);
+                let mut text = std::fs::read_to_string(&f)?;
+                keep.retain(|g| {
+                    !text
+                        .lines()
+                        .any(|x| Some(x) == g.last().map(String::as_str))
+                });
+                if !keep.is_empty() {
+                    if !text.ends_with('\n') {
+                        text.push('\n');
+                    }
+                    for l in keep.concat() {
+                        text.push_str(&l);
+                        text.push('\n');
+                    }
+                    std::fs::write(&f, text)?;
+                }
+            }
         }
         undone.push(path.clone());
     }
     Ok(undone)
+}
+
+/// The groups of lines `added` (1-based, of the head's `text` of the non-test file
+/// `path`) that only make a test file part of the build: `mod <name>;` from
+/// the first column, whose file is one `touched` says the branch changed and
+/// `is_test_path` says holds tests, with the added `#[..]` lines directly
+/// above it (none of them a `#[path]`).
+pub fn kept_declarations(
+    path: &str,
+    text: &str,
+    added: &[(u32, u32)],
+    touched: &dyn Fn(&str) -> bool,
+) -> Vec<Vec<String>> {
+    let lines: Vec<&str> = text.lines().collect();
+    let is_added = |i: usize| {
+        added
+            .iter()
+            .any(|(a, b)| (*a..=*b).contains(&(i as u32 + 1)))
+    };
+    let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
+    let stem = file.strip_suffix(".rs").unwrap_or(file);
+    let home = if matches!(file, "mod.rs" | "lib.rs" | "main.rs") {
+        dir.to_string()
+    } else if dir.is_empty() {
+        stem.to_string()
+    } else {
+        format!("{dir}/{stem}")
+    };
+    let at = |f: &str| {
+        if home.is_empty() {
+            f.to_string()
+        } else {
+            format!("{home}/{f}")
+        }
+    };
+    let mut out = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        let name = l
+            .strip_prefix("mod ")
+            .and_then(|r| r.trim_end().strip_suffix(';'))
+            .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_'));
+        let Some(name) = name.filter(|_| is_added(i)) else {
+            continue;
+        };
+        let file_ok = [at(&format!("{name}.rs")), at(&format!("{name}/mod.rs"))]
+            .iter()
+            .any(|f| touched(f) && is_test_path(f));
+        let mut attrs: Vec<&str> = Vec::new();
+        while i > attrs.len()
+            && is_added(i - attrs.len() - 1)
+            && lines[i - attrs.len() - 1].trim_start().starts_with("#[")
+        {
+            attrs.insert(0, lines[i - attrs.len() - 1]);
+        }
+        if file_ok && !attrs.iter().any(|a| a.contains("path")) {
+            let mut group: Vec<String> = attrs.iter().map(|a| a.to_string()).collect();
+            group.push(l.to_string());
+            out.push(group);
+        }
+    }
+    out
 }
 
 /// The planted revert of `head` against `base`, in a tree of its own,
@@ -314,18 +463,20 @@ pub fn run(p: &Place, tests: &dyn Tests, branch: &str, base: &str, head: &str) -
         if names.is_empty() {
             return Ok(Outcome::NoTests);
         }
-        let (ok, tail) = tests.run(p, &t, &names)?;
-        if !ok {
-            return Ok(Outcome::BaseRed { tail });
+        let (ran, tail) = tests.run(p, &t, &names)?;
+        match ran {
+            Ran::Passed => {}
+            Ran::Failed => return Ok(Outcome::BaseRed { tail }),
+            Ran::NoneRan => return Ok(Outcome::NotFound { tests: names }),
         }
         if undo_fix(p, &t, base, &paths)?.is_empty() {
             return Ok(Outcome::Passed { tests: names });
         }
-        let (ok, _) = tests.run(p, &t, &names)?;
-        Ok(if ok {
-            Outcome::Passed { tests: names }
-        } else {
-            Outcome::Failed { tests: names }
+        let (ran, _) = tests.run(p, &t, &names)?;
+        Ok(match ran {
+            Ran::Passed => Outcome::Passed { tests: names },
+            Ran::Failed => Outcome::Failed { tests: names },
+            Ran::NoneRan => Outcome::Unbuilt { tests: names },
         })
     })();
     let _ = tree::close(p, &t);

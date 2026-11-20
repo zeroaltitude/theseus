@@ -86,6 +86,8 @@ mod tests_moved;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
+mod tests_planted;
+#[cfg(test)]
 mod tests_reap;
 #[cfg(test)]
 mod tests_retry;

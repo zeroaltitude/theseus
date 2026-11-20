@@ -26,7 +26,7 @@ pub struct SelfReviewVerdict {
     /// `accept`, `reject`, or `refused` (no independent review could run).
     pub verdict: String,
     /// The planted revert's result: `failed` (proved), `passed` (unproved),
-    /// `no-tests`, `base-red`, or `not-run`.
+    /// `no-tests`, `base-red`, `not-found`, `unbuilt`, or `not-run`.
     pub planted_revert: String,
     pub reasons: Vec<String>,
     pub cost_usd: f64,

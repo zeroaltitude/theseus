@@ -16,7 +16,7 @@ use theseus_protocol::tasks::{TaskRecord, TaskState};
 use theseus_protocol::SessionKind;
 
 use super::install::{self, Installer};
-use super::planted::Tests;
+use super::planted::{Ran, Tests};
 use super::review::{Ask, Fut, Review, Reviewer};
 use super::{lock, Seams};
 use crate::approval::Answerer;
@@ -124,7 +124,7 @@ impl Reviewer for Stand {
 struct Scripts;
 
 impl Tests for Scripts {
-    fn run(&self, _p: &Place, t: &Tree, tests: &[String]) -> anyhow::Result<(bool, String)> {
+    fn run(&self, _p: &Place, t: &Tree, tests: &[String]) -> anyhow::Result<(Ran, String)> {
         let mut ok = true;
         for name in tests {
             let s = Command::new("bash")
@@ -133,7 +133,8 @@ impl Tests for Scripts {
                 .status()?;
             ok &= s.success();
         }
-        Ok((ok, format!("ran {}", tests.join(" "))))
+        let ran = if ok { Ran::Passed } else { Ran::Failed };
+        Ok((ran, format!("ran {}", tests.join(" "))))
     }
 }
 
