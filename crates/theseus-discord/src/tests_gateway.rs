@@ -691,6 +691,53 @@ async fn a_pressed_approval_card_is_written_by_the_settle_alone() {
     );
 }
 
+/// The same on the classic card (`live_board` off), whose buttons are `confirm:` ones and whose press is the
+/// binding's own handler, not the task board's.
+#[tokio::test]
+async fn a_pressed_classic_approval_card_is_written_by_the_settle_alone() {
+    let r = Rig::start_tweaked(
+        |dir, _| Arc::new(FakeProvider::scripted(write_script(dir))),
+        guild(false),
+        &bindings(true),
+        &[],
+        |c| c.discord.live_board = false,
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), "Write the proof file.");
+    r.until("the card in #lab", || r.card(LAB).is_some()).await;
+    let card = r.card(LAB).unwrap();
+    assert!(
+        card.buttons
+            .iter()
+            .any(|b| b.custom_id.starts_with("confirm:approve:")),
+        "the classic card: {card:?}"
+    );
+    r.fake.withhold_edits(true);
+    let pressed = r.press(&card.id, "Approve", (ANA, "ana"));
+    r.until("the press is over and the settle waits", || {
+        crate::runtime::handled(&pressed) && r.fake.withheld() >= 1
+    })
+    .await;
+    let waiting = r.card(LAB).unwrap();
+    assert_eq!(
+        waiting.content, card.content,
+        "the press wrote nothing: {waiting:?}"
+    );
+    assert!(!waiting.buttons.is_empty(), "its buttons stay: {waiting:?}");
+    r.fake.withhold_edits(false);
+    r.until("the settle lands", || {
+        r.card(LAB).is_some_and(|c| c.buttons.is_empty())
+    })
+    .await;
+    let card = r.card(LAB).unwrap();
+    assert!(
+        card.content
+            .starts_with("✅ **Approved** by discord:ana · "),
+        "{}",
+        card.content
+    );
+}
+
 /// The place rule (theseus-zmgb): `#lab` is bound shared, so a call that
 /// waits there sends its card to ana's DM, an owner's, with a note in `#lab`,
 /// and her press there approves it.
