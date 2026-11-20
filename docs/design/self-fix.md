@@ -16,7 +16,9 @@ the fixer's. At review, the whole branch then needs an accept from a fresh, inde
 
 **At the gate** (inside `self.propose_change`, after the gate's own reading, `judged`). Only a red in the change's own
 work goes to a fixer: the gate's `FAILED in` phase is one of `fix::OWN_WORK` (fmt, clippy, clippy-probe, shape, test
-build, suite, reader rule, protocol types). Never a keel stop, a red main (`pipeline::main_red`), a fault of the machine
+build, suite, reader rule). Never "protocol types": that phase writes its own repair into the tree (the regenerated
+`cockpit/src/protocol.gen`) and fails, and the builder's next call commits it, as before; a fix that did not hold would
+put the tree back and throw that away (round 4). No phase listed writes into the tree. Never a keel stop, a red main (`pipeline::main_red`), a fault of the machine
 (`infra::of_attempt`), a check that kept aborting, or a gate that named no phase (one cut off at its ceiling). The fix's
 commit is gated again by the same reading; on green the builder's profile reads it; accepted, the attempt goes on green
 as any does. Anything else ends the attempt red, as before: one try, never two, with the words of the fix in the
@@ -129,3 +131,14 @@ has no limit. What still differs from the loop before issue 36, and why each is 
 - **The green rule** (`fix::unapproved`) runs at the gate and before a review. A branch with no fix commit passes it,
   and a builder's `why` that quotes the fix commit's trailer has the line marked as quoted, so it does not trip it.
 - **A ceiling may name a tool whole.** A bindings file still cannot (`check_entry`).
+
+## A tree that could not be put back (round 4)
+
+When the reset after a fix that did not hold fails, the red says so, and its head is the head the tree holds. The next
+call puts the tree back before anything is committed (`pr_fix::owed`): any commit of the item's fixer at the gate that
+was never accepted and is still under the tree's head, on any branch of the item, sends the tree back to the commit
+before the oldest such fix, and what was made on top of it is gone. None of that could go green, because the green rule
+refuses a head with that fix in it. When that reset fails too, the attempt is red by the green rule and counts as a
+try, so the existing cap holds the item for the owner when its tries run out, with its one notice. Every call tries
+the reset again, including the first after the owner's retry. It cannot loop: every call is either put back or a try.
+
