@@ -26,6 +26,7 @@
 
 pub mod lease;
 pub mod plan;
+pub mod retitle;
 pub mod tools;
 pub mod view;
 
@@ -62,15 +63,44 @@ pub fn title_by_key(task: &str) -> String {
     format!("{TITLE_BY}{task}")
 }
 
-/// Whose words `rec`'s title is, as the record and its retitle mark prove.
+/// Whose words `rec`'s title is, as the record and its retitle mark prove (and, for a retitle made
+/// before the mark existed, the ledger: [`title_hands`]).
 pub fn title_hand(store: &Store, rec: &TaskRecord) -> Result<crate::content::Hand> {
-    if let Some(s) = store.get_meta::<String>(&title_by_key(&rec.id))? {
-        return Ok(crate::content::Hand::Model(s));
+    Ok(title_hands(store, &[rec])?.remove(0))
+}
+
+/// [`title_hand`] of each of `recs`, in order, with the one bounded read of the ledger they share
+/// (`retitle.rs`): a record with no mark and a `version` above 1 may have been retitled before the mark
+/// existed, and the newest ledger row that retitled it names the session. Without a mark or such a row
+/// the title is unproven, and is answered as it was before: a model's when the record says a model made
+/// it, else the owner's.
+pub fn title_hands(store: &Store, recs: &[&TaskRecord]) -> Result<Vec<crate::content::Hand>> {
+    use crate::content::Hand;
+    let mut out: Vec<Option<Hand>> = Vec::with_capacity(recs.len());
+    let mut unmarked = std::collections::BTreeSet::new();
+    for rec in recs {
+        let mark = store.get_meta::<String>(&title_by_key(&rec.id))?;
+        if mark.is_none() && rec.version > 1 {
+            unmarked.insert(rec.id.as_str());
+        }
+        out.push(mark.map(Hand::Model));
     }
-    Ok(match rec.origin.by_model {
-        true => crate::content::Hand::Model(rec.origin.session.clone()),
-        false => crate::content::Hand::Owner,
-    })
+    let before = match unmarked.is_empty() {
+        true => Default::default(),
+        false => retitle::retitlers(store, &unmarked, retitle::ROWS_MAX)?,
+    };
+    Ok(recs
+        .iter()
+        .zip(out)
+        .map(|(rec, marked)| {
+            marked
+                .or_else(|| before.get(&rec.id).cloned().map(Hand::Model))
+                .unwrap_or(match rec.origin.by_model {
+                    true => Hand::Model(rec.origin.session.clone()),
+                    false => Hand::Owner,
+                })
+        })
+        .collect())
 }
 
 /// Every task id begins so.

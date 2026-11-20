@@ -176,6 +176,13 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
     (`wake.create` is not judged as an owner's act, and its `by` is a label any caller names), so it stays the words of the session that holds it. A task's
     title is quoted from its parent conversation's brief; why it ended was written in the task's own session. `look.work` still reads no project objective,
     outcome, step name or thread title.
+  - **A retitle made before the mark** (an older store) is read from the ledger: with no mark and a record `version` above 1 (a record starts at 1 and every
+    change moves it), `title_hands` walks the newest `task.updated` and `task.change_accepted` rows, newest first, through the ledger's tag index, for the newest whose
+    `fields` holds `title`; its `session_id` is the retitling session. **One walk is shared by every title a look asks for** (up to 24: 12 projects and their next
+    milestones) and is capped at 2,000 rows read (four pages of 500): the worst case of a look is those 2,000 rows once, however many titles were edited and never
+    retitled, and a never-edited record reads none. A row older than the newest 2,000, one the ledger no longer holds, or none at all leaves the title **unproven**,
+    answered as before: a model's if the record says a model made it, else the owner's (nothing in the record shows a retitle no row remembers, so none is guessed).
+    While the index's shape is built after a start the walk reads the newest 2,000 rows of every kind instead.
   - **Content judging switched off** (`session_flags = false`): no source raises a label, so the look takes none and still answers; `cn_models` alone then
     decides what a restricted model is sent (the setting refuses `follow_flags` without the flags). **A flag that cannot be written** fails the look: the
     words are not given without their flags.
