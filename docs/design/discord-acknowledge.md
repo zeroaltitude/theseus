@@ -34,8 +34,8 @@ for everyone, with any refusal told as an ephemeral follow-up. So each handler a
 sweep: a private reply with an ephemeral deferral, a card updated for everyone with a deferred update.
 
 `/prompt`'s form submit is the one that needs both: its refusals were private (one quotes what the person typed) and the prompt's
-own line is for the place. It acknowledges **privately**, completes that private response (a refusal, or a short "running in this
-place" line), and posts the place's line as a message of its own (a follow-up with no ephemeral flag). The arguments are in neither.
+own line is for the place. It acknowledges **privately**, completes that private response (a refusal, or a short line that it
+was sent to the place, which may still refuse it), and posts the place's line as a message of its own (a follow-up with no ephemeral flag). The arguments are in neither.
 `/prompt name:` with no arguments is unchanged: its deferral is public and the place's line completes it, as it always did.
 
 **The table that keeps it so** (`tests_gateway/acks.rs`, `every_handler_the_sweep_changed_acknowledges_as_its_answer_was_before`)

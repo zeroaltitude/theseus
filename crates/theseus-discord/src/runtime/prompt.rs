@@ -545,7 +545,9 @@ impl Shared {
             Acked::Privately => {
                 self.finish_command(
                     i,
-                    &format!("▶️ `{name}` is running in this place."),
+                    &format!(
+                        "▶️ `{name}` was sent to this place: its line there says whether it runs."
+                    ),
                     "command reply",
                 )
                 .await;
