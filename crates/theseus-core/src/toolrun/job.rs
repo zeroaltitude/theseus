@@ -1245,7 +1245,7 @@ pub(super) fn call_wait(proc_sync_secs: u64, limit_secs: u64) -> Duration {
 }
 
 /// What a blocking call answers when its job is still running at the end of its wait: the wait the call
-/// had, not the configured one (a job with a short limit is waited for its limit and five seconds only).
+/// had, not the configured one (a job with a short limit is waited for its limit, five seconds and `CUT_WORST` only).
 fn still_running(name: &str, waited: Duration, timeout_secs: u64) -> String {
     format!(
         "Still running as job {name} after {} s (timeout {timeout_secs} s). job_read, job_wait or \

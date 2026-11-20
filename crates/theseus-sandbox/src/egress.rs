@@ -539,10 +539,10 @@ impl Shared {
     }
 }
 
-/// A proxy at work.
 /// How long `finish` waits, after it has shut every open tunnel, for their threads to be gone.
 pub const CLOSE_WAIT: Duration = Duration::from_secs(2);
 
+/// A proxy at work.
 pub struct Running {
     shared: Arc<Shared>,
     stop: Option<OwnedFd>,
