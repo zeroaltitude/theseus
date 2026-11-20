@@ -21,7 +21,8 @@ import { Panel, Empty } from '@/components/ui'
 import { ConfirmCard } from '@/components/ConfirmCard'
 import type { OpsRow } from '@/ops/board'
 import type { QueueItem } from '@/ops/queue'
-import { cardFacts, itemFacts, ITEM_LOOK, waitingFacts } from '@/ops/facts'
+import { cardFacts, itemFacts, ITEM_LOOK, lifeWords, waitingFacts } from '@/ops/facts'
+import { plannedRecords } from '@/lib/taskboard'
 import { rowFor } from '@/ops/sections'
 import { useRouterAsks } from '@/ops/asks'
 import { Answers } from '@/ops/Queue'
@@ -71,7 +72,7 @@ export default function SimpleOps() {
   const views = useMemo(() => Object.values(board.views), [board.views])
   const groups = useMemo(() => Object.values(board.groups), [board.groups])
   const tasks = tl?.tasks ?? NONE
-  const records = tl?.records ?? NONE
+  const records = useMemo(() => plannedRecords(tl), [tl])
   const sessions = sl?.sessions ?? NONE
   const confirms = cl?.confirms ?? NONE
 
@@ -191,7 +192,8 @@ function Planned({ next, scheduled, paused, rows, now, sel, onPick, n }: { next:
   const after = (r: OpsRow): string => {
     const who = (r.carrier && rowFor(rows, r.carrier)) || (r.parent && rowFor(rows, r.parent)) || undefined
     const what = r.plan ? 'a plan' : 'a step'
-    return who ? `${what} ${who.bucket === 'working' ? 'after' : 'under'} ${who.title}` : `${what} no one has taken yet`
+    const line = who ? `${what} ${who.bucket === 'working' ? 'after' : 'under'} ${who.title}` : `${what} no one has taken yet`
+    return [line, lifeWords(r, now)].filter(Boolean).join(' · ')
   }
   return (
     <div id="ops-planned" className="shrink-0 scroll-mt-2">
@@ -202,9 +204,9 @@ function Planned({ next, scheduled, paused, rows, now, sel, onPick, n }: { next:
         {steps.map((r) => <RowButton key={r.id} current={sel === r.id} onPick={() => onPick(r.id)} Icon={Circle} tone="idle" title={r.title} sub={after(r)} />)}
         {next.length > SHORT && <button type="button" onClick={() => setOpen(!open)} className="w-full rounded-lg px-3 py-1.5 text-left text-[12px] text-live hover:underline">{open ? 'Show fewer' : `Show all ${next.length} steps`}</button>}
         {scheduled.length > 0 && <div className="simple-eyebrow flex items-center gap-1.5 px-3 pb-1 pt-3"><CalendarClock size={11} aria-hidden /> On the clock</div>}
-        {scheduled.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={onPick} />)}
+        {scheduled.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={onPick} aged />)}
         {paused.length > 0 && <div className="simple-eyebrow px-3 pb-1 pt-3">Paused</div>}
-        {paused.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={onPick} />)}
+        {paused.map((r) => <WorkRow key={r.id} r={r} now={now} current={sel === r.id} onPick={onPick} aged />)}
       </Panel>
     </div>
   )
@@ -224,10 +226,10 @@ function RowButton({ current, onPick, Icon, tone, title, sub, badge }: { current
 }
 
 /** A piece of work as one row: what it is, what it is doing now, and when it last changed. */
-function WorkRow({ r, now, current, onPick }: { r: OpsRow; now: number; current: boolean; onPick: (id: string) => void }) {
+function WorkRow({ r, now, current, onPick, aged }: { r: OpsRow; now: number; current: boolean; onPick: (id: string) => void; /** say how old it is and when it last changed (the Planned box's rows) */ aged?: boolean }) {
   const f = cardFacts(r, now)
   const doing = f.doing ?? f.waitsOn ?? f.outcome ?? f.progress
-  const sub = [r.kind, doing, f.model && `◇ ${f.model}`, f.due ? `due ${f.due}` : f.activity].filter(Boolean).join(' · ')
+  const sub = [r.kind, doing, f.model && `◇ ${f.model}`, f.due ? `due ${f.due}` : aged ? lifeWords(r, now) ?? f.activity : f.activity].filter(Boolean).join(' · ')
   return (
     <RowButton current={current} onPick={() => onPick(r.id)} Icon={LOOK[r.bucket].Icon} tone={LOOK[r.bucket].tone} title={f.title} sub={sub}
       badge={r.asks > 0 ? <span className="num mt-0.5 shrink-0 rounded-full bg-wait/15 px-1.5 text-[11px] font-medium text-wait" title={`${r.asks} ${r.asks === 1 ? 'ask waits' : 'asks wait'} on you`}>{r.asks}</span> : undefined} />

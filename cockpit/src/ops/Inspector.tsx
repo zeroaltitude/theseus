@@ -11,7 +11,7 @@ import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
 import { cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
-import { cardFacts, reportFacts, type CardFacts } from './facts'
+import { canCloseProject, cardFacts, lifeWords, reportFacts, type CardFacts } from './facts'
 import { reportTextOf } from '@/lib/taskboard'
 import type { QueueItem } from './queue'
 import { Answers } from './Queue'
@@ -28,6 +28,7 @@ import { bodyOf, carriedWords, jobFacts, NONE_KEYS, NONE_WORDS, recordFacts, run
 import type { Bucket } from './address'
 import { StickyChip } from './ModelMenu'
 import { RehomeSheet, RescheduleSheet } from './TaskSheets'
+import { CloseProjectSheet } from './CloseProjectSheet'
 import { targetOf, verbEntries } from './palette'
 import { isRunning } from './state'
 import { useRunEntry } from './useRunEntry'
@@ -213,6 +214,8 @@ function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readon
   const select = cx.onParent // the page's `pick`: a plan's child, a breadcrumb or a dependency
   // A project is a long-horizon task: its plan, next steps and what it waits on, with the change the daemon offers (issue 17).
   const proj = r.record?.kind === 'project' ? r.record : cx.records.find((t) => t.id === r.recordId && t.kind === 'project')
+  const [closing, setClosing] = useState(false)
+  const life = lifeWords(r, now)
   return (
     <div className="flex flex-col gap-2 p-2.5" data-testid="inspector-step">
       <div className="flex items-center gap-1.5">
@@ -220,6 +223,7 @@ function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readon
         <span className="num text-[10.5px] text-ink-faint">{v.noun} · {v.short}</span>
       </div>
       <div className="text-[14px] font-semibold text-ink">{r.title}</div>
+      {life && <div className="num text-[11px] text-ink-faint" data-testid="inspector-life">{life}</div>}
       {v.crumbs.length > 0 && <nav aria-label="where it hangs" className="flex flex-wrap items-center gap-1 text-[11.5px] text-ink-faint">{v.crumbs.map((c, i) => <Fragment key={`${c.id ?? c.title}${i}`}>{i > 0 && <span>›</span>}{c.id ? <button type="button" onClick={() => select(c.id!)} className="text-live hover:underline">{c.title}</button> : <span>{c.title}</span>}</Fragment>)}</nav>}
       {v.progress && (
         <Section title={`${v.progress.n} of ${v.progress.m} closed`}>
@@ -227,6 +231,8 @@ function StepWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readon
         </Section>
       )}
       {proj && <Horizon project={proj.id} now={now} onPick={select} />}
+      {proj && canCloseProject(proj) && <div className="flex gap-1.5"><ActBtn verb="project_close" on={on} tone="idle" onClick={() => setClosing(true)} title="end the project and stop its review and reminders (asks)">Close project…</ActBtn></div>}
+      {closing && proj && <CloseProjectSheet project={proj.id} title={r.title} onClose={() => setClosing(false)} />}
       {rec && <Section title="Record"><RecordBlock f={rec} /></Section>}
       {r.record?.deps.length ? <Section title="Waits on"><ul className="flex flex-wrap gap-1.5 text-[11.5px]">{r.record.deps.map((d) => <li key={d}><button type="button" onClick={() => select(d)} className="num text-live hover:underline">{d}</button></li>)}</ul></Section> : null}
       {v.history.length > 0 && <Section title="History" hint={v.ledger && <Link className="text-live" to={v.ledger}>its ledger rows</Link>}><Facts lines={v.history} /></Section>}

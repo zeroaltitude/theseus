@@ -2,9 +2,19 @@
 // its work view (the live board's: state, paused, progress, report) and its record (`task.list`'s: the session, the
 // place it reports to, its spend); either may be missing. The page shows three sections, the newest activity first:
 // what needs the owner, what is working (running, waiting on its own command, paused), and what is done.
-import type { TaskInfo, WorkView } from '@protocol'
+import type { TaskInfo, TaskListResult, TaskRecord, WorkView } from '@protocol'
 
 export type Section = 'needs' | 'working' | 'done'
+
+const NO_RECORDS: TaskRecord[] = []
+
+/** The records a list of what is planned may show: `task.list`'s, less the ones the daemon keeps apart (`apart`: the
+ *  container the self loop files its items under, which is the loop's and no plan of the owner's). */
+export function plannedRecords(tl: Pick<TaskListResult, 'records'> & { apart?: readonly string[] } | undefined): TaskRecord[] {
+  if (!tl) return NO_RECORDS
+  const apart = tl.apart ?? []
+  return apart.length === 0 ? tl.records : tl.records.filter((r) => !apart.includes(r.id))
+}
 
 export interface TaskRow {
   /** The task's session id (`ses_…`): what `task.pause`, `task.cancel` and `/session/<id>` take. */
