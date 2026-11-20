@@ -229,7 +229,8 @@ function RowButton({ current, onPick, Icon, tone, title, sub, badge }: { current
 function WorkRow({ r, now, current, onPick, aged }: { r: OpsRow; now: number; current: boolean; onPick: (id: string) => void; /** say how old it is and when it last changed (the Planned box's rows) */ aged?: boolean }) {
   const f = cardFacts(r, now)
   const doing = f.doing ?? f.waitsOn ?? f.outcome ?? f.progress
-  const sub = [r.kind, doing, f.model && `◇ ${f.model}`, f.due ? `due ${f.due}` : aged ? lifeWords(r, now) ?? f.activity : f.activity].filter(Boolean).join(' · ')
+  const life = aged ? lifeWords(r, now) : undefined
+  const sub = [r.kind, doing, f.model && `◇ ${f.model}`, f.due ? `due ${f.due}` : life ? undefined : f.activity, life].filter(Boolean).join(' · ')
   return (
     <RowButton current={current} onPick={() => onPick(r.id)} Icon={LOOK[r.bucket].Icon} tone={LOOK[r.bucket].tone} title={f.title} sub={sub}
       badge={r.asks > 0 ? <span className="num mt-0.5 shrink-0 rounded-full bg-wait/15 px-1.5 text-[11px] font-medium text-wait" title={`${r.asks} ${r.asks === 1 ? 'ask waits' : 'asks wait'} on you`}>{r.asks}</span> : undefined} />

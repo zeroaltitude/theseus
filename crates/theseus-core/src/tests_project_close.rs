@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_kernel::Purpose;
-use theseus_protocol::tasks::{TaskKind, TaskRecord, TaskState};
+use theseus_protocol::tasks::{TaskClaim, TaskKind, TaskRecord, TaskState};
 use theseus_store::{kinds, NewRecord, Store as _};
 
 use crate::approval::{Answerer, Surface};
@@ -194,6 +194,55 @@ async fn a_task_that_carries_part_of_the_project_stops_the_close() {
     assert_eq!(r.task(&id).state, TaskState::Done);
 }
 
+/// A running task that holds a claim on one of the project's steps stops the close, and the refusal names
+/// that task, not the step; once it is cancelled its claim carries nothing, though the lease has not lapsed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_that_holds_a_claim_on_a_step_stops_the_close() {
+    let r = rig();
+    let id = project(&r).await;
+    r.model
+        .hold_tasks
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let started = rpc(&r.core, "task.start", json!({"brief": "Sound the channel"}))
+        .await
+        .unwrap();
+    let session = started["session_id"].as_str().unwrap().to_string();
+    let exec = session.replacen("ses_", "exe_", 1);
+    let mut step = below(&r, &id)
+        .into_iter()
+        .find(|t| t.kind == TaskKind::Item)
+        .unwrap();
+    step.claim = Some(TaskClaim {
+        by: exec,
+        session: session.clone(),
+        until_ms: r.core.kernel.now_ms() + 1_800_000,
+    });
+    step.version += 1;
+    r.core
+        .store
+        .append(&[graph::record(&step).unwrap()])
+        .unwrap();
+    let e = rpc(&r.core, "project.close", json!({"project": id}))
+        .await
+        .unwrap_err();
+    let tail = &session[session.len() - 6..];
+    assert!(e.contains(tail) && e.contains("Sound the channel"), "{e}");
+    assert!(e.contains(&format!("theseus cancel {tail}")), "{e}");
+    assert!(
+        !e.contains(&step.id[step.id.len() - 6..]),
+        "names the holder, not the step: {e}"
+    );
+    assert_eq!(r.task(&id).state, TaskState::Accepted);
+    rpc(&r.core, "task.cancel", json!({"task": session}))
+        .await
+        .unwrap();
+    rpc(&r.core, "project.close", json!({"project": id}))
+        .await
+        .unwrap();
+    assert_eq!(r.task(&id).state, TaskState::Done);
+    assert!(r.task(&step.id).claim.is_none());
+}
+
 /// A shared place is turned away, and the refusal is ledgered; nothing ends.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shared_place_cannot_close_a_project() {
@@ -286,7 +335,7 @@ async fn a_reason_is_one_short_line() {
 
 /// What stands in the way, read as pure rules.
 #[test]
-fn only_a_live_task_or_a_live_claim_carries() {
+fn only_a_live_task_or_a_held_claim_carries() {
     let mk = |id: &str| TaskRecord {
         id: id.into(),
         version: 1,
@@ -304,11 +353,30 @@ fn only_a_live_task_or_a_live_claim_carries() {
     };
     let all = vec![project.clone(), item.clone()];
     let carried = crate::rpc::project_close::carried_by;
-    assert!(carried(&all, &project, &|_| false).is_none());
-    assert!(carried(&all, &project, &|t| t.id == "tsk_item001").is_some());
+    let (no, yes): (&dyn Fn(&TaskRecord) -> bool, &dyn Fn(&TaskClaim) -> bool) =
+        (&|_| false, &|_| true);
+    assert!(carried(&all, &project, (no, &|_| false)).is_none());
+    assert!(carried(&all, &project, (&|t| t.id == "tsk_item001", &|_| false)).is_some());
+    let holder = TaskRecord {
+        session: Some("ses_holder1".into()),
+        title: "Sound the channel".into(),
+        ..mk("tsk_holder1")
+    };
     let claimed = TaskRecord {
-        claim: Some(theseus_protocol::tasks::TaskClaim::default()),
+        claim: Some(TaskClaim {
+            by: "exe_holder1".into(),
+            session: "ses_holder1".into(),
+            until_ms: 100,
+        }),
         ..item
     };
-    assert!(carried(&[project.clone(), claimed], &project, &|_| false).is_some());
+    let all = vec![project.clone(), claimed, holder];
+    // A claim names its holder, not the step; one whose holder ended carries nothing.
+    let said = carried(&all, &project, (no, yes)).unwrap();
+    assert!(
+        said.contains("holder1") && said.contains("Sound the channel"),
+        "{said}"
+    );
+    assert!(!said.contains("item001"), "{said}");
+    assert!(carried(&all, &project, (no, &|_| false)).is_none());
 }

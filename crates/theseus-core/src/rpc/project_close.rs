@@ -15,7 +15,7 @@ use serde_json::json;
 use theseus_protocol::method;
 use theseus_protocol::projects::{ProjectCloseParams, ProjectCloseResult};
 use theseus_protocol::routines::RoutineNameParams;
-use theseus_protocol::tasks::{TaskEvidence, TaskKind, TaskRecord};
+use theseus_protocol::tasks::{TaskClaim, TaskEvidence, TaskKind, TaskRecord};
 
 use super::confirms::Act;
 use super::projects::failure;
@@ -35,27 +35,41 @@ fn short(id: &str) -> &str {
     id.rsplit('_').next().unwrap_or(id)
 }
 
-/// What stands in the way of closing `project` among `tasks` (read as the board reads them): a record under it
-/// that `live` says a running task carries, or that a live claim holds, named. None when the project may end. A
-/// task that was cancelled or ran out of budget carries nothing, though its record stays open to be resumed.
+/// What stands in the way of closing `project` among `tasks` (read as the board reads them): a task that runs
+/// the work of a record under it, or that holds a claim on one, named with the command that stops it. `live`
+/// says whether a record is a running task's own, `held` whether a claim's holder still runs. None when the
+/// project may end. A task that was cancelled or ran out of budget carries nothing, though its record stays open
+/// to be resumed, and neither does a claim whose holder has ended, though its lease has not lapsed.
 pub(crate) fn carried_by(
     tasks: &[TaskRecord],
     project: &TaskRecord,
-    live: &dyn Fn(&TaskRecord) -> bool,
+    (live, held): (&dyn Fn(&TaskRecord) -> bool, &dyn Fn(&TaskClaim) -> bool),
 ) -> Option<String> {
-    graph::subtree(tasks, &project.id)
-        .into_iter()
-        .filter(|t| t.id != project.id && !t.state.is_closed())
-        .find(|t| live(t) || t.claim.is_some())
-        .map(|t| {
-            format!(
-                "task {} (\"{}\") still carries part of this project: cancel it (`theseus cancel {}`) \
-                 or let it finish first, since closing a project never stops running work",
-                short(&t.id),
-                t.title,
-                short(&t.id)
-            )
-        })
+    let under = graph::subtree(tasks, &project.id);
+    let under = || {
+        under
+            .iter()
+            .filter(|t| t.id != project.id && !t.state.is_closed())
+    };
+    let (id, title) = under()
+        .find(|t| live(t))
+        .map(|t| (short(&t.id), t.title.as_str()))
+        .or_else(|| {
+            let c = under().find_map(|t| t.claim.as_ref().filter(|c| held(c)))?;
+            let holder = tasks
+                .iter()
+                .find(|t| t.session.as_deref() == Some(c.session.as_str()));
+            Some((short(&c.session), holder.map_or("", |t| t.title.as_str())))
+        })?;
+    let named = if title.is_empty() {
+        format!("task {id}")
+    } else {
+        format!("task {id} (\"{title}\")")
+    };
+    Some(format!(
+        "{named} still carries part of this project: cancel it (`theseus cancel {id}`) or let it \
+         finish first, since closing a project never stops running work"
+    ))
 }
 
 impl Core {
@@ -100,7 +114,7 @@ impl Core {
             )));
         }
         let now = self.kernel.now_ms();
-        if let Some(why) = carried_by(&tasks, &project, &|t| self.runs(t)) {
+        if let Some(why) = carried_by(&tasks, &project, (&|t| self.runs(t), &|c| self.holds(c))) {
             return Err(invalid(why));
         }
         // The review first: with the refusals past, nothing below can refuse.
@@ -120,7 +134,9 @@ impl Core {
             if t.state.is_closed() {
                 continue;
             }
-            if t.id != project.id && self.runs(&t) {
+            if t.id != project.id
+                && (self.runs(&t) || t.claim.as_ref().is_some_and(|c| self.holds(c)))
+            {
                 return Err(invalid(
                     "a task took hold of this project while it was being closed: try again",
                 ));
@@ -195,6 +211,15 @@ impl Core {
     fn runs(&self, t: &TaskRecord) -> bool {
         graph::execution_of(t)
             .and_then(|id| self.kernel.execution(&id).ok().flatten())
+            .is_some_and(|e| !e.state.is_terminal())
+    }
+
+    /// Whether a claim's holder, an execution, is still alive.
+    fn holds(&self, c: &TaskClaim) -> bool {
+        self.kernel
+            .execution(&c.by)
+            .ok()
+            .flatten()
             .is_some_and(|e| !e.state.is_terminal())
     }
 
