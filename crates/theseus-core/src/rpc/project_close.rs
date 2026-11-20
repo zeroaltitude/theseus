@@ -31,8 +31,9 @@ fn invalid(e: impl std::fmt::Display) -> RpcFailure {
     RpcFailure::new(theseus_protocol::error_code::INVALID_PARAMS, e.to_string())
 }
 
+/// How people name a task: the last six characters of its id.
 fn short(id: &str) -> &str {
-    id.rsplit('_').next().unwrap_or(id)
+    &id[id.len().saturating_sub(6)..]
 }
 
 /// What stands in the way of closing `project` among `tasks` (read as the board reads them): a task that runs
