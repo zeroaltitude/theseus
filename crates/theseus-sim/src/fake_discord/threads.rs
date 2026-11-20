@@ -316,6 +316,22 @@ impl FakeDiscord {
         st.deleted_threads.push(id);
     }
 
+    /// A deleted thread's first message only, as when the owner deletes a
+    /// forum post's starter message and leaves the thread: the thread still
+    /// answers, an edit of the message answers 404.
+    pub fn delete_starter_message(&self, thread: u64) {
+        let mut st = self.state.lock().unwrap();
+        let id = thread.to_string();
+        st.messages.retain(|m| m.id != id);
+    }
+
+    /// While `on`, every forum post is deleted as soon as it is made, as a
+    /// moderation rule that removes each new post would: the create answers
+    /// 200 with the post, and every later call on it answers 404.
+    pub fn delete_new_posts(&self, on: bool) {
+        self.state.lock().unwrap().delete_new_posts = on;
+    }
+
     /// An edit (rename, tags, archive) of a thread answers 403 while `on`.
     pub fn refuse_thread_patch(&self, on: bool) {
         self.state.lock().unwrap().refuse_thread_patch = on;
@@ -394,6 +410,9 @@ impl FakeDiscord {
             message_id: None,
             ..seen("POST", &path, "thread")
         });
+        if forum && self.state.lock().unwrap().delete_new_posts {
+            self.delete_thread(out["id"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0));
+        }
         let _ = self.wait_at(HoldAt::AfterApply);
         reply(stream, 200, &out)
     }

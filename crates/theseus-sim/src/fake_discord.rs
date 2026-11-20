@@ -556,6 +556,9 @@ struct State {
     /// An edit of a thread answers 403, as a bot without Manage Threads is
     /// answered (`refuse_thread_patch`).
     refuse_thread_patch: bool,
+    /// Every forum post is deleted the moment it is made, the create still
+    /// answering 200 (`delete_new_posts`).
+    delete_new_posts: bool,
     /// The guild the viewer check reads, when one is set.
     guild: Option<Guild>,
     /// Each DM channel the bot opened, and its user.
