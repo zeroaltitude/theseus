@@ -482,6 +482,8 @@ struct Worker {
     shared: Arc<Shared>,
     every: Every,
     entries: HashMap<String, Entry>,
+    /// Posts the owner deleted while their item was over: not made again.
+    deleted: HashSet<(String, u64)>,
     slots: HashMap<(String, u64), Slot>,
     tags: HashMap<u64, HashMap<Tag, String>>,
     failed: HashMap<(String, u64), Failed>,
@@ -620,6 +622,7 @@ async fn run(
             retry: RETRY,
         },
         entries: HashMap::new(),
+        deleted: HashSet::new(),
         slots: HashMap::new(),
         tags: HashMap::new(),
         failed: HashMap::new(),
@@ -827,6 +830,11 @@ impl Worker {
         if homed || (ended && !self.shared.task_threads.owed(view) && !is_scheduled(view)) {
             return None;
         }
+        // The owner deleted it once its item was over: no post is made again.
+        if ended && self.deleted.contains(key) {
+            return None;
+        }
+        self.deleted.remove(key);
         if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
             return Some(t - now);
         }
@@ -859,6 +867,10 @@ impl Worker {
             return self
                 .without_a_slot(&key, f, (&view, link.as_deref(), homed, index))
                 .await;
+        }
+        // A post the owner deleted under a live slot: every call on it failed.
+        if let Some(wait) = self.forget_if_gone(&key, ended).await {
+            return wait;
         }
         let mut held: Option<Duration> = None;
         let mut earliest = |d: Option<Duration>| {
@@ -896,9 +908,13 @@ impl Worker {
         let want = Tag::of(&view);
         let slot = self.slots.get(&key)?;
         if slot.tag != Some(want) {
-            // The one edit that leaves `scheduled` is the item's start: shown
-            // at once, as an end is (it is one more edit, never a stream).
-            let leaving = slot.tag == Some(Tag::Scheduled);
+            // The edits that leave `scheduled` (the item's start) or come back
+            // to it (an item set again whose end was not yet fully shown, so its
+            // slot is live and its tag still an end's) are shown at once, as an
+            // end is: each is one more edit, never a stream.
+            let leaving = slot.tag == Some(Tag::Scheduled)
+                || (want == Tag::Scheduled
+                    && matches!(slot.tag, Some(Tag::Done | Tag::Failed | Tag::Stopped)));
             match wait(slot.tag_at, self.every.tags, now, ended || leaving) {
                 None => {
                     if self.set_tag(&key, f, want).await {
@@ -976,6 +992,40 @@ impl Worker {
             .find(|p| p.task == key.0 && p.forum == key.1)
             .ok_or_else(|| anyhow::anyhow!("the task's post is gone"))?;
         Ok((post.post, f.guild.parse().ok()))
+    }
+
+    /// A post the owner deleted under a live slot: its calls fail (404) and the
+    /// slot would be tried again for ever, with an error row each time. After a
+    /// failure the post is read once; if it is gone the slot and the row go. A
+    /// standing item is looked at again at once, and gets a first post; an item
+    /// that is over is left without (the owner deleted it). `None`: nothing was
+    /// wrong, the caller goes on; `Some(wait)`: the key is settled for this pass.
+    async fn forget_if_gone(
+        &mut self,
+        key: &(String, u64),
+        ended: bool,
+    ) -> Option<Option<Duration>> {
+        if !self.failed.contains_key(key) {
+            return None;
+        }
+        let post = self.slots.get(key)?.post.post;
+        let req = Request::builder(&HttpRoute::GetChannel { channel_id: post })
+            .build()
+            .ok()?;
+        let gone = match self.shared.http.request::<Value>(req).await {
+            Err(e) => status_of(&anyhow::Error::from(e)) == Some(404),
+            Ok(_) => false,
+        };
+        if !gone {
+            return None;
+        }
+        self.slots.remove(key);
+        self.failed.remove(key);
+        self.forget_post(key);
+        if ended {
+            self.deleted.insert(key.clone());
+        }
+        Some((!ended).then_some(Duration::ZERO))
     }
 
     /// A scheduled item that stands has its ended post opened again
@@ -1601,11 +1651,170 @@ mod tests {
                 retry: Duration::from_millis(200),
             },
             entries: HashMap::new(),
+            deleted: HashSet::new(),
             slots: HashMap::new(),
             tags: HashMap::new(),
             failed: HashMap::new(),
         };
         (r, w)
+    }
+
+    /// A post the owner deleted under a live slot (every call on it answers 404):
+    /// the item that stands is given a first post again.
+    #[tokio::test]
+    async fn a_post_deleted_under_a_live_slot_is_made_again_for_a_standing_item() {
+        use crate::runtime::voice_status::tests::view;
+        let (r, mut w) = worker_over_the_fake().await;
+        let tell = |w: &mut Worker, title: &str| {
+            w.see(Seen {
+                views: vec![view(
+                    "exe_01J000000000000000task01",
+                    "task",
+                    "running",
+                    title,
+                    None,
+                )],
+                private: true,
+                guild: None,
+                links: HashMap::new(),
+                home: None,
+                homed: HashSet::new(),
+                parent: None,
+            });
+        };
+        let live = || -> Vec<u64> {
+            r.fake
+                .threads()
+                .into_iter()
+                .filter(|t| t.parent == FORUM)
+                .map(|t| t.id)
+                .collect()
+        };
+        tell(&mut w, "Chart the reef");
+        w.drive().await;
+        let first = live();
+        assert_eq!(first.len(), 1);
+        r.fake.delete_thread(first[0]);
+        // Its card has something to say: the call fails, then the post is read.
+        tell(&mut w, "Chart the whole reef");
+        for _ in 0..4 {
+            w.drive().await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        let now = live();
+        assert_eq!(now.len(), 1, "one live post: {now:?}");
+        assert_ne!(now[0], first[0], "a new one");
+    }
+
+    /// The same, once the item is over: the owner deleted it, so none is made.
+    #[tokio::test]
+    async fn a_post_deleted_under_a_live_slot_is_not_made_again_for_an_item_that_is_over() {
+        use crate::runtime::voice_status::tests::view;
+        let (r, mut w) = worker_over_the_fake().await;
+        let tell = |w: &mut Worker, state: &str| {
+            w.see(Seen {
+                views: vec![view(
+                    "exe_01J000000000000000task01",
+                    "task",
+                    state,
+                    "Chart the reef",
+                    None,
+                )],
+                private: true,
+                guild: None,
+                links: HashMap::new(),
+                home: None,
+                homed: HashSet::new(),
+                parent: None,
+            });
+        };
+        tell(&mut w, "running");
+        w.drive().await;
+        let post = r
+            .fake
+            .threads()
+            .into_iter()
+            .find(|t| t.parent == FORUM)
+            .unwrap()
+            .id;
+        r.fake.delete_thread(post);
+        tell(&mut w, "done");
+        for _ in 0..4 {
+            w.drive().await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        let live = r
+            .fake
+            .threads()
+            .into_iter()
+            .filter(|t| t.parent == FORUM)
+            .count();
+        assert_eq!(live, 0, "none made again");
+        assert!(
+            w.shared.task_posts.posts.lock().unwrap().is_empty(),
+            "its row is gone"
+        );
+    }
+
+    /// An item set again while its slot is still live with an end's tag (the end's
+    /// name was not yet written): its tag comes back to `scheduled` at once, not
+    /// after the five minutes a tag edit otherwise waits.
+    #[tokio::test]
+    async fn a_set_again_item_with_a_live_slot_gets_its_scheduled_tag_back_at_once() {
+        use crate::render::task_view::tests::deferred;
+        let (r, mut w) = worker_over_the_fake().await;
+        let at = 1_790_003_600_000;
+        let tell = |w: &mut Worker, title: &str, later: bool| {
+            let mut v = deferred(at);
+            if !later {
+                v.state = WorkState::Running;
+                v.doing = None;
+            }
+            v.id = "exe_01J000000000000000task01".into();
+            v.title = title.into();
+            w.see(Seen {
+                views: vec![v],
+                private: true,
+                guild: None,
+                links: HashMap::new(),
+                home: None,
+                homed: HashSet::new(),
+                parent: None,
+            });
+        };
+        // Made running, so its first tag is not the one under test.
+        tell(&mut w, "Chart the reef", false);
+        w.drive().await;
+        // The end's tag was written, its name not: the slot stays.
+        let key = ("exe_01J000000000000000task01".to_string(), FORUM);
+        let slot = w.slots.get_mut(&key).expect("a slot");
+        slot.tag = Some(Tag::Done);
+        slot.tag_at = Some(Instant::now());
+        tell(&mut w, "Chart the reef again", true);
+        w.drive().await;
+        let post = r
+            .fake
+            .threads()
+            .into_iter()
+            .find(|t| t.parent == FORUM)
+            .unwrap();
+        assert_eq!(
+            post.tag_sets.len(),
+            2,
+            "its tag was written again: {post:?}"
+        );
+        let scheduled = r
+            .fake
+            .forum_tags(FORUM)
+            .into_iter()
+            .find(|t| t.name == "scheduled")
+            .expect("the scheduled tag")
+            .id;
+        assert_eq!(
+            post.tag_sets.last().cloned(),
+            Some(vec![scheduled]),
+            "{post:?}"
+        );
     }
 
     /// A refused call is tried again in a second, not in a minute, and the
