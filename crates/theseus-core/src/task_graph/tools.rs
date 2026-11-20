@@ -28,7 +28,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use theseus_store::NewRecord;
+use theseus_store::{kinds, NewRecord};
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use super::{
@@ -713,9 +713,19 @@ fn update<'a>(
     }
     let from = rec.version;
     let mut fields: Vec<&str> = vec![];
+    let mut retitled = None;
     if let Some(t) = i.patch.title {
         rec.title = t.trim().to_string();
         fields.push("title");
+        // The new title is this session's model's words, whoever wrote the one before.
+        retitled = Some(
+            NewRecord::json(
+                kinds::META,
+                Some(&super::title_by_key(&rec.id)),
+                &tc.session_id,
+            )
+            .map_err(|e| format!("{e:#}"))?,
+        );
     }
     if let Some(d) = i.patch.deps {
         rec.deps = d;
@@ -759,6 +769,7 @@ fn update<'a>(
     };
     let c = change(tc, &rec, Some(from), json!({"fields": fields.join(",")}));
     done.row(tc, verb, c)?;
+    done.records.extend(retitled);
     done.text = format!(
         "Updated task {} ({}): v{from} → v{}.{}",
         rec.id,

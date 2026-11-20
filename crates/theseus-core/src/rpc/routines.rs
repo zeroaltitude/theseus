@@ -207,6 +207,21 @@ impl Core {
         Ok(RoutineListResult { routines })
     }
 
+    /// `routine.list` for `look.work`: each routine with whose words its title and its stop are. The
+    /// spec says who made it: `model:<session>` for a model's tool, else the owner's surface (`the CLI`).
+    pub fn routines_by(&self) -> Result<Vec<(RoutineInfo, crate::content::Hand)>, RpcFailure> {
+        let env = self.routine_env(None);
+        let mut out = Vec::new();
+        for s in self.runner.tools.routines.all(&self.store)? {
+            let hand = match s.created_by.strip_prefix("model:") {
+                Some(session) => crate::content::Hand::Model(session.to_string()),
+                None => crate::content::Hand::Owner,
+            };
+            out.push((routine::info_of(&env, &s)?, hand));
+        }
+        Ok(out)
+    }
+
     /// `routine.runs`: its tasks, newest first.
     pub fn routine_runs(&self, p: &RoutineRunsParams) -> Result<RoutineRunsResult, RpcFailure> {
         let spec = self.named(&p.id)?;

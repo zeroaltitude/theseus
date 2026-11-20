@@ -181,5 +181,5 @@ fn each_short_field_is_clipped_by_itself() {
         state: long,
         ..Default::default()
     };
-    assert!(room(&project_line(&project, None)));
+    assert!(room(&project_line(&project, "t", None)));
 }
