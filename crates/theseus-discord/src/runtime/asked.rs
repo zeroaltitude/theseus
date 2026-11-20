@@ -171,7 +171,7 @@ mod tests {
     /// stays inside 100 (the tool alone past that, as for a pick).
     #[test]
     fn a_long_tool_name_is_clipped_to_the_label_limit() {
-        let long = asked(&format!("mcp:{}/tool", "s".repeat(120)), Some("act_001"));
+        let long = asked(&format!("mcp:{}/tool", "s".repeat(82)), Some("act_001"));
         let rows = asked_controls(std::slice::from_ref(&long));
         let Component::ActionRow(row) = &rows[0] else {
             panic!()

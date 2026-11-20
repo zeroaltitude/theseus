@@ -1,7 +1,7 @@
 //! "Should have asked" through the stand-in's gateway: a tool message that ran
 //! notified calls carries a small grey button for each tool (one to five of
 //! them), a press tightens that tool as the presser and takes its button, the
-//! last takes the row, a copy in a shared place is refused, and a pull-down an
+//! last takes the row, a guest's press of a copy in a shared place is refused, and a pull-down an
 //! older build posted still answers a pick.
 
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
 use theseus_sim::fake_discord::Msg;
 
-use super::{bindings, guild, Rig, ANA, ANA_DM, LAB};
+use super::{bindings, guild, Rig, ANA, ANA_DM, CY, LAB};
 
 /// A message of the bot's in `channel` with these components, as an older build's, or a forgery, would be.
 async fn forged(r: &Rig, channel: u64, components: serde_json::Value) -> String {
@@ -100,7 +100,8 @@ async fn a_tool_message_offers_small_buttons_and_a_press_tightens_that_tool_as_t
     };
     let (run_id, read_id) = (id_of("proc.run"), id_of("fs.read"));
 
-    // A copy of a button in a shared place is refused, and nothing is tightened.
+    // A copy of a button in a shared place, pressed by a guest the place is not
+    // bound to, is refused as it always was, and nothing is tightened.
     let copy = forged(
         &r,
         LAB,
@@ -108,10 +109,14 @@ async fn a_tool_message_offers_small_buttons_and_a_press_tightens_that_tool_as_t
                                            "custom_id": run_id}]}]),
     )
     .await;
-    let refused = r.press(&copy, &run_id, (ANA, "ana"));
+    let refused = r.press(&copy, &run_id, (CY, "cy"));
     r.until(
-        "ana is told no",
-        told(&r, &refused, "🔐 Your press did not count"),
+        "the guest is told no",
+        told(
+            &r,
+            &refused,
+            "Only the people this place is bound to can do that.",
+        ),
     )
     .await;
     assert!(tightened(&r).is_empty(), "nothing was tightened");
