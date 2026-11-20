@@ -402,3 +402,39 @@ fn a_card_made_at_discord_before_the_kill_is_found_not_made_again() {
     std::thread::sleep(Duration::from_secs(4));
     assert_eq!(r.cards("tide check").len(), 1, "{}", r.held());
 }
+
+/// The card's create never reached Discord (the daemon was killed with it held):
+/// the restarted daemon makes the task's one card, and the pinned board, which
+/// lists the task with the same marker, is never edited into it.
+#[test]
+fn a_cards_create_that_never_arrived_is_made_once_and_the_board_is_untouched() {
+    let r = Rig::new();
+    r.fake.drop_message_creates_containing(Some("Task · from"));
+    let daemon = r.spawn();
+    let sid = r.session();
+    Item::Task.set(&r, &sid);
+    r.settle("the card's create held", || {
+        r.fake.held_message_creates() >= 1
+    });
+    drop(daemon);
+    r.fake.drop_message_creates_containing(None);
+    std::thread::sleep(Duration::from_secs(1));
+    let _daemon = r.spawn();
+    r.settle("the task's card", || r.cards("Paint the buoy").len() == 1);
+    std::thread::sleep(Duration::from_secs(4));
+    assert_eq!(r.cards("Paint the buoy").len(), 1, "{}", r.held());
+    let boards: Vec<Msg> = r
+        .fake
+        .all_messages()
+        .into_iter()
+        .filter(|m| m.versions.first().is_some_and(|v| v.starts_with("📋")))
+        .collect();
+    assert!(!boards.is_empty(), "the board is there");
+    for b in boards {
+        assert!(
+            b.versions.iter().all(|v| v.starts_with("📋")),
+            "the board never showed a card: {:?}",
+            b.versions
+        );
+    }
+}
