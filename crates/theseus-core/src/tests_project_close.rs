@@ -8,7 +8,6 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use theseus_kernel::Purpose;
 use theseus_protocol::tasks::{TaskClaim, TaskKind, TaskRecord, TaskState};
-use theseus_store::{kinds, NewRecord, Store as _};
 
 use crate::approval::{Answerer, Surface};
 use crate::tests_mcp_memory::rpc as rpc_on;
@@ -100,7 +99,7 @@ async fn the_owner_drops_a_project_and_everything_it_set_going_stops() {
     let r = rig();
     let id = project(&r).await;
     assert_eq!((reminders(&r.core), routines(&r.core).await), (4, 1));
-    let review = r.task(&id).review.clone().unwrap();
+    let review = r.task(&id).review.unwrap();
     let said = rpc(
         &r.core,
         "project.close",
@@ -353,10 +352,8 @@ fn only_a_live_task_or_a_held_claim_carries() {
     };
     let all = vec![project.clone(), item.clone()];
     let carried = crate::rpc::project_close::carried_by;
-    let (no, yes): (&dyn Fn(&TaskRecord) -> bool, &dyn Fn(&TaskClaim) -> bool) =
-        (&|_| false, &|_| true);
-    assert!(carried(&all, &project, (no, &|_| false)).is_none());
-    assert!(carried(&all, &project, (&|t| t.id == "tsk_item001", &|_| false)).is_some());
+    assert!(carried(&all, &project, &|_| false, &|_| false).is_none());
+    assert!(carried(&all, &project, &|t| t.id == "tsk_item001", &|_| false).is_some());
     let holder = TaskRecord {
         session: Some("ses_holder1".into()),
         title: "Sound the channel".into(),
@@ -372,11 +369,11 @@ fn only_a_live_task_or_a_held_claim_carries() {
     };
     let all = vec![project.clone(), claimed, holder];
     // A claim names its holder, not the step; one whose holder ended carries nothing.
-    let said = carried(&all, &project, (no, yes)).unwrap();
+    let said = carried(&all, &project, &|_| false, &|_| true).unwrap();
     assert!(
         said.contains("older1") && said.contains("Sound the channel"),
         "{said}"
     );
     assert!(!said.contains("em001"), "{said}");
-    assert!(carried(&all, &project, (no, &|_| false)).is_none());
+    assert!(carried(&all, &project, &|_| false, &|_| false).is_none());
 }

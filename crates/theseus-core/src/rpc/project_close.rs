@@ -13,7 +13,7 @@
 
 use serde_json::json;
 use theseus_protocol::method;
-use theseus_protocol::projects::{ProjectCloseParams, ProjectCloseResult};
+use theseus_protocol::projects::{ProjectCloseParams, ProjectCloseResult, ProjectEnd};
 use theseus_protocol::routines::RoutineNameParams;
 use theseus_protocol::tasks::{TaskClaim, TaskEvidence, TaskKind, TaskRecord};
 
@@ -44,7 +44,8 @@ fn short(id: &str) -> &str {
 pub(crate) fn carried_by(
     tasks: &[TaskRecord],
     project: &TaskRecord,
-    (live, held): (&dyn Fn(&TaskRecord) -> bool, &dyn Fn(&TaskClaim) -> bool),
+    live: &dyn Fn(&TaskRecord) -> bool,
+    held: &dyn Fn(&TaskClaim) -> bool,
 ) -> Option<String> {
     let under = graph::subtree(tasks, &project.id);
     let under = || {
@@ -115,7 +116,7 @@ impl Core {
             )));
         }
         let now = self.kernel.now_ms();
-        if let Some(why) = carried_by(&tasks, &project, (&|t| self.runs(t), &|c| self.holds(c))) {
+        if let Some(why) = carried_by(&tasks, &project, &|t| self.runs(t), &|c| self.holds(c)) {
             return Err(invalid(why));
         }
         // The review first: with the refusals past, nothing below can refuse.
@@ -127,66 +128,8 @@ impl Core {
             .collect();
         ids.sort();
         let _locks: Vec<_> = ids.iter().map(|id| self.store.lock_task(id)).collect();
-        let mut ended: Vec<(TaskRecord, u64)> = Vec::new();
-        for id in &ids {
-            let Some(mut t) = graph::get(&self.store, id)? else {
-                continue;
-            };
-            if t.state.is_closed() {
-                continue;
-            }
-            if t.id != project.id
-                && (self.runs(&t) || t.claim.as_ref().is_some_and(|c| self.holds(c)))
-            {
-                return Err(invalid(
-                    "a task took hold of this project while it was being closed: try again",
-                ));
-            }
-            let from = t.version;
-            t.state = p.how.state();
-            t.proposal = None;
-            t.claim = None;
-            t.version += 1;
-            t.updated_at_ms = now;
-            if t.id == project.id {
-                if let Some(r) = &reason {
-                    t.evidence.push(TaskEvidence {
-                        node: None,
-                        identity: format!("closed {}", p.how.word()),
-                        note: Some(r.clone()),
-                        by: who.label.clone(),
-                        at_ms: now,
-                    });
-                }
-            }
-            ended.push((t, from));
-        }
-        let home = self.home().map_err(RpcFailure::from)?;
-        let rec = self.session_rec(&home.session_id);
-        let mut frame = Vec::new();
-        let mut changes = Vec::new();
-        for (t, from) in &ended {
-            let c = crate::fact::task_graph::Change {
-                session_id: home.session_id.clone(),
-                task: t.clone(),
-                from: Some(*from),
-                detail: json!({
-                    "added": t.evidence.len(),
-                    "evidence": t.evidence,
-                    "by": who.who(),
-                    "via": who.via(),
-                    "how": p.how.word(),
-                    "with_project": project.id,
-                }),
-            };
-            frame.push(graph::record(t)?);
-            frame.push(crate::fact::task_graph::row_of(&rec, "closed", &c)?);
-            changes.push(c);
-        }
-        self.store.append(&frame)?;
-        for c in &changes {
-            crate::fact::task_graph::announce(&rec, "closed", c);
-        }
+        let ended = self.ending(&project, &ids, (p.how, reason.as_deref()), &who, now)?;
+        self.write_closed(&ended, &project, p.how, &who)?;
         let reminders_cancelled = self
             .sync_reminders_counted(&ended_project(&ended, &project), &who.label)
             .map_or(0, |s| s.cancelled);
@@ -206,6 +149,90 @@ impl Core {
             review_stopped,
             reminders_cancelled,
         })
+    }
+
+    /// The records of `ids` (the project's subtree, locked by the caller) as the close leaves them, each with the
+    /// version it had; one a task took hold of meanwhile stops the close.
+    fn ending(
+        &self,
+        project: &TaskRecord,
+        ids: &[String],
+        (how, reason): (ProjectEnd, Option<&str>),
+        who: &Answerer,
+        now: u64,
+    ) -> Result<Vec<(TaskRecord, u64)>, RpcFailure> {
+        let mut ended = Vec::new();
+        for id in ids {
+            let Some(mut t) = graph::get(&self.store, id)? else {
+                continue;
+            };
+            if t.state.is_closed() {
+                continue;
+            }
+            if t.id != project.id
+                && (self.runs(&t) || t.claim.as_ref().is_some_and(|c| self.holds(c)))
+            {
+                return Err(invalid(
+                    "a task took hold of this project while it was being closed: try again",
+                ));
+            }
+            let from = t.version;
+            t.state = how.state();
+            t.proposal = None;
+            t.claim = None;
+            t.version += 1;
+            t.updated_at_ms = now;
+            if t.id == project.id {
+                if let Some(r) = reason {
+                    t.evidence.push(TaskEvidence {
+                        node: None,
+                        identity: format!("closed {}", how.word()),
+                        note: Some(r.to_string()),
+                        by: who.label.clone(),
+                        at_ms: now,
+                    });
+                }
+            }
+            ended.push((t, from));
+        }
+        Ok(ended)
+    }
+
+    /// The close's one frame: each record and its `task.closed` row, then the notifications.
+    fn write_closed(
+        &self,
+        ended: &[(TaskRecord, u64)],
+        project: &TaskRecord,
+        how: ProjectEnd,
+        who: &Answerer,
+    ) -> Result<(), RpcFailure> {
+        let home = self.home().map_err(RpcFailure::from)?;
+        let rec = self.session_rec(&home.session_id);
+        let mut frame = Vec::new();
+        let mut changes = Vec::new();
+        for (t, from) in ended {
+            let c = crate::fact::task_graph::Change {
+                session_id: home.session_id.clone(),
+                task: t.clone(),
+                from: Some(*from),
+                detail: json!({
+                    "added": t.evidence.len(),
+                    "evidence": t.evidence,
+                    "by": who.who(),
+                    "via": who.via(),
+                    "how": how.word(),
+                    "with_project": project.id,
+                }),
+            };
+            frame.push(graph::record(t)?);
+            frame.push(crate::fact::task_graph::row_of(&rec, "closed", &c)?);
+            changes.push(c);
+        }
+        self.store.append(&frame)?;
+        for c in &changes {
+            crate::fact::task_graph::announce(&rec, "closed", c);
+        }
+        Ok(())
     }
 
     /// Whether a task's execution is still alive: it runs, waits or is blocked.

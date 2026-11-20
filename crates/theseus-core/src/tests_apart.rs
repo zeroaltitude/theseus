@@ -3,7 +3,7 @@
 
 use serde_json::json;
 use theseus_protocol::tasks::{TaskKind, TaskRecord, TaskState};
-use theseus_store::{kinds, NewRecord, Store as _};
+use theseus_store::{kinds, NewRecord};
 
 use crate::approval::Surface;
 use crate::task_graph as graph;
