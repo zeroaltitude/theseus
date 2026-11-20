@@ -230,23 +230,21 @@ async fn a_title_a_model_retitled_is_that_conversations_words() {
             .project
             .id
     };
-    let retitle = |r: &Rig, id: String, by: String| {
+    async fn retitle(r: &Rig, id: String, by: String) {
         let rec = crate::task_graph::all(&r.core.store)
             .unwrap()
             .into_iter()
             .find(|t| t.id == id)
             .unwrap();
-        async move {
-            r.turn_with(
-                "task_update",
-                &by,
-                json!({"id": id, "version": rec.version, "patch": {"title": "Reef survey"}}),
-            )
-            .await;
-            let (status, text) = latest(r, &by);
-            assert_eq!(status, crate::node::ResultStatus::Ok, "{text}");
-        }
-    };
+        r.turn_with(
+            "task_update",
+            &by,
+            json!({"id": id, "version": rec.version, "patch": {"title": "Reef survey"}}),
+        )
+        .await;
+        let (status, text) = latest(r, &by);
+        assert_eq!(status, crate::node::ResultStatus::Ok, "{text}");
+    }
     // Unrestricted: the retitling conversation is marked; its flags are taken, the milestone is the owner's.
     let r = rig();
     let id = owners(&r);

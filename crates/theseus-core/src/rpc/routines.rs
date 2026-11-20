@@ -209,7 +209,15 @@ impl Core {
 
     /// `routine.list` for `look.work`: each routine with whose words its title and its stop are. The
     /// spec says who made it: `model:<session>` for a model's tool, else the owner's surface (`the CLI`).
-    pub fn routines_by(&self) -> Result<Vec<(RoutineInfo, crate::content::Hand)>, RpcFailure> {
+    pub fn routines_by(
+        &self,
+    ) -> Result<
+        Vec<(
+            theseus_protocol::routines::RoutineInfo,
+            crate::content::Hand,
+        )>,
+        RpcFailure,
+    > {
         let env = self.routine_env(None);
         let mut out = Vec::new();
         for s in self.runner.tools.routines.all(&self.store)? {
