@@ -10,6 +10,20 @@ use theseus_tools::Tool;
 use super::{CallOutcome, ResultNode, ToolRuntime, TurnCtx};
 use crate::provider::ToolUse;
 
+/// The meta a harness call's error carries. `vault.keep` and `vault.use` answer
+/// the model with their errors (no such item, no vault session, a protected
+/// item, the account's refusal): the tool's own "no", as an edit's is, so the
+/// completion marks it a refusal and the nightly read files no cause for it
+/// (`theseus_kernel::failure`). Any other harness error carries none.
+pub(super) fn failure_meta(tool: &str) -> serde_json::Value {
+    match tool {
+        crate::config_change::vault_use::USE | crate::config_change::vault_keep::KEEP => {
+            serde_json::json!({"refusal": true})
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
 impl ToolRuntime {
     /// `extend.propose` (M7 43a), and `mcp.attach` and `mcp.detach` (issue 22,
     /// whose trial waits on its server the same way): a harness call that

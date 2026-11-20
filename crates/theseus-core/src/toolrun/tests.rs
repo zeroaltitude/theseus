@@ -1,6 +1,7 @@
 use super::*;
 
 mod failed_detail;
+mod tests_vault_refusal;
 
 #[test]
 fn cap_keeps_head_and_tail_and_forbidden_env_names() {

@@ -1844,8 +1844,9 @@ impl ToolRuntime {
         let dur = t0.elapsed().as_millis() as u64;
         let (status, text, meta) = match done {
             Ok((text, meta)) => (ResultStatus::Ok, text, meta),
-            Err(why) => (ResultStatus::Error, why, Value::Null),
+            Err(why) => (ResultStatus::Error, why, extend::failure_meta(tool.name())),
         };
+        let detail = inproc::failed_detail(status, &text, dur, &meta);
         let node = self.result_node(
             tc,
             ResultNode {
@@ -1869,7 +1870,7 @@ impl ToolRuntime {
             producer: format!("harness:{}", tool.name()),
             signature: None,
             cost_micros: None,
-            detail: Some(json!({"duration_ms": dur, "meta": meta})),
+            detail: Some(detail),
         };
         let mut records = vec![node.record()?];
         records.append(&mut edit.records);
