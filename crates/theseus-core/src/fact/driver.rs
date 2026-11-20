@@ -277,6 +277,36 @@ impl Fact for ExecutionStoppedAll<'_> {
     }
 }
 
+/// A stop that cancelled the conversation's tasks and left some going: a cancel could not end them, or
+/// one opened after the walk. Said once, after the cancels, so the note of the stop (written before
+/// them) is not the last word on what goes on.
+pub struct StopTasksLeft<'a> {
+    pub by: &'a str,
+    pub left: u32,
+    /// The agents among them that a turn handed work to (`profile.run`).
+    pub agents: &'a [theseus_protocol::StopAgent],
+}
+
+impl Fact for StopTasksLeft<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Session,
+            format!(
+                "Stop all by {}: {} could not be cancelled and go on.{}",
+                self.by,
+                narrative::count(self.left as u64, "task", "tasks"),
+                match self.agents.is_empty() {
+                    true => String::new(),
+                    false => format!(
+                        " {}",
+                        theseus_protocol::StopAgent::words(self.agents, "theseus cancel")
+                    ),
+                }
+            ),
+        );
+    }
+}
+
 /// A job's wrapper was killed before it reported (theseus-6uo): its outcome
 /// is unknown (`job.wrapper_lost`), a security event.
 pub struct WrapperLost<'a> {
