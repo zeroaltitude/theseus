@@ -12,7 +12,7 @@ the three seconds. So:
 
 1. **A handler whose daemon call is not provably instant acknowledges first** and completes the same response after
    (`runtime/command_reply.rs`): `ack_ephemeral` (a deferred reply only the presser sees, completed by `finish_command` or
-   `finish_data`) or `ack_update` (a deferred update of the pressed message, completed by `edit_pressed` or `edit_original_v2`, with a
+   `finish_data`) or `ack_update` (a deferred update of the pressed message, completed by `edit_pressed` or `edit_original_v2` where the press is the card's one writer, and by nothing where the daemon's settle is (see "One writer per card"), with a
    refusal told by `followup` to the presser alone). The acknowledgement carries nothing: no words, no value.
 2. **A handler that must answer with a form** cannot acknowledge first (a form cannot follow an acknowledgement), so it waits for the
    daemon's read at most 2.5 seconds (`within_ack`) and says "Theseus was slow to answer. Nothing was done: try again" when it is slower.
@@ -42,9 +42,39 @@ was sent to the place, which may still refuse it), and posts the place's line as
 fires 36 of these handlers' acknowledgements (and `/task share` and a new task's submit as two more, 38 in all), through the real gateway path, with ids the daemon has never heard of (every handler acknowledges before
 its daemon call, so the first response is the same whatever the daemon then says), and holds each first response to what its answer
 was before the sweep. It does not reach: a scheduled card's Cancel and Snooze, for a reminder or a task (`card_press` refuses an item the board does not
-hold, before `reminder_pick` and `task_pick`, with an immediate private answer, and the table has no such item; `reminder_pick` itself is
-in the table through the board's reminder select, `task_pick` is not reached), and a watch command's approval beyond its `no` button. A routine's button on the list is its own test
+hold, before `reminder_pick` and `task_pick`, with an immediate private answer, and the table has no such item), and a watch command's approval beyond its `no` button. `reminder_pick` is
+in the table through the board's reminder select. `task_pick` is reached, and its privacy held, by
+`tests_sched::the_owners_cancel_and_snooze_on_a_scheduled_tasks_card_act_on_the_task` (it asserts the answer is for the presser alone). A routine's button on the list is its own test
 (`a_routines_button_on_the_list_updates_the_private_list`).
+
+## One writer per card
+
+A card is written by exactly one thing, and which one is decided by who settles it:
+
+- **A card the daemon settles itself** (a question's card or needs-you post: the outbox's settle post, written at the moment the daemon
+  answers the press's `work.answer`) is written **only by the settle**. The press on it acknowledges (an update of the card, so the
+  three seconds are met) and **writes nothing to the card**: no words, and not the buttons either, because a Components V2 card keeps its
+  words in its components, so clearing "only the buttons" re-sends the words the press read and is the same race. A read of the card
+  before the write cannot make this safe: the settle lands between the read and the write. A press whose call fails or is refused tells
+  the presser alone (a private follow-up); the card is as it was, with its buttons. `Shared::settled_by_daemon(question)` is the question
+  ("has the question a post of the outbox"); a card from before the outbox has no settle, and its press is the one writer.
+- **A card the daemon does not settle** keeps the press as its one writer (`edit_pressed`, `edit_original_v2`): the "asked again" line on an
+  expired card, a thread question's card, a reminder's, a routine's or watch's post, a watch command's approval, a capture card's, a
+  content label's.
+
+| Handler | Its card | Its one writer |
+|---|---|---|
+| `ask_press`, `confirm` buttons (`on_interaction`), `answer_modal` and `proof_form` from a card | a question's card or needs-you post | the daemon's settle (the press writes only where `has_post` is false: a card from before the outbox) |
+| `keep_form` | the keep card | the daemon's settle (`vault_keep/settle.rs`); the press completes its own private response only |
+| `ask_again_press` | the settled card of an expired question | the press |
+| `thread_ask_press` | a thread question's card | the press |
+| `remind_press` | a reminder | the press |
+| `post_press` (routine, watch) | the routine's or watch's post | the press |
+| `watch_approval` | the approval message, ephemeral | the press |
+| `card_answer_as` (capture card), content label | the card | the press |
+
+The stand-in holds both orders on purpose (`withhold_edits`, `withhold_completions`): the settle applied after the press is over, and
+the press's completion applied after the settle. In both the card ends with the settle, word for word (`tests_gateway/ask.rs`).
 
 ## The proof
 

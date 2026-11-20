@@ -1390,27 +1390,26 @@ impl Shared {
                     )
                     .await;
                 if let Err(e) = &r {
-                    if e.code == theseus_protocol::error_code::REFUSED {
-                        // The answer did not count: the card keeps its
-                        // buttons for one that does, and only the presser
-                        // is told why.
-                        self.core.binding_ledger(
-                            LedgerKind::DiscordConfirm,
-                            None,
-                            json!({"correlation_id": corr, "approve": approve, "by": who, "ok": false, "refused": true, "error": e.message}),
-                        );
-                        let why = e.data.get("why").and_then(Value::as_str);
-                        self.followup(
-                            &i,
-                            &format!(
-                                "🔐 Your answer did not count: {}. It keeps waiting for an \
-                                 answer that does.",
-                                why.unwrap_or(&e.message)
-                            ),
-                        )
-                        .await;
-                        return;
-                    }
+                    // The answer did not count, refused or failed: the card
+                    // keeps its buttons for one that does, and only the
+                    // presser is told why.
+                    let refused = e.code == theseus_protocol::error_code::REFUSED;
+                    self.core.binding_ledger(
+                        LedgerKind::DiscordConfirm,
+                        None,
+                        json!({"correlation_id": corr, "approve": approve, "by": who, "ok": false, "refused": refused, "error": e.message}),
+                    );
+                    let why = e.data.get("why").and_then(Value::as_str);
+                    let text = match refused {
+                        true => format!(
+                            "🔐 Your answer did not count: {}. It keeps waiting for an \
+                             answer that does.",
+                            why.unwrap_or(&e.message)
+                        ),
+                        false => format!("⚠️ Could not answer: {e}"),
+                    };
+                    self.followup(&i, &text).await;
+                    return;
                 }
                 let line = i
                     .message
@@ -1418,23 +1417,24 @@ impl Shared {
                     .and_then(|m| m.content.lines().next())
                     .map(|l| crate::render::strip_ask(l).to_string())
                     .unwrap_or_default();
-                let content = match &r {
-                    Ok(_) if approve => format!("✅ **Approved** by {who} · {line}"),
-                    Ok(_) => format!("❎ **Declined** by {who} · {line}"),
-                    Err(e) => format!("⚠️ Could not answer: {e} · {line}"),
+                let content = match approve {
+                    true => format!("✅ **Approved** by {who} · {line}"),
+                    false => format!("❎ **Declined** by {who} · {line}"),
                 };
                 self.core.binding_ledger(
                     LedgerKind::DiscordConfirm,
                     None,
-                    json!({"correlation_id": corr, "approve": approve, "by": who, "ok": r.is_ok(), "error": r.as_ref().err().map(|e| e.message.clone())}),
+                    json!({"correlation_id": corr, "approve": approve, "by": who, "ok": true, "error": null}),
                 );
                 // An outbox card is settled by its settle post, which the
-                // answer just wrote (theseus-q4v); a card from before the
-                // outbox, or an answer that failed, is settled here.
-                let settled_by_post = r.is_ok() && self.core.outbox.has_post(&corr);
-                if let (Some(ch), Some(m), false) =
-                    (i.channel.as_ref(), i.message.as_ref(), settled_by_post)
-                {
+                // answer just wrote (theseus-q4v), and by nothing else: one
+                // writer per card. A card from before the outbox is settled
+                // here.
+                if let (Some(ch), Some(m), false) = (
+                    i.channel.as_ref(),
+                    i.message.as_ref(),
+                    self.settled_by_daemon(&corr),
+                ) {
                     let res = self
                         .http
                         .update_message(ch.id, m.id)
