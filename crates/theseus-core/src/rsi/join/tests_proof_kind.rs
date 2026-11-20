@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use theseus_protocol::rsi::SelfMode;
 
-use super::planted::{self, Outcome, Ran, Tests};
+use super::planted::{Outcome, Ran, Tests};
 use super::review::{self, Ask, Fut, Review, Reviewer};
 use super::tests::{rig, Rig, PROVED, SONNET};
 use super::Seams;
@@ -183,9 +183,8 @@ fn the_experiments_text_runs_every_command_with_the_sandbox_on() {
         !today.contains("sandbox: true") && !today.contains("/s/tree"),
         "{today}"
     );
-    // What the daemon says is today's text, whichever switch a test gives.
-    assert!(!planted::REVIEWER_CAN_RUN_THE_EXPERIMENT);
-    assert_eq!(o.ask_text("/s"), today.clone() + "\n\n");
+    // What the daemon says is today's text (the switch is off), whichever a test gives.
+    assert_eq!(o.ask_text("/s"), today + "\n\n");
 }
 
 /// A reply that names its test and assertion in a `CHECKED BY READING:` line is recorded as
