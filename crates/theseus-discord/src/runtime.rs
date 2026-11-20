@@ -579,15 +579,7 @@ async fn event_loop(
             Event::MessageCreate(m) => shared.clone().on_message(&m.0),
             Event::TypingStart(t) => shared.on_typing(&t),
             Event::InteractionCreate(i) => {
-                let s = shared.clone();
-                let i = i.0;
-                tokio::spawn(async move {
-                    #[cfg(test)]
-                    let id = i.id.to_string();
-                    s.interacted(i).await;
-                    #[cfg(test)]
-                    HANDLED.with(|h| h.borrow_mut().push(id));
-                });
+                spawn_interacted(shared.clone(), i.0);
             }
             // ⬆️ or ⬇️ on a reply: the owner's correction of its routing (theseus-q31l).
             Event::ReactionAdd(r) => drop(tokio::spawn(route::reacted(shared.clone(), r.0))),
@@ -595,6 +587,17 @@ async fn event_loop(
         }
     }
     board.state("disconnected", Some("gateway stream ended".into()));
+}
+
+/// Handle an interaction on a task of its own.
+fn spawn_interacted(shared: Arc<Shared>, i: Interaction) {
+    tokio::spawn(async move {
+        #[cfg(test)]
+        let id = i.id.to_string();
+        shared.interacted(i).await;
+        #[cfg(test)]
+        HANDLED.with(|h| h.borrow_mut().push(id));
+    });
 }
 
 // The interactions this test's binding has finished handling, by id: a test waits for the end of a press instead of
