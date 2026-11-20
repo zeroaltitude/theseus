@@ -264,7 +264,7 @@ mod tests {
         assert!(is_menu(&asked_controls(std::slice::from_ref(&long))));
 
         let mut mixed = tools(2);
-        mixed.insert(1, over.clone());
+        mixed.insert(1, over);
         let rows = asked_controls(&mixed);
         assert!(is_menu(&rows), "a long name among short ones: {rows:?}");
         let Component::ActionRow(row) = &rows[0] else {
