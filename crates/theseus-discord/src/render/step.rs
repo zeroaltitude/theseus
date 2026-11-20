@@ -169,6 +169,7 @@ fn tool_lines(tools: &[&ToolLine], reserve: usize) -> String {
                 }
                 ToolState::Done { status, ms } if status == "ok" => format!("✅ {head} · {ms} ms"),
                 ToolState::Done { status, ms } => format!("❌ {head} · {status} · {ms} ms"),
+                ToolState::Cut { words, ms } => format!("⏱️ {head} · {words} · {ms} ms"),
                 ToolState::NotRun => format!("🚫 {head} · not run"),
                 ToolState::Stopped { by } => format!("⏹️ {head} · stopped by {by}"),
                 ToolState::Answered { approved: true, by } => {

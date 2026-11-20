@@ -1075,3 +1075,49 @@ async fn a_turn_ends_with_its_link_and_inspect_says_it_again() {
     let text = r.text();
     assert_eq!(text.matches(&format!("inspect {url}")).count(), 2, "{text}");
 }
+
+/// A job cut at its time limit is a line of its own in the terminal UI, not a failure's (issue 37): the clock and
+/// `cut at its 2 s limit`; a job that failed is still the cross and `error`.
+#[tokio::test(start_paused = true)]
+async fn a_job_cut_at_its_limit_is_not_drawn_as_a_failure() {
+    let mut r = Rig::new(100, 24).await;
+    r.ready().await;
+    r.starts_turn("trn_1");
+    for (id, cut_at_ms, exit_code) in [("tu_1", Some(2_000), None), ("tu_2", None, Some(1))] {
+        r.tell(Event::ToolProposed(ToolProposed {
+            session_id: SID.into(),
+            turn_id: "trn_1".into(),
+            tool_use_id: id.into(),
+            tool: "proc.run".into(),
+            input: json!({"argv": ["sleep", "30"]}),
+            ..Default::default()
+        }));
+        r.tell(Event::ToolEnded(ToolEnded {
+            session_id: SID.into(),
+            turn_id: "trn_1".into(),
+            tool_use_id: id.into(),
+            tool: "proc.run".into(),
+            status: "error".into(),
+            duration_ms: Some(2_022),
+            cut_at_ms,
+            exit_code,
+            ..Default::default()
+        }));
+    }
+    r.shows("exit 1").await;
+    let lines: Vec<String> = r
+        .screen()
+        .into_iter()
+        .filter(|l| l.contains("sleep 30"))
+        .collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines[0].contains("⏱ cut at its 2 s limit · 2.0 s"),
+        "{lines:?}"
+    );
+    assert!(
+        !lines[0].contains("error") && !lines[0].contains('✗'),
+        "{lines:?}"
+    );
+    assert!(lines[1].contains("✗ exit 1 · error"), "{lines:?}");
+}
