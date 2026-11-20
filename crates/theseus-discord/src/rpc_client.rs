@@ -87,13 +87,29 @@ pub(crate) fn hold(method: &str) -> std::sync::Arc<Hold> {
 }
 
 /// A canned answer a test gives a method (no request is made): for a daemon call whose real answer needs a server
-/// the test has not got (an MCP server's prompts).
+/// the test has not got (an MCP server's prompts). It is the test's own: the test's thread is the only one that
+/// sees it (a test runs on one), and it is gone when the test drops what `stub` returned.
 #[cfg(test)]
-static STUBBED: Mutex<Vec<(String, Value)>> = Mutex::new(Vec::new());
+thread_local! {
+    static STUBBED: std::cell::RefCell<Vec<(String, Value)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The canned answer, until it is dropped.
+#[cfg(test)]
+pub(crate) struct Stubbed(String);
 
 #[cfg(test)]
-pub(crate) fn stub(method: &str, answer: Value) {
-    STUBBED.lock().unwrap().push((method.to_string(), answer));
+impl Drop for Stubbed {
+    fn drop(&mut self) {
+        STUBBED.with(|s| s.borrow_mut().retain(|(m, _)| *m != self.0));
+    }
+}
+
+#[cfg(test)]
+#[must_use = "the answer is canned until this is dropped"]
+pub(crate) fn stub(method: &str, answer: Value) -> Stubbed {
+    STUBBED.with(|s| s.borrow_mut().push((method.to_string(), answer)));
+    Stubbed(method.to_string())
 }
 
 #[cfg(test)]
@@ -199,12 +215,12 @@ impl RpcClient {
         }
         #[cfg(test)]
         {
-            let canned = STUBBED
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|(m, _)| m == method)
-                .map(|(_, v)| v.clone());
+            let canned = STUBBED.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|(m, _)| m == method)
+                    .map(|(_, v)| v.clone())
+            });
             if let Some(v) = canned {
                 return serde_json::from_value(v).map_err(CallError::local);
             }

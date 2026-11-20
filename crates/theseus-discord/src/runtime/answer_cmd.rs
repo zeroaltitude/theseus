@@ -348,6 +348,7 @@ impl Shared {
             Err(e) => format!("⚠️ Could not answer: {e}"),
         };
         match (on_message, line.starts_with('✅')) {
+            (true, true) if self.settled_by_daemon(question) => {}
             (true, true) => self.edit_original_v2(i, &card_v2::closed(&line)).await,
             (true, false) => self.followup(i, &line).await,
             (false, _) => self.finish_command(i, &line, "answer response").await,

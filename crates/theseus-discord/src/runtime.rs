@@ -581,7 +581,13 @@ async fn event_loop(
             Event::InteractionCreate(i) => {
                 let s = shared.clone();
                 let i = i.0;
-                tokio::spawn(async move { s.interacted(i).await });
+                tokio::spawn(async move {
+                    #[cfg(test)]
+                    let id = i.id.to_string();
+                    s.interacted(i).await;
+                    #[cfg(test)]
+                    HANDLED.with(|h| h.borrow_mut().push(id));
+                });
             }
             // ⬆️ or ⬇️ on a reply: the owner's correction of its routing (theseus-q31l).
             Event::ReactionAdd(r) => drop(tokio::spawn(route::reacted(shared.clone(), r.0))),
@@ -589,6 +595,19 @@ async fn event_loop(
         }
     }
     board.state("disconnected", Some("gateway stream ended".into()));
+}
+
+/// The interactions this test's binding has finished handling, by id: a test waits for the end of a press instead of
+/// guessing when it is over (a test runs on one thread, so the list is its own).
+#[cfg(test)]
+thread_local! {
+    static HANDLED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether the binding has finished handling interaction `id`.
+#[cfg(test)]
+pub(crate) fn handled(id: &str) -> bool {
+    HANDLED.with(|h| h.borrow().iter().any(|x| x == id))
 }
 
 async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Board) {

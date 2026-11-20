@@ -228,6 +228,7 @@ impl Shared {
     ) {
         // Acknowledge first: the answer is the daemon's to write, and Discord's first response is due in three seconds.
         self.ack_update(i).await;
+        let qid = question.clone();
         let r = self
             .rpc
             .call::<_, WorkAnswerResult>(
@@ -247,6 +248,8 @@ impl Shared {
             .map(|m| m.content.clone())
             .unwrap_or_default();
         match r {
+            // The daemon's settle is the card's one writer where it has one.
+            Ok(_) if self.settled_by_daemon(&qid) => {}
             Ok(_) => {
                 self.edit_pressed(
                     i,

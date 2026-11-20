@@ -133,29 +133,31 @@ impl Shared {
 
     /// Complete an acknowledged press on a message (`ack_update`): its words become `content` and its buttons
     /// go, when it was answered; `what` names the handler in the board's error when the service refuses.
+    ///
+    /// One writer per card: this is for a card **only the press writes**. A card the daemon settles itself
+    /// (`settled_by_daemon`) is written by its settle alone, and its press writes nothing.
     pub(super) async fn edit_pressed(&self, i: &Interaction, content: &str, what: &str) {
         let content = leaving(&self.core.exits, content);
-        // The daemon may have settled the card itself while this waited (its own settle post says who answered, and
-        // is the card's last word): then only the buttons go, and the words it wrote are not written over.
-        let settled_meanwhile = match (&i.message, &i.channel) {
-            (Some(m), Some(c)) => match self.interact.message(c.id, m.id).await {
-                Ok(now) => now.model().await.is_ok_and(|now| now.content != m.content),
-                Err(_) => false,
-            },
-            _ => false,
-        };
-        let client = self.interact.interaction(i.application_id);
         let nobody = AllowedMentions::default();
-        let mut update = client
+        let update = self
+            .interact
+            .interaction(i.application_id)
             .update_response(&i.token)
+            .content(Some(&content))
             .components(Some(&[]))
             .allowed_mentions(Some(&nobody));
-        if !settled_meanwhile {
-            update = update.content(Some(&content));
-        }
         if let Err(e) = update.await {
             self.board.error(what, None, e);
         }
+    }
+
+    /// Whether a counted answer to `question` leaves its card to the daemon: a card or a needs-you post of the
+    /// outbox is settled by the settle post the answer writes (its words are the card's last), so the press that
+    /// answered it has acknowledged and writes nothing to the card, not even its buttons: a V2 card keeps its
+    /// words in its components, and clearing them re-sends the words the press read. A card from before the outbox
+    /// has no settle, and its press is the one writer.
+    pub(super) fn settled_by_daemon(&self, question: &str) -> bool {
+        self.core.outbox.has_post(question)
     }
 
     /// Edit `text` into the reply to `i` (already acknowledged). `what` names

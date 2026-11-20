@@ -456,7 +456,7 @@ fn public_text(r: &Rig) -> String {
 /// typed is in nothing the place can see.
 #[tokio::test]
 async fn a_prompt_forms_refusal_in_a_guild_place_is_private_and_the_typed_line_is_nowhere_public() {
-    crate::rpc_client::stub(method::MCP_PROMPT_LIST, big_prompt());
+    let _stub = crate::rpc_client::stub(method::MCP_PROMPT_LIST, big_prompt());
     let r = rig().await;
     let typed = "INVENTED-TYPED-LINE-WITHOUT-AN-EQUALS-SIGN";
     let iid = r
@@ -508,7 +508,7 @@ async fn a_prompt_forms_refusal_in_a_guild_place_is_private_and_the_typed_line_i
 /// own (the one `prompt_run` meant for the place), and nothing of the arguments is in either.
 #[tokio::test]
 async fn a_prompt_that_runs_from_the_form_posts_one_public_line_and_none_of_its_arguments() {
-    crate::rpc_client::stub(method::MCP_PROMPT_LIST, small_prompt());
+    let _stub = crate::rpc_client::stub(method::MCP_PROMPT_LIST, small_prompt());
     let r = rig().await;
     let typed = "INVENTED-ARGUMENT-VALUE";
     let iid = r

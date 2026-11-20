@@ -366,6 +366,14 @@ impl FakeDiscord {
             if let Some(m) = &opened_from {
                 d["message"] = m.clone();
             }
+            // A deferred update of a submit from a message completes that message, as a press's does.
+            if let Some(id) = message {
+                self.state
+                    .lock()
+                    .unwrap()
+                    .pressed_message
+                    .insert(i.id.to_string(), id.to_string());
+            }
             d["data"] = data;
             d
         })

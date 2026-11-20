@@ -311,7 +311,15 @@ pub struct Reply {
 impl State {
     /// What an answer to an interaction does to the person's view of it: a deferral that was ephemeral makes what
     /// completes it ephemeral, as Discord does, and an edit of the response shows in the view they see.
-    fn follow_response(&mut self, id: &str, kind: &str, r: &mut Reply, data: &Value) {
+    /// `Some(why)` is the service's refusal of an edit of the message (the rules of `apply_edit`), which its
+    /// answer to the binding says.
+    fn follow_response(
+        &mut self,
+        id: &str,
+        kind: &str,
+        r: &mut Reply,
+        data: &Value,
+    ) -> Option<String> {
         match (kind, r.ephemeral) {
             ("callback", true) => {
                 self.ephemeral_acks.insert(id.to_string());
@@ -335,8 +343,7 @@ impl State {
                 .chain(self.ephemerals.values_mut())
                 .find(|m| target.as_ref() == Some(&m.id));
             if let Some(m) = found {
-                let _ = apply_edit(m, data);
-                return;
+                return apply_edit(m, data);
             }
             let content = r.content.clone().unwrap_or_default();
             // What completes an ephemeral deferral is an ephemeral message: its flag is the deferral's.
@@ -348,6 +355,7 @@ impl State {
                 });
             self.complete_view(id, &content, &data["components"], Some(flags));
         }
+        None
     }
 
     /// The message an interaction's response shows after an edit of it: its words, and its buttons when the edit
@@ -681,6 +689,14 @@ pub struct Seen {
     pub chars: Option<usize>,
 }
 
+/// What the service has not applied yet (`FakeDiscord::withhold_edits`).
+#[derive(Default)]
+struct Withhold {
+    edits: bool,
+    completions: bool,
+    waiting: usize,
+}
+
 #[derive(Default)]
 struct State {
     /// The bot's reactions, by message, in the order added (`reactions`).
@@ -695,6 +711,8 @@ struct State {
     /// A write whose content holds this text waits for its answer until the
     /// hold is lifted.
     hold: Option<String>,
+    /// What waits before it is applied (`withhold_edits`, `withhold_completions`), and how many requests wait now.
+    withhold: Withhold,
     /// The guild the viewer check reads, when one is set.
     guild: Option<Guild>,
     /// Each DM channel the bot opened, and its user.
@@ -894,6 +912,40 @@ impl FakeDiscord {
     /// hold is lifted (`None`), or after a minute (theseus-pfv).
     pub fn hold_writes_containing(&self, text: Option<&str>) {
         self.state.lock().unwrap().hold = text.map(str::to_string);
+    }
+
+    /// Withhold the bot's edits of messages (a card's settle) before they are applied, until lifted (`false`), or a
+    /// minute passes: the other order of two writers to a card.
+    pub fn withhold_edits(&self, on: bool) {
+        self.state.lock().unwrap().withhold.edits = on;
+    }
+
+    /// Withhold an interaction's completion (the edit of its response, a follow-up) before it is applied, until lifted
+    /// (`false`), or a minute passes. The acknowledgement is not withheld: Discord's three seconds are the binding's.
+    pub fn withhold_completions(&self, on: bool) {
+        self.state.lock().unwrap().withhold.completions = on;
+    }
+
+    /// How many requests wait for a withhold now.
+    pub fn withheld(&self) -> usize {
+        self.state.lock().unwrap().withhold.waiting
+    }
+
+    /// Wait while `is_on` says the withhold stands.
+    fn wait_withheld(&self, is_on: impl Fn(&Withhold) -> bool) {
+        let mut st = self.state.lock().unwrap();
+        if !is_on(&st.withhold) {
+            return;
+        }
+        st.withhold.waiting += 1;
+        drop(st);
+        for _ in 0..60_000 {
+            if !is_on(&self.state.lock().unwrap().withhold) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        self.state.lock().unwrap().withhold.waiting -= 1;
     }
 
     /// Whether a write of `content` is held now.
@@ -1772,6 +1824,7 @@ impl FakeDiscord {
         id: &str,
         body: &Value,
     ) -> std::io::Result<()> {
+        self.wait_withheld(|w| w.edits);
         let mut refused = None;
         let found = {
             let mut st = self.state.lock().unwrap();
@@ -2043,6 +2096,9 @@ impl FakeDiscord {
         } else {
             body
         };
+        if kind != "callback" {
+            self.wait_withheld(|w| w.completions);
+        }
         if let Some((code, why)) = self.refuse_by_rule(interaction, kind) {
             // What was refused is kept (its words are what a search for a value must see), apart from the answers.
             let refused = reply_of(interaction, kind, body, data);
@@ -2058,8 +2114,15 @@ impl FakeDiscord {
         let content = r.content.clone().unwrap_or_default();
         {
             let mut st = self.state.lock().unwrap();
-            if let Some(id) = interaction {
-                st.follow_response(id, kind, &mut r, data);
+            let refused = interaction.and_then(|id| st.follow_response(id, kind, &mut r, data));
+            if let Some(why) = refused {
+                // An edit the service refuses: kept apart from the answers, and the binding is told so.
+                st.replies.push(Reply {
+                    kind: format!("{kind} refused: {why}"),
+                    ..r
+                });
+                drop(st);
+                return reply(stream, 400, &json!({"message": why, "code": 50035}));
             }
             if kind == "callback"
                 && matches!(r.response_type, Some(4 | 7))

@@ -119,13 +119,14 @@ async fn a_question_that_waited_pings_the_dm_and_a_press_answers_it() {
     })
     .await;
     let _ = corr;
+    let pressed = r.fake.replies().into_iter().find_map(|x| x.interaction).unwrap();
+    r.until("the press is over", || crate::runtime::handled(&pressed))
+        .await;
+    assert_settled_alone(&r, &post, &pressed);
 }
 
-/// A question asked in the DM itself has its card there at once, with a
-/// button for each option, and the owner's chat gets no second post for it.
-#[tokio::test]
-async fn a_question_asked_in_the_dm_has_its_card_and_no_second_post() {
-    let r = rig().await;
+/// The card of a question asked in ana's DM, once it is posted.
+async fn the_dm_card(r: &Rig) -> theseus_sim::fake_discord::Msg {
     r.say((ANA, "ana"), None, "decide");
     r.until("the question's card", || {
         r.posted(ANA_DM)
@@ -133,11 +134,50 @@ async fn a_question_asked_in_the_dm_has_its_card_and_no_second_post() {
             .any(|m| m.buttons.iter().any(|b| b.label.starts_with("1. ")))
     })
     .await;
-    let card = r
-        .posted(ANA_DM)
+    r.posted(ANA_DM)
         .into_iter()
         .find(|m| m.buttons.iter().any(|b| b.label.starts_with("1. ")))
-        .unwrap();
+        .unwrap()
+}
+
+fn card_now(r: &Rig, id: &str) -> theseus_sim::fake_discord::Msg {
+    r.posted(ANA_DM).into_iter().find(|m| m.id == id).unwrap()
+}
+
+/// One writer per card: the card was written twice, once when it was posted and once by the daemon's settle, and
+/// the press that answered it wrote nothing: it acknowledged (an update of the card) and that is all.
+fn assert_settled_alone(r: &Rig, card: &theseus_sim::fake_discord::Msg, pressed: &str) {
+    let now = card_now(r, &card.id);
+    assert_eq!(now.versions.len(), 2, "posted once, settled once: {now:?}");
+    assert_eq!(now.versions[0], card.content, "{now:?}");
+    let settle = &now.versions[1];
+    assert!(settle.starts_with("✅ **Answered** by "), "{settle}");
+    assert!(settle.contains("Which plan for the harbour survey?"), "the question's own words: {settle}");
+    assert_eq!(&now.content, settle, "the card says the settle, word for word");
+    assert!(!now.content.contains("chose"), "the press wrote none: {now:?}");
+    assert!(now.buttons.is_empty(), "the settle took the buttons: {now:?}");
+    let mine: Vec<_> = r
+        .fake
+        .replies()
+        .into_iter()
+        .filter(|x| x.interaction.as_deref() == Some(pressed))
+        .collect();
+    assert!(
+        mine.iter().all(|x| x.kind == "callback"),
+        "the press only acknowledged: {mine:?}"
+    );
+    assert!(
+        mine.iter().any(|x| x.response_type == Some(6)),
+        "an update of the card: {mine:?}"
+    );
+}
+
+/// A question asked in the DM itself has its card there at once, with a
+/// button for each option, and the owner's chat gets no second post for it.
+#[tokio::test]
+async fn a_question_asked_in_the_dm_has_its_card_and_no_second_post() {
+    let r = rig().await;
+    let card = the_dm_card(&r).await;
     assert!(card.content.contains("Which plan"), "{}", card.content);
     let corr = r.core.confirm_list().unwrap().remove(0).correlation_id;
     let at = r.core.kernel.action(&corr).unwrap().unwrap().planned_at_ms;
@@ -147,7 +187,7 @@ async fn a_question_asked_in_the_dm_has_its_card_and_no_second_post() {
         "it has its card"
     );
     assert!(r.posted(ANA_DM).iter().all(|m| !is_it(m)));
-    r.press(&card.id, "1. Careful", (ANA, "ana"));
+    let pressed = r.press(&card.id, "1. Careful", (ANA, "ana"));
     r.until("the answer", || {
         r.ledger("action.confirm_answered")
             .iter()
@@ -155,10 +195,52 @@ async fn a_question_asked_in_the_dm_has_its_card_and_no_second_post() {
     })
     .await;
     r.until("the card is settled", || {
-        r.posted(ANA_DM)
-            .into_iter()
-            .find(|m| m.id == card.id)
-            .is_some_and(|m| m.buttons.is_empty() && m.content.contains("Answered"))
+        card_now(&r, &card.id).content.contains("Answered")
     })
     .await;
+    r.until("the press is over", || crate::runtime::handled(&pressed))
+        .await;
+    assert_settled_alone(&r, &card, &pressed);
+}
+
+/// The two writers of a card meet in either order, and the card ends with the daemon's settle either way. First:
+/// the stand-in applies the settle only after the press has finished (it acknowledged, answered, and wrote
+/// nothing), and until then the card is what it was posted as.
+#[tokio::test]
+async fn a_pressed_card_ends_with_the_settle_when_the_settle_lands_after_the_press_is_over() {
+    let r = rig().await;
+    let card = the_dm_card(&r).await;
+    r.fake.withhold_edits(true);
+    let pressed = r.press(&card.id, "1. Careful", (ANA, "ana"));
+    r.until("the press is over and the settle waits", || {
+        crate::runtime::handled(&pressed) && r.fake.withheld() == 1
+    })
+    .await;
+    let waiting = card_now(&r, &card.id);
+    assert_eq!(waiting.content, card.content, "the press wrote nothing: {waiting:?}");
+    assert!(!waiting.buttons.is_empty(), "its buttons stay: {waiting:?}");
+    r.fake.withhold_edits(false);
+    r.until("the settle lands", || {
+        card_now(&r, &card.id).content.contains("Answered")
+    })
+    .await;
+    assert_settled_alone(&r, &card, &pressed);
+}
+
+/// And the other order: the settle lands first, and the stand-in applies whatever the press writes after it, as
+/// late as it can. The press writes nothing, so the card is the settle.
+#[tokio::test]
+async fn a_pressed_card_ends_with_the_settle_when_the_press_completes_after_the_settle() {
+    let r = rig().await;
+    let card = the_dm_card(&r).await;
+    r.fake.withhold_completions(true);
+    let pressed = r.press(&card.id, "1. Careful", (ANA, "ana"));
+    r.until("the settle lands", || {
+        card_now(&r, &card.id).content.contains("Answered")
+    })
+    .await;
+    r.fake.withhold_completions(false);
+    r.until("the press is over", || crate::runtime::handled(&pressed))
+        .await;
+    assert_settled_alone(&r, &card, &pressed);
 }

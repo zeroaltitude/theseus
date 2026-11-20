@@ -235,6 +235,7 @@ impl Shared {
             Err(e) => (format!("⚠️ Could not answer: {e}"), false),
         };
         match (on_message, counted) {
+            (true, true) if self.settled_by_daemon(question) => {}
             (true, true) => self.edit_original_v2(i, &card_v2::closed(&line)).await,
             (true, false) => self.followup(i, &line).await,
             (false, _) => self.finish_command(i, &line, "proof form response").await,
