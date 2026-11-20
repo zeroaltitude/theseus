@@ -613,6 +613,21 @@ async fn a_restarted_pass_over_the_list_makes_and_edits_nothing() {
     assert_eq!(edits(&after), edits(&before), "none edited");
 }
 
+/// The worker's list once it holds a row: a card is shown before its row is
+/// written, so a test that reads the list waits for the row.
+async fn listed_once_shown(r: &Rig) -> Vec<crate::runtime::sched::Rec> {
+    let listed = || -> Vec<crate::runtime::sched::Rec> {
+        r.core
+            .store
+            .get_meta("discord.sched")
+            .unwrap()
+            .unwrap_or_default()
+    };
+    r.until("its row is on the list", || !listed().is_empty())
+        .await;
+    listed()
+}
+
 /// An item that was set and is nowhere any more (it fired, or was cancelled,
 /// while the daemon was down) has its card brought to its true end, once.
 #[tokio::test]
@@ -623,12 +638,7 @@ async fn a_card_whose_item_vanished_while_the_daemon_was_down_is_brought_to_its_
     r.until("the card", || card(&r, home, "tide check").is_some())
         .await;
     let c = card(&r, home, "tide check").unwrap();
-    let mut list: Vec<crate::runtime::sched::Rec> = r
-        .core
-        .store
-        .get_meta("discord.sched")
-        .unwrap()
-        .expect("the list");
+    let mut list = listed_once_shown(&r).await;
     // A second item on the list, due an hour ago, that the daemon no longer
     // holds: its card is the message of the first (all the stand-in has to edit).
     let mut ghost = list[0].clone();
@@ -1266,12 +1276,7 @@ async fn an_item_missing_from_a_model_that_is_not_loaded_is_not_cancelled() {
     r.until("the card", || card(&r, home, "tide check").is_some())
         .await;
     let c = card(&r, home, "tide check").unwrap();
-    let mut list: Vec<crate::runtime::sched::Rec> = r
-        .core
-        .store
-        .get_meta("discord.sched")
-        .unwrap()
-        .expect("the list");
+    let mut list = listed_once_shown(&r).await;
     // A second entry on the list, due in two hours, that nothing holds: its
     // card is the first one's message.
     let mut ghost = list[0].clone();
