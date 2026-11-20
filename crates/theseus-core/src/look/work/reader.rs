@@ -68,6 +68,19 @@ impl<'a> Reader<'a> {
         match hand {
             crate::content::Hand::Owner => super::clip(text, max),
             crate::content::Hand::Model(session) => self.words(session, text, max),
+            crate::content::Hand::Unproven(maker) => self.unproven(maker.as_deref(), text, max),
+        }
+    }
+
+    /// `text` whose writer could not be established: held from a restricted turn, with a line that says
+    /// so and names no conversation, whether or not a maker is known. To any other turn it is given: as
+    /// that maker's words when the record says a model made it (`maker`, so its flags are taken on as for
+    /// any of that conversation's words), else as they stand with nothing to take.
+    pub(super) fn unproven(&self, maker: Option<&str>, text: &str, max: usize) -> String {
+        match (self.restricted, maker) {
+            (true, _) => "(held back: its writer could not be established)".into(),
+            (false, Some(session)) => self.words(session, text, max),
+            (false, None) => super::clip(text, max),
         }
     }
 

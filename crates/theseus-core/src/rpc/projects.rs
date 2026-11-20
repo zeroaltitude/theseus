@@ -229,7 +229,7 @@ impl Core {
 
     /// The newest `limit` open projects as `look.work` reads them, in `project.list`'s order, and how
     /// many older open ones were left unread. Each carries whose words its title is, and whose its next
-    /// milestone's is (`task_graph::title_hand`: the owner's, or the session of the model that wrote or
+    /// milestone's is (`task_graph::title_hands`: the owner's, or the session of the model that wrote or
     /// last retitled it). The records are decoded once, as `project.list` does; what is limited is the
     /// building of each project's progress, which walks the records again for every project.
     pub fn projects_upto(&self, limit: usize) -> Result<ProjectsRead, RpcFailure> {
@@ -239,18 +239,34 @@ impl Core {
             .filter(|t| project::is_project(t) && !t.state.is_closed())
             .collect();
         let older = open.len().saturating_sub(limit);
+        let picked: Vec<(&TaskRecord, Option<&TaskRecord>)> = open
+            .into_iter()
+            .skip(older)
+            .map(|t| {
+                let next = project::progress::milestones(&tasks, &t.id)
+                    .into_iter()
+                    .find(|m| !m.state.is_closed());
+                (t, next)
+            })
+            .collect();
+        // One bounded read of the ledger for every title shown (`task_graph::retitle`).
+        let recs: Vec<&TaskRecord> = picked
+            .iter()
+            .flat_map(|(t, m)| std::iter::once(*t).chain(*m))
+            .collect();
+        let mut hands = crate::task_graph::title_hands(&self.store, &recs)?.into_iter();
+        let short = || RpcFailure::invalid(anyhow::anyhow!("a title was left without its hand"));
         let mut shown = Vec::new();
-        for t in open.into_iter().skip(older) {
-            let next = project::progress::milestones(&tasks, &t.id)
-                .into_iter()
-                .find(|m| !m.state.is_closed());
+        for (t, m) in &picked {
+            let title = hands.next().ok_or_else(short)?;
+            let next = match m {
+                Some(_) => Some(hands.next().ok_or_else(short)?),
+                None => None,
+            };
             shown.push(ProjectRow {
                 info: self.project_info(&tasks, t),
-                title: crate::task_graph::title_hand(&self.store, t)?,
-                next: match next {
-                    Some(m) => Some(crate::task_graph::title_hand(&self.store, m)?),
-                    None => None,
-                },
+                title,
+                next,
             });
         }
         Ok((shown, older))

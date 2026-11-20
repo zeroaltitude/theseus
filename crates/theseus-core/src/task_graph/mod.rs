@@ -26,6 +26,7 @@
 
 pub mod lease;
 pub mod plan;
+pub mod retitle;
 pub mod tools;
 pub mod view;
 
@@ -62,15 +63,65 @@ pub fn title_by_key(task: &str) -> String {
     format!("{TITLE_BY}{task}")
 }
 
-/// Whose words `rec`'s title is, as the record and its retitle mark prove.
+/// Whose words `rec`'s title is, as the record and its retitle mark prove (and, for a retitle made
+/// before the mark existed, the ledger: [`title_hands`]).
 pub fn title_hand(store: &Store, rec: &TaskRecord) -> Result<crate::content::Hand> {
-    if let Some(s) = store.get_meta::<String>(&title_by_key(&rec.id))? {
-        return Ok(crate::content::Hand::Model(s));
+    Ok(title_hands(store, &[rec])?.remove(0))
+}
+
+/// [`title_hand`] of each of `recs`, in order, with the one bounded read of the ledger they share
+/// (`retitle.rs`). A record with no mark and a `version` above 1 may have been retitled before the mark
+/// existed, and the newest ledger row that retitled it names the session. With no such row:
+///
+/// - the walk ran to the end of the rows and the ledger reaches back past the record's creation: it was
+///   never retitled, and the record's own word stands (a model's if it says a model made it, else the
+///   owner's);
+/// - **otherwise the title is unproven** ([`crate::content::Hand::Unproven`]): the walk was cut short (the
+///   cap, or the shape-building window after a start), or the ledger begins after the record was created
+///   (rows of its life are gone, and the walk cannot tell a row that was never written from one that was).
+///   By the rule on `Hand`, a text nothing proves the owner's is a model's, so it is held from a restricted
+///   turn.
+pub fn title_hands(store: &Store, recs: &[&TaskRecord]) -> Result<Vec<crate::content::Hand>> {
+    use crate::content::Hand;
+    let mut out: Vec<Option<Hand>> = Vec::with_capacity(recs.len());
+    let mut unmarked = std::collections::BTreeSet::new();
+    for rec in recs {
+        let mark = store.get_meta::<String>(&title_by_key(&rec.id))?;
+        if mark.is_none() && rec.version > 1 {
+            unmarked.insert(rec.id.as_str());
+        }
+        out.push(mark.map(Hand::Model));
     }
-    Ok(match rec.origin.by_model {
-        true => crate::content::Hand::Model(rec.origin.session.clone()),
-        false => crate::content::Hand::Owner,
-    })
+    let walk = match unmarked.is_empty() {
+        true => retitle::Walk::default(),
+        false => retitle::retitlers(store, &unmarked, retitle::ROWS_MAX)?,
+    };
+    // Only a walk that ran to the end asks where the ledger begins, once.
+    let begins = match unmarked.is_empty() || walk.cut {
+        true => None,
+        false => retitle::ledger_begins(store)?,
+    };
+    Ok(recs
+        .iter()
+        .zip(out)
+        .map(|(rec, marked)| {
+            if let Some(hand) = marked {
+                return hand;
+            }
+            if let Some(session) = walk.found.get(&rec.id) {
+                return Hand::Model(session.clone());
+            }
+            let covered = begins.is_some_and(|from| from <= rec.created_at_ms);
+            if unmarked.contains(rec.id.as_str()) && (walk.cut || !covered) {
+                // A model's record keeps its maker's flags to be taken: its first words were that session's.
+                return Hand::Unproven(rec.origin.by_model.then(|| rec.origin.session.clone()));
+            }
+            match rec.origin.by_model {
+                true => Hand::Model(rec.origin.session.clone()),
+                false => Hand::Owner,
+            }
+        })
+        .collect())
 }
 
 /// Every task id begins so.

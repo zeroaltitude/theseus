@@ -171,6 +171,10 @@ pub struct Store {
     /// Whether a ledger page read fails (`fail_ledger_pages`).
     #[cfg(test)]
     page_fault: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether a ledger page read answers none, as it does while the index's shape is built after a
+    /// start (`shape_window`).
+    #[cfg(test)]
+    page_window: Arc<std::sync::atomic::AtomicBool>,
     /// Whether a scope read fails (`fail_scope_reads`).
     #[cfg(test)]
     scope_fault: Arc<std::sync::atomic::AtomicBool>,
@@ -691,6 +695,8 @@ impl Store {
             #[cfg(test)]
             page_fault: Default::default(),
             #[cfg(test)]
+            page_window: Default::default(),
+            #[cfg(test)]
             scope_fault: Default::default(),
         })
     }
@@ -731,6 +737,14 @@ impl Store {
     pub fn fail_ledger_pages(&self) {
         self.page_fault
             .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Make every ledger page read answer none while `on`, as the store does while the index's shape is
+    /// built after a start: the caller reads the tail instead.
+    #[cfg(test)]
+    pub fn shape_window(&self, on: bool) {
+        self.page_window
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Make every scope read fail while `on`, as a bad disk would: the read
@@ -1210,6 +1224,10 @@ impl Store {
         #[cfg(test)]
         if self.page_fault.load(std::sync::atomic::Ordering::Relaxed) {
             anyhow::bail!("an injected fault: the ledger page was not read");
+        }
+        #[cfg(test)]
+        if self.page_window.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(None);
         }
         self.inner.page(page)
     }
@@ -1846,6 +1864,7 @@ pub(crate) mod tests {
             faults: Default::default(),
             plain_faults: Default::default(),
             page_fault: Default::default(),
+            page_window: Default::default(),
             scope_fault: Default::default(),
         }
         .for_turn();
