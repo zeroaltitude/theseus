@@ -561,6 +561,8 @@ mod tests_proc_cap;
 #[cfg(test)]
 mod tests_progress;
 #[cfg(test)]
+mod tests_project_close;
+#[cfg(test)]
 mod tests_project_context;
 #[cfg(test)]
 mod tests_projects;

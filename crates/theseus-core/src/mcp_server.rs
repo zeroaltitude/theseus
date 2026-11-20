@@ -359,6 +359,7 @@ mod tests {
         method::PROJECT_ITEM_ADD,
         method::PROJECT_ITEM_CLOSE,
         method::PROJECT_ITEM_LIST,
+        method::PROJECT_CLOSE,
         method::PROJECT_TRUST,
         method::PROJECT_UNTRUST,
         method::PROJECT_TRUSTED,

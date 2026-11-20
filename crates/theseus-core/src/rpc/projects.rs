@@ -10,9 +10,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_protocol::projects::{
-    ProjectAttachParams, ProjectAttachResult, ProjectCreateParams, ProjectCreateResult,
-    ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams, ProjectListParams,
-    ProjectListResult, ProjectShowParams, ProjectShowResult,
+    ProjectAttachParams, ProjectAttachResult, ProjectCloseParams, ProjectCreateParams,
+    ProjectCreateResult, ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams,
+    ProjectListParams, ProjectListResult, ProjectShowParams, ProjectShowResult,
 };
 use theseus_protocol::tasks::{TaskOrigin, TaskRecord};
 use theseus_protocol::{error_code, method};
@@ -24,7 +24,7 @@ use crate::approval::{Answerer, Refusal};
 use crate::project::{self, create::NewProject, remind};
 
 /// The projects' methods, routed by `rpc_prefixed`.
-pub(super) const OWN: [&str; 7] = [
+pub(super) const OWN: [&str; 8] = [
     method::PROJECT_CREATE,
     method::PROJECT_LIST,
     method::PROJECT_SHOW,
@@ -32,6 +32,7 @@ pub(super) const OWN: [&str; 7] = [
     method::PROJECT_ITEM_ADD,
     method::PROJECT_ITEM_CLOSE,
     method::PROJECT_ITEM_LIST,
+    method::PROJECT_CLOSE,
 ];
 
 fn invalid(e: impl std::fmt::Display) -> RpcFailure {
@@ -66,7 +67,7 @@ pub type ProjectsRead = (Vec<ProjectRow>, usize);
 
 impl Core {
     /// The projects' methods, by name.
-    pub(super) fn rpc_projects(
+    pub(super) async fn rpc_projects(
         self: &Arc<Self>,
         name: &str,
         params: Value,
@@ -88,6 +89,11 @@ impl Core {
                 self.project_item_close(&p, who)
             }),
             method::PROJECT_ITEM_LIST => route(params, |p| self.project_item_list(&p)),
+            method::PROJECT_CLOSE => {
+                let p: ProjectCloseParams = super::server::parse(params)?;
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                super::server::reply(self.project_close(&p, who).await?)
+            }
             _ => route(params, |p: ProjectAttachParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.project_attach(&p, who)
@@ -95,7 +101,7 @@ impl Core {
         }
     }
 
-    fn project_info(&self, tasks: &[TaskRecord], p: &TaskRecord) -> ProjectInfo {
+    pub(super) fn project_info(&self, tasks: &[TaskRecord], p: &TaskRecord) -> ProjectInfo {
         let env = crate::routine::Env {
             kernel: &self.kernel,
             store: &self.store,
@@ -198,11 +204,20 @@ impl Core {
 
     /// Set, move or cancel the reminders of `changed`'s milestones, in Home.
     pub(crate) fn sync_reminders(&self, changed: &TaskRecord, by: &str) {
+        self.sync_reminders_counted(changed, by);
+    }
+
+    /// The same, saying what it did: none when it could not run.
+    pub(crate) fn sync_reminders_counted(
+        &self,
+        changed: &TaskRecord,
+        by: &str,
+    ) -> Option<remind::Synced> {
         let home = match self.home() {
             Ok(h) => h,
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "Home was not made for a milestone's reminder");
-                return;
+                return None;
             }
         };
         let place = remind::Place {
@@ -210,9 +225,12 @@ impl Core {
             target: home.target,
         };
         let grace = self.runner.tools.projects.overdue_after_ms();
-        if let Err(e) = remind::sync_after(&self.kernel, &self.store, changed, (&place, by), grace)
-        {
-            tracing::warn!(error = %format!("{e:#}"), task = %changed.id, "a milestone's reminder was not synced");
+        match remind::sync_after(&self.kernel, &self.store, changed, (&place, by), grace) {
+            Ok(done) => Some(done),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), task = %changed.id, "a milestone's reminder was not synced");
+                None
+            }
         }
     }
 

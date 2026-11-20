@@ -244,6 +244,152 @@ pub struct ProjectItemListParams {
     pub all: bool,
 }
 
+/// How the owner ends a project: as finished, or as given up. They are the end states the model's own close
+/// writes (`done` and `abandoned`), so no state is new.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectEnd {
+    #[default]
+    Done,
+    Dropped,
+}
+
+impl ProjectEnd {
+    /// The record state it writes.
+    pub fn state(self) -> crate::tasks::TaskState {
+        match self {
+            ProjectEnd::Done => crate::tasks::TaskState::Done,
+            ProjectEnd::Dropped => crate::tasks::TaskState::Abandoned,
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        match self {
+            ProjectEnd::Done => "done",
+            ProjectEnd::Dropped => "dropped",
+        }
+    }
+}
+
+/// `project.close`: the owner's end of a project, by its id, an end of it, or its title. It ends the
+/// project and its open items and milestones, and stops its weekly review and its reminders. It is
+/// refused while a task carries one of them.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectCloseParams {
+    pub project: String,
+    #[serde(default)]
+    pub how: ProjectEnd,
+    /// One line on why, kept with the project's record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// What a close did: the project as it now reads, and what ended and what stopped with it.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectCloseResult {
+    pub project: ProjectInfo,
+    pub how: ProjectEnd,
+    pub items_ended: u32,
+    pub milestones_ended: u32,
+    /// The weekly review's routine that was ended (`ses_…`), when the project had a live one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub review_stopped: Option<String>,
+    /// Milestone reminders that were cancelled.
+    pub reminders_cancelled: u32,
+}
+
+fn many(n: u32, one: &str, more: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { more })
+}
+
+/// What a close would end, counted from the project's records (`project.show`'s): its open items, its
+/// open milestones, and how many of those milestones have a date, so a reminder.
+pub fn close_counts(records: &[TaskRecord]) -> (u32, u32, u32) {
+    use crate::tasks::TaskKind;
+    let open = |k: TaskKind| {
+        records
+            .iter()
+            .filter(move |t| t.kind == k && !t.state.is_closed())
+    };
+    (
+        open(TaskKind::Item).count() as u32,
+        open(TaskKind::Milestone).count() as u32,
+        open(TaskKind::Milestone)
+            .filter(|t| t.due_at_ms.is_some())
+            .count() as u32,
+    )
+}
+
+/// What a close is about to do, in one place so the terminal and the cockpit's sheet say the same words:
+/// the project `title`, `how`, its open items, open milestones and dated ones, and whether a review runs.
+pub fn close_card(
+    title: &str,
+    how: ProjectEnd,
+    (items, milestones, dated): (u32, u32, u32),
+    review: bool,
+) -> String {
+    let end = match how {
+        ProjectEnd::Done => "Mark done",
+        ProjectEnd::Dropped => "Drop",
+    };
+    let mut stops = Vec::new();
+    if review {
+        stops.push("its weekly review".to_string());
+    }
+    if dated > 0 {
+        stops.push(format!(
+            "the reminders of {}",
+            many(dated, "dated milestone", "dated milestones")
+        ));
+    }
+    let stops = if stops.is_empty() {
+        String::new()
+    } else {
+        format!(" and stop {}", stops.join(" and "))
+    };
+    format!(
+        "{end} the project \"{title}\": end {} and {}{stops}",
+        many(items, "open item", "open items"),
+        many(milestones, "open milestone", "open milestones"),
+    )
+}
+
+/// What a close says it did.
+pub fn project_closed(r: &ProjectCloseResult) -> String {
+    let mut out = format!(
+        "Project {} {}: {} and {} ended",
+        r.project.id.rsplit('_').next().unwrap_or(&r.project.id),
+        match r.how {
+            ProjectEnd::Done => "marked done",
+            ProjectEnd::Dropped => "dropped",
+        },
+        many(r.items_ended, "item", "items"),
+        many(r.milestones_ended, "milestone", "milestones"),
+    );
+    match (&r.review_stopped, r.reminders_cancelled) {
+        (Some(_), 0) => out.push_str("; its weekly review was stopped"),
+        (Some(_), n) => out.push_str(&format!(
+            "; its weekly review and {} were stopped",
+            many(n, "reminder", "reminders")
+        )),
+        (None, 0) => {}
+        (None, n) => out.push_str(&format!("; {} stopped", many(n, "reminder", "reminders"))),
+    }
+    out.push('.');
+    out
+}
+
 /// What the three answer: the project's title and id, the items (the list's,
 /// or after an add or a close, the whole list as it now stands), and the one
 /// that changed.
@@ -293,6 +439,63 @@ pub fn item_list(project: &str, items: &[TaskRecord]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a close says it will do, and what it did, in counts and kinds.
+    #[test]
+    fn a_close_says_what_ends_and_what_stops() {
+        use crate::tasks::{TaskKind, TaskState};
+        let rec = |kind, state, due: Option<u64>| TaskRecord {
+            kind,
+            state,
+            due_at_ms: due,
+            ..Default::default()
+        };
+        let records = [
+            rec(TaskKind::Project, TaskState::Accepted, None),
+            rec(TaskKind::Item, TaskState::Accepted, None),
+            rec(TaskKind::Item, TaskState::Done, None),
+            rec(TaskKind::Milestone, TaskState::Accepted, Some(5)),
+            rec(TaskKind::Milestone, TaskState::Accepted, None),
+        ];
+        assert_eq!(close_counts(&records), (1, 2, 1));
+        assert_eq!(
+            close_card("Harbour", ProjectEnd::Dropped, (1, 2, 1), true),
+            "Drop the project \"Harbour\": end 1 open item and 2 open milestones and stop its \
+             weekly review and the reminders of 1 dated milestone"
+        );
+        assert_eq!(
+            close_card("Harbour", ProjectEnd::Done, (0, 0, 0), false),
+            "Mark done the project \"Harbour\": end 0 open items and 0 open milestones"
+        );
+        let r = ProjectCloseResult {
+            project: ProjectInfo {
+                id: "tsk_00harbour".into(),
+                ..Default::default()
+            },
+            how: ProjectEnd::Dropped,
+            items_ended: 2,
+            milestones_ended: 1,
+            review_stopped: Some("ses_00review".into()),
+            reminders_cancelled: 2,
+        };
+        assert_eq!(
+            project_closed(&r),
+            "Project 00harbour dropped: 2 items and 1 milestone ended; its weekly review and 2 \
+             reminders were stopped."
+        );
+        let quiet = ProjectCloseResult {
+            review_stopped: None,
+            reminders_cancelled: 0,
+            how: ProjectEnd::Done,
+            ..r
+        };
+        assert_eq!(
+            project_closed(&quiet),
+            "Project 00harbour marked done: 2 items and 1 milestone ended."
+        );
+        assert_eq!(ProjectEnd::Done.state(), TaskState::Done);
+        assert_eq!(ProjectEnd::Dropped.state(), TaskState::Abandoned);
+    }
 
     /// The bar the list draws: filled cells by share, then done of total.
     #[test]

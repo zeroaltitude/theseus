@@ -11,11 +11,11 @@ use clap::Subcommand;
 use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::projects::{
-    MilestoneSpec, ProjectAttachParams, ProjectAttachResult, ProjectCreateParams,
-    ProjectCreateResult, ProjectGrant, ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams,
-    ProjectItemListParams, ProjectItemsResult, ProjectListParams, ProjectListResult,
-    ProjectShowParams, ProjectShowResult, ProjectTrustParams, ProjectTrustedParams,
-    ProjectTrustedResult,
+    MilestoneSpec, ProjectAttachParams, ProjectAttachResult, ProjectCloseParams,
+    ProjectCloseResult, ProjectCreateParams, ProjectCreateResult, ProjectEnd, ProjectGrant,
+    ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams, ProjectItemListParams,
+    ProjectItemsResult, ProjectListParams, ProjectListResult, ProjectShowParams, ProjectShowResult,
+    ProjectTrustParams, ProjectTrustedParams, ProjectTrustedResult,
 };
 use theseus_protocol::tasks::{TaskKind, TaskRecord};
 
@@ -61,6 +61,20 @@ pub enum ProjectCmd {
     Item {
         #[command(subcommand)]
         cmd: ItemCmd,
+    },
+    /// End a project: it and its open items and milestones, and stop its weekly review and its
+    /// reminders. Yours to do, not from a job; asks once first. Never while a task carries part of it.
+    Close {
+        project: String,
+        /// End it as given up rather than finished.
+        #[arg(long)]
+        dropped: bool,
+        /// One line on why, kept with the project.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Do not ask first.
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
     /// Trust a repository: its own AGENTS.md and CLAUDE.md join the system block. Yours to give, from
     /// your own shell; the path defaults to the current directory.
@@ -155,6 +169,12 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ProjectCmd) -> Result<()> {
                 Ok(())
             })
         }
+        ProjectCmd::Close {
+            project,
+            dropped,
+            reason,
+            yes,
+        } => close(conn, json, (project, dropped, reason), yes).await,
         ProjectCmd::Item { cmd } => item(conn, json, cmd).await,
         ProjectCmd::Attach { session, id } => attach(conn, json, session, Some(id)).await,
         ProjectCmd::Detach { session } => attach(conn, json, session, None).await,
@@ -223,6 +243,79 @@ async fn item(conn: &mut Conn, json: bool, cmd: ItemCmd) -> Result<()> {
         }
         Ok(())
     })
+}
+
+/// `theseus project close`: says what will end and stop, asks once at a terminal (`--yes` skips it, as
+/// `theseus herdr stop`'s does; with no terminal and no `--yes` it asks nothing and does nothing), then
+/// calls `project.close`, whose own words it prints.
+async fn close(
+    conn: &mut Conn,
+    json: bool,
+    (project, dropped, reason): (String, bool, Option<String>),
+    yes: bool,
+) -> Result<()> {
+    let how = if dropped {
+        ProjectEnd::Dropped
+    } else {
+        ProjectEnd::Done
+    };
+    if !yes {
+        use std::io::{IsTerminal as _, Write as _};
+        if let Some(why) = asks_nothing(json, std::io::stdin().is_terminal()) {
+            anyhow::bail!(why);
+        }
+        let v = conn
+            .request(
+                method::PROJECT_SHOW,
+                ProjectShowParams {
+                    id: project.clone(),
+                },
+            )
+            .await?;
+        let shown: ProjectShowResult = serde_json::from_value(v)?;
+        let card = theseus_protocol::projects::close_card(
+            &shown.project.title,
+            how,
+            theseus_protocol::projects::close_counts(&shown.records),
+            shown.project.review.is_some(),
+        );
+        eprint!("{card}? [y/N] ");
+        std::io::stderr().flush()?;
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        if !said_yes(&line) {
+            println!("left as it is");
+            return Ok(());
+        }
+    }
+    let v = conn
+        .request(
+            method::PROJECT_CLOSE,
+            ProjectCloseParams {
+                project,
+                how,
+                reason,
+                ..Default::default()
+            },
+        )
+        .await?;
+    output(json, v, |r: ProjectCloseResult| {
+        println!("{}", theseus_protocol::projects::project_closed(&r));
+        Ok(())
+    })
+}
+
+/// Why `close` cannot ask, when it cannot: machine output, or no terminal to answer at. With neither `--yes`
+/// nor a question, it does nothing.
+fn asks_nothing(json: bool, terminal: bool) -> Option<&'static str> {
+    (json || !terminal).then_some(
+        "closing a project asks once at a terminal: run it from your own shell, or pass --yes",
+    )
+}
+
+/// Whether the line answers the question with a yes.
+fn said_yes(line: &str) -> bool {
+    matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 /// `theseus project trust|untrust`: the path made absolute here, against the
@@ -460,5 +553,42 @@ mod tests {
         assert!(!show_lines(&r, 1_790_000_000_000)
             .iter()
             .any(|l| l.contains("OVERDUE")));
+    }
+
+    /// `theseus project close`: its words parse, and only a yes at a terminal acts.
+    #[test]
+    fn close_parses_its_words_and_asks_once() {
+        use clap::Parser as _;
+        let cli = crate::Cli::try_parse_from([
+            "theseus",
+            "project",
+            "close",
+            "tsk_00harbour",
+            "--dropped",
+            "--reason",
+            "moved",
+            "-y",
+        ])
+        .unwrap();
+        let Some(crate::Cmd::Project {
+            cmd:
+                Some(ProjectCmd::Close {
+                    project,
+                    dropped,
+                    reason,
+                    yes,
+                }),
+        }) = Some(cli.cmd)
+        else {
+            panic!("not a project close");
+        };
+        assert_eq!(
+            (project.as_str(), dropped, reason.as_deref(), yes),
+            ("tsk_00harbour", true, Some("moved"), true)
+        );
+        assert!(asks_nothing(false, true).is_none());
+        assert!(asks_nothing(true, true).unwrap().contains("--yes"));
+        assert!(asks_nothing(false, false).unwrap().contains("terminal"));
+        assert!(said_yes("y\n") && said_yes(" YES ") && !said_yes("\n") && !said_yes("no"));
     }
 }
