@@ -273,6 +273,6 @@ mod tests {
         let Component::SelectMenu(m) = &row.components[0] else {
             panic!()
         };
-        assert_eq!(m.options.len(), 3);
+        assert_eq!(m.options.as_ref().map(Vec::len), Some(3));
     }
 }
