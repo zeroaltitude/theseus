@@ -11,7 +11,7 @@ use theseus_protocol::tasks::{TaskClaim, TaskKind};
 
 use crate::approval::Surface;
 use crate::tests_mcp_memory::rpc as rpc_on;
-use crate::tests_task_graph::{rig, Rig};
+use crate::tests_task_graph::{results, rig, session, turn, Rig, ASK, QUOTE};
 use crate::{task_graph as graph, Core};
 
 async fn rpc(core: &Arc<Core>, method: &str, params: Value) -> Result<Value, String> {
@@ -218,4 +218,92 @@ async fn a_project_nobody_worked_on_lists_no_tasks() {
     let s = shown(&r, &id).await;
     assert!(s.get("tasks").is_none(), "{s}");
     assert!(s["project"].get("tasks").is_none(), "{s}");
+}
+
+/// The record a call wrote, or what its results said instead.
+fn found(r: &Rig, chat: &str, title: &str) -> theseus_protocol::tasks::TaskRecord {
+    r.tasks()
+        .into_iter()
+        .find(|t| t.title == title)
+        .unwrap_or_else(|| {
+            let said: Vec<String> = results(&r.core, chat, "task.create")
+                .into_iter()
+                .map(|(status, text)| {
+                    format!("{status:?}: {}", text.chars().take(150).collect::<String>())
+                })
+                .collect();
+            panic!("no record `{title}`: {said:#?}")
+        })
+}
+
+/// A model's `task_create` with a brief takes its mark from the conversation that made the call, never from the
+/// call: from a conversation attached to project A, with a `parent` naming a loose record and a `project` field
+/// that is not the tool's, the task is marked A, listed on A as "started for it" and on no other project; from an
+/// unattached conversation it carries no mark.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_models_task_is_marked_by_its_conversation_never_by_its_call() {
+    let r = rig();
+    let a = project(&r, json!({"title": "Harbour survey", "review": "none"})).await;
+    let b = project(&r, json!({"title": "Pier repairs", "review": "none"})).await;
+    // A loose plan item no project holds, for the call's `parent`.
+    let chat = session(&r.core);
+    r.calls(&[("task_create", json!({"title": "Loose plan item"}))]);
+    turn(&r.core, &chat, "note a loose item").await;
+    let loose = found(&r, &chat, "Loose plan item").id;
+    rpc(
+        &r.core,
+        "project.attach",
+        json!({"session": chat, "project": a}),
+    )
+    .await
+    .unwrap();
+    r.model
+        .hold_tasks
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let brief = |title: &str, quote: &str| {
+        json!({"brief": "Chart every buoy of the outer harbour and report the depths.", "title": title,
+               "parent": loose, "arrangement": {"pieces": [{"quote": quote, "role": "objective"}]}})
+    };
+    // A field that could name a project is not the tool's: the call is refused and writes no task.
+    let mut naming = brief("Named by its call", "name a project by hand, please");
+    naming["project"] = json!(b);
+    r.calls(&[("task_create", naming)]);
+    turn(&r.core, &chat, "FIRST: name a project by hand, please").await;
+    assert_eq!(
+        results(&r.core, &chat, "task.create").pop().unwrap().0,
+        crate::node::ResultStatus::Error
+    );
+    assert!(r.tasks().iter().all(|t| t.title != "Named by its call"));
+    r.calls(&[(
+        "task_create",
+        brief("Started from the attached chat", QUOTE),
+    )]);
+    turn(&r.core, &chat, ASK).await;
+    let t = found(&r, &chat, "Started from the attached chat");
+    assert_eq!(
+        t.parent.as_deref(),
+        Some(loose.as_str()),
+        "the call's parent is kept"
+    );
+    assert_eq!(t.origin.project.as_deref(), Some(a.as_str()), "{t:?}");
+    let on_a = hows(&shown(&r, &a).await);
+    assert_eq!(
+        on_a,
+        [(
+            "Started from the attached chat".to_string(),
+            "started for it".to_string()
+        )]
+    );
+    assert!(
+        hows(&shown(&r, &b).await).is_empty(),
+        "listed on no other project"
+    );
+    // An unattached conversation's task carries no mark and is listed nowhere.
+    let bare = session(&r.core);
+    r.calls(&[("task_create", brief("Started from a bare chat", QUOTE))]);
+    turn(&r.core, &bare, ASK).await;
+    let u = found(&r, &bare, "Started from a bare chat");
+    assert_eq!(u.origin.project, None, "{u:?}");
+    assert_eq!(hows(&shown(&r, &a).await).len(), 1);
+    assert!(hows(&shown(&r, &b).await).is_empty());
 }
