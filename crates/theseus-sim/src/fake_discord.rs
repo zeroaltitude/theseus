@@ -62,6 +62,7 @@ mod forums;
 mod overwrites;
 mod reactions;
 mod threads;
+mod withhold;
 
 pub use channels::FakeChannel;
 pub use emojis::FakeEmoji;
@@ -689,14 +690,6 @@ pub struct Seen {
     pub chars: Option<usize>,
 }
 
-/// What the service has not applied yet (`FakeDiscord::withhold_edits`).
-#[derive(Default)]
-struct Withhold {
-    edits: bool,
-    completions: bool,
-    waiting: usize,
-}
-
 #[derive(Default)]
 struct State {
     /// The bot's reactions, by message, in the order added (`reactions`).
@@ -712,7 +705,7 @@ struct State {
     /// hold is lifted.
     hold: Option<String>,
     /// What waits before it is applied (`withhold_edits`, `withhold_completions`), and how many requests wait now.
-    withhold: Withhold,
+    withhold: withhold::Withhold,
     /// A message create whose content holds this text waits and, released, is
     /// dropped unapplied and unanswered (`drop_message_creates_containing`), and
     /// how many wait now.
@@ -928,40 +921,6 @@ impl FakeDiscord {
     /// hold is lifted (`None`), or after a minute (theseus-pfv).
     pub fn hold_writes_containing(&self, text: Option<&str>) {
         self.state.lock().unwrap().hold = text.map(str::to_string);
-    }
-
-    /// Withhold the bot's edits of messages (a card's settle) before they are applied, until lifted (`false`), or a
-    /// minute passes: the other order of two writers to a card.
-    pub fn withhold_edits(&self, on: bool) {
-        self.state.lock().unwrap().withhold.edits = on;
-    }
-
-    /// Withhold an interaction's completion (the edit of its response, a follow-up) before it is applied, until lifted
-    /// (`false`), or a minute passes. The acknowledgement is not withheld: Discord's three seconds are the binding's.
-    pub fn withhold_completions(&self, on: bool) {
-        self.state.lock().unwrap().withhold.completions = on;
-    }
-
-    /// How many requests wait for a withhold now.
-    pub fn withheld(&self) -> usize {
-        self.state.lock().unwrap().withhold.waiting
-    }
-
-    /// Wait while `is_on` says the withhold stands.
-    fn wait_withheld(&self, is_on: impl Fn(&Withhold) -> bool) {
-        let mut st = self.state.lock().unwrap();
-        if !is_on(&st.withhold) {
-            return;
-        }
-        st.withhold.waiting += 1;
-        drop(st);
-        for _ in 0..60_000 {
-            if !is_on(&self.state.lock().unwrap().withhold) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        self.state.lock().unwrap().withhold.waiting -= 1;
     }
 
     /// A message create whose content holds `text` waits at the stand-in, not
