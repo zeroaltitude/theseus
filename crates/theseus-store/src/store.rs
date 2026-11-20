@@ -2199,7 +2199,7 @@ impl Store for WalStore {
     }
 
     fn last_position(&self) -> u64 {
-        self.inner.wal.last_position()
+        self.inner.wal.last_position_off_worker()
     }
 
     fn checkpoint(&self) -> Result<u64> {

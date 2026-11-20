@@ -39,8 +39,7 @@ fn fixture(args: &[&str]) -> String {
 }
 
 fn cli(s: &Served, args: &[&str]) -> (i32, String, String) {
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(s.path("sock"))
         .args(args)
@@ -188,8 +187,7 @@ fn the_sync_is_refused_inside_a_job() {
     let oc = scratch.path().join("openclaw");
     fixture(&["build", oc.to_str().unwrap()]);
     let s = served(&oc);
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(s.path("sock"))
         .args(["import", "sync", "--since", "2026-01-01T00:00:00Z"])

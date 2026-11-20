@@ -219,7 +219,7 @@ impl StopAgent {
         match agents {
             [] => String::new(),
             [a] => format!(
-                "The agent {} was handed work ({}) is still working: `{cancel} {}` stops it.",
+                "The agent {}, handed work ({}), is still working: `{cancel} {}` stops it.",
                 a.profile, a.model, a.task
             ),
             many => format!(
@@ -307,7 +307,7 @@ mod tests_agents {
         let one = StopAgent::words(&[agent("a1b2c3")], "/cancel");
         assert_eq!(
             one,
-            "The agent haiku was handed work (claude-haiku-5-5) is still working: `/cancel a1b2c3` stops it."
+            "The agent haiku, handed work (claude-haiku-5-5), is still working: `/cancel a1b2c3` stops it."
         );
         let two = StopAgent::words(&[agent("a1b2c3"), agent("d4e5f6")], "theseus cancel");
         assert!(

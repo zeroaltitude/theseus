@@ -200,6 +200,19 @@ impl FakeDiscord {
     pub(super) fn forum_patch(&self, id: &str, body: &Value) -> Option<(u16, Value)> {
         let c: u64 = id.parse().ok()?;
         let mut st = self.state.lock().unwrap();
+        if st.deleted_threads.contains(&c) {
+            drop(st);
+            self.record(seen("PATCH", &format!("/channels/{id}"), "gone"));
+            return Some((404, json!({"message": "Unknown Channel", "code": 10003})));
+        }
+        if st.refuse_thread_patch && st.threads.contains_key(&c) {
+            drop(st);
+            self.record(seen("PATCH", &format!("/channels/{id}"), "refused"));
+            return Some((
+                403,
+                json!({"message": "Missing Permissions", "code": 50013}),
+            ));
+        }
         if st.forums.contains(&c) && body["name"].is_string() {
             let g = st.guild.as_mut()?;
             let ch = g.channels.iter_mut().find(|ch| ch.id == c)?;

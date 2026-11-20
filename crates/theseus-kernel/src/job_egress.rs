@@ -32,7 +32,7 @@ use crate::job::L1;
 
 /// How long a stop waits for the job's tunnels to close by themselves
 /// before it ends them: the job has gone, so nothing more reaches it.
-const DRAIN: Duration = Duration::from_millis(250);
+pub(crate) const DRAIN: Duration = Duration::from_millis(250);
 
 /// A service the daemon runs for one name of a job's egress list.
 pub trait Local: Send + Sync {

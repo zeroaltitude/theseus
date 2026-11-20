@@ -199,8 +199,7 @@ impl Rig {
 
     /// The operator's own `theseus`, from outside every job.
     fn cli(&self, args: &[&str]) -> std::process::Output {
-        let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-        Command::new(theseusd.with_file_name("theseus"))
+        Command::new(common::cli_bin())
             .arg("--socket")
             .arg(self.path("sock"))
             .args(args)

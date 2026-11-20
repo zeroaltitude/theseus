@@ -45,8 +45,7 @@ fn served(model: &FakeModel) -> Served {
 
 /// `theseus --socket SOCK ARGS…`: exit code, stdout, stderr.
 fn cli(s: &Served, args: &[&str]) -> (i32, String, String) {
-    let theseusd = std::path::PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(s.path("sock"))
         .args(args)

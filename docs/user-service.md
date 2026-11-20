@@ -19,7 +19,10 @@ Everything below is what that command does, why, and what to do afterwards. On a
   and a start (since 2026-10-04, theseus-0v8s). A clean stop is
   not restarted, so `theseus shutdown` and `systemctl --user stop` both end it until you start it again.
 - **It has a journal.** Everything the daemon writes to stderr goes to systemd's journal, which keeps and rotates
-  it: `scripts/user-service.sh logs` follows it.
+  it: `scripts/user-service.sh logs` follows it. A running daemon hands its log to a queue that a thread of its own
+  writes, so a journal or a disk that stalls never holds the daemon: while it stalls the queue may drop lines, and
+  the log then says how many. The log is for reading; the ledger is the record, and nothing of it goes through the
+  queue.
 - **It needs no terminal.** With *linger* on for your user, your user manager starts when the machine does and
   stays up after your last session ends, and the daemon starts with it.
 

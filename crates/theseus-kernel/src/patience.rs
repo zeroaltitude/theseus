@@ -25,7 +25,7 @@ pub const CEILING_FACTOR: u32 = 24;
 /// after at most its limit and one look.
 const LOOK_DIVISOR: u32 = 8;
 const LOOK_MIN: Duration = Duration::from_millis(10);
-const LOOK_MAX: Duration = Duration::from_secs(1);
+pub const LOOK_MAX: Duration = Duration::from_secs(1);
 
 /// Why a job's limit stopped it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

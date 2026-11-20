@@ -417,3 +417,24 @@ async fn each_read_is_a_memory_read_row_with_a_digest_and_no_words() {
     let again = rows(&r.core, "memory.read");
     assert_eq!(again[2]["digest"], digest);
 }
+
+/// `wake.create` on an MCP connection (review, issue 28): it is in neither `ALLOWED` nor `JUDGED`, so the
+/// connection's door refuses it before it runs, and no wake is made. The same call on the CLI's socket is
+/// anyone's (`rpc/wake_owner.rs`): it is made, in the owner's Home.
+#[tokio::test]
+async fn an_mcp_client_cannot_set_a_reminder_and_the_socket_can() {
+    let r = rig(false);
+    assert!(!crate::mcp_server::allowed(method::WAKE_CREATE));
+    let call = json!({"when": "in 1h", "note": "Check the tide tables"});
+    let before = r.core.kernel.pending_wakes().unwrap().len();
+    let e = rpc(&r.core, Surface::Mcp, method::WAKE_CREATE, call.clone())
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("may not call"), "{e:?}");
+    assert_eq!(r.core.kernel.pending_wakes().unwrap().len(), before);
+    let made = rpc(&r.core, Surface::Cli, method::WAKE_CREATE, call)
+        .await
+        .unwrap();
+    assert_eq!(made["home"], json!(true), "{made}");
+    assert_eq!(r.core.kernel.pending_wakes().unwrap().len(), before + 1);
+}

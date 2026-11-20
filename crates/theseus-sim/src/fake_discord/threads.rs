@@ -18,6 +18,17 @@ use super::{
     Seen, APP_ID, BOT_ID, DEFAULT_GUILD, IS_COMPONENTS_V2,
 };
 
+/// Where a held thread create waits: before the stand-in applies it (the post
+/// does not exist yet, and a create released from here is dropped unapplied and
+/// unanswered, as one whose sender was killed never arrives), or after (the post
+/// exists and the answer is withheld, which is a daemon killed between Discord's
+/// accepting a post and recording it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoldAt {
+    BeforeApply,
+    AfterApply,
+}
+
 /// A thread the bot made in a channel.
 #[derive(Debug, Clone, Serialize)]
 pub struct FakeThread {
@@ -29,6 +40,9 @@ pub struct FakeThread {
     pub locked: bool,
     /// `POST /channels/<parent>/threads` or the forum's: how it was made.
     pub forum: bool,
+    /// The user who made it: the bot, unless a test made it as a member
+    /// (`member_thread`).
+    pub owner: u64,
     /// The create's `type`, as sent (0 when it sent none: Discord then makes
     /// a private thread in a text channel, theseus-i3do6) and its
     /// `auto_archive_duration` in minutes (0 when it sent none: Discord's
@@ -92,7 +106,7 @@ pub(super) fn thread_json(t: &FakeThread) -> Value {
     // Without `type`, Discord makes a private thread in a text channel.
     let kind = if t.forum || t.kind != 0 { 11 } else { 12 };
     json!({"id": t.id.to_string(), "type": kind, "guild_id": t.guild.to_string(),
-        "name": t.name, "parent_id": t.parent.to_string(), "owner_id": BOT_ID.to_string(),
+        "name": t.name, "parent_id": t.parent.to_string(), "owner_id": t.owner.to_string(),
         "message_count": 0, "member_count": 1, "rate_limit_per_user": 0, "flags": 0,
         "applied_tags": t.tags,
         "thread_metadata": {"archived": t.archived, "auto_archive_duration": t.auto_archive.max(60),
@@ -215,6 +229,95 @@ impl FakeDiscord {
         st.next_big
     }
 
+    /// A member (not the bot) makes a post in `forum` named `name`: its id.
+    pub fn member_thread(&self, forum: u64, owner: u64, name: &str) -> u64 {
+        let id = self.next_big();
+        let mut st = self.state.lock().unwrap();
+        let guild = st.guild.as_ref().map_or(DEFAULT_GUILD, |g| g.id);
+        st.threads.insert(
+            id,
+            FakeThread {
+                id,
+                parent: forum,
+                guild,
+                name: name.to_string(),
+                archived: false,
+                locked: false,
+                forum: true,
+                owner,
+                kind: 0,
+                auto_archive: 0,
+                names: vec![name.to_string()],
+                tags: vec![],
+                tag_sets: vec![vec![]],
+                tag_times: vec![now_ms()],
+            },
+        );
+        id
+    }
+
+    /// Hold every thread create at `at` until `None` lifts it (or a minute
+    /// passes): a test kills the daemon while one waits.
+    pub fn hold_thread_creates(&self, at: Option<HoldAt>) {
+        self.state.lock().unwrap().thread_hold = at;
+    }
+
+    /// How many thread creates wait at the hold now.
+    pub fn held_thread_creates(&self) -> usize {
+        self.state.lock().unwrap().thread_held
+    }
+
+    /// Wait at the hold `at` while it stands, counted as held. True when it
+    /// waited.
+    fn wait_at(&self, at: HoldAt) -> bool {
+        if self.state.lock().unwrap().thread_hold != Some(at) {
+            return false;
+        }
+        self.state.lock().unwrap().thread_held += 1;
+        for _ in 0..60_000 {
+            if self.state.lock().unwrap().thread_hold != Some(at) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let mut st = self.state.lock().unwrap();
+        st.thread_held = st.thread_held.saturating_sub(1);
+        true
+    }
+
+    /// `GET /guilds/<id>/threads/active`: the guild's threads that are not
+    /// archived.
+    pub(super) fn threads_active(&self, stream: TcpStream, guild: &str) -> std::io::Result<()> {
+        let g: u64 = guild.parse().unwrap_or(0);
+        let threads: Vec<Value> = {
+            let st = self.state.lock().unwrap();
+            st.threads
+                .values()
+                .filter(|t| t.guild == g && !t.archived)
+                .map(thread_json)
+                .collect()
+        };
+        self.record(seen(
+            "GET",
+            &format!("/guilds/{guild}/threads/active"),
+            "other",
+        ));
+        reply(stream, 200, &json!({"threads": threads, "members": []}))
+    }
+
+    /// The owner deletes the thread `id`: it leaves the guild's threads and an
+    /// edit of it answers 404.
+    pub fn delete_thread(&self, id: u64) {
+        let mut st = self.state.lock().unwrap();
+        st.threads.remove(&id);
+        st.deleted_threads.push(id);
+    }
+
+    /// An edit (rename, tags, archive) of a thread answers 403 while `on`.
+    pub fn refuse_thread_patch(&self, on: bool) {
+        self.state.lock().unwrap().refuse_thread_patch = on;
+    }
+
     /// `POST /channels/<id>/threads`: a thread, with a first message in a forum.
     pub(super) fn thread_create(
         &self,
@@ -223,6 +326,9 @@ impl FakeDiscord {
         body: &Value,
     ) -> std::io::Result<()> {
         let path = format!("/channels/{parent}/threads");
+        if self.wait_at(HoldAt::BeforeApply) {
+            return Ok(());
+        }
         let p: u64 = parent.parse().unwrap_or(0);
         let (forum, guild) = {
             let st = self.state.lock().unwrap();
@@ -256,6 +362,7 @@ impl FakeDiscord {
             archived: false,
             locked: false,
             forum,
+            owner: BOT_ID,
             kind: body["type"].as_u64().unwrap_or(0),
             auto_archive: body["auto_archive_duration"].as_u64().unwrap_or(0),
             tag_sets: vec![tags.clone()],
@@ -284,6 +391,7 @@ impl FakeDiscord {
             message_id: None,
             ..seen("POST", &path, "thread")
         });
+        let _ = self.wait_at(HoldAt::AfterApply);
         reply(stream, 200, &out)
     }
 
@@ -584,6 +692,7 @@ mod tests {
             archived: false,
             locked: false,
             forum: true,
+            owner: BOT_ID,
             kind: 0,
             auto_archive: 0,
             names: vec!["post".into()],

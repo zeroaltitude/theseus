@@ -167,6 +167,18 @@ in the gate's admission by `toolrun/own_command.rs`. It is not the floor and tou
     proposed standing record (`standing.proposals`) is asked of no one (nothing posts it, no turn waits, it never expires), so it is counted as "open for
     review" and not called a wait. The read of the task view is limited inside the view (`Core::tasks_upto`: the newest 60 open tasks, filled with ended
     ones, the older counted and said; this conversation's own read is 10): `theseus tasks` still reads all of it.
+  - **Whose words, by what the record proves (the fourth pass).** A project's title and its next milestone's are keyed on `task_graph::title_hand`,
+    not on the session that holds the record: a title a model wrote (`origin.by_model`, or retitled by `task.update { title }`, which writes the META mark
+    `task.title_by:<id>` with the retitling session in the edit's own frame; a title is not layer 1, so no yes is asked and `origin` does not move) is that
+    session's words, held or taken on; a record `project.create` or `project.item.add` wrote (judged as an owner's act: the owner at the terminal, the web
+    UI or their own private place, never a participant or an MCP client) is the owner's and is given as theirs, with nothing held and nothing taken. The
+    owner has no verb that retitles. A routine is keyed on `created_by` (`model:<session>` or the owner's judged surface). A reminder's note is not provable
+    (`wake.create` is not judged as an owner's act, and its `by` is a label any caller names), so it stays the words of the session that holds it. A task's
+    title is quoted from its parent conversation's brief; why it ended was written in the task's own session. `look.work` still reads no project objective,
+    outcome, step name or thread title.
+  - **Content judging switched off** (`session_flags = false`): no source raises a label, so the look takes none and still answers; `cn_models` alone then
+    decides what a restricted model is sent (the setting refuses `follow_flags` without the flags). **A flag that cannot be written** fails the look: the
+    words are not given without their flags.
   - **The hold is by the asking model.** Another conversation's marked words are held back only when the asking turn's own model is one the labels could keep off
     (`TurnRunner::restricted_profile`, the predicate the data gate and the route's floor read for a turn's target; a turn with no target is read as one); any other turn is
     given them, marked as other conversations' words, and they are judged as any result is. Words from imported notes (a card's question) follow the same rule.

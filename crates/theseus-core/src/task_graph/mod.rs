@@ -52,6 +52,27 @@ pub const PLAN_NOTE: &str = "For work of more than two steps, list them first as
     (`task_create` with a `title`, no `brief`, and `parent` your own task id if you are a \
     task) and close each with `task_close` as you finish it.";
 
+/// The META key family that says which session's model last retitled a task (`task.update { title }`).
+/// A title is not layer 1, so a model retitles any task without the owner's yes, and the record's
+/// `origin` does not move: `by_model` says who wrote its objective, not its title. The owner has no
+/// verb that retitles. Written in the frame of the edit; absent for a title nobody has changed.
+pub const TITLE_BY: &str = "task.title_by:";
+
+pub fn title_by_key(task: &str) -> String {
+    format!("{TITLE_BY}{task}")
+}
+
+/// Whose words `rec`'s title is, as the record and its retitle mark prove.
+pub fn title_hand(store: &Store, rec: &TaskRecord) -> Result<crate::content::Hand> {
+    if let Some(s) = store.get_meta::<String>(&title_by_key(&rec.id))? {
+        return Ok(crate::content::Hand::Model(s));
+    }
+    Ok(match rec.origin.by_model {
+        true => crate::content::Hand::Model(rec.origin.session.clone()),
+        false => crate::content::Hand::Owner,
+    })
+}
+
 /// Every task id begins so.
 pub const ID_PREFIX: &str = "tsk_";
 /// The owner of a task nobody else took: the agent.

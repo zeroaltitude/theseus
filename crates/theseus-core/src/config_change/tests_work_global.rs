@@ -398,8 +398,9 @@ async fn a_task_cancelled_before_it_ran_names_no_model() {
     });
     r.core.store.put_session(&rec.session_id, &rec).unwrap();
     let body = |e: &theseus_kernel::Execution| {
-        let (_, post) = crate::task::cancelled_report(&r.core.outbox, &r.core.store, e).unwrap();
-        crate::outbox::body_of(&post.unwrap()).clone()
+        let (_, mut posts) =
+            crate::task::cancelled_reports(&r.core.outbox, &r.core.store, e).unwrap();
+        crate::outbox::body_of(&posts.pop().unwrap()).clone()
     };
     assert!(
         t.turns == 0 && body(&t).get("ran_on").is_none(),

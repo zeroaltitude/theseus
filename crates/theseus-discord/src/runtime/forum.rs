@@ -53,6 +53,7 @@ use crate::bindings::Bindings;
 use crate::render::{board_v2, task_view, v2};
 
 pub(crate) mod archive;
+mod intent;
 
 /// A card is edited at most once in this long.
 pub(crate) const CARD_EVERY: Duration = Duration::from_secs(2);
@@ -253,10 +254,14 @@ pub(crate) struct TaskPosts {
     pub(super) default: DefaultForum,
     /// The task home (theseus-xlxp4), its own slot beside the forum's.
     pub(super) home: super::task_home::TaskHome,
+    /// The forums a reopen was refused in for want of a permission, said once.
+    forbidden: Mutex<HashSet<u64>>,
     /// Where a task whose post was its place works now, by task.
     moved: Mutex<HashMap<String, String>>,
     /// The scheduled items' faces, for their posts' cards (`sched.rs`).
     pub(super) sched: super::sched::Sched,
+    /// Posts about to be made or made and not yet recorded (`intent.rs`).
+    intents: Mutex<Vec<intent::Intent>>,
 }
 
 impl TaskPosts {
@@ -302,6 +307,7 @@ impl TaskPosts {
             .into_iter()
             .filter(|p| archive::kept(p, now, LINK_KEPT_MS))
             .collect();
+        self.load_intents(store);
     }
 
     pub(super) fn save(&self, store: &theseus_core::store::Store) {
@@ -485,6 +491,15 @@ fn digest(s: &str) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut h);
     h.finish()
+}
+
+/// The HTTP status of a failed call, when it was Discord's answer.
+fn status_of(e: &anyhow::Error) -> Option<u16> {
+    use twilight_http::error::ErrorType as E;
+    match e.downcast_ref::<twilight_http::Error>()?.kind() {
+        E::Response { status, .. } => Some(status.get()),
+        _ => None,
+    }
 }
 
 /// A post's name: the task's short id and its title, within Discord's limit.
@@ -790,6 +805,19 @@ impl Worker {
         if let Some(wait) = self.reopen_if_rearmed(key, view).await {
             return Some(wait);
         }
+        // A post a stop cut off before it was recorded is found, not made again
+        // (the read waits out the key's backoff as a create does).
+        if self.shared.task_posts.intent_of(&key.0, key.1).is_some() {
+            if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
+                return Some(t - now);
+            }
+        }
+        if let Err(e) = self.settle_intent(key, &f.guild).await {
+            self.shared
+                .board
+                .error("task forum post", None, format!("{e:#}"));
+            return Some(self.backed_off(key));
+        }
         // A post the last run made (the list has it): taken up again.
         if let Some(held) = self.adopt(key) {
             return held;
@@ -935,6 +963,9 @@ impl Worker {
             .forum()
             .ok_or_else(|| anyhow::anyhow!("the default forum is not standing"))?;
         let key = (view.id.clone(), f.channel);
+        if !self.slots.contains_key(&key) {
+            self.settle_intent(&key, &f.guild).await?;
+        }
         if !self.slots.contains_key(&key) && self.adopt(&key).is_none() {
             let name = task_name(Mark::of(view.state), &view.id, &view.title);
             self.create(&key, &f, view, None, name).await?;
@@ -954,18 +985,81 @@ impl Worker {
         key: &(String, u64),
         view: &WorkView,
     ) -> Option<Duration> {
-        if !is_scheduled(view) || view.state.ended() {
+        if !is_scheduled(view) || view.state.ended() || !self.has_ended_post(key) {
             return None;
+        }
+        // A reopen that failed waits out the key's backoff, as a create does.
+        let now = Instant::now();
+        if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
+            return Some(t - now);
         }
         match self.reopen_rearmed(key, view).await {
             Ok(()) => None,
-            Err(e) => {
-                self.shared
-                    .board
-                    .error("task forum reopen", None, format!("{e:#}"));
-                Some(self.backed_off(key))
-            }
+            Err(e) => match status_of(&e) {
+                // The owner deleted the post: there is none, and the item is
+                // given its first (the caller goes on to adopt, then create).
+                Some(404) => {
+                    self.forget_post(key);
+                    None
+                }
+                Some(403) => {
+                    self.say_cannot_reopen(key.1);
+                    Some(self.backed_off(key))
+                }
+                _ => {
+                    self.shared
+                        .board
+                        .error("task forum reopen", None, format!("{e:#}"));
+                    Some(self.backed_off(key))
+                }
+            },
         }
+    }
+
+    /// Whether the list holds an ended post for the key.
+    fn has_ended_post(&self, key: &(String, u64)) -> bool {
+        self.shared
+            .task_posts
+            .posts
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.task == key.0 && p.forum == key.1 && p.ended_ms.is_some())
+    }
+
+    /// The post is gone (deleted): its row leaves the list.
+    fn forget_post(&self, key: &(String, u64)) {
+        let s = &self.shared;
+        s.task_posts
+            .posts
+            .lock()
+            .unwrap()
+            .retain(|p| !(p.task == key.0 && p.forum == key.1));
+        s.task_posts.save(&s.core.store);
+    }
+
+    /// A reopen was refused (403): said once, in health and the log, what the
+    /// bot lacks. The forum's id only, no title.
+    fn say_cannot_reopen(&self, forum: u64) {
+        if !self
+            .shared
+            .task_posts
+            .forbidden
+            .lock()
+            .unwrap()
+            .insert(forum)
+        {
+            return;
+        }
+        tracing::warn!(
+            forum,
+            "a post could not be opened again: the bot lacks Manage Threads there"
+        );
+        self.shared.board.error(
+            "task forum",
+            None,
+            format!("a post in forum {forum} cannot be opened again: the bot needs Manage Threads there"),
+        );
     }
 
     /// A scheduled item set again before its end was fully shown: the name its
@@ -1203,17 +1297,34 @@ impl Worker {
         })
         .json(&body)
         .build()?;
-        let made: Value = self
-            .shared
-            .http
-            .request::<Value>(req)
-            .await?
-            .model()
-            .await?;
-        let post: u64 = made["id"]
-            .as_str()
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| anyhow::anyhow!("the new post has no id"))?;
+        // The intent is on the list before the create goes out (`intent.rs`).
+        let store = &self.shared.core.store;
+        self.shared.task_posts.intend(store, &key.0, f.channel);
+        let sent: anyhow::Result<u64> = async {
+            let made: Value = self
+                .shared
+                .http
+                .request::<Value>(req)
+                .await?
+                .model()
+                .await?;
+            made["id"]
+                .as_str()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| anyhow::anyhow!("the new post has no id"))
+        }
+        .await;
+        let post = match sent {
+            Ok(post) => post,
+            Err(e) => {
+                // A create that certainly made nothing leaves no intent; one that
+                // may have gone keeps it, and is settled before the next try.
+                if intent::made_nothing(&e) {
+                    self.shared.task_posts.settle(store, &key.0, f.channel);
+                }
+                return Err(e);
+            }
+        };
         let post = Post {
             task: key.0.clone(),
             forum: f.channel,
@@ -1241,6 +1352,7 @@ impl Worker {
         let s = &self.shared;
         s.task_posts.posts.lock().unwrap().push(post);
         s.task_posts.save(&s.core.store);
+        s.task_posts.settle(&s.core.store, &key.0, f.channel);
         // The place's board draws its row's link to the post.
         if let Some(home) = self.entries.get(&key.0).and_then(|e| e.home.as_ref()) {
             let _ = home.send(super::PlaceMsg::Tasks);
@@ -1445,12 +1557,12 @@ mod tests {
         assert_eq!(wait(Some(t0), TAGS_EVERY, t0 + TAGS_EVERY, false), None);
     }
 
-    const FORUM: u64 = 900_000_000_000_000_030;
+    pub(super) const FORUM: u64 = 900_000_000_000_000_030;
 
     /// A rig for the stand-in's REST, and a worker over it with short
     /// intervals (the binding is not asked about the forum: the worker is run
     /// by hand).
-    async fn worker_over_the_fake() -> (crate::tests_gateway::Rig, Worker) {
+    pub(super) async fn worker_over_the_fake() -> (crate::tests_gateway::Rig, Worker) {
         use crate::tests_gateway::{Rig, ANA, BEN, CY, LAB};
         use theseus_core::provider::FakeProvider;
         use theseus_sim::fake_discord::{Guild, DEFAULT_GUILD};
@@ -1472,6 +1584,9 @@ mod tests {
         .await;
         r.fake.set_forum(FORUM);
         let shared = crate::runtime::shared_for_tests(&r.core);
+        // The id the stand-in's `users/@me` gives: this shared state is not the
+        // running binding's, so its preamble did not set it.
+        shared.set_bot_id_for_tests(theseus_sim::fake_discord::BOT_ID);
         *shared.task_posts.forums.lock().unwrap() = vec![Forum {
             channel: FORUM,
             guild: DEFAULT_GUILD.to_string(),

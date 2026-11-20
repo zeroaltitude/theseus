@@ -1292,3 +1292,265 @@ async fn an_item_missing_from_a_model_that_is_not_loaded_is_not_cancelled() {
     let ended = card(&r, home, "ghost check").expect("brought to its end once loaded");
     assert!(ended.content.contains("Cancelled"), "{}", ended.content);
 }
+
+// ---- the review of the card and post intents ------------------------------------
+
+/// The task's card, deleted at the stand-in, with the list emptied and an intent
+/// standing (a kill before the create arrived): the pinned board, which lists the
+/// scheduled task with the very marker the card carries, is never taken for the
+/// card; the task's own card is made.
+#[tokio::test]
+async fn an_intent_with_no_card_does_not_adopt_the_pinned_board() {
+    let r = two_places_with("theseus-tasks", buoy).await;
+    let home = home_up(&r).await;
+    let task = start_task(&r, Some("in 90m"));
+    r.until("its card and the board", || {
+        card(&r, home, "Buoy-paint").is_some() && !boards(&r, home).is_empty()
+    })
+    .await;
+    let c = card(&r, home, "Buoy-paint").unwrap();
+    let board = boards(&r, home).remove(0);
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    shared
+        .http
+        .delete_message(
+            twilight_model::id::Id::new(home),
+            twilight_model::id::Id::new(c.id.parse().unwrap()),
+        )
+        .await
+        .unwrap();
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": task, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms()}]),
+        )
+        .unwrap();
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(pass.sync().await);
+    let made = card(&r, home, "Buoy-paint").expect("the task's own card is made");
+    assert_ne!(made.id, board.id, "not the board");
+    assert_ne!(made.id, c.id, "a new message: the old was deleted");
+    let after = boards(&r, home).remove(0);
+    assert!(
+        after.versions.iter().all(|v| v.starts_with("📋")),
+        "the board never showed a card: {:?}",
+        after.versions
+    );
+}
+
+/// Two items whose cards are lost (their entries gone), one with an intent
+/// standing that cannot be read for: that one gets no card made blind, and the
+/// other's card is made all the same.
+#[tokio::test]
+async fn a_read_that_fails_for_one_item_leaves_the_others_cards_to_be_made() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let a = remind(&r, "first tide check", "in 90m").await;
+    remind(&r, "second tide check", "in 91m").await;
+    r.until("both cards", || {
+        card(&r, home, "first tide check").is_some()
+            && card(&r, home, "second tide check").is_some()
+    })
+    .await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    for note in ["first tide check", "second tide check"] {
+        let c = card(&r, home, note).unwrap();
+        shared
+            .http
+            .delete_message(
+                twilight_model::id::Id::new(home),
+                twilight_model::id::Id::new(c.id.parse().unwrap()),
+            )
+            .await
+            .unwrap();
+    }
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": a, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms()}]),
+        )
+        .unwrap();
+    r.fake.fail_message_lists(true);
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(!pass.sync().await, "the pass says it failed");
+    assert!(
+        card(&r, home, "second tide check").is_some(),
+        "the other item's card is made"
+    );
+    assert!(
+        card(&r, home, "first tide check").is_none(),
+        "nothing is made blind for the item whose read failed"
+    );
+    r.fake.fail_message_lists(false);
+    assert!(pass.sync().await);
+    assert!(
+        card(&r, home, "first tide check").is_some(),
+        "made once the read works"
+    );
+}
+
+/// Before the bot knows its own id no card is adopted (and none is made):
+/// an error and a retry.
+#[tokio::test]
+async fn no_card_is_adopted_while_the_bots_own_id_is_unknown() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind(&r, "tide check", "in 90m").await;
+    r.until("its card", || card(&r, home, "tide check").is_some())
+        .await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let known = shared.bot_id();
+    // The card is at Discord, its entry lost, an intent standing.
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": wake, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms()}]),
+        )
+        .unwrap();
+    shared.set_bot_id_for_tests(0);
+    let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+    assert!(
+        !pass.sync().await,
+        "no adoption: the pass fails and retries"
+    );
+    assert_eq!(cards(&r, home).len(), 1, "and none was made");
+    shared.set_bot_id_for_tests(known);
+    assert!(pass.sync().await);
+    assert_eq!(cards(&r, home).len(), 1, "found, not made again");
+}
+
+// ---- the second snooze of a fired reminder, and the review's notes (issue 30) ---
+
+fn pending_notes(r: &Rig, note: &str) -> usize {
+    r.core
+        .kernel
+        .pending_wakes()
+        .unwrap()
+        .into_iter()
+        .filter(|(_, w)| w.note == note)
+        .count()
+}
+
+fn posts_about(r: &Rig, forum: u64, note: &str) -> usize {
+    posts(r, forum)
+        .iter()
+        .filter(|p| {
+            r.fake
+                .messages(p.id)
+                .first()
+                .is_some_and(|m| m.content.contains(note))
+        })
+        .count()
+}
+
+/// The reminder's snooze from its notice, twice (the card's press, then the
+/// notice's; or a double tap), leaves one reminder, one card and one post.
+#[tokio::test]
+async fn two_snoozes_of_a_fired_reminder_leave_one_reminder_one_card_and_one_post() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    fired(&r, home, forum, "tide check").await;
+    snooze_fired(&r, &wake, "in 90m").await;
+    snooze_fired(&r, &wake, "in 120m").await;
+    r.until("the card stands again", || {
+        card(&r, home, "tide check").is_some_and(|m| m.buttons.len() == 2)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(pending_notes(&r, "tide check"), 1, "one reminder");
+    assert_eq!(cards(&r, home).len(), 1, "{:#?}", cards(&r, home));
+    assert_eq!(posts_about(&r, forum, "tide check"), 1);
+}
+
+/// A post the owner deleted cannot be reopened (404): the item is given a first
+/// post, and the 404 is not tried again.
+#[tokio::test]
+async fn a_post_the_owner_deleted_is_made_again_when_its_reminder_is_set_again() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    let (_, post) = fired(&r, home, forum, "tide check").await;
+    r.fake.delete_thread(post);
+    snooze_fired(&r, &wake, "in 90m").await;
+    r.until("a new post, scheduled", || {
+        post_with(&r, forum, "tide check").is_some_and(|p| {
+            p.id != post && last_tags(&r, p.id) == [tag_id(&r, forum, "scheduled")]
+        })
+    })
+    .await;
+    assert_eq!(posts_about(&r, forum, "tide check"), 1);
+    let gone = r.fake.seen().iter().filter(|s| s.outcome == "gone").count();
+    assert_eq!(gone, 1, "the 404 is told once, not tried again");
+}
+
+/// A post the bot may not edit (403) is not tried again at every pass; it is
+/// said once what is missing, and it is opened once the permission is back.
+#[tokio::test]
+async fn a_post_that_cannot_be_reopened_is_not_tried_again_and_says_so_once() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let wake = remind(&r, "tide check", "in 3s").await;
+    let (_, post) = fired(&r, home, forum, "tide check").await;
+    r.fake.refuse_thread_patch(true);
+    snooze_fired(&r, &wake, "in 90m").await;
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    for _ in 0..8 {
+        let mut pass = crate::runtime::sched::Worker::fresh(shared.clone());
+        assert!(pass.sync().await);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let refused = r
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| s.outcome == "refused")
+        .count();
+    assert!(refused <= 2, "tried {refused} times in a second");
+    r.fake.refuse_thread_patch(false);
+    r.until("the post opens once it may", || {
+        last_tags(&r, post) == [tag_id(&r, forum, "scheduled")]
+    })
+    .await;
+}
+
+/// A press before the work model has loaded is not "gone": it says Theseus is
+/// still starting, and writes nothing.
+#[tokio::test]
+async fn a_press_before_the_work_model_is_loaded_says_it_is_still_starting() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind(&r, "tide check", "in 90m").await;
+    r.until("the card", || card(&r, home, "tide check").is_some())
+        .await;
+    let c = card(&r, home, "tide check").unwrap();
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    shared.tasks.loaded_for_tests(false);
+    let pressed = press(&r, &c, &format!("hq:cancel:{wake}"), ANA, "ana");
+    r.until("told", || told(&r, &pressed).is_some()).await;
+    let (said, alone) = told(&r, &pressed).unwrap();
+    assert!(alone && said.contains("still starting"), "{said}");
+    shared.tasks.loaded_for_tests(true);
+    assert!(pending(&r, &wake), "nothing was written");
+}

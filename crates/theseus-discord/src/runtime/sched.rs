@@ -14,14 +14,15 @@
 //!   changed (`Future::dirty`), and reads the pending wakes and routines the
 //!   future's snapshot holds, and the states the binding's work model holds
 //!   (fired, cancelled). A write that fails is tried again after a wait that
-//!   doubles to a minute, and the pass stops at the first failure. Discord's
-//!   own limits pace a burst: twenty reminders are twenty creates in the
-//!   channel's bucket, five in five seconds, so the last card is a few
-//!   seconds behind the first, and no reply waits for any of it.
+//!   doubles to a minute, and the pass stops at the first failure. A pass
+//!   that makes many cards makes the first `BURST` at once and the rest a
+//!   `SPACE` apart, so the channel keeps room for a task's report, and no
+//!   reply waits for any of it.
 //! - **A restart** finds each card in one META list (`discord.sched`: the
 //!   item, its card, the digest last sent), makes none twice (a create carries
 //!   the item's nonce), and brings a card whose item fired or was cancelled
-//!   while the daemon was down to its true state once.
+//!   while the daemon was down to its true state once, after the work model
+//!   has been read (`Tasks::loaded`).
 //! - **Where it is used**: only where the task home stands and the owner's DM
 //!   place draws its board (`Shared::sched_target`). Elsewhere the place's own
 //!   board shows its own reminders, as before.
@@ -42,6 +43,8 @@ use theseus_protocol::{now_unix_ms, Attention, Level};
 use twilight_http::request::Request;
 use twilight_http::routing::Route as HttpRoute;
 use twilight_model::application::interaction::Interaction;
+
+mod intent;
 
 use super::Shared;
 use crate::courier::{nonce, SendErr};
@@ -180,6 +183,12 @@ fn is_item(v: &WorkView) -> bool {
 }
 
 impl Shared {
+    /// A test says the bot's own id is, or is not, known yet.
+    #[cfg(test)]
+    pub(crate) fn set_bot_id_for_tests(&self, id: u64) {
+        self.bot_id.store(id, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Where the cards go: the task home's channel, guild and name, while it
     /// stands and the owner's DM place draws into it (and the bot can send V2).
     pub(crate) fn sched_target(&self) -> Option<(u64, String, String)> {
@@ -455,12 +464,17 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
 pub(crate) struct Worker {
     shared: Arc<Shared>,
     recs: Vec<Rec>,
+    /// Cards about to be made, or made and not yet recorded (`intent.rs`).
+    intents: Vec<intent::Intent>,
     retry: Duration,
     loaded: bool,
     /// Cards made in this pass, and the gap kept between those after the first
     /// `BURST`.
     made: usize,
     space: Duration,
+    /// The last failure was a read for an intent (the pass goes on with the other
+    /// items, and makes nothing for that one).
+    read_failed: bool,
 }
 
 /// Start the worker, once. It ends with the daemon's stop.
@@ -472,10 +486,12 @@ pub(super) fn start(shared: &Arc<Shared>) {
         let mut w = Worker {
             shared: s.clone(),
             recs: Vec::new(),
+            intents: Vec::new(),
             retry: Duration::ZERO,
             loaded: false,
             made: 0,
             space: space(),
+            read_failed: false,
         };
         let mut wait = IDLE;
         loop {
@@ -506,10 +522,12 @@ impl Worker {
         Self {
             shared,
             recs: Vec::new(),
+            intents: Vec::new(),
             retry: Duration::ZERO,
             loaded: false,
             made: 0,
             space: space(),
+            read_failed: false,
         }
     }
 
@@ -524,6 +542,18 @@ impl Worker {
                 .ok()
                 .flatten()
                 .unwrap_or_default();
+            let held = self
+                .shared
+                .core
+                .store
+                .get_meta::<Vec<intent::Intent>>(intent::KEY)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            self.intents = intent::live(held.clone(), &self.recs, now_unix_ms());
+            if self.intents.len() != held.len() {
+                self.save_intents();
+            }
         }
     }
 
@@ -570,9 +600,20 @@ impl Worker {
                 break;
             }
         }
-        for f in faces.iter().filter(|_| ok) {
+        // A write that fails stops the pass; a READ for an item's intent that
+        // fails leaves that item alone (nothing is made for it blind) and the
+        // pass goes on with the rest, which need no read.
+        let mut stopped = !ok;
+        for f in &faces {
+            if stopped {
+                break;
+            }
             if !self.card_for(f, &home, now).await {
                 ok = false;
+                if std::mem::take(&mut self.read_failed) {
+                    continue;
+                }
+                stopped = true;
                 break;
             }
             shown.push(f.clone());
@@ -580,7 +621,7 @@ impl Worker {
         // Only once the work model has been read: before it, an item that is
         // not in it is an item it has not told of (a task set for later, a
         // reminder over 30 days out, the Home conversation's), not one gone.
-        if ok && s.tasks.loaded() {
+        if !stopped && s.tasks.loaded() {
             // An item that is nowhere any more: fired or cancelled while the
             // daemon was down, or a routine removed.
             let gone: Vec<Rec> = self
@@ -591,8 +632,15 @@ impl Worker {
                 .collect();
             for r in gone {
                 let mut f = gone_face(&r, now, &s.task_posts.sched);
-                if !self.name_canceller(&mut f).await || !self.card_for(&f, &home, now).await {
+                if !self.name_canceller(&mut f).await {
                     ok = false;
+                    break;
+                }
+                if !self.card_for(&f, &home, now).await {
+                    ok = false;
+                    if std::mem::take(&mut self.read_failed) {
+                        continue;
+                    }
                     break;
                 }
                 shown.push(f);
@@ -751,6 +799,19 @@ impl Worker {
             tokio::time::sleep(self.space).await;
         }
         self.made += 1;
+        // A card a stop cut off before it was recorded is found, not made again.
+        match self.settle_intent(f, home, now).await {
+            Ok(true) => return self.edit_found(f, card, dig, home, now).await,
+            Ok(false) => {}
+            Err(e) => {
+                // A read that failed: no card is made for this item blind, and
+                // the others do not wait for it.
+                self.read_failed = true;
+                self.failed("schedule card", format!("{e:#}"));
+                return false;
+            }
+        }
+        self.intend(&f.id, home.channel);
         match self.create(home.channel, &f.id, card, after).await {
             Ok(message) => {
                 self.recs.push(Rec {
@@ -773,7 +834,41 @@ impl Worker {
                     digest: dig,
                 });
                 self.save();
+                self.settle(&f.id);
                 self.log(&home.label, message, f, "posted");
+                true
+            }
+            Err(e) => {
+                // A create that certainly made nothing leaves no intent; one
+                // that may have gone keeps it, and is settled before the next.
+                if !e.away && !e.unsure {
+                    self.settle(&f.id);
+                }
+                self.failed("schedule card", &e.message);
+                false
+            }
+        }
+    }
+
+    /// The card found again after a stop is edited to the item's truth now.
+    async fn edit_found(
+        &mut self,
+        f: &Face,
+        card: &[Value],
+        dig: u64,
+        home: &Home,
+        now: u64,
+    ) -> bool {
+        let Some(i) = self.recs.iter().position(|r| r.id == f.id) else {
+            return true;
+        };
+        let rec = self.recs[i].clone();
+        match self.edit(&rec, card).await {
+            Ok(()) => {
+                let r = &mut self.recs[i];
+                r.digest = dig;
+                r.ended_ms = f.is_over().then_some(now);
+                self.log(&home.label, rec.card, f, "found");
                 true
             }
             Err(e) => {
@@ -946,6 +1041,16 @@ impl Shared {
     /// owners). A card whose item is over says so, and the worker brings the
     /// card to how it ended.
     pub(super) async fn card_press(&self, i: &Interaction, custom_id: &str, who: &str) {
+        // Before the work model has been read the board knows of nothing: an item
+        // it does not hold is not yet an item gone. Nothing is written.
+        if !self.tasks.loaded() {
+            return self
+                .reply_ephemeral(
+                    i,
+                    "Theseus is still starting: try again in a moment.".into(),
+                )
+                .await;
+        }
         let cancel = custom_id.starts_with(CANCEL_PREFIX);
         let wake = custom_id
             .strip_prefix(CANCEL_PREFIX)
