@@ -77,25 +77,35 @@ check-in Theseus set for itself, and a routine each get (`runtime/sched.rs`, wor
 **One worker, one request at a time** (`sched::start`), woken by `Future::dirty` (the work engine changed, a wake was heard, a command
 acted) and by the snapshot changing, with a minute's safety read. It reads the pending wakes and routines of the future's snapshot and the
 wakes the work model holds in any state (`Done` is fired, `Cancelled` is cancelled; a routine is not in that model). A card write that
-fails stops the pass and is tried again after 2 s doubling to a minute. Discord paces a burst: twenty reminders are twenty creates in one
-channel's bucket (five in five seconds), the last a few seconds behind the first; no reply waits, since the worker is not the lane.
+fails stops the pass and is tried again after 2 s doubling to a minute. A pass that makes many cards (a first start) makes the first five
+at once and each after them 2 s after the one before (`BURST`, `SPACE`): twenty reminders are 5 now and 15 over 30 s, leaving the task
+home's channel half its bucket (five in five seconds) for a task's report; no reply waits, since the worker is not the lane.
 (It writes with the client directly, as the forum worker does, because the lane's writes return no message id to edit later.)
 
 **Restart.** META `discord.sched` lists each item: its card, the digest last sent, the kind, the time, who cancelled. A create carries the
 nonce `sched:<id>` with `enforce_nonce`, so a card made while the list was lost is the same message; a card Discord lost is made again
 under `sched:<id>:<old message>`. An item that fired or was cancelled while the daemon was down is nowhere in the snapshot and its card is
-edited once to its true end (a wake that was due is "fired", one that was not is "cancelled"). An item that already exists when this
-build first starts gets its card and post then, once. A finished item's record is kept a day, for a late press. An item that ended more
-than an hour before it was first seen gets no card.
+edited once to its true end (a wake that was due is "fired", one that was not is "cancelled"), once the work model has been read
+(`Tasks::loaded`: before it, an item missing from it is not one gone). An item that already exists when this build first starts gets its
+card and post then, once. A finished item's record is kept a day, for a late press, and for as long as its item stands again. An item that
+ended more than an hour before it was first seen gets no card.
+
+**Set again.** A fired reminder snoozed from its notice is set again under its own id: the core's work board takes it out of its ended
+wakes, the worker trusts a pending agenda line read after the view ended, and the same card stands again ("😴 Snoozed to this time", its buttons back)
+while its post is reopened (out of the archive, unlocked, its name without the ✅, `scheduled`).
 
 **Presses** pass the gate of every press on a place (`allowed`: the home's people are the owners), so a member who is not an owner is
 refused with the place's own words and nothing is written. A press on a card whose item is over says "That one is over already: its
-card shows how it ended", and the worker brings the card to its end. The answer is the presser's alone (ephemeral).
+card shows how it ended", and the worker brings the card to its end. A press on a card whose item neither the work model nor the agenda
+holds any more says "That reminder is no longer on the board: nothing was changed." and calls nothing. The answer is the presser's alone
+(ephemeral).
 
 **Logs.** One info line a card write: the place's label, the message id, the kind, what (`posted`, `edited`), and the counts. No text.
 
 **Choices** (decided, not asked): the worker writes the cards itself, not through the lane; a card that is deleted is made again while
-its item stands; cancelled-by is the presser's name, and a cancel from the CLI says "Cancelled" alone.
+its item stands, and one whose item has ended is not; cancelled-by is the presser's display name (else their user name: the cancel's
+own record keeps the user name), a cancel from the CLI says "Cancelled from the terminal", and one the record names no one for says
+"Cancelled" alone.
 
 ## A task set to start later is `scheduled` (issue 30, the owner's addition)
 

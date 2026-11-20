@@ -253,6 +253,8 @@ pub(crate) struct TaskPosts {
     pub(super) default: DefaultForum,
     /// The task home (theseus-xlxp4), its own slot beside the forum's.
     pub(super) home: super::task_home::TaskHome,
+    /// The forums a reopen was refused in for want of a permission, said once.
+    forbidden: Mutex<HashSet<u64>>,
     /// Where a task whose post was its place works now, by task.
     moved: Mutex<HashMap<String, String>>,
     /// The scheduled items' faces, for their posts' cards (`sched.rs`).
@@ -485,6 +487,15 @@ fn digest(s: &str) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut h);
     h.finish()
+}
+
+/// The HTTP status of a failed call, when it was Discord's answer.
+fn status_of(e: &anyhow::Error) -> Option<u16> {
+    use twilight_http::error::ErrorType as E;
+    match e.downcast_ref::<twilight_http::Error>()?.kind() {
+        E::Response { status, .. } => Some(status.get()),
+        _ => None,
+    }
 }
 
 /// A post's name: the task's short id and its title, within Discord's limit.
@@ -954,18 +965,81 @@ impl Worker {
         key: &(String, u64),
         view: &WorkView,
     ) -> Option<Duration> {
-        if !is_scheduled(view) || view.state.ended() {
+        if !is_scheduled(view) || view.state.ended() || !self.has_ended_post(key) {
             return None;
+        }
+        // A reopen that failed waits out the key's backoff, as a create does.
+        let now = Instant::now();
+        if let Some(t) = self.failed.get(key).map(|f| f.until).filter(|t| *t > now) {
+            return Some(t - now);
         }
         match self.reopen_rearmed(key, view).await {
             Ok(()) => None,
-            Err(e) => {
-                self.shared
-                    .board
-                    .error("task forum reopen", None, format!("{e:#}"));
-                Some(self.backed_off(key))
-            }
+            Err(e) => match status_of(&e) {
+                // The owner deleted the post: there is none, and the item is
+                // given its first (the caller goes on to adopt, then create).
+                Some(404) => {
+                    self.forget_post(key);
+                    None
+                }
+                Some(403) => {
+                    self.say_cannot_reopen(key.1);
+                    Some(self.backed_off(key))
+                }
+                _ => {
+                    self.shared
+                        .board
+                        .error("task forum reopen", None, format!("{e:#}"));
+                    Some(self.backed_off(key))
+                }
+            },
         }
+    }
+
+    /// Whether the list holds an ended post for the key.
+    fn has_ended_post(&self, key: &(String, u64)) -> bool {
+        self.shared
+            .task_posts
+            .posts
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.task == key.0 && p.forum == key.1 && p.ended_ms.is_some())
+    }
+
+    /// The post is gone (deleted): its row leaves the list.
+    fn forget_post(&self, key: &(String, u64)) {
+        let s = &self.shared;
+        s.task_posts
+            .posts
+            .lock()
+            .unwrap()
+            .retain(|p| !(p.task == key.0 && p.forum == key.1));
+        s.task_posts.save(&s.core.store);
+    }
+
+    /// A reopen was refused (403): said once, in health and the log, what the
+    /// bot lacks. The forum's id only, no title.
+    fn say_cannot_reopen(&self, forum: u64) {
+        if !self
+            .shared
+            .task_posts
+            .forbidden
+            .lock()
+            .unwrap()
+            .insert(forum)
+        {
+            return;
+        }
+        tracing::warn!(
+            forum,
+            "a post could not be opened again: the bot lacks Manage Threads there"
+        );
+        self.shared.board.error(
+            "task forum",
+            None,
+            format!("a post in forum {forum} cannot be opened again: the bot needs Manage Threads there"),
+        );
     }
 
     /// A scheduled item set again before its end was fully shown: the name its

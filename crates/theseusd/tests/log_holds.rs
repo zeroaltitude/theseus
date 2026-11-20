@@ -1,10 +1,8 @@
 //! The daemon's log and its store's writer, each held where a stalled disk would hold it, with the real `theseusd`
 //! (debug builds only: the holds are a debug build's plant, `theseus_store::hold_by_fifo`). `health` answers while
-//! the log writer is held (the daemon on ONE runtime worker, so a thread that waited on the log would hold every
-//! other request with it), a turn is taken then, and `health` answers while the log writer AND the WAL writer are
-//! held together (on the daemon's own workers: the turn that opens a session asks the log's position under the
-//! writer's lock, on a worker, and a held writer holds that worker; with one worker that is the whole daemon, which
-//! is why this test does not run on one).
+//! the log writer is held, a turn is taken then, and `health` and another session's read answer while the log writer
+//! AND the WAL writer are held together and a turn waits for the write. The daemon runs on ONE runtime worker, so a
+//! thread that waited on either would hold every other request with it.
 
 mod common;
 
@@ -46,11 +44,11 @@ fn release(path: &Path) -> std::fs::File {
     std::fs::OpenOptions::new().write(true).open(path).unwrap()
 }
 
-/// `health` on the socket, waiting at most `bound` for the answer: its result, or why not.
-fn health(d: &Served, bound: Duration) -> Result<Value, String> {
+/// One call on the socket, waiting at most `bound` for the answer: its result, or why not.
+fn rpc(d: &Served, method: &str, params: Value, bound: Duration) -> Result<Value, String> {
     let s = UnixStream::connect(d.path("sock")).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(bound)).unwrap();
-    let req = json!({"jsonrpc": "2.0", "id": 1, "method": "health"});
+    let req = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
     (&s).write_all(format!("{req}\n").as_bytes())
         .map_err(|e| e.to_string())?;
     let line = BufReader::new(&s)
@@ -60,6 +58,11 @@ fn health(d: &Served, bound: Duration) -> Result<Value, String> {
         .map_err(|e| format!("no answer in {bound:?}: {e}"))?;
     let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
     Ok(v["result"].clone())
+}
+
+/// `health`, within `bound`.
+fn health(d: &Served, bound: Duration) -> Result<Value, String> {
+    rpc(d, "health", Value::Null, bound)
 }
 
 struct Held {
@@ -124,23 +127,36 @@ fn health_and_a_turn_are_taken_while_the_logs_write_is_held() {
     let _end = release(&h.log);
 }
 
-/// Both held: the WAL writer inside a frame's write (with its lock) and the log writer inside its write. `health`
-/// answers within the bound.
+/// Both held, on ONE runtime worker: the WAL writer inside a frame's write (with its lock) and the log writer inside
+/// its write, while a turn's submit waits for the write. `health` answers, and so does a read of another session,
+/// within the bound: the submit's wait for the writer (its staging asks the log's position under the writer's lock)
+/// is made off the worker. Let go, the waiting turns go through, and each session holds its execution.
 #[test]
-fn health_answers_with_the_wal_writer_and_the_log_writer_both_held() {
-    let h = daemon(false);
+fn health_and_another_session_answer_while_a_turn_waits_on_the_held_writers_on_one_worker() {
+    let h = daemon(true);
+    submit(&h.daemon, "first");
+    let listed = rpc(&h.daemon, "session.list", json!({}), ANSWER_WITHIN).unwrap();
+    let other = listed["sessions"][0]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     arm(&h.log);
     arm(&h.wal);
     // A turn writes frames: its submit is held with the writer, on a thread of its own.
     std::thread::scope(|s| {
         let held = s.spawn(|| submit(&h.daemon, "writes"));
         arrived(&h.wal, "the store's write");
+        // A second turn arrives while the writer is held: staging its records asks the log's position, which is a
+        // read under the writer's lock, on a worker.
+        let waits = s.spawn(|| submit(&h.daemon, "waits"));
         // The log writer is held by the lines a daemon says as it goes.
         for _ in 0..5 {
             let _ = health(&h.daemon, ANSWER_WITHIN);
         }
         arrived(&h.log, "the log's write");
-        for _ in 0..20 {
+        // For long enough that the second turn is at the lock, as a quarter of a second of answers makes sure.
+        let began = Instant::now();
+        while began.elapsed() < Duration::from_millis(250) {
             let t0 = Instant::now();
             let said = health(&h.daemon, ANSWER_WITHIN).unwrap();
             assert!(
@@ -149,10 +165,34 @@ fn health_answers_with_the_wal_writer_and_the_log_writer_both_held() {
                 t0.elapsed()
             );
             assert!(said["name"].is_string(), "{said}");
+            let read = rpc(
+                &h.daemon,
+                "session.history",
+                json!({"session_id": other}),
+                ANSWER_WITHIN,
+            )
+            .unwrap();
+            assert!(read["nodes"].is_array(), "another session's read: {read}");
         }
         let (_a, _b) = (release(&h.wal), release(&h.log));
         held.join().unwrap();
+        waits.join().unwrap();
     });
+    // The turns that waited went through: all three sessions are there, each holding its execution.
+    let listed = rpc(&h.daemon, "session.list", json!({}), ANSWER_WITHIN).unwrap();
+    let sessions = listed["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 3, "{listed}");
+    for id in sessions.iter().map(|s| s["session_id"].as_str().unwrap()) {
+        let history = rpc(
+            &h.daemon,
+            "session.history",
+            json!({"session_id": id}),
+            ANSWER_WITHIN,
+        )
+        .unwrap();
+        // This daemon has no model, so a session holds no node; it holds the execution its turn staged and committed.
+        assert!(history["session"]["execution_id"].is_string(), "{history}");
+    }
 }
 
 /// A start that fails still says what it logged before, and then why: the queue is written out before the error that

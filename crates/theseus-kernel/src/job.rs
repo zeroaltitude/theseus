@@ -1033,6 +1033,17 @@ pub fn wrapper_alive(pid: u32, job: &str) -> bool {
 /// SIGTERM, before SIGKILL.
 pub const STOP_GRACE: Duration = Duration::from_secs(2);
 
+/// The longest a job takes to be ended once its limit has cut it, whatever it holds open: one look of its output
+/// (the limit is noticed at the next look), the grace its processes get after SIGTERM, the wait for the SIGKILLed
+/// tree to be gone, and the egress proxy's stop (the tunnels' drain, then the wait for their threads). A call waits
+/// for its job's result this long past its limit, so it never says "still running" of a job that is being killed.
+/// The sum of the product's own constants, never scaled.
+pub const CUT_WORST: Duration = crate::patience::LOOK_MAX
+    .saturating_add(STOP_GRACE)
+    .saturating_add(crate::tree::KILL_WAIT)
+    .saturating_add(crate::job_egress::DRAIN)
+    .saturating_add(theseus_sandbox::egress::CLOSE_WAIT);
+
 /// How long a SIGKILLed job has to be gone before a stop says it may still
 /// run.
 const KILL_WAIT: Duration = Duration::from_millis(500);

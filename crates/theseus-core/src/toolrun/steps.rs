@@ -123,7 +123,7 @@ impl ToolRuntime {
         let n = specs.len();
         let id = job.correlation_id;
         let total: u64 = specs.iter().map(|s| s.timeout_secs).sum();
-        let bound = Duration::from_secs(self.proc_sync_secs.min(total + 5));
+        let bound = super::job::call_wait(self.proc_sync_secs, total);
         let room = self.result_max_chars / 4 / n.saturating_sub(1).max(1);
         let t0 = Instant::now();
         // The turn waits on the id from before the first launch to the end,

@@ -53,10 +53,21 @@ impl Rig {
         umask: Option<u32>,
         output_max_bytes: u64,
     ) -> u32 {
+        self.start_limited(id, script, (umask, output_max_bytes), 60_000)
+    }
+
+    /// `start_capped`, with the job's limit in milliseconds.
+    fn start_limited(
+        &self,
+        id: &str,
+        script: &str,
+        (umask, output_max_bytes): (Option<u32>, u64),
+        deadline_ms: u64,
+    ) -> u32 {
         let args = WrapperArgs {
             spool_dir: self.spool.dir().to_path_buf(),
             correlation_id: id.into(),
-            deadline_ms: 60_000,
+            deadline_ms,
             notify_socket: None,
             // `$1` is the rig's directory: every loop also ends when it is
             // gone, so a test that fails leaves nothing running.
@@ -588,6 +599,39 @@ fn three_jobs_that_ignore_sigterm_are_stopped_in_one_grace() {
     assert!(
         spread < grace,
         "one grace, not three: the SIGTERMs came {spread:?} apart, the grace {grace:?}"
+    );
+}
+
+/// A job cut at its limit whose command ignores SIGTERM is ended, and its completion written, within the limit and
+/// the worst case of its own kill (`CUT_WORST`): the sum of the product's constants that a call's wait adds to the
+/// job's limit. The grace is the real cost (the command ends only at SIGKILL), so it is also not shorter than it. A
+/// speed promise under `Busy`: on a machine that gives a thread a fraction of a core the bound is held in proportion,
+/// never past `BOUND_CAP` times.
+#[test]
+fn a_job_cut_at_its_limit_that_ignores_sigterm_is_ended_within_the_worst_case_of_its_kill() {
+    let rig = Rig::new();
+    let limit = Duration::from_millis(500);
+    let busy = theseus_sim::Busy::before();
+    let t0 = Instant::now();
+    rig.start_limited(
+        "act_cut_worst",
+        &stubborn(0),
+        (None, job::DEFAULT_OUTPUT_MAX_BYTES),
+        limit.as_millis() as u64,
+    );
+    let c = wait_for("the cut job's completion", || {
+        rig.spool.read_completion("act_cut_worst").unwrap()
+    });
+    let took = t0.elapsed();
+    assert_eq!(c.detail.unwrap()["timed_out"], true);
+    assert!(
+        took >= limit + job::STOP_GRACE,
+        "the grace is waited out before SIGKILL: {took:?}"
+    );
+    assert!(
+        busy.keeps(took, limit + job::CUT_WORST),
+        "ended {took:?} after start; the limit {limit:?} and the worst case {:?}: {busy}",
+        job::CUT_WORST
     );
 }
 

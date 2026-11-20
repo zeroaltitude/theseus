@@ -327,6 +327,169 @@ fn a_snooze_is_one_frame_and_sets_a_fired_reminder_again() {
         .is_none());
 }
 
+/// A reminder that fired and is snoozed again and again, by whichever route, is
+/// ONE reminder moved, never a second under a new id (the review's B1).
+fn fired_once(w: &World) -> (Execution, String) {
+    let (e, id) = with_reminder(w, 10_000);
+    w.clock.advance(11_000);
+    assert_eq!(w.kernel.fire_notices(&e.id, post_of).unwrap().len(), 1);
+    assert!(exec(w, &e.id).wakes.is_empty());
+    (e, id)
+}
+
+#[test]
+fn a_fired_one_shot_snoozed_twice_with_fired_set_is_one_wake_moved() {
+    let w = world_with(cfg());
+    let (e, id) = fired_once(&w);
+    let first = w
+        .kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 90 * MIN, true, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.wake.id, id, "set again under its own id");
+    let second = w
+        .kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 120 * MIN, true, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.wake.id, id, "the same wake, moved");
+    let held = exec(&w, &e.id).wakes;
+    assert_eq!(held.len(), 1, "one reminder, not two: {held:?}");
+    assert_eq!(held[0].due_at_ms, w.kernel.now_ms() + 120 * MIN);
+    w.clock.advance(121 * MIN);
+    assert_eq!(
+        w.kernel.fire_notices(&e.id, post_of).unwrap().len(),
+        1,
+        "fires once"
+    );
+}
+
+#[test]
+fn the_cards_snooze_then_the_notices_is_one_wake_moved() {
+    let w = world_with(cfg());
+    let (e, id) = fired_once(&w);
+    // The card's press: not `fired`, no longer pending, so the record is read.
+    w.kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 60 * MIN, false, "the card")
+        .unwrap()
+        .unwrap();
+    // The notice's button: `fired`.
+    let again = w
+        .kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 10 * MIN, true, "a button")
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.wake.id, id);
+    assert_eq!(exec(&w, &e.id).wakes.len(), 1);
+}
+
+#[test]
+fn a_double_tap_of_a_fired_reminders_snooze_is_one_wake() {
+    let w = world_with(cfg());
+    let (e, id) = fired_once(&w);
+    let due = w.kernel.now_ms() + 10 * MIN;
+    std::thread::scope(|s| {
+        for _ in 0..2 {
+            s.spawn(|| {
+                w.kernel
+                    .snooze_wake(&e.id, &id, due, true, "a button")
+                    .unwrap()
+                    .unwrap();
+            });
+        }
+    });
+    assert_eq!(
+        exec(&w, &e.id).wakes.len(),
+        1,
+        "{:?}",
+        exec(&w, &e.id).wakes
+    );
+}
+
+fn daily(w: &World) -> (Execution, String) {
+    let (e, _) = with_reminder(w, 5 * DAY);
+    let first = w.kernel.now_ms() + DAY;
+    let set = w
+        .kernel
+        .create_wake(
+            &e.id,
+            None,
+            NewWake {
+                due_at_ms: first,
+                note: "water the plants".into(),
+                repeat: Some(Repeat {
+                    every: Every::parse("1d").unwrap(),
+                    first_ms: first,
+                    days: vec![],
+                    until_ms: None,
+                    cron: None,
+                }),
+                purpose: Purpose::Remind,
+                run: WakeRun::Notice,
+                ..Default::default()
+            },
+            "the CLI",
+        )
+        .unwrap();
+    (e, set.wake.id)
+}
+
+/// A series' fired occurrence snoozed twice (its notice's button, the CLI) is ONE
+/// extra wake, under an id of its own, moved by the second; the next occurrence
+/// that fires is snoozed into a copy of its own. The record tells the occurrences
+/// apart by their due time and number.
+#[test]
+fn a_series_occurrence_snoozed_twice_is_one_extra_wake_and_the_next_occurrence_gets_its_own() {
+    let w = world_with(cfg());
+    let (e, id) = daily(&w);
+    w.clock.set(w.kernel.now_ms() + DAY + 1_000);
+    assert_eq!(
+        w.kernel
+            .fire_notices(&e.id, post_of)
+            .unwrap()
+            .iter()
+            .filter(|n| n.fired.wake.id == id)
+            .count(),
+        1
+    );
+    let extra = |w: &World| {
+        exec(w, &e.id)
+            .wakes
+            .into_iter()
+            .filter(|x| x.id != id && x.note == "water the plants")
+            .collect::<Vec<_>>()
+    };
+    let first = w
+        .kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 30 * MIN, true, "a button")
+        .unwrap()
+        .unwrap();
+    assert_ne!(first.wake.id, id, "the series goes on under its own id");
+    let second = w
+        .kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 50 * MIN, true, "the CLI")
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.wake.id, first.wake.id, "the same copy, moved");
+    let copies = extra(&w);
+    assert_eq!(copies.len(), 1, "one extra occurrence, not two: {copies:?}");
+    assert_eq!(copies[0].due_at_ms, w.kernel.now_ms() + 50 * MIN);
+    assert!(
+        exec(&w, &e.id).wakes.iter().any(|x| x.id == id),
+        "the series stands"
+    );
+    // The copy fires; the next occurrence of the series fires a day later and
+    // its own snooze is a new copy.
+    w.clock.set(w.kernel.now_ms() + DAY);
+    w.kernel.fire_notices(&e.id, post_of).unwrap();
+    let next = w
+        .kernel
+        .snooze_wake(&e.id, &id, w.kernel.now_ms() + 30 * MIN, true, "a button")
+        .unwrap()
+        .unwrap();
+    assert_ne!(next.wake.id, first.wake.id, "a new occurrence, a new copy");
+}
+
 #[test]
 fn a_task_is_refused_with_words_and_a_probe_is_a_watch() {
     let w = world_with(cfg());
