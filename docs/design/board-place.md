@@ -82,7 +82,7 @@ at once and each after them 2 s after the one before (`BURST`, `SPACE`): twenty 
 home's channel half its bucket (five in five seconds) for a task's report; no reply waits, since the worker is not the lane.
 (It writes with the client directly, as the forum worker does, because the lane's writes return no message id to edit later.)
 
-**Restart.** META `discord.sched` lists each item: its card, the digest last sent, the kind, the time, who cancelled. A create carries the
+**Restart.** A card or a forum post made at Discord and not yet recorded is found again, not made twice: an intent (`discord.sched_intents`, `discord.post_intents`) is written before each create and read back first. A card is found by its own acts (a button on the item's full id) or, ended, by its footer, never the pinned board that lists the same task; a post by a thread the bot owns, in that forum, with the item's short id in its name; nothing is adopted while the bot's own id is unknown. META `discord.sched` lists each item: its card, the digest last sent, the kind, the time, who cancelled. A create carries the
 nonce `sched:<id>` with `enforce_nonce`, so a card made while the list was lost is the same message; a card Discord lost is made again
 under `sched:<id>:<old message>`. An item that fired or was cancelled while the daemon was down is nowhere in the snapshot and its card is
 edited once to its true end (a wake that was due is "fired", one that was not is "cancelled"), once the work model has been read
