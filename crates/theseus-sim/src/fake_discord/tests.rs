@@ -320,6 +320,73 @@ fn an_answer_with_no_first_response_is_refused_and_a_deferred_update_edits_the_p
     assert!(m.buttons.is_empty(), "the card's buttons went");
 }
 
+/// An edit that completes a deferred update is held to the rules of the service as any edit is: one the service
+/// would refuse (words on a Components V2 card) is answered with the refusal, and the card is as it was.
+#[test]
+fn a_completion_the_service_refuses_is_refused_and_leaves_the_card() {
+    let fake = FakeDiscord::start();
+    let call = |ty: u64| {
+        http(
+            &fake.addr,
+            "POST",
+            &format!("/api/v10/interactions/701/{TOKEN_PREFIX}701/callback"),
+            &json!({"type": ty, "data": {}}),
+        )
+    };
+    let edit = |body: Value| {
+        http(
+            &fake.addr,
+            "PATCH",
+            &format!("/api/v10/webhooks/{APP_ID}/{TOKEN_PREFIX}701/messages/@original"),
+            &body,
+        )
+    };
+    fake.state
+        .lock()
+        .unwrap()
+        .arrived
+        .insert("701".into(), std::time::Instant::now());
+    let card = Msg {
+        id: "9101".into(),
+        channel: "9100".into(),
+        content: "the card's words".into(),
+        nonce: None,
+        components: 1,
+        reply_to: None,
+        edits: 0,
+        created_ms: 0,
+        allowed_mentions: Value::Null,
+        mentions: vec![],
+        author: BOT_ID.to_string(),
+        versions: vec!["the card's words".into()],
+        buttons: vec![],
+        components_json: Value::Null,
+        pinned: false,
+        flags: 1 << 15,
+        hook: None,
+    };
+    {
+        let mut st = fake.state.lock().unwrap();
+        st.messages.push(card);
+        st.pressed_message.insert("701".into(), "9101".into());
+    }
+    assert_eq!(call(6).0, 204);
+    let (status, body) = edit(json!({"content": "words on a V2 card", "components": []}));
+    assert_eq!((status, &body["code"]), (400, &json!(50035)), "{body}");
+    let m = fake
+        .all_messages()
+        .into_iter()
+        .find(|m| m.id == "9101")
+        .unwrap();
+    assert_eq!(m.versions, ["the card's words"], "the card is as it was");
+    assert!(
+        fake.replies()
+            .iter()
+            .any(|r| r.kind.starts_with("original refused")),
+        "kept apart from the answers"
+    );
+}
+
 /// theseus-qifw: a message keeps each content it had, in order, and its
 /// buttons until an edit takes them away.
 #[test]
