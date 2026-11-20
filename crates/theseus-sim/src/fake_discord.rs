@@ -738,6 +738,29 @@ impl FakeDiscord {
         self.state.lock().unwrap().drop_held
     }
 
+    /// A create held at the stand-in to be dropped (`drop_message_creates_containing`):
+    /// true when it waited, and so is to be dropped unapplied and unanswered.
+    fn held_to_drop(&self, body: &Value) -> bool {
+        let said = format!(
+            "{}{}",
+            body["content"].as_str().unwrap_or_default(),
+            v2_text(&body["components"])
+        );
+        if !self.dropping(&said) {
+            return false;
+        }
+        self.state.lock().unwrap().drop_held += 1;
+        for _ in 0..60_000 {
+            if !self.dropping(&said) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut st = self.state.lock().unwrap();
+        st.drop_held = st.drop_held.saturating_sub(1);
+        true
+    }
+
     /// Whether a message create of `content` is held to be dropped now.
     fn dropping(&self, content: &str) -> bool {
         let st = self.state.lock().unwrap();
@@ -1297,6 +1320,8 @@ impl FakeDiscord {
                 self.interaction_route(stream, &method, &segs, &body)
             }
             ("POST", ["channels", c, "typing"]) => self.typing_route(stream, c),
+            // A create held to be dropped waits, then is dropped unapplied.
+            ("POST", ["channels", _, "messages"]) if self.held_to_drop(&body) => Ok(()),
             ("POST", ["channels", c, "messages"]) => self.create(stream, c, &body, mode),
             ("PATCH", ["channels", c, "messages", m]) => self.edit(stream, c, m, &body),
             ("DELETE", ["channels", c, "messages", m]) => self.message_delete(stream, route, c, m),
@@ -1375,23 +1400,6 @@ impl FakeDiscord {
                 &json!({"message": "Invalid Form Body", "code": 50035,
                 "errors": {"components": why}}),
             );
-        }
-        let said = format!(
-            "{}{}",
-            body["content"].as_str().unwrap_or_default(),
-            v2_text(&body["components"])
-        );
-        if self.dropping(&said) {
-            self.state.lock().unwrap().drop_held += 1;
-            for _ in 0..60_000 {
-                if !self.dropping(&said) {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            let mut st = self.state.lock().unwrap();
-            st.drop_held = st.drop_held.saturating_sub(1);
-            return Ok(());
         }
         let nonce = match &body["nonce"] {
             Value::String(s) => Some(s.clone()),

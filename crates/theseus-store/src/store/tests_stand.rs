@@ -107,3 +107,46 @@ fn stats_answer_while_the_writer_is_inside_its_write() {
         "and moved when it landed"
     );
 }
+
+/// A position asked on a runtime worker while the writer is held in a frame's write (the lock a stalled disk holds)
+/// is waited for without holding the worker: on a runtime of ONE worker another task still runs, and when the write
+/// lands the caller reads the position after it, the same locked read it always was. The caller says it has begun
+/// before it asks, and the lock is held, so it cannot return: the worker is free for another task only if it was
+/// handed on, and no task is spawned before the caller has the worker.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_position_asked_on_the_worker_waits_without_holding_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Arc::new(small_segments(dir.path()));
+    s.append(&[rec(0)]).unwrap();
+    let gate = s.inner.wal.hold_writes();
+    let appended = {
+        let s = s.clone();
+        std::thread::spawn(move || s.append(&[rec(1)]).unwrap())
+    };
+    gate.entered();
+    let (begun, began) = mpsc::channel();
+    let asked = {
+        let s = s.clone();
+        tokio::spawn(async move {
+            begun.send(()).unwrap();
+            s.last_position()
+        })
+    };
+    began.recv().unwrap();
+    // Waited for on this thread, not with a timer of the runtime: a worker that was held would hold the timer too.
+    let (done, ran) = mpsc::channel();
+    tokio::spawn(async move { done.send(7).unwrap() });
+    let ran = ran.recv_timeout(Duration::from_secs(20));
+    gate.release();
+    assert_eq!(
+        ran,
+        Ok(7),
+        "another task ran on the one worker while the position was waited for"
+    );
+    appended.join().unwrap();
+    assert_eq!(
+        asked.await.unwrap(),
+        2,
+        "the position after the write it waited for"
+    );
+}

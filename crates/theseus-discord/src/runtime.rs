@@ -1027,12 +1027,6 @@ impl Shared {
         self.bot_id.load(Ordering::Relaxed)
     }
 
-    /// A test says the bot's own id is, or is not, known yet.
-    #[cfg(test)]
-    pub(crate) fn set_bot_id_for_tests(&self, id: u64) {
-        self.bot_id.store(id, Ordering::Relaxed);
-    }
-
     /// The DM channel with `user`: known, or opened now (REST only).
     pub(crate) async fn dm_channel(&self, user: u64) -> Result<u64, SendErr> {
         if let Some(c) = self.routes.lock().unwrap().dm_channel.get(&user).copied() {

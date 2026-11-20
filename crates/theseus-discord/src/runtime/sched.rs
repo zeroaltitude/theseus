@@ -182,6 +182,12 @@ fn is_item(v: &WorkView) -> bool {
 }
 
 impl Shared {
+    /// A test says the bot's own id is, or is not, known yet.
+    #[cfg(test)]
+    pub(crate) fn set_bot_id_for_tests(&self, id: u64) {
+        self.bot_id.store(id, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Where the cards go: the task home's channel, guild and name, while it
     /// stands and the owner's DM place draws into it (and the bot can send V2).
     pub(crate) fn sched_target(&self) -> Option<(u64, String, String)> {

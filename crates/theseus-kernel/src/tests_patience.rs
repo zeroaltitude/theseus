@@ -150,16 +150,16 @@ fn the_wrapper_never_sleeps_longer_than_one_look_of_the_output() {
     );
 }
 
-/// The silence runs from the byte, not from the look that saw it: a job that prints once, half way to its
-/// limit, is cut one limit after that byte and one look at most, never a whole limit later. The window is held
-/// open by hand: the byte lands at a moment the test chooses, the loop is the wrapper's own (`check`, then
-/// sleep as long as `sleep` says), and the cut is read against the byte's own instant. Before the look was
-/// bounded the first look came a whole limit in, saw the byte there, and the cut came a limit after THAT: half
-/// a limit late, 300 ms of 600.
+/// The silence runs from the byte, not from the look that saw it: a job that prints once, after the wrapper has
+/// worked out how long to sleep, is cut one limit after that byte and one look at most, never a whole limit later.
+/// The window is held open by a gate, not a clock: the loop is the wrapper's own (`check`, then sleep as long as
+/// `sleep` said), and the byte is set after the first sleep has been worked out and before it is slept (the
+/// loop waits for the byte's instant, so a starved thread moves the byte, never the order). Before the look was
+/// bounded the first sleep was a whole limit, the byte was seen at its end, and the cut came a limit after THAT.
 #[test]
 fn a_byte_printed_early_starts_the_silence_at_the_byte_not_at_the_next_look() {
     use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{mpsc, Arc};
 
     use crate::patience::Patience;
 
@@ -168,26 +168,30 @@ fn a_byte_printed_early_starts_the_silence_at_the_byte_not_at_the_next_look() {
     let counted = bytes.clone();
     let mut p = Patience::silence(600, Instant::now(), move || counted.load(SeqCst));
     let look = p.look();
-    let printed: Arc<Mutex<Option<Instant>>> = Arc::default();
-    let (when, put) = (printed.clone(), bytes);
+    let (go, gone) = mpsc::channel::<()>();
+    let (said, at) = mpsc::channel::<Instant>();
     let writer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
-        *when.lock().unwrap() = Some(Instant::now());
-        put.store(1, SeqCst);
+        gone.recv().unwrap();
+        let byte = Instant::now();
+        bytes.store(1, SeqCst);
+        said.send(byte).unwrap();
     });
     let busy = theseus_tools::Busy::before();
+    let mut byte = None;
     let cut = loop {
         if let Some(cut) = p.check() {
             break cut;
         }
-        std::thread::sleep(p.sleep());
+        let nap = p.sleep();
+        if byte.is_none() {
+            go.send(()).unwrap();
+            byte = Some(at.recv().unwrap());
+        }
+        std::thread::sleep(nap);
     };
     let seen_at = Instant::now();
     writer.join().unwrap();
-    let byte = printed
-        .lock()
-        .unwrap()
-        .expect("the byte was written before the cut");
+    let byte = byte.unwrap();
     assert!(matches!(cut, crate::patience::Cut::Silent(_)), "{cut:?}");
     let quiet = seen_at - byte;
     assert!(
