@@ -1610,3 +1610,92 @@ async fn a_post_the_owner_deleted_while_its_item_stands_is_made_again() {
     .await;
     assert_eq!(posts_about(&r, forum, "tide check"), 1);
 }
+
+/// A series' occurrence that fired is snoozed twice (its notice's button, then
+/// the CLI): the series stands, and the occurrence is ONE extra reminder, with
+/// one card and one post of its own, moved by the second snooze (the review's
+/// N-c; the kernel's link is proven in its own test).
+#[tokio::test]
+async fn two_snoozes_of_a_fired_series_occurrence_give_one_extra_card_and_one_post() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let forum = forum_up(&r).await;
+    let made: WakeEditResult = rpc(&r)
+        .call(
+            theseus_protocol::method::WAKE_CREATE,
+            WakeCreateParams {
+                when: "in 3s".into(),
+                note: "water the plants".into(),
+                every: Some("30m".into()),
+                session_id: Some(session_of_place(&r, &format!("dm:{ANA}"))),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let series = made.wake.wake_id;
+    r.until("the series' card and post", || {
+        card(&r, home, "water the plants").is_some()
+            && posts_about(&r, forum, "water the plants") == 1
+    })
+    .await;
+    r.until("the occurrence fired", || {
+        !r.ledger("wake.fired").is_empty()
+    })
+    .await;
+    snooze_fired(&r, &series, "in 90m").await;
+    r.until("the occurrence's own card and post", || {
+        cards(&r, home).len() == 2 && posts_about(&r, forum, "water the plants") == 2
+    })
+    .await;
+    snooze_fired(&r, &series, "in 120m").await;
+    // Time for any third card or post to be made.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(
+        pending_notes(&r, "water the plants"),
+        2,
+        "the series and one extra"
+    );
+    assert_eq!(cards(&r, home).len(), 2, "{:#?}", cards(&r, home));
+    assert_eq!(posts_about(&r, forum, "water the plants"), 2);
+}
+
+/// A card made at Discord before a stop of days (its entry never saved) is
+/// found after it by its intent, and no second is made: a card never archives,
+/// so the intent is not dropped by its age (the review's R3). Discord's nonce
+/// window is closed, as the real one is by then.
+#[tokio::test]
+async fn a_card_made_before_a_stop_of_days_is_found_after_it_not_made_again() {
+    let r = two_places("theseus-tasks").await;
+    let home = home_up(&r).await;
+    let wake = remind(&r, "tide check", "in 90m").await;
+    r.until("its card", || card(&r, home, "tide check").is_some())
+        .await;
+    let first = card(&r, home, "tide check").unwrap();
+    r.fake.set_nonce_window_ms(1);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    r.core
+        .store
+        .put_meta("discord.sched", &Vec::<crate::runtime::sched::Rec>::new())
+        .unwrap();
+    let nine_days = 9 * 24 * 3_600_000;
+    r.core
+        .store
+        .put_meta(
+            "discord.sched_intents",
+            &serde_json::json!([{"id": wake, "channel": home,
+                                 "at_ms": theseus_protocol::now_unix_ms() - nine_days}]),
+        )
+        .unwrap();
+    let shared = crate::runtime::task_home::daemon_for_tests(&r.core).expect("the binding runs");
+    let mut pass = crate::runtime::sched::Worker::fresh(shared);
+    assert!(pass.sync().await);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        cards(&r, home).len(),
+        1,
+        "no second card: {:#?}",
+        cards(&r, home)
+    );
+    assert_eq!(card(&r, home, "tide check").unwrap().id, first.id);
+}

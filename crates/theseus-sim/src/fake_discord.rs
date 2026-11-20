@@ -567,6 +567,9 @@ struct State {
     /// creates wait there now.
     thread_hold: Option<threads::HoldAt>,
     thread_held: usize,
+    /// The same for a guild channel's create (`hold_channel_creates`).
+    channel_hold: Option<threads::HoldAt>,
+    channel_held: usize,
     /// Threads the owner deleted (`delete_thread`): an edit of one answers 404.
     deleted_threads: Vec<u64>,
     /// An edit of a thread answers 403, as a bot without Manage Threads is

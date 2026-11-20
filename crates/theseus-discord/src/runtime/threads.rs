@@ -38,6 +38,9 @@
 //!   does any message the task refuses once it is over (`execution_*`). Both
 //!   carry the shared redirect line (`task_redirect_line`), and the thread says
 //!   so. The thread's first line links back to the channel.
+//! - **Once across a kill.** A thread or a channel is written as an intent
+//!   before its create and found again after a kill, not made twice
+//!   (`threads/intent.rs`).
 //! - **Pace.** A create and a rename each cost one request; a task's changes
 //!   cost none (the sync only reads the model). A failed create backs off
 //!   `RETRY` and the task goes on in the channel as before.
@@ -62,6 +65,8 @@ use super::task_channels::{Chan, Why};
 use super::{show, Place, PlaceMsg, Shared};
 use crate::courier::LaneMsg;
 use crate::render::board_v2;
+
+mod intent;
 
 /// A task thread archives itself after a day of quiet.
 const ARCHIVE: AutoArchiveDuration = AutoArchiveDuration::Day;
@@ -237,6 +242,8 @@ pub(crate) struct TaskThreads {
     started_ms: OnceLock<u64>,
     /// What task channels need beside the rows (theseus-bh3t.1).
     pub(super) chan: Chan,
+    /// The places being made: written before a create, off once its row is.
+    intents: Mutex<Vec<intent::Intent>>,
 }
 
 impl TaskThreads {
@@ -273,6 +280,7 @@ impl TaskThreads {
             })
             .collect();
         i.urls.extend(urls);
+        self.load_intents(store, &i.made, now);
     }
 
     /// A channel's `task_threads`, from the bindings file.
@@ -421,7 +429,7 @@ impl TaskThreads {
         self.inner.lock().unwrap().places.remove(session);
     }
 
-    fn failed(&self, task: &str) {
+    pub(super) fn failed(&self, task: &str) {
         let mut i = self.inner.lock().unwrap();
         i.busy.remove(task);
         i.failed.insert(task.to_string(), Instant::now() + RETRY);
@@ -664,10 +672,7 @@ impl Shared {
         self.watch(&session).await;
         let created = match home {
             Home::Post => self.task_posts.make(v.clone()).await,
-            _ => {
-                self.guild_thread_create(p.channel, &name, "", ARCHIVE)
-                    .await
-            }
+            _ => self.thread_once(p.channel, &v.id, &name).await,
         };
         match created {
             Ok((thread, guild)) => {
@@ -688,6 +693,8 @@ impl Shared {
                 };
                 self.task_threads.add(m.clone());
                 self.task_threads.save(&self.core.store);
+                self.task_threads
+                    .relieve(&self.core.store, &v.id, PlaceKind::Thread);
                 if let Err(e) = self
                     .core
                     .outbox

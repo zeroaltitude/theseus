@@ -32,7 +32,9 @@
 //! - **Fallbacks.** A 403 turns channels off until the next start (the owner
 //!   gets one DM line saying which permissions are missing) and the task goes
 //!   on as before; so does a task past `task_channel_cap` open channels, and
-//!   one whose create failed otherwise.
+//!   one whose create failed otherwise. A create that may have gone through
+//!   (a timeout, a 5xx) is no failure: the task is tried again after `RETRY`
+//!   and has no thread meanwhile (`threads/intent.rs`).
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -109,6 +111,10 @@ fn working(v: &WorkView) -> bool {
 pub(crate) enum Refused {
     Forbidden,
     Other(String),
+    /// The create may have gone through, or the read that tells whether it
+    /// did has not: the task is tried again later and has no thread meanwhile
+    /// (`threads::intent`).
+    Unsure(String),
 }
 
 impl Refused {
@@ -122,6 +128,15 @@ impl Refused {
 
     fn other(e: impl std::fmt::Display) -> Self {
         Self::Other(e.to_string())
+    }
+
+    /// What the channel's own create said: as `of`, but a create that may
+    /// have made the channel (a timeout, a 5xx) is not a failure to fall back on.
+    fn of_create(e: &twilight_http::Error) -> Self {
+        match crate::courier::SendErr::of(e).unsure {
+            true => Self::Unsure(e.to_string()),
+            false => Self::of(e),
+        }
     }
 }
 
@@ -224,7 +239,7 @@ pub(crate) fn channel_name(mark: Mark, task: &str, title: &str) -> String {
 }
 
 /// The channel's topic: the task's title and its short id.
-fn topic(task: &str, title: &str) -> String {
+pub(super) fn topic(task: &str, title: &str) -> String {
     format!("{} · …{}", clip(title), board_v2::short(task))
 }
 
@@ -364,7 +379,7 @@ impl Shared {
             match made {
                 Ok(r) => return Ok(r.model().await.map_err(Refused::other)?.id.get()),
                 Err(e) if !fresh && missing(&e) => fresh = true,
-                Err(e) => return Err(Refused::of(&e)),
+                Err(e) => return Err(Refused::of_create(&e)),
             }
         }
     }
@@ -467,9 +482,19 @@ impl Shared {
             self.task_threads.running(&session, mailbox.0.clone());
             self.watch(&session).await;
         }
-        let made = self.task_channel_create(guild, &name, &v).await;
+        let made = self.channel_once(guild, &name, &v).await;
         let channel = match made {
             Ok(c) => c,
+            Err(Refused::Unsure(why)) => {
+                // Nothing is known of it: no thread meanwhile, tried again later.
+                self.board.error("task channel", Some(&session), why);
+                if from.is_none() {
+                    self.task_threads.not_running(&session);
+                }
+                self.task_threads.failed(&v.id);
+                self.task_threads.chan.end(&v.id, false);
+                return;
+            }
             Err(why_not) => {
                 if from.is_none() {
                     self.task_threads.not_running(&session);
@@ -494,6 +519,8 @@ impl Shared {
         };
         self.task_threads.add(m.clone());
         self.task_threads.save(&self.core.store);
+        self.task_threads
+            .relieve(&self.core.store, &v.id, PlaceKind::Channel);
         if from.is_some() {
             self.task_threads.running(&session, mailbox.0.clone());
             self.watch(&session).await;
@@ -547,7 +574,9 @@ impl Shared {
                     self.say_to(&self.owner_dm_target(p), line, &p.session);
                 }
             }
-            Refused::Other(e) => self.board.error("task channel", v.session_id.as_deref(), e),
+            Refused::Other(e) | Refused::Unsure(e) => {
+                self.board.error("task channel", v.session_id.as_deref(), e)
+            }
         }
         self.task_threads.chan.end(&v.id, true);
         self.task_threads.settle(&v.id);
@@ -639,7 +668,9 @@ impl Shared {
                     self.say_to(&target, line, &m.session);
                 }
             }
-            Err(Refused::Other(e)) => self.board.error("task channel", Some(&m.session), e),
+            Err(Refused::Other(e) | Refused::Unsure(e)) => {
+                self.board.error("task channel", Some(&m.session), e)
+            }
         }
         self.task_threads.update(&m.task, |x| {
             x.name.clone_from(&name);
