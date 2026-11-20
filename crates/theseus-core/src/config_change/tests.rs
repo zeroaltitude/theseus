@@ -96,6 +96,8 @@ struct Model {
     agent_call: Mutex<Option<(String, Value)>>,
     /// The tool names each agent request offered, by wire name.
     agent_tools: Mutex<Vec<Vec<String>>>,
+    /// Every request the turn's own model was asked, whole, in order.
+    requests: Mutex<Vec<ProviderRequest>>,
 }
 
 impl Model {
@@ -166,6 +168,7 @@ impl Provider for Model {
                     .await
             });
         }
+        self.requests.lock().unwrap().push(req.clone());
         if let Some(f) = self.first_request.lock().unwrap().take() {
             f();
         }
@@ -290,6 +293,7 @@ fn rig_in(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config, &std::path::Pa
         gate: Mutex::default(),
         agent_call: Mutex::default(),
         agent_tools: Mutex::default(),
+        requests: Mutex::default(),
     });
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
     Rig {
@@ -359,6 +363,12 @@ impl Rig {
     /// result quotes the result.
     pub(super) fn answers_plain(&self, said: &str) {
         *self.model.plain.lock().unwrap() = Some(said.into());
+    }
+
+    /// What the turn's own model was given in each request it was asked, as the provider's messages.
+    pub(super) fn requests(&self) -> Vec<Vec<Value>> {
+        let all = self.model.requests.lock().unwrap();
+        all.iter().map(|r| r.messages.clone()).collect()
     }
 
     /// The requests a model with no tool offered was asked.

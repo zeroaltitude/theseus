@@ -62,6 +62,25 @@ struct Applied {
     pending: Option<Pending>,
 }
 
+/// Who asked the question, and where, as a ledger row names it.
+fn asked_by(a: &Action, args: &Value) -> Value {
+    json!({"session_id": a.session_id, "execution_id": a.execution_id,
+           "turn_id": args["asked_by"]["turn_id"], "place": args["asked_by"]["place"]})
+}
+
+/// The note a keep card's conversation reads when its card ends here (declined, or expired): none for
+/// any other question, or for a yes.
+fn keep_note(a: &Action, answer: &Answer<'_>, note: Option<&str>) -> Result<Option<NewRecord>> {
+    let told = match answer {
+        Answer::No(_) => "the owner declined it. Nothing was kept.".to_string(),
+        Answer::Expired(why) => format!("it expired: {why}. Nothing was kept."),
+        Answer::Yes => note.unwrap_or_default().to_string(),
+    };
+    super::vault_keep::told(a, &told)
+        .map(|n| n.record())
+        .transpose()
+}
+
 /// The `config.undone` record a yes to an undo writes beside `config.changed`:
 /// none for any other question, or for an answer that wrote nothing.
 fn undone_row(
@@ -273,8 +292,7 @@ impl Core {
         let approve = applied.is_some();
         let session = Some(a.session_id.as_str());
         let corr = a.correlation_id.as_str();
-        let who = json!({"session_id": a.session_id, "execution_id": a.execution_id,
-                         "turn_id": args["asked_by"]["turn_id"], "place": args["asked_by"]["place"]});
+        let who = asked_by(a, &args);
         let row = match &applied {
             Some(d) => LedgerRow::new(
                 LedgerKind::ConfigChanged,
@@ -319,6 +337,7 @@ impl Core {
         ];
         // An undo that was written names the change it undid.
         rows.extend(undone_row(a, approve, &args, &who, by, via)?);
+        rows.extend(keep_note(a, &answer, note.as_deref())?);
         // A server attached or removed by asking: who did it rides in the frame.
         let live = match applied.is_some() {
             true => self.mcp_prepare(&args, by, via, &a.session_id)?,
