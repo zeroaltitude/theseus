@@ -717,15 +717,7 @@ fn update<'a>(
     if let Some(t) = i.patch.title {
         rec.title = t.trim().to_string();
         fields.push("title");
-        // The new title is this session's model's words, whoever wrote the one before.
-        retitled = Some(
-            NewRecord::json(
-                kinds::META,
-                Some(&super::title_by_key(&rec.id)),
-                &tc.session_id,
-            )
-            .map_err(|e| format!("{e:#}"))?,
-        );
+        retitled = Some(retitle_mark(tc, &rec.id)?);
     }
     if let Some(d) = i.patch.deps {
         rec.deps = d;
@@ -783,6 +775,17 @@ fn update<'a>(
     );
     done.meta = json!({"task": rec.id, "version": rec.version, "from": from, "fields": fields});
     Ok(done)
+}
+
+/// The mark that says the new title is this session's model's words, whoever wrote the one before
+/// (`task_graph::title_hand`), for the frame of the edit.
+fn retitle_mark(tc: &TurnCtx<'_>, task: &str) -> Result<NewRecord, String> {
+    NewRecord::json(
+        kinds::META,
+        Some(&super::title_by_key(task)),
+        &tc.session_id,
+    )
+    .map_err(|e| format!("{e:#}"))
 }
 
 /// `task.split`: children under the task, which moves a version.
