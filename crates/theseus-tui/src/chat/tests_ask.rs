@@ -464,6 +464,27 @@ async fn a_stop_that_reached_nothing_past_the_turn_says_what_it_always_did() {
     }
 }
 
+/// An agent the stopped turn handed work to is said to be still working, in the one wording the CLI and the
+/// other surfaces use, with its own cancel.
+#[tokio::test(start_paused = true)]
+async fn a_stop_says_an_agent_the_turn_handed_work_to_is_still_working() {
+    let mut r = stop_that_reached();
+    (r.cancelled, r.left_ended, r.left_kept) = (vec![], vec![], vec![]);
+    r.agents_running = vec![theseus_protocol::StopAgent {
+        profile: "haiku".into(),
+        model: "claude-haiku-5-5".into(),
+        task: "a1b2c3".into(),
+    }];
+    let said = esc_answered(&r).await;
+    assert!(
+        said.contains(
+            "verified: 2 processes ended · The agent haiku, handed work (claude-haiku-5-5), is \
+             still working: `theseus cancel a1b2c3` stops it."
+        ),
+        "{said}"
+    );
+}
+
 /// The three surfaces that word a stop must not drift: the chat pane says the
 /// reach of a stop (tasks cancelled, jobs ended, jobs kept and on whose word)
 /// exactly as `theseus stop` prints it, in the same order.

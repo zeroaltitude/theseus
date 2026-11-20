@@ -350,8 +350,10 @@ impl Board {
                         turn: &turn,
                         restricted,
                     };
-                    let said = work::words(&core, &who, &ask).await;
-                    Ok((output(said, WORK), None, None))
+                    work::words(&core, &who, &ask)
+                        .await
+                        .map(|said| (output(said, WORK), None, None))
+                        .map_err(ToolFailure::new)
                 })
             }
             _ => {

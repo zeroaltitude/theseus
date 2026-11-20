@@ -17,8 +17,7 @@ use serde_json::{json, Value};
 const KEY_VAR: &str = "THESEUS_WHY_TEST_KEY";
 
 fn cli(dir: &std::path::Path, args: &[&str]) -> (String, String, i32) {
-    let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--socket")
         .arg(dir.join("sock"))
         .args(args)

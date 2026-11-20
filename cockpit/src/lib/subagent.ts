@@ -38,6 +38,7 @@ export function subagentBits(a: SubagentAnswer, detail: unknown): string[] {
 export function subagentFooter(a: SubagentAnswer): string[] {
   const bits = [a.profile, a.model, a.asked_by ? `subagent answer, asked by ${a.asked_by}` : 'subagent answer']
   if (a.cut) bits.push('cut at its cap')
+  if (a.outcome) bits.push(a.outcome)
   if (a.cost_usd != null) bits.push(usd(a.cost_usd))
   bits.push(`${(a.elapsed_ms / 1000).toFixed(1)} s`)
   return bits

@@ -638,6 +638,17 @@ pub fn judges(tool: &str) -> bool {
     !UNJUDGED_TOOLS.contains(&tool)
 }
 
+/// Whose words a stored text is, as the record that holds it proves (`look.work` decides a held word by it,
+/// never by the conversation that merely holds the record): the owner's own, typed at their own surface,
+/// or a model's, in the session that wrote it. A text nothing proves the owner's is a model's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Hand {
+    /// The owner typed it, and no model has changed it.
+    Owner,
+    /// A model wrote it, in this session.
+    Model(String),
+}
+
 /// The authors whose user-role nodes are the harness talking to the model in
 /// **its own words** (theseus-sh1n3): a line Theseus composes out of its own
 /// state, with nothing in it that entered the session from outside. They are

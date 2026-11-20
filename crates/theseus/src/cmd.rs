@@ -2092,7 +2092,7 @@ mod tests {
         assert_eq!(
             stop_line(&handed),
             format!(
-                "{} · The agent haiku was handed work (claude-haiku-5-5) is still working: \
+                "{} · The agent haiku, handed work (claude-haiku-5-5), is still working: \
                  `theseus cancel d4e5f6` stops it.",
                 stop_line(&r)
             )

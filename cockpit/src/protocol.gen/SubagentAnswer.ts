@@ -33,4 +33,4 @@ call: string,
  * How the work ended, for an agent that was handed work as a task (`profile.run`): `cancelled` or
  * `failed`; empty for an answer and for work that was done.
  */
-outcome: string, };
+outcome?: string, };

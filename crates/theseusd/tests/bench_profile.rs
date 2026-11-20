@@ -66,7 +66,7 @@ struct Run {
 /// the adapter's run script runs it, to its end.
 fn ask(dir: &Path, prompt: &str) -> Run {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
-    let out = Command::new(theseusd.with_file_name("theseus"))
+    let out = Command::new(common::cli_bin())
         .arg("--spawn")
         .arg(&theseusd)
         .args(["--json", "ask", prompt])

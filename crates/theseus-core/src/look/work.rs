@@ -160,7 +160,11 @@ pub(super) fn schema() -> Value {
 
 /// The words for each part asked for: Theseus's whole work, this conversation's first, and its own
 /// messages (`session`'s).
-pub(super) async fn words(core: &std::sync::Arc<Core>, who: &Caller<'_>, ask: &Ask) -> String {
+pub(super) async fn words(
+    core: &std::sync::Arc<Core>,
+    who: &Caller<'_>,
+    ask: &Ask,
+) -> Result<String, String> {
     let session = who.session;
     let r = reader::Reader::new(core, session, who.restricted);
     let mut out = String::new();
@@ -184,10 +188,13 @@ pub(super) async fn words(core: &std::sync::Arc<Core>, who: &Caller<'_>, ask: &A
     // Another conversation's marked words, given to this one: it takes their flags on, before the result
     // is written, so no later turn on a model of restricted origin waits on a judgment of them.
     let at = theseus_protocol::now_unix_ms();
+    // With content judging switched off (`[content_based_security] session_flags = false`) no source
+    // raises a label and `cn_models` alone decides what a restricted model is sent, so none is taken.
     let flags = r.taken();
-    if !flags.is_empty() {
+    if !flags.is_empty() && !core.runner.judge.content_is_off() {
         let labels = flags
-            .into_iter()
+            .iter()
+            .copied()
             .map(|f| {
                 (
                     crate::content::deterministic::from_look(f, who.turn, at),
@@ -196,8 +203,21 @@ pub(super) async fn words(core: &std::sync::Arc<Core>, who: &Caller<'_>, ask: &A
             })
             .collect();
         core.runner.judge.land_deterministic(session, labels);
+        // A label that was not written is no label: words given without their flags are the gap this
+        // closes, so the look fails and gives none.
+        let now = crate::content_wait::flags_of(&core.store, session);
+        if flags
+            .iter()
+            .any(|f| !now.as_ref().is_some_and(|n| n.has(*f)))
+        {
+            return Err(
+                "look.work could not take on the flags of the conversations whose marked \
+                words it would give, so it gave none: try again"
+                    .into(),
+            );
+        }
     }
-    cut(out, ANSWER_CHARS)
+    Ok(cut(out, ANSWER_CHARS))
 }
 
 /// Who asks: the conversation, the turn, and whether the turn's own model is one the labels could keep

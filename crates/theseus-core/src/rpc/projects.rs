@@ -53,9 +53,16 @@ pub(super) fn failure(e: anyhow::Error) -> RpcFailure {
     }
 }
 
-/// What `Core::projects_upto` reads: the projects, each with the session its next milestone was written
-/// in, and how many older open ones were left unread.
-pub type ProjectsRead = (Vec<(ProjectInfo, Option<String>)>, usize);
+/// One project as `look.work` reads it: what `project.list` shows, and whose words its title and its next
+/// milestone's title are.
+pub struct ProjectRow {
+    pub info: ProjectInfo,
+    pub title: crate::content::Hand,
+    pub next: Option<crate::content::Hand>,
+}
+
+/// What `Core::projects_upto` reads: the projects, and how many older open ones were left unread.
+pub type ProjectsRead = (Vec<ProjectRow>, usize);
 
 impl Core {
     /// The projects' methods, by name.
@@ -221,10 +228,10 @@ impl Core {
     }
 
     /// The newest `limit` open projects as `look.work` reads them, in `project.list`'s order, and how
-    /// many older open ones were left unread: each with the session its next milestone was written in
-    /// (a milestone's words are that conversation's, a project's own title the owner's). The records
-    /// are decoded once, as `project.list` does; what is limited is the building of each project's
-    /// progress, which walks the records again for every project.
+    /// many older open ones were left unread. Each carries whose words its title is, and whose its next
+    /// milestone's is (`task_graph::title_hand`: the owner's, or the session of the model that wrote or
+    /// last retitled it). The records are decoded once, as `project.list` does; what is limited is the
+    /// building of each project's progress, which walks the records again for every project.
     pub fn projects_upto(&self, limit: usize) -> Result<ProjectsRead, RpcFailure> {
         let tasks = crate::task_graph::all(&self.store)?;
         let open: Vec<&TaskRecord> = tasks
@@ -232,17 +239,20 @@ impl Core {
             .filter(|t| project::is_project(t) && !t.state.is_closed())
             .collect();
         let older = open.len().saturating_sub(limit);
-        let shown = open
-            .into_iter()
-            .skip(older)
-            .map(|t| {
-                let next = project::progress::milestones(&tasks, &t.id)
-                    .into_iter()
-                    .find(|m| !m.state.is_closed())
-                    .map(|m| m.origin.session.clone());
-                (self.project_info(&tasks, t), next)
-            })
-            .collect();
+        let mut shown = Vec::new();
+        for t in open.into_iter().skip(older) {
+            let next = project::progress::milestones(&tasks, &t.id)
+                .into_iter()
+                .find(|m| !m.state.is_closed());
+            shown.push(ProjectRow {
+                info: self.project_info(&tasks, t),
+                title: crate::task_graph::title_hand(&self.store, t)?,
+                next: match next {
+                    Some(m) => Some(crate::task_graph::title_hand(&self.store, m)?),
+                    None => None,
+                },
+            });
+        }
         Ok((shown, older))
     }
 

@@ -388,3 +388,126 @@ async fn the_report_post_names_the_asking_conversation_and_turn() {
         "keyed to the task"
     );
 }
+
+/// The session's narrative lines so far, as one run of text.
+fn narrated(rx: &mut tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Message>) -> String {
+    std::iter::from_fn(|| rx.try_recv().ok())
+        .map(|m| format!("{m:?}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A stop that goes on to cancel the tasks says in the session's note that the agent was cancelled with
+/// them, and never that it is still working or that the task goes on; a plain stop's note says the agent
+/// goes on, as its answer does.
+#[tokio::test(start_paused = true)]
+async fn the_sessions_note_of_a_stop_that_cancels_the_agent_does_not_say_it_is_working() {
+    for all in [false, true] {
+        let r = rig_with(|cfg, _| cfg.narrative = true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(
+            r.core.narrator.watch("note", tx).is_some(),
+            "narration is on"
+        );
+        let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+        r.agents_report(REPORT, Some(gate));
+        let sid = r.session_at(PLACE);
+        let core = r.core.clone();
+        let stopper = async {
+            let mut exec = None;
+            for _ in 0..400 {
+                if let Some(t) = tasks(&r, &sid).first() {
+                    exec = t.parent.clone();
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+            let exec = exec.expect("the agent's task opened");
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            match all {
+                true => core.stop_execution_all(&exec, "tester").await.unwrap(),
+                false => core.stop_execution(&exec, "tester").await.unwrap(),
+            }
+        };
+        let (_, stop) = tokio::join!(
+            r.try_steps(&sid, vec![("profile_run", work("haiku"))]),
+            stopper
+        );
+        let note = narrated(&mut rx);
+        match all {
+            true => {
+                assert!(stop.agents_running.is_empty(), "{stop:?}");
+                // The words the note wrote before this branch said "(1 task and 0 wakes go on)".
+                assert!(
+                    !note.contains("still working")
+                        && !note.contains("1 task and")
+                        && !note.contains("wakes go on"),
+                    "{note}"
+                );
+                assert!(
+                    note.contains("Stop all by tester: 1 task cancelled"),
+                    "{note}"
+                );
+            }
+            false => assert!(note.contains("is still working: `theseus cancel"), "{note}"),
+        }
+    }
+}
+
+/// A stop-all whose cancel fails leaves the task going, and the note says so: the note of the stop was
+/// written before the cancels and says none goes on, so a line after them corrects it (the answer's
+/// own count is right too). The call ends with the cancel's error, after the line.
+#[tokio::test(start_paused = true)]
+async fn a_stop_all_whose_cancel_fails_says_the_task_goes_on() {
+    let r = rig_with(|cfg, _| cfg.narrative = true);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    assert!(
+        r.core.narrator.watch("note", tx).is_some(),
+        "narration is on"
+    );
+    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+    r.agents_report(REPORT, Some(gate));
+    let sid = r.session_at(PLACE);
+    let core = r.core.clone();
+    let stopper = async {
+        let mut found = None;
+        for _ in 0..400 {
+            if let Some(t) = tasks(&r, &sid).first() {
+                found = Some((t.parent.clone().unwrap(), t.session_id.clone()));
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        let (exec, task_session) = found.expect("the agent's task opened");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // The task's record cannot be read, so its cancel fails and the task goes on.
+        r.core
+            .store
+            .append(&[theseus_store::NewRecord::json(
+                theseus_store::kinds::SESSION,
+                Some(&task_session),
+                &json!("not a session"),
+            )
+            .unwrap()])
+            .unwrap();
+        core.stop_execution_all(&exec, "tester").await
+    };
+    let (_, stopped) = tokio::join!(
+        r.try_steps(&sid, vec![("profile_run", work("haiku"))]),
+        stopper
+    );
+    assert!(stopped.is_err(), "the cancel's error ends the call");
+    let note = narrated(&mut rx);
+    assert!(
+        note.contains("Stop all by tester: 1 task could not be cancelled and go on."),
+        "{note}"
+    );
+    assert!(
+        note.contains("is still working: `theseus cancel"),
+        "the agent is named: {note}"
+    );
+    assert!(
+        !note.contains("task cancelled with the conversation's stop"),
+        "no claim that it was cancelled: {note}"
+    );
+}
