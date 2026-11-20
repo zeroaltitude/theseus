@@ -16,9 +16,18 @@ pub const RUNNING: &str = "running";
 /// The reviewer checked by reading, and said so.
 pub const READING: &str = "reading";
 
+/// Whether `line` begins with `marker`, in any case, as a reviewer writes a line among its reasons:
+/// after a list number or bullet or a quote mark, in backticks or in emphasis, the colon inside or
+/// outside it (`1. CHECKED BY READING: x`, `> **CHECKED BY READING**: x`, `` `CHECKED BY READING:` x ``).
 fn starts(line: &str, marker: &str) -> bool {
-    line.trim()
-        .get(..marker.len())
+    let bare: String = line.chars().filter(|c| !matches!(c, '*' | '`')).collect();
+    let mut rest =
+        bare.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '>' | '-' | '#'));
+    let digits = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    if digits.len() < rest.len() && digits.starts_with(['.', ')']) {
+        rest = digits[1..].trim_start_matches(|c: char| c.is_whitespace() || c == '>');
+    }
+    rest.get(..marker.len())
         .is_some_and(|l| l.eq_ignore_ascii_case(marker))
 }
 

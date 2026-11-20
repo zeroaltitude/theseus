@@ -125,8 +125,8 @@ impl Outcome {
                  run this change's code in order to check this proof. Find, in the diff, at least \
                  one new or changed test whose assertion would fail if the fix's behaviour were \
                  wrong, and name that test and that assertion in a line that begins `CHECKED BY \
-                 READING:`. If there is none, reject, and say so. An accept without that line does \
-                 not count.",
+                 READING:`, as one of the reason lines after your `VERDICT:` line. If there is \
+                 none, reject, and say so. An accept without that line does not count.",
                 tests.join(", ")
             )),
             Outcome::BuildBroke { tests } => Some(format!(
@@ -143,13 +143,13 @@ impl Outcome {
                  `{scratch}/target`, and see at \
                  least one of them FAIL on its assertion. The experiment is not the branch: it \
                  changes only files under `{scratch}`, is thrown away with it, and nothing is \
-                 committed, pushed or written anywhere else. After it, your reasons must say, one \
-                 line each, `CHANGED:` what you changed, and `FAILED:` which test failed and on \
+                 committed, pushed or written anywhere else. After it, your reasons must say, as \
+                 reason lines after your `VERDICT:` line, one line each, `CHANGED:` what you changed, and `FAILED:` which test failed and on \
                  which assertion. If the named tests still pass with the behaviour broken, reject, \
                  and say: its tests do not check what the fix does. If you could not run the \
                  experiment (no way to break the behaviour without breaking the build, the build \
-                 could not be made, no time), say so in a line that begins `CHECKED BY READING \
-                 ONLY:` with the reason, and then find, in the diff, at least one new or changed \
+                 could not be made, no time), say so, as one of the reason lines after your \
+                 `VERDICT:` line, in a line that begins `CHECKED BY READING ONLY:` with the reason, and then find, in the diff, at least one new or changed \
                  test whose assertion would fail if the fix's behaviour were wrong, and name that \
                  test and that assertion in your reasons. If there is none, reject, and say so. An \
                  accept that gives neither the `CHANGED:` and `FAILED:` lines nor a `CHECKED BY \
@@ -297,6 +297,13 @@ impl Ran {
     }
 }
 
+/// Whether an inherited variable stays out of the child's environment: Theseus's own, and nextest's
+/// (`NEXTEST_PROFILE` and the rest, which a daemon or a test run under nextest holds, would make the
+/// child's `cargo nextest` look for a profile the branch's own tree has not got).
+fn not_for_the_child(name: &str) -> bool {
+    name.starts_with("THESEUS_") || name == "NEXTEST" || name.starts_with("NEXTEST_")
+}
+
 /// Runs a branch's tests in a tree, and says how they came out. Blocking.
 pub trait Tests: Send + Sync {
     fn run(&self, p: &Place, t: &Tree, tests: &[String]) -> Result<(Ran, String)>;
@@ -340,7 +347,7 @@ impl Tests for Cargo {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
         for (k, _) in std::env::vars_os() {
-            if k.to_string_lossy().starts_with("THESEUS_") {
+            if not_for_the_child(&k.to_string_lossy()) {
                 c.env_remove(&k);
             }
         }
@@ -664,6 +671,24 @@ pub fn run(p: &Place, tests: &dyn Tests, branch: &str, base: &str, head: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A variable of nextest's (its profile above all) or of Theseus's is not handed to the child's
+    /// `cargo nextest`: under `--profile flakehunt` the child would look for that profile in a tree
+    /// that has none, and exit 96.
+    #[test]
+    fn the_child_does_not_inherit_nextests_or_theseus_variables() {
+        for k in [
+            "NEXTEST_PROFILE",
+            "NEXTEST",
+            "NEXTEST_RUN_ID",
+            "THESEUS_STATE",
+        ] {
+            assert!(not_for_the_child(k), "{k}");
+        }
+        for k in ["PATH", "HOME", "CARGO_HOME", "RUSTUP_TOOLCHAIN", "NEXT"] {
+            assert!(!not_for_the_child(k), "{k}");
+        }
+    }
 
     #[test]
     fn test_paths_are_told_apart_from_the_fix() {

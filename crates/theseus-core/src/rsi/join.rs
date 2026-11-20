@@ -431,8 +431,9 @@ impl Run<'_> {
     }
 
     /// A stop that holds the head for the owner (`numbers.held`): the next
-    /// pass skips it. A halt, the lock, the planted revert and the review's
-    /// stops are tried again.
+    /// pass skips it. A halt and the lock are tried again; so are the planted
+    /// revert's and the review's stops, until the same one has repeated enough
+    /// times to be held (`stopped_planted`, `stopped_review`).
     fn hold(&mut self, phase: &str, why: &str, numbers: Value) {
         let mut n = match numbers {
             Value::Object(m) => Value::Object(m),

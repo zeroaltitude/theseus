@@ -132,7 +132,8 @@ async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_that_says_to_read_an
         "you must NOT build or run this change's code in order to check this proof",
         "at least one new or changed test whose assertion would fail if the fix's behaviour were \
          wrong",
-        "name that test and that assertion in a line that begins `CHECKED BY READING:`",
+        "name that test and that assertion in a line that begins `CHECKED BY READING:`, as one of \
+         the reason lines after your `VERDICT:` line",
         "If there is none, reject, and say so.",
         "An accept without that line does not count",
     ] {
@@ -176,6 +177,8 @@ fn the_experiments_text_runs_every_command_with_the_sandbox_on() {
         "`FAILED:` which test failed and on which assertion",
         "its tests do not check what the fix does",
         "`CHECKED BY READING ONLY:`",
+        "as one of the reason lines after your `VERDICT:` line",
+        "as reason lines after your `VERDICT:` line",
         "does not count",
     ] {
         assert!(text.contains(want), "{want}: {text}");
@@ -249,6 +252,57 @@ async fn only_a_build_broke_proof_needs_and_records_how_it_was_checked() {
     let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::Failed], true, &["it looks fine"]).await;
     assert_eq!(rows[0]["verdict"], "accept");
     assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
+}
+
+/// A real reply, as a reviewer writes it, through the verdict line's reading and then the proof's.
+fn judged(reply: &str, experiment: bool) -> (&'static str, Option<&'static str>) {
+    let (accept, reasons) = review::verdict_of(reply);
+    let built = Outcome::BuildBroke { tests: vec![] };
+    let (v, _, c) = super::proof_check::judge_with(&built, accept, reasons, experiment);
+    (v, c)
+}
+
+/// The marker is read the way a reviewer writes it: in backticks as the prompt prints it, after a
+/// list number, a bullet or a quote mark, in emphasis with the colon inside or outside it, in any
+/// case. Each is `reading` and the accept stands.
+#[test]
+fn the_marker_is_read_the_way_a_reviewer_writes_it() {
+    for line in [
+        "CHECKED BY READING: t asserts the return value",
+        "`CHECKED BY READING:` t asserts the return value",
+        "`CHECKED BY READING: t asserts the return value`",
+        "1. CHECKED BY READING: t asserts the return value",
+        "2) CHECKED BY READING: t asserts the return value",
+        "> CHECKED BY READING: t asserts the return value",
+        "**CHECKED BY READING**: t asserts the return value",
+        "**CHECKED BY READING:** t asserts the return value",
+        "- **CHECKED BY READING**: t asserts the return value",
+        "* `Checked by reading:` t asserts the return value",
+        "   checked by reading: t asserts the return value",
+        "- 1. > `**CHECKED BY READING ONLY:**` t asserts the return value",
+        "CHECKED BY READING:",
+    ] {
+        let reply = format!("It reads right.\nVERDICT: accept\n- the fix is small\n{line}\n");
+        assert_eq!(judged(&reply, false), ("accept", Some("reading")), "{line}");
+    }
+    // The experiment's lines too, when it is on.
+    let ran = "VERDICT: accept\n1. **CHANGED:** made f return 1\n> `FAILED:` t, on its assert_eq\n";
+    assert_eq!(judged(ran, true), ("accept", Some("running")));
+    assert_eq!(judged(ran, false), ("reject", None));
+}
+
+/// What is still not an accept: no marker at all, a marker that is not at the start of a line, and a
+/// marker above the verdict line (only the lines after it are the reasons, and the text says so).
+#[test]
+fn a_reply_that_does_not_say_how_it_checked_is_still_a_reject() {
+    for reply in [
+        "VERDICT: accept\n- it looks fine\n",
+        "VERDICT: accept\n- I did CHECKED BY READING: it, and it looks fine\n",
+        "CHECKED BY READING: t asserts the return value\nVERDICT: accept\n- it looks fine\n",
+        "VERDICT: accept\n",
+    ] {
+        assert_eq!(judged(reply, false), ("reject", None), "{reply}");
+    }
 }
 
 /// The markers, and the switch: the experiment's lines count as `running` only when it is on, in a

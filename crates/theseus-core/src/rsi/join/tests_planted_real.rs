@@ -1,8 +1,8 @@
 //! The planted revert through the REAL runner (`planted::Cargo`, which runs `cargo nextest`) on a
 //! tiny real crate in a throwaway repository: the exit codes the step reads are the ones nextest
-//! gives, not the ones a stand-in says. Three changes, one per answer the second run can give:
-//! a test that fails on its assertion without the fix (100, `failed`), a test that only stops
-//! compiling (101, `build-broke`), and tests that are not in the build at all (4, `not-found`).
+//! gives, not the ones a stand-in says. Three changes: with the fix undone, a test that fails on its
+//! assertion (100, `failed`) and a test that only stops compiling (101, `build-broke`); and tests
+//! that are not in the build at all, which the first run finds (4, `not-found`).
 //!
 //! Host-dependent: it needs `cargo nextest`, and skips with a plain reason where there is none.
 //! It runs the host path of the runner (a test place has no jail); the jail's path hands back the
