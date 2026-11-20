@@ -695,10 +695,18 @@ async fn stop_asks_twice_and_the_second_press_stops_the_task() {
     .await;
     r.until("the answer to the second press", || {
         r.fake
-            .reply_message(&yes)
+            .reply_message(&stop)
             .is_some_and(|m| m.content.contains("stopped"))
     })
     .await;
+    // The view the person pressed was updated (a deferred update of it), not answered by a view of its own.
+    let ack = r
+        .fake
+        .replies()
+        .into_iter()
+        .find(|x| x.interaction.as_deref() == Some(yes.as_str()) && x.kind == "callback")
+        .expect("the press was acknowledged");
+    assert_eq!(ack.response_type, Some(6), "{ack:?}");
 }
 
 #[tokio::test]

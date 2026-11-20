@@ -61,8 +61,27 @@ async fn a_reminder_reaches_the_dm_with_four_buttons_and_a_snooze_sets_it_again(
     })
     .await;
 
-    // Done on the same reminder: a row, nothing else.
-    r.press(&post.id, "Done", (ANA, "ana"));
+    // Done on the same reminder: a row, nothing else. The snooze's answer took the post's buttons away, as the
+    // service does, so this is the same button pressed from a copy of the post.
+    let done = post
+        .buttons
+        .iter()
+        .find(|b| b.label == "Done")
+        .expect("a Done button")
+        .custom_id
+        .clone();
+    r.fake
+        .press_custom(
+            &theseus_sim::fake_discord::commands::Sender {
+                user: ANA,
+                name: "ana",
+                channel: None,
+            },
+            None,
+            (&done, 2),
+            &[],
+        )
+        .unwrap();
     r.until("done", || !r.ledger("wake.done").is_empty()).await;
     assert_eq!(
         r.core.kernel.pending_wakes().unwrap().len(),

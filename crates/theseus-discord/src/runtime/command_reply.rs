@@ -135,15 +135,24 @@ impl Shared {
     /// go, when it was answered; `what` names the handler in the board's error when the service refuses.
     pub(super) async fn edit_pressed(&self, i: &Interaction, content: &str, what: &str) {
         let content = leaving(&self.core.exits, content);
-        if let Err(e) = self
-            .interact
-            .interaction(i.application_id)
+        // The daemon may have settled the card itself while this waited (its own settle post says who answered, and
+        // is the card's last word): then only the buttons go, and the words it wrote are not written over.
+        let settled_meanwhile = match (&i.message, &i.channel) {
+            (Some(m), Some(c)) => match self.interact.message(c.id, m.id).await {
+                Ok(now) => now.model().await.is_ok_and(|now| now.content != m.content),
+                Err(_) => false,
+            },
+            _ => false,
+        };
+        let client = self.interact.interaction(i.application_id);
+        let mut update = client
             .update_response(&i.token)
-            .content(Some(&content))
             .components(Some(&[]))
-            .allowed_mentions(Some(&AllowedMentions::default()))
-            .await
-        {
+            .allowed_mentions(Some(&AllowedMentions::default()));
+        if !settled_meanwhile {
+            update = update.content(Some(&content));
+        }
+        if let Err(e) = update.await {
             self.board.error(what, None, e);
         }
     }
