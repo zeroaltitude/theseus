@@ -367,8 +367,9 @@ have asked". That tool then asks first, on every surface, until the press is und
 - **Undo.** Undo returns the tool to the config's posture. It loosens, so it needs the same trusted
   answer as an approval (§3.9 "Approval"; `approval.refused` with `act: policy.untighten`). A press
   only adds asking, so it is accepted from any surface that can answer an approval.
-- **Surfaces.** On Discord, one select menu on the loop's tool message lists its distinct notified
-  tools; with `notice_embeds`, each card has a button instead. The web UI has a button by each notice
+- **Surfaces.** On Discord, the loop's tool message offers each distinct notified tool as a small grey
+  `🔔 <tool>` button (one to five tools; more are one select menu), and a press asks that tool first, as
+  the press of the menu's option always did; with `notice_embeds`, each card has the same button instead. The web UI has a button by each notice
   and an Undo in the Tools view. The CLI has `theseus policy tighten|untighten|list`.
 - **Records.** The `policy.tightened` row keeps the call's correlation id and proposal digest, a
   labeled example for later judgment work (M5).

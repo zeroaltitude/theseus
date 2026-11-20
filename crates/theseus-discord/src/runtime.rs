@@ -48,9 +48,11 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod ask;
+mod asked;
 mod command_reply;
 pub(crate) mod keep_form;
 pub(crate) use ask::{again_buttons, buttons as ask_buttons, card_buttons};
+pub(crate) use asked::{asked_button, asked_controls};
 mod audience;
 mod board;
 pub(crate) use board::accept_buttons;
@@ -1760,27 +1762,6 @@ pub(crate) fn asked_menu(options: &[Asked]) -> Vec<Component> {
             options: Some(options),
             placeholder: Some("Should I have asked?".into()),
             required: None,
-        })],
-    })]
-}
-
-/// A notice card's "Make actions like this ask in the future" button (with
-/// `[discord] notice_embeds`), or none once its tool asks first.
-pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
-    let Some(a) = ask else {
-        return vec![];
-    };
-    vec![Component::ActionRow(ActionRow {
-        id: None,
-        components: vec![Component::Button(Button {
-            id: None,
-            custom_id: Some(format!("{ASKED_MENU}:{}", asked_value(a))),
-            disabled: false,
-            emoji: None,
-            label: Some(ASK_IN_FUTURE.into()),
-            style: ButtonStyle::Secondary,
-            url: None,
-            sku_id: None,
         })],
     })]
 }

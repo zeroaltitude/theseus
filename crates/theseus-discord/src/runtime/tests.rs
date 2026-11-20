@@ -297,10 +297,7 @@ fn a_should_have_asked_value_carries_the_tool_and_its_call() {
         panic!()
     };
     assert_eq!(b.custom_id.as_deref(), Some("tighten:proc.run|act_019"));
-    assert_eq!(
-        b.label.as_deref(),
-        Some("Make actions like this ask in the future")
-    );
+    assert_eq!(b.label.as_deref(), Some("🔔 proc.run"));
     assert!(
         everywhere(&CoreEvent::PolicyTightened(Default::default()))
             && everywhere(&CoreEvent::PolicyUntightened(Default::default()))
