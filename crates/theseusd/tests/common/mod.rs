@@ -3,8 +3,72 @@
 
 #![allow(dead_code)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
+use std::sync::Mutex;
+
+/// A binary of another package, beside the daemon's, and current.
+///
+/// `cargo test -p theseusd` builds the daemon and its tests and not another package's program, so a
+/// target directory serves whatever copy it already holds (an older build, or one from an image) and a
+/// test that spawns it fails in ways that say nothing about the helper (the journey's timeouts of
+/// 2026-11-19). The toolchain's artifact dependencies are not stable, so cargo itself builds the program
+/// here, into the daemon's own target directory and profile: a no-op when it is current, and cargo's own
+/// lock keeps concurrent tests from building it twice. Once per program per test process.
+pub fn built_beside_daemon(package: &str, bin: &str) -> PathBuf {
+    static BUILT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let daemon = Path::new(env!("CARGO_BIN_EXE_theseusd"));
+    let path = daemon.with_file_name(bin);
+    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
+    if built.iter().any(|b| b == bin) {
+        return path;
+    }
+    let profile_dir = daemon.parent().expect("the daemon's directory");
+    let target = profile_dir.parent().expect("the target directory");
+    let mut cmd = Command::new(env!("CARGO"));
+    cmd.current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["build", "--quiet", "-p", package, "--bin", bin])
+        .arg("--target-dir")
+        .arg(target);
+    match profile_dir.file_name().and_then(|n| n.to_str()) {
+        Some("debug") => {}
+        Some("release") => {
+            cmd.arg("--release");
+        }
+        Some(other) => {
+            cmd.args(["--profile", other]);
+        }
+        None => {}
+    }
+    match cmd.output() {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => panic!(
+            "the helper {bin} could not be built (`cargo build -p {package} --bin {bin}`):\n{}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .rev()
+                .take(15)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        // No cargo to run (a test binary run from an archive): the copy beside the daemon is all there is.
+        Err(e) => assert!(
+            path.is_file(),
+            "no {bin} at {} and cargo cannot be run to build it ({e}): build -p {package}",
+            path.display()
+        ),
+    }
+    built.push(bin.to_string());
+    path
+}
+
+/// The simulator's program (`theseus-sim`: the fake model, the fake MCP server), current.
+pub fn sim_bin() -> PathBuf {
+    built_beside_daemon("theseus-sim", "theseus-sim")
+}
 
 /// A spawned `theseusd`, killed and reaped when dropped, so a test that
 /// fails before its explicit stop never leaves a daemon running (theseus-hee:

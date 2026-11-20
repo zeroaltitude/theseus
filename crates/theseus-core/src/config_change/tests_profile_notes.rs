@@ -388,3 +388,65 @@ async fn the_report_post_names_the_asking_conversation_and_turn() {
         "keyed to the task"
     );
 }
+
+/// The session's narrative lines so far, as one run of text.
+fn narrated(rx: &mut tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Message>) -> String {
+    std::iter::from_fn(|| rx.try_recv().ok())
+        .map(|m| format!("{m:?}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A stop that goes on to cancel the tasks says in the session's note that the agent was cancelled with
+/// them, and never that it is still working or that the task goes on; a plain stop's note says the agent
+/// goes on, as its answer does.
+#[tokio::test(start_paused = true)]
+async fn the_sessions_note_of_a_stop_that_cancels_the_agent_does_not_say_it_is_working() {
+    for all in [false, true] {
+        let r = rig_with(|cfg, _| cfg.narrative = true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        assert!(
+            r.core.narrator.watch("note", tx).is_some(),
+            "narration is on"
+        );
+        let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+        r.agents_report(REPORT, Some(gate));
+        let sid = r.session_at(PLACE);
+        let core = r.core.clone();
+        let stopper = async {
+            let mut exec = None;
+            for _ in 0..400 {
+                if let Some(t) = tasks(&r, &sid).first() {
+                    exec = t.parent.clone();
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+            let exec = exec.expect("the agent's task opened");
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            match all {
+                true => core.stop_execution_all(&exec, "tester").await.unwrap(),
+                false => core.stop_execution(&exec, "tester").await.unwrap(),
+            }
+        };
+        let (_, stop) = tokio::join!(
+            r.try_steps(&sid, vec![("profile_run", work("haiku"))]),
+            stopper
+        );
+        let note = narrated(&mut rx);
+        match all {
+            true => {
+                assert!(stop.agents_running.is_empty(), "{stop:?}");
+                assert!(
+                    !note.contains("still working") && !note.contains("task go on"),
+                    "{note}"
+                );
+                assert!(
+                    note.contains("Stop all by tester: 1 task cancelled"),
+                    "{note}"
+                );
+            }
+            false => assert!(note.contains("is still working: `theseus cancel"), "{note}"),
+        }
+    }
+}

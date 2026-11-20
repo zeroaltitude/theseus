@@ -1381,13 +1381,6 @@ pub fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
             r.tasks_running, r.wakes_pending
         ));
     }
-    if !r.agents_running.is_empty() {
-        out.push_str(" · ");
-        out.push_str(&theseus_protocol::StopAgent::words(
-            &r.agents_running,
-            "theseus cancel",
-        ));
-    }
     for clause in stop_reach(r) {
         out.push_str(" · ");
         out.push_str(&clause);
@@ -1421,6 +1414,14 @@ pub fn stop_reach(r: &theseus_protocol::ExecutionStopResult) -> Vec<String> {
         out.push(format!(
             "kept job {} running, approved by {}",
             k.job, k.approved_by
+        ));
+    }
+    // An agent the turn handed work to is one of the tasks that go on: said here, once, for the CLI and
+    // the terminal UI (the chat pane and the dashboard) alike.
+    if !r.agents_running.is_empty() {
+        out.push(theseus_protocol::StopAgent::words(
+            &r.agents_running,
+            "theseus cancel",
         ));
     }
     out

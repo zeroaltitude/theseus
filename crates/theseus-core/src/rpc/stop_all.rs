@@ -26,7 +26,7 @@ impl Core {
         id: &str,
         by: &str,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
-        let mut result = self.stop_execution(id, by).await?;
+        let mut result = self.stop_execution_cancelling(id, by, false, true).await?;
         let mut cancelled: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for _ in 0..ROUNDS {

@@ -143,6 +143,8 @@ pub struct ExecutionStopped<'a> {
     pub tasks_running: u32,
     /// The tasks among them that a turn handed to a profile (`profile.run`).
     pub agents: &'a [theseus_protocol::StopAgent],
+    /// The stop goes on to cancel the tasks (`execution.stop { tasks }`): none of them goes on.
+    pub cancelling: bool,
 }
 
 impl Fact for ExecutionStopped<'_> {
@@ -160,8 +162,17 @@ impl Fact for ExecutionStopped<'_> {
                 } else {
                     ""
                 },
-                match (self.tasks_running, self.execution.wakes.len()) {
+                match (
+                    if self.cancelling {
+                        0
+                    } else {
+                        self.tasks_running
+                    },
+                    self.execution.wakes.len(),
+                ) {
                     (0, 0) => String::new(),
+                    (0, w) if self.cancelling =>
+                        format!(" ({} go on)", narrative::count(w as u64, "wake", "wakes")),
                     (t, w) => format!(
                         " ({} and {} go on)",
                         narrative::count(t as u64, "task", "tasks"),

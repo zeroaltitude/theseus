@@ -512,8 +512,23 @@ impl Core {
         by: &str,
         keep_jobs: bool,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
+        self.stop_execution_cancelling(id, by, keep_jobs, false)
+            .await
+    }
+
+    /// [`stop_execution_with`](Self::stop_execution_with), for a stop that goes on to cancel the
+    /// session's tasks (`cancelling`, `stop_execution_all`): the session's note then does not say
+    /// they go on, or that an agent is still working.
+    pub(crate) async fn stop_execution_cancelling(
+        &self,
+        id: &str,
+        by: &str,
+        keep_jobs: bool,
+        cancelling: bool,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
         let landed = self.runner.stop_landed(id, by);
-        self.stop_after_landing(id, by, keep_jobs, landed).await
+        self.stop_after_landing_as(id, by, keep_jobs, landed, cancelling)
+            .await
     }
 
     /// The rest of `stop_execution_with`, once its notice has landed (`landed`
@@ -531,6 +546,20 @@ impl Core {
         by: &str,
         keep_jobs: bool,
         landed: std::time::Instant,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
+        self.stop_after_landing_as(id, by, keep_jobs, landed, false)
+            .await
+    }
+
+    /// [`stop_after_landing`](Self::stop_after_landing); `cancelling` is that the caller cancels the
+    /// session's tasks next.
+    async fn stop_after_landing_as(
+        &self,
+        id: &str,
+        by: &str,
+        keep_jobs: bool,
+        landed: std::time::Instant,
+        cancelling: bool,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
         let (keep, left_found) = self.keep_through_stop(id, keep_jobs)?;
         // Asked before the kernel's step, so that its row says what the
@@ -611,7 +640,10 @@ impl Core {
             .count() as u32;
         let turn_running = stop.turn_running || self.runner.stop_taken_by_a_turn(id, landed);
         // An agent the turn handed work to goes on as any task does: the stop says so, and how to stop it.
-        let agents = crate::profile_tool::run::agents_working(&self.kernel, &self.store, id);
+        let agents = match cancelling {
+            true => vec![],
+            false => crate::profile_tool::run::agents_working(&self.kernel, &self.store, id),
+        };
         self.session_rec(&e.session_id)
             .record(&fact::driver::ExecutionStopped {
                 execution: &e,
@@ -621,6 +653,7 @@ impl Core {
                 turn_running,
                 tasks_running,
                 agents: &agents,
+                cancelling,
             });
         Ok(theseus_protocol::ExecutionStopResult {
             execution: Self::execution_info(&e),

@@ -8,23 +8,11 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use common::{Daemon, Served};
+use common::{sim_bin, Daemon, Served};
 use serde_json::{json, Value};
-
-/// The fake's binary, beside the daemon's: the workspace's build of it.
-fn sim_bin() -> PathBuf {
-    let p = Path::new(env!("CARGO_BIN_EXE_theseusd")).with_file_name("theseus-sim");
-    assert!(
-        p.is_file(),
-        "no theseus-sim at {}: build the workspace (`cargo nextest run --workspace` builds it)",
-        p.display()
-    );
-    p
-}
 
 fn mcp_server(t: &mut toml::Table, command: Vec<String>) {
     let mut fake = toml::Table::new();

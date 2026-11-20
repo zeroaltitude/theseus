@@ -47,6 +47,7 @@ pub struct SubagentAnswer {
     /// How the work ended, for an agent that was handed work as a task (`profile.run`): `cancelled` or
     /// `failed`; empty for an answer and for work that was done.
     #[serde(skip_serializing_if = "String::is_empty")]
+    #[cfg_attr(test, ts(as = "Option<String>", optional))]
     pub outcome: String,
 }
 
