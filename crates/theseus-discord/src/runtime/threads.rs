@@ -429,7 +429,7 @@ impl TaskThreads {
         self.inner.lock().unwrap().places.remove(session);
     }
 
-    pub(super) fn failed(&self, task: &str) {
+    fn failed(&self, task: &str) {
         let mut i = self.inner.lock().unwrap();
         i.busy.remove(task);
         i.failed.insert(task.to_string(), Instant::now() + RETRY);

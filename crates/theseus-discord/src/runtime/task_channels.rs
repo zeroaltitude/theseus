@@ -57,7 +57,7 @@ use theseus_protocol::Event as CoreEvent;
 const CATEGORY: &str = "⚙️ Theseus tasks";
 const CATEGORY_DONE: &str = "⚙️ Theseus tasks · done";
 /// META keys of the two categories' ids.
-const CATEGORY_KEY: &str = "discord.task_category";
+pub(super) const CATEGORY_KEY: &str = "discord.task_category";
 const CATEGORY_DONE_KEY: &str = "discord.task_category_done";
 
 /// Discord's longest channel name, and most channels in a category.
@@ -109,9 +109,8 @@ fn working(v: &WorkView) -> bool {
 pub(crate) enum Refused {
     Forbidden,
     Other(String),
-    /// The create may have gone through, or the read that tells whether it
-    /// did has not: the task is tried again later and has no thread meanwhile
-    /// (`threads::intent`).
+    /// A failure as `Other` for the caller; it says the create may have gone
+    /// through (a timeout, a 5xx), so its intent is kept (`threads::intent`).
     Unsure(String),
 }
 
@@ -128,8 +127,8 @@ impl Refused {
         Self::Other(e.to_string())
     }
 
-    /// What the channel's own create said: as `of`, but a create that may
-    /// have made the channel (a timeout, a 5xx) is not a failure to fall back on.
+    /// What the channel's own create said: as `of`, but one that may have made
+    /// the channel is told apart.
     fn of_create(e: &twilight_http::Error) -> Self {
         match crate::courier::SendErr::of(e).unsure {
             true => Self::Unsure(e.to_string()),
@@ -237,7 +236,7 @@ pub(crate) fn channel_name(mark: Mark, task: &str, title: &str) -> String {
 }
 
 /// The channel's topic: the task's title and its short id.
-pub(super) fn topic(task: &str, title: &str) -> String {
+fn topic(task: &str, title: &str) -> String {
     format!("{} · …{}", clip(title), board_v2::short(task))
 }
 
@@ -483,16 +482,6 @@ impl Shared {
         let made = self.channel_once(guild, &name, &v).await;
         let channel = match made {
             Ok(c) => c,
-            Err(Refused::Unsure(why)) => {
-                // Nothing is known of it: no thread meanwhile, tried again later.
-                self.board.error("task channel", Some(&session), why);
-                if from.is_none() {
-                    self.task_threads.not_running(&session);
-                }
-                self.task_threads.failed(&v.id);
-                self.task_threads.chan.end(&v.id, false);
-                return;
-            }
             Err(why_not) => {
                 if from.is_none() {
                     self.task_threads.not_running(&session);
