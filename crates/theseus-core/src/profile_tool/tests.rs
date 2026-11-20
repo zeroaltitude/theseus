@@ -164,6 +164,7 @@ fn a_turns_unposted_answers_are_dropped_with_its_session() {
         output_tokens: 1,
         cut: false,
         call: "act_1".into(),
+        outcome: String::new(),
     };
     let board = Board::default();
     board.give("ses_a", "turn_a", answer());

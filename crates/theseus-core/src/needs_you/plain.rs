@@ -115,6 +115,17 @@ fn text<'a>(input: &'a Value, k: &str) -> Option<&'a str> {
     input.get(k).and_then(Value::as_str)
 }
 
+/// The words of a piece of work or a brief on a card: its lines as one, with no control character, as
+/// much as a card allows.
+fn work_words(w: &str) -> String {
+    let words: Vec<String> = w
+        .split_whitespace()
+        .map(|t| t.chars().filter(|c| !c.is_control()).collect())
+        .filter(|t: &String| !t.is_empty())
+        .collect();
+    short(&words.join(" "), 300)
+}
+
 /// The verb and its object for a call.
 pub fn what_of(req: &ConfirmRequest, g: &Gloss) -> String {
     let (tool, input) = (req.tool.as_str(), &req.input);
@@ -145,6 +156,19 @@ pub fn what_of(req: &ConfirmRequest, g: &Gloss) -> String {
             _ => "read an earlier run's gate files".into(),
         },
         ("self.open_work", ..) => "list what is open on Theseus's own development".into(),
+        // Work handed to a profile, and a task: the owner reads what it is to do before the yes.
+        ("profile.run", ..) => match (text(input, "profile"), text(input, "work")) {
+            (Some(p), Some(w)) => format!(
+                "hand the profile `{}` this work to do with tools: {}",
+                short(p, 40),
+                work_words(w)
+            ),
+            _ => "hand a model profile a piece of work".into(),
+        },
+        ("task.create", ..) => match text(input, "brief") {
+            Some(b) => format!("start a background task: {}", work_words(b)),
+            None => short(&summarize(tool, input).replace('`', "'"), 120),
+        },
         ("http.fetch", ..) => match text(input, "url") {
             Some(u) => format!("fetch `{}`", short(u, 100)),
             None => "fetch a web page".into(),

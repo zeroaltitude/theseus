@@ -97,6 +97,7 @@ fn the_bind_notice_and_the_stops_answer_name_each_control_with_its_one_effect() 
         turn_running: true,
         tasks_running: 0,
         wakes_pending: 0,
+        agents_running: vec![],
         cancelled: vec![],
         left_ended: vec![],
         left_kept: vec![],

@@ -1481,24 +1481,36 @@ pub fn resolve<'a>(tasks: &'a [Execution], name: &str) -> Result<&'a Execution, 
 /// The report of a task a cancel ended, for the cancel's frame: its post,
 /// staged where the task reports, and the post itself for `posted` once the
 /// frame is written. Nothing for an execution that is not a task, or a task
-/// that reports nowhere.
+/// that reports nowhere. (`cancelled_reports` is this and the conversation's
+/// own word of work handed to a profile.)
 pub fn cancelled_report(
     outbox: &crate::outbox::Outbox,
     store: &crate::store::Store,
     e: &Execution,
 ) -> anyhow::Result<(Vec<NewRecord>, Option<theseus_kernel::Action>)> {
+    let (records, mut posts) = cancelled_reports(outbox, store, e)?;
+    Ok((records, posts.pop()))
+}
+
+/// [`cancelled_report`], and, for a task a turn handed to a profile (`profile.run`), the subagent's
+/// message that says in the conversation that the agent's work was cancelled, marked so, once: the
+/// cancel's frame is the only one that speaks for it (a turn that ends after a cancel writes no report
+/// frame). Where the task's own report would go to that same place, the one message stands for both.
+pub fn cancelled_reports(
+    outbox: &crate::outbox::Outbox,
+    store: &crate::store::Store,
+    e: &Execution,
+) -> anyhow::Result<(Vec<NewRecord>, Vec<theseus_kernel::Action>)> {
     if e.parent.is_none() {
-        return Ok((vec![], None));
+        return Ok((vec![], vec![]));
     }
     // A routine's run that is stopped or blocked is told by its routine
     // (theseus-52tut), not by a report.
     if crate::routine::watch::is_run(store, &e.session_id) {
-        return Ok((vec![], None));
+        return Ok((vec![], vec![]));
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
-    let Some(target) = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone()) else {
-        return Ok((vec![], None));
-    };
+    let target = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone());
     let check = check_line(rec.as_ref());
     // The model it was opened on gave it nothing when no turn of its own ran: name none.
     let ran_on = rec
@@ -1510,6 +1522,19 @@ pub fn cancelled_report(
         ran_on,
         ..Report::new(e, rec.and_then(|r| r.title), None)
     };
-    let (post, records) = outbox.stage(&e.session_id, &e.id, &target, report.post_body())?;
-    Ok((records, Some(post)))
+    let (mut records, mut posts) = (vec![], vec![]);
+    let spoke = crate::profile_tool::run::speak(outbox, store, e, &report)?;
+    let same_place = spoke
+        .as_ref()
+        .is_some_and(|s| target.as_deref() == Some(s.place.as_str()));
+    if let Some(s) = spoke {
+        records.extend(s.records);
+        posts.push(s.post);
+    }
+    if let (Some(target), false) = (target, same_place) {
+        let (post, more) = outbox.stage(&e.session_id, &e.id, &target, report.post_body())?;
+        records.extend(more);
+        posts.push(post);
+    }
+    Ok((records, posts))
 }

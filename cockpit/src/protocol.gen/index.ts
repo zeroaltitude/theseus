@@ -728,6 +728,7 @@ export type * from './StandingRevokeParams';
 export type * from './StandingScope';
 export type * from './StartupPhase';
 export type * from './StatusShortResult';
+export type * from './StopAgent';
 export type * from './StoreStatus';
 export type * from './StubbedFile';
 export type * from './Style';
