@@ -113,7 +113,8 @@ pub fn title_hands(store: &Store, recs: &[&TaskRecord]) -> Result<Vec<crate::con
             }
             let covered = begins.is_some_and(|from| from <= rec.created_at_ms);
             if unmarked.contains(rec.id.as_str()) && (walk.cut || !covered) {
-                return Hand::Unproven;
+                // A model's record keeps its maker's flags to be taken: its first words were that session's.
+                return Hand::Unproven(rec.origin.by_model.then(|| rec.origin.session.clone()));
             }
             match rec.origin.by_model {
                 true => Hand::Model(rec.origin.session.clone()),

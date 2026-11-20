@@ -650,8 +650,11 @@ pub enum Hand {
     /// Nothing proves whose it is and the record's own word is not enough (a title that may have been
     /// retitled, whose ledger row the walk could not reach or the ledger no longer holds): by the rule
     /// above it is a model's, and which conversation's nobody can say. Held from a restricted turn; given
-    /// to any other with no flags to take, since there is no session to take them from.
-    Unproven,
+    /// to any other. For a record that says a model made it the session is that maker's (`Some`): its
+    /// original words are still that conversation's, so an unrestricted turn is given them through the
+    /// same path as any of its words and takes its flags on. For one that would have been the owner's
+    /// there is none (`None`): given, with nothing to take.
+    Unproven(Option<String>),
 }
 
 /// The authors whose user-role nodes are the harness talking to the model in

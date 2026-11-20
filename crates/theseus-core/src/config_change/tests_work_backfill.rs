@@ -272,7 +272,10 @@ fn a_look_over_many_edited_titles_reads_the_cap_once() {
     ROWS_READ.with(|c| c.set(0));
     let hands = crate::task_graph::title_hands(&r.core.store, &refs).unwrap();
     // The walk was cut at the cap with no title row: unproven, not the owner's.
-    assert!(hands.iter().all(|h| *h == Hand::Unproven), "{hands:?}");
+    assert!(
+        hands.iter().all(|h| *h == Hand::Unproven(None)),
+        "{hands:?}"
+    );
     assert_eq!(ROWS_READ.with(std::cell::Cell::get), ROWS_MAX);
 }
 
@@ -351,7 +354,7 @@ fn the_end_of_the_rows_is_the_records_word_and_a_ledger_that_begins_late_is_unpr
     // The record says it was created before the ledger's first row: a retitle in that stretch is gone.
     let mut old = edited;
     old.created_at_ms = 1;
-    assert_eq!(hand(&old), Hand::Unproven);
+    assert_eq!(hand(&old), Hand::Unproven(None));
     // A version-1 record has nothing to find, whenever it was created.
     old.version = 1;
     assert_eq!(hand(&old), Hand::Owner);
@@ -385,11 +388,64 @@ fn in_the_shape_building_window_a_short_ledger_is_read_whole_and_a_long_one_is_c
                 .collect::<Vec<_>>(),
         )
         .unwrap();
-    assert_eq!(hand(&edited), Hand::Unproven);
+    assert_eq!(hand(&edited), Hand::Unproven(None));
     r.core.store.shape_window(false);
     assert_eq!(
         hand(&edited),
-        Hand::Unproven,
+        Hand::Unproven(None),
         "the index walk is cut at the cap too"
     );
+}
+
+/// A record a model made, edited (version above 1), with its title's row out of the walk's reach: the original
+/// words are still its maker's conversation's, so a restricted turn is held from them with the plain line
+/// ("its writer could not be established"), and an unrestricted turn is given them AND takes that
+/// conversation's flags on, as it did before the walk was cut safe.
+#[tokio::test]
+async fn an_unproven_title_a_model_made_still_has_its_makers_flags_taken_on() {
+    for restricted in [true, false] {
+        let r = match restricted {
+            true => restricted_rig(),
+            false => rig(),
+        };
+        // A project with no milestone, so the title is the only words of the maker's in the look.
+        let maker = conversation(&r).await;
+        r.turn_with(
+            "task_create",
+            &maker,
+            json!({"kind": "project", "title": "Harbour survey", "review": "none"}),
+        )
+        .await;
+        mark(&r, &maker);
+        let mut rec = crate::task_graph::all(&r.core.store)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.kind == theseus_protocol::tasks::TaskKind::Project)
+            .unwrap();
+        rec.version += 1;
+        // One more row than the cap, so the walk is cut and does not run to the end.
+        let mut recs = vec![crate::task_graph::record(&rec).unwrap()];
+        recs.extend((0..=ROWS_MAX).map(|_| row("task.updated", "tsk_other", "ses_x", "deps")));
+        r.core.store.append(&recs).unwrap();
+        assert_eq!(
+            crate::task_graph::title_hand(&r.core.store, &rec).unwrap(),
+            Hand::Unproven(Some(maker.clone()))
+        );
+        let here = conversation(&r).await;
+        let text = said(&r, &here, json!({"what": ["projects"]})).await;
+        match restricted {
+            true => {
+                assert!(!text.contains("Harbour survey"), "{text}");
+                assert!(
+                    text.contains("(held back: its writer could not be established)"),
+                    "{text}"
+                );
+                assert!(flags(&r, &here).is_none());
+            }
+            false => {
+                assert!(text.contains("Harbour survey"), "{text}");
+                assert!(flags(&r, &here).is_some(), "the maker's flags are taken on");
+            }
+        }
+    }
 }
