@@ -86,9 +86,9 @@ pub(crate) fn hold(method: &str) -> std::sync::Arc<Hold> {
     h
 }
 
-/// A canned answer a test gives a method (no request is made): for a daemon call whose real answer needs a server
-/// the test has not got (an MCP server's prompts). It is the test's own: the test's thread is the only one that
-/// sees it (a test runs on one), and it is gone when the test drops what `stub` returned.
+// A canned answer a test gives a method (no request is made): for a daemon call whose real answer needs a server
+// the test has not got (an MCP server's prompts). It is the test's own: the test's thread is the only one that
+// sees it (a test runs on one), and it is gone when the test drops what `stub` returned.
 #[cfg(test)]
 thread_local! {
     static STUBBED: std::cell::RefCell<Vec<(String, Value)>> = const { std::cell::RefCell::new(Vec::new()) };

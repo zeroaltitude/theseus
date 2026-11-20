@@ -597,8 +597,8 @@ async fn event_loop(
     board.state("disconnected", Some("gateway stream ended".into()));
 }
 
-/// The interactions this test's binding has finished handling, by id: a test waits for the end of a press instead of
-/// guessing when it is over (a test runs on one thread, so the list is its own).
+// The interactions this test's binding has finished handling, by id: a test waits for the end of a press instead of
+// guessing when it is over (a test runs on one thread, so the list is its own).
 #[cfg(test)]
 thread_local! {
     static HANDLED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };

@@ -139,9 +139,8 @@ impl Shared {
     pub(super) async fn edit_pressed(&self, i: &Interaction, content: &str, what: &str) {
         let content = leaving(&self.core.exits, content);
         let nobody = AllowedMentions::default();
-        let update = self
-            .interact
-            .interaction(i.application_id)
+        let client = self.interact.interaction(i.application_id);
+        let update = client
             .update_response(&i.token)
             .content(Some(&content))
             .components(Some(&[]))
