@@ -4,7 +4,7 @@
 //! - the explicit git directory: `a_pinned_git_reads_the_repos_git_directory_not_the_trees`;
 //! - the `.git` check: `a_tree_whose_git_file_was_rewritten_gets_no_git`;
 //! - hooks off: `no_hook_runs_on_a_commit_or_a_checkout`;
-//! - the monitor off: `the_file_system_monitor_never_runs`;
+//! - the monitor off: `the_file_system_monitor_never_runs`, `turning_the_monitor_off_starts_no_program`;
 //! - the editors: `no_editor_runs`;
 //! - a nested repository: `a_tree_that_holds_a_repository_of_its_own_is_not_committed`;
 //! - the one way git is spawned: `every_daemon_git_in_rsi_goes_through_the_one_command`;
@@ -186,6 +186,28 @@ fn the_file_system_monitor_never_runs() {
     f.place.git_ok(&t.dir, &["add", "-A"]).unwrap();
     f.place.git_ok(&t.dir, &["status", "--porcelain"]).unwrap();
     assert!(!ran(&mark), "the monitor ran");
+}
+
+/// Turning the monitor off starts no program: git 2.34 reads `core.fsmonitor` as a command when it
+/// is set, so a `false` there started whatever `false` came first on the daemon's `PATH`. One that
+/// touches a marker is put first, and the two hardened calls that consult the monitor start none.
+#[test]
+fn turning_the_monitor_off_starts_no_program() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut f, t) = opened();
+    let (mark, script) = marker(&f, "false");
+    let bin = f.place.state.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::copy(&script, bin.join("false")).unwrap();
+    std::fs::set_permissions(bin.join("false"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut first = bin.into_os_string();
+    first.push(":");
+    first.push(std::env::var_os("PATH").unwrap_or_default());
+    f.place.env.push(("PATH".into(), first));
+    std::fs::write(t.dir.join("sails.txt"), "trimmed\n").unwrap();
+    f.place.git_ok(&t.dir, &["status", "--porcelain"]).unwrap();
+    f.place.git_ok(&t.dir, &["add", "-A"]).unwrap();
+    assert!(!ran(&mark), "a program named false was started");
 }
 
 /// The editors the repo's config names never run: a call that asks for one takes the message

@@ -37,11 +37,14 @@ pub const TAMPERED: &str = "the tree's .git file is not the one git made for it"
 pub const NESTED: &str = "the tree holds a git repository of its own";
 
 /// On every daemon git call: no pager, no file-system monitor, no hooks (the commit and the
-/// push pass `--no-verify` too, which leaves `post-commit` and `post-checkout`).
+/// push pass `--no-verify` too, which leaves `post-commit` and `post-checkout`). The monitor is
+/// turned off by the EMPTY value: git 2.34 reads `core.fsmonitor` as a command when it is set, so
+/// `=false` started the program `false` from the daemon's `PATH` on every call; a git that reads
+/// the key as a boolean reads the empty string as false (`git-config(1)`, "boolean").
 pub const HARDENED: &[&str] = &[
     "--no-pager",
     "-c",
-    "core.fsmonitor=false",
+    "core.fsmonitor=",
     "-c",
     "core.hooksPath=/dev/null",
 ];
