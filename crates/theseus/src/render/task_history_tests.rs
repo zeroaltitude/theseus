@@ -47,6 +47,7 @@ fn three() -> TaskListResult {
         tasks: vec![a, b, c],
         records: vec![],
         details,
+        apart: vec![],
     }
 }
 
@@ -79,6 +80,7 @@ fn an_empty_answer_says_so_in_words() {
         tasks: vec![],
         records: vec![],
         details: vec![],
+        apart: vec![],
     };
     assert_eq!(lines(&none, NOW, 80, "ended tasks"), ["no ended tasks"]);
     assert_eq!(lines(&none, NOW, 80, "tasks"), ["no tasks"]);
@@ -149,6 +151,7 @@ fn one(state: &str, pending: u32, paused: bool, report: Option<&str>) -> TaskLis
             ),
         ],
         details: vec![d],
+        apart: vec![],
     }
 }
 
@@ -220,6 +223,7 @@ fn show_of_a_step_with_no_task_is_refused_in_words() {
         tasks: vec![],
         records: vec![record("tsk_step001", "Scrape", TaskState::Done, None)],
         details: vec![],
+        apart: vec![],
     };
     let said = show(&r).unwrap_err().to_string();
     assert_eq!(said, "that is a step with no task: it has no run to show");
@@ -280,6 +284,7 @@ fn a_tasks_model_lines_are_its_brief_and_each_move() {
             tasks: one("running", 0, false, None).tasks,
             records: one("running", 0, false, None).records,
             details: one("running", 0, false, None).details,
+            apart: vec![],
         },
         &model_lines(&rows),
     )

@@ -13,4 +13,10 @@ records: Array<TaskRecord>,
  * report's first line (for `ended`, `query` and `id`), and for `id`
  * the whole report and whether the task is held. Empty otherwise.
  */
-details?: Array<TaskDetail>, };
+details?: Array<TaskDetail>, 
+/**
+ * The ids of records the daemon keeps out of any list of what is planned or next: the container the
+ * self-improvement backlog files its items under, which is the loop's and no plan of the owner's.
+ * The record is still in `records`, so its items keep their parent; a list of plans leaves it out.
+ */
+apart?: Array<string>, };

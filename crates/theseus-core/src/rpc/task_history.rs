@@ -153,6 +153,7 @@ impl Core {
             tasks: kept,
             records,
             details,
+            apart: Vec::new(),
         })
     }
 
@@ -207,6 +208,7 @@ impl Core {
             tasks: info.cloned().into_iter().collect(),
             records: kept,
             details: detail.into_iter().collect(),
+            apart: Vec::new(),
         })
     }
 }
