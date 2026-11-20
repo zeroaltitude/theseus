@@ -283,8 +283,9 @@ async fn a_title_a_model_retitled_is_that_conversations_words() {
     retitle(&r, id, second).await;
     let here = conversation(&r).await;
     let text = said(&r, &here, json!({"what": ["projects"]})).await;
+    // The title is the second conversation's (unmarked, given); the milestone the first made is still its.
     assert!(
-        text.contains("Reef survey") && !text.contains("held back"),
+        text.contains("Reef survey") && text.contains("next (held back"),
         "{text}"
     );
 }
@@ -374,13 +375,15 @@ async fn a_routine_is_in_the_hand_that_made_it_and_a_reminder_in_its_sessions() 
             .unwrap();
         let text = said(&r, &here, json!({"what": ["routines", "coming"]})).await;
         let held = |w: &str| text.lines().any(|l| l.contains(w));
-        // The owner's are given whatever; the model's follow its session's mark (held when restricted).
-        assert!(
-            held("Tide check") && held("water the ferns"),
-            "{restricted}: {text}"
-        );
-        assert_eq!(held("Lamp check"), !restricted, "{restricted}: {text}");
-        assert_eq!(held("feed the gulls"), !restricted, "{restricted}: {text}");
+        // The owner's routine is given whatever; a model's, and a reminder, follow the session's mark.
+        assert!(held("Tide check"), "{restricted}: {text}");
+        for words in ["Lamp check", "water the ferns", "feed the gulls"] {
+            assert_eq!(
+                held(words),
+                !restricted,
+                "{words}, restricted {restricted}: {text}"
+            );
+        }
         assert_eq!(text.contains("held back"), restricted, "{text}");
         // Taken on only where the model's marked words were given.
         assert_eq!(flags(&r, &here).is_some(), !restricted, "{restricted}");
