@@ -550,7 +550,7 @@ impl Worker {
                 .ok()
                 .flatten()
                 .unwrap_or_default();
-            self.intents = intent::live(held.clone(), &self.recs, now_unix_ms());
+            self.intents = intent::live(held.clone(), &self.recs);
             if self.intents.len() != held.len() {
                 self.save_intents();
             }
@@ -592,6 +592,15 @@ impl Worker {
         let Some(mut faces) = s.schedule_now(&self.recs) else {
             return true;
         };
+        // An item that is over has no card to find, and its intent goes: by
+        // the item's end, never by age (a card does not archive).
+        if s.tasks.loaded() {
+            let held = self.intents.len();
+            self.intents = intent::standing(std::mem::take(&mut self.intents), &faces);
+            if self.intents.len() != held {
+                self.save_intents();
+            }
+        }
         let mut shown: Vec<Face> = Vec::new();
         let mut ok = true;
         for f in &mut faces {
