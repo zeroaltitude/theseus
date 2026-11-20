@@ -167,10 +167,7 @@ impl Run<'_> {
         };
         let ask = match self.ask(&remote, target, &own.dir).await {
             Ok(a) => Ask {
-                proof: planted
-                    .proof_note(&a.scratch)
-                    .map(|n| n + "\n\n")
-                    .unwrap_or_default(),
+                proof: planted.ask_text(&a.scratch),
                 ..a
             },
             Err(e) => {

@@ -90,6 +90,13 @@ impl Outcome {
         matches!(self, Outcome::Failed { .. } | Outcome::BuildBroke { .. })
     }
 
+    /// [`Self::proof_note`] as the reviewer's ask carries it: a blank line after, empty when none.
+    pub fn ask_text(&self, scratch: &str) -> String {
+        self.proof_note(scratch)
+            .map(|n| n + "\n\n")
+            .unwrap_or_default()
+    }
+
     /// How the change was proved, for the model review that follows: what it must check.
     /// `scratch` is the directory the reviewer may work in (`scratch::dir`).
     pub fn proof_note(&self, scratch: &str) -> Option<String> {
