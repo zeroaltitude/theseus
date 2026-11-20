@@ -178,6 +178,116 @@ fn l1_instead_of_floor(
     })
 }
 
+/// Why a self session's call may not write where it would, or none: a path with a `.git`
+/// component (a tree's `.git` file, a repository's git directory, anywhere), the self repo's
+/// git directory, or git's user-level config. These are what the daemon's own git reads when it
+/// runs in a tree, outside L1 (`tree_git`), so a write there would choose what that git runs.
+/// Each path is judged as named, as the gate resolves it, and with every link along it followed
+/// (`followed`), so a link, a dangling one included, or a `..` reaches none of them. A refusal,
+/// never a card: no answer of the owner's makes such a write part of a self build. Another
+/// session's writes are not judged here.
+pub(crate) fn git_refusal(
+    rt: &ToolRuntime,
+    session: Option<&str>,
+    plan: &theseus_tools::Plan,
+) -> Option<String> {
+    let writes: Vec<&std::path::Path> = plan
+        .resources
+        .iter()
+        .filter(|r| r.access == theseus_tools::Access::Write)
+        .map(|r| r.path.as_path())
+        .collect();
+    if writes.is_empty() || !is_self(rt, session?) {
+        return None;
+    }
+    let core = rt.self_pr.core.get().and_then(std::sync::Weak::upgrade)?;
+    let repo = core
+        .cfg
+        .self_improve
+        .repo
+        .as_deref()
+        .map(crate::config::expand);
+    let mut kept: Vec<PathBuf> = repo
+        .as_deref()
+        .and_then(super::tree_git::common_dir)
+        .into_iter()
+        .collect();
+    kept.extend(git_user_config());
+    writes.into_iter().find(|p| reaches_git(p, &kept)).map(|p| {
+        format!(
+            "Not run: {} is git's own (a .git path, the repository's git directory, or git's \
+                 configuration), which a self session does not write. Theseus's own git reads \
+                 it outside the sandbox. Edit the tree's files; the commit is Theseus's.",
+            p.display()
+        )
+    })
+}
+
+/// Whether a write to `p` reaches a `.git` path or anything under `kept`, by any of the three
+/// readings [`git_refusal`] names.
+pub(crate) fn reaches_git(p: &std::path::Path, kept: &[PathBuf]) -> bool {
+    [
+        p.to_path_buf(),
+        paths::canonical_best_effort(p),
+        followed(p),
+    ]
+    .into_iter()
+    .any(|at| super::tree_git::names_dot_git(&at) || kept.iter().any(|k| paths::within(&at, k)))
+}
+
+/// `p` as a write through it lands: each link along it followed, a dangling one too (which
+/// `canonical_best_effort` cannot resolve, and a write creates the file it names), and each
+/// `..` taken after the links before it, as the system takes it. At most 40 links.
+fn followed(p: &std::path::Path) -> PathBuf {
+    use std::ffi::OsString;
+    let parts = |p: &std::path::Path| -> Vec<OsString> {
+        p.components()
+            .rev()
+            .map(|c| c.as_os_str().to_os_string())
+            .collect()
+    };
+    let (mut todo, mut out, mut hops) = (parts(p), PathBuf::new(), 0);
+    while let Some(c) = todo.pop() {
+        match c.to_str() {
+            Some(".") => continue,
+            Some("..") => {
+                out.pop();
+                continue;
+            }
+            _ => out.push(&c),
+        }
+        if hops < 40 {
+            if let Ok(to) = std::fs::read_link(&out) {
+                hops += 1;
+                out.pop();
+                todo.extend(parts(&to));
+            }
+        }
+    }
+    out
+}
+
+/// Git's user-level config, where it reads it: `~/.gitconfig`, the XDG `git` directory, and
+/// `GIT_CONFIG_GLOBAL` when it is set; each as the gate resolves it.
+fn git_user_config() -> Vec<PathBuf> {
+    let var = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    let home = var("HOME");
+    let xdg = var("XDG_CONFIG_HOME").or_else(|| home.as_ref().map(|h| h.join(".config")));
+    [
+        home.map(|h| h.join(".gitconfig")),
+        xdg.map(|x| x.join("git")),
+        var("GIT_CONFIG_GLOBAL"),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|p| paths::canonical_best_effort(&p))
+    .collect()
+}
+
 /// A self session's call that waited for approval, now a notice that runs
 /// (theseus-cudar): the posture's own reason is kept, so the notice says
 /// what would have asked. The floor and the owner's other holds never come

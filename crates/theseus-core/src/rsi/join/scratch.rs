@@ -151,16 +151,20 @@ fn is_the_pipelines(p: &Place, trees: &Path, name: &str) -> bool {
         // No checkout at all: nothing a build or a join makes.
         return false;
     }
-    let common = |at: &Path| -> Option<PathBuf> {
-        let d = p.git_ok(at, &["rev-parse", "--git-common-dir"]).ok()?;
-        std::fs::canonicalize(at.join(d)).ok()
-    };
-    let (Some(its), Some(ours)) = (common(&dir), common(&p.repo)) else {
-        tracing::warn!(dir = %dir.display(), "self-review: git did not say whose this tree is, so it stays");
+    // Whose it is, read from the files and never by running git in it: the daemon's git runs
+    // only in the repo's own worktrees (`tree_git`), and this one may be a reviewer's clone. One
+    // the repo lists is its own whatever its `.git` now says.
+    use crate::rsi::tree_git::{admin_of, common_dir};
+    if admin_of(&p.repo, &dir).is_none() {
+        let (Some(its), Some(ours)) = (common_dir(&dir), common_dir(&p.repo)) else {
+            tracing::warn!(dir = %dir.display(), "self-review: git did not say whose this tree is, so it stays");
+            return true;
+        };
+        if its != ours {
+            return false;
+        }
+        tracing::warn!(dir = %dir.display(), "self-review: a tree of this repo it does not list, so it stays");
         return true;
-    };
-    if its != ours {
-        return false;
     }
     match p.git_ok(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]) {
         Ok(branch) => branch.starts_with("self/"),

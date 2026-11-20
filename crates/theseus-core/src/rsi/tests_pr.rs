@@ -888,6 +888,7 @@ mod own_tree {
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
     mod builder_folder;
+    mod git_pin;
     mod proc_in_tree;
     mod registries;
 

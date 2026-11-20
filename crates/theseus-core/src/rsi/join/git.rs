@@ -82,7 +82,7 @@ pub fn fetch(p: &Place, remote: &str) -> Result<()> {
 /// SIGKILL. The wait is a timed receive on a watcher thread, not a poll.
 pub fn fetch_within(p: &Place, remote: &str, limit: Duration) -> Result<()> {
     let args = ["fetch", "-q", remote];
-    let mut c = p.git_command(&p.repo, &args);
+    let mut c = p.git_command(&p.repo, &args)?;
     c.process_group(0);
     let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
         .context("git could not start")?;

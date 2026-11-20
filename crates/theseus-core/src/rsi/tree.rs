@@ -302,25 +302,25 @@ impl Place {
         self.root().join("reports")
     }
 
-    /// `git -C <dir> <args>` ready to spawn, never prompting.
-    pub(super) fn git_command(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut c = Command::new("git");
-        c.arg("-C")
-            .arg(dir)
-            .args(args)
-            .env("GIT_TERMINAL_PROMPT", "0")
+    /// `git -C <dir> <args>` ready to spawn, never prompting: the one way the daemon runs git.
+    /// In a worktree its git directory is named and its `.git` checked, and the ways config
+    /// runs a program are off (`tree_git`); a directory that is neither the repo nor a
+    /// worktree of it gets no git.
+    pub(super) fn git_command(&self, dir: &Path, args: &[&str]) -> Result<Command> {
+        let mut c = super::tree_git::command(&self.repo, dir, args)?;
+        c.env("GIT_TERMINAL_PROMPT", "0")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         for (k, v) in &self.env {
             c.env(k, v);
         }
-        c
+        Ok(c)
     }
 
     /// `git -C <dir> <args>`, as a child of the daemon's, never prompting.
     pub fn git(&self, dir: &Path, args: &[&str]) -> Result<Output> {
-        let mut c = self.git_command(dir, args);
+        let mut c = self.git_command(dir, args)?;
         let child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
             .context("git could not start")?;
         Ok(child.wait_with_output()?)
@@ -469,9 +469,10 @@ pub fn find(p: &Place, item: &str) -> Option<Tree> {
     if !dir.join(".git").exists() {
         return None;
     }
-    let branch = p
-        .git_ok(&dir, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .ok()?;
+    // From the repo's side, so a tree whose `.git` was changed is still found, and its next
+    // step stops on it in so many words (`tree_git`); git itself for a ref store with no files.
+    let branch = super::tree_git::branch_of(&p.repo, &dir)
+        .or_else(|| p.git_ok(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]).ok())?;
     Some(Tree {
         target: p.targets().join(&slug),
         slug,
@@ -689,6 +690,14 @@ pub(super) fn next_name(p: &Place, dir: &Path, branch: &str) -> Result<String> {
 /// stop the loop knows how to take, and `push_main` refuses it besides — a
 /// build that cannot commit at all is a wedge with no card and no stop.
 pub fn commit(p: &Place, tree: &Tree, subject: &str, body: &str) -> Result<Option<String>> {
+    // `git add` runs `git status` in a repository the tree holds, by that repository's config.
+    if let Some(at) = super::tree_git::nested_repo(&tree.dir) {
+        bail!(
+            "{} ({}), so Theseus commits nothing in it",
+            super::tree_git::NESTED,
+            at.display()
+        );
+    }
     p.git_ok(&tree.dir, &["add", "-A"])?;
     let clean = p
         .git(&tree.dir, &["diff", "--cached", "--quiet"])?

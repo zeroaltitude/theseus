@@ -29,6 +29,7 @@ fn open(i: &Input) -> Attempt<'_> {
         verdict: "",
         diff: (0, 0, 0),
         reran: vec![],
+        refused: None,
     }
 }
 
