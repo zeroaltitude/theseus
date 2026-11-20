@@ -138,6 +138,8 @@ async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_that_says_to_read_an
     ] {
         assert!(said.contains(want), "{want}: {said}");
     }
+    // The review's own general instructions name the scratch and its checkout; the proof block does not.
+    let proof = &asks[0].proof;
     for not in [
         "CHANGED:",
         "FAILED:",
@@ -146,7 +148,7 @@ async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_that_says_to_read_an
         "scratch checkout",
         &format!("{}/tree", asks[0].scratch),
     ] {
-        assert!(!said.contains(not), "{not}: {said}");
+        assert!(!proof.contains(not), "{not}: {proof}");
     }
 }
 
