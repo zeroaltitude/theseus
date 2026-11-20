@@ -647,6 +647,11 @@ pub enum Hand {
     Owner,
     /// A model wrote it, in this session.
     Model(String),
+    /// Nothing proves whose it is and the record's own word is not enough (a title that may have been
+    /// retitled, whose ledger row the walk could not reach or the ledger no longer holds): by the rule
+    /// above it is a model's, and which conversation's nobody can say. Held from a restricted turn; given
+    /// to any other with no flags to take, since there is no session to take them from.
+    Unproven,
 }
 
 /// The authors whose user-role nodes are the harness talking to the model in

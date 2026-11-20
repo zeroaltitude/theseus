@@ -68,6 +68,17 @@ impl<'a> Reader<'a> {
         match hand {
             crate::content::Hand::Owner => super::clip(text, max),
             crate::content::Hand::Model(session) => self.words(session, text, max),
+            crate::content::Hand::Unproven => self.unproven(text, max),
+        }
+    }
+
+    /// `text` whose writer could not be established: held from a restricted turn, with a line that says so
+    /// and names no conversation; given to any other turn, with no flags to take (no session is known to
+    /// take them from).
+    pub(super) fn unproven(&self, text: &str, max: usize) -> String {
+        match self.restricted {
+            true => "(held back: its writer could not be established)".into(),
+            false => super::clip(text, max),
         }
     }
 

@@ -222,14 +222,14 @@ fn the_read_is_bounded_and_shared() {
     r.core.store.append(&recs).unwrap();
     let got = retitlers(&r.core.store, &wanted, ROWS_MAX).unwrap();
     assert_eq!(
-        got.get("tsk_wanted").map(String::as_str),
+        got.found.get("tsk_wanted").map(String::as_str),
         Some("ses_renamer")
     );
     // One more newer row pushes it past the cap: not found.
     r.core.store.append(&other(1)).unwrap();
     ROWS_READ.with(|c| c.set(0));
     let got = retitlers(&r.core.store, &wanted, ROWS_MAX).unwrap();
-    assert!(got.is_empty(), "{got:?}");
+    assert!(got.found.is_empty() && got.cut, "{got:?}");
     assert_eq!(
         ROWS_READ.with(std::cell::Cell::get),
         ROWS_MAX,
@@ -239,7 +239,10 @@ fn the_read_is_bounded_and_shared() {
     let ids: Vec<String> = (0..24).map(|n| format!("tsk_edited{n}")).collect();
     let all: BTreeSet<&str> = ids.iter().map(String::as_str).collect();
     ROWS_READ.with(|c| c.set(0));
-    assert!(retitlers(&r.core.store, &all, ROWS_MAX).unwrap().is_empty());
+    assert!(retitlers(&r.core.store, &all, ROWS_MAX)
+        .unwrap()
+        .found
+        .is_empty());
     assert_eq!(ROWS_READ.with(std::cell::Cell::get), ROWS_MAX);
 }
 
@@ -268,6 +271,125 @@ fn a_look_over_many_edited_titles_reads_the_cap_once() {
         .unwrap();
     ROWS_READ.with(|c| c.set(0));
     let hands = crate::task_graph::title_hands(&r.core.store, &refs).unwrap();
-    assert!(hands.iter().all(|h| *h == Hand::Owner));
+    // The walk was cut at the cap with no title row: unproven, not the owner's.
+    assert!(hands.iter().all(|h| *h == Hand::Unproven), "{hands:?}");
     assert_eq!(ROWS_READ.with(std::cell::Cell::get), ROWS_MAX);
+}
+
+/// A look at an owner's project edited otherwise (version 2) whose title's row is out of the walk's reach:
+/// at the cap (2,001 task rows, the title's the oldest) it is unproven and held from a restricted turn, in
+/// plain words that name no conversation; on an unrestricted turn it is given and nothing is taken. The
+/// owner's milestone (never edited) is theirs in both.
+#[tokio::test]
+async fn a_title_out_of_the_walks_reach_is_held_as_unproven() {
+    for restricted in [true, false] {
+        let r = match restricted {
+            true => restricted_rig(),
+            false => rig(),
+        };
+        let id = owners(&r);
+        let renamer = conversation(&r).await;
+        mark(&r, &renamer);
+        // The title's row first, then 2,000 newer rows of another task: it is the 2,001st newest.
+        let mut rec = task(&r, &id);
+        rec.title = "Reef survey".into();
+        rec.version += 1;
+        let mut recs = vec![
+            crate::task_graph::record(&rec).unwrap(),
+            row("task.updated", &id, &renamer, "title"),
+        ];
+        recs.extend((0..ROWS_MAX).map(|_| row("task.updated", "tsk_other", "ses_x", "deps")));
+        r.core.store.append(&recs).unwrap();
+        let here = conversation(&r).await;
+        let text = said(&r, &here, json!({"what": ["projects"]})).await;
+        assert!(text.contains("next Outer harbour"), "{text}");
+        match restricted {
+            true => {
+                assert!(!text.contains("Reef survey"), "{text}");
+                assert!(
+                    text.contains("(held back: its writer could not be established)"),
+                    "{text}"
+                );
+                assert!(
+                    !text.contains("that conversation"),
+                    "names no conversation: {text}"
+                );
+            }
+            false => {
+                assert!(
+                    text.contains("Reef survey") && !text.contains("held back"),
+                    "{text}"
+                );
+                assert!(flags(&r, &here).is_none(), "no session to take flags from");
+            }
+        }
+    }
+}
+
+/// A walk that ran to the end of the rows without a title row is a different answer: the record's own word
+/// stands, given. And a ledger that begins after the record was created has lost a stretch of its life, so
+/// a title with no row there is unproven.
+#[test]
+fn the_end_of_the_rows_is_the_records_word_and_a_ledger_that_begins_late_is_unproven() {
+    let r = rig();
+    let id = owners(&r);
+    let mut edited = task(&r, &id);
+    edited.version = 3;
+    let hand = |rec: &crate::task_graph::TaskRecord| {
+        crate::task_graph::title_hand(&r.core.store, rec).unwrap()
+    };
+    // The rows run out (a few of other tasks'), the ledger reaches back past the record: the owner's.
+    r.core
+        .store
+        .append(&[row("task.updated", "tsk_other", "ses_x", "deps")])
+        .unwrap();
+    assert_eq!(hand(&edited), Hand::Owner);
+    let mut model = edited.clone();
+    model.origin.by_model = true;
+    model.origin.session = "ses_maker".into();
+    assert_eq!(hand(&model), Hand::Model("ses_maker".into()));
+    // The record says it was created before the ledger's first row: a retitle in that stretch is gone.
+    let mut old = edited;
+    old.created_at_ms = 1;
+    assert_eq!(hand(&old), Hand::Unproven);
+    // A version-1 record has nothing to find, whenever it was created.
+    old.version = 1;
+    assert_eq!(hand(&old), Hand::Owner);
+}
+
+/// The shape-building window after a start (`ledger_page` answers none): the newest rows of every kind are
+/// read. A ledger shorter than the cap is read whole, so an old retitle is found and a title with no row is
+/// the owner's; a longer one may hold an older retitle than the tail reaches, and the title is unproven.
+#[test]
+fn in_the_shape_building_window_a_short_ledger_is_read_whole_and_a_long_one_is_cut() {
+    let r = rig();
+    let id = owners(&r);
+    let mut edited = task(&r, &id);
+    edited.version = 3;
+    r.core.store.shape_window(true);
+    let hand = |rec: &crate::task_graph::TaskRecord| {
+        crate::task_graph::title_hand(&r.core.store, rec).unwrap()
+    };
+    assert_eq!(hand(&edited), Hand::Owner, "the whole short ledger, no row");
+    r.core
+        .store
+        .append(&[row("task.updated", &id, "ses_renamer", "title")])
+        .unwrap();
+    assert_eq!(hand(&edited), Hand::Model("ses_renamer".into()));
+    // More rows than the cap: the tail may not reach it.
+    r.core
+        .store
+        .append(
+            &(0..ROWS_MAX)
+                .map(|_| row("task.updated", "tsk_other", "ses_x", "deps"))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    assert_eq!(hand(&edited), Hand::Unproven);
+    r.core.store.shape_window(false);
+    assert_eq!(
+        hand(&edited),
+        Hand::Unproven,
+        "the index walk is cut at the cap too"
+    );
 }

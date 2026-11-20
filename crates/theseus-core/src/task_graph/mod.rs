@@ -70,10 +70,17 @@ pub fn title_hand(store: &Store, rec: &TaskRecord) -> Result<crate::content::Han
 }
 
 /// [`title_hand`] of each of `recs`, in order, with the one bounded read of the ledger they share
-/// (`retitle.rs`): a record with no mark and a `version` above 1 may have been retitled before the mark
-/// existed, and the newest ledger row that retitled it names the session. Without a mark or such a row
-/// the title is unproven, and is answered as it was before: a model's when the record says a model made
-/// it, else the owner's.
+/// (`retitle.rs`). A record with no mark and a `version` above 1 may have been retitled before the mark
+/// existed, and the newest ledger row that retitled it names the session. With no such row:
+///
+/// - the walk ran to the end of the rows and the ledger reaches back past the record's creation: it was
+///   never retitled, and the record's own word stands (a model's if it says a model made it, else the
+///   owner's);
+/// - **otherwise the title is unproven** ([`crate::content::Hand::Unproven`]): the walk was cut short (the
+///   cap, or the shape-building window after a start), or the ledger begins after the record was created
+///   (rows of its life are gone, and the walk cannot tell a row that was never written from one that was).
+///   By the rule on `Hand`, a text nothing proves the owner's is a model's, so it is held from a restricted
+///   turn.
 pub fn title_hands(store: &Store, recs: &[&TaskRecord]) -> Result<Vec<crate::content::Hand>> {
     use crate::content::Hand;
     let mut out: Vec<Option<Hand>> = Vec::with_capacity(recs.len());
@@ -85,20 +92,33 @@ pub fn title_hands(store: &Store, recs: &[&TaskRecord]) -> Result<Vec<crate::con
         }
         out.push(mark.map(Hand::Model));
     }
-    let before = match unmarked.is_empty() {
-        true => Default::default(),
+    let walk = match unmarked.is_empty() {
+        true => retitle::Walk::default(),
         false => retitle::retitlers(store, &unmarked, retitle::ROWS_MAX)?,
+    };
+    // Only a walk that ran to the end asks where the ledger begins, once.
+    let begins = match unmarked.is_empty() || walk.cut {
+        true => None,
+        false => retitle::ledger_begins(store)?,
     };
     Ok(recs
         .iter()
         .zip(out)
         .map(|(rec, marked)| {
-            marked
-                .or_else(|| before.get(&rec.id).cloned().map(Hand::Model))
-                .unwrap_or(match rec.origin.by_model {
-                    true => Hand::Model(rec.origin.session.clone()),
-                    false => Hand::Owner,
-                })
+            if let Some(hand) = marked {
+                return hand;
+            }
+            if let Some(session) = walk.found.get(&rec.id) {
+                return Hand::Model(session.clone());
+            }
+            let covered = begins.is_some_and(|from| from <= rec.created_at_ms);
+            if unmarked.contains(rec.id.as_str()) && (walk.cut || !covered) {
+                return Hand::Unproven;
+            }
+            match rec.origin.by_model {
+                true => Hand::Model(rec.origin.session.clone()),
+                false => Hand::Owner,
+            }
         })
         .collect())
 }
