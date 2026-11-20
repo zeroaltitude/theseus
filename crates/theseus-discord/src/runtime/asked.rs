@@ -4,11 +4,13 @@
 //! button's id is the notice card's, `tighten:<tool>|<call id>`, so a press goes
 //! the one way a pick and a card's button always did (`should_have_asked`, which
 //! sends `policy.tighten` as the presser); a pull-down an older build posted is
-//! still answered. A child of `runtime`, apart from it for the file ceiling.
+//! still answered. A message with a tool name too long for a button's id keeps
+//! the pull-down, which carries a tool up to 100 characters. A child of
+//! `runtime`, apart from it for the file ceiling.
 
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle, Component};
 
-use super::{asked_menu, asked_value, ASKED_MENU};
+use super::{asked_menu, asked_value, ASKED_MENU, ID_LIMIT};
 use crate::render::Asked;
 
 /// Discord's most buttons in a row, and so the most tools offered as buttons.
@@ -16,16 +18,27 @@ const MAX_BUTTONS: usize = 5;
 /// Discord's limit on a button's label, in characters.
 const LABEL_LIMIT: usize = 80;
 
+/// A button's custom id: the notice card's, `tighten:<tool>|<call id>`.
+fn button_id(a: &Asked) -> String {
+    format!("{ASKED_MENU}:{}", asked_value(a))
+}
+
 /// One tool's button: a mark and the tool's name, clipped to the label's limit.
+/// A name too long for its room keeps its end (the tool of `mcp:<server>/<tool>`),
+/// with the `…` in front, so two tools of one long-named server read apart.
 fn button(a: &Asked) -> Component {
     let room = LABEL_LIMIT - "🔔 ".chars().count();
-    let tool = match a.tool.chars().count() > room {
-        true => format!("{}…", a.tool.chars().take(room - 1).collect::<String>()),
+    let len = a.tool.chars().count();
+    let tool = match len > room {
+        true => format!(
+            "…{}",
+            a.tool.chars().skip(len - (room - 1)).collect::<String>()
+        ),
         false => a.tool.clone(),
     };
     Component::Button(Button {
         id: None,
-        custom_id: Some(format!("{ASKED_MENU}:{}", asked_value(a))),
+        custom_id: Some(button_id(a)),
         disabled: false,
         emoji: None,
         label: Some(format!("🔔 {tool}")),
@@ -48,11 +61,15 @@ pub(crate) fn asked_button(ask: Option<&Asked>) -> Vec<Component> {
 }
 
 /// A tool message's controls: a row of buttons for one to five tools, the
-/// pull-down for more, nothing for none.
+/// pull-down for more, nothing for none. A button's id counts in characters, as
+/// Discord's validator does: one past `ID_LIMIT` is a pull-down for all.
 pub(crate) fn asked_controls(options: &[Asked]) -> Vec<Component> {
+    let id_too_long = options
+        .iter()
+        .any(|a| button_id(a).chars().count() > ID_LIMIT);
     match options.len() {
         0 => vec![],
-        n if n <= MAX_BUTTONS => vec![Component::ActionRow(ActionRow {
+        n if n <= MAX_BUTTONS && !id_too_long => vec![Component::ActionRow(ActionRow {
             id: None,
             components: options.iter().map(button).collect(),
         })],
@@ -167,8 +184,9 @@ mod tests {
         assert!(asked_button(None).is_empty());
     }
 
-    /// A long tool name is clipped inside Discord's 80 characters, and its id
-    /// stays inside 100 (the tool alone past that, as for a pick).
+    /// A long tool name is clipped inside Discord's 80 characters, keeping its
+    /// end behind a `…`, and its id stays inside 100 (the tool alone past that,
+    /// as for a pick).
     #[test]
     fn a_long_tool_name_is_clipped_to_the_label_limit() {
         let long = asked(&format!("mcp:{}/tool", "s".repeat(82)), Some("act_001"));
@@ -182,7 +200,7 @@ mod tests {
         let label = b.label.as_deref().unwrap();
         assert_eq!(label.chars().count(), LABEL_LIMIT);
         assert!(
-            label.starts_with("🔔 mcp:sss") && label.ends_with('…'),
+            label.starts_with("🔔 …") && label.ends_with("sss/tool"),
             "{label}"
         );
         assert!(b.custom_id.as_deref().unwrap().len() <= 100);
@@ -192,5 +210,69 @@ mod tests {
                 .tool,
             long.tool
         );
+    }
+
+    fn label_of(c: &Component) -> String {
+        let Component::Button(b) = c else { panic!() };
+        b.label.clone().unwrap()
+    }
+
+    /// Two tools of one long-named server do not read the same: the label
+    /// keeps the end of the name (planted: keep the start again).
+    #[test]
+    fn two_long_names_of_one_server_have_different_labels() {
+        let server = "s".repeat(70);
+        let options = [
+            asked(&format!("mcp:{server}/read"), Some("act_001")),
+            asked(&format!("mcp:{server}/write"), Some("act_002")),
+        ];
+        let rows = asked_controls(&options);
+        let Component::ActionRow(row) = &rows[0] else {
+            panic!("{rows:?}")
+        };
+        let labels: Vec<String> = row.components.iter().map(label_of).collect();
+        assert_ne!(labels[0], labels[1]);
+        assert!(labels[0].ends_with("/read") && labels[1].ends_with("/write"));
+        assert!(labels.iter().all(|l| l.chars().count() <= LABEL_LIMIT));
+    }
+
+    /// A button's id is `tighten:` and the tool, 8 characters more than the
+    /// tool, once the call id no longer fits: a tool of 92 characters is an id
+    /// of exactly 100, a button; 93 is 101, so the message keeps the pull-down.
+    /// And one long name among short ones makes the pull-down for all
+    /// (planted: take the condition out).
+    #[test]
+    fn a_tool_name_too_long_for_a_buttons_id_keeps_the_pull_down() {
+        let is_menu = |rows: &[Component]| {
+            matches!(rows, [Component::ActionRow(r)]
+                if matches!(&r.components[..], [Component::SelectMenu(_)]))
+        };
+        let edge = ID_LIMIT - format!("{ASKED_MENU}:").chars().count();
+        let fits = asked(&"t".repeat(edge), Some("act_001"));
+        let rows = asked_controls(std::slice::from_ref(&fits));
+        let Component::ActionRow(row) = &rows[0] else {
+            panic!("{rows:?}")
+        };
+        let Component::Button(b) = &row.components[0] else {
+            panic!("the edge is a button: {rows:?}")
+        };
+        assert_eq!(b.custom_id.as_deref().unwrap().chars().count(), ID_LIMIT);
+
+        let over = asked(&"t".repeat(edge + 1), Some("act_001"));
+        assert!(is_menu(&asked_controls(std::slice::from_ref(&over))));
+        let long = asked(&"t".repeat(95), Some("act_001"));
+        assert!(is_menu(&asked_controls(std::slice::from_ref(&long))));
+
+        let mut mixed = tools(2);
+        mixed.insert(1, over.clone());
+        let rows = asked_controls(&mixed);
+        assert!(is_menu(&rows), "a long name among short ones: {rows:?}");
+        let Component::ActionRow(row) = &rows[0] else {
+            panic!()
+        };
+        let Component::SelectMenu(m) = &row.components[0] else {
+            panic!()
+        };
+        assert_eq!(m.options.len(), 3);
     }
 }
