@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use theseus_protocol::projects::{
     ProjectAttachParams, ProjectAttachResult, ProjectCloseParams, ProjectCreateParams,
     ProjectCreateResult, ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams,
-    ProjectListParams, ProjectListResult, ProjectShowParams, ProjectShowResult,
+    ProjectListParams, ProjectListResult, ProjectShowParams, ProjectShowResult, ProjectTask,
+    PROJECT_TASKS_LISTED,
 };
 use theseus_protocol::tasks::{TaskOrigin, TaskRecord};
 use theseus_protocol::{error_code, method};
@@ -113,7 +114,81 @@ impl Core {
             let spec = book.find(&self.store, id).ok()?;
             crate::routine::info_of(&env, &spec).ok()?.next_ms
         };
-        project::info::info(tasks, p, self.kernel.now_ms(), &next)
+        let mut info = project::info::info(tasks, p, self.kernel.now_ms(), &next);
+        let involved = self.project_involved(tasks, p);
+        info.tasks = involved.len() as u32;
+        info.tasks_running = involved.iter().filter(|t| !t.ended).count() as u32;
+        info
+    }
+
+    /// The tasks involved in `p` (`project::involved`): those still going first, then the newest first.
+    pub(crate) fn project_involved(
+        &self,
+        tasks: &[TaskRecord],
+        p: &TaskRecord,
+    ) -> Vec<ProjectTask> {
+        let mut tied = project::involved::tied(tasks, p, self.kernel.now_ms());
+        // A review's runs are the tasks of its routine's execution; the routine's record outlives its delete.
+        let routine = p.review.as_deref().and_then(|id| {
+            self.store
+                .get_meta::<theseus_protocol::routines::RoutineSpec>(&format!(
+                    "{}{id}",
+                    theseus_protocol::routines::KEY_PREFIX
+                ))
+                .ok()
+                .flatten()
+        });
+        if let Some(spec) = routine {
+            for e in self
+                .kernel
+                .tasks(Some(&spec.execution_id))
+                .unwrap_or_default()
+            {
+                if !tied.iter().any(|(s, _)| *s == e.session_id) {
+                    tied.push((e.session_id.clone(), project::involved::REVIEW));
+                }
+            }
+        }
+        let mut out: Vec<ProjectTask> = tied
+            .into_iter()
+            .filter_map(|(session, how)| self.project_task(tasks, &session, how))
+            .collect();
+        project::involved::order(&mut out);
+        out
+    }
+
+    /// One involved task as it is listed: none for a session that is not a task or has no execution.
+    fn project_task(&self, tasks: &[TaskRecord], session: &str, how: &str) -> Option<ProjectTask> {
+        let tail = session.split_once('_').map_or(session, |(_, t)| t);
+        let e = self
+            .kernel
+            .execution(&format!("exe_{tail}"))
+            .ok()
+            .flatten()?;
+        let rec: Option<crate::session::SessionRecord> =
+            self.store.get_session(session).ok().flatten();
+        rec.as_ref()?.task.as_ref()?;
+        let title = rec
+            .as_ref()
+            .and_then(|r| r.title.clone())
+            .or_else(|| {
+                tasks
+                    .iter()
+                    .find(|t| t.session.as_deref() == Some(session))
+                    .map(|t| t.title.clone())
+            })
+            .unwrap_or_default();
+        let ended = e.state.is_terminal();
+        Some(ProjectTask {
+            task_id: session.to_string(),
+            short: crate::task::short(session),
+            title,
+            state: e.state.as_str().to_string(),
+            ended,
+            how: how.to_string(),
+            started_at_ms: e.created_at_ms,
+            ended_at_ms: ended.then_some(e.updated_at_ms),
+        })
     }
 
     /// `project.create`: the project, its milestones, and (unless
@@ -314,9 +389,13 @@ impl Core {
             .into_iter()
             .cloned()
             .collect();
+        let (involved, more) =
+            project::involved::bounded(self.project_involved(&tasks, t), PROJECT_TASKS_LISTED);
         Ok(ProjectShowResult {
             project: self.project_info(&tasks, t),
             records,
+            tasks: involved,
+            tasks_more: more,
         })
     }
 

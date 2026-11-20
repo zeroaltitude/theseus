@@ -95,7 +95,43 @@ pub struct ProjectInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub review_next_ms: Option<u64>,
+    /// How many tasks were involved in it (`ProjectTask`), and how many of those are still going.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tasks: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tasks_running: u32,
 }
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// A task that was involved in a project, as `project.show` lists it. The list is read from the records and
+/// never stored: a task is involved when it was started from a conversation attached to the project
+/// (`TaskOrigin::project`), when its own record hangs under the project's, when it holds a claim on one of
+/// the project's records, or when it is a run of the project's weekly review.
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectTask {
+    /// Its session's id (`ses_…`), which the task views take.
+    pub task_id: String,
+    /// The last six characters, how people name a task.
+    pub short: String,
+    pub title: String,
+    /// Its execution's state: `running`, `waiting`, `complete`, `failed`, `cancelled`, …
+    pub state: String,
+    /// Whether it has ended.
+    pub ended: bool,
+    /// How it was involved: `started for it`, `under it`, `holds a step`, or `weekly review`.
+    pub how: String,
+    pub started_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub ended_at_ms: Option<u64>,
+}
+
+/// The newest this many involved tasks are listed with a project; the rest are counted.
+pub const PROJECT_TASKS_LISTED: usize = 50;
 
 /// A milestone to create: its title and its date (`when` words:
 /// `2026-11-03`, `Fri 09:00`, `in 3d`).
@@ -169,11 +205,18 @@ pub struct ProjectShowParams {
 }
 
 #[cfg_attr(test, derive(ts_rs::TS))]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectShowResult {
     pub project: ProjectInfo,
     /// The project and everything under it, depth first.
     pub records: Vec<TaskRecord>,
+    /// The tasks involved in it, those still going first and then the newest first, at most
+    /// `PROJECT_TASKS_LISTED`; a closed project keeps its list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<ProjectTask>,
+    /// How many more were involved than are listed.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tasks_more: u32,
 }
 
 /// `project.attach`: the session carries the project's slice in every

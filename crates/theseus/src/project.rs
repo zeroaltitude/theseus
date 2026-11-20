@@ -464,6 +464,37 @@ pub fn show_lines(r: &ProjectShowResult, now_ms: u64) -> Vec<String> {
             stack.push((c, depth + 1));
         }
     }
+    out.extend(task_lines(r));
+    out
+}
+
+/// The tasks involved in the project, those still going first: each its short id, title, state, when it
+/// started and ended, and how it was involved; the rest counted.
+fn task_lines(r: &ProjectShowResult) -> Vec<String> {
+    if r.tasks.is_empty() {
+        return vec![];
+    }
+    let p = &r.project;
+    let mut out = vec![format!(
+        "  tasks ({}, {} running):",
+        p.tasks, p.tasks_running
+    )];
+    for t in &r.tasks {
+        let ended = t
+            .ended_at_ms
+            .map_or(String::new(), |e| format!(" · ended {}", fmt_date(e)));
+        out.push(format!(
+            "    {} \"{}\" [{}] · started {}{ended} · {}",
+            t.short,
+            t.title,
+            t.state,
+            fmt_date(t.started_at_ms),
+            t.how
+        ));
+    }
+    if r.tasks_more > 0 {
+        out.push(format!("    … and {} more", r.tasks_more));
+    }
     out
 }
 
@@ -491,6 +522,7 @@ mod tests {
             next_title: Some("Chart the moorings".into()),
             review: Some("ses_review".into()),
             review_next_ms: Some(1_790_100_000_000),
+            ..Default::default()
         }
     }
 
@@ -538,6 +570,7 @@ mod tests {
         let r = ProjectShowResult {
             project: info(),
             records: vec![TaskRecord::default(), m.clone()],
+            ..Default::default()
         };
         let lines = show_lines(&r, 1_790_000_000_000);
         assert!(lines
@@ -549,6 +582,7 @@ mod tests {
         let r = ProjectShowResult {
             project: info(),
             records: vec![m],
+            ..Default::default()
         };
         assert!(!show_lines(&r, 1_790_000_000_000)
             .iter()
@@ -590,5 +624,63 @@ mod tests {
         assert!(asks_nothing(true, true).unwrap().contains("--yes"));
         assert!(asks_nothing(false, false).unwrap().contains("terminal"));
         assert!(said_yes("y\n") && said_yes(" YES ") && !said_yes("\n") && !said_yes("no"));
+    }
+
+    /// `project show` lists the tasks involved: running first as the daemon sent them, with when they started
+    /// and ended and how, and the rest counted.
+    #[test]
+    fn show_lists_the_tasks_involved_and_counts_the_rest() {
+        use theseus_protocol::projects::ProjectTask;
+        let mut project = info();
+        project.tasks = 53;
+        project.tasks_running = 1;
+        let task = |short: &str, state: &str, ended: Option<u64>, how: &str| ProjectTask {
+            task_id: format!("ses_{short}"),
+            short: short.into(),
+            title: "Sound the channel".into(),
+            state: state.into(),
+            ended: ended.is_some(),
+            how: how.into(),
+            started_at_ms: 1_789_000_000_000,
+            ended_at_ms: ended,
+        };
+        let r = ProjectShowResult {
+            project,
+            tasks: vec![
+                task("run001", "running", None, "started for it"),
+                task(
+                    "end002",
+                    "complete",
+                    Some(1_789_000_600_000),
+                    "weekly review",
+                ),
+            ],
+            tasks_more: 51,
+            ..Default::default()
+        };
+        let lines = show_lines(&r, 1_790_000_000_000);
+        let at = lines
+            .iter()
+            .position(|l| l.contains("tasks (53, 1 running)"))
+            .unwrap();
+        assert!(
+            lines[at + 1].contains("run001 \"Sound the channel\" [running] · started 2026"),
+            "{lines:?}"
+        );
+        assert!(lines[at + 1].ends_with("· started for it") && !lines[at + 1].contains("ended"));
+        assert!(
+            lines[at + 2].contains("[complete]")
+                && lines[at + 2].contains("· ended 2026")
+                && lines[at + 2].ends_with("weekly review")
+        );
+        assert_eq!(lines[at + 3], "    … and 51 more");
+        // A project nobody worked on prints no section.
+        let none = ProjectShowResult {
+            project: info(),
+            ..Default::default()
+        };
+        assert!(!show_lines(&none, 1_790_000_000_000)
+            .iter()
+            .any(|l| l.contains("tasks (")));
     }
 }

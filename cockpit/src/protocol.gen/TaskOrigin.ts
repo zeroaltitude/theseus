@@ -25,4 +25,10 @@ self_started?: boolean,
  * The model's own one-line reason for starting it, in its words, at
  * most `BECAUSE_MAX` characters. Only a self-started task has one.
  */
-because?: string, };
+because?: string, 
+/**
+ * The project the starting conversation served when the task was started (`project.attach`; store format
+ * 60): the one mark that says a task was started for a project, which nothing else in the record does.
+ * Absent for a task that was not, and for every record written before this field.
+ */
+project?: string, };

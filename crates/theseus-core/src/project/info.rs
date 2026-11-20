@@ -28,5 +28,6 @@ pub fn info(
         next_title: next.map(|m| m.title.clone()),
         review: p.review.clone(),
         review_next_ms: p.review.as_deref().and_then(review_next),
+        ..Default::default()
     }
 }

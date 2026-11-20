@@ -127,6 +127,12 @@ pub struct TaskOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub because: Option<String>,
+    /// The project the starting conversation served when the task was started (`project.attach`; store format
+    /// 60): the one mark that says a task was started for a project, which nothing else in the record does.
+    /// Absent for a task that was not, and for every record written before this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub project: Option<String>,
 }
 
 impl TaskOrigin {

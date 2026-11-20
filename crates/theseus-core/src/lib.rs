@@ -565,6 +565,8 @@ mod tests_project_close;
 #[cfg(test)]
 mod tests_project_context;
 #[cfg(test)]
+mod tests_project_tasks;
+#[cfg(test)]
 mod tests_projects;
 #[cfg(test)]
 mod tests_prove;

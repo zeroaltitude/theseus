@@ -534,6 +534,7 @@ export type * from './ProjectProgress';
 export type * from './ProjectShowParams';
 export type * from './ProjectShowResult';
 export type * from './ProjectSliceSummary';
+export type * from './ProjectTask';
 export type * from './ProjectTrustParams';
 export type * from './ProjectTrustedParams';
 export type * from './ProjectTrustedResult';
