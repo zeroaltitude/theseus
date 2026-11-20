@@ -1057,6 +1057,7 @@ fn typed_tool_started_ended_and_written() {
                 node_id: "nod_r2".into(),
                 exit_code,
                 stopped_by: stopped_by.map(Into::into),
+                cut_at_ms: None,
                 preview: "a.md\nb.md\n".repeat(300).chars().take(2000).collect(),
                 scratch: None,
                 reached: None,

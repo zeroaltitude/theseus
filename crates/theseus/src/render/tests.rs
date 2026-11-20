@@ -361,6 +361,29 @@ fn a_call_a_stop_ended_reads_stopped_in_watch_and_history() {
     assert_eq!(result_word("declined", None), "not run");
 }
 
+/// A job cut at its time limit says so in `theseus watch` and not `error` (issue 37); a job that failed still
+/// reads `error`.
+#[test]
+fn a_job_cut_at_its_limit_reads_cut_in_watch_not_error() {
+    let ended = |v: Value| serde_json::from_value::<ToolEnded>(v).unwrap();
+    let cut = ended(
+        serde_json::json!({"tool": "proc.run", "status": "error", "duration_ms": 2022, "bytes": 0,
+        "cut_at_ms": 2000}),
+    );
+    assert_eq!(
+        tool_ended_line(&cut),
+        "  ← proc.run cut at its 2 s limit · 2022 ms · 0 B"
+    );
+    let failed = ended(
+        serde_json::json!({"tool": "proc.run", "status": "error", "duration_ms": 9, "bytes": 0,
+        "exit_code": 1}),
+    );
+    assert_eq!(
+        tool_ended_line(&failed),
+        "  ← proc.run error · exit 1 · 9 ms · 0 B"
+    );
+}
+
 /// `theseus policy list` says what set each posture, and marks a
 /// tightening with who, when, and the call; `tighten` and `untighten`
 /// say what changed (theseus-sgh).

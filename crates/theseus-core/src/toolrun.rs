@@ -45,6 +45,7 @@ mod flow_step;
 pub(crate) use flow_step::Stepped;
 pub mod catalogs;
 mod complete;
+mod cut;
 mod extend;
 pub mod fit;
 mod glide;

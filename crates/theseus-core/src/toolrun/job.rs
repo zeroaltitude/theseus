@@ -976,7 +976,11 @@ impl ToolRuntime {
             exit,
             detail.get("timed_out").and_then(Value::as_bool),
         ) {
-            (_, _, Some(true)) => "[timed out and killed]\n".to_string(),
+            // Cut at its limit: the limit, how long it ran, and where (issue 37).
+            (_, _, Some(true)) => format!(
+                "[timed out and killed]\n{}",
+                super::cut::line(&detail, &self.ran_in(tool, input, (store, &a.session_id)))
+            ),
             // A `/stop` killed it (W1), or a cancel did.
             (ResultStatus::Cancelled, _, _) => format!(
                 "[cancelled: {}{}]\n",
