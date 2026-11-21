@@ -50,6 +50,13 @@ fn place_prefix() -> String {
 pub struct Board {
     threads: BTreeMap<String, ThreadInfo>,
     by_session: HashMap<String, String>,
+    /// What did not read when the board was loaded, for the readers that
+    /// decide permission (`view_gate::seal_of`): the slugs of thread records
+    /// that do not decode, the sessions bound to them, and whether a binding
+    /// itself did not decode (issue 44).
+    unread_slugs: BTreeSet<String>,
+    unread_sessions: BTreeSet<String>,
+    unread_binding: bool,
 }
 
 impl Board {
@@ -67,6 +74,22 @@ impl Board {
 
     pub fn get(&self, slug: &str) -> Option<&ThreadInfo> {
         self.threads.get(slug)
+    }
+
+    /// Whether the thread `slug`'s record did not read at the load.
+    pub fn unread_slug(&self, slug: &str) -> bool {
+        self.unread_slugs.contains(slug)
+    }
+
+    /// Whether `session` is bound to a thread whose record did not read.
+    pub fn unread_session(&self, session: &str) -> bool {
+        self.unread_sessions.contains(session)
+    }
+
+    /// Whether a thread's binding did not read at the load: any session may
+    /// then be that thread's.
+    pub fn unread_binding(&self) -> bool {
+        self.unread_binding
     }
 
     /// Every thread, by slug.
@@ -252,24 +275,42 @@ impl Threads {
             return Ok(b);
         }
         let mut records = Vec::new();
+        let mut unread_slugs = BTreeSet::new();
         for r in store.inner().latest_with_prefix(kinds::META, PREFIX)? {
             match r.decode::<ThreadInfo>() {
                 Ok(t) => records.push(t),
-                Err(e) => tracing::warn!(key = ?r.key, error = %e,
-                    "a thread record does not read: left out"),
+                Err(e) => {
+                    tracing::warn!(key = ?r.key, error = %e,
+                        "a thread record does not read: left out, and its sessions held out");
+                    if let Some(slug) = r.key.as_deref().and_then(|k| k.strip_prefix(PREFIX)) {
+                        unread_slugs.insert(slug.to_string());
+                    }
+                }
             }
         }
         let prefix = place_prefix();
         let mut sessions = HashMap::new();
+        let mut unread_binding = false;
         for r in store.inner().latest_with_prefix(kinds::META, &prefix)? {
             let Some(slug) = r.key.as_deref().and_then(|k| k.strip_prefix(&prefix)) else {
                 continue;
             };
-            if let Ok(sid) = r.decode::<String>() {
-                sessions.insert(slug.to_string(), sid);
+            match r.decode::<String>() {
+                Ok(sid) => {
+                    sessions.insert(slug.to_string(), sid);
+                }
+                Err(_) => unread_binding = true,
             }
         }
-        let board = Arc::new(Board::build(records, &sessions));
+        let mut board = Board::build(records, &sessions);
+        board.unread_sessions = sessions
+            .iter()
+            .filter(|(slug, _)| unread_slugs.contains(*slug))
+            .map(|(_, sid)| sid.clone())
+            .collect();
+        board.unread_slugs = unread_slugs;
+        board.unread_binding = unread_binding;
+        let board = Arc::new(board);
         *self.board.write().unwrap() = Some(board.clone());
         Ok(board)
     }

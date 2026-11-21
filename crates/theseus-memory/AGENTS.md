@@ -43,11 +43,12 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   asker's is worth `1 + gain * weight * (K+1)/(K+rank)`, rank from 1 among the sharers by score (K 60, the fusion's),
   `weight` the heaviest shared kind's (the core reads which). It runs after the place rule and every filter, so it
   reorders and admits nothing. Tests: `tests_category.rs`.
-- `gate.rs` (issue 44, step 2; `docs/design/view-gate.md`): the gate's type and rule. `Admitted<T>` has private
-  fields and `admit` is its one constructor; the core's `view_gate` is its one caller (its registry test says so).
+- `gate.rs` (issue 44, step 2; `docs/design/view-gate.md`): the gate's rule, a decision only. What is shown is the
+  core's `view::gate::Admitted`; the core's `view_gate` is `check`'s one caller (its registry test says so).
   `check(pov, marks)`: unknown presence admits nothing; an unreadable place, seal or veil denies; a seal or a veil
   denies; today's `Place::may_draw_at` must hold; a piece from another place than the anchor needs `OwnerAlone`.
-  Tests: its property tests (other places change nothing unless the owner is alone; marks only grow).
+  `Present` is ordered widest first, so the greater of two is the narrower. Tests: its property tests (other
+  places change nothing unless the owner is alone; marks only grow).
 - `rerank.rs` (step 32c): the `+rerank` arm's pure half. `eligible` is what passed every filter, in the science's
   order (only it may reach Jev); `reorder` re-sorts the top 20 by Jev's probabilities (an unanswered item keeps its
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order

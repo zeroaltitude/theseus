@@ -2,35 +2,59 @@
 //! [`Gate`] every selector's pieces pass. The rule is the one `crate::view_gate` runs for today's readers
 //! (`theseus_memory::gate`), so the view and they decide alike: unknown presence admits nothing; a piece with
 //! no place, or of an unknown audience, is denied; a seal or a veil denies; today's place rule must hold; and
-//! a piece from another place than the anchor needs the owner alone. A task's anchor is `task:<id>`.
+//! a piece from another place than the anchor needs the owner alone.
+//!
+//! A permit is made for one turn from its verified point of view (`view_gate::Verified`: the presence the
+//! turn computed from its input's mark, the place's class read on its own, the exact arrival place), never
+//! from the view's own [`PointOfView`]: that one may only narrow what the permit allows. So an arrival that
+//! calls itself owner-marked in a channel passes nothing from another place.
 
 use theseus_memory::gate as rule;
 use theseus_memory::recall::Place;
 
 use super::gate::{Admitted, Gate};
 use super::{Anchor, Audience, Piece, PointOfView, Present};
+use crate::view_gate::Verified;
 
-/// The gate the view's pieces pass.
-pub struct Permit;
+/// The gate the view's pieces pass, for one turn.
+pub struct Permit(Verified);
 
-/// The rule's point of view for the view's.
-pub fn point_of_view(pov: &PointOfView) -> rule::PointOfView {
+impl Permit {
+    /// The permit of the turn of `session`, as that turn computed its presence.
+    pub fn for_turn(runner: &crate::turn::TurnRunner, session: &str) -> Self {
+        Permit(Verified::of_session(runner, session))
+    }
+
+    /// A permit for a point of view already verified.
+    pub fn of(verified: Verified) -> Self {
+        Permit(verified)
+    }
+}
+
+/// The rule's presence for the view's.
+fn presence(p: Present) -> rule::Present {
+    match p {
+        Present::OwnerAlone => rule::Present::OwnerAlone,
+        Present::Private => rule::Present::PrivateChannel,
+        Present::Shared => rule::Present::Shared,
+        Present::Open => rule::Present::Open,
+        Present::Unknown => rule::Present::Unknown,
+    }
+}
+
+/// The rule's point of view: the verified one, narrowed by the view's when the view's is narrower, and
+/// nothing when the two name different anchors.
+pub fn point_of_view(verified: &Verified, pov: &PointOfView) -> rule::PointOfView {
+    let mut out = verified.pov().clone();
     let anchor = match &pov.anchor {
         Anchor::Place(p) => p.clone(),
         Anchor::Task(t) => format!("task:{t}"),
     };
-    let (present, place) = match pov.present {
-        Present::OwnerAlone => (rule::Present::OwnerAlone, Place::Private),
-        Present::Private => (rule::Present::PrivateChannel, Place::Private),
-        Present::Shared => (rule::Present::Shared, Place::Shared(anchor.clone())),
-        Present::Open => (rule::Present::Open, Place::Open(None)),
-        Present::Unknown => (rule::Present::Unknown, Place::Unknown),
-    };
-    rule::PointOfView {
-        anchor,
-        place,
-        present,
+    out.present = out.present.max(presence(pov.present));
+    if anchor != out.anchor {
+        out.present = rule::Present::Unknown;
     }
+    out
 }
 
 /// The rule's marks for a piece.
@@ -59,10 +83,16 @@ pub fn marks(piece: &Piece) -> rule::Marks {
 
 impl Gate for Permit {
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
-        crate::view_gate::Gate::admit(&point_of_view(pov), &marks(&piece), ())
+        crate::view_gate::Gate::check(&point_of_view(&self.0, pov), &marks(&piece))
             .ok()
-            .map(|_| Admitted::new(piece))
+            .map(|()| Admitted::new(piece))
     }
+}
+
+/// A piece of `place`, private, for the core's tests of the permit.
+#[cfg(test)]
+pub(crate) fn tests_piece(place: &str) -> Piece {
+    tests::piece(Some(place), Audience::Private)
 }
 
 #[cfg(test)]
@@ -83,7 +113,7 @@ mod tests {
         }
     }
 
-    fn piece(place: Option<&str>, audience: Audience) -> Piece {
+    pub(super) fn piece(place: Option<&str>, audience: Audience) -> Piece {
         let pos = Pos {
             at_ms: 1_000,
             id: "t1".into(),
@@ -120,53 +150,120 @@ mod tests {
         }
     }
 
+    /// A permit verified for `anchor` with `present`, as the turn would have
+    /// computed it.
+    fn permit(anchor: &str, present: Present) -> Permit {
+        let place = match present {
+            Present::Shared => Place::Shared(anchor.into()),
+            Present::Open => Place::Open(None),
+            Present::Unknown => Place::Unknown,
+            _ => Place::Private,
+        };
+        Permit::of(Verified::for_tests(rule::PointOfView {
+            anchor: anchor.into(),
+            place,
+            present: presence(present),
+        }))
+    }
+
+    fn admits(anchor: &str, present: Present, p: Piece) -> bool {
+        permit(anchor, present)
+            .admit(&pov(anchor, present), p)
+            .is_some()
+    }
+
     #[test]
     fn the_owner_alone_is_shown_his_other_places_and_no_one_else_is() {
         let dm = || piece(Some("discord:dm:7"), Audience::Private);
-        assert!(Permit
-            .admit(&pov("local", Present::OwnerAlone), dm())
-            .is_some());
-        assert!(Permit
-            .admit(&pov("local", Present::Private), dm())
-            .is_none());
+        assert!(admits("local", Present::OwnerAlone, dm()));
+        assert!(!admits("local", Present::Private, dm()));
         let lab = "discord:channel:11";
-        assert!(Permit.admit(&pov(lab, Present::Private), dm()).is_none());
-        let own = piece(Some(lab), Audience::Private);
-        assert!(Permit.admit(&pov(lab, Present::Private), own).is_some());
+        assert!(!admits(lab, Present::Private, dm()));
+        assert!(admits(
+            lab,
+            Present::Private,
+            piece(Some(lab), Audience::Private)
+        ));
+    }
+
+    /// The view's own point of view only narrows: a channel's arrival that
+    /// says it is owner-marked computes `OwnerAlone`, and the permit, made
+    /// from the turn's verified presence, still passes nothing from elsewhere.
+    #[test]
+    fn the_views_owner_alone_is_not_believed_over_the_verified_one() {
+        let lab = "discord:channel:11";
+        let arrival = Arrival {
+            anchor: Anchor::Place(lab.into()),
+            person: Some("owner".into()),
+            owner_marked: true,
+            audience: Audience::Private,
+        };
+        struct Snap;
+        impl Snapshot for Snap {
+            fn now_ms(&self) -> u64 {
+                9_000
+            }
+            fn timeline(&self) -> &dyn Timeline {
+                unreachable!("not read")
+            }
+            fn at_hand(&self, _: &Anchor) -> Option<AtHand> {
+                None
+            }
+        }
+        let claimed = PointOfView::compute(&arrival, &Snap);
+        assert_eq!(claimed.present, Present::OwnerAlone);
+        let p = permit(lab, Present::Private);
+        assert!(p
+            .admit(&claimed, piece(Some("local"), Audience::Private))
+            .is_none());
+        assert!(p
+            .admit(&claimed, piece(Some(lab), Audience::Private))
+            .is_some());
+        // Unreadable proof: nothing at all.
+        let none = permit(lab, Present::Unknown);
+        assert!(none
+            .admit(&claimed, piece(Some(lab), Audience::Private))
+            .is_none());
+        // A view anchored elsewhere than the verified turn: nothing.
+        let alone = permit("local", Present::OwnerAlone);
+        let elsewhere = pov("discord:dm:7", Present::OwnerAlone);
+        assert!(alone
+            .admit(&elsewhere, piece(Some("local"), Audience::Private))
+            .is_none());
     }
 
     #[test]
     fn a_missing_mark_a_seal_a_veil_or_an_unknown_presence_denies() {
-        let alone = pov("local", Present::OwnerAlone);
-        assert!(Permit
-            .admit(&alone, piece(None, Audience::Private))
-            .is_none());
-        assert!(Permit
-            .admit(&alone, piece(Some("local"), Audience::Unknown))
-            .is_none());
+        let alone = |p| admits("local", Present::OwnerAlone, p);
+        assert!(!alone(piece(None, Audience::Private)));
+        assert!(!alone(piece(Some("local"), Audience::Unknown)));
         let mut sealed = piece(Some("local"), Audience::Private);
         sealed.marks.sealed = true;
-        assert!(Permit.admit(&alone, sealed).is_none());
+        assert!(!alone(sealed));
         let mut veiled = piece(Some("local"), Audience::Private);
         veiled.marks.veiled = true;
-        assert!(Permit.admit(&alone, veiled).is_none());
-        let unknown = pov("local", Present::Unknown);
-        assert!(Permit
-            .admit(&unknown, piece(Some("local"), Audience::Private))
-            .is_none());
+        assert!(!alone(veiled));
+        assert!(!admits(
+            "local",
+            Present::Unknown,
+            piece(Some("local"), Audience::Private)
+        ));
     }
 
     #[test]
     fn a_shared_place_is_shown_its_own_alone() {
         let pier = "discord:channel:12";
-        let here = pov(pier, Present::Shared);
-        assert!(Permit
-            .admit(&here, piece(Some(pier), Audience::Shared))
-            .is_some());
-        assert!(Permit
-            .admit(&here, piece(Some("local"), Audience::Private))
-            .is_none());
+        assert!(admits(
+            pier,
+            Present::Shared,
+            piece(Some(pier), Audience::Shared)
+        ));
+        assert!(!admits(
+            pier,
+            Present::Shared,
+            piece(Some("local"), Audience::Private)
+        ));
         let quay = piece(Some("discord:channel:13"), Audience::Shared);
-        assert!(Permit.admit(&here, quay).is_none());
+        assert!(!admits(pier, Present::Shared, quay));
     }
 }
