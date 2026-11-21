@@ -640,6 +640,18 @@ impl Spot {
             Spot::Quay => Err(format!("channel:{QUAY}")),
         }
     }
+
+    /// Whether a turn here draws on a session at `from`: a private place on
+    /// any, a shared one on its own; a channel bound private on its own
+    /// alone (issue 44, the owner's decision 5).
+    fn draws_on(self, from: Spot) -> bool {
+        match (self, self.class(), from.class()) {
+            (Spot::Den, _, _) => matches!(from, Spot::Den),
+            (_, Ok(()), _) => true,
+            (_, Err(a), Err(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 fn spot() -> impl Strategy<Value = Spot> {
@@ -701,14 +713,9 @@ proptest! {
                 .collect();
             c.runner.memory.set_ask(index_of(c, made.iter().map(|(s, _)| s.clone()).collect()));
             turn(c, &me, "the notes?").await;
-            let here = asker.class();
             let may: Vec<usize> = spoken
                 .iter()
-                .filter(|(_, s)| match (&here, s.class()) {
-                    (Ok(()), _) => true,
-                    (Err(a), Err(b)) => *a == b,
-                    _ => false,
-                })
+                .filter(|(_, s)| asker.draws_on(*s))
                 .map(|(i, _)| *i)
                 .collect();
             let notes: Vec<String> = if may.is_empty() {
