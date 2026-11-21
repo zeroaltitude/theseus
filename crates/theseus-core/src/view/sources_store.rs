@@ -23,10 +23,12 @@ const PLACES_READ: usize = 500;
 /// A tool call's stub, in tokens: one line naming the call.
 const STUB_TOKENS: u64 = 30;
 
-/// The sources over `store`. `mark` is the turn's place and its `/new` mark, read by the turn.
+/// The sources over `store`. `mark` is the turn's place and its `/new` mark, and `recalled` the nodes
+/// today's recall found for the turn's message, both read by the turn.
 pub struct StoreSources<'a> {
     pub store: &'a Store,
     pub mark: Option<(&'a str, Pos)>,
+    pub recalled: Vec<String>,
 }
 
 fn json_tokens(v: &serde_json::Value) -> u64 {
@@ -168,8 +170,45 @@ impl TaskCards for StoreSources<'_> {
 }
 
 impl Recall for StoreSources<'_> {
+    /// Each recalled node as its exchange, in the line form (his words and the `did` line), once. A node
+    /// of history the ledger holds no exchange for has no marks, and is not offered (the gate would deny it).
     fn recall(&self, _: &PointOfView, _: &str) -> anyhow::Result<Vec<Ref>> {
-        Ok(Vec::new())
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for id in &self.recalled {
+            let Some(turn) = self.store.get_node(id)?.and_then(|(_, n)| n.turn_id) else {
+                continue;
+            };
+            if !seen.insert(turn.clone()) {
+                continue;
+            }
+            let (Some(ex), Some(f)) = (exchange::exchange(self.store, &turn)?, self.facts(&turn)?)
+            else {
+                continue;
+            };
+            let pos = Pos {
+                at_ms: ex.start_ms,
+                id: turn,
+            };
+            let line = f.his + f.did.unwrap_or(0);
+            out.push(Ref {
+                range: super::SourceRange {
+                    space: super::Space::Exchanges { place: f.place },
+                    first: pos.clone(),
+                    last: pos,
+                },
+                marks: f.marks,
+                sizes: Sizes {
+                    whole: f.his + f.reply,
+                    spoken: f.his + f.reply,
+                    line,
+                },
+                handle: f.handle,
+                form: super::Form::Line,
+                unit: None,
+            });
+        }
+        Ok(out)
     }
 }
 

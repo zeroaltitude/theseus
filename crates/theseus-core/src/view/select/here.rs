@@ -15,7 +15,7 @@ use super::{Band, Selector, Snapshot};
 pub const FLOOR_EXCHANGES: usize = 3;
 
 /// The place a point of view's here-slots read, if it is anchored to one and may see anything.
-pub(super) fn place_of(pov: &PointOfView) -> Option<&str> {
+pub(super) fn anchor_place(pov: &PointOfView) -> Option<&str> {
     match (&pov.anchor, pov.present) {
         (_, Present::Unknown) | (Anchor::Task(_), _) => None,
         (Anchor::Place(p), _) => Some(p),
@@ -115,7 +115,7 @@ impl Selector for Here<'_> {
     }
 
     fn select(&self, pov: &PointOfView, _: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(place) = place_of(pov) else {
+        let Some(place) = anchor_place(pov) else {
             return Ok(Vec::new());
         };
         let (window, nodes) = read(&self.src, place)?;

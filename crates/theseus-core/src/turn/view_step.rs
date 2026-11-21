@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
 use crate::config::assembly::Assembly;
-use crate::exchange::{place_of, OWNER};
+use crate::exchange::OWNER;
 use crate::ladder::view::StoreLadder;
 use crate::places::PlaceClass;
 use crate::session::SessionRecord;
@@ -31,7 +31,7 @@ impl TurnRunner {
         t.exchange.place().map_or_else(
             || {
                 let target = self.outbox.try_target(t.tc.session_id).ok().flatten();
-                place_of(target.as_deref(), t.tc.dir)
+                crate::exchange::place_of(target.as_deref(), t.tc.dir)
             },
             str::to_string,
         )
@@ -87,6 +87,7 @@ impl TurnRunner {
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
+            recalled: recalled(t),
         };
         let ladder = StoreLadder(store);
         let src = Sources {
@@ -186,6 +187,16 @@ impl TurnRunner {
             at_ms: rec.created_at_unix_ms,
             id: String::new(),
         })
+    }
+}
+
+/// The nodes today's recall found for this turn (its pending note, never written in a view place).
+fn recalled(t: &Turn<'_>) -> Vec<String> {
+    match t.recall.pending.as_ref().map(|n| &n.body) {
+        Some(crate::node::Body::Recall { items, .. }) => {
+            items.iter().map(|i| i.node_id.clone()).collect()
+        }
+        _ => Vec::new(),
     }
 }
 
