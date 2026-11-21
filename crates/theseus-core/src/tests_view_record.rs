@@ -312,3 +312,74 @@ async fn the_look_reads_this_turns_presence_and_its_newest_view() {
     );
     assert_eq!(said.matches("x:t-here").count(), 1, "{said}");
 }
+
+/// A piece's text is the owner's at his own terminal alone: the web UI, his own, is refused it, and is
+/// still shown the references.
+#[tokio::test]
+async fn text_is_for_the_owners_own_shell_alone() {
+    let r = rig();
+    let desk = session(&r.core, None);
+    exchange_of(&r.core, "t-here", &desk, "local");
+    keep(
+        &r.core,
+        "t-desk",
+        "cmp_desk",
+        "local",
+        vec![piece("local", "t-here")],
+    );
+    let text = json!({"turn_id": "t-desk", "text": true});
+    let web = show(&r.core, surface("web#1", Surface::Web), text.clone())
+        .await
+        .unwrap_err();
+    assert!(web.contains("own terminal"), "{web}");
+    let refs = show(
+        &r.core,
+        surface("web#1", Surface::Web),
+        json!({"turn_id": "t-desk"}),
+    )
+    .await;
+    assert!(refs.unwrap().contains("x:t-here"));
+    let mine = show(&r.core, surface("sock#1", Surface::Cli), text)
+        .await
+        .unwrap();
+    assert!(
+        mine.contains("x:t-here") && !mine.contains("withheld"),
+        "{mine}"
+    );
+}
+
+/// The owner alone is shown every piece of this turn's view, and never a piece's text.
+#[tokio::test]
+async fn the_owner_alone_is_shown_every_piece_and_no_text() {
+    let r = rig();
+    let desk = session(&r.core, None);
+    exchange_of(&r.core, "t-here", &desk, "local");
+    exchange_of(&r.core, "t-two", &desk, "local");
+    keep(
+        &r.core,
+        "t-desk",
+        "cmp_desk",
+        "local",
+        vec![piece("local", "t-here"), piece("local", "t-two")],
+    );
+    seat(&r.core, &desk, "t-desk", Present::OwnerAlone, "local");
+    let said = crate::look::view::words(&r.core, &desk, "t-desk");
+    assert!(
+        said.contains("x:t-here") && said.contains("x:t-two"),
+        "{said}"
+    );
+    assert!(said.contains("view cmp_desk"), "{said}");
+    assert!(!said.contains(" | "), "no text: {said}");
+    let restricted = crate::view::record::show::RESTRICTED;
+    assert!(!said.contains(restricted), "{said}");
+}
+
+/// A turn with no view says so.
+#[tokio::test]
+async fn a_turn_with_no_view_says_so() {
+    let r = rig();
+    let desk = session(&r.core, None);
+    seat(&r.core, &desk, "t-desk", Present::OwnerAlone, "local");
+    let said = crate::look::view::words(&r.core, &desk, "t-desk");
+    assert!(said.contains("no view record"), "{said}");
+}

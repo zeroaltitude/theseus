@@ -2,7 +2,7 @@
 //! owner's inspection, whole or not at all: it answers the owner in person alone, by the rule the other
 //! owner-only methods use (`places::owner_in_person_of`): the CLI or the web UI with no agent's process
 //! behind the connection (a Theseus job's is one), and no job's marker. Anyone else is refused in words, the
-//! record and its text alike. Every piece's source is checked again today; a sealed, seal-pending or
+//! record and its text alike; and text at his own terminal alone, not the web UI. Every piece's source is checked again today; a sealed, seal-pending or
 //! unreadable one is not listed, and inspecting lifts no seal.
 
 use std::sync::Arc;
@@ -15,6 +15,7 @@ use theseus_protocol::{error_code, method};
 
 use super::server::{parse, Conn, RpcFailure};
 use super::Core;
+use crate::approval::Surface;
 use crate::view::record::show::{name, PieceText, Reader};
 use crate::view::record::source::GateSource;
 use crate::view::record::{self, Count, StoreText, Tally, ViewRecord};
@@ -112,6 +113,12 @@ impl Core {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
                 format!("not shown: {why}"),
+            ));
+        }
+        if p.text && conn.surface != Surface::Cli {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                "not shown: a piece's text is shown at the owner's own terminal alone",
             ));
         }
         let core = self.clone();
