@@ -74,18 +74,6 @@ fn rows(core: &Core, kind: &str) -> Vec<Value> {
         .collect()
 }
 
-/// The user message of `turn` in `session`: the correction's provenance.
-fn message_of(core: &Core, session: &str, turn: &str) -> String {
-    core.store
-        .transcript(session)
-        .unwrap()
-        .into_iter()
-        .map(|(_, n)| n)
-        .find(|n| n.turn_id.as_deref() == Some(turn) && n.kind == crate::stub::Kind::UserMessage)
-        .map(|n| n.id)
-        .unwrap()
-}
-
 /// The nightly loop reads the owner's label as it reads any operator label,
 /// once the judge's sink has written the judgment it labels.
 async fn nightly_counts(core: &Arc<Core>, judgment: &str) {

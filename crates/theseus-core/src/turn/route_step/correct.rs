@@ -20,7 +20,7 @@ pub struct Correcting {
     pub label: Option<serde_json::Value>,
     pub last: RoutedTurn,
     pub resolved: Resolved,
-        pub who: String,
+    pub who: String,
     pub via: String,
     pub provenance: String,
     pub at_ms: u64,
