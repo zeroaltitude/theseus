@@ -29,6 +29,33 @@ pub enum LedgerCmd {
     /// The chain's current head: its digest, seq and WAL position, as the daemon's writer last
     /// committed it. Record it somewhere the ledger's editor can't reach.
     Head,
+    /// The exchange ledger's rows of private turns, summed: whether the place's last exchange was
+    /// in view, what the context sent was made of, cold starts, the things named, the judge's
+    /// unread answers, gaps and overlaps, and who typed at the terminal. Counts only.
+    Exchanges {
+        /// Only the newest N rows.
+        #[arg(short, long)]
+        n: Option<u64>,
+    },
+    /// Write the exchanges of turns from before the exchange ledger, from their nodes. A place
+    /// and a person are filled only where a stored record proves them; the rest say unknown.
+    RebuildExchanges {
+        /// Count what would be written, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Build a place's ladder from its history since its latest /new: a one-line summary of each
+    /// exchange without one, then the fold nodes. `--dry-run` counts and prices it.
+    Ladder {
+        /// The place, as the exchange ledger names it (`discord:channel:<id>`, `local:<dir>`).
+        place: String,
+        /// Count what would be written and its worst case, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The most this run may spend, in dollars (default: what is left of the day's line).
+        #[arg(long)]
+        cap_usd: Option<f64>,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -41,6 +68,15 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
             },
             false,
         ),
+        LedgerCmd::Exchanges { n } => return crate::exchanges_cmd::report(conn, json, n).await,
+        LedgerCmd::RebuildExchanges { dry_run } => {
+            return crate::exchanges_cmd::rebuild(conn, json, dry_run).await
+        }
+        LedgerCmd::Ladder {
+            place,
+            dry_run,
+            cap_usd,
+        } => return crate::exchanges_cmd::ladder(conn, json, place, (dry_run, cap_usd)).await,
         LedgerCmd::Head => (
             LedgerVerifyParams {
                 head_only: true,

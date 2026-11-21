@@ -252,6 +252,26 @@ pub fn newest(store: &Store, root: Root<'_>, limit: usize) -> anyhow::Result<Vec
         .collect()
 }
 
+/// The newest `limit` touches of `root` strictly older than `before_ms`,
+/// newest first: the next page back through its timeline, one bounded read
+/// from the key that time sorts to.
+pub fn newest_before(
+    store: &Store,
+    root: Root<'_>,
+    before_ms: u64,
+    limit: usize,
+) -> anyhow::Result<Vec<Touch>> {
+    let prefix = format!("{TOUCH_PREFIX}{}{SEP}", root.key());
+    // Past every key of `before_ms` itself: its time, then a byte above `SEP`.
+    let from = format!("{prefix}{:020}\u{2}", u64::MAX - before_ms);
+    store
+        .inner()
+        .first_with_prefix_from(kinds::META, &prefix, &from, limit)?
+        .iter()
+        .map(|r| r.decode())
+        .collect()
+}
+
 /// An exchange's record.
 pub fn exchange_record(e: &Exchange) -> anyhow::Result<NewRecord> {
     NewRecord::json(

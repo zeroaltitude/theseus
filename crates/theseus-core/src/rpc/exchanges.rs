@@ -92,7 +92,9 @@ impl Core {
                     false => parse(params)?,
                 };
                 let core = self.clone();
-                let r = super::import::blocking(move || ledger::report(&core.store, &p)).await?;
+                let mut r =
+                    super::import::blocking(move || ledger::report(&core.store, &p)).await?;
+                r.places_bound = ledger::bound_now(&self.runner.place_rule.health(&self.cfg));
                 serde_json::to_value(r)
             }
             method::EXCHANGE_REBUILD => {

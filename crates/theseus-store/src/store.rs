@@ -181,7 +181,19 @@ pub trait Store: Send + Sync {
         prefix: &str,
         limit: usize,
     ) -> Result<Vec<Record>> {
+        self.first_with_prefix_from(kind, prefix, prefix, limit)
+    }
+    /// `first_with_prefix` from the first key at or after `from`: the next
+    /// page of a run read in key order.
+    fn first_with_prefix_from(
+        &self,
+        kind: RecordKind,
+        prefix: &str,
+        from: &str,
+        limit: usize,
+    ) -> Result<Vec<Record>> {
         let mut all = self.latest_with_prefix(kind, prefix)?;
+        all.retain(|r| r.key.as_deref().is_some_and(|k| k >= from));
         all.truncate(limit);
         Ok(all)
     }
@@ -2304,16 +2316,17 @@ impl Store for WalStore {
         self.inner.read_many(&positions)
     }
 
-    fn first_with_prefix(
+    fn first_with_prefix_from(
         &self,
         kind: RecordKind,
         prefix: &str,
+        from: &str,
         limit: usize,
     ) -> Result<Vec<Record>> {
         let positions: Vec<u64> = self
             .inner
             .index
-            .first_keys_with_prefix(kind, prefix, limit)?
+            .first_keys_with_prefix(kind, prefix, from, limit)?
             .into_iter()
             .map(|(_, p)| p)
             .collect();

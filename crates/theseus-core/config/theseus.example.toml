@@ -271,7 +271,7 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # kept_mb = 64
 # The exchange ledger: beside each person's message, whether it was typed by the owner in person
 # and where it arrived; each turn's exchange and what it touched; and one row of counts per private
-# turn (`theseus exchanges report`). None of it is sent to a model. false writes none of it.
+# turn (`theseus ledger exchanges`). None of it is sent to a model. false writes none of it.
 # ledger = true
 
 # Personas are the ontology's now (theseus-utfnl): a `persona:<key>` category each, its soul
