@@ -1213,13 +1213,12 @@ pub fn links(store: &crate::store::Store, ids: &[String]) -> Vec<Link> {
     out
 }
 
-/// `private`, `shared:<target>`, `unknown`, or `open`.
+/// `private`, `shared:<target>`, or `unknown`.
 pub fn place_words(p: &Place) -> String {
     match p {
         Place::Private => "private".into(),
         Place::Shared(t) => format!("shared:{t}"),
         Place::Unknown => "unknown".into(),
-        Place::Open(_) => "open".into(),
     }
 }
 
