@@ -7,7 +7,7 @@ use theseus_kernel::Authority;
 use theseus_protocol::card::{CardAsk, CardProposal, ProposalState};
 use theseus_protocol::{SessionKind, StandingKind, StandingScope};
 
-use super::tests::{rig, Rig};
+use super::tests::rig;
 use super::tests_work_global::{conversation, latest, said, task};
 use crate::node::ResultStatus;
 use crate::session::SessionRecord;

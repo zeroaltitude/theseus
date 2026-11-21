@@ -18,7 +18,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use theseus_protocol::threads::{ThreadUnclaimParams, ThreadUnclaimResult};
 use theseus_protocol::{error_code, method};
-use theseus_store::{kinds, NewRecord, Store as _};
+use theseus_store::{kinds, NewRecord};
 
 use super::server::RpcFailure;
 use super::Core;

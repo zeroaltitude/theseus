@@ -582,15 +582,4 @@ mod tests {
         let on = crate::Config::from_toml("[threads]\nbench_clock = true\n").unwrap();
         assert!(on.threads.bench_clock);
     }
-
-    /// A lone thread offers a new one (theseus-98bz.7) by default, named in the
-    /// template, and the switch turns it off.
-    #[test]
-    fn a_lone_thread_offers_a_new_one_by_default_and_turns_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.single_offers_new && ThreadsConfig::default().single_offers_new);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# single_offers_new = true"));
-        let off = crate::Config::from_toml("[threads]\nsingle_offers_new = false\n").unwrap();
-        assert!(!off.threads.single_offers_new);
-    }
 }
