@@ -49,6 +49,7 @@ pub mod day_ceiling;
 pub mod disk;
 pub mod egress;
 pub mod engage;
+pub mod exchange;
 pub mod exits;
 pub mod extend;
 pub mod external;

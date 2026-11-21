@@ -98,6 +98,7 @@ ledger_kinds! {
     ContentRemoved = "content.removed",
     ContentUnjudged = "content.unjudged",
     ContextCompiled = "context.compiled",
+    ContextTurn = "context.turn",
     ContextDetoured = "context.detoured",
     ContextCompacted = "context.compacted",
     ContextCleared = "context.cleared",

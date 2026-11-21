@@ -171,6 +171,32 @@ pub trait Store: Send + Sync {
             .filter(|r| r.key.as_deref().is_some_and(|k| k.starts_with(prefix)))
             .collect())
     }
+    /// The latest record of the first `limit` keys of `kind` that start with
+    /// `prefix`, in key order (issue 44): a key that sorts newest first makes
+    /// this "the newest `limit`", read for its answer alone. This default
+    /// reads every record of the kind.
+    fn first_with_prefix(
+        &self,
+        kind: RecordKind,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<Vec<Record>> {
+        self.first_with_prefix_from(kind, prefix, prefix, limit)
+    }
+    /// `first_with_prefix` from the first key at or after `from`: the next
+    /// page of a run read in key order.
+    fn first_with_prefix_from(
+        &self,
+        kind: RecordKind,
+        prefix: &str,
+        from: &str,
+        limit: usize,
+    ) -> Result<Vec<Record>> {
+        let mut all = self.latest_with_prefix(kind, prefix)?;
+        all.retain(|r| r.key.as_deref().is_some_and(|k| k >= from));
+        all.truncate(limit);
+        Ok(all)
+    }
     /// Up to `limit` keys of `kind` that end with `ending`, in key order
     /// (theseus-glyw: a node named by its id's last characters). The WAL
     /// store walks its index's keys and reads no record; this default reads
@@ -2284,6 +2310,23 @@ impl Store for WalStore {
             .inner
             .index
             .keys_with_prefix(kind, prefix)?
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect();
+        self.inner.read_many(&positions)
+    }
+
+    fn first_with_prefix_from(
+        &self,
+        kind: RecordKind,
+        prefix: &str,
+        from: &str,
+        limit: usize,
+    ) -> Result<Vec<Record>> {
+        let positions: Vec<u64> = self
+            .inner
+            .index
+            .first_keys_with_prefix(kind, prefix, from, limit)?
             .into_iter()
             .map(|(_, p)| p)
             .collect();

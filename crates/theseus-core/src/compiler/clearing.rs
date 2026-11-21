@@ -223,7 +223,7 @@ pub(super) fn of(c: &Compilation) -> HashSet<&str> {
 }
 
 /// The cleared drops of a report.
-pub(super) fn drops(b: Option<&BudgetReport>) -> impl Iterator<Item = &BudgetDrop> {
+pub(crate) fn drops(b: Option<&BudgetReport>) -> impl Iterator<Item = &BudgetDrop> {
     b.into_iter()
         .flat_map(|b| b.dropped.iter())
         .filter(|d| d.tier == TIER)

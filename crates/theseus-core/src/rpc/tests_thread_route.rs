@@ -28,6 +28,7 @@ use crate::session::SessionRecord;
 use crate::tests_inbound::inbound_only;
 use crate::tests_judge::{rig_on, texts, Rig};
 
+mod exchange;
 mod large;
 mod tail;
 mod title;
