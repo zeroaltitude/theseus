@@ -261,10 +261,13 @@ def kept(old, heading):
 
 
 def render(root, rows, old, sizes_from, installed):
-    head = git(root, "rev-parse", "--short=8", "HEAD").strip()
+    # A merge is named by its parents: a landing folds STATS.md into the merge it counted, which changes the merge's
+    # own hash but not its parents, so the line stays true of the commit that carries it.
+    head, *parents = git(root, "log", "-1", "--abbrev=8", "--format=%h %p", "HEAD").split()
+    at = f"the merge of {parents[1]} into {parents[0]}" if len(parents) == 2 else f"commit {head}"
     dirty = git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", ":!STATS.md").strip()
     out = ["# STATS", "", "The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; "
-           "do not edit it by hand.", "", f"Counted at commit {head}" + (" with uncommitted changes" if dirty else "")
+           "do not edit it by hand.", "", f"Counted at {at}" + (" with uncommitted changes" if dirty else "")
            + ", over every file git tracks:", "", RULE, "## Lines", "",
            "| Where | Code | Test code | Comments |", "|---|---:|---:|---:|"]
     total = [0, 0, 0]

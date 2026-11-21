@@ -83,9 +83,13 @@ class StatsTest(unittest.TestCase):
             os.makedirs(os.path.join(self.root, os.path.dirname(path)), exist_ok=True)
             with open(os.path.join(self.root, path), "w", encoding="utf-8") as f:
                 f.write(text)
-        for cmd in (["init", "-q"], ["add", "-A"],
-                    ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "fixture"]):
-            subprocess.run(["git", "-C", self.root, *cmd], check=True, env=GIT_ENV, capture_output=True)
+        for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
+            self.git(*cmd)
+
+    def git(self, *cmd):
+        who = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+        return subprocess.run(["git", "-C", self.root, *who, *cmd], check=True, env=GIT_ENV, capture_output=True,
+                              text=True).stdout.strip()
 
     def run_stats(self, *args):
         stats.main(["--root", self.root, *args])
@@ -100,9 +104,17 @@ class StatsTest(unittest.TestCase):
             if cells[0] in EXPECT:
                 rows[cells[0]] = cells[1:]
         self.assertEqual(rows, EXPECT)
-        head = subprocess.run(["git", "-C", self.root, "rev-parse", "--short=8", "HEAD"], capture_output=True,
-                              text=True, check=True).stdout.strip()
-        self.assertIn(f"Counted at commit {head}, over every file git tracks", text)
+        self.assertIn(f"Counted at commit {self.git('rev-parse', '--short=8', 'HEAD')}, over every file git tracks",
+                      text)
+
+    def test_a_merge_is_named_by_its_parents(self):
+        main = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("checkout", "-q", "-b", "side")
+        self.git("commit", "-q", "--allow-empty", "-m", "side")
+        side = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("checkout", "-q", main)
+        self.git("merge", "-q", "--no-ff", "-m", "join", "side")
+        self.assertIn(f"Counted at the merge of {side} into {main},", self.run_stats())
 
     def test_the_same_tree_gives_the_same_bytes(self):
         self.assertEqual(self.run_stats(), self.run_stats())
