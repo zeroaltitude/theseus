@@ -265,7 +265,7 @@ fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
             },
             ..stored.range.clone()
         },
-        ..stored.clone()
+        ..stored
     };
     assert!(
         Admitted::code(relabelled.clone()).is_none(),
