@@ -12,6 +12,12 @@
 //!   project of the place it was said in when one is known, and is otherwise
 //!   kept as an unscoped candidate. They touch the exchange as the other
 //!   things do.
+//! - **Scoped names** ([`table`]): the names and aliases of lines of work,
+//!   tasks and topics, from the stores that hold them, and a matcher of a
+//!   person's words against them: a qualified name wins, an unqualified alias
+//!   only when one live thing holds it, and otherwise every match is a
+//!   candidate.
 
 pub mod items;
+pub mod table;
 pub mod topics;

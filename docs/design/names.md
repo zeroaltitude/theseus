@@ -43,3 +43,19 @@ the reply's by the place's next exchange.
 
 The exchange rebuild (`exchange.rebuild`) does not yet ask for items, so a rebuilt exchange has none.
 
+## Scoped names (`names::table`)
+
+A table of names built from the stores that hold them, with no word list and no pattern:
+
+| Thing | Key | Names |
+|---|---|---|
+| a line of work (a thread record, through the threads' board) | `thread:<slug>` | its title, its slug |
+| a task | `task:<id>` | its title; its bare id is qualified too |
+| a topic (a category of a kind `onto.v1` files under, `project` apart) | its id, `topic:<local>` | its name |
+
+The matcher reads a person's words. A **qualified name** (a key, or a task's id, as a whole token) wins and names
+one thing. An **alias** is matched as whole words, case ignored, at most eight words and at least three
+characters; a longer name said wins over a shorter one inside it, and each word belongs to one match. An alias is
+accepted only when exactly one *live* thing holds it (an active thread not merged away, an open task, a category
+not retired or merged); otherwise every holder is returned as a candidate, the live ones first.
+
