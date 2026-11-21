@@ -99,6 +99,13 @@ use crate::task_graph;
 pub const PRINCIPAL: &str = "self";
 /// The parent task's title.
 pub const PARENT_TITLE: &str = "Self-improvement backlog";
+
+/// The id of the record every backlog item hangs under, when the loop has made it. It is the loop's own
+/// container, no plan of the owner's: lists of what is planned leave it out (`TaskListResult::apart`),
+/// and the owner's close of a project refuses it. Its items are managed with `theseus self`.
+pub(crate) fn container(store: &crate::store::Store) -> Option<String> {
+    State::read(store).ok()?.parent
+}
 /// A night reads at most this far back (ms).
 const MAX_WINDOW_MS: u64 = 2 * 86_400_000;
 const DAY_MS: u64 = 86_400_000;
@@ -352,6 +359,7 @@ impl Work {
                 by_model: true,
                 self_started: true,
                 because: Some(c.title.chars().take(BECAUSE_MAX).collect()),
+                project: None,
             },
             state: if keel.is_some() {
                 TaskState::WaitingHuman
@@ -447,6 +455,7 @@ impl Work {
                 by_model: false,
                 self_started: false,
                 because: None,
+                project: None,
             },
             state: match keel.is_some() {
                 true => TaskState::WaitingHuman,
@@ -859,6 +868,7 @@ impl Core {
                     by_model: true,
                     self_started: true,
                     because: Some("holds the problems found in its own record".into()),
+                    project: None,
                 },
                 state: TaskState::Accepted,
             }

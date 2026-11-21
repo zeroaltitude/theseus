@@ -188,3 +188,30 @@ fn each_short_field_is_clipped_by_itself() {
     };
     assert!(room(&project_line(&project, "t", None)));
 }
+
+/// A project's line carries its tasks as a count (issue 37), a few words and no list.
+#[test]
+fn a_projects_line_counts_its_tasks_and_names_none() {
+    use super::horizon::project_line;
+    use theseus_protocol::projects::ProjectInfo;
+    let mut p = ProjectInfo {
+        id: "tsk_00harbour".into(),
+        state: "accepted".into(),
+        ..Default::default()
+    };
+    let bare = project_line(&p, "Harbour survey", None);
+    assert!(!bare.contains("task"), "{bare}");
+    p.tasks = 7;
+    p.tasks_running = 1;
+    let with = project_line(&p, "Harbour survey", None);
+    assert!(with.ends_with(" · 7 tasks, 1 running\n"), "{with}");
+    p.tasks = 1;
+    p.tasks_running = 0;
+    assert!(project_line(&p, "Harbour survey", None).ends_with(" · 1 task\n"));
+    // What it costs the look: under thirty characters, about eight tokens.
+    assert!(
+        with.len() - bare.len() < 30,
+        "{} chars",
+        with.len() - bare.len()
+    );
+}

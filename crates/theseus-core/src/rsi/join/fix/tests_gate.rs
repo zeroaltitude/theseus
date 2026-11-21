@@ -1432,3 +1432,122 @@ async fn a_tree_that_cannot_be_put_back_is_held_for_the_owner_when_its_tries_run
     let said = r.turn(&sid, WIRE, input()).await;
     assert!(said.contains("used all its tries"), "{said}");
 }
+
+// ---------------------------------------------------------------- round 5 (the merge with S1's fix)
+
+/// The real fixer turn, its model making the queued calls; it approves as the stand-in does.
+struct Real(Arc<StandIn>);
+
+impl super::Fixer for Real {
+    fn fix<'a>(
+        &'a self,
+        core: &'a Arc<crate::rpc::Core>,
+        ask: &'a super::FixAsk,
+    ) -> super::FixFut<'a> {
+        super::Fixer::fix(&super::turns::Turns, core, ask)
+    }
+
+    fn approve<'a>(
+        &'a self,
+        core: &'a Arc<crate::rpc::Core>,
+        ask: &'a super::ApproveAsk,
+    ) -> crate::rsi::join::review::Fut<'a> {
+        self.0.approve(core, ask)
+    }
+}
+
+/// The fixer's turn: a red lint goes to the real fixer, whose model makes the queued call.
+/// The item's tree is open (its session's first call) before this.
+async fn fixer_calls(r: &Rig, sid: &str, tool: &str, call: Value) -> String {
+    r.core.tools.self_pr.set_fix(GateSeams {
+        fixer: Arc::new(Real(stand_in(true, true, &[]))),
+        main: green(),
+    });
+    write(&tree_of(r), LINTED);
+    r.queue_call(tool, call);
+    r.turn(sid, WIRE, input()).await
+}
+
+/// S1's refusal covers a fixer's session as it does a builder's: the fixer's `fs.write` to its
+/// tree's own `.git` file is refused, and the file is as git made it.
+#[tokio::test]
+async fn a_fixers_write_to_its_trees_git_is_refused() {
+    let r = rig(|_| {});
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    let git_file = tree_of(&r).join(".git");
+    let was = std::fs::read_to_string(&git_file).unwrap();
+    let said = fixer_calls(
+        &r,
+        &sid,
+        "fs_write",
+        json!({"path": git_file.display().to_string(), "content": "gitdir: /elsewhere\n"}),
+    )
+    .await;
+    assert_eq!(std::fs::read_to_string(&git_file).unwrap(), was, "{said}");
+    let fixer_saw = r
+        .requests()
+        .into_iter()
+        .filter(|q| {
+            q.messages
+                .iter()
+                .any(|m| m.to_string().contains("You are the fixer"))
+        })
+        .flat_map(|q| q.messages.into_iter().map(|m| m.to_string()))
+        .any(|m| m.contains("git's own"));
+    assert!(
+        fixer_saw,
+        "the fixer was not told its write was refused: {said}"
+    );
+}
+
+/// Review round 2's probe of S1, kept: a fixer that points its tree's `.git` file at a git
+/// directory with hooks, made inside its tree, runs nothing outside L1 through the daemon's git.
+#[tokio::test]
+async fn a_fixer_that_rewrites_its_trees_git_file_runs_nothing_outside_l1() {
+    let r = rig(|_| {});
+    let sid = item(&r);
+    r.turn(&sid, WIRE, input()).await;
+    let tree = tree_of(&r);
+    let marker = r.f.place.state.join("RAN-OUTSIDE-L1");
+    let evil = tree.join(".evil");
+    git(
+        &tree,
+        &[
+            "clone",
+            "-q",
+            "--no-checkout",
+            r.f.place.repo.to_str().unwrap(),
+            evil.to_str().unwrap(),
+        ],
+    );
+    let hook = format!("#!/bin/sh\necho \"$0\" >> {}\n", marker.display());
+    for h in ["post-checkout", "post-commit", "fsm"] {
+        use std::os::unix::fs::PermissionsExt;
+        let p = evil.join(".git/hooks").join(h);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, &hook).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    git(
+        &evil,
+        &[
+            "config",
+            "core.fsmonitor",
+            evil.join(".git/hooks/fsm").to_str().unwrap(),
+        ],
+    );
+    let said = fixer_calls(
+        &r,
+        &sid,
+        "fs_write",
+        json!({"path": tree.join(".git").display().to_string(),
+               "content": format!("gitdir: {}\n", evil.join(".git").display())}),
+    )
+    .await;
+    let ran = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert!(
+        ran.is_empty(),
+        "the daemon's git ran the fixer's hooks: {ran} ({said})"
+    );
+}

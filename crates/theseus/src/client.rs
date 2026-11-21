@@ -298,7 +298,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 125] = [
+pub const OPERATORS: [(&str, &str); 126] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -324,6 +324,7 @@ pub const OPERATORS: [(&str, &str); 125] = [
     (method::PROJECT_ATTACH, "theseus project attach"),
     (method::PROJECT_ITEM_ADD, "theseus project item add"),
     (method::PROJECT_ITEM_CLOSE, "theseus project item close"),
+    (method::PROJECT_CLOSE, "theseus project close"),
     (method::POLICY_UNTIGHTEN, "theseus policy untighten"),
     (method::CONTENT_UNLABEL, "theseus content remove"),
     (method::PLACE_PUBLISH, "theseus publish"),

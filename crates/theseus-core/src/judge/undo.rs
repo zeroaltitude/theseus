@@ -336,7 +336,10 @@ impl JudgeService {
         call: &state::UndoCall,
         today: &str,
     ) -> Option<(Prepared, super::Beside, bool)> {
-        let mut probe = theseus_judge::builders::GitCli::default();
+        let mut probe = state::NoGitUnder {
+            inner: theseus_judge::builders::GitCli::default(),
+            root: call.no_git_under.clone(),
+        };
         let input: UndoInput = state::input_of(call, &mut probe);
         let floor = floor::forces_hold(call, &input);
         let scrub = ScrubWith(self.scrubber.clone());

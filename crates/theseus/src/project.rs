@@ -11,11 +11,11 @@ use clap::Subcommand;
 use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::projects::{
-    MilestoneSpec, ProjectAttachParams, ProjectAttachResult, ProjectCreateParams,
-    ProjectCreateResult, ProjectGrant, ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams,
-    ProjectItemListParams, ProjectItemsResult, ProjectListParams, ProjectListResult,
-    ProjectShowParams, ProjectShowResult, ProjectTrustParams, ProjectTrustedParams,
-    ProjectTrustedResult,
+    MilestoneSpec, ProjectAttachParams, ProjectAttachResult, ProjectCloseParams,
+    ProjectCloseResult, ProjectCreateParams, ProjectCreateResult, ProjectEnd, ProjectGrant,
+    ProjectInfo, ProjectItemAddParams, ProjectItemCloseParams, ProjectItemListParams,
+    ProjectItemsResult, ProjectListParams, ProjectListResult, ProjectShowParams, ProjectShowResult,
+    ProjectTrustParams, ProjectTrustedParams, ProjectTrustedResult,
 };
 use theseus_protocol::tasks::{TaskKind, TaskRecord};
 
@@ -61,6 +61,20 @@ pub enum ProjectCmd {
     Item {
         #[command(subcommand)]
         cmd: ItemCmd,
+    },
+    /// End a project: it and its open items and milestones, and stop its weekly review and its
+    /// reminders. Yours to do, not from a job; asks once first. Never while a task carries part of it.
+    Close {
+        project: String,
+        /// End it as given up rather than finished.
+        #[arg(long)]
+        dropped: bool,
+        /// One line on why, kept with the project.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Do not ask first.
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
     /// Trust a repository: its own AGENTS.md and CLAUDE.md join the system block. Yours to give, from
     /// your own shell; the path defaults to the current directory.
@@ -155,6 +169,12 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ProjectCmd) -> Result<()> {
                 Ok(())
             })
         }
+        ProjectCmd::Close {
+            project,
+            dropped,
+            reason,
+            yes,
+        } => close(conn, json, (project, dropped, reason), yes).await,
         ProjectCmd::Item { cmd } => item(conn, json, cmd).await,
         ProjectCmd::Attach { session, id } => attach(conn, json, session, Some(id)).await,
         ProjectCmd::Detach { session } => attach(conn, json, session, None).await,
@@ -223,6 +243,79 @@ async fn item(conn: &mut Conn, json: bool, cmd: ItemCmd) -> Result<()> {
         }
         Ok(())
     })
+}
+
+/// `theseus project close`: says what will end and stop, asks once at a terminal (`--yes` skips it, as
+/// `theseus herdr stop`'s does; with no terminal and no `--yes` it asks nothing and does nothing), then
+/// calls `project.close`, whose own words it prints.
+async fn close(
+    conn: &mut Conn,
+    json: bool,
+    (project, dropped, reason): (String, bool, Option<String>),
+    yes: bool,
+) -> Result<()> {
+    let how = if dropped {
+        ProjectEnd::Dropped
+    } else {
+        ProjectEnd::Done
+    };
+    if !yes {
+        use std::io::{IsTerminal as _, Write as _};
+        if let Some(why) = asks_nothing(json, std::io::stdin().is_terminal()) {
+            anyhow::bail!(why);
+        }
+        let v = conn
+            .request(
+                method::PROJECT_SHOW,
+                ProjectShowParams {
+                    id: project.clone(),
+                },
+            )
+            .await?;
+        let shown: ProjectShowResult = serde_json::from_value(v)?;
+        let card = theseus_protocol::projects::close_card(
+            &shown.project.title,
+            how,
+            theseus_protocol::projects::close_counts(&shown.records),
+            shown.project.review.is_some(),
+        );
+        eprint!("{card}? [y/N] ");
+        std::io::stderr().flush()?;
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        if !said_yes(&line) {
+            println!("left as it is");
+            return Ok(());
+        }
+    }
+    let v = conn
+        .request(
+            method::PROJECT_CLOSE,
+            ProjectCloseParams {
+                project,
+                how,
+                reason,
+                ..Default::default()
+            },
+        )
+        .await?;
+    output(json, v, |r: ProjectCloseResult| {
+        println!("{}", theseus_protocol::projects::project_closed(&r));
+        Ok(())
+    })
+}
+
+/// Why `close` cannot ask, when it cannot: machine output, or no terminal to answer at. With neither `--yes`
+/// nor a question, it does nothing.
+fn asks_nothing(json: bool, terminal: bool) -> Option<&'static str> {
+    (json || !terminal).then_some(
+        "closing a project asks once at a terminal: run it from your own shell, or pass --yes",
+    )
+}
+
+/// Whether the line answers the question with a yes.
+fn said_yes(line: &str) -> bool {
+    matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 /// `theseus project trust|untrust`: the path made absolute here, against the
@@ -371,6 +464,37 @@ pub fn show_lines(r: &ProjectShowResult, now_ms: u64) -> Vec<String> {
             stack.push((c, depth + 1));
         }
     }
+    out.extend(task_lines(r));
+    out
+}
+
+/// The tasks involved in the project, those still going first: each its short id, title, state, when it
+/// started and ended, and how it was involved; the rest counted.
+fn task_lines(r: &ProjectShowResult) -> Vec<String> {
+    if r.tasks.is_empty() {
+        return vec![];
+    }
+    let p = &r.project;
+    let mut out = vec![format!(
+        "  tasks ({}, {} running):",
+        p.tasks, p.tasks_running
+    )];
+    for t in &r.tasks {
+        let ended = t
+            .ended_at_ms
+            .map_or(String::new(), |e| format!(" · ended {}", fmt_date(e)));
+        out.push(format!(
+            "    {} \"{}\" [{}] · started {}{ended} · {}",
+            t.short,
+            t.title,
+            t.state,
+            fmt_date(t.started_at_ms),
+            t.how
+        ));
+    }
+    if r.tasks_more > 0 {
+        out.push(format!("    … and {} more", r.tasks_more));
+    }
     out
 }
 
@@ -398,6 +522,7 @@ mod tests {
             next_title: Some("Chart the moorings".into()),
             review: Some("ses_review".into()),
             review_next_ms: Some(1_790_100_000_000),
+            ..Default::default()
         }
     }
 
@@ -445,6 +570,7 @@ mod tests {
         let r = ProjectShowResult {
             project: info(),
             records: vec![TaskRecord::default(), m.clone()],
+            ..Default::default()
         };
         let lines = show_lines(&r, 1_790_000_000_000);
         assert!(lines
@@ -456,9 +582,105 @@ mod tests {
         let r = ProjectShowResult {
             project: info(),
             records: vec![m],
+            ..Default::default()
         };
         assert!(!show_lines(&r, 1_790_000_000_000)
             .iter()
             .any(|l| l.contains("OVERDUE")));
+    }
+
+    /// `theseus project close`: its words parse, and only a yes at a terminal acts.
+    #[test]
+    fn close_parses_its_words_and_asks_once() {
+        use clap::Parser as _;
+        let cli = crate::Cli::try_parse_from([
+            "theseus",
+            "project",
+            "close",
+            "tsk_00harbour",
+            "--dropped",
+            "--reason",
+            "moved",
+            "-y",
+        ])
+        .unwrap();
+        let Some(crate::Cmd::Project {
+            cmd:
+                Some(ProjectCmd::Close {
+                    project,
+                    dropped,
+                    reason,
+                    yes,
+                }),
+        }) = Some(cli.cmd)
+        else {
+            panic!("not a project close");
+        };
+        assert_eq!(
+            (project.as_str(), dropped, reason.as_deref(), yes),
+            ("tsk_00harbour", true, Some("moved"), true)
+        );
+        assert!(asks_nothing(false, true).is_none());
+        assert!(asks_nothing(true, true).unwrap().contains("--yes"));
+        assert!(asks_nothing(false, false).unwrap().contains("terminal"));
+        assert!(said_yes("y\n") && said_yes(" YES ") && !said_yes("\n") && !said_yes("no"));
+    }
+
+    /// `project show` lists the tasks involved: running first as the daemon sent them, with when they started
+    /// and ended and how, and the rest counted.
+    #[test]
+    fn show_lists_the_tasks_involved_and_counts_the_rest() {
+        use theseus_protocol::projects::ProjectTask;
+        let mut project = info();
+        project.tasks = 53;
+        project.tasks_running = 1;
+        let task = |short: &str, state: &str, ended: Option<u64>, how: &str| ProjectTask {
+            task_id: format!("ses_{short}"),
+            short: short.into(),
+            title: "Sound the channel".into(),
+            state: state.into(),
+            ended: ended.is_some(),
+            how: how.into(),
+            started_at_ms: 1_789_000_000_000,
+            ended_at_ms: ended,
+        };
+        let r = ProjectShowResult {
+            project,
+            tasks: vec![
+                task("run001", "running", None, "started for it"),
+                task(
+                    "end002",
+                    "complete",
+                    Some(1_789_000_600_000),
+                    "weekly review",
+                ),
+            ],
+            tasks_more: 51,
+            ..Default::default()
+        };
+        let lines = show_lines(&r, 1_790_000_000_000);
+        let at = lines
+            .iter()
+            .position(|l| l.contains("tasks (53, 1 running)"))
+            .unwrap();
+        assert!(
+            lines[at + 1].contains("run001 \"Sound the channel\" [running] · started 2026"),
+            "{lines:?}"
+        );
+        assert!(lines[at + 1].ends_with("· started for it") && !lines[at + 1].contains("ended"));
+        assert!(
+            lines[at + 2].contains("[complete]")
+                && lines[at + 2].contains("· ended 2026")
+                && lines[at + 2].ends_with("weekly review")
+        );
+        assert_eq!(lines[at + 3], "    … and 51 more");
+        // A project nobody worked on prints no section.
+        let none = ProjectShowResult {
+            project: info(),
+            ..Default::default()
+        };
+        assert!(!show_lines(&none, 1_790_000_000_000)
+            .iter()
+            .any(|l| l.contains("tasks (")));
     }
 }

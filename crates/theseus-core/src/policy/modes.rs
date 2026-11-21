@@ -156,10 +156,11 @@ pub fn refusal_reason(why: &str) -> String {
 }
 
 impl ToolRuntime {
-    /// `refusal`, and then plan mode's: a read-only conversation refuses a
-    /// call whose class is not a read.
+    /// `refusal`, a self session's write to git's own files (`own_tree::git_refusal`), and
+    /// then plan mode's: a read-only conversation refuses a call whose class is not a read.
     pub(crate) fn refusal_at(&self, at: &At<'_>, tool: &dyn Tool, plan: &Plan) -> Option<String> {
         self.refusal(at.place, tool.name(), plan)
+            .or_else(|| crate::rsi::own_tree::git_refusal(self, at.session, plan))
             .or_else(|| plan_refusal(self, at, tool, plan))
             .or_else(|| helper_refusal(self, at, tool))
             .or_else(|| content_refusal(self, at, tool, plan))

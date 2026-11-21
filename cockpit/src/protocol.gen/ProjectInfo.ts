@@ -20,4 +20,8 @@ next_title?: string,
 /**
  * The weekly review's routine (`ses_…`), and its next run.
  */
-review?: string, review_next_ms?: number, };
+review?: string, review_next_ms?: number, 
+/**
+ * How many tasks were involved in it (`ProjectTask`), and how many of those are still going.
+ */
+tasks?: number, tasks_running?: number, };

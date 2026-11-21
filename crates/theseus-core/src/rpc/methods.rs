@@ -763,6 +763,9 @@ impl Core {
             tasks,
             records,
             details: Vec::new(),
+            apart: crate::rsi::backlog::container(&self.store)
+                .into_iter()
+                .collect(),
         })
     }
 

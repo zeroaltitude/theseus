@@ -52,7 +52,7 @@ use twilight_model::id::Id;
 
 use crate::policy::{self, Event};
 use crate::render::{self, Buttons, NoticeCard, Op, Route};
-use crate::runtime::{asked_button, asked_menu, confirm_buttons, Shared};
+use crate::runtime::{asked_button, asked_controls, confirm_buttons, Shared};
 
 /// How long Discord is taken to honor a nonce. Past it, a create sent again
 /// after a send that may have landed says it may be a copy (`render::RESENT`);
@@ -1990,7 +1990,7 @@ impl Lane {
             Buttons::Card(corr, choices) => crate::runtime::card_buttons(corr, choices),
             Buttons::ConfirmGrant(corr, o) => crate::runtime::grant::grant_buttons(corr, o),
             Buttons::Accept(corr) => crate::runtime::accept_buttons(corr),
-            Buttons::ShouldHaveAsked(options) => asked_menu(options),
+            Buttons::ShouldHaveAsked(options) => asked_controls(options),
             Buttons::JevLabel(judgment) => crate::runtime::jev_buttons(judgment),
             Buttons::Reminder(wake) => crate::runtime::remind_buttons(wake),
             Buttons::Horizon(wake, answers) => crate::runtime::horizon_buttons(wake, answers),
@@ -2068,7 +2068,7 @@ impl Lane {
             Buttons::Card(corr, choices) => Some(crate::runtime::card_buttons(corr, choices)),
             Buttons::ConfirmGrant(corr, o) => Some(crate::runtime::grant::grant_buttons(corr, o)),
             Buttons::Accept(corr) => Some(crate::runtime::accept_buttons(corr)),
-            Buttons::ShouldHaveAsked(options) => Some(asked_menu(options)),
+            Buttons::ShouldHaveAsked(options) => Some(asked_controls(options)),
             Buttons::JevLabel(judgment) => Some(crate::runtime::jev_buttons(judgment)),
             Buttons::Reminder(wake) => Some(crate::runtime::remind_buttons(wake)),
             Buttons::Horizon(wake, answers) => Some(crate::runtime::horizon_buttons(wake, answers)),

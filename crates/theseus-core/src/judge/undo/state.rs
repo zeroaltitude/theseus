@@ -67,6 +67,10 @@ pub struct UndoCall {
     /// would put a core type through a crate that deliberately holds none.
     /// One `stat` per target is what it costs, which the 300 ms budget buys.
     pub held: BTreeSet<String>,
+    /// Where the probe starts no git, so a path there is never asked of the repository it is in
+    /// ([`NoGitUnder`]): the self loop's own directory (`<state>/self`), whose trees and build
+    /// folders a self branch's code writes in L1. None: the probe asks git everywhere.
+    pub no_git_under: Option<std::path::PathBuf>,
 }
 
 impl UndoCall {
@@ -85,6 +89,7 @@ impl UndoCall {
             is_program,
             l1,
             holds,
+            no_git_under,
         } = knows;
         let class = plan.class.unwrap_or(tool.class());
         let cwd = plan
@@ -122,6 +127,7 @@ impl UndoCall {
             is_program,
             l1,
             held,
+            no_git_under: no_git_under.map(Path::to_path_buf),
         }
     }
 
@@ -151,6 +157,60 @@ pub(crate) struct Knows<'a> {
     /// bytes (`toolrun::reads`'s `holds`). A closure, so `of` stays testable
     /// without a board.
     pub holds: &'a dyn Fn(&Path) -> bool,
+    /// [`UndoCall::no_git_under`].
+    pub no_git_under: Option<&'a Path>,
+}
+
+/// The probe for a call that may name a path where code the daemon does not trust has written
+/// (the git-pin review, B1). The git program, asked about a path, reads the config of the
+/// repository the path is in and runs the clean filter it names while it hashes the file, and a
+/// self branch's code, which the gate runs in L1 with its tree writable, can point the tree's
+/// `.git` at a git directory of its own or leave a repository in it. So under `no_git_under` no
+/// git is started: whether the path is tracked is `Unknown`, whether it is ignored is not known,
+/// and a directory there is a repository whose state is not known. Everywhere else the inner
+/// probe answers as before.
+///
+/// `Unknown` is the resolver's admission that it could not tell. The pack is told to read it as
+/// no copy, so the model is the one that may hold such a call; the one-way floor does not
+/// (`floor.rs`: `unknown` is not one of the owner's three words).
+pub(crate) struct NoGitUnder<P> {
+    pub inner: P,
+    pub root: Option<std::path::PathBuf>,
+}
+
+impl<P: Probe> NoGitUnder<P> {
+    fn kept(&self, p: &Path) -> bool {
+        self.root.as_deref().is_some_and(|root| {
+            p.starts_with(root) || theseus_tools::paths::canonical_best_effort(p).starts_with(root)
+        })
+    }
+}
+
+impl<P: Probe> Probe for NoGitUnder<P> {
+    fn exists(&mut self, path: &Path) -> bool {
+        self.inner.exists(path)
+    }
+
+    fn tracked(&mut self, path: &Path) -> jb::Tracked {
+        match self.kept(path) {
+            true => jb::Tracked::Unknown,
+            false => self.inner.tracked(path),
+        }
+    }
+
+    fn ignored(&mut self, path: &Path) -> Option<bool> {
+        match self.kept(path) {
+            true => None,
+            false => self.inner.ignored(path),
+        }
+    }
+
+    fn repo(&mut self, dir: &Path) -> (Option<std::path::PathBuf>, Option<bool>) {
+        match self.kept(dir) {
+            true => (Some(dir.to_path_buf()), None),
+            false => self.inner.repo(dir),
+        }
+    }
 }
 
 /// The access word the state shows for one resource, as `Target::access`

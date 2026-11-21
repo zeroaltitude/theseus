@@ -466,6 +466,8 @@ struct Attempt<'a> {
     reran: Vec<String>,
     /// A fix at the gate, when one was tried (issue 36, `fixing`).
     fix: Option<fixing::Note>,
+    /// Why the daemon's git would not run in the tree (`tree_git`), when that stopped it.
+    refused: Option<String>,
 }
 
 /// Run `self.propose_change` for the call of `tc`. An error is the result
@@ -565,6 +567,7 @@ pub async fn propose(
         diff: (0, 0, 0),
         reran: vec![],
         fix: cut,
+        refused: None,
     };
     let said = attempt(&core, board, &place, tc, &mut a).await;
     super::infra::watch(
@@ -576,6 +579,16 @@ pub async fn propose(
     );
     built(tc, &a);
     said
+}
+
+/// A tree the daemon's git would not run in (`tree_git`): the attempt stops before its commit,
+/// and its row says why. Any other error is returned as it was.
+fn refused(a: &mut Attempt<'_>, e: String) -> String {
+    if e.contains(super::tree_git::TAMPERED) || e.contains(super::tree_git::NESTED) {
+        a.stopped_at = Some(COMMIT);
+        a.refused = Some(e.clone());
+    }
+    e
 }
 
 /// Why a self step may not run now; none when it may.
@@ -622,8 +635,7 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, COMMIT, &why);
     }
-    let (p, t) = (place.clone(), a.tree.clone());
-    let subject = subject(a.i);
+    let (p, t, subject) = (place.clone(), a.tree.clone(), subject(a.i));
     // The model's words, with no line that reads as a fix commit's trailer (`fix::neutralised`).
     let body = super::join::fix::neutralised(&format!(
         "{}\n\nIssue: {}\nItem: {}\n\nCo-Authored-By: Theseus (self) <noreply@anthropic.com>",
@@ -631,16 +643,9 @@ async fn attempt(
         a.i.issue.trim(),
         a.i.item.trim()
     ));
-    let (head, commits, diff) = blocking(move || {
-        // Formatted first, so the gate's formatting phase never fails an attempt.
-        let body = match super::tree_fmt::format_tree(&p, &t).line() {
-            Some(line) => format!("{body}\n{line}"),
-            None => body,
-        };
-        let head = tree::commit(&p, &t, &subject, &body)?;
-        Ok((head, tree::commits(&p, &t)?, tree::diffstat(&p, &t)?))
-    })
-    .await?;
+    let (head, commits, diff) = blocking(move || committed(&p, &t, &subject, body))
+        .await
+        .map_err(|e| refused(a, e))?;
     if commits.is_empty() {
         a.verdict = "empty";
         return Err(format!(
@@ -715,6 +720,20 @@ async fn attempt(
         Err(_) => "The tree could not be closed.",
     });
     Ok(said(a, &after))
+}
+
+/// What the attempt's commit leaves: its head (none when nothing was left to commit), the
+/// branch's commits, and its size.
+type Committed = (Option<String>, Vec<(String, String)>, (u64, u64, u64));
+
+/// The attempt's commit, formatted first so the gate's formatting phase never fails an attempt.
+fn committed(p: &Place, t: &Tree, subject: &str, body: String) -> anyhow::Result<Committed> {
+    let body = match super::tree_fmt::format_tree(p, t).line() {
+        Some(line) => format!("{body}\n{line}"),
+        None => body,
+    };
+    let head = tree::commit(p, t, subject, &body)?;
+    Ok((head, tree::commits(p, t)?, tree::diffstat(p, t)?))
 }
 
 /// The commit's subject: the change's first line, then the item.
@@ -1081,6 +1100,9 @@ fn built(tc: &TurnCtx<'_>, a: &Attempt<'_>) {
             }
             if g.is_some_and(GateRun::aborted) {
                 n["kept_aborting"] = json!(true);
+            }
+            if let Some(why) = &a.refused {
+                n["refused"] = json!(why);
             }
             n
         },

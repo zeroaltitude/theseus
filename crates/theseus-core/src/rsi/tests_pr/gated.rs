@@ -30,6 +30,7 @@ fn open(i: &Input) -> Attempt<'_> {
         diff: (0, 0, 0),
         fix: None,
         reran: vec![],
+        refused: None,
     }
 }
 

@@ -9,6 +9,26 @@ import { alive, type OpsRow } from './board.ts'
 import { isEndedState } from './state.ts'
 import type { QueueItem } from './queue.ts'
 
+/** When a row was made: its record's, else its task's, else its view's start; none when nothing says. */
+export function madeAt(r: OpsRow): number | undefined {
+  return r.record?.created_at_ms ?? r.task?.info?.created_at_ms ?? r.view?.started_at_ms
+}
+
+/** How old a row is and when it last changed, in the page's relative style: `made 32d ago · last changed 19d ago`, or
+ *  `made 32d ago, never changed` when the two are one moment. Absent when no time says when it was made. */
+export function lifeWords(r: OpsRow, now: number): string | undefined {
+  const made = madeAt(r)
+  if (made == null) return undefined
+  const changed = r.activityMs
+  if (changed - made < 1000) return `made ${ago(made, now)}, never changed`
+  return `made ${ago(made, now)} · last changed ${ago(changed, now)}`
+}
+
+/** Whether the owner may close this record from its panel: a project that has not ended. */
+export function canCloseProject(rec: { kind?: string; state: string } | undefined): boolean {
+  return rec?.kind === 'project' && !['done', 'failed', 'abandoned'].includes(rec.state)
+}
+
 /** A board card: every field of the Tasks page's card (`TaskCard`), and the model chip. A field the row has no data
  *  for is absent. */
 export interface CardFacts {

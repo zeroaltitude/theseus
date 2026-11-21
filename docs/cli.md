@@ -224,6 +224,11 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
   The same three are Discord slash commands, `/project trust|untrust|trusted`: see [discord.md](discord.md).
   `project item add PROJECT TITLE`, `project item close ITEM` and `project item list PROJECT [--all]` keep a project's
   own list of items (yours, not from a job; `/project item` in Discord).
+  `project close PROJECT [--dropped] [--reason TEXT] [--yes]` ends a project as done (or given up) with its open items and
+  milestones, and stops its weekly review and its reminders; it asks once at a terminal, is yours (not from a job),
+  never while a task carries part of the project, and has no reopen. `project show` lists the tasks involved in a
+  project (started from a conversation attached to it, under it, holding a step of it, or a run of its review), those
+  still going first, then the newest, the newest 50 with a count of the rest.
 - **`herdr`**: the herdr terminal workspace manager: `herdr sync` gives each session that needs you or is working a
   pane; `herdr up`, `answer`, `main`, `setup`. See [herdr.md](herdr.md).
 

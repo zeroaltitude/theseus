@@ -102,6 +102,15 @@ impl Names {
                     continue;
                 }
             }
+            // A call's id, which a "should have asked" button carries: made fresh for every run.
+            if let Some(tail) = rest.strip_prefix("act_") {
+                let hex = tail.bytes().take_while(u8::is_ascii_hexdigit).count();
+                if hex >= 8 {
+                    out.push_str("act_<id>");
+                    rest = &tail[hex..];
+                    continue;
+                }
+            }
             for pre in ["ses_", "turn_", "exe_"] {
                 if let Some(tail) = rest.strip_prefix(pre) {
                     let hex = tail.bytes().take_while(u8::is_ascii_hexdigit).count();

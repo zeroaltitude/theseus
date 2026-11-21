@@ -771,7 +771,11 @@ const BULK: usize = 4096;
 /// last line), left out while absent, which it is for every result whose whole output did not
 /// pass `[tools] large_payload_chars`. A record from before reads it absent and writes back
 /// byte for byte; the sample is `tests_layouts::TOOL_RESULT_KEPT_AT_58`, written by hand.
-pub const MANIFEST_FORMAT: u32 = 59;
+/// 60 = the project a task was started for (issue 37): a TASK record's `origin` gains `project`,
+/// the project the starting conversation served when the task was started, left out while absent,
+/// which it is for every task not started from an attached conversation. A record from before reads
+/// it absent and writes back byte for byte; the sample is `tests_layouts::TASK_AT_59`, written by hand.
+pub const MANIFEST_FORMAT: u32 = 60;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;
