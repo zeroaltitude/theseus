@@ -59,6 +59,7 @@ impl TurnRunner {
                 surface: req.sink.surface.clone(),
                 reply_to: req.reply_to.clone(),
                 arrived,
+                arrival: req.sink.arrival.clone(),
             },
         )?;
         let Settled::Taken(answer) = offer.settle().await else {
@@ -105,9 +106,9 @@ impl TurnRunner {
                 t.reply_to = Some(id.clone());
             }
             waited_ms = waited_ms.max(m.arrived.elapsed().as_millis() as u64);
-            nodes.push((node, m.author.clone(), m.owner));
+            nodes.push((node, m.author.clone(), m.owner, m.arrival.clone()));
         }
-        let ids: Vec<String> = nodes.iter().map(|(n, _, _)| n.id.clone()).collect();
+        let ids: Vec<String> = nodes.iter().map(|(n, ..)| n.id.clone()).collect();
         // The row and the nodes are one frame: written together or not at
         // all, so a crash leaves each message delivered once or not yet.
         let fact = fact::steer::TurnSteered {
@@ -122,8 +123,9 @@ impl TurnRunner {
         if t.tc.task.is_some() {
             steers.join(sid, u32::try_from(nodes.len()).unwrap_or(u32::MAX));
         }
-        for (node, author, owner) in &nodes {
+        for (node, author, owner, arrival) in &nodes {
             t.tc.node_written(node);
+            self.exchange_heard(t, node, arrival.as_deref(), true);
             self.inbound_point(t, node, author, true);
             let kind = self.message_kind(sid, *owner);
             self.content_message(sid, node, kind, "operator steer");

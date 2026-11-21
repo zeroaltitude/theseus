@@ -79,6 +79,12 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
          place, {} with a proven person) and {} touches",
         r.sessions, r.turns, r.kept, r.exchanges, r.place_proven, r.person_proven, r.touches
     );
+    if r.repaired > 0 {
+        s.push_str(&format!(
+            "; {} touches keyed off their exchange's start were ended",
+            r.repaired
+        ));
+    }
     if let Some(why) = &r.things_skipped {
         s.push_str(&format!(
             "; the things they name were not looked for: {why}"

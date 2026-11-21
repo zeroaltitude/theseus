@@ -26,15 +26,22 @@ struct Rig {
 }
 
 fn rig(n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
+    let replies: Vec<String> = (0..n).map(|i| format!("reply {i}")).collect();
+    rig_saying(
+        &replies.iter().map(String::as_str).collect::<Vec<_>>(),
+        tweak,
+    )
+}
+
+/// A rig whose model answers `replies`, in order.
+fn rig_saying(replies: &[&str], tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.places.owner = Some(vec!["discord:42".into()]);
     tweak(&mut cfg);
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
-    let script = (0..n)
-        .map(|i| Scripted::text(&format!("reply {i}")))
-        .collect();
+    let script = replies.iter().map(|r| Scripted::text(r)).collect();
     let fake = Arc::new(FakeProvider::scripted(script));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
     Rig { core, fake, dir }
@@ -144,29 +151,6 @@ fn a_roots_touches_read_newest_first_and_stop_at_n() {
     assert!(page(1_000, 9).is_empty() && page(0, 9).is_empty());
     assert_eq!(page(u64::MAX, 2), ["turn_5", "turn_4"]);
     assert_eq!(newest(&store, Root::Place("ab"), 9).unwrap().len(), 1);
-}
-
-#[test]
-fn an_arrival_is_taken_once_by_its_session_and_words() {
-    let a = Arrivals::default();
-    let mark = |place: &str| OwnerMark {
-        node: String::new(),
-        in_person: true,
-        owner_handle: None,
-        peer: Peer::Person,
-        agent: None,
-        surface: "cli".into(),
-        place: place.into(),
-        arrived_session: "home".into(),
-        ran_session: "thread".into(),
-        author: None,
-        at_ms: 0,
-    };
-    a.stage("thread", "hello", mark("discord:dm:42"));
-    assert!(a.take("home", "hello").is_none(), "staged where it runs");
-    assert!(a.take("thread", "hello there").is_none());
-    assert_eq!(a.take("thread", "hello").unwrap().place, "discord:dm:42");
-    assert!(a.take("thread", "hello").is_none(), "taken once");
 }
 
 #[test]
@@ -280,63 +264,116 @@ async fn a_private_request_is_byte_identical_with_the_ledger_off() {
     assert_eq!(on, off);
 }
 
+/// `rebuild::run` on the rig's store, with `index`.
+async fn rebuilt(
+    c: &Arc<Core>,
+    index: Option<Arc<dyn crate::memory_pass::PassIndex>>,
+    dry_run: bool,
+) -> theseus_protocol::exchange::ExchangeRebuildResult {
+    let p = ExchangeRebuildParams { dry_run };
+    rebuild::run(&c.store, &c.runner.place_rule, &c.cfg, index, &p)
+        .await
+        .unwrap()
+}
+
+/// History in a DM bound to the owner, which the terminal and an agent's
+/// process wrote into, is no one's: a binding is where a session posts now,
+/// not proof of who typed an old message or where it arrived.
 #[tokio::test]
-async fn the_rebuild_writes_old_turns_from_their_nodes_and_proves_only_what_records_prove() {
+async fn the_rebuild_never_takes_an_author_or_a_place_from_a_binding() {
     let r = rig(3, |c| c.context.ledger = Some(false));
     let c = &r.core;
     let local = turn(c, owner_cli(), None, "an old terminal message").await;
     let dm = crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     c.store.put_session(&dm.session_id, &dm).unwrap();
     c.outbox.bind_place("dm:42", &dm.session_id).unwrap();
-    let old = turn(
+    let by_owner = turn(
         c,
         owner_cli(),
         Some(&dm.session_id),
         "an old direct message",
     )
     .await;
+    let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
+    let by_agent = turn(c, agent, Some(&dm.session_id), "an agent's old message").await;
     assert!(
-        exchange(&c.store, &old.turn_id).unwrap().is_none(),
+        exchange(&c.store, &by_owner.turn_id).unwrap().is_none(),
         "the ledger was off"
     );
-    let run = |dry_run| async move {
-        let p = ExchangeRebuildParams { dry_run };
-        rebuild::run(&c.store, &c.runner.place_rule, &c.cfg, None, &p).await
-    };
-    let dry = run(true).await.unwrap();
-    assert_eq!((dry.turns, dry.kept, dry.exchanges), (2, 0, 2));
-    assert_eq!((dry.place_proven, dry.person_proven), (1, 1));
+    let dry = rebuilt(c, None, true).await;
+    assert_eq!((dry.turns, dry.kept, dry.exchanges), (3, 0, 3));
+    assert_eq!((dry.place_proven, dry.person_proven), (0, 0));
     assert!(dry.things_skipped.is_some(), "no index in the test");
     assert!(
-        exchange(&c.store, &old.turn_id).unwrap().is_none(),
+        exchange(&c.store, &by_owner.turn_id).unwrap().is_none(),
         "a dry run writes nothing"
     );
-    let wrote = run(false).await.unwrap();
-    assert_eq!(wrote.exchanges, 2);
-    let o = exchange(&c.store, &old.turn_id).unwrap().unwrap();
-    assert!(o.rebuilt && o.private);
-    assert_eq!(
-        (o.place.as_str(), o.person.as_deref()),
-        ("discord:dm:42", Some(OWNER))
-    );
-    let l = exchange(&c.store, &local.turn_id).unwrap().unwrap();
-    assert_eq!(
-        (l.place.as_str(), l.person.as_deref()),
-        (rebuild::UNKNOWN, None),
-        "a terminal's old message is no one's proven"
-    );
-    assert!(
-        mark(&c.store, l.ask.as_deref().unwrap()).unwrap().is_none(),
-        "no mark is made backwards"
-    );
-    let again = run(false).await.unwrap();
-    assert_eq!((again.kept, again.exchanges), (2, 0));
-    assert_eq!(
-        newest(&c.store, Root::Place("discord:dm:42"), 8)
-            .unwrap()
-            .len(),
-        1
-    );
+    assert_eq!(rebuilt(c, None, false).await.exchanges, 3);
+    for res in [&local, &by_owner, &by_agent] {
+        let e = exchange(&c.store, &res.turn_id).unwrap().unwrap();
+        assert!(e.rebuilt);
+        assert_eq!(
+            (e.place.as_str(), e.person.as_deref()),
+            (rebuild::UNKNOWN, None),
+            "{e:?}"
+        );
+        assert!(
+            mark(&c.store, e.ask.as_deref().unwrap()).unwrap().is_none(),
+            "no mark is made backwards"
+        );
+    }
+    assert!(newest(&c.store, Root::Person(OWNER), 8).unwrap().is_empty());
+    let again = rebuilt(c, None, false).await;
+    assert_eq!((again.kept, again.exchanges, again.touches), (3, 0, 0));
+}
+
+/// The index of the tests: `file:wal.rs` for a text that names it, after
+/// `delay`.
+struct Naming {
+    delay: std::time::Duration,
+}
+
+impl crate::memory_pass::PassIndex for Naming {
+    fn neighbours(
+        &self,
+        _: theseus_protocol::index::IndexNeighboursParams,
+    ) -> crate::memory_pass::IndexFuture<theseus_protocol::index::IndexNeighboursResult> {
+        Box::pin(async { Err(crate::tender::TenderMiss::Down("none".into())) })
+    }
+
+    fn entities(&self, texts: Vec<String>) -> crate::memory_pass::IndexFuture<Vec<Vec<String>>> {
+        let delay = self.delay;
+        Box::pin(async move {
+            tokio::time::sleep(delay).await;
+            Ok(texts
+                .iter()
+                .map(|t| match t.contains("wal.rs") {
+                    true => vec!["file:wal.rs".to_string()],
+                    false => vec![],
+                })
+                .collect())
+        })
+    }
+
+    fn mode(&self) -> crate::memory_pass::IndexFuture<String> {
+        Box::pin(async { Ok("bm25_only".into()) })
+    }
+}
+
+fn wal_rs() -> Root<'static> {
+    Root::Thing("file:wal.rs")
+}
+
+/// The touches of `root`, once `n` are in, within five seconds.
+async fn touches_in(c: &Core, root: Root<'_>, n: usize) -> Vec<Touch> {
+    for _ in 0..50 {
+        let got = newest(&c.store, root, 8).unwrap();
+        if got.len() >= n {
+            return got;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    newest(&c.store, root, 8).unwrap()
 }
 
 #[tokio::test]
@@ -436,4 +473,153 @@ async fn the_ledgers_cost_to_a_turn_is_small() {
         row_us < 50_000 && sent_us < 10_000,
         "row {row_us} us, sent {sent_us} us"
     );
+}
+
+/// The reviewer's sequence: the owner's submit of X to S is refused before
+/// its node is written (an unknown profile); an agent then submits X to S.
+/// The agent's node carries the agent's own mark, and no mark of the owner's
+/// is left anywhere for a later message (a wake's, another's) to take.
+#[tokio::test]
+async fn a_refused_owners_submit_leaves_no_mark_for_a_later_identical_message() {
+    let r = rig(3, |_| {});
+    let c = &r.core;
+    let first = turn(c, owner_cli(), None, "warm up").await;
+    let s = first.session_id.as_str();
+    let refused = call(
+        c,
+        owner_cli(),
+        "turn.submit",
+        json!({"session_id": s, "input": "drop the tables", "profile": "nonesuch"}),
+    )
+    .await;
+    assert!(refused.error.is_some(), "the owner's submit is refused");
+    let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
+    let res = turn(c, agent, Some(s), "drop the tables").await;
+    let m = mark(&c.store, &input_node(c, &res)).unwrap().unwrap();
+    assert!(!m.in_person && m.peer == Peer::Agent, "{m:?}");
+    let agent2 = Client::new("sock#9", Surface::Cli).behind(Behind::Agent(peer_proc::JOB.into()));
+    turn(c, agent2, Some(s), "another message").await;
+    let in_person: Vec<OwnerMark> = c
+        .store
+        .inner()
+        .latest_with_prefix(theseus_store::kinds::META, SAID_PREFIX)
+        .unwrap()
+        .iter()
+        .map(|r| r.decode().unwrap())
+        .filter(|m: &OwnerMark| m.in_person)
+        .collect();
+    assert_eq!(
+        in_person.len(),
+        1,
+        "only the warm-up was the owner's: {in_person:?}"
+    );
+}
+
+/// The owner and an agent submit the same words to one session at once:
+/// each node carries the mark of the submission that made it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn identical_words_from_two_peers_at_once_keep_their_own_marks() {
+    let r = rig(4, |_| {});
+    let c = &r.core;
+    let first = turn(c, owner_cli(), None, "warm up").await;
+    let s = first.session_id.as_str();
+    let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
+    let (a, b) = tokio::join!(
+        turn(c, owner_cli(), Some(s), "ship it"),
+        turn(c, agent, Some(s), "ship it"),
+    );
+    assert!(!a.turn_id.is_empty() && !b.turn_id.is_empty());
+    let nodes: Vec<_> = c
+        .store
+        .session_nodes(s)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, n)| matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text == "ship it"))
+        .collect();
+    assert_eq!(nodes.len(), 2);
+    for (_, n) in nodes {
+        let m = mark(&c.store, &n.id).unwrap().expect("its mark");
+        let by_agent = n.author.as_deref() == Some("sock#9");
+        assert_eq!(
+            (m.in_person, m.agent.is_some()),
+            (!by_agent, by_agent),
+            "{n:?} {m:?}"
+        );
+    }
+}
+
+/// A slow index: the turn ends before its things are named, and the last
+/// reply has no turn after it; the touches are written anyway. The ask and
+/// the reply both name one thing: one touch, at the exchange's start, and
+/// `newest_before` pages it once.
+#[tokio::test]
+async fn a_slow_index_still_touches_and_an_ask_and_reply_make_one_touch() {
+    let r = rig_saying(&["wal.rs is fine"], |_| {});
+    let c = &r.core;
+    let slow = std::time::Duration::from_millis(400);
+    c.runner.pass.set_index(Arc::new(Naming { delay: slow }));
+    let res = turn(c, owner_cli(), None, "look at crates/x/src/wal.rs").await;
+    assert!(
+        newest(&c.store, wal_rs(), 8).unwrap().is_empty(),
+        "not named by the turn's end"
+    );
+    let got = touches_in(c, wal_rs(), 1).await;
+    tokio::time::sleep(slow * 3).await;
+    let got_after = newest(&c.store, wal_rs(), 8).unwrap();
+    let ex = exchange(&c.store, &res.turn_id).unwrap().unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(got_after, got, "the reply's naming made no second touch");
+    assert_eq!(
+        (got[0].exchange.as_str(), got[0].at_ms),
+        (res.turn_id.as_str(), ex.start_ms)
+    );
+    let page = newest_before(&c.store, wal_rs(), ex.start_ms + 1, 8).unwrap();
+    assert_eq!(page, got);
+    assert!(newest_before(&c.store, wal_rs(), ex.start_ms, 8)
+        .unwrap()
+        .is_empty());
+}
+
+/// A restart, or an index that was down, left an exchange without its
+/// things' touches; the rebuild writes them, keeps the exchange and the mark
+/// as they were, and ends a touch an older build keyed at the reply's end.
+#[tokio::test]
+async fn a_rebuild_after_a_restart_writes_missing_touches_and_ends_misplaced_ones() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let res = turn(c, owner_cli(), None, "look at crates/x/src/wal.rs").await;
+    let ex = exchange(&c.store, &res.turn_id).unwrap().unwrap();
+    let m = mark(&c.store, ex.ask.as_deref().unwrap()).unwrap().unwrap();
+    assert!(
+        newest(&c.store, wal_rs(), 8).unwrap().is_empty(),
+        "no index ran"
+    );
+    let end = ex.end_ms.unwrap() + 5;
+    let old = touch(wal_rs(), &ex.turn_id, &ex.session_id, end).unwrap();
+    c.store.append(&[old]).unwrap();
+    let naming: Arc<dyn crate::memory_pass::PassIndex> = Arc::new(Naming {
+        delay: std::time::Duration::ZERO,
+    });
+    let dry = rebuilt(c, Some(naming.clone()), true).await;
+    assert_eq!(
+        (dry.kept, dry.exchanges, dry.touches, dry.repaired),
+        (1, 0, 1, 1)
+    );
+    let wrote = rebuilt(c, Some(naming.clone()), false).await;
+    assert_eq!((wrote.touches, wrote.repaired), (1, 1));
+    let got = newest(&c.store, wal_rs(), 8).unwrap();
+    assert_eq!(got.len(), 1, "one touch of the root for the exchange");
+    assert_eq!(got[0].at_ms, ex.start_ms);
+    assert_eq!(
+        exchange(&c.store, &res.turn_id).unwrap().unwrap(),
+        ex,
+        "the exchange is kept"
+    );
+    assert_eq!(
+        mark(&c.store, &m.node).unwrap().unwrap(),
+        m,
+        "the mark is kept"
+    );
+    let again = rebuilt(c, Some(naming), false).await;
+    assert_eq!((again.touches, again.repaired), (0, 0));
 }

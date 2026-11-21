@@ -1824,6 +1824,9 @@ impl TurnRunner {
             // Stored: the next request on its client's lane may run (theseus-klo2).
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
+            // Its submission's mark and its exchange (issue 44).
+            let arrival = t.tc.sink.arrival.clone();
+            self.exchange_heard(t, &node, arrival.as_deref(), false);
             self.inbound_point(t, &node, &author, false);
             self.content_input(t, &node);
         } else {

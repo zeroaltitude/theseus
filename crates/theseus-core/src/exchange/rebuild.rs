@@ -1,24 +1,33 @@
-//! `exchange.rebuild` (issue 44, step 1): the exchanges and touches of turns
-//! from before the ledger, written from their nodes. It reads the
-//! conversations and writes only these records, and only for a turn that has
-//! no exchange yet: one written as it happened holds what no node says (the
-//! mark, where a message arrived), and is kept as it is.
+//! `exchange.rebuild` (issue 44, step 1): the exchanges and touches of turns,
+//! written from their nodes. It reads the conversations and writes only
+//! these records:
 //!
-//! A place and a person are filled only where a stored record proves them:
-//! the binding's record of a place's session, a `/new`'s link to the place it
-//! moved, a thread's shown place; a person only in a direct conversation with
-//! an owner, which the binding lets nobody else reach. Every other exchange
-//! says `unknown` and names no person: a terminal's message from before the
-//! mark is not proven anyone's. The dry run counts and writes nothing.
+//! - **A turn with no exchange** gets one. Its place and its person come from
+//!   the owner's mark of its message alone (`said.<node>`, written as the
+//!   message arrived): a session's binding is where it posts now, not proof
+//!   of where a message arrived or who typed it (an agent's terminal submit
+//!   into a bound DM is the operator's too). With no mark the place is
+//!   `unknown` and there is no person. No mark is ever made here.
+//! - **A turn with an exchange** keeps it, and its mark, as written; only its
+//!   missing touches are written (a restart, or an index that was late or
+//!   down, can leave a thing's touch unwritten).
+//! - **A touch keyed off its exchange's start** (an older build keyed a
+//!   reply's things at its end) is ended, so one exchange holds one touch of
+//!   a root.
+//!
+//! The dry run counts and writes nothing.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use theseus_protocol::exchange::{ExchangeRebuildParams, ExchangeRebuildResult};
 use theseus_protocol::index::IndexEntitiesParams;
 use theseus_store::{kinds, NewRecord, Store as _};
 
-use super::{exchange, exchange_record, touch, Exchange, Opener, Root, OWNER};
+use super::{
+    exchange, exchange_record, mark, thing_touches, touch, Exchange, Opener, Root, SEP,
+    TOUCH_PREFIX,
+};
 use crate::memory_pass::PassIndex;
 use crate::node::{Body, Node, Origin};
 use crate::places::{PlaceClass, PlaceRule};
@@ -32,43 +41,11 @@ const BATCH: usize = 256;
 /// The most of a message or reply the index is asked to name things in.
 const TEXT: usize = 16 * 1024;
 
-/// A turn's new exchange, and the words its things are named from.
+/// One turn's exchange, new or kept, and the words its things are named from.
 struct Planned {
     ex: Exchange,
+    new: bool,
     texts: Vec<String>,
-}
-
-/// Each session's place, by what the store records of it.
-fn places(store: &Store, sessions: &[SessionRecord]) -> anyhow::Result<HashMap<String, String>> {
-    let inner = store.inner();
-    let mut out = HashMap::new();
-    for r in inner.latest_with_prefix(kinds::META, crate::outbox::PLACE_META_PREFIX)? {
-        let place =
-            r.key.as_deref().unwrap_or("")[crate::outbox::PLACE_META_PREFIX.len()..].to_string();
-        if let (false, Ok(sid)) = (
-            theseus_protocol::threads::slug_of_place(&place).is_some(),
-            r.decode::<String>(),
-        ) {
-            out.insert(sid, format!("discord:{place}"));
-        }
-    }
-    for r in inner.latest_with_prefix(kinds::META, crate::outbox::SHOWN_PREFIX)? {
-        let sid = r.key.as_deref().unwrap_or("")[crate::outbox::SHOWN_PREFIX.len()..].to_string();
-        if let Ok(target) = r.decode::<String>() {
-            out.entry(sid).or_insert(target);
-        }
-    }
-    for s in sessions {
-        let moved = [&s.superseded_by, &s.supersedes]
-            .into_iter()
-            .flatten()
-            .find_map(|l| l.place.as_ref());
-        if let Some(place) = moved {
-            out.entry(s.session_id.clone())
-                .or_insert_with(|| format!("discord:{place}"));
-        }
-    }
-    Ok(out)
 }
 
 fn cut(text: &str) -> String {
@@ -79,9 +56,28 @@ fn cut(text: &str) -> String {
     text[..at].to_string()
 }
 
-/// One turn's nodes, as an exchange; none for a turn with no message and no
-/// reply (a task's brief, a turn that only failed).
-fn of_turn(turn: &str, sid: &str, place: &str, nodes: &[&Node], owner: bool) -> Option<Planned> {
+/// The words of the nodes `ask` and `reply`, among `nodes`.
+fn texts(nodes: &[&Node], ask: Option<&str>, reply: Option<&str>) -> Vec<String> {
+    let of = |id: Option<&str>| nodes.iter().find(|n| Some(n.id.as_str()) == id);
+    let mut out = Vec::new();
+    if let Some(Body::UserMessage { text, .. }) = of(ask).map(|n| &n.body) {
+        out.push(cut(text));
+    }
+    if let Some(Body::AssistantMessage { blocks, .. }) = of(reply).map(|n| &n.body) {
+        out.push(cut(&crate::provider::text_of(blocks)));
+    }
+    out
+}
+
+/// One turn's nodes, as a new exchange; none for a turn with no message and
+/// no reply (a task's brief, a turn that only failed). Place and person from
+/// the message's mark, when it has one.
+fn of_turn(
+    store: &Store,
+    turn: &str,
+    sid: &str,
+    nodes: &[&Node],
+) -> anyhow::Result<Option<Exchange>> {
     let words =
         |n: &&&Node| matches!(n.body, Body::UserMessage { .. }) && n.origin == Origin::Operator;
     let messages: Vec<String> = nodes.iter().filter(words).map(|n| n.id.clone()).collect();
@@ -89,29 +85,30 @@ fn of_turn(turn: &str, sid: &str, place: &str, nodes: &[&Node], owner: bool) -> 
         .iter()
         .rev()
         .find(|n| matches!(n.body, Body::AssistantMessage { .. }));
-    if messages.is_empty() && reply.is_none() {
-        return None;
-    }
-    let first = nodes.first()?;
+    let Some(first) = nodes
+        .first()
+        .filter(|_| !messages.is_empty() || reply.is_some())
+    else {
+        return Ok(None);
+    };
     let opened_by = match (&first.body, first.origin) {
         (Body::UserMessage { .. }, Origin::Operator) => Opener::Message,
         (Body::UserMessage { .. }, Origin::Mcp) => Opener::Prompt,
         _ => Opener::Unknown,
     };
-    let mut texts = Vec::new();
-    if let Some(Body::UserMessage { text, .. }) = nodes.iter().find(words).map(|n| &n.body) {
-        texts.push(cut(text));
-    }
-    if let Some(Body::AssistantMessage { blocks, .. }) = reply.map(|n| &n.body) {
-        texts.push(cut(&crate::provider::text_of(blocks)));
-    }
-    let ex = Exchange {
+    let marked = match messages.first() {
+        Some(id) => mark(store, id)?,
+        None => None,
+    };
+    Ok(Some(Exchange {
         turn_id: turn.into(),
         session_id: sid.into(),
-        place: place.into(),
+        place: marked
+            .as_ref()
+            .map_or_else(|| UNKNOWN.into(), |m| m.place.clone()),
         private: false,
         opened_by,
-        person: (owner && opened_by == Opener::Message).then(|| OWNER.into()),
+        person: marked.as_ref().and_then(super::OwnerMark::person),
         start_ms: first.created_at_ms,
         end_ms: nodes.last().map(|n| n.created_at_ms),
         ask: messages.first().cloned(),
@@ -119,30 +116,19 @@ fn of_turn(turn: &str, sid: &str, place: &str, nodes: &[&Node], owner: bool) -> 
         messages,
         stop: None,
         rebuilt: true,
-    };
-    Some(Planned { ex, texts })
+    }))
 }
 
-/// Every conversation's turns that have no exchange yet, planned. `owners`
-/// are the owner's handles (`discord:<id>`).
-fn plan(
-    store: &Store,
-    owners: &std::collections::BTreeSet<String>,
-    out: &mut ExchangeRebuildResult,
-) -> anyhow::Result<Vec<Planned>> {
+/// Every conversation's turns, planned: a new exchange where none is, the
+/// kept one where one is.
+fn plan(store: &Store, out: &mut ExchangeRebuildResult) -> anyhow::Result<Vec<Planned>> {
     let sessions: Vec<SessionRecord> = store.list_sessions()?;
-    let sessions: Vec<SessionRecord> = sessions
-        .into_iter()
-        .filter(|s| s.task.is_none() && s.imported.is_none())
-        .collect();
-    let placed = places(store, &sessions)?;
     let mut planned = Vec::new();
-    for s in &sessions {
+    for s in sessions
+        .iter()
+        .filter(|s| s.task.is_none() && s.imported.is_none())
+    {
         out.sessions += 1;
-        let place = placed.get(&s.session_id).map_or(UNKNOWN, String::as_str);
-        let owner = place
-            .strip_prefix("discord:dm:")
-            .is_some_and(|u| owners.contains(&format!("discord:{u}")));
         let nodes = store.session_nodes(&s.session_id)?;
         let mut turns: BTreeMap<(u64, String), Vec<&Node>> = BTreeMap::new();
         let mut first: HashMap<&str, u64> = HashMap::new();
@@ -155,15 +141,16 @@ fn plan(
         }
         for ((_, turn), ns) in &turns {
             out.turns += 1;
-            if exchange(store, turn)?.is_some() {
-                out.kept += 1;
-                continue;
-            }
-            if let Some(p) = of_turn(turn, &s.session_id, place, ns, owner) {
-                out.place_proven += u64::from(place != UNKNOWN);
-                out.person_proven += u64::from(p.ex.person.is_some());
-                planned.push(p);
-            }
+            let (ex, new) = match exchange(store, turn)? {
+                Some(ex) => (ex, false),
+                None => match of_turn(store, turn, &s.session_id, ns)? {
+                    Some(ex) => (ex, true),
+                    None => continue,
+                },
+            };
+            out.kept += u64::from(!new);
+            let texts = texts(ns, ex.ask.as_deref(), ex.reply.as_deref());
+            planned.push(Planned { ex, new, texts });
         }
     }
     Ok(planned)
@@ -175,8 +162,8 @@ async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(f).await?
 }
 
-/// The things each plan's words name, by the index: `None` and why, when it
-/// cannot be asked.
+/// The things each plan's words name, by the index: why not, when it cannot
+/// be asked.
 async fn things(
     index: Option<Arc<dyn PassIndex>>,
     planned: &[Planned],
@@ -203,24 +190,62 @@ async fn things(
         .collect())
 }
 
-/// The records of `planned`, `named` beside them.
-fn records(planned: &[Planned], named: Option<&[Vec<String>]>) -> Vec<NewRecord> {
+/// The records `planned` lacks: a new exchange's record, and every touch
+/// whose key is not in the store yet.
+fn records(
+    store: &Store,
+    planned: &[Planned],
+    named: Option<&[Vec<String>]>,
+) -> anyhow::Result<Vec<NewRecord>> {
     let mut out = Vec::new();
+    let mut seen = HashSet::new();
     for (i, p) in planned.iter().enumerate() {
         let ex = &p.ex;
-        out.extend(exchange_record(ex).ok());
+        if p.new {
+            out.extend(exchange_record(ex).ok());
+        }
         let (turn, sid, at) = (&ex.turn_id, &ex.session_id, ex.start_ms);
+        let mut touches: Vec<NewRecord> = Vec::new();
         if ex.place != UNKNOWN {
-            out.extend(touch(Root::Place(&ex.place), turn, sid, at));
+            touches.extend(touch(Root::Place(&ex.place), turn, sid, at));
         }
         if let Some(person) = &ex.person {
-            out.extend(touch(Root::Person(person), turn, sid, at));
+            touches.extend(touch(Root::Person(person), turn, sid, at));
         }
-        for term in named.and_then(|n| n.get(i)).into_iter().flatten() {
-            out.extend(touch(Root::Thing(term), turn, sid, at));
+        let terms = named.and_then(|n| n.get(i)).cloned().unwrap_or_default();
+        touches.extend(thing_touches(&terms, turn, sid, at));
+        for r in touches {
+            let key = r.key.clone().unwrap_or_default();
+            if seen.insert(key.clone()) && store.inner().latest_by_key(kinds::META, &key)?.is_none()
+            {
+                out.push(r);
+            }
         }
     }
-    out
+    Ok(out)
+}
+
+/// The touches keyed off their exchange's start, to be ended: one exchange
+/// holds one touch of a root.
+fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<NewRecord>> {
+    let mut out = Vec::new();
+    for r in store
+        .inner()
+        .latest_with_prefix(kinds::META, TOUCH_PREFIX)?
+    {
+        let Some(key) = r.key.as_deref() else {
+            continue;
+        };
+        let mut parts = key.rsplitn(3, SEP);
+        let (Some(turn), Some(time)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let at = time.parse::<u64>().ok().map(|t| u64::MAX - t);
+        if starts.get(turn).is_some_and(|s| Some(*s) != at) {
+            out.push(NewRecord::delete_meta(key));
+        }
+    }
+    Ok(out)
 }
 
 /// `exchange.rebuild`.
@@ -231,14 +256,13 @@ pub async fn run(
     index: Option<Arc<dyn PassIndex>>,
     p: &ExchangeRebuildParams,
 ) -> anyhow::Result<ExchangeRebuildResult> {
-    let owners = rule.owners(cfg);
     let reader = store.clone();
     let (mut planned, counted) = blocking(move || {
         let mut out = ExchangeRebuildResult::default();
-        Ok((plan(&reader, &owners, &mut out)?, out))
+        Ok((plan(&reader, &mut out)?, out))
     })
     .await?;
-    for p in &mut planned {
+    for p in planned.iter_mut().filter(|p| p.new) {
         p.ex.private =
             p.ex.place != UNKNOWN && rule.class(cfg, Some(&p.ex.place)) == PlaceClass::Private;
     }
@@ -246,7 +270,10 @@ pub async fn run(
         dry_run: p.dry_run,
         ..counted
     };
-    out.exchanges = planned.len() as u64;
+    let new: Vec<&Planned> = planned.iter().filter(|p| p.new).collect();
+    out.exchanges = new.len() as u64;
+    out.place_proven = new.iter().filter(|p| p.ex.place != UNKNOWN).count() as u64;
+    out.person_proven = new.iter().filter(|p| p.ex.person.is_some()).count() as u64;
     let named = match planned.is_empty() {
         true => Ok(Vec::new()),
         false => things(index, &planned).await,
@@ -254,12 +281,22 @@ pub async fn run(
     if let Err(why) = &named {
         out.things_skipped = Some(why.clone());
     }
-    let recs = records(&planned, named.as_deref().ok());
+    let reader = store.clone();
+    let (recs, ended) = blocking(move || {
+        let recs = records(&reader, &planned, named.as_deref().ok())?;
+        let starts: HashMap<&str, u64> = planned
+            .iter()
+            .map(|p| (p.ex.turn_id.as_str(), p.ex.start_ms))
+            .collect();
+        Ok((recs, misplaced(&reader, &starts)?))
+    })
+    .await?;
     out.touches = (recs.len() as u64).saturating_sub(out.exchanges);
+    out.repaired = ended.len() as u64;
     if !p.dry_run {
         let writer = store.clone();
         blocking(move || {
-            for batch in recs.chunks(BATCH) {
+            for batch in recs.chunks(BATCH).chain(ended.chunks(BATCH)) {
                 writer.append(batch)?;
             }
             Ok(())
