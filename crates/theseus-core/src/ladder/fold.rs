@@ -1,0 +1,318 @@
+//! Fold nodes (`fold.<id>`) and their rungs (`rung.<place>␁<level>␁…`). A
+//! first-level node stands for [`N`](super::N) consecutive exchanges of a
+//! place: the person's words in them by node id, never copied; a title and
+//! an account written once by a small model from their asks, their `did`
+//! lines and their final replies, each cut by code; the union of their
+//! marks; and its id, the handle that opens them. A node of a higher level is
+//! built by code from its children's typed fields: their titles and handles,
+//! and of the person's lines only those that are corrections or made a
+//! standing record, the rest counted. A node never changes once written.
+
+use serde::{Deserialize, Serialize};
+use theseus_store::{kinds, NewRecord, Store as _};
+
+use super::did::{self, Read};
+use super::writer::{Ask, Work, Writer, Written};
+use super::{cut, Marks};
+use crate::store::Store;
+
+/// A node: `fold.<id>`.
+pub const FOLD_PREFIX: &str = "fold.";
+/// A node's place in its level: `rung.<place>␁<level, 2 digits>␁<u64::MAX - last_ms, 20 digits>␁<id>`.
+pub const RUNG_PREFIX: &str = "rung.";
+const SEP: char = '\u{1}';
+/// A title's characters at most, and an account's.
+pub const TITLE_CHARS: usize = 120;
+pub const ACCOUNT_CHARS: usize = 2_400;
+/// The most of each exchange's message, and of its reply, a fold's writer reads.
+pub const ASK_CHARS: usize = 1_500;
+pub const REPLY_CHARS: usize = 600;
+
+/// One of the person's messages a node covers, by node id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HisLine {
+    pub node: String,
+    /// The judge's answer called it a correction.
+    pub correction: bool,
+    /// A standing record was made from it.
+    pub standing: bool,
+}
+
+/// A node one level down that a higher node stands for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Child {
+    pub id: String,
+    pub title: String,
+}
+
+/// One fold node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FoldNode {
+    /// Its handle.
+    pub id: String,
+    pub place: String,
+    /// 1 for a node over exchanges; 2 and up for a node over nodes.
+    pub level: u8,
+    /// Every exchange it stands for, by turn, oldest first.
+    pub exchanges: Vec<String>,
+    /// The first and the last of them's start.
+    pub first_ms: u64,
+    pub last_ms: u64,
+    /// The person's lines it keeps, by node id: every one at the first
+    /// level; above it, the corrections and those that made a standing record.
+    pub his: Vec<HisLine>,
+    /// The person's lines it stands for and does not keep.
+    pub counted: u32,
+    /// Above the first level: the nodes it stands for, oldest first.
+    pub children: Vec<Child>,
+    pub title: String,
+    pub account: String,
+    pub marks: Marks,
+    /// The model that wrote the first level's words, and the version of its
+    /// instructions; none above it, which code builds.
+    pub model: Option<String>,
+    pub writer: u32,
+    pub at_ms: u64,
+}
+
+/// Whether a line of the person's is a correction or made a standing record.
+pub trait Flags: Sync {
+    fn correction(&self, node: &str) -> bool;
+    fn standing(&self, node: &str) -> bool;
+}
+
+/// No line flagged.
+pub struct NoFlags;
+
+impl Flags for NoFlags {
+    fn correction(&self, _: &str) -> bool {
+        false
+    }
+    fn standing(&self, _: &str) -> bool {
+        false
+    }
+}
+
+fn rung_level(place: &str, level: u8) -> String {
+    format!("{RUNG_PREFIX}{place}{SEP}{level:02}{SEP}")
+}
+
+/// A node's two records: itself and its rung.
+pub fn records(n: &FoldNode) -> anyhow::Result<Vec<NewRecord>> {
+    let rung = format!(
+        "{}{:020}{SEP}{}",
+        rung_level(&n.place, n.level),
+        u64::MAX - n.last_ms,
+        n.id
+    );
+    Ok(vec![
+        NewRecord::json(kinds::META, Some(&format!("{FOLD_PREFIX}{}", n.id)), n)?,
+        NewRecord::json(kinds::META, Some(&rung), &n.id)?,
+    ])
+}
+
+/// The node `id`: what its handle opens first.
+pub fn node(store: &Store, id: &str) -> anyhow::Result<Option<FoldNode>> {
+    store.get_meta(&format!("{FOLD_PREFIX}{id}"))
+}
+
+/// The newest `limit` nodes of `place` at `level`, newest first: one read of
+/// the rungs' first keys.
+pub fn newest(
+    store: &Store,
+    place: &str,
+    level: u8,
+    limit: usize,
+) -> anyhow::Result<Vec<FoldNode>> {
+    let ids = store
+        .inner()
+        .first_with_prefix(kinds::META, &rung_level(place, level), limit)?;
+    let mut out = Vec::new();
+    for r in ids {
+        let id: String = r.decode()?;
+        out.extend(node(store, &id)?);
+    }
+    Ok(out)
+}
+
+/// The exchanges a node opens to, oldest first: those still in the store.
+pub fn open(store: &Store, n: &FoldNode) -> anyhow::Result<Vec<crate::exchange::Exchange>> {
+    let mut out = Vec::new();
+    for t in &n.exchanges {
+        out.extend(crate::exchange::exchange(store, t)?);
+    }
+    Ok(out)
+}
+
+/// What a first-level node's writer reads: each exchange's message, its
+/// `did` line (or that it has none) and the start of its reply, cut by code.
+pub fn material(reads: &[(Read, did::Said)]) -> String {
+    let mut out = String::new();
+    for (i, (r, said)) in reads.iter().enumerate() {
+        let day = crate::judge::spend::local_day(r.ex.start_ms);
+        let ask = r
+            .ask
+            .as_deref()
+            .map_or("(no message)".into(), |a| cut(a, ASK_CHARS));
+        let reply = cut(r.reply.as_deref().unwrap_or(""), REPLY_CHARS);
+        out.push_str(&format!(
+            "Exchange {} ({day}):\nThe person: {ask}\nWhat Theseus did: {}\nIts reply began: {reply}\n\n",
+            i + 1,
+            said.text()
+        ));
+    }
+    out
+}
+
+/// A writer's answer as a title and an account: the first line, and the
+/// rest, each cut by code; none when either is empty.
+pub fn parse(answer: &str) -> Option<(String, String)> {
+    let answer = answer.trim();
+    let (title, account) = answer.split_once('\n')?;
+    let (title, account) = (cut(title, TITLE_CHARS), cut(account, ACCOUNT_CHARS));
+    (!title.is_empty() && !account.is_empty()).then_some((title, account))
+}
+
+/// The person's lines of `reads`, flagged.
+fn his_lines(reads: &[(Read, did::Said)], flags: &dyn Flags) -> Vec<HisLine> {
+    reads
+        .iter()
+        .flat_map(|(r, _)| r.ex.messages.iter())
+        .map(|n| HisLine {
+            node: n.clone(),
+            correction: flags.correction(n),
+            standing: flags.standing(n),
+        })
+        .collect()
+}
+
+/// A first-level node over `reads` (oldest first, all of one place), its
+/// words written by `writer` within `left_usd`: the node, or why there is
+/// none, with what the call cost either way.
+pub async fn first_level(
+    reads: &[(Read, did::Said)],
+    writer: &dyn Writer,
+    flags: &dyn Flags,
+    left_usd: f64,
+) -> (Result<FoldNode, String>, Written) {
+    let (Some((first, _)), Some((last, _))) = (reads.first(), reads.last()) else {
+        return (Err("no exchanges".into()), Written::default());
+    };
+    let ask = Ask {
+        work: Work::Fold,
+        text: material(reads),
+        sources: reads.len() as u32,
+    };
+    let w = writer.write(ask, left_usd).await;
+    let Some((title, account)) = w.text.as_deref().and_then(parse) else {
+        let why = w
+            .failed
+            .clone()
+            .unwrap_or_else(|| "the answer held no title and account".into());
+        return (Err(why), w);
+    };
+    let node = FoldNode {
+        id: crate::new_id("fld"),
+        place: first.ex.place.clone(),
+        level: 1,
+        exchanges: reads.iter().map(|(r, _)| r.ex.turn_id.clone()).collect(),
+        first_ms: first.ex.start_ms,
+        last_ms: last.ex.start_ms,
+        his: his_lines(reads, flags),
+        counted: 0,
+        children: Vec::new(),
+        title,
+        account,
+        marks: reads
+            .iter()
+            .fold(Marks::default(), |m, (r, _)| m.union(r.marks)),
+        model: Some(w.model.clone()),
+        writer: super::writer::WRITER_VERSION,
+        at_ms: theseus_protocol::now_unix_ms(),
+    };
+    (Ok(node), w)
+}
+
+/// What a node over a sealed or veiled source says in place of an account.
+pub const HIDDEN: &str = "Not summarised: a source of these exchanges is sealed or veiled.";
+
+/// A first-level node over `reads` with a sealed or veiled source, built by
+/// code: no model reads them; the person's words stay by reference, and the
+/// handle opens them where the owner may.
+pub fn hidden(reads: &[(Read, did::Said)], flags: &dyn Flags) -> FoldNode {
+    let first = reads.first().map(|(r, _)| &r.ex);
+    let last = reads.last().map(|(r, _)| &r.ex);
+    FoldNode {
+        id: crate::new_id("fld"),
+        place: first.map(|e| e.place.clone()).unwrap_or_default(),
+        level: 1,
+        exchanges: reads.iter().map(|(r, _)| r.ex.turn_id.clone()).collect(),
+        first_ms: first.map_or(0, |e| e.start_ms),
+        last_ms: last.map_or(0, |e| e.start_ms),
+        his: his_lines(reads, flags),
+        counted: 0,
+        children: Vec::new(),
+        title: format!("{} exchanges, not summarised", reads.len()),
+        account: HIDDEN.into(),
+        marks: reads
+            .iter()
+            .fold(Marks::default(), |m, (r, _)| m.union(r.marks)),
+        model: None,
+        writer: super::writer::WRITER_VERSION,
+        at_ms: theseus_protocol::now_unix_ms(),
+    }
+}
+
+/// A node of the level above `children` (oldest first, one level, one
+/// place), built by code from their fields alone.
+pub fn above(children: &[FoldNode]) -> Option<FoldNode> {
+    let (first, last) = (children.first()?, children.last()?);
+    let kept: Vec<HisLine> = children
+        .iter()
+        .flat_map(|c| c.his.iter())
+        .filter(|h| h.correction || h.standing)
+        .cloned()
+        .collect();
+    let all: u32 = children
+        .iter()
+        .map(|c| c.his.len() as u32 + c.counted)
+        .sum();
+    let from = crate::judge::spend::local_day(first.first_ms);
+    let to = crate::judge::spend::local_day(last.last_ms);
+    let account = children
+        .iter()
+        .map(|c| format!("- {} [{}]", c.title, c.id))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(FoldNode {
+        id: crate::new_id("fld"),
+        place: first.place.clone(),
+        level: first.level + 1,
+        exchanges: children
+            .iter()
+            .flat_map(|c| c.exchanges.iter().cloned())
+            .collect(),
+        first_ms: first.first_ms,
+        last_ms: last.last_ms,
+        counted: all - kept.len() as u32,
+        his: kept,
+        children: children
+            .iter()
+            .map(|c| Child {
+                id: c.id.clone(),
+                title: c.title.clone(),
+            })
+            .collect(),
+        title: cut(
+            &format!("{} parts, {from} to {to}: {}", children.len(), first.title),
+            TITLE_CHARS,
+        ),
+        account,
+        marks: children
+            .iter()
+            .fold(Marks::default(), |m, c| m.union(c.marks)),
+        model: None,
+        writer: super::writer::WRITER_VERSION,
+        at_ms: theseus_protocol::now_unix_ms(),
+    })
+}
