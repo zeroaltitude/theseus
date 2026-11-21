@@ -29,7 +29,13 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
         lines.push("You can set a wake to follow up later and run background tasks.".into());
     }
     if offers(crate::memory_lookup::LOOKUP) {
-        lines.push("You can look up past conversations.".into());
+        // Issue 43: a reference the turn cannot place is looked for first.
+        lines.push(
+            "You can look up past conversations: before asking the person what they meant by \
+             something you cannot place, look it up by its name, or with none read back through \
+             this place's conversation, further each time."
+                .into(),
+        );
     }
     if place.class == crate::places::PlaceClass::Private && cfg.web.enabled {
         let host = match cfg.web.bind.contains(':') {

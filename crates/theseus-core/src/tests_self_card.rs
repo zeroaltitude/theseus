@@ -56,7 +56,7 @@ fn bound() -> PlaceRule {
 
 const VOICE: &str = "You can join a voice channel the bindings name: the person types /join in a private place to invite you.";
 const WAKES: &str = "You can set a wake to follow up later and run background tasks.";
-const PAST: &str = "You can look up past conversations.";
+const PAST: &str = "You can look up past conversations: before asking the person what they meant by something you cannot place, look it up by its name, or with none read back through this place's conversation, further each time.";
 const CHAT: &str = "The person can act here from chat with slash commands, which Discord lists when they type `/` \u{2014} `/trust` clears a content label this conversation is holding, and `/project trust <path>` grants or revokes a repository's own instruction files; never send them to a terminal for something a command here does.";
 
 #[test]

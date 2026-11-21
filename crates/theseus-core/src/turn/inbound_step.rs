@@ -60,6 +60,7 @@ impl TurnRunner {
                 if let Some(row) = &h.row {
                     t.record(&crate::fact::thread_route::ThreadRouted(row));
                 }
+                t.digest.tail = h.tail;
                 h.early
             });
         if !self.judge.config().enabled {

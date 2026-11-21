@@ -40,9 +40,9 @@ use crate::judge::inbound::{
 use crate::session::SessionRecord;
 use crate::thread_flow::{Answered, Handoff, Pending, Routed};
 use crate::thread_route::{
-    address, decide, decide_single, decisive, lone_offer, new_entities, pre_route, propose,
-    question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre,
-    Rules, Voice,
+    address, decide, decide_single, decisive, home_follow, lone_offer, new_entities, pre_route,
+    propose, question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick,
+    Pre, Rules, Voice,
 };
 
 /// How many characters of the waiting message a question shows.
@@ -121,6 +121,8 @@ fn fresh_row(home: &str) -> RoutedRow {
         movable: false,
         above: None,
         spared: None,
+        follow: None,
+        tail: None,
     }
 }
 
@@ -206,6 +208,7 @@ impl Core {
         // A placement below the act bar may be wrong (the misroute guard).
         self.arm_guard(&tag, &run_session, &live, &scored);
         self.show_thread_at(&tag, &run_session, place.as_deref());
+        let tail = self.place_tail(&home, &run_session.session_id, &live, &mut row);
         state.arrived(&home, tag.slug.as_deref(), now);
         (row.to, row.session) = (tag.slug.clone(), run_session.session_id.clone());
         (row.how, row.confidence, row.movable) = (tag.how, tag.confidence, tag.movable);
@@ -228,6 +231,7 @@ impl Core {
                 text: p.input.clone(),
                 early,
                 row: Some(row),
+                tail,
                 at: Instant::now(),
             },
         );
@@ -240,6 +244,46 @@ impl Core {
         };
         *session = run_session;
         Ok(Some(routing))
+    }
+
+    /// What was just said in the place, for a turn that runs in `run`, when the
+    /// place's last exchange ran in another session: the place's own or an
+    /// unsealed thread's (`compiler::place_tail`). The row says where from and
+    /// what it costs.
+    fn place_tail(
+        &self,
+        home: &str,
+        run: &str,
+        live: &[&ThreadInfo],
+        row: &mut RoutedRow,
+    ) -> Option<String> {
+        let last = self.runner.threads.route.last(home)?;
+        let (sid, label) = match &last.slug {
+            None => (home.to_string(), "the place's own conversation".to_string()),
+            Some(slug) => {
+                let t = live.iter().find(|t| &t.slug == slug)?;
+                let open = !crate::compiler::place_digest::held(t);
+                (
+                    t.session_id.clone().filter(|_| open)?,
+                    format!("the thread \u{ab}{}\u{bb}", t.title),
+                )
+            }
+        };
+        let half = self.cfg.threads.sticky_half_life_secs.saturating_mul(1000);
+        let since = last.at_ms.saturating_sub(half);
+        let tail = (sid != run)
+            .then(|| crate::compiler::place_tail::block(&self.store, &sid, &label, since))?
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %format!("{e:#}"), "the place's last words were not read");
+                None
+            })?;
+        let from = if last.slug.is_some() {
+            "thread"
+        } else {
+            "home"
+        };
+        row.tail = Some((from.to_string(), tail.tokens));
+        Some(tail.text)
     }
 
     /// A guess the router made into a thread that holds a large context runs
@@ -404,6 +448,8 @@ impl Core {
             self.learned_thread(&p.input, &mut pre);
         }
         row.above = self.keep_apart_by_dir(p, session, live, &mut pre);
+        let follow = home_follow(&pre, state.last(home).as_ref(), now, half);
+        row.follow = (follow > 0.0).then_some(follow);
         row.pre = pre
             .iter()
             .map(|x| (x.slug.clone(), x.score, x.hits.clone()))
@@ -440,7 +486,7 @@ impl Core {
             }
         } else {
             match self
-                .decide_with_jev(p, conn, at, (live, &pre), row, (early, judgment))
+                .decide_with_jev(p, conn, at, (live, &pre, follow), row, (early, judgment))
                 .await
             {
                 Decision::Route(tag) => tag,
@@ -543,7 +589,7 @@ impl Core {
             Option<&str>,
             &str,
         ),
-        (live, pre): (&[&ThreadInfo], &[Pre]),
+        (live, pre, home_follow): (&[&ThreadInfo], &[Pre], f64),
         row: &mut RoutedRow,
         (early_out, judgment): (&mut Option<Early>, &mut Judged),
     ) -> Decision {
@@ -627,6 +673,7 @@ impl Core {
             new_entities: new_entities(&p.input, live),
             ask_every_thread: self.cfg.threads.ask_every_thread,
             guess_unsure: self.cfg.threads.unsure == crate::config::Unsure::Guess,
+            home_follow,
         };
         decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
     }
