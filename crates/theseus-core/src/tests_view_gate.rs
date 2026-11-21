@@ -161,10 +161,6 @@ fn owner_alone_is_the_terminal_the_page_or_a_dm_and_his_mark() {
         p(&Place::Unknown, None, Input::Message("his")),
         Present::Unknown
     );
-    assert_eq!(
-        p(&Place::Open(None), None, Input::Message("his")),
-        Present::Open
-    );
     // A wake or a report takes the presence of the turn that set it up.
     assert_eq!(
         p(

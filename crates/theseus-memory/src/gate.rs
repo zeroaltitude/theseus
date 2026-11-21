@@ -15,7 +15,7 @@
 //! - **The rule**, in order: a point of view whose presence is unknown admits
 //!   nothing; a piece whose place, seal or veil cannot be read is denied (a
 //!   missing or uncertain mark denies); a sealed or veiled piece is denied;
-//!   today's place rule ([`Place::may_draw_at`]) must hold; and a piece from
+//!   today's place rule ([`Place::may_draw_on`]) must hold; and a piece from
 //!   any other place than the anchor needs `OwnerAlone`. No rule here is by
 //!   model provider: what a model is shown depends on who is present.
 //! - **Marks only grow**: a piece more marked is never admitted where a less
@@ -107,7 +107,8 @@ pub struct Marks {
     pub place: Option<String>,
     /// Today's reading of that place.
     pub class: Place,
-    /// When it was written (ms), for the open view's taint.
+    /// When it was written (ms). The rule reads it no more: the open view
+    /// and its taint were deleted with the restricted-origin rule.
     pub time_ms: u64,
     pub seal: Seal,
     pub veil: Veil,
@@ -159,7 +160,7 @@ pub fn check(pov: &PointOfView, marks: &Marks) -> Result<(), Denied> {
     if marks.veil == Veil::Veiled {
         return Err(Denied::Veiled);
     }
-    if !pov.place.may_draw_at(&marks.class, marks.time_ms) {
+    if !pov.place.may_draw_on(&marks.class) {
         return Err(Denied::Place);
     }
     // Alone only where today's rule reads the anchor as private: a
@@ -281,7 +282,7 @@ mod tests {
     fn piece() -> impl Strategy<Value = Marks> {
         (
             proptest::option::weighted(0.9, 0..PLACES.len()),
-            0..6u8,
+            0..5u8,
             0..3u8,
             0..3u8,
             0..4u64,
@@ -290,7 +291,6 @@ mod tests {
                 let place = at.map(|i| PLACES[i].to_string());
                 let class = match class {
                     0 => Place::Unknown,
-                    1 => Place::Open(Some(2)),
                     _ => place.as_deref().map_or(Place::Unknown, reading),
                 };
                 let seal = [Seal::Clear, Seal::Held, Seal::Unread][seal as usize];
@@ -306,13 +306,7 @@ mod tests {
     }
 
     fn view() -> impl Strategy<Value = PointOfView> {
-        (0..PLACES.len(), present(), 0..5u8).prop_map(|(at, present, open)| {
-            let mut p = pov(PLACES[at], present);
-            if open == 0 {
-                p.place = Place::Open(None);
-            }
-            p
-        })
+        (0..PLACES.len(), present()).prop_map(|(at, present)| pov(PLACES[at], present))
     }
 
     proptest! {
@@ -352,7 +346,7 @@ mod tests {
             }
             if check(&p, &more).is_ok() {
                 prop_assert!(check(&p, &m).is_ok());
-                prop_assert!(p.place.may_draw_at(&m.class, m.time_ms));
+                prop_assert!(p.place.may_draw_on(&m.class));
             }
         }
     }

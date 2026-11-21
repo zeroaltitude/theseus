@@ -63,7 +63,6 @@ pub fn marks(piece: &Piece) -> rule::Marks {
     let class = match (m.audience, m.place.as_deref()) {
         (Audience::Private, _) => Place::Private,
         (Audience::Shared, Some(p)) => Place::Shared(p.to_string()),
-        (Audience::Open, _) => Place::Open(None),
         _ => Place::Unknown,
     };
     rule::Marks {
@@ -155,8 +154,7 @@ mod tests {
     fn permit(anchor: &str, present: Present) -> Permit {
         let place = match present {
             Present::Shared => Place::Shared(anchor.into()),
-            Present::Open => Place::Open(None),
-            Present::Unknown => Place::Unknown,
+            Present::Open | Present::Unknown => Place::Unknown,
             _ => Place::Private,
         };
         Permit::of(Verified::for_tests(rule::PointOfView {

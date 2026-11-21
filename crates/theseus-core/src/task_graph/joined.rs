@@ -281,7 +281,6 @@ impl Homes for crate::turn::TurnRunner {
             audience: match m.class {
                 Place::Private => Audience::Private,
                 Place::Shared(_) => Audience::Shared,
-                Place::Open(_) => Audience::Open,
                 Place::Unknown => Audience::Unknown,
             },
             author: Author::Theseus,

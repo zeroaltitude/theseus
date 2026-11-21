@@ -99,7 +99,6 @@ pub fn present(
 ) -> Present {
     match place {
         Place::Unknown => return Present::Unknown,
-        Place::Open(_) => return Present::Open,
         Place::Shared(_) => return Present::Shared,
         Place::Private => {}
     }
