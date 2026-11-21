@@ -164,7 +164,7 @@ fn window(
             _ => exchange::newest_before(store, root, oldest.saturating_add(1), PAGE)?,
         };
     }
-    out.sort_by(|a, b| pos(a.start_ms, &a.turn_id).cmp(&pos(b.start_ms, &b.turn_id)));
+    out.sort_by_key(|a| pos(a.start_ms, &a.turn_id));
     Ok(out)
 }
 

@@ -107,6 +107,10 @@ async fn new_opens_nothing_and_the_next_message_opens_the_successor() {
         ),
         "{answer}"
     );
+    // The place's ladder counts only what comes after it (issue 44): a
+    // durable mark, written at the /new, not inferred from the session.
+    let mark = theseus_core::ladder::new_mark(&core.store, &format!("discord:{}", place.key));
+    assert!(mark.unwrap().is_some(), "the /new mark is written");
     let status = place.control(Control::Status, "discord:zeroaltitude").await;
     assert!(status.starts_with("No session yet"), "{status}");
     assert_eq!(sessions(&core), 1, "no session before the message");

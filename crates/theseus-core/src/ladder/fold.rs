@@ -79,7 +79,8 @@ pub struct FoldNode {
 
 /// Whether a line of the person's is a correction or made a standing record.
 pub trait Flags: Sync {
-    fn correction(&self, node: &str) -> bool;
+    /// Whether the message `node`, which opened exchange `turn`, is a correction.
+    fn correction(&self, turn: &str, node: &str) -> bool;
     fn standing(&self, node: &str) -> bool;
 }
 
@@ -87,7 +88,7 @@ pub trait Flags: Sync {
 pub struct NoFlags;
 
 impl Flags for NoFlags {
-    fn correction(&self, _: &str) -> bool {
+    fn correction(&self, _: &str, _: &str) -> bool {
         false
     }
     fn standing(&self, _: &str) -> bool {
@@ -238,10 +239,10 @@ fn node_marks<'a>(mut marks: impl Iterator<Item = &'a Marks>) -> Marks {
 fn his_lines(reads: &[(Read, did::Said)], flags: &dyn Flags) -> Vec<HisLine> {
     reads
         .iter()
-        .flat_map(|(r, _)| r.ex.messages.iter())
-        .map(|n| HisLine {
+        .flat_map(|(r, _)| r.ex.messages.iter().map(move |n| (&r.ex, n)))
+        .map(|(ex, n)| HisLine {
             node: n.clone(),
-            correction: flags.correction(n),
+            correction: flags.correction(&ex.turn_id, n),
             standing: flags.standing(n),
         })
         .collect()

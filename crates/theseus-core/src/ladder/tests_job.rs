@@ -315,3 +315,45 @@ async fn a_source_is_summarised_only_when_its_provenance_proves_it_unsealed() {
     assert_eq!(out, Outcome::Hidden);
     assert!(w.asks.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_correction_the_judge_named_is_kept_above_the_first_level() {
+    use super::build::Standing;
+    use super::fold::Flags;
+    let (_d, core, _) = core(&[]);
+    let sid = session(&core);
+    let turn = exchange_at(&core.store, &sid, PLACE, 1_000, false);
+    let ask = crate::exchange::exchange(&core.store, &turn)
+        .unwrap()
+        .unwrap()
+        .ask
+        .unwrap();
+    let flags = Standing {
+        sources: Vec::new(),
+        store: &core.store,
+    };
+    assert!(!flags.correction(&turn, &ask));
+    let kinds = ["new_ask", "follow_up", "correction", "other"];
+    let j = crate::tests_learning::judgment(
+        "jdg_1",
+        "classify.v4",
+        vec![crate::tests_learning::choice(
+            "kind",
+            "correction",
+            0.9,
+            &kinds,
+        )],
+        serde_json::json!({"turn": turn}),
+        5,
+    );
+    let rec = super::correction_record(&j, Some(&turn)).expect("a correction is flagged");
+    core.store.append(&[rec]).unwrap();
+    assert!(flags.correction(&turn, &ask));
+    assert!(
+        !flags.correction(&turn, "msg_other"),
+        "only the message that opened it"
+    );
+    let mut other = j.clone();
+    other.pack = "loop.v1".into();
+    assert!(super::correction_record(&other, Some(&turn)).is_none());
+}

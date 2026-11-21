@@ -113,6 +113,42 @@ pub fn laddered(place: &str) -> bool {
     !place.is_empty() && !place.contains(SEP)
 }
 
+/// A message the judge's `classify` called a correction:
+/// `ladder.correction.<turn>`, for the message that opened that turn.
+pub const CORRECTION_PREFIX: &str = "ladder.correction.";
+
+/// The flag of judgment `j`, when it is `classify`'s answer that the
+/// message opening `turn` is a correction (its `kind` question, the pack's
+/// typed choice): written in the judge's own frame by its sink.
+pub fn correction_record(
+    j: &theseus_judge::Judgment,
+    turn: Option<&str>,
+) -> Option<theseus_store::NewRecord> {
+    let turn = turn?;
+    let corrects = j.pack.starts_with("classify.")
+        && j.answers.iter().any(|a| {
+            a.question == "kind"
+                && matches!(&a.answer, theseus_judge::Answer::Choice { choice, .. } if choice == "correction")
+        });
+    corrects
+        .then(|| {
+            theseus_store::NewRecord::json(
+                theseus_store::kinds::META,
+                Some(&format!("{CORRECTION_PREFIX}{turn}")),
+                &true,
+            )
+            .ok()
+        })
+        .flatten()
+}
+
+/// Whether the message that opened `turn` was called a correction.
+pub fn corrected(store: &crate::store::Store, turn: &str) -> anyhow::Result<bool> {
+    Ok(store
+        .get_meta::<bool>(&format!("{CORRECTION_PREFIX}{turn}"))?
+        .unwrap_or(false))
+}
+
 /// A place's `/new` marks: `ladder.new.<place>`, the latest one.
 pub const NEW_PREFIX: &str = "ladder.new.";
 
@@ -180,6 +216,9 @@ impl Day {
         (DAY_USD - self.clone().on(today).used()).max(0.0)
     }
 }
+
+/// Below this a difference of dollars is the float's, not the money's.
+const EPSILON_USD: f64 = 1e-6;
 
 /// What a summary call may spend: the day's line, and a run's own allowance.
 pub trait Purse: Send + Sync {
@@ -259,7 +298,8 @@ impl Purse for DayPurse<'_> {
         let left = self
             .left()
             .map_err(|e| format!("the day's spend cannot be read: {e:#}"))?;
-        if usd > left {
+        // Sums of cents in floating point: a call that fits to a millionth fits.
+        if usd > left + EPSILON_USD {
             return Err(format!(
                 "the summaries' allowance leaves ${left:.2}, under a call's worst case (${usd:.2})"
             ));

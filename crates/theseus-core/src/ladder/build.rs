@@ -21,17 +21,27 @@ use crate::judge::JudgeService;
 use crate::rpc::Core;
 use crate::view::Pos;
 
-/// The person's lines a standing record was made from: by the record's source.
-pub struct Standing(pub Vec<String>);
+/// The person's lines a standing record was made from (by the record's
+/// source), and those the judge's `classify` called a correction (the flag
+/// its sink writes, [`super::corrected`]).
+pub struct Standing<'a> {
+    pub sources: Vec<String>,
+    pub store: &'a crate::store::Store,
+}
 
-impl Flags for Standing {
-    /// The judge's answer of a correction is not kept per message today, so
-    /// no line is called one (`docs/design/ladder.md`).
-    fn correction(&self, _: &str) -> bool {
-        false
+impl Flags for Standing<'_> {
+    /// The message that opened `turn`, when the judge called it a correction.
+    /// A flag that does not read is not a correction: the line is counted,
+    /// never shown as more than it is.
+    fn correction(&self, turn: &str, node: &str) -> bool {
+        let ask = crate::exchange::exchange(self.store, turn)
+            .ok()
+            .flatten()
+            .and_then(|e| e.ask);
+        ask.as_deref() == Some(node) && super::corrected(self.store, turn).unwrap_or(false)
     }
     fn standing(&self, node: &str) -> bool {
-        self.0.iter().any(|s| s == node)
+        self.sources.iter().any(|s| s == node)
     }
 }
 
@@ -118,9 +128,12 @@ impl Core {
         Ok(())
     }
 
-    fn ladder_flags(&self) -> Standing {
+    fn ladder_flags(&self) -> Standing<'_> {
         let all = self.runner.standing.all(&self.store).unwrap_or_default();
-        Standing(all.iter().map(|r| r.source.clone()).collect())
+        Standing {
+            sources: all.iter().map(|r| r.source.clone()).collect(),
+            store: &self.store,
+        }
     }
 
     /// The job at the end of exchange `turn`: only in a place whose requests

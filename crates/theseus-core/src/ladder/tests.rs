@@ -434,7 +434,7 @@ async fn a_level_of_2n_nodes_folds_into_one_above_built_by_code() {
 struct Flagged;
 
 impl fold::Flags for Flagged {
-    fn correction(&self, _: &str) -> bool {
+    fn correction(&self, _: &str, _: &str) -> bool {
         false
     }
     fn standing(&self, node: &str) -> bool {
