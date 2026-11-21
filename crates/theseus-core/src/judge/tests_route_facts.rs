@@ -357,7 +357,7 @@ fn route_v8_is_handed_no_facts_and_its_state_is_unchanged() {
     let mut without = with.clone();
     without.route = None;
     let carried = super::route_facts::Carried::of(with);
-    let v8 = theseus_judge::pack::by_name("route.v8").unwrap();
+    let v8 = theseus_judge::pack::retired("route.v8").unwrap();
     let v10 = theseus_judge::pack::by_name("route.v10").unwrap();
     let state_of = |p: &theseus_judge::Pack, i: &Input| {
         prepare(p, i, &NoScrub).unwrap().state.value().to_string()

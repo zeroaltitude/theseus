@@ -51,22 +51,6 @@ fn route_v10_is_armed_with_its_own_three_rules_and_no_others() {
     );
 }
 
-/// A pack whose file declares no pins rule keeps the adoption's: route.v8 still
-/// rolls back on 3 pins in a day.
-#[test]
-fn an_earlier_route_pack_keeps_the_adopted_three_pins() {
-    for pack in ["route.v5", "route.v8"] {
-        assert!(
-            ladder::rules::rules_of(pack).contains(&RollbackRule::PinsPerDay { count: 3 }),
-            "{pack}"
-        );
-        assert!(
-            !ladder::rules::rules_of(pack).contains(&RollbackRule::PinsPerDay { count: 5 }),
-            "{pack}"
-        );
-    }
-}
-
 /// The fifth pin rolls v10 back, the fourth does not (the third, where the
 /// adoption's constant would have fired it, does not).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

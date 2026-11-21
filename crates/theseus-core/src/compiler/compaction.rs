@@ -214,7 +214,6 @@ pub fn compact(
         repairs: rendered.repairs,
         cache: cache_layout(&spec, input.catalog),
         withheld: ring.withheld,
-        signals: ring.signals.clone(),
         situation: ring.situation.clone(),
         cleared: ring.cleared,
         card: spec.card.as_ref().map(|c| c.shown.clone()),

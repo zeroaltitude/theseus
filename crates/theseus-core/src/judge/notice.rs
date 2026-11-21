@@ -663,7 +663,7 @@ mod tests {
                 },
             ]
         );
-        let v1 = theseus_judge::pack::by_name("security.v1").unwrap();
+        let v1 = theseus_judge::pack::retired("security.v1").unwrap();
         assert_eq!(rules(), v1.rollback, "the same rules v1 gave it");
     }
 }

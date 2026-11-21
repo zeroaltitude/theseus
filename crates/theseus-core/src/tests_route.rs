@@ -40,7 +40,6 @@ fn routing_only(c: &mut Config) {
         .packs
         .insert(crate::judge::gate::SECURITY_PACK.into(), off());
     for p in [
-        crate::judge::compile::CONTINUE_PACK,
         crate::judge::categorize::PACK,
         crate::judge::rerank::RERANK_PACK,
     ] {
@@ -786,20 +785,14 @@ pub(crate) async fn moved_to_opus_with(
     (r, one.session_id)
 }
 
-/// Routing off, routing in shadow, the judge off, and Jev's key gone, each
+/// Routing off, the judge off, and Jev's key gone, each
 /// after a restart onto it: a session routing moved runs on its own profile
 /// at its next message, and its `routed` is cleared.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn routing_off_shadow_the_judge_off_or_no_jev_return_a_routed_session() {
-    use crate::config::routing::RoutingMode;
+async fn routing_off_the_judge_off_or_no_jev_return_a_routed_session() {
     type Tweak = fn(&mut Config);
-    let cases: [(&str, Tweak, bool); 4] = [
+    let cases: [(&str, Tweak, bool); 3] = [
         ("routing off", |c| c.routing.enabled = false, true),
-        (
-            "routing in shadow",
-            |c| c.routing.mode = RoutingMode::Shadow,
-            true,
-        ),
         ("the judge off", |c| c.judge.enabled = false, true),
         ("Jev's key gone", |_| {}, false),
     ];

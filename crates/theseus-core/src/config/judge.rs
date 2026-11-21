@@ -124,10 +124,11 @@ pub struct JudgeConfig {
     /// `[judge.packs."<pack>"]`, by the pack's name (`loop.v1`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub packs: BTreeMap<String, JudgePackConfig>,
-    /// `[judge.signals]`: CONTINUE's candidate signals (M5 25b), computed at
-    /// every compile whether or not the judge is on.
-    #[serde(default)]
-    pub signals: SignalsConfig,
+    /// `[judge.signals]` was CONTINUE's candidate signals (M5 25b), retired
+    /// with `continue.v1`: read, warned of ([`Self::retired`]), ignored and
+    /// never written back.
+    #[serde(default, skip_serializing)]
+    pub(crate) signals: Option<toml::Value>,
 }
 
 /// `[judge.learn]` (design §2.17): nightly, after the report, each wired
@@ -198,37 +199,6 @@ fn margin() -> f64 {
 }
 fn holdout_days() -> u64 {
     14
-}
-
-/// `[judge.signals]` (design §2.15): where CONTINUE's candidate signals fire.
-/// Tests and live checks shorten them.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SignalsConfig {
-    /// A new input more than this many minutes after the node before it is
-    /// a dormancy gap. 0 fires at any gap.
-    #[serde(default = "dormancy_minutes")]
-    pub dormancy_minutes: u64,
-    /// The tail passing this share of the window fires, and then each
-    /// further quarter of it.
-    #[serde(default = "tail_band")]
-    pub tail_band: f64,
-}
-
-impl Default for SignalsConfig {
-    fn default() -> Self {
-        Self {
-            dormancy_minutes: dormancy_minutes(),
-            tail_band: tail_band(),
-        }
-    }
-}
-
-fn dormancy_minutes() -> u64 {
-    360
-}
-fn tail_band() -> f64 {
-    0.5
 }
 
 /// One pack's lines: a lower mode, and its shadow sampling share.
@@ -313,7 +283,7 @@ impl Default for JudgeConfig {
             holdout_days: holdout_days(),
             learn: LearnConfig::default(),
             packs: BTreeMap::new(),
-            signals: SignalsConfig::default(),
+            signals: None,
         }
     }
 }
@@ -398,14 +368,8 @@ impl JudgeConfig {
         if self.learning_hour > 23 {
             anyhow::bail!("judge.learning_hour must be a local hour, 0 to 23");
         }
-        let band = self.signals.tail_band;
-        if band.is_nan() || band <= 0.0 || band > 1.0 {
-            anyhow::bail!(
-                "judge.signals.tail_band must be above 0 and at most 1, a share of the window"
-            );
-        }
         for (name, p) in &self.packs {
-            if theseus_judge::pack::by_name(name).is_none() {
+            if theseus_judge::pack::by_name(name).is_none() && !retired_pack(name) {
                 anyhow::bail!(
                     "judge.packs.{name:?} is no pack this build has (packs are named as `loop.v1`)"
                 );
@@ -476,6 +440,27 @@ impl JudgeConfig {
     }
 }
 
+impl JudgeConfig {
+    /// The retired keys this section sets, by the name the config gives
+    /// them: what [`crate::Config::parse`] warns of, once. A retired pack's
+    /// table is one: it loads, and nothing reads it.
+    pub fn retired(&self) -> Vec<String> {
+        let mut out: Vec<String> = (self.packs.keys())
+            .filter(|name| retired_pack(name))
+            .map(|name| format!("judge.packs.{name:?}"))
+            .collect();
+        if self.signals.is_some() {
+            out.push("judge.signals".into());
+        }
+        out
+    }
+}
+
+/// A pack this build retired whose table a config may still hold.
+fn retired_pack(name: &str) -> bool {
+    theseus_judge::pack::RETIRED.contains(&name)
+}
+
 /// What the judge does with no `enabled` line, and why: the key's entry
 /// decides ([`JudgeConfig::resolve`]).
 fn auto(key: &str, secrets: &BTreeMap<String, String>) -> (bool, String) {
@@ -505,7 +490,7 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
     assert!(cfg.secrets.contains_key(&j.key_secret));
     assert_eq!(j.packs["loop.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs["loop.v1"].sample, Some(0.5));
-    assert_eq!(j.signals, SignalsConfig::default());
+    assert!(j.retired().is_empty(), "the template sets no retired key");
     assert_eq!(j.packs["rerank.v1"].mode, Some(PackMode::Off));
     assert_eq!(j.packs[NOTICES_PACK].notices, Some(true));
     assert_eq!(j.learning_hour, 3);
@@ -556,10 +541,6 @@ mod tests {
         );
         assert_eq!(example.shadow_limit_usd_per_day, 1.0);
         assert_eq!(example.key_secret, "jev_api_key");
-        assert_eq!(
-            (example.signals.dormancy_minutes, example.signals.tail_band),
-            (360, 0.5)
-        );
         let t = crate::Config::EXAMPLE_TOML;
         assert!(t.contains("[judge]") && t.contains("[judge.packs."));
     }
@@ -652,10 +633,6 @@ mod tests {
             .unwrap()
             .validate(&secrets)
             .is_err());
-        let short = cfg("[signals]\ndormancy_minutes = 1\ntail_band = 0.25").unwrap();
-        short.validate(&secrets).unwrap();
-        assert_eq!(short.signals.dormancy_minutes, 1);
-        assert!(cfg("[signals]\ndormancy = 1").is_err(), "an unknown key");
         assert_eq!(cfg("").unwrap().learning_hour, 3);
         cfg("learning_hour = 23")
             .unwrap()
@@ -665,10 +642,6 @@ mod tests {
             .unwrap()
             .validate(&secrets)
             .is_err());
-        for band in ["0.0", "1.5", "-0.5"] {
-            let bad = cfg(&format!("[signals]\ntail_band = {band}")).unwrap();
-            assert!(bad.validate(&secrets).is_err(), "{band}");
-        }
         let notices = cfg("[packs.\"security.v3\"]\nnotices = false").unwrap();
         notices.validate(&secrets).unwrap();
         assert!(!notices.notices_on());

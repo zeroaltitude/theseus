@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use theseus_core::config::{Config, Effort, RoutingMode};
+use theseus_core::config::{Config, Effort};
 
 fn profile_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bench/theseus-bench-routed.toml")
@@ -19,7 +19,7 @@ const JEV: &str = "jv-bench-key-2b8e41";
 /// Live, and a verdict that takes up to two seconds still routes the one
 /// message of a trial (the shipped wait, 200 ms, would mostly miss it).
 fn assert_routes_live_and_waits_two_seconds(cfg: &Config) {
-    assert_eq!(cfg.routing.mode, RoutingMode::Live);
+    assert!(cfg.routing.enabled);
     assert_eq!(cfg.routing.max_wait_ms, 2000);
 }
 

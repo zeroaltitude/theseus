@@ -27,9 +27,12 @@ pub struct RoutingConfig {
     /// On by default: acts only while `[judge]` is on.
     #[serde(default = "yes")]
     pub enabled: bool,
-    /// `live` routes; `shadow` records the verdict and routes nothing: the route pack's rung.
-    #[serde(default = "live", rename = "rung")]
-    pub mode: RoutingMode,
+    /// `rung` was `live` or `shadow` (record the verdict, route nothing),
+    /// retired as a second knob beside the route pack's own
+    /// `[judge.packs."<pack>"] rung` (issue 44): read, warned of
+    /// ([`Self::trimmed`]), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    rung: Option<toml::Value>,
     /// How long the turn waits for the verdict after its first compile ends.
     #[serde(default = "max_wait_ms")]
     pub max_wait_ms: u64,
@@ -77,19 +80,8 @@ pub struct RoutingConfig {
     classes: Option<toml::Table>,
 }
 
-/// `[routing] rung`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RoutingMode {
-    Live,
-    Shadow,
-}
-
 fn yes() -> bool {
     true
-}
-fn live() -> RoutingMode {
-    RoutingMode::Live
 }
 fn max_wait_ms() -> u64 {
     200
@@ -102,7 +94,7 @@ impl Default for RoutingConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            mode: live(),
+            rung: None,
             max_wait_ms: max_wait_ms(),
             cold_switch_tokens: cold_switch_tokens(),
             corrections: None,
@@ -174,16 +166,19 @@ impl RoutingConfig {
         out
     }
 
-    /// What the route pack may do: the judge's mode for it, lowered by this
-    /// section (off when disabled, shadow when `mode = "shadow"`).
+    /// The keys the trim of unused modes retired (issue 44) that this
+    /// section sets: what [`crate::Config::parse`] warns of, once.
+    pub fn trimmed(&self) -> Vec<String> {
+        self.rung.iter().map(|_| "routing.rung".into()).collect()
+    }
+
+    /// What the route pack may do: the judge's mode for it, off when this
+    /// section is disabled.
     pub fn pack_mode(&self, judge: PackMode) -> PackMode {
         if !self.enabled {
             return PackMode::Off;
         }
-        match self.mode {
-            RoutingMode::Live => judge,
-            RoutingMode::Shadow => judge.min(PackMode::Shadow),
-        }
+        judge
     }
 }
 
@@ -192,7 +187,7 @@ impl RoutingConfig {
 pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     let r = &cfg.routing;
     assert!(r.enabled);
-    assert_eq!(r.mode, RoutingMode::Live);
+    assert!(r.trimmed().is_empty(), "the template sets no retired key");
     assert_eq!((r.max_wait_ms, r.cold_switch_tokens), (200, 30_000));
     assert_eq!(r.task_checkpoints, TaskCheckpoints::default());
     assert!(r.retired().is_empty(), "the template sets no retired key");
@@ -290,8 +285,6 @@ mod tests {
         assert_eq!(on.pack_mode(PackMode::Live), PackMode::Live);
         assert_eq!(on.pack_mode(PackMode::Shadow), PackMode::Shadow);
         assert_eq!(on.pack_mode(PackMode::Off), PackMode::Off);
-        let shadow = cfg("rung = \"shadow\"").unwrap();
-        assert_eq!(shadow.pack_mode(PackMode::Live), PackMode::Shadow);
         let off = cfg("enabled = false").unwrap();
         assert_eq!(off.pack_mode(PackMode::Live), PackMode::Off);
     }

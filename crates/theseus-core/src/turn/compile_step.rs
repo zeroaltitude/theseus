@@ -182,10 +182,6 @@ impl TurnRunner {
             strip,
             overflowed,
             sources: &sources,
-            signals: Some(crate::signals::SignalsAt {
-                config: self.judge.config().signals,
-                now_ms: theseus_protocol::now_unix_ms(),
-            }),
             assembled: assembled.as_deref(),
             situation: &given,
             // The render kept across turns, under this view of the nodes:
@@ -256,7 +252,7 @@ impl TurnRunner {
             t.route.deferred = Some(Box::new(Deferred { summary, c0, c1 }));
             return Ok(Ok(compiled));
         }
-        self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
+        Self::compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
         Ok(Ok(compiled))
     }
 
@@ -317,10 +313,9 @@ impl TurnRunner {
         self.cfg.context.working_window(model)
     }
 
-    /// The loop's compile, recorded: its `context.compiled` row, the judge's
-    /// mark at the compile, and `loop.started`.
+    /// The loop's compile, recorded: its `context.compiled` row and
+    /// `loop.started`.
     pub(super) fn compiled_rows(
-        &self,
         t: &mut Turn<'_>,
         summary: &ContextCompiled,
         compiled: &Compiled,
@@ -328,7 +323,6 @@ impl TurnRunner {
         (c0, c1): (u64, u64),
         i: u32,
     ) {
-        let sid = t.tc.session_id;
         // Its span and its row carry the notification's params.
         t.record(&fact::turn::ContextCompiled {
             summary,
@@ -337,18 +331,6 @@ impl TurnRunner {
             c0,
             c1,
         });
-        // A signal and no trigger: `continue.v1` in shadow, spawned (M5 25b).
-        let at = crate::judge::AtCompile {
-            session_id: sid,
-            execution_id: t.tc.execution_id,
-            turn_id: t.tc.turn_id,
-            loop_index: i,
-            task: t.tc.task.is_some(),
-            kernel: &self.kernel,
-        };
-        if let Some(mark) = self.judge.at_compile(compiled, at) {
-            t.trace.mark("judge", "mark", mark);
-        }
         t.record(&fact::turn::LoopStarted {
             turn_id: t.tc.turn_id,
             index: i,
@@ -433,7 +415,8 @@ impl TurnRunner {
             // that class left out (the place rule).
             class: Some(t.tc.class),
             withheld: compiled.withheld,
-            signals: compiled.signals.fired.clone(),
+            // No longer computed: `continue.v1`, their reader, is retired.
+            signals: Vec::new(),
             tasks,
             project,
             situation: Some(compiled.situation.clone()),

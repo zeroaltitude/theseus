@@ -1171,7 +1171,6 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
 # recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
 # include_external = false                # whether fetched text may be recalled
-# small_talk_bar = false                  # the small-talk recall bar: on a turn whose verdict calls the reply "low" effort (effort.v1 at its confirm bar: a greeting), withhold the recall's admitted notes from the request instead of carrying them. The pack still runs and its rows still say what it admitted, so the shadow count is the same either way. Off: the notes are carried and only counted
 # Compaction (step 30c): where the ring would drop a session's leading turns to fit
 # the model's window, this profile summarizes them instead, and the request carries
 # the summary, then the turns kept. "session" (the default) is the turn's own
@@ -1517,7 +1516,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 
 # ---------------------------------------------------------------- ontology
 # Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
-# beside `classify.v4` and `role.v1`): which topic, project, event, resource, capability
+# beside `classify.v4`): which topic, project, event, resource, capability
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
 # reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
@@ -1736,13 +1735,12 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
-# changes no turn. Today eight packs judge: loop.v1, at each turn that ends
+# changes no turn. Among the packs that judge: loop.v1, at each turn that ends
 # with no tool calls (where does the work on the ask stand?); security.v3, at
-# each call that acts once the gate has decided (how risky is it?); classify.v4 and role.v1, in one request, at each message a person sends
-# (what kind of message is it, and which working role does its reply need?),
+# each call that acts once the gate has decided (how risky is it?); classify.v4, at each message a person sends
+# (what kind of message is it?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
-# turn; continue.v1, at a compile that appends although one of CONTINUE's
-# candidate signals fired (append, or recompile, and how?); categorize.v1, at
+# turn; categorize.v1, at
 # the end of an exchange in a private conversation, once ten of your messages
 # came since its last judgment or after 30 minutes' quiet (which of your
 # topics is it about? Jev only proposes: `theseus ontology proposals` lists
@@ -1813,11 +1811,6 @@ min_errors = 10                         # new train errors a version needs befor
 min_holdout = 5                         # labeled holdout judgments it needs too: nothing moves on no held-out evidence
 max_errors = 40                         # the most the writer reads, newest first
 margin = 0.02                           # at the minimum sample, precision and recall each up by this on every deciding question
-# CONTINUE's candidate signals, which every compile computes, judge on or off, and
-# context.compiled carries. One that fires at a compile that appends asks continue.v1.
-# [judge.signals]
-# dormancy_minutes = 360                # a new input more than this long after the node before it
-# tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
 # Jev chooses the model (route.v11, theseus-h66v4). While [judge] is on, the route pack asks at
@@ -1843,7 +1836,6 @@ margin = 0.02                           # at the minimum sample, precision and r
 # are retired: a config that still sets one loads, warns once and ignores it.
 [routing]
 enabled = true                          # acts only while [judge] is on
-rung = "live"                           # "shadow" records each verdict and routes nothing
 max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
 cold_switch_tokens = 30000              # at this much of the session's own context, a switch waits for a second agreeing message
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks

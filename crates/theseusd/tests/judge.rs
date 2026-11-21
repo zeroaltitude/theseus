@@ -71,7 +71,6 @@ impl Rig {
             let packs = table(j, "packs");
             for p in [
                 "classify.v4",
-                "role.v1",
                 "split.v1",
                 "route.v11",
                 "directive.v2",
@@ -155,7 +154,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "loop.v1: live",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v4: off",
-            "role.v1: off",
             "split.v1: off",
             "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
             "directive.v2: off",
@@ -165,7 +163,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "two_things.v1: live",
             "same_kind.v1: live",
             "name_it.v1: live",
-            "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "recall_cross.v1: live",
@@ -356,16 +353,20 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
         "loop.v1: canary 1.0 (owner: forced by the owner)"
     );
     let card = rig
-        .call("pack.promote", json!({"pack": "security.v1", "to": "live"}))
+        .call("pack.promote", json!({"pack": "security.v3", "to": "live"}))
         .unwrap();
     let q = card["question"].as_str().unwrap().to_string();
     let listed = rig.call("confirm.list", Value::Null).unwrap();
     assert!(listed.to_string().contains(&q), "{listed}");
-    // security.v1 is wired nowhere, so health has no line for it: its rows are the proof.
+    // A security pack's promotion is the owner's card. `security.v3` also has
+    // its adoption row, written whenever the ladder warms (security.v1, which
+    // this used to promote, is retired from the binary, issue 44): the card's
+    // rows are its others.
     let moved = |rig: &Rig| {
         rig.rows("pack.mode")
             .iter()
-            .filter(|r| r.to_string().contains("security.v1"))
+            .filter(|r| r.to_string().contains("security.v3"))
+            .filter(|r| !r.to_string().contains("\"via\":\"adoption\""))
             .count()
     };
     assert_eq!(moved(&rig), 0, "no mode yet");

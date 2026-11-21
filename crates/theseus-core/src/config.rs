@@ -85,7 +85,7 @@ pub use aws::{
 };
 pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use google_calendars::{primary_spec, CalendarEntry, CalendarSpec, CalendarTable};
-pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig, UNDO_PACK};
+pub use judge::{JudgeConfig, JudgePackConfig, PackMode, UNDO_PACK};
 pub use limits::{
     default_fan_in_chars, default_fan_out_max_wait_secs, default_fan_out_wait_secs,
     default_helper_floor_usd, default_helper_max_output_tokens, default_job_wait_beat_secs,
@@ -97,7 +97,7 @@ pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
-pub use routing::{RoutingConfig, RoutingMode};
+pub use routing::RoutingConfig;
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
@@ -1656,6 +1656,21 @@ impl Config {
                 }
             ));
         }
+        // What the trim of unused judge questions and modes retired (issue 44):
+        // nothing reads any of it now.
+        let mut trimmed = cfg.judge.retired();
+        trimmed.extend(cfg.routing.trimmed());
+        trimmed.extend(cfg.memory.trimmed());
+        if !trimmed.is_empty() {
+            warnings.push(format!(
+                "{} retired (nothing reads it any more): read and ignored, remove {}",
+                trimmed.join(", "),
+                match trimmed.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
         if cfg.server.drafts_dir.is_some() {
             warnings.push(
                 "[server] drafts_dir is retired: the China-origin draft is gone, so the key \
@@ -2447,3 +2462,5 @@ mod tests_option_profiles;
 mod tests_persona;
 #[cfg(test)]
 mod tests_sensitivity;
+#[cfg(test)]
+mod tests_trimmed;

@@ -1102,7 +1102,7 @@ impl TurnRunner {
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
         if !self.tools_behind(t) {
-            return self.keep_first(t, session, compiled, spec, i);
+            return Self::keep_first(t, session, compiled, spec, i);
         }
         let (force, strip, overflow) = again;
         self.drop_first(t, &compiled);
@@ -1113,7 +1113,6 @@ impl TurnRunner {
     /// The first compile is the one the call uses: persist it, and record
     /// its rows, as the compile step would have.
     fn keep_first(
-        &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         mut compiled: Compiled,
@@ -1127,7 +1126,7 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         if let Some(d) = t.route.deferred.take() {
-            self.compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
+            Self::compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
         }
         // Its compile carries the recall's drops (theseus-3urn).
         t.recall.drops.clear();

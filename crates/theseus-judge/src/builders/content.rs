@@ -192,7 +192,7 @@ mod tests {
     }
 
     fn asked(i: &ContentInput) -> Vec<String> {
-        let p = by_name("content.v2").unwrap();
+        let p = crate::pack::retired("content.v2").unwrap();
         let prepared = prepare(&p, &Input::Content(i.clone()), &NoScrub).unwrap();
         p.ask(&prepared.dynamic).into_iter().map(|a| a.id).collect()
     }
@@ -203,7 +203,7 @@ mod tests {
     /// (`content::Flag::bar`), so no number here differs by question.
     #[test]
     fn the_pack_is_what_the_design_says() {
-        let p = by_name("content.v2").expect("content.v2 is embedded");
+        let p = crate::pack::retired("content.v2").expect("content.v2 is embedded");
         assert_eq!(p.jev_model, "jev-1.13.0");
         assert_eq!(p.point, crate::pack::Point::Item);
         assert_eq!(p.builder, Builder::Content);
@@ -293,7 +293,7 @@ mod tests {
     /// only when given, and holds the text in a state of a fixed size.
     #[test]
     fn the_state_holds_the_item_its_kind_its_source_and_its_piece() {
-        let p = by_name("content.v2").unwrap();
+        let p = crate::pack::retired("content.v2").unwrap();
         let mut i = input("tool_result");
         let v = prepare(&p, &Input::Content(i.clone()), &NoScrub)
             .unwrap()
@@ -340,7 +340,9 @@ mod tests {
         i.public = true;
         i.context = Some("A personal assistant. ~/projects/example-app is open source.".into());
         let build = |pack: &str| {
-            let p = by_name(pack).unwrap();
+            let p = by_name(pack)
+                .or_else(|| crate::pack::retired(pack))
+                .unwrap();
             prepare(&p, &Input::Content(i.clone()), &NoScrub)
                 .unwrap()
                 .state
@@ -365,7 +367,7 @@ mod tests {
         }
         // Left unset, and `public` false, none is stated.
         let bare = prepare(
-            &by_name("content.v3").unwrap(),
+            &crate::pack::retired("content.v3").unwrap(),
             &Input::Content(input("tool_result")),
             &NoScrub,
         )
@@ -390,9 +392,13 @@ mod tests {
         let mut i = input("tool_result");
         i.context = Some(format!("password hunter2 {}", "word ".repeat(1000)));
         i.project = Some("~/projects/hunter2".into());
-        let built = prepare(&by_name("content.v3").unwrap(), &Input::Content(i), &Hide)
-            .unwrap()
-            .state;
+        let built = prepare(
+            &crate::pack::retired("content.v3").unwrap(),
+            &Input::Content(i),
+            &Hide,
+        )
+        .unwrap()
+        .state;
         assert!(!built.json.contains("hunter2"), "{}", built.json);
         assert!(
             built.value()["context"].as_str().unwrap().chars().count() <= CONTEXT_CHARS + 1,
@@ -418,7 +424,7 @@ mod tests {
     /// a piece the caller made (`PIECE_CHARS`) fits whole.
     #[test]
     fn a_piece_fits_the_state_whole() {
-        let p = by_name("content.v2").unwrap();
+        let p = crate::pack::retired("content.v2").unwrap();
         let line = "the quick brown fox jumps over the lazy dog\n";
         let text: String = line.repeat(PIECE_CHARS / line.len());
         assert!(text.len() <= PIECE_CHARS);
@@ -469,7 +475,7 @@ mod tests {
                 text.replace("hunter2", "[hidden]")
             }
         }
-        let p = by_name("content.v2").unwrap();
+        let p = crate::pack::retired("content.v2").unwrap();
         let mut i = input("tool_result");
         i.text = "password is hunter2".into();
         let built = prepare(&p, &Input::Content(i), &Hide).unwrap().state;

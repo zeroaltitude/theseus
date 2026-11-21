@@ -151,8 +151,8 @@ async fn a_sensitive_name_runs_on_a_model_of_eu_origin() {
 async fn a_pack_naming_a_sensitive_name_is_reported_at_start() {
     let (_, text) = theseus_judge::pack::EMBEDDED
         .iter()
-        .find(|(name, _)| *name == "route.v7")
-        .expect("route.v7 is embedded");
+        .find(|(name, _)| *name == "route.v11")
+        .expect("route.v11 is embedded");
     let word = text
         .split(|c: char| !c.is_alphanumeric())
         .find(|w| w.chars().count() > 9)
@@ -175,7 +175,7 @@ async fn a_pack_naming_a_sensitive_name_is_reported_at_start() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     };
     let said = phase.detail.to_string();
-    assert!(said.contains("route.v7"), "{said}");
+    assert!(said.contains("route.v11"), "{said}");
     assert!(
         !said.to_lowercase().contains(&word.to_lowercase()),
         "the name is never said: {said}"
