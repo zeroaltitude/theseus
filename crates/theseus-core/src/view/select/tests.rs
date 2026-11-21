@@ -773,7 +773,7 @@ fn view_of(s: &Store, budget: &Budget, reverse: bool) -> Result<View, budget::Ov
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
     #[test]
-    fn records_the_gate_denies_change_nothing_and_the_order_of_selectors_neither(
+    fn the_order_of_selectors_and_what_the_gate_denies_do_not_change_the_view(
         base in prop::collection::vec(gen_ex("e"), 0..40),
         denied in prop::collection::vec(gen_ex("d"), 1..30),
         mark in prop::option::of(0u64..100),

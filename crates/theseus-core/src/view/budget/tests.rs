@@ -230,6 +230,13 @@ fn the_floor_is_never_cut_and_tool_results_go_before_the_ladder() {
         [(Band::Floor, 9, Form::Spoken), (Band::Ladder, 3, Form::Whole)],
         "the window's tool traffic is cleared at its own row; the floor's words and the ladder stay"
     );
+    let floor = piece(Band::Floor, here(), 9, Form::Spoken, (1_000, 100, 10));
+    let v = run(vec![floor], &budget(1_000, 0)).expect("the floor fits the provider's window");
+    assert_eq!(
+        forms(&v),
+        [(Band::Floor, 9, Form::Spoken)],
+        "over its own pool, the floor stays"
+    );
 }
 
 fn node() -> Piece {
@@ -287,7 +294,11 @@ fn a_stale_fact_and_its_correction_go_together() {
     stale.unit = Some("u".into());
     correction.unit = Some("u".into());
     let other = piece(Band::Named, fact("z"), 3, Form::Line, (0, 0, 20));
-    let v = run(vec![stale, correction, other], &budget(20 + H + R, 0)).expect("fits");
+    let v = run(
+        vec![stale.clone(), correction.clone(), other.clone()],
+        &budget(20 + H + R, 0),
+    )
+    .expect("fits");
     assert_eq!(
         forms(&v),
         [(Band::Named, 3, Form::Line)],
@@ -295,6 +306,12 @@ fn a_stale_fact_and_its_correction_go_together() {
     );
     let whys: Vec<DropWhy> = v.dropped.iter().map(|d| d.why).collect();
     assert_eq!(whys, [DropWhy::UnitCut, DropWhy::OverBudget]);
+    let v = run(vec![stale, correction, other], &budget(20 + H + R + 59, 0)).expect("fits");
+    assert_eq!(
+        v.shown.len(),
+        1,
+        "room for one more piece is not room for half a unit"
+    );
 }
 
 #[test]
