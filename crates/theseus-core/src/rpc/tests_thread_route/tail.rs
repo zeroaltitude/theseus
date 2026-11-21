@@ -7,10 +7,13 @@
 //! back with `memory_lookup`; a sealed thread's words are never carried; and
 //! a thread's turn that follows its own thread's exchange is given nothing.
 
+use theseus_protocol::threads::ThreadSealParams;
+
 use super::*;
 
-/// The fault's first message.
+/// The fault's first message, and a word of it no other message holds.
 const ASKED: &str = "what does the harbour tide model assume about the moon";
+const MARK: &str = "moon";
 /// A bench minute, and the plan's first message on the bench's clock.
 const MIN: u64 = 60_000;
 const BASE: u64 = 1_700_000_000_000;
@@ -89,4 +92,116 @@ async fn a_follow_up_of_the_places_own_reply_stays_there() {
         block_of(&r.fake.requests().pop().unwrap()).is_none(),
         "home holds it already"
     );
+}
+
+/// Sent to the other thread anyway (Jev sure of it), the turn there is given
+/// the place's exchange after the cache mark, named as the place's own
+/// conversation; the thread's record holds none of it; and the turn reads
+/// further back with `memory_lookup`. Its thread's next turn, which follows
+/// its own exchange, is given nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_sent_elsewhere_is_given_what_was_just_said_and_can_look_back() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_at(&jev, 6);
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    thread_answer(&jev, "home", 0.95);
+    at(c, &dm, ASKED, BASE).await;
+    r.fake.when_tool(
+        "memory_lookup",
+        Scripted::tools(
+            "Looking back.",
+            &[("m1", "memory_lookup", json!({"session": dm}))],
+        ),
+    );
+    thread_answer(&jev, "security-fix", 0.95);
+    let b = at(
+        c,
+        &dm,
+        "can you say more about the second point",
+        BASE + 4 * MIN,
+    )
+    .await;
+    let ran = session_of(c, "security-fix");
+    assert_eq!(b.session_id, ran);
+    let asks = r.fake.requests();
+    let first = asks
+        .iter()
+        .rev()
+        .find(|q| block_of(q).is_some())
+        .expect("a block");
+    let (text, marked) = block_of(first).unwrap();
+    assert!(marked, "after the last cache mark");
+    for said in [
+        ASKED,
+        "Done: answer 0.",
+        "the place's own conversation",
+        dm.as_str(),
+    ] {
+        assert!(text.contains(said), "{said:?} in {text}");
+    }
+    let results: Vec<String> = (asks.last().unwrap().messages.iter())
+        .filter_map(|m| m["content"].as_array())
+        .flatten()
+        .filter(|b| b["type"] == "tool_result")
+        .map(|b| b["content"].to_string())
+        .collect();
+    assert!(
+        results
+            .iter()
+            .any(|t| t.contains("memory.lookup: session") && t.contains(MARK)),
+        "the look read the place's exchange: {results:?}"
+    );
+    let routed = rows(c, "thread.routed");
+    assert_eq!(routed[1].data["tail"]["from"], "home");
+    assert!(routed[1].data["tail"]["tokens"].as_u64().unwrap() > 0);
+    assert_eq!(
+        texts_of(c, &ran),
+        ["can you say more about the second point"]
+    );
+    let kept = serde_json::to_string(&c.store.session_nodes(&ran).unwrap()).unwrap();
+    assert!(
+        !kept.contains("[What was just said"),
+        "not written to the thread"
+    );
+    let n = r.fake.requests().len();
+    at(c, &dm, "and the vault key too", BASE + 5 * MIN).await;
+    let after = &r.fake.requests()[n..];
+    assert!(
+        after.iter().all(|q| block_of(q).is_none()),
+        "its own exchange: none"
+    );
+    assert!(rows(c, "thread.routed")[2].data.get("tail").is_none());
+}
+
+/// The place's last exchange ran in a sealed thread: the turn at home is given
+/// nothing of it, and no word of it reaches the request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sealed_threads_words_are_never_carried() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_at(&jev, 4);
+    let c = &r.core;
+    two_threads(c);
+    c.thread_seal(
+        &ThreadSealParams {
+            slug: "security-fix".into(),
+            reason: Some("before disclosure".into()),
+            ..Default::default()
+        },
+        cli(),
+    )
+    .unwrap();
+    let dm = home(c, None);
+    let a = at(c, &dm, "#security-fix the zircon traversal patch", BASE).await;
+    assert_eq!(a.session_id, session_of(c, "security-fix"));
+    thread_answer(&jev, "home", 0.95);
+    let n = r.fake.requests().len();
+    let b = at(c, &dm, "can you say more about it", BASE + MIN).await;
+    assert_eq!(b.session_id, dm);
+    for q in &r.fake.requests()[n..] {
+        assert!(block_of(q).is_none());
+        let sent = serde_json::to_string(&q.messages).unwrap();
+        assert!(!sent.contains("zircon"), "a sealed thread's word: {sent}");
+    }
 }

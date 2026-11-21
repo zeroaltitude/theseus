@@ -122,6 +122,7 @@ fn fresh_row(home: &str) -> RoutedRow {
         above: None,
         spared: None,
         follow: None,
+        tail: None,
     }
 }
 
@@ -207,6 +208,7 @@ impl Core {
         // A placement below the act bar may be wrong (the misroute guard).
         self.arm_guard(&tag, &run_session, &live, &scored);
         self.show_thread_at(&tag, &run_session, place.as_deref());
+        let tail = self.place_tail(&home, &run_session.session_id, &live, &mut row);
         state.arrived(&home, tag.slug.as_deref(), now);
         (row.to, row.session) = (tag.slug.clone(), run_session.session_id.clone());
         (row.how, row.confidence, row.movable) = (tag.how, tag.confidence, tag.movable);
@@ -229,6 +231,7 @@ impl Core {
                 text: p.input.clone(),
                 early,
                 row: Some(row),
+                tail,
                 at: Instant::now(),
             },
         );
@@ -241,6 +244,46 @@ impl Core {
         };
         *session = run_session;
         Ok(Some(routing))
+    }
+
+    /// What was just said in the place, for a turn that runs in `run`, when the
+    /// place's last exchange ran in another session: the place's own or an
+    /// unsealed thread's (`compiler::place_tail`). The row says where from and
+    /// what it costs.
+    fn place_tail(
+        &self,
+        home: &str,
+        run: &str,
+        live: &[&ThreadInfo],
+        row: &mut RoutedRow,
+    ) -> Option<String> {
+        let last = self.runner.threads.route.last(home)?;
+        let (sid, label) = match &last.slug {
+            None => (home.to_string(), "the place's own conversation".to_string()),
+            Some(slug) => {
+                let t = live.iter().find(|t| &t.slug == slug)?;
+                let open = !crate::compiler::place_digest::held(t);
+                (
+                    t.session_id.clone().filter(|_| open)?,
+                    format!("the thread \u{ab}{}\u{bb}", t.title),
+                )
+            }
+        };
+        let half = self.cfg.threads.sticky_half_life_secs.saturating_mul(1000);
+        let since = last.at_ms.saturating_sub(half);
+        let tail = (sid != run)
+            .then(|| crate::compiler::place_tail::block(&self.store, &sid, &label, since))?
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %format!("{e:#}"), "the place's last words were not read");
+                None
+            })?;
+        let from = if last.slug.is_some() {
+            "thread"
+        } else {
+            "home"
+        };
+        row.tail = Some((from.to_string(), tail.tokens));
+        Some(tail.text)
     }
 
     /// A guess the router made into a thread that holds a large context runs
