@@ -15,7 +15,7 @@ use super::sources::*;
 use super::*;
 
 const H: u64 = 3_600_000;
-const NOW: u64 = 1_000 * H;
+const NOW: u64 = 10_000 * H;
 
 /// One exchange of the fake store.
 #[derive(Clone)]
@@ -71,7 +71,7 @@ impl Timeline for Store {
             })
             .filter(|e| before.is_none_or(|c| e.cursor() < *c))
             .collect();
-        out.sort_by(|a, b| b.cursor().cmp(&a.cursor()));
+        out.sort_by_key(|e| std::cmp::Reverse(e.cursor()));
         out.truncate(n);
         Ok(out)
     }
@@ -288,7 +288,7 @@ fn select(s: &Store, band: Band, present: Present) -> Vec<Piece> {
         .find(|t| t.band() == band)
         .expect("a selector per band");
     let mut out = sel.select(&pov(present), s).expect("selects");
-    out.sort_by(|a, b| b.range.last.cmp(&a.range.last));
+    out.sort_by_key(|p| std::cmp::Reverse(p.range.last.clone()));
     out
 }
 

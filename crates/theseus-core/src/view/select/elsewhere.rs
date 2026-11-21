@@ -77,7 +77,7 @@ fn scan(pov: &PointOfView, snap: &dyn Snapshot, src: &Sources<'_>) -> anyhow::Re
         }
     }
     let mut newest = newest_per_place(&who, snap, src)?;
-    newest.sort_by(|a, b| b.e.cursor().cmp(&a.e.cursor()));
+    newest.sort_by_key(|s| std::cmp::Reverse(s.e.cursor()));
     let have: BTreeSet<String> = seen.iter().map(|s| s.e.turn_id.clone()).collect();
     seen.extend(
         newest
@@ -149,7 +149,7 @@ impl Selector for Elsewhere<'_> {
         }
         let mut places = BTreeSet::new();
         let mut newest: Vec<&Seen> = seen.iter().collect();
-        newest.sort_by(|a, b| b.e.cursor().cmp(&a.e.cursor()));
+        newest.sort_by_key(|s| std::cmp::Reverse(s.e.cursor()));
         Ok(newest
             .into_iter()
             .filter(|s| places.insert(s.f.place.clone()))
