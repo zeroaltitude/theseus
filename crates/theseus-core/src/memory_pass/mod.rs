@@ -116,6 +116,11 @@ pub trait PassIndex: Send + Sync {
     fn neighbours(&self, p: IndexNeighboursParams) -> IndexFuture<IndexNeighboursResult>;
     /// `index.entities`.
     fn entities(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>>;
+    /// `index.items` (issue 44): none from a stand-in that names none.
+    fn items(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        let n = texts.len();
+        Box::pin(async move { Ok(vec![Vec::new(); n]) })
+    }
     /// What the index answers with (`hybrid`, or `bm25_only`: no vectors,
     /// ever), read when a neighbour is refused.
     fn mode(&self) -> IndexFuture<String>;
@@ -136,6 +141,15 @@ impl PassIndex for Tender {
             let r: IndexEntitiesResult = t
                 .ask(method::ENTITIES, IndexEntitiesParams { texts })
                 .await?;
+            Ok(r.entities)
+        })
+    }
+
+    fn items(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        let t = self.0.clone();
+        Box::pin(async move {
+            let r: IndexEntitiesResult =
+                t.ask(method::ITEMS, IndexEntitiesParams { texts }).await?;
             Ok(r.entities)
         })
     }

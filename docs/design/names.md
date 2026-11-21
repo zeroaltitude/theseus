@@ -23,3 +23,23 @@ kind is a type of the index's extractor, so the id is the term.
 - No judge call is added; the request is byte-identical.
 
 The read is `names::topics::timeline(store, id, n)`: one bounded read of the touch index, newest first.
+
+## Numbered items (`names::items`, the index's `entity::item`)
+
+The index's extractor gains an `item` kind: `issue 33` and `issue #33` are `item:issue-33`, `PR 12` and
+`pull request 12` are `item:pr-12`, a bare `#33` is `item:33`, and `owner/repo#33` is `item:owner/repo#33`. A
+`#` after a word (`C#3`), a URL's fragment, Discord's `<#id>` and a number of more than six digits are none.
+
+Items are kept **apart from the entity field**: `entity::entities` is unchanged, so the index's exact arm and the
+memory pass's labels (what recall and the gate read) see nothing new. The core asks for items by a method of
+their own, `index.items` (the params and result of `index.entities`); a tender older than this build answers "no
+method" and the exchange simply has no items.
+
+A bare number never makes an identity by itself. When the session the message ran in serves a project, an
+unqualified item is scoped by it (`item:project:<id>#issue-33`); with none, it stays `item:issue-33`, an
+unscoped candidate that a reader may offer and never treats as one thing. `owner/repo#33` names its repository
+and is kept as said. The touches are written as for the other things: the message's when the exchange ends,
+the reply's by the place's next exchange.
+
+The exchange rebuild (`exchange.rebuild`) does not yet ask for items, so a rebuilt exchange has none.
+

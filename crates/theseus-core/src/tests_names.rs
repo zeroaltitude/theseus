@@ -1,10 +1,15 @@
 //! Recognition (issue 44, `crate::names`), through a whole core and the fake
 //! Jev: the topics `onto.v1` chose touch the message's exchange.
 
+use std::sync::Arc;
+
 use theseus_judge::fake::FakeJev;
 use theseus_ontology::{Category, CategoryId, MemberList, Membership, Origin, Record};
+use theseus_protocol::index::{IndexNeighboursParams, IndexNeighboursResult};
 
 use crate::exchange::{self, Root};
+use crate::memory_pass::{IndexFuture, PassIndex};
+use crate::tender::TenderMiss;
 use crate::tests_onto::{bound, rig, rig_with, Rig};
 
 const SAID: &str = "let's plan the Lantern Ledger migration";
@@ -132,4 +137,77 @@ async fn below_the_act_band_or_with_the_ledger_off_no_topic_is_touched() {
     assert!(timeline(&r, "topic:ledger").is_empty(), "the ledger off");
     let place = exchange::newest(&r.core.store, Root::Place("discord:dm:42"), 5).unwrap();
     assert!(place.is_empty(), "no exchange either");
+}
+
+/// An index that names one numbered item, as the tender's extractor would.
+struct Items;
+
+impl PassIndex for Items {
+    fn neighbours(&self, _: IndexNeighboursParams) -> IndexFuture<IndexNeighboursResult> {
+        Box::pin(async { Err(TenderMiss::Down("a test's index".into())) })
+    }
+
+    fn entities(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        Box::pin(async move { Ok(vec![Vec::new(); texts.len()]) })
+    }
+
+    fn items(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        let named = |t: &String| {
+            t.contains("issue 33")
+                .then(|| "item:issue-33".to_string())
+                .into_iter()
+                .collect()
+        };
+        let out = texts.iter().map(named).collect();
+        Box::pin(async move { Ok(out) })
+    }
+
+    fn mode(&self) -> IndexFuture<String> {
+        Box::pin(async { Ok("bm25_only".into()) })
+    }
+}
+
+/// KEY: a numbered item said in a session that serves a project touches
+/// the exchange scoped by that project; in one that serves none it is an
+/// unscoped candidate, and never the scoped thing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_numbered_item_is_touched_scoped_by_the_places_project_or_unscoped() {
+    let r = rig(FakeJev::start().unwrap());
+    r.core.runner.pass.set_index(Arc::new(Items));
+    let sid = bound(&r.core);
+    r.core
+        .store
+        .update_session(&sid, |s| {
+            s.project = Some("prj_lantern".into());
+            Ok(vec![])
+        })
+        .unwrap();
+    let said = |sid: String| {
+        let core = r.core.clone();
+        async move {
+            crate::tests_route::turn(&core, Some(&sid), "look at issue 33 again", None)
+                .await
+                .turn_id
+        }
+    };
+    let turn = said(sid).await;
+    let touched = |term: &str| -> Vec<String> {
+        exchange::newest(&r.core.store, Root::Thing(term), 5)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.exchange)
+            .collect()
+    };
+    assert_eq!(touched("item:project:prj_lantern#issue-33"), vec![turn]);
+    assert!(touched("item:issue-33").is_empty(), "scoped, not bare");
+
+    let other =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    r.core.store.put_session(&other.session_id, &other).unwrap();
+    let turn = said(other.session_id.clone()).await;
+    assert_eq!(
+        touched("item:issue-33"),
+        vec![turn],
+        "an unscoped candidate"
+    );
 }

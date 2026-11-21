@@ -7,5 +7,11 @@
 //!   person's message lands, each category it chose at the act band touches
 //!   that message's exchange, so a topic has a timeline like any other thing.
 //!   The judge's own filing stays per session, as it was.
+//! - **Numbered items** ([`items`]): the index's extractor names "issue 33",
+//!   "#33" and "PR 12" (`index.items`); a bare number is scoped by the
+//!   project of the place it was said in when one is known, and is otherwise
+//!   kept as an unscoped candidate. They touch the exchange as the other
+//!   things do.
 
+pub mod items;
 pub mod topics;

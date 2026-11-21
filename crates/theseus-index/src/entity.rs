@@ -13,12 +13,17 @@
 //! | `crate` | `theseus-<name>`, a Rust path's first segment (`tantivy::Index`), `-p`/`--package`, `cargo add`/`install`, a `crates/<name>/` directory, and a `name = "1.2"` dependency line; `_` read as `-` | `crate:theseus-store` |
 //! | `mention` | Discord's `<@id>`, and `@name` that is not an e-mail address or a package scope | `mention:271828182845904523`, `mention:zeroaltitude` |
 //!
+//! Numbered items (`item:issue-33`) are named by the same module's
+//! [`item::items`], apart: they never enter the entity field (`item`).
+//!
 //! The rules overlap on purpose (`theseus-sim` is a crate name and has the
 //! shape of a Beads id): a term is exact either way, so an extra type costs
 //! one term and never a wrong match.
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
+
+pub mod item;
 
 use regex::Regex;
 

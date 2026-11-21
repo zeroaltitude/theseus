@@ -60,9 +60,14 @@ impl TurnRunner {
         self.cfg.context.ledger_on() && t.tc.task.is_none()
     }
 
-    /// The index's things in `text`, named off the turn's path: none with no
+    /// The index's things in `text`, named off the turn's path, with its
+    /// numbered items scoped by `scope` (`names::items`): none with no
     /// index, or outside a runtime.
-    fn things_of(&self, text: &str) -> Option<oneshot::Receiver<Vec<String>>> {
+    fn things_of(
+        &self,
+        text: &str,
+        scope: Option<String>,
+    ) -> Option<oneshot::Receiver<Vec<String>>> {
         let index = self.pass.index()?;
         let rt = tokio::runtime::Handle::try_current().ok()?;
         let mut cut = text.len().min(THINGS_TEXT);
@@ -72,8 +77,13 @@ impl TurnRunner {
         let text = text[..cut].to_string();
         let (tx, rx) = oneshot::channel();
         rt.spawn(async move {
-            if let Ok(mut e) = index.entities(vec![text]).await {
-                let _ = tx.send(e.pop().unwrap_or_default());
+            if let Ok(mut e) = index.entities(vec![text.clone()]).await {
+                let mut things = e.pop().unwrap_or_default();
+                if let Ok(mut i) = index.items(vec![text]).await {
+                    let items = i.pop().unwrap_or_default();
+                    things.extend(crate::names::items::scoped(items, scope.as_deref()));
+                }
+                let _ = tx.send(things);
             }
         });
         Some(rx)
@@ -105,7 +115,8 @@ impl TurnRunner {
         }
         t.exchange.ask = Some((node.id.clone(), text.chars().count() as u64));
         t.exchange.mark = mark;
-        t.exchange.things = self.things_of(text);
+        let scope = crate::names::items::scope_of(t.tc.store, t.tc.session_id);
+        t.exchange.things = self.things_of(text, scope);
     }
 
     /// The exchange's opening half, once the turn's input is written: what
@@ -244,7 +255,8 @@ impl TurnRunner {
             );
             t.record(&row);
         }
-        if let Some(rx) = self.things_of(&result.output) {
+        let scope = crate::names::items::scope_of(t.tc.store, &ex.session_id);
+        if let Some(rx) = self.things_of(&result.output, scope) {
             self.exchanges.put_reply(
                 &ex.place,
                 Pending {
