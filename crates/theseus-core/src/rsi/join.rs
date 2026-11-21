@@ -68,11 +68,13 @@ pub mod layout;
 pub mod lock;
 mod moved;
 pub mod planted;
+mod proof_check;
 pub mod review;
 mod reviewing;
 pub mod root_install;
 pub mod scratch;
 mod sealing;
+mod stopped_planted;
 mod tender;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -86,6 +88,12 @@ mod tests_install_truth;
 mod tests_moved;
 #[cfg(test)]
 mod tests_notify;
+#[cfg(test)]
+mod tests_planted;
+#[cfg(test)]
+mod tests_planted_real;
+#[cfg(test)]
+mod tests_proof_kind;
 #[cfg(test)]
 mod tests_reap;
 #[cfg(test)]
@@ -399,6 +407,8 @@ struct Said {
     asked: String,
     verdict: &'static str,
     planted: &'static str,
+    /// How the reviewer checked a build-broke proof (`proof_check`), else none.
+    checked: Option<&'static str>,
     reasons: Vec<String>,
     cost_usd: f64,
 }

@@ -290,6 +290,7 @@ fn the_review_offers_a_fix_only_when_one_may_be_made() {
         repo: "/tmp/r".into(),
         offer_fix: offer,
         fixed: fixed.map(str::to_string),
+        proof: String::new(),
     };
     let off = prompt(&ask(None, None));
     assert!(off.contains("`VERDICT: accept` or `VERDICT: reject`"));

@@ -818,6 +818,7 @@ async fn a_reviewers_turn_is_offered_no_self_verb_and_builds_no_branch() {
         repo: r.f.place.repo.display().to_string(),
         offer_fix: None,
         fixed: None,
+        proof: String::new(),
     };
     r.queue_call(WIRE, input());
     let review = CheckTurn.review(&r.core, &ask).await.unwrap();

@@ -272,6 +272,7 @@ async fn a_branch_being_fixed_is_named_so_in_the_view() {
             asked: "claude-fable-5-2".into(),
             verdict: "fix".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec!["rename it".into()],
             cost_usd: 0.0,
         });
@@ -318,6 +319,7 @@ fn asked_fix(r: &Rig, branch: &str, head: &str) {
             asked: "claude-fable-5-2".into(),
             verdict: "fix".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec!["rename it".into()],
             cost_usd: 0.0,
         });
@@ -403,6 +405,7 @@ async fn a_head_with_an_unapproved_fixers_commit_is_not_reviewed() {
         asked: "claude-fable-5-2".into(),
         verdict: "reject".into(),
         planted_revert: "failed".into(),
+        proof_check: None,
         reasons: vec!["an earlier reading".into()],
         cost_usd: 0.0,
     };
@@ -512,6 +515,7 @@ async fn a_join_main_moved_under_says_how_often_its_gate_ran() {
             asked: "claude-fable-5-2".into(),
             verdict: "accept".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec![],
             cost_usd: 0.0,
         });

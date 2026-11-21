@@ -33,6 +33,26 @@ pub(crate) struct Reviewer {
     pub(crate) refusal: Option<String>,
 }
 
+/// A verdict's words as `who` is named: the reviewer, and the model it asked for.
+fn said_of(
+    who: &Reviewer,
+    verdict: &'static str,
+    planted: &'static str,
+    reasons: Vec<String>,
+    cost_usd: f64,
+) -> Said {
+    Said {
+        reviewer: who.name.clone(),
+        model: who.model.clone(),
+        asked: who.model.clone(),
+        verdict,
+        planted,
+        checked: None,
+        reasons,
+        cost_usd,
+    }
+}
+
 /// A pin is held where it names: the turn is the owner's choice, so routing never moves it
 /// (`Target::chosen`, as a message sent with `-P` is). Jev's pick is not held.
 fn held(mut t: Target, how: How) -> Target {
@@ -148,28 +168,15 @@ impl Run<'_> {
     /// The review: the verdict written, or none when a halt stopped it.
     pub(super) async fn review(&mut self) -> Result<Option<String>> {
         let who = self.reviewer().await;
-        let said = |verdict, planted, reasons, cost_usd| Said {
-            reviewer: who.name.clone(),
-            model: who.model.clone(),
-            asked: who.model.clone(),
-            verdict,
-            planted,
-            reasons,
-            cost_usd,
+        let said = |verdict, planted, reasons, cost_usd| {
+            said_of(&who, verdict, planted, reasons, cost_usd)
         };
-        if let Some(why) = who.refusal.clone() {
-            self.verdict(said("refused", "not-run", vec![why], 0.0))?;
-            return Ok(Some("refused".into()));
+        if let Some(v) = self.ended_early(&who).await? {
+            return Ok(Some(v.into()));
         }
         let Some(target) = who.target.clone() else {
             return Ok(None);
         };
-        // Every head that reaches a review, whatever path led to it, holds no fixer's commit that
-        // no other model approved, and was built by a builder (issue 36, round 2).
-        if let Some(why) = self.not_a_builders().await {
-            self.verdict(said("reject", "not-run", vec![why], 0.0))?;
-            return Ok(Some("reject".into()));
-        }
         let Some(planted) = self.planted().await else {
             return Ok(None);
         };
@@ -191,7 +198,10 @@ impl Run<'_> {
             blocking(move || Ok(scratch::close(&p, &own)))
         };
         let ask = match self.ask(&remote, target, &own.dir).await {
-            Ok(a) => a,
+            Ok(a) => Ask {
+                proof: planted.ask_text(&a.scratch),
+                ..a
+            },
             Err(e) => {
                 let _ = closed(own).await;
                 return Err(e);
@@ -241,13 +251,49 @@ impl Run<'_> {
             })?;
             return Ok(Some("refused".into()));
         }
-        let (v, reasons) = self.word(&r);
+        let (v, reasons, checked) = self.judged(&planted, &r);
         self.verdict(Said {
             verdict: v,
             reasons,
+            checked,
             ..ran
         })?;
         Ok(Some(v.into()))
+    }
+
+    /// A review that ends before its planted revert runs, its verdict written: no independent
+    /// reviewer could run (`refused`), or, with a reviewer, a head that holds a fixer's commit no
+    /// other model approved or was not built by a builder (`not_a_builders`, issue 36, round 2),
+    /// which every head that reaches a review is checked for, whatever path led to it.
+    async fn ended_early(&mut self, who: &Reviewer) -> Result<Option<&'static str>> {
+        if let Some(why) = who.refusal.clone() {
+            self.verdict(said_of(who, "refused", "not-run", vec![why], 0.0))?;
+            return Ok(Some("refused"));
+        }
+        if who.target.is_none() {
+            return Ok(None);
+        }
+        if let Some(why) = self.not_a_builders().await {
+            self.verdict(said_of(who, "reject", "not-run", vec![why], 0.0))?;
+            return Ok(Some("reject"));
+        }
+        Ok(None)
+    }
+
+    /// The verdict a reply comes to: the proof step's reading of it (`proof_check::judge`), which
+    /// may make an accept a reject, and of a reviewer's reject, whether it is the fix it may ask
+    /// for (`word`, issue 36).
+    fn judged(
+        &self,
+        planted: &Outcome,
+        r: &super::review::Review,
+    ) -> (&'static str, Vec<String>, Option<&'static str>) {
+        let (v, reasons, checked) = super::proof_check::judge(planted, r.accept, r.reasons.clone());
+        if r.accept {
+            return (v, reasons, checked);
+        }
+        let (v, reasons) = self.word(r);
+        (v, reasons, checked)
     }
 
     /// The verdict's word (issue 36): a `fix` is one only while `[self_fix]` is on and this head
@@ -355,7 +401,7 @@ impl Run<'_> {
             Ok(o) => Some(o),
             Err(e) => {
                 let why = format!("the planted revert could not run: {e:#}");
-                self.stop("planted", &why, Value::Null);
+                self.stopped_planted(&why, planted::Undecided::of(&e));
                 None
             }
         }
@@ -394,6 +440,7 @@ impl Run<'_> {
             diff,
             report,
             evidence,
+            proof: String::new(),
             target,
             built_ms: self.b.at_ms,
             scratch: scratch.display().to_string(),
@@ -442,6 +489,7 @@ impl Run<'_> {
             asked: v.asked,
             verdict: v.verdict.into(),
             planted_revert: v.planted.into(),
+            proof_check: v.checked.map(Into::into),
             reasons: v.reasons,
             cost_usd: v.cost_usd,
         };

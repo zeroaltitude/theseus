@@ -637,7 +637,16 @@ under its own text; there is no shadow period and no ladder wait.
   - Its gate is `main`'s, run through the door, below the sandbox floor.
   - It pushes only to `self/*`, and only after a scrub of every added line and commit message.
 - **It reviews and joins them.** Each branch goes through, in order:
-  1. a planted revert, run by code: if no test fails with the fix undone, the branch is rejected;
+  1. a planted revert, run by code: if no test fails with the fix undone, the branch is rejected. A test that
+     fails is the proof. A build that only breaks (a test that names what the fix added) is accepted as proof but marked
+     `build-broke` in the verdict's record. For now the review checks such a proof by reading: an experiment (breaking the fix's
+     behaviour in a copy and seeing a test fail) would be stronger, but a reviewer's commands run outside the sandbox and
+     a reviewer cannot build inside it, so it is told not to build or run the change's code, and to name, in a line that
+     begins `CHECKED BY READING:`, a new or changed test and the assertion that would fail if the fix were wrong, or to
+     reject. The row's `proof_check` is `reading`; a review that says nothing of how does not count (a reject).
+     The experiment is switched on in code (`REVIEWER_CAN_RUN_THE_EXPERIMENT`) when a reviewer can do it in the
+     sandbox. Any other end of a run (on either run) stops it and neither proves nor rejects;
+     the same stop on the same head three times in a row holds it for the owner, as a review that keeps failing is;
   2. a review on a different model from the builder's;
   3. the keel check;
   4. a check against the sealed holdout sets, when the change touches behaviour (prompts, tool descriptions,

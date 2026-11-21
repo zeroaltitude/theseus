@@ -213,6 +213,7 @@ async fn a_review_turn_with_a_tool_step_sends_its_first_step_again() {
         diff: String::new(),
         report: "a report".into(),
         evidence: "the evidence".into(),
+        proof: String::new(),
         target,
         built_ms: 0,
         scratch: scratch.display().to_string(),
