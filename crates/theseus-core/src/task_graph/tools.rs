@@ -73,9 +73,6 @@ struct Patch {
     /// it (theseus-n5ui2).
     #[serde(default)]
     due: Option<String>,
-    /// Pause the task (`true`), or undo a pause (`false`): layer 1 (issue 44).
-    #[serde(default)]
-    paused: Option<bool>,
 }
 
 impl Patch {
@@ -85,11 +82,7 @@ impl Patch {
             (true, true) => Some("objective and acceptance"),
             (true, false) => Some("objective"),
             (false, true) => Some("acceptance"),
-            (false, false) => match self.paused {
-                Some(true) => Some("pause"),
-                Some(false) => Some("resume"),
-                None => None,
-            },
+            (false, false) => None,
         }
     }
 
@@ -125,7 +118,6 @@ impl UpdateIn {
             kind: self.kind,
             objective: self.patch.objective.as_deref(),
             acceptance: self.patch.acceptance.as_deref(),
-            paused: self.patch.paused,
         }
     }
 }
@@ -196,8 +188,7 @@ fn update_in(input: &Value) -> Result<UpdateIn, String> {
     let i: UpdateIn = parse(input)?;
     if i.patch.is_empty() {
         return Err(
-            "the patch changes nothing: give title, deps, owner, objective, acceptance, or paused"
-                .into(),
+            "the patch changes nothing: give title, deps, owner, objective, or acceptance".into(),
         );
     }
     if let Some(t) = &i.patch.title {
@@ -262,13 +253,6 @@ fn authority_of(name: &str, input: &Value) -> Option<String> {
             if let Some(a) = &i.patch.acceptance {
                 s.push_str(&format!("; acceptance after: \"{}\"", a.join("\"; \"")));
             }
-            if let Some(p) = i.patch.paused {
-                s.push_str(if p {
-                    "; it pauses the task"
-                } else {
-                    "; it resumes the task"
-                });
-            }
             Some(s)
         }
         CLOSE => {
@@ -316,13 +300,6 @@ pub fn change_of(
             if let Some(a) = &i.patch.acceptance {
                 before.push(lines(&t.acceptance));
                 after.push(lines(a));
-            }
-            if let Some(p) = i.patch.paused {
-                before.push(t.state.as_str().to_string());
-                after.push(match p {
-                    true => TaskState::Suspended.as_str().to_string(),
-                    false => "as before its pause".to_string(),
-                });
             }
             (field, before.join(" / "), after.join(" / "))
         }
@@ -394,8 +371,9 @@ pub fn authority_for(
     if plan.authority.is_some() && !own && is_edit(name) && !waits(tc.store, name, input) {
         plan.authority = None;
     }
-    // A change in the owner's own current words that only narrows or pauses
-    // needs no card (issue 44); anything else keeps it.
+    // A change in the owner's own current words that only narrows needs no
+    // card once an independent judgment says so (issue 44; none does yet, so
+    // every change keeps it).
     if plan.authority.is_some() && name == UPDATE && by_words(tc, input).is_ok() {
         plan.authority = None;
     }
@@ -424,12 +402,9 @@ impl Tool for TaskUpdate {
          (the tasks it waits on), and `owner` apply at once. On a task the task graph marks \
          \"the operator's objective\", `objective` and `acceptance` are the operator's: a change \
          to either becomes a proposal that waits for the operator's yes, and nothing changes \
-         until then. On any other task (a plan item, a split's child) they apply at once. When \
-         the operator's own message in this exchange asks the change, name it in `said` and say \
-         its `kind`: a change that `narrows` (the objective kept word for word, with the operator's \
-         whole message added after it) or `pauses` (`paused: true`; `resumes` with \
-         `paused: false` undoes it) applies at once; one that `widens` or `replaces` waits for \
-         the operator's yes, as does anything else."
+         until then. On any other task (a plan item, a split's child) they apply at once. On \
+         the operator's task, name the operator's message that asks the change in `said`, and \
+         its `kind`."
     }
 
     fn input_schema(&self) -> Value {
@@ -446,13 +421,12 @@ impl Tool for TaskUpdate {
                         "owner": {"type": "string", "description": "`agent`, or a person."},
                         "due": {"type": "string", "description": "A milestone's or project's date (`2026-11-03`, `fri 09:00`, `in 3d`), or `none`. A milestone's date sets its reminder."},
                         "objective": {"type": "string", "description": "On the operator's task, a proposal that waits for the operator."},
-                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."},
-                        "paused": {"type": "boolean", "description": "true pauses the task; false undoes a pause."}
+                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."}
                     },
                     "additionalProperties": false
                 },
-                "said": {"type": "string", "description": "The id of the operator's message in this exchange that asks the change."},
-                "kind": {"type": "string", "enum": ["narrows", "pauses", "resumes", "widens", "replaces"], "description": "What the change does to the operator's objective."}
+                "said": {"type": "string", "description": "The operator's message asking it."},
+                "kind": {"type": "string", "enum": ["narrows", "widens", "replaces"]}
             },
             "required": ["id", "version", "patch"],
             "additionalProperties": false
@@ -482,7 +456,6 @@ impl Tool for TaskUpdate {
             ("due", i.patch.due.is_some()),
             ("objective", i.patch.objective.is_some()),
             ("acceptance", i.patch.acceptance.is_some()),
-            ("paused", i.patch.paused.is_some()),
         ] {
             if on {
                 fields.push(f);
@@ -775,8 +748,6 @@ fn update<'a>(
         }
     }
     let from = rec.version;
-    let before = rec.state;
-    let pausing = i.patch.paused == Some(true);
     let (fields, retitled) = patched(tc, &mut rec, i.patch)?;
     if touches_layer1 {
         rec.proposal = None;
@@ -795,7 +766,7 @@ fn update<'a>(
             session: tc.session_id.into(),
             kind,
             carded: by_words.is_none(),
-            before: pausing.then_some(before),
+            before: None,
             at_ms: now,
         }),
         _ => None,
@@ -817,7 +788,7 @@ fn update<'a>(
             .push(super::words::words_record(w).map_err(|e| format!("{e:#}"))?);
     }
     done.text = match by_words {
-        Some(kind) => by_words_text(&rec, from, kind),
+        Some(_) => by_words_text(&rec),
         None => format!(
             "Updated task {} ({}): v{from} → v{}.{}",
             rec.id,
@@ -901,51 +872,18 @@ fn patched(
         rec.acceptance = a;
         fields.push("acceptance");
     }
-    if let Some(p) = patch.paused {
-        rec.state = paused_state(tc, rec, p)?;
-        fields.push("paused");
-    }
     Ok((fields, retitled))
-}
-
-/// The state a pause (`true`) or its undo (`false`) leaves the task in: the
-/// undo restores the state its pause kept, else `accepted`.
-fn paused_state(tc: &TurnCtx<'_>, rec: &TaskRecord, pause: bool) -> Result<TaskState, String> {
-    match (pause, rec.state == TaskState::Suspended) {
-        (true, true) => Err(format!("task {} is paused already", rec.id)),
-        (true, false) => Ok(TaskState::Suspended),
-        (false, false) => Err(format!("task {} is not paused", rec.id)),
-        (false, true) => Ok(super::words::words(tc.store, &rec.id, rec.version)
-            .map_err(|e| format!("{e:#}"))?
-            .and_then(|w| w.before)
-            .unwrap_or(TaskState::Accepted)),
-    }
 }
 
 /// What the model is told of a change made in the owner's own words: what
 /// was accepted, so the reply can say it back, and the task hears it at its
 /// next step.
-fn by_words_text(rec: &TaskRecord, from: u64, kind: super::words::Kind) -> String {
-    use super::words::Kind;
-    match kind {
-        Kind::Pauses => format!(
-            "Paused task {} by the operator's message: v{from} → v{}. Accepted, not yet heard: \
-             the task hears it at its next step. To undo it: task_update with `paused: false`, \
-             `kind: resumes`, and the operator's message that asks it.",
-            rec.id, rec.version
-        ),
-        Kind::Resumes => format!(
-            "Resumed task {} by the operator's message: v{from} → v{}, {} again.",
-            rec.id,
-            rec.version,
-            rec.state.as_str()
-        ),
-        _ => format!(
-            "Version {} of task {}'s objective accepted, in the operator's own words: \"{}\". \
-             Accepted, not yet heard: the task hears it at its next step.",
-            rec.version, rec.id, rec.objective
-        ),
-    }
+fn by_words_text(rec: &TaskRecord) -> String {
+    format!(
+        "Version {} of task {}'s objective accepted, in the operator's own words: \"{}\". \
+         Accepted, not yet heard: the task hears it at its next step.",
+        rec.version, rec.id, rec.objective
+    )
 }
 
 /// The mark that says the new title is this session's model's words, whoever wrote the one before
@@ -1303,8 +1241,7 @@ pub fn proposed(
         ) {
             (true, true) => "objective,acceptance",
             (true, false) => "objective",
-            (false, true) => "acceptance",
-            (false, false) => "paused",
+            _ => "acceptance",
         },
     };
     rec.proposal = Some(TaskProposal {

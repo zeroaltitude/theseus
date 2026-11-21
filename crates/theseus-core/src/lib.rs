@@ -316,6 +316,8 @@ mod tests_config;
 #[cfg(test)]
 mod tests_content_freeze;
 #[cfg(test)]
+mod tests_content_items;
+#[cfg(test)]
 mod tests_content_kind;
 #[cfg(test)]
 mod tests_content_late;

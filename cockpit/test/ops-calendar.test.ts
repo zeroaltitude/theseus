@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import type { CalendarStatus, ProfileInfo } from '../src/protocol.gen/index.ts'
 import {
   askCalls, BAR, comingEvents, drawnEvents, eventFacts, eventMatches, EVENT_VERBS, eventVerbPayload, findEvent, joinWindows, payloadStrings, profileRefusal,
-  redactEvent, SHARING_STEPS, stateOf, US_ONLY_WORDS,
+  PRIVACY_NOTE, redactEvent, SHARING_STEPS, stateOf,
 } from '../src/ops/calendar.ts'
 import { cal, ev, local, OPEN, SECRET, twoCalendars } from './ops-calendar-fixtures.ts'
 import { profileChoices } from '../src/ops/newtask.ts'
@@ -85,16 +85,14 @@ test('a sensitive event’s verbs carry only its time and calendar; an open one�
     assert.equal(new Date(remind.params.when).getTime(), local(2026, 10, 23, 13, 50), 'ten minutes before, as an instant')
   }
   const prep = eventVerbPayload(secret, work, 'prep', now)
-  assert.ok(prep.kind === 'sheet' && prep.usOnly && /calendar tool/.test(prep.brief))
+  assert.ok(prep.kind === 'sheet' && /calendar tool/.test(prep.brief))
   const ask = eventVerbPayload(secret, work, 'ask', now)
-  assert.ok(ask.kind === 'ask' && ask.usOnly && /calendar tool/.test(ask.input))
+  assert.ok(ask.kind === 'ask' && /calendar tool/.test(ask.input))
   // The open calendar's verbs quote its title and time, and nothing more.
   for (const v of ['remind', 'prep', 'ask'] as const) {
     const s = payloadStrings(eventVerbPayload(open, personal, v, now))
     assert.ok(s.some((x) => x.includes(OPEN.title)), `${v} quotes the open title`)
     assert.deepEqual(hits(s, [OPEN.location, OPEN.call, OPEN.html_link]), [], `${v} sends no place or link`)
-    const p = eventVerbPayload(open, personal, v, now)
-    assert.ok(p.kind !== 'sheet' || !p.usOnly)
   }
   assert.deepEqual(eventVerbPayload(open, personal, 'join', now), { kind: 'link', href: OPEN.call })
   assert.deepEqual(eventVerbPayload(secret, work, 'google', now), { kind: 'link', href: SECRET.html_link })
@@ -154,25 +152,22 @@ test('the spans’ answers join: one calendar each, its events once, a failed sp
   assert.equal(joined.find((c) => c.id === 'personal.cal.example.test')!.status, 'auth_lapsed')
 })
 
-test('the New task sheet: a sensitive event offers US models only, the rest greyed with the reason; none known, none picked', () => {
-  const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, ...(origin && { origin, cleared: origin === 'us' }) } as ProfileInfo)
-  const profiles = [p('harbour', 'cn'), p('quay', 'us'), p('jetty', 'us'), p('dock')]
-  // One profileChoices (ops-act's newtask.ts), with the Timeline's US-only pick (theseus-jid7t.5 x .6).
-  const s = profileChoices(profiles, undefined, US_ONLY_WORDS, 'jetty')
-  assert.equal(s.pick, 'jetty', 'the live one, when it is of US origin')
-  assert.deepEqual(s.choices.filter((c) => c.grey).map((c) => c.name), ['harbour', 'dock'], 'not of US origin, or of none known')
-  for (const c of s.choices.filter((x) => x.grey)) assert.equal(c.grey, US_ONLY_WORDS)
-  assert.equal(profileChoices(profiles, undefined, US_ONLY_WORDS, 'harbour').pick, 'quay', 'the live one is not: the first that is')
-  assert.equal(profileChoices([p('harbour', 'cn'), p('dock')], undefined, US_ONLY_WORDS).pick, '', 'none of US origin: it fails closed')
-  const open = profileChoices(profiles, undefined, undefined, 'harbour')
-  assert.equal(open.pick, '', 'an open event: the parent’s model, as before')
-  assert.ok(open.choices.every((c) => !c.grey))
-  assert.equal(US_ONLY_WORDS, 'this event’s calendar is sensitive: US models only')
+test('the New task sheet: a sensitive event offers every profile the daemon lists, a cn one cleared included, and promises no origin', () => {
+  // As `profile.list` sends profiles since the daemon's origin rule went (2026-11-21): every one cleared.
+  const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, cleared: true, ...(origin && { origin }) } as ProfileInfo)
+  const profiles = [p('harbour', 'cn'), p('quay', 'us'), p('dock')]
+  const s = profileChoices(profiles, undefined)
+  assert.ok(s.choices.every((c) => !c.grey), 'none is greyed by origin')
+  assert.deepEqual(s.choices.map((c) => c.name), ['harbour', 'quay', 'dock'])
+  // The panel and the verbs promise no origin: no "US" words anywhere the sheet or the event shows.
+  assert.doesNotMatch(PRIVACY_NOTE, /US origin|US model/)
+  assert.match(PRIVACY_NOTE, /never reach a shared place/)
+  for (const f of ['src/ops/NewTask.tsx', 'src/ops/EventDetail.tsx', 'src/ops/calendar.ts', 'src/ops/newtask.ts']) {
+    assert.doesNotMatch(read(f), /usOnly|US_ONLY|US-only|US models only/, f)
+  }
   const sheet = read('src/ops/NewTask.tsx')
   assert.match(sheet, /disabled=\{!!c\.grey\}/)
-  assert.match(sheet, /if \(closed\) \{ setSaid/)
-  assert.match(sheet, /disabled=\{!p \|\| !!chosen\?\.grey \|\| closed\}/)
-  assert.match(read('src/ops/EventDetail.tsx'), /<NewTask brief=\{prepSheet\.brief\} title=\{prepSheet\.title\} usOnly=\{prepSheet\.usOnly\}/)
+  assert.match(read('src/ops/EventDetail.tsx'), /<NewTask brief=\{prepSheet\.brief\} title=\{prepSheet\.title\} onClose/)
 })
 
 test('nothing is stored, logged or put in the address; the links open in a new tab with no referrer', () => {

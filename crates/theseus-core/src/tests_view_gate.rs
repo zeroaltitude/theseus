@@ -661,7 +661,7 @@ async fn a_shared_place_keeps_todays_rule() {
 /// an agent's process.
 async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person: bool) {
     use crate::session::SessionRecord;
-    let mark = view_gate::owner_mark(&core.runner, sid, in_person);
+    let mark = view_gate::stage_mark(&core.runner, sid, input, in_person);
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)

@@ -71,7 +71,7 @@ fn session(core: &Core, said: &[&str]) -> String {
 /// A turn on `sid`: `input`, or a continuation with none.
 async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result<TurnSubmitResult> {
     // The owner typed it in person, as `turn.submit` would mark it (issue 44).
-    let mark = input.map(|_| crate::view_gate::owner_mark(&core.runner, sid, true));
+    let mark = input.map(|i| crate::view_gate::stage_mark(&core.runner, sid, i, true));
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None)?;
