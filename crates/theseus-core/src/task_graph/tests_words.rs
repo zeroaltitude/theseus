@@ -964,6 +964,8 @@ async fn through_the_tool_his_narrowing_and_an_agents_wait_on_the_card() {
         call(&core, client, "stop", Some(&first.session_id)).await;
         let after = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
         assert_eq!((after.version, after.state), (1, before.state));
-        assert_eq!(core.confirm_list().unwrap().len(), 1, "no second card");
+        let proposed = crate::test_support::ledger_rows_100k(&core, "task.change_proposed");
+        assert_eq!(proposed.len(), 1, "no second proposal");
+        assert!(crate::test_support::ledger_rows_100k(&core, "task.change_accepted").is_empty());
     }
 }
