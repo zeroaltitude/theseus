@@ -1,31 +1,50 @@
-//! What a reader of a view record is shown (`view.show`, `theseus view show`, and the model's own look):
-//! the point of view, each slot with its pieces, what was dropped and why, and the totals. By default ids,
-//! kinds, forms, tokens, reasons and counts. A piece's text only through a [`PieceText`] the caller passes,
-//! which is the owner's at his own terminal alone. A reader in company ([`Reader::place`]) is shown that
-//! place's pieces only: the others are counted in `held_out`, never listed.
+//! What a reader of a view record is shown (`view.show`, `theseus view show`, and the model's own look): the
+//! point of view, each slot with its pieces, what was dropped and why, and the totals of what is shown. By
+//! default ids, kinds, forms, tokens, reasons and labels.
+//!
+//! A stored record is a map of what WAS admitted, never a permission. Every piece, shown or dropped, passes
+//! its [`Source`] again before its reference is shown: today's reading of where it came from (its session's
+//! place and seal, through the gate's own functions; `source.rs`), failing closed when that cannot be read.
+//! A piece's text is read only after that check, and only through a [`PieceText`] the caller passes (the
+//! owner's, at his own terminal).
+//!
+//! **Nothing counts what is left out.** Totals are of what is shown; a restricted reader is told one fixed
+//! sentence ([`RESTRICTED`]) whatever was left out, and is never shown the residue or the record's at-hand
+//! reference, so two records that differ only in pieces it may not see read the same, byte for byte.
 
 use serde::Serialize;
 use theseus_protocol::view::{
     ViewDrop, ViewPiece, ViewPov, ViewResidue, ViewShown, ViewSlot, ViewTotals,
 };
 
-use super::super::budget::Dropped;
-use super::super::{Anchor, AtHand, Label, Piece, PointOfView, Space};
+use super::super::{Anchor, AtHand, Label, Marks, Piece, PointOfView, SourceRange, Space};
 use super::ViewRecord;
 
-/// The text of a piece, from its source; none when its source holds no text this build reads.
+/// What a restricted reader is told, whatever the record holds.
+pub const RESTRICTED: &str = "only what this conversation may read today is listed";
+
+/// The text of a piece, from its source; none when its source holds no text this build reads. Called only
+/// for a piece its [`Source`] allowed.
 pub trait PieceText {
     fn text(&self, piece: &Piece) -> Option<String>;
 }
 
+/// Whether a piece's source may be shown to this reader today.
+pub trait Source {
+    /// `marks` are the piece's stored marks (a dropped piece has none); a source that cannot be read is no.
+    fn may_show(&self, range: &SourceRange, marks: Option<&Marks>) -> bool;
+    /// Whether the record's at-hand reference may be shown.
+    fn at_hand(&self, at_hand: &AtHand) -> bool;
+}
+
 /// Who reads a record.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct Reader<'a> {
-    /// `None`: every piece (the owner alone, or at his own terminal). `Some(place)`: a reader in company,
-    /// shown only the pieces of that place.
-    pub place: Option<&'a str>,
+    pub source: &'a dyn Source,
     /// Each piece's text: given only for the owner at his own terminal.
     pub text: Option<&'a dyn PieceText>,
+    /// Not the owner alone: no residue, no at-hand reference, and the [`RESTRICTED`] sentence.
+    pub restricted: bool,
 }
 
 /// An enumerated value's name, as it is stored.
@@ -34,14 +53,6 @@ pub fn name<T: Serialize>(v: &T) -> String {
         Ok(serde_json::Value::String(s)) => s,
         Ok(other) => other.to_string(),
         Err(_) => String::new(),
-    }
-}
-
-/// The place a range lies in, when its space has one.
-fn place_of_space(space: &Space) -> Option<&str> {
-    match space {
-        Space::Exchanges { place } | Space::Folds { place, .. } => Some(place),
-        _ => None,
     }
 }
 
@@ -58,25 +69,6 @@ fn kind_of(space: &Space) -> &'static str {
 }
 
 impl Reader<'_> {
-    /// Whether a piece is this reader's to see: every piece, or in company the place's own. Code's own text
-    /// (the frame, the clock) is every reader's.
-    fn sees(&self, piece: &Piece) -> bool {
-        match self.place {
-            None => true,
-            Some(_) if matches!(piece.range.space, Space::Code { .. }) => true,
-            Some(p) => piece.marks.place.as_deref() == Some(p),
-        }
-    }
-
-    /// The same for a dropped piece, which carries no marks: by the place its range lies in.
-    fn sees_dropped(&self, d: &Dropped) -> bool {
-        match self.place {
-            None => true,
-            Some(_) if matches!(d.range.space, Space::Code { .. }) => true,
-            Some(p) => place_of_space(&d.range.space) == Some(p),
-        }
-    }
-
     /// One record, as this reader is shown it.
     pub fn show(&self, rec: &ViewRecord) -> ViewShown {
         let mut totals = ViewTotals::default();
@@ -84,8 +76,7 @@ impl Reader<'_> {
         let mut shown: Vec<_> = rec.shown.iter().collect();
         shown.sort_by_key(|s| s.piece.slot);
         for s in shown {
-            if !self.sees(&s.piece) {
-                totals.held_out += 1;
+            if !self.source.may_show(&s.piece.range, Some(&s.piece.marks)) {
                 continue;
             }
             let slot = name(&s.piece.slot);
@@ -109,8 +100,7 @@ impl Reader<'_> {
         }
         let mut dropped = Vec::new();
         for d in &rec.dropped {
-            if !self.sees_dropped(d) {
-                totals.held_out += 1;
+            if !self.source.may_show(&d.range, None) {
                 continue;
             }
             totals.dropped += 1;
@@ -128,15 +118,40 @@ impl Reader<'_> {
         ViewShown {
             compilation: rec.compilation.clone(),
             assembly: name(&rec.assembly),
-            pov: pov_of(&rec.pov),
+            pov: self.pov_of(&rec.pov),
             slots,
             dropped,
-            // A band's residue is a count with no place: in company it is not shown.
-            residue: match self.place {
-                None => rec.residue.iter().map(residue_of).collect(),
-                Some(_) => Vec::new(),
+            // A band's residue counts pieces with no reference to check: a restricted reader is not shown it.
+            residue: match self.restricted {
+                false => rec.residue.iter().map(residue_of).collect(),
+                true => Vec::new(),
             },
             totals,
+            restricted: self.restricted.then(|| RESTRICTED.into()),
+        }
+    }
+
+    /// The point of view, with no name in it (whether a person was named, not who), and its at-hand
+    /// reference only for a reader who is not restricted and whose source allows it today.
+    fn pov_of(&self, p: &PointOfView) -> ViewPov {
+        let (anchor_kind, anchor) = match &p.anchor {
+            Anchor::Place(a) => ("place", a.clone()),
+            Anchor::Task(t) => ("task", t.clone()),
+        };
+        ViewPov {
+            anchor_kind: anchor_kind.into(),
+            anchor,
+            present: name(&p.present),
+            person: p.person.is_some(),
+            at_hand: p
+                .at_hand
+                .as_ref()
+                .filter(|a| !self.restricted && self.source.at_hand(a))
+                .map(|a| match a {
+                    AtHand::LineOfWork(l) => format!("line_of_work {l}"),
+                    AtHand::Task(t) => format!("task {t}"),
+                }),
+            now_ms: p.now_ms,
         }
     }
 }
@@ -162,24 +177,5 @@ fn residue_of(r: &super::super::budget::Residue) -> ViewResidue {
         band: name(&r.band),
         pieces: r.pieces,
         tokens: r.tokens,
-    }
-}
-
-/// The point of view, with no name in it: whether a person was named, not who.
-fn pov_of(p: &PointOfView) -> ViewPov {
-    let (anchor_kind, anchor) = match &p.anchor {
-        Anchor::Place(a) => ("place", a.clone()),
-        Anchor::Task(t) => ("task", t.clone()),
-    };
-    ViewPov {
-        anchor_kind: anchor_kind.into(),
-        anchor,
-        present: name(&p.present),
-        person: p.person.is_some(),
-        at_hand: p.at_hand.as_ref().map(|a| match a {
-            AtHand::LineOfWork(l) => format!("line_of_work {l}"),
-            AtHand::Task(t) => format!("task {t}"),
-        }),
-        now_ms: p.now_ms,
     }
 }

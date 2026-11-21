@@ -5,38 +5,36 @@ What one turn was shown and why, kept so that "what did it see, and why?" has a 
 
 ## What is stored
 
-Three records, each written by `view::record::keep(store, turn, compilation, &view)`, the one call the
-compiler makes for each view it builds. All three ride the turn's next frame (`Store::defer`); none is a
-field on an existing record, so there is no store-format step.
+Three META records, each written by `view::record::keep(store, turn, compilation, &view)`, the one call the
+compiler makes for each view it builds, with the turn's own store handle. All three ride the turn's next
+frame (`Store::defer`); none is a field on an existing record, so there is no store-format step. A turn or
+compilation id holding the key's separator is refused.
 
-| Key or kind | What it holds |
+| Key | What it holds |
 |---|---|
-| META `view.<compilation>` | `ViewRecord`: the point of view, every piece shown by reference (its range, slot, band, reasons, form, marks, sizes, handle), every piece dropped and why (`merged`, `over_budget`, `unit_cut`), each band's residue, the tokens. No text. |
-| META `view_turn.<turn>\u{1}<20-digit ms>\u{1}<compilation>` | which compilations a turn built views for, in the order built. |
-| ledger `context.view` | `Tally`: per slot, per reason and per drop cause, pieces and tokens; ids and counts only. Summed over turns, it says which selector earns its tokens. A piece with two reasons counts under each. |
+| `view.<compilation>` | `ViewRecord`: the point of view, every piece shown by reference (its range, slot, band, reasons, form, marks, sizes, handle), every piece dropped and why (`merged`, `over_budget`, `unit_cut`), each band's residue, the tokens. No text. |
+| `view_turn.<turn>\u{1}<20-digit u64::MAX - ms>\u{1}<compilation>` | a turn's views, newest first (within one millisecond, by compilation id). |
+| `view_tally.<compilation>` | `Tally`: per slot, per reason and per drop cause, pieces and tokens. A piece with two reasons counts under each. Not a ledger row: `ledger.tail` gives any terminal caller its rows. |
 
-Reasons and drop causes are enumerated values (`view::Reason`, `budget::DropWhy`), never free text.
+## A record is a map, not a permission
 
-## Who reads it, and what each is shown
+Every reader checks each piece's source again today before showing its reference (`view::record::source`):
+the source session's marks through `view_gate::session_marks` (its place, today's reading of it, its seal,
+fail-closed) against the reader's point of view through `view_gate::Gate::check`. A sealed, seal-pending or
+unreadable source is not shown. Only exchange ranges resolve to sessions today; fold nodes, facts, cards and
+tasks are not shown until their provenance can be read. Text is read only after that check.
 
-`view::record::show::Reader` is the one rule for every reader.
+Nothing counts what is left out. Totals are of what is shown; a restricted reader (not the owner alone) gets
+no residue, no at-hand reference, and one fixed sentence, so two records that differ only in what it may not
+see read the same, byte for byte.
 
-- **By default**: ids, kinds, forms, tokens, reasons, labels and counts.
-- **Text** only through a `PieceText` the caller passes. `view.show` passes one only when `text` is asked
-  for AND the caller is the owner's own shell (the CLI on this machine, no Theseus job's marker, no
-  agent's process behind it); anywhere else `--text` is refused in words. Today the store's reader
-  (`StoreText`) reads an exchange's ask and reply through its exchange record; other spaces give none.
-- **In company** (`Reader::place`): only pieces whose mark names that place, and code's own text; drops
-  by the place their range lies in; residues (which name no place) are not shown. The rest are counted
-  in `held_out`, never listed.
+## The readers
 
-The readers:
-
-- `view.show {turn_id, text}` and `theseus view show TURN [--text]`: the terminal or the web UI only; never
-  MCP. Every piece (the owner reads his own record).
-- `look.theseus` with `what: ["view"]`: Theseus reads its own record for this turn. Who is present is the
-  gate's own function, `view_gate::present`, from the turn's place, where its input arrived and that
-  input's owner's mark; no argument of the call claims it. The owner alone: every piece. Anyone else
-  present: this view's place's pieces only. Presence that cannot be read: nothing. The look's wall
-  (`config_change::wall`) still holds first: the look is not offered in a shared place at all. Never text:
-  a piece opens by its handle, through the history tool.
+- `view.show {turn_id, text, tally}` and `theseus view show TURN [--text] [--tally]`: the owner in person
+  alone (`places::owner_in_person_of`: the CLI or the web UI with no agent's process behind it; a job is one),
+  and no job's marker. Anyone else is refused, the record as well as its text. The owner's point of view at
+  the record's anchor, with no asker: inspecting lifts no seal. Its newest 32 views.
+- `look.theseus` with `what: ["view"]`: Theseus reads this turn's newest view. Who is present is the gate's
+  record of this turn (`view_gate::Verified`), for this turn alone; unknown is shown nothing. The turn's
+  point of view, narrowed by the record's (`view::permit::point_of_view`), is the source check's. At most 60
+  pieces, then how many more it may read. Never text.
