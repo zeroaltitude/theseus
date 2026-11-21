@@ -161,7 +161,7 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
     );
     assert_eq!(first.lines[99].handle.0, "turn_0050");
     assert_eq!(first.end, PageEnd::More);
-    let next = first.next.clone().expect("a cursor");
+    let next = first.next.expect("a cursor");
     let second = l
         .page(
             &v,

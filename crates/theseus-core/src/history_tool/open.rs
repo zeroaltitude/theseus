@@ -30,15 +30,16 @@ pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
     Ok(render(&ex, &nodes))
 }
 
-/// The nodes of `ex`'s turn, oldest first: its session's from its first message to its end.
+/// The nodes of `ex`'s turn, oldest first: its session's, read forward from its opening message (or from its
+/// start, when a message did not open it) until the next exchange's message.
 fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
     let first = ex
         .ask
         .as_deref()
         .and_then(|id| lens.store.get_node(id).ok().flatten());
     let (mut after, since) = match &first {
-        Some((pos, n)) => (pos.checked_sub(1), n.created_at_ms.min(ex.start_ms)),
-        None => (None, ex.start_ms),
+        Some((pos, _)) => (pos.saturating_sub(1), None),
+        None => (0, Some(ex.start_ms)),
     };
     let mut out = Vec::new();
     let mut read = 0;
@@ -46,9 +47,8 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
         let page = Page {
             kind: kinds::NODE,
             tags: vec![ledger_session(&ex.session_id)],
-            after: Some(after.unwrap_or(0)),
-            since_ms: Some(since),
-            until_ms: ex.end_ms,
+            after: Some(after),
+            since_ms: since,
             limit: PAGE,
             ..Page::default()
         };
@@ -58,12 +58,17 @@ fn nodes(lens: &Lens<'_>, ex: &Exchange) -> anyhow::Result<Vec<Node>> {
         read += got.records.len();
         for r in &got.records {
             let n: Node = r.decode()?;
-            if n.turn_id.as_deref() == Some(ex.turn_id.as_str()) {
-                out.push(n);
+            match n.turn_id.as_deref() == Some(ex.turn_id.as_str()) {
+                true => out.push(n),
+                // The next exchange's message: this one is over.
+                false if !out.is_empty() && matches!(n.body, Body::UserMessage { .. }) => {
+                    return Ok(out)
+                }
+                false => {}
             }
         }
         match (got.more, got.last) {
-            (true, Some(last)) if read < MOST => after = Some(last),
+            (true, Some(last)) if read < MOST => after = last,
             _ => return Ok(out),
         }
     }
