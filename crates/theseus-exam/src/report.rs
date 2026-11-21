@@ -2,7 +2,7 @@
 //! the data's window; each arm's pass rate with its interval and n, over
 //! all items and each half; the paired differences, clustered by item
 //! (`baseline − none`, `bm25 − none`, `oracle − none`, `baseline − bm25`,
-//! `oracle − baseline`, `+retention − baseline`), each saying `gain`, `loss` or `insufficient`; cost
+//! `oracle − baseline`), each saying `gain`, `loss` or `insufficient`; cost
 //! per pass and recall's latency; the decision per feature, with the clause
 //! of the plan's rule that decided it; what could not be measured, and why;
 //! then each item. Markdown, written frozen (`freeze`).
@@ -172,24 +172,15 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// The arms in the report's order.
-pub const ARMS: [&str; 6] = [
-    "none",
-    "bm25",
-    "baseline",
-    "+retention",
-    "+activation",
-    "oracle",
-];
+pub const ARMS: [&str; 4] = ["none", "bm25", "baseline", "oracle"];
 
 /// The paired differences the report gives, `b − a`, as `(a, b)`.
-pub const PAIRS: [(&str, &str); 7] = [
+pub const PAIRS: [(&str, &str); 5] = [
     ("none", "baseline"),
     ("none", "bm25"),
     ("none", "oracle"),
     ("bm25", "baseline"),
     ("baseline", "oracle"),
-    ("baseline", "+retention"),
-    ("baseline", "+activation"),
 ];
 
 /// What a difference's interval can say: `gain` when it lies above zero,
@@ -507,16 +498,11 @@ pub fn render(records: &[Record], exam: &Exam, source: &str) -> String {
 }
 
 /// The features the rule decides, as `(feature, a, b)`: `baseline` (recall
-/// itself) against `none`; vectors, `baseline` against `bm25`; and FSRS-6
-/// retention in the rank, `+retention` against `baseline` (32a).
-pub const FEATURES: [(&str, &str, &str); 3] = [
+/// itself) against `none`; and vectors, `baseline` against `bm25`. (FSRS-6
+/// retention in the rank, 32a's `+retention`, was retired with its arm.)
+pub const FEATURES: [(&str, &str, &str); 2] = [
     ("recall (`baseline` against `none`)", "none", "baseline"),
     ("vectors (`baseline` against `bm25`)", "bm25", "baseline"),
-    (
-        "retention (`+retention` against `baseline`)",
-        "baseline",
-        "+retention",
-    ),
 ];
 
 /// The private family's items that failed under `b` in a run where `a`
@@ -837,43 +823,6 @@ mod tests {
             }
         }
         rs
-    }
-
-    /// Every number below is computed by hand from the fixture, with
-    /// t(1) = 12.706, t(3) = 3.1824 and t(5) = 2.5706.
-    /// `+activation` is paired with `baseline`, its one difference, when
-    /// the records hold both.
-    #[test]
-    fn activation_is_paired_with_baseline() {
-        let exam = Exam::parse(EXAM_V2).unwrap();
-        let ids: Vec<&str> = exam
-            .file
-            .items
-            .iter()
-            .filter(|i| !i.held_out)
-            .take(2)
-            .map(|i| i.id.as_str())
-            .collect();
-        let mut rs = Vec::new();
-        for (arm, passes) in [("baseline", [false, true]), ("+activation", [true, true])] {
-            for (k, pass) in passes.iter().enumerate() {
-                rs.push(rec(ids[k], arm, 1, Some(*pass)));
-            }
-        }
-        let md = render(&rs, &exam, "x.jsonl");
-        assert!(
-            md.contains("| `+activation − baseline` | held in | 2 | 50% "),
-            "{md}"
-        );
-        assert!(md.contains("| +activation | "), "{md}");
-        // Without `+activation` cells there is no such row, and the arm is
-        // named as not run (32a's line, beside it on the stack).
-        let md = render(&rs[..2], &exam, "x.jsonl");
-        assert!(!md.contains("`+activation − baseline`"), "{md}");
-        assert!(
-            md.contains("- **`+activation`**: not run in these records."),
-            "{md}"
-        );
     }
 
     #[test]

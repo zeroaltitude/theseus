@@ -5,8 +5,7 @@
 //! session's next turn carries the correction note once; the synthesis is
 //! stale and out of recall; one card names the tasks; recall never serves
 //! the node again; a second retraction writes nothing; a shared place's run
-//! hides private text; and consolidation proposes a stale synthesis's cluster
-//! again without the node. Facts and names are invented.
+//! hides private text. Facts and names are invented.
 
 use std::sync::Arc;
 
@@ -150,9 +149,28 @@ fn task_that_recalled(core: &Core, title: &str, of: &str, yes: bool) -> String {
     rec.session_id
 }
 
-/// A synthesis citing `of`, in the memory's harness session.
+/// A synthesis citing `of`, in the memory's harness session, as the retired
+/// nightly writer left them in a store: a retraction still reads it.
 fn synthesis_of(core: &Core, of: &str) -> String {
-    let memory = core.open_memory_session().unwrap();
+    let memory = match core.memory_session().unwrap() {
+        Some(id) => id,
+        None => {
+            let rec = core
+                .open_session(theseus_protocol::SessionOpenParams {
+                    dir: None,
+                    kind: None,
+                    label: Some("memory: consolidation's syntheses (never compiled)".into()),
+                    opened_from: None,
+                    persona: None,
+                })
+                .unwrap();
+            core.store
+                .put_meta(crate::consolidate::MEMORY_SESSION, &rec.session_id)
+                .unwrap();
+            core.runner.memory.harness_opened(&rec.session_id);
+            rec.session_id
+        }
+    };
     let body = Body::Synthesis {
         text: "The Kestrel relay listens on port 7714 [1].".into(),
         sources: vec![of.into()],
@@ -604,97 +622,4 @@ async fn a_waiting_note_is_read_back_from_the_store() {
         .deliver(&c.store, &a, |_| Ok(vec![]))
         .unwrap()
         .is_none());
-}
-
-const FOUR: [&str; 4] = [
-    "The Kestrel relay listens on port 7714.",
-    "The Kestrel relay logs to /var/log/kestrel/relay.log.",
-    "The Kestrel relay restarts nightly at 03:00.",
-    "The Kestrel relay is owned by the platform team.",
-];
-
-const SYNTHESIS: &str = "The Kestrel relay listens on port 7714 [1]. It logs to \
-/var/log/kestrel/relay.log [2]. It restarts nightly at 03:00 [3].";
-
-/// The session last used the live profile, as a turn there would leave it.
-fn stamp(core: &Core, sid: &str) {
-    let mut rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
-    let (live, _) = core.live_profile();
-    let t = core.runner.resolve_target(&live, None, None, None).unwrap();
-    rec.last_target = Some(crate::session::TargetRef {
-        profile: t.profile,
-        provider: t.provider,
-        model: t.model,
-    });
-    core.store.put_session(sid, &rec).unwrap();
-}
-
-async fn consolidate(
-    core: &Arc<Core>,
-    dry_run: bool,
-) -> theseus_protocol::memory::MemoryConsolidateResult {
-    core.memory_consolidate(
-        theseus_protocol::memory::MemoryConsolidateParams {
-            dry_run: Some(dry_run),
-        },
-        "cli",
-    )
-    .await
-    .unwrap()
-}
-
-/// Four facts recalled together by three turns become one synthesis. One of
-/// the four is retracted: the synthesis is found by its real edge and
-/// labeled stale, and the next consolidation proposes the cluster again
-/// without the node, so the wrong fact is not written into a new synthesis.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_stale_syntheses_cluster_is_proposed_again_without_the_node() {
-    let r = rig();
-    let c = &r.core;
-    let facts: Vec<String> = FOUR.iter().map(|f| session(c, None, &[f])).collect();
-    for s in &facts {
-        stamp(c, s);
-    }
-    c.runner.memory.set_ask(index_of(c, facts.clone()));
-    for _ in 0..3 {
-        let g = session(c, None, &[]);
-        turn(c, &g, "What do we know about the Kestrel relay?").await;
-    }
-    let first = consolidate(c, true).await;
-    assert_eq!(first.clusters.len(), 1, "{first:?}");
-    assert_eq!(first.clusters[0].sources.len(), 4, "{first:?}");
-    r.model
-        .script
-        .lock()
-        .unwrap()
-        .push_back(crate::provider::Scripted::text(&format!(
-            "{SYNTHESIS} It is owned by the platform team [4]."
-        )));
-    let out = consolidate(c, false).await;
-    assert_eq!(out.clusters.len(), 1, "{out:?}");
-    let synthesis = out.clusters[0]
-        .synthesis_id
-        .clone()
-        .expect("a kept synthesis");
-
-    let x = c.store.session_nodes(&facts[0]).unwrap()[0].1.id.clone();
-    let out = retract(c, &x).unwrap();
-    let cited = out
-        .exposures
-        .iter()
-        .find(|e| e.kind == kind::SYNTHESIS)
-        .expect("the synthesis that cites it");
-    assert_eq!(cited.node_id, synthesis, "{out:#?}");
-    assert!(c
-        .runner
-        .memory
-        .labeled(&c.store)
-        .unwrap()
-        .contains(&synthesis));
-
-    let again = consolidate(c, true).await;
-    assert_eq!(again.clusters.len(), 1, "{again:?}");
-    let sources = &again.clusters[0].sources;
-    assert_eq!(sources.len(), 3, "{again:?}");
-    assert!(!sources.contains(&x), "{again:?}");
 }

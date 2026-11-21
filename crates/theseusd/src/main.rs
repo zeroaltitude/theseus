@@ -1258,12 +1258,6 @@ fn warm_after_serving(core: &Arc<Core>) {
     // Recall's labels (M6 30b), by one scan of their scope, so a turn's
     // recall reads them from memory.
     core.warm_labels();
-    // The retention projection (M6 32a), when the arm reads it: one walk of
-    // the memory rows on the blocking pool, never on the start path.
-    core.warm_retention();
-    // The adjacency projection (M6 32b), for a daemon whose arm spreads
-    // activation in front of the model.
-    core.warm_activation();
     // The ladder (M5 26a): each pack's mode, read once the socket answers,
     // and the adoptions it lacks written then, never on the start path.
     core.warm_ladder();
@@ -1328,7 +1322,7 @@ async fn after_serving(
     // The learning ledger's nightly report (M5 25c), never within 10
     // minutes of this start, and nothing with the judge off.
     core.learn_after_serving();
-    core.consolidate_after_serving();
+    core.dream_after_serving();
     core.route_replay_after_serving();
     // The self backlog's nightly read, an hour after consolidation, only with `[self] mode = "act"`.
     core.backlog_after_serving();

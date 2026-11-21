@@ -505,7 +505,6 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "families.v1: live",
             "memory.v1: shadow",
             "attribution.v1: shadow",
-            "citation.v1: shadow",
             "compare.v1: shadow",
             "heard.v1: live",
             "people.v1: live",

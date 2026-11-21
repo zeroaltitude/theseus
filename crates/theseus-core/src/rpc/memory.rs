@@ -19,7 +19,6 @@ use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::{Answerer, Refusal};
 use crate::config::memory::MemoryArm;
-use crate::config::MemoryMode;
 use crate::fact;
 use crate::fact::recall::scope;
 use crate::ledger::LedgerRow;
@@ -39,11 +38,7 @@ impl Core {
     /// `baseline`: its sources and science), as a turn in `p.session_id`'s
     /// place would run it (its nodes in context), or, with no session, as
     /// the CLI's: a private place. It writes nothing, whatever `[memory]
-    /// mode` says. An arm that reads retention builds the projection when
-    /// nothing has yet, off this answer's path: until it is built, the row
-    /// says so. Under `+activation` it builds the adjacency projection if no
-    /// turn has (32b), within its deadline. Every arm but `+synthesis` leaves
-    /// the memory's harness session out (31b).
+    /// mode` says. Every arm leaves the memory's harness session out (31b).
     pub async fn memory_search(&self, p: MemorySearchParams) -> Result<RecallManifest, RpcFailure> {
         if p.query.trim().is_empty() {
             return Err(RpcFailure::new(
@@ -64,9 +59,7 @@ impl Core {
                 None => {
                     return Err(RpcFailure::new(
                         error_code::INVALID_PARAMS,
-                        format!(
-                        "{name:?} is not an arm: one of bm25, baseline, +retention, +activation, +synthesis"
-                    ),
+                        format!("{name:?} is not an arm: one of bm25, baseline"),
                     ))
                 }
             },
@@ -81,16 +74,10 @@ impl Core {
             None => (Place::Private, BTreeSet::new()),
         };
         let memory = &self.runner.memory;
-        if arm.reads_retention() {
-            crate::recall::retention::warm(memory, &self.store);
-        }
         memory.syntheses(&self.store);
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
         let mut begun = memory.begin(p.query.clone(), p.as_of, p.k.unwrap_or(K), arm, deadline);
         let answer = begun.answer().await;
-        let (answer, activation) = memory
-            .activated(&self.store, arm, &begun, answer, in_context.clone(), true)
-            .await;
         let scene = Scene {
             mode: "search",
             session_id: p.session_id.as_deref(),
@@ -101,7 +88,6 @@ impl Core {
             budget_tokens: None,
             max_items: None,
             science: memory.science_for(arm),
-            activation,
             threads: p
                 .session_id
                 .as_deref()
@@ -197,9 +183,8 @@ impl Core {
             excluded: set.contains(&p.node_id),
         };
         let records = [fact::row(&f, None, None)?.scoped(labels::SCOPE)];
-        let positions = self.store.append(&records)?;
+        self.store.append(&records)?;
         memory.labeled_now(&p.node_id, label);
-        memory.retention_written(&records, &positions);
         self.rec(None).announce(&f);
         Ok(MemoryLabelResult {
             node_id: p.node_id.clone(),
@@ -275,66 +260,10 @@ impl Core {
         });
     }
 
-    /// The retention projection (32a), built now when the config's arm
-    /// reads it: after serving, on the blocking pool. Otherwise the first
-    /// search that asks builds it.
-    pub fn warm_retention(self: &std::sync::Arc<Self>) {
-        let memory = &self.runner.memory;
-        if memory.on() && memory.cfg().arm.reads_retention() {
-            crate::recall::retention::warm(memory, &self.store);
-        }
-    }
-
-    /// The adjacency projection (32b), built now on the blocking pool, off
-    /// the start path, when `[memory] arm = "+activation"` puts it in front
-    /// of the model (canary or live). A turn that comes sooner starts the
-    /// build and goes on without activation; a search builds it itself.
-    pub fn warm_activation(&self) {
-        let cfg = self.runner.memory.cfg();
-        if cfg.arm == MemoryArm::Activation
-            && matches!(cfg.mode, MemoryMode::Canary | MemoryMode::Live)
-        {
-            self.runner.memory.adjacency.warm(&self.store);
-        }
-    }
-
-    /// Health's memory block: the mode and arm, the retention projection's
-    /// state (32a), and the adjacency projection once an arm reads it or a
-    /// search built it (32b).
+    /// Health's memory block: the mode and arm, and the last recalls.
     pub fn memory_health(&self) -> theseus_protocol::memory::MemoryHealth {
         let memory = &self.runner.memory;
-        let cfg = memory.cfg();
-        let a = &memory.adjacency;
-        let reads = cfg.arm == MemoryArm::Activation
-            && matches!(cfg.mode, MemoryMode::Canary | MemoryMode::Live);
-        let adjacency = match (a.stats(), a.error()) {
-            (Some(st), _) => Some(theseus_protocol::memory::AdjacencyHealth {
-                state: "built".into(),
-                why: None,
-                nodes: st.nodes,
-                edges: st.edges,
-                entities: st.entities,
-                unmapped: st.unmapped,
-                bytes: st.bytes,
-                through: st.through,
-            }),
-            (None, Some(why)) => Some(theseus_protocol::memory::AdjacencyHealth {
-                state: "failed".into(),
-                why: Some(why),
-                ..Default::default()
-            }),
-            (None, None) if a.building() => Some(theseus_protocol::memory::AdjacencyHealth {
-                state: "building".into(),
-                ..Default::default()
-            }),
-            (None, None) if reads => Some(theseus_protocol::memory::AdjacencyHealth {
-                state: "waiting".into(),
-                ..Default::default()
-            }),
-            (None, None) => None,
-        };
         theseus_protocol::memory::MemoryHealth {
-            adjacency,
             recalls: memory.outcomes(),
             ..memory.health()
         }

@@ -43,7 +43,6 @@ fn memory_words(cfg: &Config) -> String {
         MemoryMode::Off => "memory off".into(),
         MemoryMode::Live => format!("memory live ({})", m.arm.as_str()),
         MemoryMode::Shadow => format!("memory shadow ({})", m.arm.as_str()),
-        MemoryMode::Canary => format!("memory canary ({}, {})", m.arm.as_str(), m.canary_fraction),
     }
 }
 
@@ -111,8 +110,9 @@ mod tests {
         assert_eq!(packed.jev, "Jev on, routing shadow");
         let mem = of(&cfg(SET, "[memory]\nmode = \"off\""), None);
         assert_eq!(mem.memory, "memory off");
+        // The retired `canary` reads as `live`.
         let canary = of(&cfg(SET, "[memory]\nmode = \"canary\""), None);
-        assert_eq!(canary.memory, "memory canary (baseline, 0.5)");
+        assert_eq!(canary.memory, "memory live (baseline)");
         let failed = of(&cfg(SET, ""), Some("failed: the vault said no"));
         assert_eq!(
             failed.jev,

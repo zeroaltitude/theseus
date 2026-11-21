@@ -956,23 +956,11 @@ pub async fn index(conn: &mut Conn, json: bool, cmd: IndexCmd) -> Result<()> {
 /// recall's pipeline for a query, and a session's recalls in shadow.
 pub async fn memory(conn: &mut Conn, json: bool, cmd: MemoryCmd) -> Result<()> {
     use theseus_protocol::memory::{
-        MemoryConsolidateParams, MemoryConsolidateResult, MemoryLabelParams, MemoryLabelResult,
-        MemoryRecallsParams, MemoryRecallsResult, MemorySearchParams, RecallManifest,
+        MemoryLabelParams, MemoryLabelResult, MemoryRecallsParams, MemoryRecallsResult,
+        MemorySearchParams, RecallManifest,
     };
     match cmd {
         MemoryCmd::Index { cmd } => index(conn, json, cmd).await,
-        MemoryCmd::Consolidate { dry_run } => {
-            let p = MemoryConsolidateParams {
-                dry_run: Some(dry_run),
-            };
-            let v = conn
-                .request(method::MEMORY_CONSOLIDATE, serde_json::to_value(&p)?)
-                .await?;
-            output(json, v, |r: MemoryConsolidateResult| {
-                print::lines(&mut io::stdout().lock(), &render::consolidated_lines(&r))?;
-                Ok(())
-            })
-        }
         MemoryCmd::Search {
             query,
             session,

@@ -26,7 +26,7 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 const TIDE: &str = "The tide tables are in the harbour office.";
 
 fn canary() -> Rig {
-    rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 /// The model's next answer: `text`.

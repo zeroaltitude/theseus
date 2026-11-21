@@ -386,7 +386,6 @@ mod tests {
         method::MEMORY_RECALLS,
         method::MEMORY_CITES,
         method::MEMORY_LABEL,
-        method::MEMORY_CONSOLIDATE,
         method::FACT_RETRACT,
         method::TURN_REPLAY,
         method::ROUTE_REPORT,

@@ -31,8 +31,7 @@ fn rig() -> (Rig, Arc<FakeProvider>, tempfile::TempDir) {
     let jev = jev(&[]);
     mode(&jev, "chat", 0.2);
     let (r, zai, dir) = rig_with(&jev, None, |c| {
-        c.memory.mode = MemoryMode::Canary;
-        c.memory.canary_fraction = 1.0;
+        c.memory.mode = MemoryMode::Live;
     });
     judging(&r);
     (r, zai, dir)

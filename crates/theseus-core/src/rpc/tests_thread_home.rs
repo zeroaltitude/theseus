@@ -729,7 +729,7 @@ fn recalled_header(c: &Core, sid: &str) -> String {
 /// whose compile no longer holds the turn, may recall it again.
 #[tokio::test]
 async fn recall_still_finds_a_moved_turn_and_credits_its_thread() {
-    let r = rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0);
+    let r = rig_with(MemoryMode::Live, |_| {});
     r.model
         .script
         .lock()

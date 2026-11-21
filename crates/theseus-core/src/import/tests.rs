@@ -238,7 +238,7 @@ pub(super) fn sessions_of(episodes: &[Value]) -> Vec<String> {
 }
 
 pub(super) fn live() -> Rig {
-    rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 /// The fixture imports in one frame: every source and place kind, each
@@ -561,8 +561,7 @@ async fn a_shared_place_recalls_no_import_and_a_private_place_recalls_it_with_it
 #[tokio::test]
 async fn outside_text_is_never_placed_as_instruction() {
     for admit in [false, true] {
-        let r = rig_with(MemoryMode::Canary, |c| {
-            c.memory.canary_fraction = 1.0;
+        let r = rig_with(MemoryMode::Live, |c| {
             c.memory.include_external = admit;
         });
         let c = &r.core;

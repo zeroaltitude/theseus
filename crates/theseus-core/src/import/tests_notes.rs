@@ -21,8 +21,7 @@ use crate::tests_recall::{rig_with, Rig};
 /// A core whose `[import.notes]` switches are these two, and nothing else
 /// changed from the import tests' own rig.
 fn rig_with_notes(enabled: bool, keep_run_state: bool) -> Rig {
-    rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    rig_with(MemoryMode::Live, |c| {
         c.import.notes.enabled = enabled;
         c.import.notes.keep_run_state = keep_run_state;
     })

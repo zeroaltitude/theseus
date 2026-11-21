@@ -253,14 +253,6 @@ mod tests_accept_batch;
 #[cfg(test)]
 mod tests_act_open;
 #[cfg(test)]
-mod tests_activation;
-#[cfg(test)]
-mod tests_activation_arm;
-#[cfg(test)]
-mod tests_activation_pace;
-#[cfg(test)]
-mod tests_activation_search;
-#[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
 mod tests_apart;
@@ -320,8 +312,6 @@ mod tests_commitments;
 mod tests_compaction;
 #[cfg(test)]
 mod tests_config;
-#[cfg(test)]
-mod tests_consolidate;
 #[cfg(test)]
 mod tests_content_cut;
 #[cfg(test)]
@@ -533,6 +523,8 @@ mod tests_overflow;
 #[cfg(test)]
 mod tests_owner_note;
 #[cfg(test)]
+mod tests_pace;
+#[cfg(test)]
 mod tests_payload;
 #[cfg(test)]
 mod tests_people_proposals;
@@ -618,8 +610,6 @@ mod tests_rerank_links;
 mod tests_rerank_live;
 #[cfg(test)]
 mod tests_resident_peak;
-#[cfg(test)]
-mod tests_retention;
 #[cfg(test)]
 mod tests_retract;
 #[cfg(test)]

@@ -166,8 +166,6 @@ pub mod method {
         /// An operator's label on a node recall offered or should have (`memory::MemoryLabelParams`; M6 step 30b):
         /// `wrong` and `stale` keep it out of recall. Acting: the owner, from a private place.
         MEMORY_LABEL = "memory.label",
-        /// Consolidation now (M6 31b; `memory::MemoryConsolidateParams`). Acting.
-        MEMORY_CONSOLIDATE = "memory.consolidate",
         /// What an MCP client asks of private memory (`memory::MemoryLookupParams`; theseus-02i1h). A read.
         MEMORY_LOOKUP = "memory.lookup",
         /// Mark a node wrong and find where it went (`retract::FactRetractParams`; theseus-2ced): the `wrong` label, a correction note for each live session that used it, its syntheses stale, one card for the tasks to re-run. Acting: the owner, from a private place.

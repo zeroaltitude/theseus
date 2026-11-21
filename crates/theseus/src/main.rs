@@ -1166,25 +1166,16 @@ enum MemoryCmd {
         /// How many hits to ask the index for (at most 100).
         #[arg(short, long, default_value_t = 40)]
         k: usize,
-        /// The arm whose sources and science rank it (default `baseline`): `+retention` shows
-        /// each item's retrievability, stability, difficulty and last review; `+activation`
-        /// what spreading activation reached and added; `+synthesis` admits the checked
-        /// syntheses.
-        #[arg(long, value_parser = ["bm25", "baseline", "+retention", "+activation", "+synthesis"])]
+        /// The arm whose sources and science rank it (default `baseline`): `bm25` asks the
+        /// index's words and entities alone.
+        #[arg(long, value_parser = ["bm25", "baseline"])]
         arm: Option<String>,
         /// Only nodes written before this WAL position are candidates (as a turn's recall at
         /// that position would see them).
         #[arg(long, value_name = "POSITION")]
         as_of: Option<u64>,
     },
-    /// Consolidation now: clusters of notes recall admits together become cited syntheses,
-    /// checked by Jev. The operator's, refused inside a job.
-    Consolidate {
-        /// List the clusters it would synthesize, and write nothing.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// What each of SESSION's turns recalled (canary, live) or would have (shadow), newest last.
+    /// What each of SESSION's turns recalled (live) or would have (shadow), newest last.
     Recalled {
         session: String,
         /// The newest this many (at most 200).

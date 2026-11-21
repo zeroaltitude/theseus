@@ -86,7 +86,6 @@ async fn one_turn(
 ) {
     let r = rig_with(mode, |c| {
         c.memory.arm = MemoryArm::Baseline;
-        c.memory.canary_fraction = 1.0;
     });
     let c = r.core.clone();
     let past = session(&c, None, &[OTTER]);
