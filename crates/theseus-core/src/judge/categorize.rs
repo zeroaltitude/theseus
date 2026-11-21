@@ -287,6 +287,8 @@ impl JudgeService {
         self.people_at_exchange_end(&end, task);
         // The owner's own lines, read for the card (theseus-6f8t0).
         self.observe_at_exchange_end(&end, task);
+        // Its `did` line and its place's folds (issue 44, step 4).
+        self.ladder_at_exchange_end(&end, task);
         // The version standing in categorize.v1's place (25f).
         let name = self.placed(PACK, &end.session_id);
         if task || !self.pack_on(&name) {

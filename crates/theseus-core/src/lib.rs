@@ -74,6 +74,7 @@ pub mod judge;
 pub mod keep_warm;
 pub mod keep_warm_threads;
 pub mod keep_warm_wait;
+pub mod ladder;
 pub mod learning;
 pub mod ledger;
 pub mod ledger_gap;

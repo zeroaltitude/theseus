@@ -44,6 +44,18 @@ pub enum LedgerCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Build a place's ladder from its history since its latest /new: a one-line summary of each
+    /// exchange without one, then the fold nodes. `--dry-run` counts and prices it.
+    Ladder {
+        /// The place, as the exchange ledger names it (`discord:channel:<id>`, `local:<dir>`).
+        place: String,
+        /// Count what would be written and its worst case, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The most this run may spend, in dollars (default: what is left of the day's line).
+        #[arg(long)]
+        cap_usd: Option<f64>,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
@@ -60,6 +72,11 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
         LedgerCmd::RebuildExchanges { dry_run } => {
             return crate::exchanges_cmd::rebuild(conn, json, dry_run).await
         }
+        LedgerCmd::Ladder {
+            place,
+            dry_run,
+            cap_usd,
+        } => return crate::exchanges_cmd::ladder(conn, json, place, (dry_run, cap_usd)).await,
         LedgerCmd::Head => (
             LedgerVerifyParams {
                 head_only: true,

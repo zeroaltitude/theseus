@@ -6,7 +6,9 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use theseus_protocol::exchange::{ExchangeRebuildParams, ExchangeReportParams};
+use theseus_protocol::exchange::{
+    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeReportParams,
+};
 use theseus_protocol::{error_code, method, TurnSubmitParams};
 
 use super::server::{parse, Conn, RpcFailure};
@@ -15,7 +17,11 @@ use crate::approval::Surface;
 use crate::exchange::{ledger, rebuild, OwnerMark, Peer};
 
 /// The methods `rpc_exchanges` answers.
-pub(super) const OWN: &[&str] = &[method::EXCHANGE_REPORT, method::EXCHANGE_REBUILD];
+pub(super) const OWN: &[&str] = &[
+    method::EXCHANGE_REPORT,
+    method::EXCHANGE_REBUILD,
+    method::EXCHANGE_LADDER,
+];
 
 impl Core {
     /// A message's mark (issue 44), made from what `turn.submit` knows of its
@@ -101,6 +107,26 @@ impl Core {
                     .await
                     .map_err(|e| RpcFailure::new(error_code::INTERNAL, format!("{e:#}")))?;
                 serde_json::to_value(r)
+            }
+            method::EXCHANGE_LADDER => {
+                let p: ExchangeLadderParams = parse(params)?;
+                let b = self
+                    .ladder_build(&p.place, p.dry_run, p.cap_usd)
+                    .await
+                    .map_err(|e| RpcFailure::new(error_code::INTERNAL, format!("{e:#}")))?;
+                serde_json::to_value(ExchangeLadderResult {
+                    dry_run: b.dry_run,
+                    place: b.place,
+                    since_ms: b.since_ms,
+                    exchanges: b.exchanges,
+                    lines_had: b.lines_had,
+                    lines: b.lines,
+                    folds: b.folds,
+                    above: b.above,
+                    estimated_usd: b.estimated_usd,
+                    spent_usd: b.spent_usd,
+                    stopped: b.stopped,
+                })
             }
             other => {
                 return Err(RpcFailure::new(

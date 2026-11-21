@@ -36,15 +36,15 @@ pub struct ContextConfig {
     /// Absent: `KEPT_MB`; 0 keeps none, and every compile renders whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept_mb: Option<u64>,
-    /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"transcript"`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub assembly: Option<super::assembly::AssemblySetting>,
     /// The exchange ledger (issue 44, step 1; `crate::exchange`): each
     /// person's message's mark, each turn's exchange and touches, and a
     /// measuring row per private turn, all beside the conversation and none
     /// of it sent to a model. Absent: on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ledger: Option<bool>,
+    /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"transcript"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assembly: Option<super::assembly::AssemblySetting>,
 }
 
 /// `persona_max_tokens`' default and bounds.
