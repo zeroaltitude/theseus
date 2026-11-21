@@ -17,6 +17,12 @@ const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/golden/private_requests.txt"
 );
+/// `tests/golden/view_requests.txt`: a small conversation's requests in a place set to `view`.
+/// `THESEUS_GOLDEN=write` writes it again.
+const VIEW_GOLDEN: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/golden/view_requests.txt"
+);
 
 /// The golden's two requests (`tests_private_view`), made under `setting`.
 async fn golden_under(setting: Option<AssemblySetting>) -> String {
@@ -125,10 +131,17 @@ async fn a_view_place_sends_its_window_as_real_turns_frozen_within_a_turn() {
     turn(c, &sid, "look around").await;
     turn(c, &sid, "third: and now").await;
 
-    let second = asked(&r, "look around");
-    assert_eq!(second.len(), 2, "the tool turn made two calls");
-    let third = asked(&r, "third: and now");
-    let third = third.last().unwrap();
+    // The conversation's requests from the tool turn on: its two calls, then the third turn's.
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| !q.tools.is_empty() && texts(q).contains("look around"))
+        .collect();
+    assert_eq!(
+        calls.len(),
+        3,
+        "the tool turn made two calls, the next turn one"
+    );
+    let (second, third) = (&calls[..2], &calls[2]);
+    assert!(last_user(third).contains("third: and now"));
     let all = texts(third);
     for said in [
         "first: the tide",
@@ -297,4 +310,32 @@ async fn a_view_place_is_not_kept_warm() {
     let got = core.runner.keep_warm_once(&sid, &live).await;
     assert_eq!(got, Outcome::Forgotten("its place is set to view".into()));
     assert!(reads(&fake).is_empty());
+}
+
+/// A small conversation in a place set to `view`, byte for byte: three turns, the second with three calls
+/// and their results; each request as the model is sent it.
+#[tokio::test]
+async fn a_small_view_conversations_requests_are_the_golden() {
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    for said in ["first: the tide", "look around", "third: and now"] {
+        turn(c, &sid, said).await;
+    }
+    let tmp = r.root.parent().unwrap().to_path_buf();
+    let mut got = String::new();
+    let calls = (r.requests().into_iter()).filter(|q| !q.tools.is_empty());
+    for (i, q) in calls.enumerate() {
+        got.push_str(&format!("== call {i}\n{}", body(&q, &tmp, &[sid.clone()])));
+    }
+    if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
+        let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| VIEW_GOLDEN.to_string());
+        std::fs::write(to, &got).unwrap();
+    }
+    let want = std::fs::read_to_string(VIEW_GOLDEN).unwrap_or_default();
+    assert!(
+        got == want,
+        "a view conversation's requests moved from tests/golden/view_requests.txt \
+         (THESEUS_GOLDEN=write writes it again):\n{got}"
+    );
 }
