@@ -623,3 +623,129 @@ async fn a_rebuild_after_a_restart_writes_missing_touches_and_ends_misplaced_one
     let again = rebuilt(c, Some(naming), false).await;
     assert_eq!((again.touches, again.repaired), (0, 0));
 }
+
+/// An older build's reply-only touch, keyed at the reply's end, with the
+/// index down: the rebuild moves it to the exchange's start, from its own
+/// record, and loses nothing.
+#[tokio::test]
+async fn a_rebuild_with_the_index_down_moves_a_reply_only_touch_and_loses_none() {
+    let r = rig(1, |_| {});
+    let c = &r.core;
+    let res = turn(c, owner_cli(), None, "a message that names nothing").await;
+    let ex = exchange(&c.store, &res.turn_id).unwrap().unwrap();
+    let only = Root::Thing("file:x.rs");
+    let old = touch(only, &ex.turn_id, &ex.session_id, ex.end_ms.unwrap() + 5).unwrap();
+    c.store.append(&[old]).unwrap();
+    let dry = rebuilt(c, None, true).await;
+    assert_eq!((dry.repaired, dry.touches), (1, 0));
+    assert_eq!(
+        newest(&c.store, only, 8).unwrap()[0].at_ms,
+        ex.end_ms.unwrap() + 5,
+        "a dry run moves nothing"
+    );
+    let wrote = rebuilt(c, None, false).await;
+    assert!(wrote.things_skipped.is_some(), "the index is down");
+    let got = newest(&c.store, only, 8).unwrap();
+    assert_eq!(got.len(), 1, "moved, not lost");
+    assert_eq!(
+        (got[0].exchange.as_str(), got[0].at_ms),
+        (res.turn_id.as_str(), ex.start_ms)
+    );
+    assert_eq!(rebuilt(c, None, false).await.repaired, 0);
+}
+
+/// A thing named past 16 KiB of a reply is named again by the rebuild: it
+/// reads as much of a text as a live turn does.
+#[tokio::test]
+async fn the_rebuild_names_a_thing_as_far_into_a_text_as_a_turn_does() {
+    let long = format!("{} and then crates/x/src/wal.rs", "filler ".repeat(3_000));
+    assert!(long.len() > 16 * 1024 && long.len() < crate::exchange::THINGS_TEXT);
+    let r = rig_saying(&[&long], |_| {});
+    let c = &r.core;
+    turn(c, owner_cli(), None, "say something long").await;
+    assert!(
+        newest(&c.store, wal_rs(), 8).unwrap().is_empty(),
+        "no index ran"
+    );
+    let naming: Arc<dyn crate::memory_pass::PassIndex> = Arc::new(Naming {
+        delay: std::time::Duration::ZERO,
+    });
+    assert_eq!(rebuilt(c, Some(naming), false).await.touches, 1);
+    assert_eq!(newest(&c.store, wal_rs(), 8).unwrap().len(), 1);
+}
+
+/// Two places, one's name extending the other's past the key's separator: a
+/// read of the first never returns the second's touches, and a touch of a
+/// root that holds the separator is refused and counted.
+#[test]
+fn a_place_whose_name_extends_another_past_the_separator_is_not_read_as_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let before = refused_touches();
+    assert!(touch(Root::Place("local:/a\u{1}0"), "turn_9", "s", 9_000).is_none());
+    assert!(touch(Root::Person("x\u{1}y"), "turn_9", "s", 9_000).is_none());
+    assert!(refused_touches() >= before + 2);
+    let mut recs: Vec<_> = (1..=3)
+        .filter_map(|i| {
+            touch(
+                Root::Place("local:/a"),
+                &format!("turn_{i}"),
+                "s",
+                1_000 * i,
+            )
+        })
+        .collect();
+    // As an older build could have written it: a place named `local:/a␁0`.
+    for (i, at) in [(7u64, 500u64), (8, 2_500), (9, 9_000)] {
+        let key = format!(
+            "{TOUCH_PREFIX}place:local:/a{SEP}0{SEP}{:020}{SEP}turn_x{i}",
+            u64::MAX - at
+        );
+        let t = Touch {
+            exchange: format!("turn_x{i}"),
+            session_id: "s".into(),
+            at_ms: at,
+        };
+        recs.push(NewRecord::json(theseus_store::kinds::META, Some(&key), &t).unwrap());
+    }
+    store.append(&recs).unwrap();
+    let names = |v: Vec<Touch>| v.into_iter().map(|t| t.exchange).collect::<Vec<_>>();
+    let a = Root::Place("local:/a");
+    assert_eq!(names(newest(&store, a, 2).unwrap()), ["turn_3", "turn_2"]);
+    assert_eq!(
+        names(newest(&store, a, 9).unwrap()),
+        ["turn_3", "turn_2", "turn_1"]
+    );
+    assert_eq!(
+        names(newest_before(&store, a, 2_000, 9).unwrap()),
+        ["turn_1"]
+    );
+}
+
+/// Namings that finish in the reverse order: the older reply's counts never
+/// stand for the newer's, and the next exchange takes only its preceding
+/// exchange's.
+#[test]
+fn a_late_naming_of_an_older_reply_never_replaces_a_newer_ones_counts() {
+    let board = Board::default();
+    let counts = |n| std::collections::BTreeMap::from([("file".to_string(), n)]);
+    let of = |turn: &str, start_ms, n| ReplyThings {
+        turn: turn.into(),
+        start_ms,
+        counts: counts(n),
+    };
+    put_reply(&board.replies(), "local", of("turn_b", 200, 2));
+    put_reply(&board.replies(), "local", of("turn_a", 100, 1));
+    assert_eq!(board.take_reply("local", Some("turn_b")), Some(counts(2)));
+    put_reply(&board.replies(), "local", of("turn_a", 100, 1));
+    assert_eq!(
+        board.take_reply("local", Some("turn_b")),
+        None,
+        "not the preceding exchange's"
+    );
+    assert_eq!(
+        board.take_reply("local", Some("turn_a")),
+        None,
+        "taken already"
+    );
+}

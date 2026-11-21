@@ -16,7 +16,7 @@ turns: number, kept: number, exchanges: number, touches: number,
 place_proven: number, person_proven: number, 
 /**
  * Touches keyed off their exchange's start (an older build's reply
- * touches), ended so that one exchange holds one touch of a root.
+ * touches), moved to it so that one exchange holds one touch of a root.
  */
 repaired: number, 
 /**

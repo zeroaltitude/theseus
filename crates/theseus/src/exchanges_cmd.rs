@@ -81,7 +81,7 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
     );
     if r.repaired > 0 {
         s.push_str(&format!(
-            "; {} touches keyed off their exchange's start were ended",
+            "; {} touches keyed off their exchange's start were moved to it",
             r.repaired
         ));
     }

@@ -222,7 +222,12 @@ fn touch_key(root: &str, at_ms: u64, turn: &str) -> String {
 /// The touch of `root` by exchange `turn` at `at_ms`, as a record; none for a
 /// thing's term too long to be a key.
 pub fn touch(root: Root<'_>, turn: &str, session: &str, at_ms: u64) -> Option<NewRecord> {
-    if matches!(root, Root::Thing(t) if t.len() > THING_MAX || t.contains(SEP)) {
+    let named = match root {
+        Root::Thing(t) => t.len() > THING_MAX || t.contains(SEP),
+        Root::Place(p) | Root::Person(p) => p.contains(SEP),
+    };
+    if named || turn.contains(SEP) {
+        REFUSED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         return None;
     }
     let value = Touch {
@@ -238,16 +243,65 @@ pub fn touch(root: Root<'_>, turn: &str, session: &str, at_ms: u64) -> Option<Ne
     .ok()
 }
 
+/// Touches refused because their root or turn holds the key's separator
+/// (and so could be read as another root's), since this process started.
+static REFUSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many touches were refused for a separator in their root or turn.
+pub fn refused_touches() -> u64 {
+    REFUSED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether `key`, under `prefix` (a root's own), is that root's: the rest is
+/// exactly the time and the turn. A key of a root whose name extends this
+/// one's past a separator (written before such names were refused) is not.
+fn of_root(key: &str, prefix: &str) -> bool {
+    let Some(rest) = key.strip_prefix(prefix) else {
+        return false;
+    };
+    match rest.split_once(SEP) {
+        Some((time, turn)) => {
+            time.len() == 20 && time.bytes().all(|b| b.is_ascii_digit()) && !turn.contains(SEP)
+        }
+        None => false,
+    }
+}
+
+/// The first `limit` touches of `root`'s own keys from `from` on, in key order
+/// (newest first): keys of a root that merely shares the prefix are skipped,
+/// and the read goes on past them.
+fn own(
+    store: &Store,
+    root: Root<'_>,
+    from: Option<&str>,
+    limit: usize,
+) -> anyhow::Result<Vec<Touch>> {
+    let prefix = format!("{TOUCH_PREFIX}{}{SEP}", root.key());
+    let mut from = from.map_or_else(|| prefix.clone(), str::to_string);
+    let mut out = Vec::new();
+    while out.len() < limit {
+        let want = limit - out.len();
+        let got = store
+            .inner()
+            .first_with_prefix_from(kinds::META, &prefix, &from, want)?;
+        for r in &got {
+            let key = r.key.as_deref().unwrap_or("");
+            if of_root(key, &prefix) {
+                out.push(r.decode()?);
+            }
+        }
+        match got.last().and_then(|r| r.key.as_deref()) {
+            Some(last) if got.len() == want => from = format!("{last}\u{0}"),
+            _ => break,
+        }
+    }
+    Ok(out)
+}
+
 /// The newest `limit` touches of `root`, newest first: one read of the
 /// index's first keys under its prefix, whatever its history.
 pub fn newest(store: &Store, root: Root<'_>, limit: usize) -> anyhow::Result<Vec<Touch>> {
-    let prefix = format!("{TOUCH_PREFIX}{}{SEP}", root.key());
-    store
-        .inner()
-        .first_with_prefix(kinds::META, &prefix, limit)?
-        .iter()
-        .map(|r| r.decode())
-        .collect()
+    own(store, root, None, limit)
 }
 
 /// The newest `limit` touches of `root` strictly older than `before_ms`,
@@ -262,12 +316,7 @@ pub fn newest_before(
     let prefix = format!("{TOUCH_PREFIX}{}{SEP}", root.key());
     // Past every key of `before_ms` itself: its time, then a byte above `SEP`.
     let from = format!("{prefix}{:020}\u{2}", u64::MAX - before_ms);
-    store
-        .inner()
-        .first_with_prefix_from(kinds::META, &prefix, &from, limit)?
-        .iter()
-        .map(|r| r.decode())
-        .collect()
+    own(store, root, Some(&from), limit)
 }
 
 /// An exchange's record.
@@ -306,41 +355,63 @@ pub fn thing_touches(terms: &[String], turn: &str, session: &str, start_ms: u64)
         .collect()
 }
 
+/// A reply's things by kind, with the exchange that made them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplyThings {
+    pub turn: String,
+    pub start_ms: u64,
+    pub counts: BTreeMap<String, u64>,
+}
+
+/// The counts each place's last reply's naming told, by place.
+pub type Replies = Arc<Mutex<HashMap<String, ReplyThings>>>;
+
 /// What the turns share of their exchanges: each place's last reply's
 /// things by kind, for the next row's `reply_things`. Small and bounded; a
 /// restart loses only counts, never a touch (each naming writes its own).
 #[derive(Default)]
 pub struct Board {
-    replies: Arc<Mutex<HashMap<String, BTreeMap<String, u64>>>>,
+    replies: Replies,
 }
 
 impl Board {
     /// The handle a naming task keeps its counts through.
-    pub fn replies(&self) -> Arc<Mutex<HashMap<String, BTreeMap<String, u64>>>> {
+    pub fn replies(&self) -> Replies {
         self.replies.clone()
     }
 
-    /// `place`'s last reply's things, taken.
-    pub fn take_reply(&self, place: &str) -> Option<BTreeMap<String, u64>> {
-        self.replies
+    /// `place`'s last reply's things, taken, when they are `preceding`'s
+    /// (the exchange before the one asking); any other's are dropped.
+    pub fn take_reply(
+        &self,
+        place: &str,
+        preceding: Option<&str>,
+    ) -> Option<BTreeMap<String, u64>> {
+        let r = self
+            .replies
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .remove(place)
+            .remove(place)?;
+        (Some(r.turn.as_str()) == preceding).then_some(r.counts)
     }
 }
 
-/// Keep `counts` as `place`'s last reply's.
-pub fn put_reply(
-    replies: &Mutex<HashMap<String, BTreeMap<String, u64>>>,
-    place: &str,
-    counts: BTreeMap<String, u64>,
-) {
+/// Keep `r` as `place`'s last reply's things, unless a newer exchange's are
+/// kept already: namings can finish in any order.
+pub fn put_reply(replies: &Mutex<HashMap<String, ReplyThings>>, place: &str, r: ReplyThings) {
     let mut m = replies.lock().unwrap_or_else(|e| e.into_inner());
+    if m.get(place).is_some_and(|old| old.start_ms > r.start_ms) {
+        return;
+    }
     if m.len() >= REPLIES_KEPT && !m.contains_key(place) {
         m.clear();
     }
-    m.insert(place.into(), counts);
+    m.insert(place.into(), r);
 }
+
+/// The most of a message or reply the index is asked to name things in,
+/// live and in the rebuild alike.
+pub const THINGS_TEXT: usize = 64 * 1024;
 
 #[cfg(test)]
 mod tests;

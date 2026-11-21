@@ -16,14 +16,14 @@ use crate::compiler::{Compiled, RequestSpec};
 use crate::exchange::ledger::{self, Given, Seen, View};
 use crate::exchange::{
     exchange_record, mark_record, place_of, put_reply, thing_touches, touch, Exchange, Opener,
-    OwnerMark, Root,
+    OwnerMark, ReplyThings, Root,
 };
 use crate::node::Node;
 use crate::places::PlaceClass;
 use crate::store::Transcript;
 
 /// The most of a message the index is asked to name things in.
-const THINGS_TEXT: usize = 64 * 1024;
+const THINGS_TEXT: usize = crate::exchange::THINGS_TEXT;
 
 /// What a turn holds of its exchange until it ends.
 #[derive(Default)]
@@ -181,7 +181,14 @@ impl TurnRunner {
         if let Some(p) = &ex.person {
             defer(t, touch(Root::Person(p), &ex.turn_id, sid, at));
         }
-        t.exchange.reply_things = self.exchanges.take_reply(&ex.place);
+        // The place's exchange before this one, whose reply's counts these are.
+        let before =
+            crate::exchange::newest(t.tc.store, Root::Place(&ex.place), 2).unwrap_or_default();
+        let preceding = before
+            .iter()
+            .find(|p| p.exchange != ex.turn_id)
+            .map(|p| p.exchange.as_str());
+        t.exchange.reply_things = self.exchanges.take_reply(&ex.place, preceding);
         if let Some(text) = t.exchange.ask_text.take() {
             let (tx, rx) = oneshot::channel();
             let told = move |c| {
@@ -275,7 +282,18 @@ impl TurnRunner {
         }
         let replies = self.exchanges.replies();
         let place = ex.place.clone();
-        let keep = move |c| put_reply(&replies, &place, c);
+        let (turn, start_ms) = (ex.turn_id.clone(), ex.start_ms);
+        let keep = move |counts| {
+            put_reply(
+                &replies,
+                &place,
+                ReplyThings {
+                    turn,
+                    start_ms,
+                    counts,
+                },
+            )
+        };
         let at = (ex.turn_id.as_str(), ex.session_id.as_str(), ex.start_ms);
         self.things_of(&result.output, at, keep);
     }

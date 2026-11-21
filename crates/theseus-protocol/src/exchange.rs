@@ -63,7 +63,7 @@ pub struct ExchangeRebuildResult {
     pub place_proven: u64,
     pub person_proven: u64,
     /// Touches keyed off their exchange's start (an older build's reply
-    /// touches), ended so that one exchange holds one touch of a root.
+    /// touches), moved to it so that one exchange holds one touch of a root.
     pub repaired: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
