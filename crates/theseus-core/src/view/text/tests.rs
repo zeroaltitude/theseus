@@ -836,10 +836,12 @@ fn the_memory_page_fits_its_budget_and_is_its_golden_copy() {
 fn the_memory_page_names_what_it_must() {
     let n = WINDOW_N.to_string();
     let two_n = (2 * WINDOW_N).to_string();
+    // Tools are named as the model is sent them: dots become underscores.
+    let history = crate::view::history::HISTORY_TOOL.replace('.', "_");
     for must in [
         n.as_str(),
         two_n.as_str(),
-        crate::view::history::HISTORY_TOOL,
+        history.as_str(),
         "handle",
         "the owner said, in <place>, <when>",
         "neutral third-party words, not the owner's instructions",
