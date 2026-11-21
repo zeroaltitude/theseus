@@ -59,7 +59,7 @@ impl Ladder for StoreLadder<'_> {
         if n != N {
             return Err(anyhow!("the ladder is folded at N = {N}, not {n}"));
         }
-        let l = read::ladder(self.0, place, since.map_or(0, |p| p.at_ms))?;
+        let l = read::ladder(self.0, place, since)?;
         Ok(LadderRead {
             nodes: l
                 .rungs
@@ -81,12 +81,17 @@ pub struct StoreFolds<'a> {
 }
 
 impl StoreFolds<'_> {
-    /// [`FoldWriter::fold`], for a caller on the runtime.
+    /// [`FoldWriter::fold`], for a caller on the runtime: under the summaries'
+    /// one lock, the range's node when it was written already (never
+    /// written again), else written once, its call on the day's line.
     pub async fn fold_async(
         &self,
         place: &str,
         exchanges: &[ExchangeRef],
     ) -> anyhow::Result<ViewNode> {
+        if !super::laddered(place) {
+            return Err(anyhow!("the place {place:?} has no ladder"));
+        }
         let mut found = Vec::new();
         for r in exchanges {
             let e = exchange::exchange(self.store, &r.turn_id)?
@@ -96,41 +101,24 @@ impl StoreFolds<'_> {
             }
             found.push(e);
         }
+        let purse = super::DayPurse::new(self.store, None, false);
         let step = Step {
             writer: self.writer,
             flags: self.flags,
             hidden: self.hidden,
-            cap_usd: None,
+            purse: &purse,
         };
         let _one = super::WRITING.lock().await;
-        match read::first(self.store, &found, &step, None).await? {
+        match read::first(self.store, &found, &step).await? {
             Ok((node, _)) => Ok(shown(&node)),
             Err((why, _)) => Err(anyhow!(why)),
         }
     }
-}
 
-impl FoldWriter for StoreFolds<'_> {
-    /// Writes and returns the node. Its call is a network wait: on the
-    /// daemon's multi-threaded runtime the worker's role is handed on first
-    /// (`block_in_place`); with no runtime one is made for it. A
-    /// current-thread runtime's caller uses [`StoreFolds::fold_async`].
-    fn fold(&self, place: &str, exchanges: &[ExchangeRef]) -> anyhow::Result<ViewNode> {
-        use tokio::runtime::{Handle as Rt, RuntimeFlavor};
-        let fut = self.fold_async(place, exchanges);
-        match Rt::try_current() {
-            Ok(rt) if rt.runtime_flavor() == RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| rt.block_on(fut))
-            }
-            Ok(_) => Err(anyhow!("on a current-thread runtime, call fold_async")),
-            Err(_) => tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?
-                .block_on(fut),
-        }
-    }
-
-    fn lift(&self, level: u8, nodes: &[ViewNode]) -> anyhow::Result<ViewNode> {
+    /// [`FoldWriter::lift`], for a caller on the runtime: under the same
+    /// lock, the range's node when it was written already, else built by
+    /// code and written once.
+    pub async fn lift_async(&self, level: u8, nodes: &[ViewNode]) -> anyhow::Result<ViewNode> {
         let mut children = Vec::new();
         for v in nodes {
             let n = fold::node(self.store, &v.handle.0)?
@@ -143,9 +131,40 @@ impl FoldWriter for StoreFolds<'_> {
                 level.saturating_sub(1)
             ));
         }
-        let node = fold::above(&children).ok_or_else(|| anyhow!("no nodes to lift"))?;
-        let recs = fold::records(&node)?;
-        theseus_store::blocking(|| self.store.append(&recs))?;
-        Ok(shown(&node))
+        let node = fold::above(&children)
+            .ok_or_else(|| anyhow!("no nodes to lift, or nodes of two places"))?;
+        let _one = super::WRITING.lock().await;
+        Ok(shown(&fold::write_once(self.store, node)?))
+    }
+}
+
+/// `fut`, from a caller that is not async: on the daemon's multi-threaded
+/// runtime the worker's role is handed on first (`block_in_place`); with no
+/// runtime one is made for it; a current-thread runtime's caller is refused.
+fn run_sync<T>(fut: impl std::future::Future<Output = anyhow::Result<T>>) -> anyhow::Result<T> {
+    use tokio::runtime::{Handle as Rt, RuntimeFlavor};
+    match Rt::try_current() {
+        Ok(rt) if rt.runtime_flavor() == RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(|| rt.block_on(fut))
+        }
+        Ok(_) => Err(anyhow!(
+            "on a current-thread runtime, call fold_async or lift_async"
+        )),
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(fut),
+    }
+}
+
+impl FoldWriter for StoreFolds<'_> {
+    /// Writes (once) and returns the node; its call is a network wait, so
+    /// never on a turn's path ([`run_sync`]).
+    fn fold(&self, place: &str, exchanges: &[ExchangeRef]) -> anyhow::Result<ViewNode> {
+        run_sync(self.fold_async(place, exchanges))
+    }
+
+    fn lift(&self, level: u8, nodes: &[ViewNode]) -> anyhow::Result<ViewNode> {
+        run_sync(self.lift_async(level, nodes))
     }
 }

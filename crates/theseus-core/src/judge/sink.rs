@@ -326,6 +326,8 @@ impl JudgeService {
                 Ok(mut r) => {
                     r.key = Some(j.id.clone());
                     records.push(r.scoped(&scope));
+                    // A correction, kept by its message for the ladder (issue 44).
+                    records.extend(crate::ladder::correction_record(j, turn));
                 }
                 Err(e) => {
                     tracing::warn!(error = %format!("{e:#}"), "judge: a judgment's row was not built")
