@@ -13,6 +13,7 @@
 //! call renders the same front, window and beside block, so each request of the turn begins with the bytes
 //! of the one before (the thinking binding, `docs/design/thinking-binding.md`). The next turn builds afresh.
 //! Nothing of the view is written into the session: the beside block lives in the turn alone.
+//! `docs/design/view-compile.md` has the whole of it.
 
 use std::collections::HashSet;
 
@@ -84,26 +85,10 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
         .current
         .filter(|c| frozen.compilation_id.as_deref() == Some(c.id.as_str()));
     let new_compilation = current.is_none();
-    let mut compilation = current.cloned().unwrap_or_else(|| Compilation {
-        id: crate::new_id("cmp"),
-        schema: COMPILATION_SCHEMA,
-        session_id: input.session_id.into(),
-        created_at_ms: theseus_protocol::now_unix_ms(),
-        trigger: TRIGGER.into(),
-        strategy: STRATEGY.into(),
-        as_of: input.last_position,
-        includes: frozen.window.iter().map(|(_, n)| n.id.clone()).collect(),
-        derived_from: input.current.map(|c| c.id.clone()),
-        manifest: manifest_for(spec, input.catalog, window, true),
-        budget: None,
-        recall_id: None,
-        situation: None,
-        inherits: None,
-    });
+    let mut compilation = current
+        .cloned()
+        .unwrap_or_else(|| made_now(&input, frozen, spec, window));
     let laid = laid(input.nodes, frozen);
-    if new_compilation {
-        compilation.budget = carried(input.current, &compilation.includes);
-    }
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
     let made = |c: &Compilation| {
         let split = split(c, &laid);
@@ -179,6 +164,33 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
         cleared,
         card: None,
         prefix: None,
+    }
+}
+
+/// The turn's compilation, made at its first call: the window's node ids its `includes`, its thinking
+/// stripped, and what the turn before cleared still cleared.
+fn made_now(
+    input: &CompileInput<'_>,
+    frozen: &Frozen,
+    spec: &RequestSpec,
+    window: Option<u64>,
+) -> Compilation {
+    let includes: Vec<String> = frozen.window.iter().map(|(_, n)| n.id.clone()).collect();
+    Compilation {
+        id: crate::new_id("cmp"),
+        schema: COMPILATION_SCHEMA,
+        session_id: input.session_id.into(),
+        created_at_ms: theseus_protocol::now_unix_ms(),
+        trigger: TRIGGER.into(),
+        strategy: STRATEGY.into(),
+        as_of: input.last_position,
+        budget: carried(input.current, &includes),
+        includes,
+        derived_from: input.current.map(|c| c.id.clone()),
+        manifest: manifest_for(spec, input.catalog, window, true),
+        recall_id: None,
+        situation: None,
+        inherits: None,
     }
 }
 

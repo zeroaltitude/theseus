@@ -1,9 +1,9 @@
 //! The view wired to the store, for the compiler's strategy `view` (`compiler::view`): the ledger's touch
 //! index as a [`Timeline`], one frozen [`Snapshot`] a turn, and [`assemble`], which runs the selectors, the
 //! gate, the budgeter, the renderer and the ladder's read once, in that order. Until the selector, gate,
-//! renderer and fold work is wired in, [`Parts::unwired`] holds what stands in for each: no selector, a gate
-//! that admits only code-laid pieces, a renderer that lays no block, and a ladder of no node whose window is
-//! the place's newest exchanges.
+//! renderer and fold work is wired in, [`Parts::unwired`] holds what stands in for each: no selector, a
+//! renderer that lays no block, and a ladder of no node whose window is the place's newest exchanges. The
+//! gate is the gate's own ([`super::permit::Permit`]).
 
 use super::budget::{fit, Budget, Overflow, View};
 use super::fold::{Ladder, LadderRead, WINDOW_N};
@@ -11,7 +11,7 @@ use super::gate::{Admitted, Gate};
 use super::render::{Renderer, RequestParts};
 use super::select::Selector;
 use super::timeline::{Cursor, ExchangeRef, Timeline, TimelineRoot};
-use super::{Anchor, AtHand, Piece, PointOfView, Pos, Snapshot};
+use super::{Anchor, AtHand, PointOfView, Pos, Snapshot, Space};
 use crate::exchange::{self, Root};
 use crate::store::Store;
 
@@ -82,15 +82,6 @@ impl Ladder for Unfolded<'_> {
     }
 }
 
-/// The gate before the gate work: only what code laid passes ([`Admitted::code`]).
-pub struct CodeOnly;
-
-impl Gate for CodeOnly {
-    fn admit(&self, _: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
-        Admitted::code(piece)
-    }
-}
-
 /// The renderer before the renderer work: no memory page and no block.
 pub struct Shell;
 
@@ -116,7 +107,7 @@ impl<'a> Parts<'a> {
     pub fn unwired(ladder: &'a dyn Ladder) -> Self {
         Self {
             selectors: &[],
-            gate: &CodeOnly,
+            gate: &super::permit::Permit,
             renderer: &Shell,
             ladder,
         }
@@ -156,7 +147,11 @@ pub fn assemble(
     let mut admitted = Vec::new();
     for s in parts.selectors {
         for piece in s.select(pov, snap)? {
-            admitted.extend(parts.gate.admit(pov, piece));
+            // What code laid has nothing to permit; everything else passes the gate.
+            admitted.extend(match piece.range.space {
+                Space::Code { .. } => Admitted::code(piece),
+                _ => parts.gate.admit(pov, piece),
+            });
         }
     }
     let view = fit(pov, admitted, budget).map_err(NotAssembled::Overflow)?;
