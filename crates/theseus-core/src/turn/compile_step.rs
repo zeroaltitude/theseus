@@ -166,11 +166,6 @@ impl TurnRunner {
         let (prefix_spec, picked) = self.prefix_pick(t, spec, (current.as_ref(), &nodes), point, i);
         let spec = prefix_spec.as_ref().unwrap_or(spec);
         let assembled = t.recall.assembled_id().map(str::to_string);
-        // A place set to `view` (issue 44): its turn's view, assembled once, then each call built from it.
-        let viewed = self.assembly_here(t) == crate::config::assembly::Assembly::View;
-        if viewed {
-            self.view_freeze(t, spec)?;
-        }
         let given = self.situation_of(t, &nodes, current.is_none(), session);
         let input = CompileInput {
             session_id: sid,
@@ -199,14 +194,8 @@ impl TurnRunner {
         };
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
-        let view = (t.view.as_ref()).filter(|_| viewed);
-        let mut compiled = match view.map(|f| crate::compiler::view::compile(input, f)) {
-            Some(c) => c,
-            None => Box::pin(self.compact(t, compile(input), input, i)).await?,
-        };
-        if let Some(f) = t.view.as_mut().filter(|_| compiled.new_compilation) {
-            f.compilation_id = Some(compiled.compilation.id.clone());
-        }
+        // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
+        let mut compiled = Box::pin(self.compile_here(t, input, i)).await?;
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).

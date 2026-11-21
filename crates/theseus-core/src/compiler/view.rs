@@ -27,6 +27,11 @@ pub const STRATEGY: &str = "view";
 pub const TRIGGER: &str = "view_turn";
 /// The provider's most cache breakpoints in one request.
 const MAX_BREAKPOINTS: usize = 4;
+/// Tool output in the window that sets off a clearing pass, in tokens of results not yet cleared (design
+/// §5.2: the build's rule, with its own high mark for a window counted in exchanges).
+pub const CLEAR_AT_TOKENS: u64 = 80_000;
+/// The newest results a pass keeps whole, in tokens.
+pub const KEEP_TOKENS: u64 = 40_000;
 
 /// What a turn in a view place sends besides its own nodes, frozen at its first call.
 #[derive(Debug, Clone, Default)]
@@ -96,11 +101,38 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
         inherits: None,
     });
     let laid = laid(input.nodes, frozen);
-    let split = split(&compilation, &laid);
-    let rendered = render(spec, input.catalog, &split, &laid.0, &input);
+    if new_compilation {
+        compilation.budget = carried(input.current, &compilation.includes);
+    }
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
-    let counted = counted_part(&laid.0, &split, &rendered.request);
-    let mut est = estimate(&rendered.request, rates, counted);
+    let made = |c: &Compilation| {
+        let split = split(c, &laid);
+        let rendered = render(spec, input.catalog, &split, &laid.0, &input);
+        let counted = counted_part(&laid.0, &split, &rendered.request);
+        let est = estimate(&rendered.request, rates, counted);
+        (split, rendered, est)
+    };
+    let (split, mut rendered, mut est) = made(&compilation);
+    // Fixed between clearings: a pass runs only as a turn begins, and its stubs hold after.
+    let mut cleared = None;
+    if let Some(pass) = new_compilation
+        .then(|| clear(&split, &laid.0, &rendered, &est))
+        .flatten()
+    {
+        let (drops, results, chars) = pass;
+        let before = est.tokens;
+        let b = compilation.budget.get_or_insert_with(Default::default);
+        let kept = b.dropped.len() as u64;
+        b.dropped.extend(drops);
+        (_, rendered, est) = made(&compilation);
+        cleared = Some(Pass {
+            results,
+            chars,
+            kept,
+            tokens_before: before,
+            tokens_after: est.tokens,
+        });
+    }
     let Rendered {
         request,
         prefix_nodes,
@@ -110,7 +142,8 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
     } = rendered;
     est.bytes = request.json_bytes();
     let limit = window.map(|w| request_budget(w, spec));
-    let budget = budget_report(limit, &est, None::<BudgetDrop>);
+    let drops = clearing::drops(compilation.budget.as_ref()).cloned();
+    let budget = budget_report(limit, &est, drops.collect::<Vec<_>>());
     let trigger = new_compilation.then(|| TRIGGER.to_string());
     let situation = situation::settle(
         input.situation,
@@ -143,10 +176,46 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
             .count() as u64,
         signals: Default::default(),
         situation,
-        cleared: None,
+        cleared,
         card: None,
         prefix: None,
     }
+}
+
+/// The results the turn before cleared that are still in the window: a clearing holds.
+fn carried(current: Option<&Compilation>, includes: &[String]) -> Option<BudgetReport> {
+    let ids: HashSet<&str> = includes.iter().map(String::as_str).collect();
+    let dropped: Vec<BudgetDrop> = clearing::drops(current.and_then(|c| c.budget.as_ref()))
+        .filter(|d| d.node_id.as_deref().is_some_and(|id| ids.contains(id)))
+        .cloned()
+        .collect();
+    (!dropped.is_empty()).then(|| BudgetReport {
+        dropped,
+        ..Default::default()
+    })
+}
+
+/// The build's clearing pass over the laid nodes, with this strategy's numbers: when the results not yet
+/// cleared pass [`CLEAR_AT_TOKENS`], every result over `MIN_CHARS` older than the newest [`KEEP_TOKENS`]
+/// becomes its receipt (the newest exchange's stay whole). The drops, the results and their characters.
+fn clear(
+    split: &Compilation,
+    nodes: &[(u64, Stub)],
+    rendered: &Rendered,
+    est: &Estimate,
+) -> Option<(Vec<BudgetDrop>, u64, u64)> {
+    if !clearing::any_old(nodes) {
+        return None;
+    }
+    let shown: Vec<(u64, &Node)> = nodes.iter().map(|(p, n)| (*p, &**n)).collect();
+    let already = clearing::of(split);
+    let per_byte = est.tokens as f64 / rendered.request.json_bytes().max(1) as f64;
+    if clearing::live_tokens(&shown, &already, per_byte) <= CLEAR_AT_TOKENS {
+        return None;
+    }
+    let (drops, chars) = clearing::pass(&shown, &already, KEEP_TOKENS, per_byte);
+    let results = drops.len() as u64;
+    (!drops.is_empty()).then_some((drops, results, chars))
 }
 
 /// The nodes as the request lays them, renumbered so the compiler's split reads the front and the window as
@@ -156,9 +225,10 @@ fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
     let front = frozen.front.iter().map(|n| Stub::from(n.clone()));
     let window = frozen.window.iter().map(|(_, n)| n.clone());
     let prefix: Vec<Stub> = front.chain(window).collect();
+    // A recall note is the transcript's: in a view, recall is a selector's piece beside the message.
     let own = nodes
         .iter()
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind != crate::stub::Kind::Recall)
         .map(|(_, n)| n.clone());
     let tail = frozen.beside.iter().cloned().map(Stub::from).chain(own);
     let as_of = prefix.len() as u64;

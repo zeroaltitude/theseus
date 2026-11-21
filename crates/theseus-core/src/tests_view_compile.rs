@@ -10,8 +10,8 @@ use serde_json::Value;
 use crate::config::assembly::{Assembly, AssemblyByPlace, AssemblySetting};
 use crate::provider::binding::unmarked;
 use crate::provider::ProviderRequest;
-use crate::tests_places::{last_user, rig_with, session_in, turn, Rig};
-use crate::tests_private_view::{body, owners_rig, said_earlier, with_person, ASKED};
+use crate::tests_places::{last_user, rig_with, turn, Rig};
+use crate::tests_private_view::{body, owners_rig, said_earlier, session_in, with_person, ASKED};
 
 const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -194,4 +194,107 @@ async fn a_view_window_reads_the_place_across_its_sessions() {
             texts(&q)
         );
     }
+}
+
+/// The fault of 2026-11-21, replayed in `view` with no judge in the way: a reply minutes after an answer,
+/// naming nothing, is sent with the answer before it, as a real turn of the window.
+#[tokio::test]
+async fn a_reply_that_names_nothing_sees_the_answer_before_it() {
+    let r = crate::tests_places::rig_scripted(
+        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |q| match last_user(q).contains("which door") {
+            true => crate::provider::Scripted::text("The north door, code 4417."),
+            false => crate::provider::Scripted::text("Noted."),
+        },
+    );
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "which door do I use tonight?").await;
+    turn(c, &sid, "ok and after that?").await;
+    let q = asked(&r, "ok and after that?").pop().unwrap();
+    let at = |what: &str| {
+        (q.messages.iter())
+            .position(|m| serde_json::to_string(m).unwrap().contains(what))
+            .unwrap_or_else(|| panic!("the request carries {what:?}: {}", texts(&q)))
+    };
+    assert_eq!(q.messages[at("north door, code 4417")]["role"], "assistant");
+    assert!(at("which door") < at("north door") && at("north door") < at("ok and after that?"));
+    // No note of recall is written into the session in a view place.
+    let notes = (c.store.session_nodes(&sid).unwrap().into_iter())
+        .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
+        .count();
+    assert_eq!(notes, 0, "no recall note in the transcript");
+}
+
+/// The next morning: the window is counted in exchanges, so eleven hours on it is the same window.
+#[tokio::test]
+async fn eleven_hours_later_the_window_is_unchanged() {
+    use crate::view::fold::Ladder;
+    use crate::view::wire::{StoreTimeline, Unfolded};
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, "evening: the plan").await;
+    turn(c, &sid, "evening: the second step").await;
+    let dir = r.root.to_string_lossy().into_owned();
+    let place = crate::exchange::place_of(None, Some(&dir));
+    let timeline = StoreTimeline(&c.store);
+    let ladder = Unfolded(&timeline);
+    let tonight = ladder
+        .read(&place, crate::view::fold::WINDOW_N, None)
+        .unwrap();
+    assert_eq!(tonight.window.len(), 2, "{tonight:?}");
+    // The snapshot's clock moves; the window does not read it.
+    let snap = |now_ms| crate::view::wire::StoreSnapshot {
+        now_ms,
+        timeline: StoreTimeline(&c.store),
+        at_hand: None,
+    };
+    let now = theseus_protocol::now_unix_ms();
+    for at in [now, now + 11 * 3_600_000] {
+        let s = snap(at);
+        let l = Unfolded(&s.timeline);
+        assert_eq!(
+            l.read(&place, crate::view::fold::WINDOW_N, None).unwrap(),
+            tonight
+        );
+    }
+}
+
+/// A place in company: its request carries its own exchanges and nothing said elsewhere.
+#[tokio::test]
+async fn a_place_in_company_gets_nothing_from_elsewhere() {
+    let r = view_rig();
+    let c = &r.core;
+    let private = session_in(c, None, &r.root);
+    turn(c, &private, "private: the owner's own words").await;
+    let lab = format!("channel:{}", crate::tests_places::LAB);
+    let shared = crate::tests_places::session(c, Some(&lab));
+    turn(c, &shared, "shared: first here").await;
+    turn(c, &shared, "shared: second here").await;
+    let q = asked(&r, "shared: second here").pop().unwrap();
+    let all = texts(&q);
+    assert!(all.contains("shared: first here"), "its own window: {all}");
+    assert!(
+        !all.contains("the owner's own words"),
+        "nothing from elsewhere: {all}"
+    );
+}
+
+/// Keep-warm is off for a place in `view`: its next request is built afresh, so there is no transcript
+/// prefix to read; the same conversation under the transcript is kept warm.
+#[tokio::test]
+async fn a_view_place_is_not_kept_warm() {
+    use crate::keep_warm::Outcome;
+    use crate::tests_keep_warm::{build, one_hour, reads, session, turn};
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = one_hour(24);
+    c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+    let (core, fake) = build(dir.path(), c);
+    let live = core.live_profile().0;
+    let sid = session(&core, theseus_protocol::SessionKind::Conversation, None);
+    turn(&core, &sid, "a conversation in a view place").await;
+    let got = core.runner.keep_warm_once(&sid, &live).await;
+    assert_eq!(got, Outcome::Forgotten("its place is set to view".into()));
+    assert!(reads(&fake).is_empty());
 }

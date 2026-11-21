@@ -4,9 +4,8 @@
 
 use std::collections::HashMap;
 
-use super::{Turn, TurnRunner};
+use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
-use crate::compiler::RequestSpec;
 use crate::config::assembly::Assembly;
 use crate::exchange::{place_of, OWNER};
 use crate::places::PlaceClass;
@@ -37,9 +36,31 @@ impl TurnRunner {
         self.cfg.context.assembly_for(&self.place_here(t))
     }
 
+    /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
+    /// else the transcript's, with a summary where the ring would cut (30c).
+    pub(super) async fn compile_here(
+        &self,
+        t: &mut Turn<'_>,
+        input: CompileInput<'_>,
+        i: u32,
+    ) -> anyhow::Result<Compiled> {
+        if self.assembly_here(t) != Assembly::View {
+            return Box::pin(self.compact(t, compile(input), input, i)).await;
+        }
+        self.view_freeze(t, input.spec)?;
+        let Some(f) = t.view.as_mut() else {
+            anyhow::bail!("the turn's view was not assembled");
+        };
+        let compiled = crate::compiler::view::compile(input, f);
+        if compiled.new_compilation {
+            f.compilation_id = Some(compiled.compilation.id.clone());
+        }
+        Ok(compiled)
+    }
+
     /// The turn's view, assembled on its first call and kept in `t.view` for its later ones (frozen within
     /// a turn); a new turn assembles afresh.
-    pub(super) fn view_freeze(&self, t: &mut Turn<'_>, spec: &RequestSpec) -> anyhow::Result<()> {
+    fn view_freeze(&self, t: &mut Turn<'_>, spec: &RequestSpec) -> anyhow::Result<()> {
         if t.view.as_ref().is_some_and(|f| f.turn_id == t.tc.turn_id) {
             return Ok(());
         }
@@ -82,6 +103,7 @@ impl TurnRunner {
             window.extend(
                 nodes
                     .filter(|(_, n)| n.turn_id.as_deref() == Some(e.turn_id.as_str()))
+                    .filter(|(_, n)| n.kind != crate::stub::Kind::Recall)
                     .cloned(),
             );
         }
