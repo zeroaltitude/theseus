@@ -112,6 +112,17 @@ impl TurnRunner {
         } else {
             Default::default()
         };
+        // A record kept from a message of another conversation is shown only
+        // where the gate admits that conversation for this turn: its place
+        // under the turn's presence, and its seal (issue 44).
+        let mut held = held;
+        held.extend(crate::view_gate::standing_held(
+            self,
+            session_id,
+            crate::standing::live(&all, Some(scope), now)
+                .iter()
+                .map(|r| (r.id.as_str(), r.source.as_str())),
+        ));
         (
             Block::of_held(&all, scope, class, now, &held),
             Block::here_held(&all, scope, class, now, &held),

@@ -89,7 +89,11 @@ struct FakeGate;
 
 impl Gate for FakeGate {
     fn admit(&self, _: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
-        piece.marks.place.is_some().then(|| Admitted::new(piece))
+        piece
+            .marks
+            .place
+            .is_some()
+            .then(|| Admitted::for_tests(piece))
     }
 }
 
@@ -204,7 +208,7 @@ fn a_floor_that_cannot_fit_is_a_typed_overflow() {
         .select(&pov, &snap)
         .expect("selects")
         .into_iter()
-        .map(Admitted::new)
+        .map(Admitted::for_tests)
         .collect();
     let err = fit(&pov, admitted, &Budget::new(1_000, 900)).expect_err("does not fit");
     assert_eq!(

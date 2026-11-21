@@ -101,7 +101,7 @@ impl ToolRuntime {
                     self.history.run(tc, &input)
                 }
                 // Another thread, read on purpose (theseus-f2g0).
-                crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
+                crate::thread_read::FAMILY => self.thread_read.run(tc, &input, ctx.approved),
                 // Theseus and its vault, looked at by name (issue 26).
                 crate::look::FAMILY => self.look.run(tc, tool.name(), &input),
                 // A profile handed a piece of work, as a task (issue 28).
