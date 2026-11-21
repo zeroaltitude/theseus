@@ -2,7 +2,7 @@
 
 The size of Theseus's code and of what it builds. Written by `scripts/stats.py`; do not edit it by hand.
 
-Counted at commit 1d324465, over every file git tracks:
+Counted at commit cfbddc7c, over every file git tracks:
 
 - **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: files under a `tests/` or `test/` directory, files named `tests…`, `test_…` or `*.test.*`, and Rust's `#[cfg(test)] mod … { … }` blocks.
 - **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; `#` lines in Python and shell, and Python's `"""` strings that begin a line. A marker inside a string literal is not a comment.
@@ -42,8 +42,8 @@ Counted at commit 1d324465, over every file git tracks:
 | crates/theseus-voice | 6,131 | 6,580 | 2,022 |
 | crates/theseusd | 5,257 | 32,120 | 5,458 |
 | infra/ | 554 | 1,422 | 203 |
-| scripts/ | 10,212 | 5,574 | 3,416 |
-| **Total** | **638,793** | **549,738** | **203,138** |
+| scripts/ | 10,213 | 5,584 | 3,418 |
+| **Total** | **638,794** | **549,748** | **203,140** |
 | vendor/ (third-party, not in the total) | 12,827 | 1,058 | 3,154 |
 
 ## Build sizes
