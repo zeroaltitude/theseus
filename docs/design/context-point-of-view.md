@@ -198,6 +198,14 @@ his words from other private places are his; what is withheld in company and why
 always there, to be used before asking him what he meant. It absorbs the standing sentences of §3. It is fixed
 text, versioned, and held by a test, so it costs nothing after the first call.
 
+The principle behind it is the owner's: Theseus is to be **open to itself**. Other harnesses are opaque to the
+model that runs in them; this one tells the model the conditions it works under, within a tight budget. The
+build already has a card that tells a turn about itself, and tools by which Theseus reads its own settings;
+this page joins them. Two things follow in this design. What does not fit the page is one look away, not
+hidden: the page says where. And the record of what a turn was shown and why (§3, the view) is readable by
+the model itself, where the owner is alone: Theseus can ask what it was given, what was left out, and for what
+reason.
+
 **The order on the wire** (the owner's point: what is fixed goes first, what moves goes last):
 
 1. A, the system part.
