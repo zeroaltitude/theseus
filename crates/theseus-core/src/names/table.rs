@@ -262,7 +262,7 @@ pub fn build(core: &crate::rpc::Core) -> anyhow::Result<Table> {
 pub fn build_for(core: &crate::rpc::Core, gate: &dyn Admits) -> anyhow::Result<Table> {
     let mut t = Table::default();
     let board = core.runner.threads.all(&core.store)?;
-    for th in board.all().filter(|th| gate.thing(Source::Line(*th))) {
+    for th in board.all().filter(|th| gate.thing(Source::Line(th))) {
         let live =
             th.state == theseus_protocol::threads::ThreadState::Active && th.merged_into.is_none();
         t.add(
@@ -277,7 +277,7 @@ pub fn build_for(core: &crate::rpc::Core, gate: &dyn Admits) -> anyhow::Result<T
         );
     }
     let tasks = crate::task_graph::all_shown(&core.store, &core.kernel)?;
-    for task in tasks.iter().filter(|t| gate.thing(Source::Task(*t))) {
+    for task in tasks.iter().filter(|t| gate.thing(Source::Task(t))) {
         t.add(
             Entry {
                 thing: format!("task:{}", task.id),
@@ -293,7 +293,7 @@ pub fn build_for(core: &crate::rpc::Core, gate: &dyn Admits) -> anyhow::Result<T
     let filed = |k: &str| k != "project" && theseus_judge::builders::ONTO_KINDS.contains(&k);
     for c in o
         .categories()
-        .filter(|c| filed(c.kind()) && gate.thing(Source::Topic(*c)))
+        .filter(|c| filed(c.kind()) && gate.thing(Source::Topic(c)))
     {
         t.add(
             Entry {

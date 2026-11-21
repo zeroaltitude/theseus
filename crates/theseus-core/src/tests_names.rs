@@ -462,7 +462,12 @@ async fn a_private_topic_asked_from_a_channel_leaks_nothing() {
         &r,
         vec![
             Record::Category(Category::new(id("topic:ledger"), "Ledger", "ada")),
-            Record::Category(Category::new(id("topic:ledger-private"), "Ledger", "ada")),
+            Record::Category(Category::new(id("topic:vault"), "Vault", "ada")),
+            // The same name under another parent: the ontology's own rule.
+            Record::Category(Category {
+                parent: Some(id("topic:vault")),
+                ..Category::new(id("topic:ledger-private"), "Ledger", "ada")
+            }),
             Record::Guidance(Guidance::new(
                 id("topic:ledger-private"),
                 "Secret ways.",
