@@ -1,10 +1,10 @@
-//! A message that names no thread finds its own (theseus-rha2; the owner,
-//! 2026-10-09: each stream cleanly addressable to Theseus, and ask only when
-//! it truly cannot tell). These are the wire shapes: how a turn was routed
-//! (`TurnSubmitResult.thread`), the one-line question when the router cannot
-//! tell (`thread.asked`, answered by `thread.answer`), and the recovery when
-//! it was wrong (`thread.move`). The router itself is the core's
-//! `thread_route`.
+//! A message goes to a thread by its address (theseus-rha2; the owner,
+//! 2026-11-21: an unaddressed message stays in the place's own conversation).
+//! These are the wire shapes: how a turn was placed
+//! (`TurnSubmitResult.thread`), and a move afterwards (`thread.move`). The
+//! router itself is the core's `thread_route`. `RouteHow` keeps the values
+//! the router wrote while it guessed (`Quiet`, `Visible`, `Guess`, `Asked`,
+//! `NewThread`), so rows and results of an earlier build still read.
 
 use serde::{Deserialize, Serialize};
 
@@ -78,77 +78,6 @@ impl ThreadTag {
         };
         Some(format!("\u{2192} {}{guess}{moveable}", self.title))
     }
-}
-
-/// One choice of a question.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct AskOption {
-    /// What an answer names: `1`, `2`, …, `other`, `new` or `home`.
-    pub key: String,
-    /// The label: the thread's title, `New thread «…»`, or `home`.
-    pub label: String,
-}
-
-/// "Is this about the pr round or the security fix?" (`thread.asked`): the
-/// router could not tell, and the turn waits for the answer.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ThreadAsk {
-    pub ask_id: String,
-    /// The place's own session, where the message arrived.
-    pub session_id: String,
-    /// The place's target (`discord:dm:…`), when it has one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub place: Option<String>,
-    /// The one line.
-    pub question: String,
-    pub options: Vec<AskOption>,
-    /// The start of the message that waits.
-    pub message: String,
-    /// When the wait ends and the message runs at home.
-    pub expires_ms: u64,
-    /// With an `other` option (theseus-98bz.4): every live, unsealed thread,
-    /// its slug as the key, any of which answers the question.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub others: Vec<AskOption>,
-}
-
-/// `thread.ask_list`'s answer (theseus-nuqut): the router's questions waiting
-/// now, oldest first, the same `ThreadAsk`s `thread.asked` brought, so a
-/// surface opened after one was asked can read it. Expired and answered ones
-/// are not listed.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ThreadAskListResult {
-    pub asks: Vec<ThreadAsk>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ThreadAnswerParams {
-    pub ask_id: String,
-    /// An option's key: `1`, `2`, …, `new`, `home` (`n` and `h` too), or a
-    /// live thread's slug (theseus-98bz.4).
-    pub choice: String,
-    /// Who answered, and from where: a card's press carries the presser's ids,
-    /// which the core judges as an approval's (the owner, from a private place).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub author: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub discord: Option<DiscordOrigin>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ThreadAnswerResult {
-    /// The thread the message went to; none: home.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub routed: Option<String>,
 }
 
 /// "That was for the security fix": `thread.move`.

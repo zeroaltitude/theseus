@@ -1,5 +1,5 @@
 //! `look.work`'s second pass, played through the whole core (issue 28): the conversations that are running,
-//! everything that waits on the owner (cards, thread questions, the standing count), the limited read of
+//! everything that waits on the owner (cards, the standing count), the limited read of
 //! the task view, and the walls of a routine's run, the self loop and an MCP session.
 
 use serde_json::json;
@@ -39,65 +39,26 @@ fn card(n: u64, posted: bool) -> CardProposal {
     }
 }
 
-/// A router's question waiting at `session`'s place, as the router keeps one.
-fn thread_question(r: &Rig, session: &str, id: &str) {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    std::mem::forget(rx);
-    r.core.runner.threads.route.ask(
-        id,
-        crate::thread_flow::Pending {
-            home: session.into(),
-            text: "x".into(),
-            options: vec![],
-            slugs: vec![],
-            tx,
-        },
-    );
-    r.core
-        .runner
-        .threads
-        .route
-        .shown(&theseus_protocol::thread_route::ThreadAsk {
-            ask_id: id.into(),
-            session_id: session.into(),
-            place: None,
-            question: "Is this about the lamp or the reef?".into(),
-            options: vec![],
-            message: "the start of the message".into(),
-            expires_ms: theseus_protocol::now_unix_ms() + 600_000,
-            others: vec![],
-        });
-}
-
-/// Everything that waits on the owner: a card's proposal and a router's question beside the questions on
-/// calls, each with where it waits; a standing record proposed is not a wait and is only counted, said so.
+/// Everything that waits on the owner: a card's proposal beside the questions on calls, each with where
+/// it waits; a standing record proposed is not a wait and is only counted, said so.
 /// `scope: here` leaves out what is tied to no conversation.
 #[tokio::test]
 async fn needs_you_is_everything_that_waits_on_the_owner() {
     let r = rig();
-    let (here, other) = (conversation(&r).await, conversation(&r).await);
+    let here = conversation(&r).await;
     let recs = [card(1, true), card(2, false)]
         .iter()
         .map(|p| crate::card::state::record(p).unwrap())
         .collect::<Vec<_>>();
     r.core.store.append(&recs).unwrap();
-    thread_question(&r, &other, "ask_01aa11bb22cc");
     let text = said(&r, &here, json!({"what": ["needs_you"]})).await;
-    assert!(text.contains("Waiting on the owner (3);"), "{text}");
+    assert!(text.contains("Waiting on the owner (2);"), "{text}");
     assert!(
         text.contains("card proposal · waits in the owner's DM"),
         "{text}"
     );
     assert!(
         text.contains("card proposal · waits in the card, not posted yet"),
-        "{text}"
-    );
-    assert!(
-        text.contains("thread question · waits in the CLI or the web UI"),
-        "{text}"
-    );
-    assert!(
-        text.contains("Is this about the lamp or the reef?"),
         "{text}"
     );
     assert!(!text.contains("standing record"), "none proposed: {text}");
@@ -114,7 +75,7 @@ async fn needs_you_is_everything_that_waits_on_the_owner() {
         .append(&[crate::card::state::record(&gone).unwrap()])
         .unwrap();
     let again = said(&r, &here, json!({"what": ["needs_you"]})).await;
-    assert!(again.contains("Waiting on the owner (3);"), "{again}");
+    assert!(again.contains("Waiting on the owner (2);"), "{again}");
 }
 
 /// A standing record proposed for review is counted and named as not asked of the owner.

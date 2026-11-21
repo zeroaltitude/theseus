@@ -20,17 +20,13 @@ impl Config {
     ///
     /// An unset key asks Jev (route.v10, theseus-ej6bj), so it names no profile
     /// to check here: a model Jev picks is refused by the job rule at the ask.
-    fn owner_material_profiles(&self) -> [(&'static str, Option<&str>); 8] {
+    fn owner_material_profiles(&self) -> [(&'static str, Option<&str>); 7] {
         [
             (
                 "[people] extract_profile",
                 self.people.extract_profile.as_deref(),
             ),
             ("[card] profile", self.card.profile.as_deref()),
-            (
-                "[threads] import_profile",
-                self.threads.import_profile.as_deref(),
-            ),
             (
                 "[judge.learn] writer_profile",
                 self.judge.learn.writer_profile.as_deref(),
@@ -85,14 +81,11 @@ mod tests {
     type Set = fn(&mut Config, &str);
 
     /// Each key of a call over the owner's material, and how a test sets it.
-    const KEYS: [(&str, Set); 8] = [
+    const KEYS: [(&str, Set); 7] = [
         ("[people] extract_profile", |c, p| {
             c.people.extract_profile = Some(p.into())
         }),
         ("[card] profile", |c, p| c.card.profile = Some(p.into())),
-        ("[threads] import_profile", |c, p| {
-            c.threads.import_profile = Some(p.into())
-        }),
         ("[judge.learn] writer_profile", |c, p| {
             c.judge.learn.writer_profile = Some(p.into())
         }),

@@ -5,13 +5,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import type { ConfirmRequest, ThreadAsk } from '../src/protocol.gen/index.ts'
+import type { ConfirmRequest } from '../src/protocol.gen/index.ts'
 import { BUCKETS, type Bucket } from '../src/ops/address.ts'
 import { allCounters, boardRows, listedCards, needsOf, unaskedCards } from '../src/ops/board.ts'
 import { waitingFacts } from '../src/ops/facts.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { tileLook, toggleBucket } from '../src/ops/tiles.ts'
-import { confirm, HOUR, info, MIN, NOW, record, view } from './ops-fixtures.ts'
+import { confirm, info, MIN, NOW, record, view } from './ops-fixtures.ts'
 
 const read = (p: string) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8')
 
@@ -58,9 +58,9 @@ function fixture() {
     record('tsk_blk', { title: 'Wait for the permit', state: 'blocked' }),
     record('tsk_wh', { title: 'Choose the paint', state: 'waiting_human' }),
   ]
-  const confirms: ConfirmRequest[] = [confirm('act_c1', { session_id: 'ses_ak' })]
-  const loose = { ask_id: 'ask_1', session_id: 'ses_elsewhere', question: 'Which harbour?', options: [], message: 'survey it', expires_ms: NOW + HOUR } as unknown as ThreadAsk
-  const queue = queueOf({ confirms, views, records, asks: [{ ask: loose, heard_ms: NOW - 5 * MIN }] })
+  const loose = confirm('act_c9', { session_id: 'ses_elsewhere', execution_id: 'exe_elsewhere', requested_at_ms: NOW - 5 * MIN })
+  const confirms: ConfirmRequest[] = [confirm('act_c1', { session_id: 'ses_ak' }), loose]
+  const queue = queueOf({ confirms, views, records })
   return { views, tasks, records, queue }
 }
 

@@ -40,8 +40,7 @@ function fixture() {
     rec('tsk_td2', 'proposed', { title: 'Backlog two' }),
   ]
   const queue = queueOf({
-    confirms: [confirm('act_c1', { session_id: 'ses_nowhere' })], views,
-    asks: [{ ask: { ask_id: 'ask_9', session_id: 'ses_nowhere', question: 'Which tide?', options: [], message: 'm', expires_ms: NOW + 3_600_000 } as never, heard_ms: NOW }],
+    confirms: [confirm('act_c1', { session_id: 'ses_nowhere', execution_id: 'exe_nowhere' })], views,
   })
   return { views, records, queue }
 }

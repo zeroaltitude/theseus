@@ -59,7 +59,6 @@ import { lastTurnOf, noneCounts, rowFor } from '@/ops/sections'
 import { Sheet } from '@/ops/Sheet'
 import { SelfChangesCard } from '@/components/SelfChanges'
 import { useOpsAct } from '@/ops/act'
-import { useRouterAsks } from '@/ops/asks'
 import { HelpButton } from '@/components/Help'
 import { TimelineLens, type TimelineReport } from '@/ops/TimelineLens'
 import { useOpsCalendar } from '@/ops/calendarwatch'
@@ -97,7 +96,6 @@ export default function Ops() {
   const { data: cl } = useRpc<{ confirms: ConfirmRequest[] }>('confirm.list', undefined, 1500)
   const { data: sl } = useRpc<SessionListResult>('session.list', undefined, 5000)
   const history = useHistoryRows()
-  const asks = useRouterAsks(tick)
   const { act, on } = useOpsAct()
   // The Timeline's calendar (ops-timeline): the window shown in its lens, and today and tomorrow for Coming up.
   const day = a.lens === 'timeline' ? parseDay(params.get('day')) : null
@@ -121,8 +119,8 @@ export default function Ops() {
   const lines = useMemo(() => Object.fromEntries(ended.flatMap((r, i) => (read[i]?.data ? [[r.id, read[i].data as string]] : []))), [ended, read])
 
   const queue = useMemo(() => queueOf({
-    confirms, views, records: world ? [] : records, groups: world ? [] : groups, asks: world ? [] : asks, executions: world?.executions, past: !!world, titleOf,
-  }), [confirms, views, records, groups, asks, world, titleOf])
+    confirms, views, records: world ? [] : records, groups: world ? [] : groups, executions: world?.executions, past: !!world, titleOf,
+  }), [confirms, views, records, groups, world, titleOf])
   // The one work set (ops/board.ts): every card once, with its asks mapped to it. The counters, the Board, the Graph,
   // the selection and the filters all read these rows and no others.
   const rows = useMemo(() => boardRows({ views, tasks, sessions, records, lines, queue, now, past: !!world }), [views, tasks, sessions, records, lines, queue, now, world])

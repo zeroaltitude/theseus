@@ -648,28 +648,6 @@ impl JudgeService {
         }
     }
 
-    /// The owner said a message was routed to the wrong thread: a "wrong
-    /// thread" label on `classify.v2`'s count of the day, which its rollback
-    /// rule reads. Landed off the turn's path: `land` writes a frame.
-    pub fn wrong_thread(&self) {
-        let Ok(rt) = tokio::runtime::Handle::try_current() else {
-            return;
-        };
-        let me = self.me.clone();
-        rt.spawn_blocking(move || {
-            if let Some(svc) = me.upgrade() {
-                let day = svc.today();
-                svc.land(
-                    CLASSIFY_PACK,
-                    theseus_judge::learn::CanaryEvent::Label {
-                        day,
-                        label: "wrong thread".into(),
-                    },
-                );
-            }
-        });
-    }
-
     /// Whether Jev's breaker is open now: a live verdict would not come, so
     /// the turn does not wait for one.
     pub fn breaker_open(&self) -> bool {

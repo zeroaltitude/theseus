@@ -318,7 +318,6 @@ pub const OPERATORS: [(&str, &str); 126] = [
     (method::FILES_RESTORE, "theseus rewind"),
     (method::ACTION_CONFIRM, "theseus answer"),
     (method::WORK_ANSWER, "theseus answer"),
-    (method::THREAD_ANSWER, "theseus thread answer"),
     (method::THREAD_MOVE, "theseus thread move"),
     (method::PROJECT_CREATE, "theseus project new"),
     (method::PROJECT_ATTACH, "theseus project attach"),
@@ -412,7 +411,6 @@ pub const OPERATORS: [(&str, &str); 126] = [
     (method::ROUTINE_TRY, "theseus routine try"),
     (method::ROUTINE_UPDATE, "theseus routine update"),
     (method::ROUTINE_DELETE, "theseus routine rm"),
-    (method::THREAD_IMPORT, "theseus thread import"),
     (method::THREAD_SEAL, "theseus thread seal"),
     (method::THREAD_UNSEAL, "theseus thread unseal"),
     (
@@ -655,7 +653,6 @@ mod tests {
             method::THREAD_RESUME,
             method::THREAD_DONE,
             method::THREAD_REOPEN,
-            method::THREAD_IMPORT,
             method::THREAD_SEAL,
             method::THREAD_UNSEAL,
             method::THREAD_SEAL_DISMISS,

@@ -80,8 +80,6 @@ pub enum Purpose {
     Watch,
     Submit,
     Answer,
-    /// `thread.answer`: the router's question (theseus-wapgp).
-    Route,
     Typing,
     /// `execution.stop`: Esc.
     Stop,
@@ -226,8 +224,8 @@ pub struct Chat {
     /// the operator's answers are refused there.
     pub job_session: Option<String>,
     pub(super) mine: HashSet<String>,
-    /// What the router's placements brought in (`thread_ask.rs`).
-    pub(super) placed: super::thread_ask::Placed,
+    /// What the router's placements brought in (`thread_placed.rs`).
+    pub(super) placed: super::thread_placed::Placed,
     pub(super) ended: HashSet<String>,
     /// The answers another profile gave the calls of a turn, by its id, until the turn ends: a turn
     /// that was stopped or failed says so under each (issue 28).
@@ -253,8 +251,6 @@ pub struct Chat {
     pub(super) rewind_picker: Option<super::rewind::Picker>,
     /// The conversation a rewind left, named once under the fork's history.
     pub(super) rewound: Option<String>,
-    /// The router's question that waits for an answer (`thread_ask.rs`).
-    pub(super) thread_ask: Option<theseus_protocol::thread_route::ThreadAsk>,
     pub menu: usize,
     /// The `@` file picker (`atfile.rs`).
     pub(super) at: super::atfile::AtFiles,
@@ -333,7 +329,6 @@ impl Chat {
             esc_armed: false,
             rewind_picker: None,
             rewound: None,
-            thread_ask: None,
             menu: 0,
             at: super::atfile::AtFiles::default(),
             menu_closed: false,
@@ -832,11 +827,6 @@ impl Chat {
         }
         self.menu = 0;
         self.menu_closed = false;
-        if !trimmed.starts_with('/') && !trimmed.starts_with('!') {
-            if let Some(effects) = self.thread_answered_by(trimmed) {
-                return effects;
-            }
-        }
         self.view_line(trimmed);
         if let Some(rest) = trimmed.strip_prefix('/') {
             let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));

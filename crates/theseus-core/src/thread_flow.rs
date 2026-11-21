@@ -1,15 +1,12 @@
 //! What the router remembers, in memory (theseus-rha2): each place's last
-//! exchange (for stickiness and the reply chain), the turns that ran in a
-//! thread (for a reply to find its thread), the unaddressed messages it
-//! routed (for `thread.move`), the handoffs from the router to the turn it
-//! chose, and the questions waiting for an answer.
+//! exchange (for the place tail, issue 43), the turns that ran in a thread
+//! (for a reply to find its thread), the messages it placed (for
+//! `thread.move`), and the handoffs from the router to the turn it chose.
 //!
 //! None of it is the record: a route is the `thread.routed` row its turn
-//! writes in its own first frame, an ask is `thread.asked` and
-//! `thread.answered` rows, and a move is `thread.moved`. A restart forgets
-//! the place memory (the router starts cold: stickiness and a reply to an
-//! old message need the new run's turns), and forgets a question nobody had
-//! answered (its message is lost with the `turn.submit` that waited).
+//! writes in its own first frame, and a move is `thread.moved`. A restart
+//! forgets the place memory (a reply to an old message needs the new run's
+//! turns).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -18,9 +15,8 @@ use std::time::{Duration, Instant};
 use theseus_protocol::thread_route::RouteHow;
 use theseus_protocol::threads::WorkingSet;
 
-use crate::approval::Answerer;
 use crate::judge::inbound::Early;
-use crate::thread_route::{AskChoice, Choice, Last};
+use crate::thread_route::Last;
 
 /// The turns remembered for a reply to find.
 const TURNS: usize = 512;
@@ -29,7 +25,7 @@ const ROUTED: usize = 128;
 /// A handoff the turn has not taken in this long is stale.
 const STALE: Duration = Duration::from_secs(60);
 
-/// An unaddressed message the router placed: what `thread.move` needs.
+/// A message the router placed: what `thread.move` needs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Routed {
     pub turn: String,
@@ -41,8 +37,6 @@ pub struct Routed {
     pub text: String,
     pub author: String,
     pub how: RouteHow,
-    /// The `thread` judgment, when Jev was asked, and the slugs it offered.
-    pub judgment: Option<(String, Vec<String>)>,
     pub at_ms: u64,
 }
 
@@ -58,23 +52,6 @@ pub struct Handoff {
     /// (`compiler::place_tail`, issue 43).
     pub tail: Option<String>,
     pub at: Instant,
-}
-
-/// One question waiting.
-pub struct Pending {
-    pub home: String,
-    pub text: String,
-    pub options: Vec<AskChoice>,
-    /// The live threads it was asked over, by slug: any of them answers it
-    /// (theseus-98bz.4; none with `[threads] ask_every_thread` off).
-    pub slugs: Vec<String>,
-    pub tx: tokio::sync::oneshot::Sender<Answered>,
-}
-
-/// The answer to a question: the choice, and who gave it.
-pub struct Answered {
-    pub choice: Choice,
-    pub who: Answerer,
 }
 
 #[derive(Default)]
@@ -96,10 +73,6 @@ struct Recent {
 pub struct State {
     recent: Mutex<Recent>,
     handoffs: Mutex<HashMap<String, Handoff>>,
-    asks: Mutex<HashMap<String, Pending>>,
-    /// Each waiting question as the push said it (`thread.asked`), for
-    /// `thread.ask_list`; only an id still in `asks` is listed.
-    shown: Mutex<HashMap<String, theseus_protocol::thread_route::ThreadAsk>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -260,90 +233,6 @@ impl State {
     pub fn clear_handoff(&self, session: &str) {
         lock(&self.handoffs).remove(session);
     }
-
-    // ---- questions
-
-    pub fn ask(&self, id: &str, p: Pending) {
-        lock(&self.asks).insert(id.to_string(), p);
-    }
-
-    /// The question as the surfaces were told it, kept to be read again.
-    pub fn shown(&self, ask: &theseus_protocol::thread_route::ThreadAsk) {
-        lock(&self.shown).insert(ask.ask_id.clone(), ask.clone());
-    }
-
-    /// The questions waiting at `now_ms`, oldest first: still pending and not
-    /// run out. The kept copies of those that are not are dropped here.
-    pub fn held(&self, now_ms: u64) -> Vec<theseus_protocol::thread_route::ThreadAsk> {
-        let asks = lock(&self.asks);
-        let mut shown = lock(&self.shown);
-        shown.retain(|id, a| asks.contains_key(id) && a.expires_ms > now_ms);
-        let mut out: Vec<_> = shown.values().cloned().collect();
-        out.sort_by(|a, b| (a.expires_ms, &a.ask_id).cmp(&(b.expires_ms, &b.ask_id)));
-        out
-    }
-
-    /// A question's pending state, to answer it: `Err` names why not.
-    pub fn answer(&self, id: &str, key: &str, who: Answerer) -> Result<(String, Choice), String> {
-        let mut g = lock(&self.asks);
-        let Some(p) = g.get(id) else {
-            return Err(format!(
-                "no question {id} is waiting: it was answered, or it ran out"
-            ));
-        };
-        let key = key.trim().to_lowercase();
-        let key = match key.as_str() {
-            "n" => "new",
-            "h" => "home",
-            k => k,
-        };
-        let keyed = p
-            .options
-            .iter()
-            .find(|o| o.option.key == key && o.choice != Choice::Other);
-        let choice = match keyed {
-            Some(c) => c.choice.clone(),
-            None => match p.slugs.iter().find(|s| s.to_lowercase() == key) {
-                Some(slug) => Choice::Thread(slug.clone()),
-                None => {
-                    let keys: Vec<&str> = p
-                        .options
-                        .iter()
-                        .filter(|o| o.choice != Choice::Other)
-                        .map(|o| o.option.key.as_str())
-                        .collect();
-                    let slug = match p.slugs.is_empty() {
-                        true => "",
-                        false => ", or a thread's slug",
-                    };
-                    return Err(format!(
-                        "{key:?} is not an option: {}{slug}",
-                        keys.join(", ")
-                    ));
-                }
-            },
-        };
-        let p = g.remove(id).expect("held");
-        let home = p.home.clone();
-        let _ = p.tx.send(Answered {
-            choice: choice.clone(),
-            who,
-        });
-        Ok((home, choice))
-    }
-
-    /// The question ran out: it waits no more.
-    pub fn expire(&self, id: &str) -> bool {
-        lock(&self.asks).remove(id).is_some()
-    }
-
-    /// The questions waiting, as (id, home session, text).
-    pub fn waiting(&self) -> Vec<(String, String, String)> {
-        lock(&self.asks)
-            .iter()
-            .map(|(id, p)| (id.clone(), p.home.clone(), p.text.clone()))
-            .collect()
-    }
 }
 
 #[cfg(test)]
@@ -358,8 +247,7 @@ mod tests {
             session: session.into(),
             text: "hello".into(),
             author: "a".into(),
-            how: RouteHow::Quiet,
-            judgment: None,
+            how: RouteHow::Addressed,
             at_ms: 1,
         }
     }
@@ -401,55 +289,6 @@ mod tests {
         assert!(s.find_routed("ses_other", None).is_none());
         s.moved("turn_3");
         assert_eq!(s.find_routed("ses_h", None).unwrap().turn, "turn_1");
-    }
-
-    /// An ask is answered by an option's key or by any live thread's slug it
-    /// was asked over; `other` alone, or an unknown word, names the choices.
-    #[test]
-    fn an_ask_takes_a_key_or_a_threads_slug() {
-        use crate::thread_route::AskChoice;
-        use theseus_protocol::thread_route::AskOption;
-        let s = State::default();
-        let opt = |choice: Choice, key: &str| AskChoice {
-            choice,
-            option: AskOption {
-                key: key.into(),
-                label: key.into(),
-            },
-        };
-        let ask = |id: &str| {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            s.ask(
-                id,
-                Pending {
-                    home: "ses_h".into(),
-                    text: "x".into(),
-                    options: vec![
-                        opt(Choice::Thread("a".into()), "1"),
-                        opt(Choice::Other, "other"),
-                        opt(Choice::Home, "home"),
-                    ],
-                    slugs: vec!["a".into(), "e-five".into()],
-                    tx,
-                },
-            );
-            rx
-        };
-        let who = || Answerer::from("the CLI");
-        let _rx = ask("ask_1");
-        let err = s.answer("ask_1", "other", who()).unwrap_err();
-        assert_eq!(
-            err,
-            "\"other\" is not an option: 1, home, or a thread's slug"
-        );
-        assert!(s.answer("ask_1", "nope", who()).is_err());
-        let (_, c) = s.answer("ask_1", "E-Five", who()).unwrap();
-        assert_eq!(c, Choice::Thread("e-five".into()));
-        let _rx = ask("ask_2");
-        assert_eq!(
-            s.answer("ask_2", "1", who()).unwrap().1,
-            Choice::Thread("a".into())
-        );
     }
 
     /// A handoff is the session's and for its message only; taken once.

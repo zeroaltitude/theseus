@@ -54,8 +54,6 @@ pub enum Rule {
     D15,
     /// The owner card job, per day (an estimate).
     D16,
-    /// Thread import, per day.
-    D17,
     /// Route-bench replay, per day and whole.
     D18,
     /// The AWS month.
@@ -190,12 +188,6 @@ pub const RULES: &[Spec] = &[
         "D16",
         "the owner card job's day budget",
         "[card] day_usd",
-    ),
-    s(
-        Rule::D17,
-        "D17",
-        "thread import's day budget",
-        "[threads] import_day_usd",
     ),
     s(
         Rule::D18,

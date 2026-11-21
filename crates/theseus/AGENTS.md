@@ -181,18 +181,14 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   (`render::thread::status_line`; warm from `ThreadRow.cache_ttl_secs` and `last_active_ms`). With no current thread it
   sends no `thread.*` request. Tests: `tests/thread_switch.rs`, `tests/thread_interactive.rs`. `theseus chat` (cli-tasks)
   had not joined: its joiner ports `/t` and the status line from `interactive/thread.rs`.
-- `src/thread_import.rs`, `src/vestige.rs` (theseus-71ib): `theseus thread import --from openclaw` is the dry run (a numbered
-  table, `render`'s words in `table_lines`, and a plan file, `thread-import-plan.txt` by default, of `[ ] N slug title` lines);
-  `--apply 1,3,5` (numbers of a fresh table) or `--apply all-ticked --plan FILE` (the `[x]` lines, read by slug) makes those
-  threads through `thread.import`; `--since-days` (30), `--min-cluster` (8). `--vestige PATH` (a dump file, or a directory's
-  `vestige*.json`) turns each memory into an episode (`vestige::episode`, the id the digest of its text) and sends it with
-  `import.episodes`; a note seen again is skipped. `thread.import` is in `client::OPERATORS`. Tests: `thread_import/tests.rs`,
-  `vestige/tests.rs`, theseusd's `tests/thread_import.rs`.
+- `src/thread_import.rs`, `src/vestige.rs` (theseus-71ib): `theseus thread import --vestige PATH` (a dump file, or a
+  directory's `vestige*.json`) turns each memory into an episode (`vestige::episode`, the id the digest of its text) and
+  sends it with `import.episodes`; a note seen again is skipped. The thread importer (`--from`, `--apply`) is gone
+  (2026-11-21). Tests: `vestige/tests.rs`, theseusd's `tests/thread_import.rs`.
   `thread seal SLUG [--reason] [--redirect] [--not-needed]` (the seal's report says what had crossed into other threads,
   "2 facts were already used in «pr round»", and offers `--redirect`), `thread unseal SLUG`, `thread new --sealed
   --split-from`; a sealed thread's name carries 🔒 in `thread list` and `thread show` (🔒? while a seal is proposed).
-  `thread answer <ask> <1|2|new|home>` and `thread move <slug|home>` are the router's recovery (theseus-rha2): `thread/ask.rs`
-  prints the question a `thread.asked` carries as `[1] [2] [n]ew [h]ome` and the line to answer it; both are in `OPERATORS`.
+  `thread move <slug|home>` runs the last placed message again elsewhere (theseus-rha2); it is in `OPERATORS`.
 - `src/retry.rs` (theseus-7zgsm): `theseus dismiss ID` and `theseus retry ID [--note WORDS]`, one call each
   (`execution.dismiss`, `task.retry`); ID is a task's or its execution's id, or the last four characters of either
   (`resolve.rs`'s rule), and a name that is no failure, or a conversation to retry, is refused with words before

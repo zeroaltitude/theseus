@@ -130,8 +130,7 @@ build.
     with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
     and the Graph lens (`ops/GraphLens.tsx`, below).
   - **It reads, it does not poll**: the one `work.watch`, `task.list`, `confirm.list` and `session.list` on their
-    pushes, the ledger's one copy for today's spend, and the router's `thread.asked` while it is open
-    (`ops/asks.ts`; no read lists them). `test/ops-page.test.ts` fails a timer or a refetch interval.
+    pushes, and the ledger's one copy for today's spend. `test/ops-page.test.ts` fails a timer or a refetch interval.
   - **Every act goes through `enabled`** (`ops/keys.ts`): `useOpsAct` (`ops/act.ts`) and `ActBtn` refuse an act under
     the time machine, where every lens shows the folded past with Actions' banner. No `useAct`, `Btn` or bare `call`
     in `src/ops/`, which the page test holds.

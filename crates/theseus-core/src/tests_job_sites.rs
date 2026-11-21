@@ -145,18 +145,6 @@ site!(
 );
 
 site!(
-    threads,
-    Site {
-        set: |c, p| c.threads.import_profile = Some(p.into()),
-        unset: |c| c.threads.import_profile = None,
-        call: |r| async { r.core.import_model(3).await.unwrap().model }.boxed(),
-        pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-2"),
-        says: "3 episodes",
-    }
-);
-
-site!(
     ontology,
     Site {
         set: |c, p| c.ontology.name_profile = Some(p.into()),

@@ -1,52 +1,41 @@
-//! A message that names no thread finds its own (theseus-rha2): the flow
-//! `turn.submit` runs before it opens a turn, in a private place with live
-//! threads. `crate::thread_route` is the pure part (addressing, the
-//! pre-router, fusion, the decision table); this is the rest:
+//! A message goes to a thread by its address only (theseus-rha2; the owner,
+//! 2026-11-21): the flow `turn.submit` runs before it opens a turn, in a
+//! private place with live threads. `crate::thread_route` reads the address
+//! (`#slug`, a place bound to the thread, a reply to a thread's message);
+//! this is the rest:
 //!
 //! - **Nothing changes without threads.** No live thread for the place, the
 //!   session being a thread's own, a task, a job's message, a prompt, a slash
 //!   command: the function returns at once and the turn is the turn it was
 //!   (a plain turn stays 5 frames and starts no timer).
-//! - **One scoring pass in memory**, then at most `[threads] route_wait_ms` of
-//!   wait, and only with two or more live threads and a pre-router that does
-//!   not decide. The wait is for `classify.v2`'s `thread` answer, which rides
-//!   the very request `role.v1` and the rest of the inbound batch ride: the
-//!   point begins here, before the session is known, and the turn takes it
-//!   over (`Handoff`), so Jev is asked once.
-//! - **Asking** is a `thread.asked` notification and a wait for
-//!   `thread.answer`, `[threads] ask_wait_secs` at most; a question nobody
-//!   answers runs the message at home. A spoken turn (a voice call's) is
-//!   never asked about: it runs at home at once.
+//! - **No address, no thread.** A message that names none runs in the place's
+//!   own conversation, always, at once: nothing guesses, waits or asks.
+//! - **Jev is asked once, as before.** With two or more live threads the
+//!   inbound point begins here, before the session is known, and the turn
+//!   takes it over (`Handoff`): `classify`'s request is the one it was, its
+//!   `thread` question still asked. Nothing reads that answer to place a
+//!   message; a later pack version drops the question.
 //! - **Replies go back to the place** the message came from
 //!   (`Outbox::show_at`): a thread has no place of its own.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use theseus_judge::builders::ThreadInput;
-use theseus_protocol::thread_route::{RouteHow, ThreadAsk, ThreadTag};
-use theseus_protocol::threads::{ThreadInfo, ThreadNewParams};
+use theseus_protocol::thread_route::{RouteHow, ThreadTag};
+use theseus_protocol::threads::ThreadInfo;
 use theseus_protocol::{error_code, Event, ThreadPlaced, TurnSubmitParams, TurnSubmitResult};
 
 use super::server::{Conn, RpcFailure};
 use super::Core;
-use crate::approval::{Answerer, Surface};
+use crate::approval::Surface;
 use crate::bus::EventSink;
-use crate::fact::thread_route::{JevRow, RoutedRow, ThreadAnswered, ThreadAsked};
-use crate::fact::{Rec, To};
+use crate::fact::thread_route::RoutedRow;
 use crate::judge::inbound::{
-    author_of, place_kind, slash_command, Early, Inbound, ThreadAnswered as JevAnswer,
-    CLASSIFY_PACK, ROUTE_PACK,
+    author_of, place_kind, slash_command, Early, Inbound, CLASSIFY_PACK, ROUTE_PACK,
 };
 use crate::session::SessionRecord;
-use crate::thread_flow::{Answered, Handoff, Pending, Routed};
-use crate::thread_route::{
-    address, decide, decide_single, decisive, home_follow, lone_offer, new_entities, pre_route,
-    propose, question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick,
-    Pre, Rules, Voice,
-};
-
-/// How many characters of the waiting message a question shows.
-const PREVIEW: usize = 200;
+use crate::thread_flow::{Handoff, Routed};
+use crate::thread_route::{address, top_entities, Address, Addressing};
 
 /// What the router decided for a turn, which `turn.submit` keeps.
 pub(super) struct Routing {
@@ -75,35 +64,6 @@ fn inputs(live: &[&ThreadInfo]) -> Vec<ThreadInput> {
         .collect()
 }
 
-fn preview(text: &str) -> String {
-    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    match line.chars().count() > PREVIEW {
-        true => format!("{}\u{2026}", line.chars().take(PREVIEW).collect::<String>()),
-        false => line,
-    }
-}
-
-/// Jev's pick from its answer, when it names a live thread, a new one, or
-/// home.
-fn pick_of(a: &JevAnswer, live: &[&ThreadInfo]) -> Option<Jev> {
-    let pick = match a.choice.as_str() {
-        "new_thread" => Pick::New,
-        "home" => Pick::Home,
-        slug if live.iter().any(|t| t.slug == slug) => Pick::Thread(slug.to_string()),
-        _ => return None,
-    };
-    Some(Jev {
-        pick,
-        p: a.confidence,
-    })
-}
-
-/// A turn spoken in a voice call: the Discord binding's word, read from a
-/// Discord connection alone (theseus-slvl.4).
-fn spoken(p: &TurnSubmitParams, conn: Conn<'_>) -> bool {
-    conn.surface == Surface::Discord && p.surface.as_deref() == Some("voice")
-}
-
 /// A routed message's row before anything is known: it ran at home.
 fn fresh_row(home: &str) -> RoutedRow {
     RoutedRow {
@@ -111,17 +71,9 @@ fn fresh_row(home: &str) -> RoutedRow {
         to: None,
         session: home.to_string(),
         how: RouteHow::Home,
-        confidence: 0.0,
-        pre: Vec::new(),
-        jev: None,
-        timed_out: false,
-        waited_ms: None,
-        ask: None,
+        confidence: 1.0,
         early: false,
         movable: false,
-        above: None,
-        spared: None,
-        follow: None,
         tail: None,
     }
 }
@@ -147,15 +99,24 @@ fn explicit_tag(a: &Address, live: &[&ThreadInfo], p: &mut TurnSubmitParams) -> 
     }
 }
 
-/// The judgment that placed a message and the options it was offered.
-type Judged = Option<(String, Vec<String>)>;
+/// The place's own conversation: where a message with no address runs.
+fn home_tag(confidence: f64, movable: bool) -> ThreadTag {
+    ThreadTag {
+        slug: None,
+        title: "home".into(),
+        how: RouteHow::Home,
+        confidence,
+        movable,
+    }
+}
 
 impl Core {
-    /// An unaddressed message finds its thread, if its place has any: the
-    /// session the turn runs in is put in `session`, the message is put in
-    /// `p.input` (an explicit address taken off), and the tag comes back for
-    /// the reply. `None`: routing does not apply, and nothing was touched.
-    pub(super) async fn route_to_thread(
+    /// A message in a place with threads runs where its address says, else
+    /// at home: the session the turn runs in is put in `session`, the message
+    /// is put in `p.input` (an explicit address taken off), and the tag comes
+    /// back for the reply. `None`: routing does not apply, and nothing was
+    /// touched.
+    pub(super) fn route_to_thread(
         &self,
         p: &mut TurnSubmitParams,
         conn: Conn<'_>,
@@ -181,32 +142,17 @@ impl Core {
         let turn_id = crate::new_id("turn");
         let mut row = fresh_row(&home);
         let mut early: Option<Early> = None;
-        let mut scored: Vec<Pre> = Vec::new();
-        let mut judgment: Judged = None;
         let addr = self.addressed(p, place.as_deref(), &live);
         let tag = match addr {
             Some(a) => explicit_tag(&a, &live, p),
             None => {
-                let (tag, pre) = self
-                    .place_unaddressed(
-                        p,
-                        conn,
-                        (session, class, place.as_deref(), &turn_id),
-                        &live,
-                        (&mut row, &mut early, &mut judgment),
-                        now,
-                    )
-                    .await;
-                scored = pre;
-                self.spare_large(tag, &live, &mut row)
+                let at = (&*session, class, place.as_deref(), turn_id.as_str());
+                early = self.begin_inbound(p, conn, at, &live);
+                row.early = early.is_some();
+                home_tag(1.0, false)
             }
         };
-        let (mut tag, run_session) = self.session_for(tag, session);
-        if tag.slug.is_none() && tag.how == RouteHow::Quiet {
-            tag.how = RouteHow::Home;
-        }
-        // A placement below the act bar may be wrong (the misroute guard).
-        self.arm_guard(&tag, &run_session, &live, &scored);
+        let (tag, run_session) = self.session_for(tag, session);
         self.show_thread_at(&tag, &run_session, place.as_deref());
         let tail = self.place_tail(&home, &run_session.session_id, &live, &mut row);
         state.arrived(&home, tag.slug.as_deref(), now);
@@ -220,7 +166,6 @@ impl Core {
             text: p.input.clone(),
             author: p.author.clone().unwrap_or_else(|| conn.client.to_string()),
             how: tag.how,
-            judgment,
             at_ms: now,
         });
         self.tell_placed(conn, &home, &run_session.session_id, &turn_id, &tag);
@@ -284,29 +229,6 @@ impl Core {
         };
         row.tail = Some((from.to_string(), tail.tokens));
         Some(tail.text)
-    }
-
-    /// A guess the router made into a thread that holds a large context runs
-    /// at home instead, movable (`thread_route::spare_large`). The thread's
-    /// conversation is read only for a guess, so no other placement pays for
-    /// it; the row says which thread was spared and how large it was.
-    fn spare_large(&self, tag: ThreadTag, live: &[&ThreadInfo], row: &mut RoutedRow) -> ThreadTag {
-        let Some(slug) = tag.slug.as_deref().filter(|_| tag.how == RouteHow::Guess) else {
-            return tag;
-        };
-        let tokens = live
-            .iter()
-            .find(|t| t.slug == slug)
-            .and_then(|t| t.session_id.as_deref())
-            .and_then(|sid| self.store.session_nodes(sid).ok())
-            .map(|nodes| crate::judge::route_facts::est_tokens(nodes.iter().map(|(_, n)| n)));
-        match (crate::thread_route::spare_large(&tag, tokens), tokens) {
-            (Some(home), Some(tokens)) => {
-                row.spared = Some((slug.to_string(), tokens));
-                home
-            }
-            _ => tag,
-        }
     }
 
     /// What a message addresses: a thread in its own words, or the thread of
@@ -374,14 +296,7 @@ impl Core {
             Ok(s) => (tag, s),
             Err(e) => {
                 tracing::warn!(thread = %slug, error = %e.message, "a routed thread cannot take the message: it runs at home");
-                let home_tag = ThreadTag {
-                    slug: None,
-                    title: "home".into(),
-                    how: RouteHow::Home,
-                    confidence: 0.0,
-                    movable: true,
-                };
-                (home_tag, home.clone())
+                (home_tag(0.0, true), home.clone())
             }
         }
     }
@@ -422,164 +337,12 @@ impl Core {
         }
     }
 
-    /// A message that names no thread: the pre-router's scores, then the
-    /// decision (the pre-router alone when it is decisive, else Jev fused in,
-    /// else a question). The scores come back for the guard.
-    async fn place_unaddressed(
-        &self,
-        p: &TurnSubmitParams,
-        conn: Conn<'_>,
-        at: (
-            &SessionRecord,
-            crate::places::PlaceClass,
-            Option<&str>,
-            &str,
-        ),
-        live: &[&ThreadInfo],
-        (row, early, judgment): (&mut RoutedRow, &mut Option<Early>, &mut Judged),
-        now: u64,
-    ) -> (ThreadTag, Vec<Pre>) {
-        let (session, _, place, _) = at;
-        let home = &session.session_id;
-        let state = &self.runner.threads.route;
-        let half = self.cfg.threads.sticky_half_life_secs.saturating_mul(1000);
-        let mut pre = pre_route(&p.input, live, state.last(home).as_ref(), now, half);
-        if at.1 == crate::places::PlaceClass::Private {
-            self.learned_thread(&p.input, &mut pre);
-        }
-        row.above = self.keep_apart_by_dir(p, session, live, &mut pre);
-        let follow = home_follow(&pre, state.last(home).as_ref(), now, half);
-        row.follow = (follow > 0.0).then_some(follow);
-        row.pre = pre
-            .iter()
-            .map(|x| (x.slug.clone(), x.score, x.hits.clone()))
-            .collect();
-        let tag = if live.len() < 2 {
-            match self.offer_beside_one(p, live, &pre) {
-                None => decide_single(live, &pre),
-                // As below: a spoken turn is never held for a question.
-                Some(_) if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
-                // `unsure = "guess"`: the offer is a guess of HOME, not a
-                // question (`ttlze-offer-new-home`). `offer_beside_one` fires
-                // only while the one live thread is BELOW the confirm bar, so
-                // this arm handed its `Ask` to the ranking and guessed into
-                // that same below-bar thread, at whatever score it had.
-                Some(_) if self.cfg.threads.unsure == crate::config::Unsure::Guess => {
-                    crate::thread_route::home_guess(live, &pre, None)
-                }
-                Some(ask) => {
-                    self.ask_thread(ask, p, conn, (home, place), live, row)
-                        .await
-                }
-            }
-        } else if decisive(&pre) {
-            let top = pre
-                .iter()
-                .max_by(|a, b| a.score.total_cmp(&b.score))
-                .expect("two live threads");
-            ThreadTag {
-                slug: Some(top.slug.clone()),
-                title: top.title.clone(),
-                how: RouteHow::Quiet,
-                confidence: top.score,
-                movable: false,
-            }
-        } else {
-            match self
-                .decide_with_jev(p, conn, at, (live, &pre, follow), row, (early, judgment))
-                .await
-            {
-                Decision::Route(tag) => tag,
-                // A spoken turn is never held for a typed question: the
-                // speaker hears nothing while it waits, and what they say
-                // next queues behind it (theseus-sro04: 215 s in the v1
-                // voice check). It runs at home, as a question nobody
-                // answered does.
-                _ if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
-                other => {
-                    self.ask_thread(other, p, conn, (home, place), live, row)
-                        .await
-                }
-            }
-        };
-        (tag, pre)
-    }
-
-    /// A place's one live thread, which the message is not clearly about,
-    /// beside a new stream (theseus-98bz.7): the ask that offers the thread,
-    /// a new one and home, under `[threads] single_offers_new`.
-    fn offer_beside_one(
-        &self,
-        p: &TurnSubmitParams,
-        live: &[&ThreadInfo],
-        pre: &[Pre],
-    ) -> Option<Decision> {
-        if !self.cfg.threads.single_offers_new || pre.first()?.score >= crate::thread_route::CONFIRM
-        {
-            return None;
-        }
-        let board = self.threads();
-        let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
-        let (title, _) = propose(&p.input, &taken);
-        let every = self.cfg.threads.ask_every_thread;
-        lone_offer(live, pre, new_entities(&p.input, live), &title, every)
-    }
-
-    /// The misroute guard for a placement below the act bar: the turn's first
-    /// write or program outside the thread's roots is held.
-    fn arm_guard(
-        &self,
-        tag: &ThreadTag,
-        run: &SessionRecord,
-        live: &[&ThreadInfo],
-        scored: &[Pre],
-    ) {
-        let (dir, run) = (run.dir.as_deref(), run.session_id.as_str());
-        match (&tag.slug, tag.movable) {
-            (Some(slug), true) => {
-                let roots = live
-                    .iter()
-                    .find(|t| &t.slug == slug)
-                    .map(|t| t.working_set.roots.clone())
-                    .unwrap_or_default();
-                let score = |t: &ThreadInfo| {
-                    scored
-                        .iter()
-                        .find(|p| p.slug == t.slug)
-                        .map_or(0.0, |p| p.score)
-                };
-                let alt = live
-                    .iter()
-                    .filter(|t| &t.slug != slug)
-                    .max_by(|a, b| score(a).total_cmp(&score(b)))
-                    .map(|t| t.title.clone());
-                let base = self.tools.cwd_for(dir);
-                self.tools
-                    .misroute
-                    .arm(run, &tag.title, &roots, base.to_str(), alt.as_deref());
-            }
-            (Some(_), false) => self.tools.misroute.disarm(run),
-            (None, _) => {}
-        }
-    }
-
-    /// The layer's entry closest to the message, when the owner moved one
-    /// like it: that thread gains the evidence of the owner's word.
-    fn learned_thread(&self, text: &str, pre: &mut [Pre]) {
-        let cfg = &self.cfg.routing.corrections;
-        let words = crate::correction::layer::words(text);
-        let Some(slug) = self.runner.judge.corrections.nearest_thread(&words, cfg) else {
-            return;
-        };
-        if let Some(p) = pre.iter_mut().find(|p| p.slug == slug) {
-            p.score = p.score.max(crate::thread_route::LEARNED);
-            p.learned = true;
-        }
-    }
-
-    /// Jev's choice of thread, waited for at most `route_wait_ms`: the inbound
-    /// point begun now (no added call), the answer fused with the pre-router.
-    async fn decide_with_jev(
+    /// The inbound point for a message that runs at home, begun now as it was
+    /// while the router waited on it, so `classify` is asked the request it
+    /// was (its `thread` question among it) and the turn takes it over: none
+    /// with fewer than two live threads, or a judge that does not act on
+    /// `classify`. Nothing waits on the `thread` answer, and nothing reads it.
+    fn begin_inbound(
         &self,
         p: &TurnSubmitParams,
         conn: Conn<'_>,
@@ -589,318 +352,48 @@ impl Core {
             Option<&str>,
             &str,
         ),
-        (live, pre, home_follow): (&[&ThreadInfo], &[Pre], f64),
-        row: &mut RoutedRow,
-        (early_out, judgment): (&mut Option<Early>, &mut Judged),
-    ) -> Decision {
+        live: &[&ThreadInfo],
+    ) -> Option<Early> {
         let judge = &self.runner.judge;
         let home = &session.session_id;
-        let acting = judge.config().enabled
+        let acting = live.len() >= 2
+            && judge.config().enabled
             && judge.reachable()
             && judge.mode_for(CLASSIFY_PACK, home).mode >= crate::config::PackMode::Canary;
-        let (mut jev, mut voice) = (None, Voice::Alone);
-        if acting {
-            let route = self
-                .cfg
-                .routing
-                .pack_mode(judge.mode_for(ROUTE_PACK, home).mode);
-            let route = match crate::routing::chosen(p) {
-                Some(_) => route.min(crate::config::PackMode::Shadow),
-                None => route,
-            };
-            let started = judge.inbound_early(Inbound {
-                session_id: home.clone(),
-                execution_id: session.execution_id.clone().unwrap_or_default(),
-                turn_id: turn_id.to_string(),
-                node_id: String::new(),
-                text: p.input.clone(),
-                place_kind: place_kind(place, conn.client, class),
-                author: author_of(class).into(),
-                kernel: self.kernel.clone(),
-                threads: inputs(live),
-                in_thread: false,
-                restricted: Default::default(),
-                route,
-                chosen: None,
-                task: false,
-                own: false,
-                persona: self.runner.persona_ctx(home, class),
-                // The owner's own words: `directive.v2` rides this call, and
-                // the turn says where the message was written (`Early::said`).
-                capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
-                data_names: self.cfg.privacy.data_names(),
-                attachments: Vec::new(),
-            });
-            if let Some(mut e) = started {
-                if let Some(rx) = e.thread.take() {
-                    let wait = Duration::from_millis(self.cfg.threads.route_wait_ms);
-                    let t0 = Instant::now();
-                    match tokio::time::timeout(wait, rx).await {
-                        Ok(Ok(a)) => {
-                            row.waited_ms = Some(t0.elapsed().as_millis() as u64);
-                            if a.acts {
-                                jev = pick_of(&a, live);
-                                voice = Voice::Jev;
-                                row.jev = Some(JevRow {
-                                    pick: a.choice.clone(),
-                                    p: a.confidence,
-                                    judgment: a.judgment.clone(),
-                                    acts: a.acts,
-                                });
-                                *judgment = Some((a.judgment.clone(), a.offered));
-                            }
-                        }
-                        Ok(Err(_)) => row.waited_ms = Some(t0.elapsed().as_millis() as u64),
-                        Err(_) => {
-                            row.timed_out = true;
-                            row.waited_ms = Some(wait.as_millis() as u64);
-                        }
-                    }
-                }
-                row.early = true;
-                *early_out = Some(e);
-            }
+        if !acting {
+            return None;
         }
-        let board = self.threads();
-        let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
-        let (title, _) = propose(&p.input, &taken);
-        let rules = Rules {
-            sticky_alone_asks: self.cfg.threads.sticky_alone_asks,
-            // Counted whatever the sticky rule says: without Jev it is the
-            // only thing that can raise a new thread on an ask
-            // (theseus-m7fwf). The sticky rule's own use of it is unchanged,
-            // since that reads it only behind a hold the rule made.
-            new_entities: new_entities(&p.input, live),
-            ask_every_thread: self.cfg.threads.ask_every_thread,
-            guess_unsure: self.cfg.threads.unsure == crate::config::Unsure::Guess,
-            home_follow,
+        let route = self
+            .cfg
+            .routing
+            .pack_mode(judge.mode_for(ROUTE_PACK, home).mode);
+        let route = match crate::routing::chosen(p) {
+            Some(_) => route.min(crate::config::PackMode::Shadow),
+            None => route,
         };
-        decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
-    }
-
-    /// The router could not tell: one line, the options, and a wait for the
-    /// owner's word. Returns the tag the answer gives (a new thread made on a
-    /// yes), or home when nobody answers in time.
-    async fn ask_thread(
-        &self,
-        decision: Decision,
-        p: &TurnSubmitParams,
-        conn: Conn<'_>,
-        (home, place): (&str, Option<&str>),
-        live: &[&ThreadInfo],
-        row: &mut RoutedRow,
-    ) -> ThreadTag {
-        let board = self.threads();
-        let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
-        let (new_title, new_slug) = propose(&p.input, &taken);
-        let (text, options): (String, Vec<AskChoice>) = match decision {
-            Decision::Ask { options } => (question(&options), options),
-            Decision::OfferNew { .. } => {
-                let options = crate::thread_route::offer_new(&new_title);
-                (
-                    format!("Start a new thread \u{ab}{new_title}\u{bb} for this?"),
-                    options,
-                )
-            }
-            Decision::Route(_) => unreachable!("a route needs no question"),
-        };
-        let ask_id = crate::new_id("ask");
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let wait = Duration::from_secs(self.cfg.threads.ask_wait_secs);
-        let state = &self.runner.threads.route;
-        let (slugs, others) = self.ask_over(live, &options);
-        state.ask(
-            &ask_id,
-            Pending {
-                home: home.to_string(),
-                text: p.input.clone(),
-                options: options.clone(),
-                slugs,
-                tx,
-            },
-        );
-        let ask = ThreadAsk {
-            ask_id: ask_id.clone(),
-            session_id: home.to_string(),
-            place: place.map(str::to_string),
-            question: text,
-            options: options.iter().map(|o| o.option.clone()).collect(),
-            message: preview(&p.input),
-            expires_ms: theseus_protocol::now_unix_ms() + wait.as_millis() as u64,
-            others,
-        };
-        state.shown(&ask);
-        let sink = EventSink::new(
-            self.bus.clone(),
-            home,
-            Some((conn.client.to_string(), conn.tx.clone())),
-        );
-        let rec = Rec {
-            narrator: &self.narrator,
-            session: Some(home),
-            turn: None,
-            to: To::Sink(&sink),
-            store: &self.store,
-        };
-        rec.record(&ThreadAsked(&ask));
-        row.ask = Some(ask_id.clone());
-        let t0 = Instant::now();
-        let answered = tokio::time::timeout(wait, rx).await;
-        let waited_ms = t0.elapsed().as_millis() as u64;
-        let (answer, key) = match answered {
-            Ok(Ok(a)) => {
-                // A slug answers for a thread the options did not list.
-                let key = options
-                    .iter()
-                    .find(|o| o.choice == a.choice)
-                    .map(|o| o.option.key.clone())
-                    .or_else(|| match &a.choice {
-                        Choice::Thread(s) => Some(s.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (Some(a), key)
-            }
-            _ => {
-                state.expire(&ask_id);
-                (None, "expired".to_string())
-            }
-        };
-        let tag = self.answer_tag(answer.as_ref(), live, p, (&new_slug, &new_title));
-        let (who, via) = answer
-            .as_ref()
-            .map_or(("nobody".to_string(), "expired".to_string()), |a| {
-                (a.who.label.clone(), a.who.via())
-            });
-        rec.record(&ThreadAnswered {
-            ask: &ask_id,
-            choice: &key,
-            routed: tag.slug.as_deref(),
-            who: &who,
-            via: &via,
-            waited_ms,
-        });
-        tag
-    }
-
-    /// What an ask is asked over (theseus-98bz.4): the slugs of the live,
-    /// unsealed threads, any of which answers it, and, when it offers
-    /// `other`, those threads as the options `other` stands for.
-    fn ask_over(
-        &self,
-        live: &[&ThreadInfo],
-        options: &[AskChoice],
-    ) -> (Vec<String>, Vec<theseus_protocol::thread_route::AskOption>) {
-        if !self.cfg.threads.ask_every_thread {
-            return (Vec::new(), Vec::new());
-        }
-        let askable = crate::thread_route::askable(live);
-        let others = match options.iter().any(|o| o.choice == Choice::Other) {
-            true => askable
-                .iter()
-                .map(|t| theseus_protocol::thread_route::AskOption {
-                    key: t.slug.clone(),
-                    label: t.title.clone(),
-                })
-                .collect(),
-            false => Vec::new(),
-        };
-        (askable.iter().map(|t| t.slug.clone()).collect(), others)
-    }
-
-    /// The tag an answer gives: the thread picked, a new one made on a tap, or
-    /// home (asked, or unanswered and movable).
-    fn answer_tag(
-        &self,
-        answer: Option<&Answered>,
-        live: &[&ThreadInfo],
-        p: &TurnSubmitParams,
-        (new_slug, new_title): (&str, &str),
-    ) -> ThreadTag {
-        match answer {
-            Some(Answered {
-                choice: Choice::Thread(slug),
-                ..
-            }) => ThreadTag {
-                slug: Some(slug.clone()),
-                title: live
-                    .iter()
-                    .find(|t| &t.slug == slug)
-                    .map_or_else(|| slug.clone(), |t| t.title.clone()),
-                how: RouteHow::Asked,
-                confidence: 1.0,
-                movable: false,
-            },
-            Some(Answered {
-                choice: Choice::New,
-                who,
-            }) => self.make_thread(
-                new_slug,
-                new_title,
-                &p.input,
-                p.session_id
-                    .as_deref()
-                    .and_then(|s| self.runner.target_of(s)),
-                who,
-            ),
-            _ => ThreadTag {
-                slug: None,
-                title: "home".into(),
-                how: if answer.is_some() {
-                    RouteHow::Asked
-                } else {
-                    RouteHow::Home
-                },
-                confidence: 1.0,
-                movable: answer.is_none(),
-            },
-        }
-    }
-
-    /// A thread made on a tap: the message's first words name it, the
-    /// message is its goal. A refusal sends the message home.
-    fn make_thread(
-        &self,
-        slug: &str,
-        title: &str,
-        text: &str,
-        place: Option<String>,
-        who: &Answerer,
-    ) -> ThreadTag {
-        let goal: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        let goal: String = goal
-            .chars()
-            .take(theseus_protocol::threads::MAX_LINE_CHARS)
-            .collect();
-        let made = self.thread_new(
-            &ThreadNewParams {
-                slug: slug.to_string(),
-                title: Some(title.to_string()),
-                goal: Some(goal),
-                place,
-                ..ThreadNewParams::default()
-            },
-            who.clone(),
-        );
-        match made {
-            Ok(r) => ThreadTag {
-                slug: Some(r.thread.slug),
-                title: r.thread.title,
-                how: RouteHow::NewThread,
-                confidence: 1.0,
-                movable: false,
-            },
-            Err(e) => {
-                tracing::warn!(error = %e.message, "a thread offered on a tap was not made: the message runs at home");
-                ThreadTag {
-                    slug: None,
-                    title: "home".into(),
-                    how: RouteHow::Home,
-                    confidence: 1.0,
-                    movable: true,
-                }
-            }
-        }
+        judge.inbound_early(Inbound {
+            session_id: home.clone(),
+            execution_id: session.execution_id.clone().unwrap_or_default(),
+            turn_id: turn_id.to_string(),
+            node_id: String::new(),
+            text: p.input.clone(),
+            place_kind: place_kind(place, conn.client, class),
+            author: author_of(class).into(),
+            kernel: self.kernel.clone(),
+            threads: inputs(live),
+            in_thread: false,
+            restricted: Default::default(),
+            route,
+            chosen: None,
+            task: false,
+            own: false,
+            persona: self.runner.persona_ctx(home, class),
+            // The owner's own words: `directive.v2` rides this call, and
+            // the turn says where the message was written (`Early::said`).
+            capture: self.capture_wanted(p, conn) && crate::capture::owner_alone(class, place),
+            data_names: self.cfg.privacy.data_names(),
+            attachments: Vec::new(),
+        })
     }
 
     /// After the routed turn ran: its handoff is gone, the thread's turn is
@@ -909,9 +402,7 @@ impl Core {
     pub(super) fn thread_routed_turn(&self, r: &Routing, res: Option<&TurnSubmitResult>) {
         let state = &self.runner.threads.route;
         state.clear_handoff(&r.session);
-        self.tools.misroute.disarm(&r.session);
         let Some(res) = res else { return };
-        self.claim_home_turn(r, res);
         if let Some(slug) = &r.slug {
             state.turn_ran(&res.turn_id, slug);
         }
@@ -921,46 +412,5 @@ impl Core {
                 at + t0.elapsed().as_millis() as u64
             });
         state.replied(&r.home, replied);
-    }
-
-    /// `thread.answer`: the owner's word on a waiting question.
-    pub(super) fn thread_answer(
-        &self,
-        p: theseus_protocol::thread_route::ThreadAnswerParams,
-        conn: Conn<'_>,
-    ) -> Result<theseus_protocol::thread_route::ThreadAnswerResult, RpcFailure> {
-        let who = conn.answerer(p.author.clone(), p.discord.clone());
-        self.judge_thread_answer(&who, &p.ask_id)?;
-        let (_, choice) = self
-            .runner
-            .threads
-            .route
-            .answer(&p.ask_id, &p.choice, who)
-            .map_err(|why| RpcFailure::new(error_code::NOT_FOUND, why))?;
-        Ok(theseus_protocol::thread_route::ThreadAnswerResult {
-            routed: match choice {
-                Choice::Thread(s) => Some(s),
-                _ => None,
-            },
-        })
-    }
-
-    /// `thread.ask_list`: the questions waiting now, so a surface opened after
-    /// one was asked can still show it (theseus-nuqut). The owner's, from a
-    /// private place, as `thread.answer` is: a question carries a message's
-    /// start.
-    pub(super) fn thread_ask_list(
-        &self,
-        conn: Conn<'_>,
-    ) -> Result<theseus_protocol::thread_route::ThreadAskListResult, RpcFailure> {
-        let who = conn.answerer(None, None);
-        self.judge_thread(&who, theseus_protocol::method::THREAD_ASK_LIST, "asks")?;
-        Ok(theseus_protocol::thread_route::ThreadAskListResult {
-            asks: self
-                .runner
-                .threads
-                .route
-                .held(theseus_protocol::now_unix_ms()),
-        })
     }
 }
