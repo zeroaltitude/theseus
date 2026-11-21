@@ -59,3 +59,16 @@ characters; a longer name said wins over a shorter one inside it, and each word 
 accepted only when exactly one *live* thing holds it (an active thread not merged away, an open task, a category
 not retired or merged); otherwise every holder is returned as a candidate, the live ones first.
 
+## A thing's card (`names::card`)
+
+One read: the title (`Topic: Ledger (topic:ledger)`, with `(closed)` for a thing no longer live), and under it at
+most 12 lines: what it is about (a thread's goal, a task's objective, a category's description), up to five
+current facts, up to two open tasks, the owner's guidance (a category's), and the newest three exchanges of its
+timeline with the words that opened each, cut by code. A cut list says how many it left out.
+
+- **Facts** are the owner's standing records whose scope is the thing's own place or session (a line of work's
+  `thread:<slug>` place and its session, a task's session), live ones only (`standing::live`: a revoked,
+  replaced or lapsed record is dropped). No stored record names a fact's subject yet, so a topic has no facts of
+  its own until one does.
+- **The gate is a parameter** (`card::Admits`): every standing record and every exchange the card would read is
+  asked of it, and what it refuses is not read. The view's gate (`view::gate`) is meant to stand behind it.

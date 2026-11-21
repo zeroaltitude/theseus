@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use theseus_judge::fake::FakeJev;
-use theseus_ontology::{Category, CategoryId, MemberList, Membership, Origin, Record};
+use theseus_ontology::{Category, CategoryId, Guidance, MemberList, Membership, Origin, Record};
 use theseus_protocol::index::{IndexNeighboursParams, IndexNeighboursResult};
 
 use crate::exchange::{self, Root};
@@ -209,5 +209,78 @@ async fn a_numbered_item_is_touched_scoped_by_the_places_project_or_unscoped() {
         touched("item:issue-33"),
         vec![turn],
         "an unscoped candidate"
+    );
+}
+
+/// What a card's caller admits: everything, or no exchange.
+struct Admit(bool);
+
+impl crate::names::card::Admits for Admit {
+    fn fact(&self, _: &theseus_protocol::StandingRecord) -> bool {
+        true
+    }
+
+    fn exchange(&self, _: &crate::exchange::Exchange) -> bool {
+        self.0
+    }
+}
+
+/// KEY: the name table finds the topic by its name, and its card, read
+/// once, holds the owner's guidance and the exchange the judge filed under
+/// it, with the words that opened it; an exchange the caller's gate refuses
+/// is not on it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_named_topics_card_holds_its_guidance_and_the_exchanges_its_gate_admits() {
+    let jev = FakeJev::start().unwrap();
+    jev.script_onto("topic", "c1", 0.9);
+    let r = rig(jev);
+    ledger_category(&r);
+    operator_writes(
+        &r,
+        vec![Record::Guidance(Guidance::new(
+            id("topic:ledger"),
+            "Keep the ledger's own words.",
+            1,
+            "ada",
+        ))],
+    );
+    let sid = bound(&r.core);
+    let turn = said(&r, &sid).await;
+    let table = crate::names::table::build(&r.core).unwrap();
+    let found = table.find("how is the ledger");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        (found[0].how, found[0].things.as_slice()),
+        (
+            crate::names::table::How::Unique,
+            &["topic:ledger".to_string()][..]
+        )
+    );
+    let card = crate::names::card::card(&r.core, &table, "topic:ledger", &Admit(true))
+        .unwrap()
+        .expect("a card");
+    assert_eq!(card.title, "Topic: Ledger (topic:ledger)");
+    assert_eq!(card.exchanges, vec![turn]);
+    assert!(
+        card.lines
+            .contains(&"Guidance: Keep the ledger's own words.".to_string()),
+        "{:#?}",
+        card.lines
+    );
+    assert!(
+        card.lines
+            .iter()
+            .any(|l| l.ends_with(&format!("\"{SAID}\""))),
+        "{:#?}",
+        card.lines
+    );
+    let refused = crate::names::card::card(&r.core, &table, "topic:ledger", &Admit(false))
+        .unwrap()
+        .unwrap();
+    assert!(refused.exchanges.is_empty());
+    assert!(
+        crate::names::card::card(&r.core, &table, "topic:none", &Admit(true))
+            .unwrap()
+            .is_none()
     );
 }
