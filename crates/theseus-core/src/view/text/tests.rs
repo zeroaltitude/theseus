@@ -695,6 +695,7 @@ fn every_reason_and_band_has_plain_words() {
 
 fn node(place: &str, outside: bool) -> FoldNode {
     FoldNode {
+        title: String::new(),
         level: 1,
         place: place.into(),
         first: Pos {

@@ -599,6 +599,7 @@ fn no_retrieved_piece_may_authorise_whatever_made_it() {
         id: format!("n{h}"),
     };
     s.nodes.push(FoldNode {
+        title: String::new(),
         level: 1,
         place: "local".into(),
         first: at(900),
