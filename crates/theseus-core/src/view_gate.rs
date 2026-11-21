@@ -475,11 +475,12 @@ impl Verified {
     }
 }
 
-/// Stage the mark `turn.submit` would make for `text` in `session`: typed by
-/// the owner in person, or by an agent's process at the terminal.
+/// The mark `turn.submit` would make for a message in `session`: typed by
+/// the owner in person, or by an agent's process at the terminal. It rides
+/// the submission's sink (`EventSink::with_arrival`), as the live one does.
 #[cfg(test)]
-pub fn stage_mark(runner: &TurnRunner, session: &str, text: &str, in_person: bool) {
-    let mark = OwnerMark {
+pub fn owner_mark(runner: &TurnRunner, session: &str, in_person: bool) -> OwnerMark {
+    OwnerMark {
         node: String::new(),
         in_person,
         owner_handle: None,
@@ -503,8 +504,7 @@ pub fn stage_mark(runner: &TurnRunner, session: &str, text: &str, in_person: boo
         ran_session: session.into(),
         author: None,
         at_ms: 0,
-    };
-    runner.exchanges.arrivals.stage(session, text, mark);
+    }
 }
 
 /// Seat the owner alone in `session`, as a turn of his in person would, for

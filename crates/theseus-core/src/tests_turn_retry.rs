@@ -59,9 +59,7 @@ fn session(core: &Core, said: &[&str], bound: bool) -> String {
 
 async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result<TurnSubmitResult> {
     // The owner typed it in person, as `turn.submit` would mark it (issue 44).
-    if let Some(i) = input {
-        crate::view_gate::stage_mark(&core.runner, sid, i, true);
-    }
+    let mark = input.map(|_| crate::view_gate::owner_mark(&core.runner, sid, true));
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None)?;
@@ -72,7 +70,7 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result
             session: rec,
             input: input.map(str::to_string),
             target,
-            sink: EventSink::new(core.bus.clone(), sid, None),
+            sink: EventSink::new(core.bus.clone(), sid, None).with_arrival(mark),
             author: input.map_or("harness", |_| "test").into(),
             recompile: None,
             attachments: vec![],

@@ -303,7 +303,6 @@ async fn found(
         budget_tokens: None,
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
-        activation: None,
         threads: None,
         persona: None,
         category: None,
