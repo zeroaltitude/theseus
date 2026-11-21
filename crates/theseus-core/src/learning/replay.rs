@@ -511,8 +511,12 @@ impl Core {
                 } else {
                     continue;
                 };
+                // The one recorded pair of texts that differ in comments alone
+                // (`pack::SAME_TEXT`) is one text; no other digest is.
                 if held.as_str() == Some(name.as_str())
-                    && sha.as_str().is_some_and(|s| s != c.sha256)
+                    && sha
+                        .as_str()
+                        .is_some_and(|s| !theseus_judge::pack::same_text(&name, s, &c.sha256))
                 {
                     bail!(
                         "{name} is already recorded under another text (sha256 {}); give the \

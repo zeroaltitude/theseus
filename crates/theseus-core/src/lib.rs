@@ -588,6 +588,8 @@ mod tests_rerank_live;
 #[cfg(test)]
 mod tests_resident_peak;
 #[cfg(test)]
+mod tests_retired_reads;
+#[cfg(test)]
 mod tests_retract;
 #[cfg(test)]
 mod tests_retry;

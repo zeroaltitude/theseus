@@ -166,6 +166,12 @@ impl RoutingConfig {
         out
     }
 
+    /// The retired `rung` said `shadow`: the route pack recorded its verdict
+    /// and routed nothing, which it no longer does.
+    pub fn was_shadow(&self) -> bool {
+        self.rung.as_ref().and_then(toml::Value::as_str) == Some("shadow")
+    }
+
     /// The keys the trim of unused modes retired (issue 44) that this
     /// section sets: what [`crate::Config::parse`] warns of, once.
     pub fn trimmed(&self) -> Vec<String> {

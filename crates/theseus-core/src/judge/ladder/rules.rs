@@ -41,17 +41,21 @@ pub fn next_midnight(now: u64) -> u64 {
 /// the adoption's stays the rule of a version whose file names none (route.v5
 /// to v8 name no pins rule). A learned version (25f) keeps its parent's rules
 /// by construction (`propose::text_only`), so its rules are its lineage's
-/// compiled-in version's: the wired one of its id.
+/// compiled-in version's: the wired one of its id. A retired version (issue
+/// 44) keeps its own file's rules (`pack::retired_rollback`), never the wired
+/// version's: a stored adoption of `route.v8` is still checked by route.v8's.
 pub fn rules_of(pack: &str) -> Vec<RollbackRule> {
     let root = || {
         crate::judge::WIRED
             .iter()
             .find(|(n, _)| id_of(n) == id_of(pack))
             .and_then(|(n, _)| theseus_judge::pack::by_name(n))
+            .map(|p| p.rollback.clone())
     };
     let mut out = theseus_judge::pack::by_name(pack)
-        .or_else(root)
         .map(|p| p.rollback.clone())
+        .or_else(|| theseus_judge::pack::retired_rollback(pack))
+        .or_else(root)
         .unwrap_or_default();
     for r in adopt::rules(id_of(pack)) {
         if !out.iter().any(|o| same_kind(o, &r)) {

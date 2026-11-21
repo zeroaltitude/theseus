@@ -195,15 +195,11 @@ fn label_of(d: &Value) -> Value {
     }
 }
 
-/// The pack ids whose scopes a report reads: every pack this build embeds.
+/// The pack ids whose scopes a report reads: every pack this build embeds,
+/// and every family whose versions it retired (issue 44), whose stored
+/// records stay readable though nothing can run them.
 pub fn pack_ids() -> Vec<String> {
-    let mut ids: Vec<String> = theseus_judge::pack::embedded()
-        .as_ref()
-        .map(|packs| packs.iter().map(|p| p.id.clone()).collect())
-        .unwrap_or_default();
-    ids.sort();
-    ids.dedup();
-    ids
+    theseus_judge::pack::readable_ids()
 }
 
 /// The local midnight that begins `unix_ms`'s day.

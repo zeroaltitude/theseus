@@ -533,6 +533,8 @@ impl Ladder {
             .map(|(p, _)| id_of(p).to_string())
             .collect();
         ids.extend(adopt::ADOPTED.iter().map(|a| id_of(a.pack).to_string()));
+        // A retired family's mode rows stay read (issue 44).
+        ids.extend(theseus_judge::pack::readable_ids());
         for id in &ids {
             for r in self.store.scope_after(&scope(id), 0)? {
                 let Ok(row) = r.decode::<LedgerRow>() else {

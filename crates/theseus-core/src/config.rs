@@ -1645,13 +1645,28 @@ impl Config {
         // what each retired key now does, in one line.
         warnings.extend(cfg.memory.retirement());
         // What the trim of unused judge questions and modes retired (issue 44):
-        // nothing reads any of it now.
+        // nothing reads any of it now. Where a value the file sets did
+        // something, the one line says what changes with it.
         let mut trimmed = cfg.judge.retired();
         trimmed.extend(cfg.routing.trimmed());
         trimmed.extend(cfg.memory.trimmed());
         if !trimmed.is_empty() {
+            let mut changed = Vec::new();
+            if cfg.routing.was_shadow() {
+                changed.push(format!(
+                    "routing now follows `[judge.packs.\"{}\"] rung` and may act live",
+                    crate::judge::inbound::ROUTE_PACK
+                ));
+            }
+            if cfg.memory.small_talk_bar_was_on() {
+                changed.push("small-talk turns now carry admitted recall".to_string());
+            }
+            let changed = match changed.is_empty() {
+                true => String::new(),
+                false => format!(". What changes: {}", changed.join("; ")),
+            };
             warnings.push(format!(
-                "{} retired (nothing reads it any more): read and ignored, remove {}",
+                "{} retired (nothing reads it any more): read and ignored, remove {}{changed}",
                 trimmed.join(", "),
                 match trimmed.len() {
                     1 => "it",
