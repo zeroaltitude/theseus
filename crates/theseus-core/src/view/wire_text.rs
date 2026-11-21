@@ -11,9 +11,12 @@
 use super::budget::View;
 use super::fold::FoldNode;
 use super::render::{MarkedBlock, Renderer, RequestParts};
-use super::text::labels::{self, Origin};
-use super::text::{blocks, forms, page};
-use super::{Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
+use super::sources_store::author_of;
+use super::text::forms::{self, Said, Voice};
+use super::text::labels::Origin;
+use super::text::parts::{self, Seen};
+use super::text::{blocks, page};
+use super::{Anchor, Form, Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
 use crate::exchange;
 use crate::ladder::did;
 use crate::node::Node;
@@ -57,11 +60,14 @@ impl TextRenderer<'_> {
             .collect())
     }
 
-    /// A piece's text in its form, or none for a space not read here.
-    fn text(&self, p: &Piece, form: super::Form) -> anyhow::Result<Option<String>> {
+    /// A piece's marked blocks: an exchange's parts each labelled by its own provenance
+    /// (`parts::exchange_blocks`); a piece of a space not read here, none.
+    fn blocks(&self, p: &Piece, form: Form, pov: &PointOfView) -> anyhow::Result<Vec<MarkedBlock>> {
         let Space::Exchanges { .. } = &p.range.space else {
-            return Ok(None);
+            return Ok(Vec::new());
         };
+        let place = p.marks.place.as_deref().unwrap_or("an unknown place");
+        let here = matches!(&pov.anchor, Anchor::Place(a) if a == place);
         let mut ids = vec![p.range.first.id.as_str()];
         if p.range.last.id != p.range.first.id {
             ids.push(p.range.last.id.as_str());
@@ -69,11 +75,28 @@ impl TextRenderer<'_> {
         let mut out = Vec::new();
         for turn in ids {
             let nodes = self.exchange_nodes(turn)?;
-            let line = did::did(self.store, turn)?.map(|d| d.line);
             let handle = Handle(turn.to_string());
-            out.push(forms::render(form, &nodes, line.as_deref(), &handle));
+            let said = match form {
+                Form::Whole => forms::whole(&nodes),
+                Form::Spoken => forms::spoken(&nodes),
+                Form::Line => line(&nodes, did::did(self.store, turn)?.map(|d| d.line), &handle),
+            };
+            let seen = Seen {
+                origin: Origin {
+                    place,
+                    at_ms: p.range.last.at_ms,
+                    source: None,
+                },
+                here,
+                live: false,
+                reasons: &p.reasons,
+                range: p.range.clone(),
+                handle,
+            };
+            let author = |s: &Said| author_of(self.store, &s.node);
+            out.extend(parts::exchange_blocks(&said, &author, &seen, self.zone));
         }
-        Ok(Some(out.join("\n\n")))
+        Ok(out)
     }
 
     /// The ladder's nodes as fold blocks, oldest first, the person's words read from the store.
@@ -92,6 +115,29 @@ impl TextRenderer<'_> {
         }
         Ok(out)
     }
+}
+
+/// An exchange in the line form, as parts: the person's words exactly, then the `did` line (or "reply not
+/// summarised") and the handle, as code's own mark.
+fn line(nodes: &[Node], did: Option<String>, handle: &Handle) -> Vec<Said> {
+    let mut out: Vec<Said> = forms::whole(nodes)
+        .into_iter()
+        .filter(|s| s.voice == Voice::Person)
+        .take(1)
+        .collect();
+    let did = did.filter(|d| !d.trim().is_empty());
+    out.push(Said {
+        voice: Voice::Mark,
+        text: format!(
+            "→ {} (open {})",
+            did.as_deref().map_or("reply not summarised", str::trim),
+            handle.0
+        ),
+        node: String::new(),
+        call: None,
+        outside: None,
+    });
+    out
 }
 
 /// The marked blocks beside the message as one: each keeps its own heading.
@@ -132,15 +178,7 @@ impl Renderer for TextRenderer<'_> {
                 Part::Beside => &mut moving,
                 Part::Elsewhere => continue,
             };
-            let Some(text) = self.text(p, s.form)? else {
-                continue;
-            };
-            let origin = Origin {
-                place: p.marks.place.as_deref().unwrap_or("an unknown place"),
-                at_ms: p.range.last.at_ms,
-                source: None,
-            };
-            to.push(labels::block(p, &view.pov, &origin, &text, self.zone));
+            to.extend(self.blocks(p, s.form, &view.pov)?);
         }
         let (version, _) = page::memory_page();
         Ok(RequestParts {

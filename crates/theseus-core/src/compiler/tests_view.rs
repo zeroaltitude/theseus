@@ -127,6 +127,7 @@ fn frozen(turn: &str, window: &[Node]) -> Frozen {
         spoken: vec![],
         beside: Some(Frozen::block("s", turn, "beside", "waiting: one question")),
         memory_page: "# How your memory works".into(),
+        record: None,
     }
 }
 

@@ -265,7 +265,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     };
     let pov = crate::view::PointOfView::compute(
         &crate::view::Arrival {
-            anchor: crate::view::Anchor::Place(place),
+            anchor: crate::view::Anchor::Place(place.clone()),
             person: None,
             owner_marked: false,
             audience: crate::view::Audience::Private,
@@ -278,7 +278,13 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     };
     let parts = crate::view::wire::Parts {
         selectors: &[],
-        gate: &crate::view::permit::Permit,
+        gate: &crate::view::permit::Permit::of(crate::view_gate::Verified::for_tests(
+            theseus_memory::gate::PointOfView {
+                anchor: place.clone(),
+                place: theseus_memory::recall::Place::Private,
+                present: theseus_memory::gate::Present::OwnerAlone,
+            },
+        )),
         renderer: &renderer,
         ladder: &ladder,
         since: None,
@@ -358,4 +364,93 @@ async fn a_small_view_conversations_requests_are_the_golden() {
         "a view conversation's requests moved from tests/golden/view_requests.txt \
          (THESEUS_GOLDEN=write writes it again):\n{got}"
     );
+}
+
+/// A turn of `sid` whose input `turn.submit` marked as typed by the owner in person, or by an agent's
+/// process (the gate's own staging, `view_gate::stage_mark`).
+async fn turn_as(core: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_person: bool) {
+    use crate::session::SessionRecord;
+    crate::view_gate::stage_mark(&core.runner, sid, input, in_person);
+    let rec = (core.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None);
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "cli".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap();
+}
+
+/// The owner's words in his DM, then turns in other places set to view. The point of view's presence is
+/// the gate's, verified from the turn's own mark and the place read on its own: an agent's process at the
+/// terminal, and the owner's own marked message in a channel bound private (decision 5: a channel is never
+/// alone), get nothing from the DM; the owner in person at the terminal is the owner alone.
+#[tokio::test]
+async fn a_view_turn_not_the_owner_alone_gets_nothing_from_another_place() {
+    use crate::view_gate::Verified;
+    use theseus_memory::gate::Present;
+    const HIS: &str = "the plum orchard gate code is 2718";
+    let r = view_rig();
+    let c = &r.core;
+    c.bind_places(vec![crate::places::BoundPlace {
+        persona: None,
+        target: format!("discord:channel:{}", crate::tests_places::LAB),
+        name: "#lab".into(),
+        private: true,
+        guild: Some("100000000000000001".into()),
+        ceiling: None,
+    }]);
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, HIS, true).await;
+
+    let agent = session_in(c, None, &r.root);
+    turn_as(c, &agent, "agent: what did he say?", false).await;
+    let present = |sid: &str| Verified::of_session(&c.runner, sid).pov().present;
+    assert_eq!(present(&agent), Present::PrivateChannel);
+    let lab = format!("channel:{}", crate::tests_places::LAB);
+    let channel = crate::tests_places::session(c, Some(&lab));
+    turn_as(c, &channel, "lab: what did he say?", true).await;
+    assert_eq!(
+        present(&channel),
+        Present::PrivateChannel,
+        "a channel is never alone"
+    );
+    for asked_in in ["agent: what did he say?", "lab: what did he say?"] {
+        let q = asked(&r, asked_in).pop().unwrap();
+        assert!(!texts(&q).contains(HIS), "{asked_in}: {}", texts(&q));
+    }
+    let owner = session_in(c, None, &r.root);
+    turn_as(c, &owner, "owner: what did I say?", true).await;
+    assert_eq!(present(&owner), Present::OwnerAlone);
+}
+
+/// A view place's request offers the tools the transcript's does: the history tool among them.
+#[tokio::test]
+async fn a_view_place_offers_the_history_tool_as_the_transcript_does() {
+    let mut offered = Vec::new();
+    for r in [view_rig(), rig_with(|_| {})] {
+        let sid = session_in(&r.core, None, &r.root);
+        turn(&r.core, &sid, "tools: which?").await;
+        let q = asked(&r, "tools: which?").pop().unwrap();
+        offered.push(crate::tests_places::offered(&q));
+    }
+    assert!(
+        offered[0].iter().any(|n| n == "context_history"),
+        "{:?}",
+        offered[0]
+    );
+    assert_eq!(offered[0], offered[1]);
 }

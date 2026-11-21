@@ -52,6 +52,8 @@ pub struct Frozen {
     pub beside: Option<Node>,
     /// The memory page, at the end of the system part; empty for none.
     pub memory_page: String,
+    /// The view the turn was built from, until its record is kept with the turn's compilation.
+    pub record: Option<crate::view::budget::View>,
 }
 
 impl Frozen {

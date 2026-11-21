@@ -31,6 +31,22 @@ pub struct StoreSources<'a> {
     pub recalled: Vec<String>,
 }
 
+/// Who wrote a person's message, by its node's mark: the owner's mark is his; a chat author's proof is
+/// another person's; no mark, or a mark that names no person (an agent's process), is unknown.
+pub fn author_of(store: &Store, node: &str) -> Author {
+    match exchange::mark(store, node)
+        .ok()
+        .flatten()
+        .and_then(|m| m.person())
+    {
+        Some(p) if p == OWNER => Author::His {
+            may_authorise: false,
+        },
+        Some(_) => Author::Other,
+        None => Author::Unknown,
+    }
+}
+
 fn json_tokens(v: &serde_json::Value) -> u64 {
     tokens(&v.to_string())
 }

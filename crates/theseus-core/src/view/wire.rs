@@ -105,8 +105,14 @@ pub fn assemble(
     parts: &Parts<'_>,
     budget: &Budget,
 ) -> Result<Assembled, NotAssembled> {
-    let view = super::select::assemble(pov, snap, parts.selectors, parts.gate, budget)?
-        .map_err(NotAssembled::Overflow)?;
+    let counted = super::select::assemble_counted(pov, snap, parts.selectors, parts.gate, budget)?;
+    if counted.faults > 0 {
+        tracing::warn!(
+            faults = counted.faults,
+            "the view left out pieces that claimed code's own text"
+        );
+    }
+    let view = counted.view.map_err(NotAssembled::Overflow)?;
     let rendered = parts.renderer.render(&view, snap)?;
     let ladder = match &pov.anchor {
         Anchor::Place(place) => parts.ladder.read(place, WINDOW_N, parts.since.as_ref())?,
