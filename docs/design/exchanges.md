@@ -50,8 +50,12 @@ binding's start would be a frame of its own there.
 keeps every exchange and mark written as it happened, writing only the touches it lacks (a restart or a late index
 can leave one unwritten). A new exchange's place and person come from its message's own mark alone: a session's
 binding is where it posts now, not proof of where a message arrived or who typed it, so history from before the
-mark says `unknown` and names no person. Touches an older build keyed off their exchange's start are ended. No mark
-is ever made backwards.
+mark says `unknown` and names no person. A touch an older build keyed off its exchange's start is moved, not
+re-derived: its own record is written at the start's key and the old key ended in the same frame, with no index
+asked; the index only ever adds touches. The rebuild names things in the same 64 KiB of text as a live turn. No
+mark is ever made backwards. A reply's counts for the next row carry the exchange that made them, so a naming that
+finishes late never stands for a newer reply's. A touch whose place or person holds the key's separator is refused,
+and a read keeps only keys that are exactly its own root's.
 
 ## Settings and bounds
 

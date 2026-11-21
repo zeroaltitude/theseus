@@ -12,8 +12,10 @@
 //!   missing touches are written (a restart, or an index that was late or
 //!   down, can leave a thing's touch unwritten).
 //! - **A touch keyed off its exchange's start** (an older build keyed a
-//!   reply's things at its end) is ended, so one exchange holds one touch of
-//!   a root.
+//!   reply's things at its end) is moved, not dropped: its own record is
+//!   written again at the start's key and the old key ended in the same
+//!   frame, with no index asked, so one exchange holds one touch of a root and
+//!   no association is lost. The index only adds touches; it never ends one.
 //!
 //! The dry run counts and writes nothing.
 
@@ -38,8 +40,9 @@ use crate::store::Store;
 pub const UNKNOWN: &str = "unknown";
 /// Records a frame of the rebuild holds, at most.
 const BATCH: usize = 256;
-/// The most of a message or reply the index is asked to name things in.
-const TEXT: usize = 16 * 1024;
+/// The most of a message or reply the index is asked to name things in: the
+/// live naming's own cut, so a term the turn named is named again here.
+const TEXT: usize = super::THINGS_TEXT;
 
 /// One turn's exchange, new or kept, and the words its things are named from.
 struct Planned {
@@ -225,9 +228,11 @@ fn records(
     Ok(out)
 }
 
-/// The touches keyed off their exchange's start, to be ended: one exchange
-/// holds one touch of a root.
-fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<NewRecord>> {
+/// The touches keyed off their exchange's start, each moved: its record at
+/// the start's key, then the old key's end, a pair that is appended in one
+/// frame (`run` keeps the pairs whole), so an old key ends only with its
+/// replacement written beside it.
+fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<[NewRecord; 2]>> {
     let mut out = Vec::new();
     for r in store
         .inner()
@@ -237,13 +242,21 @@ fn misplaced(store: &Store, starts: &HashMap<&str, u64>) -> anyhow::Result<Vec<N
             continue;
         };
         let mut parts = key.rsplitn(3, SEP);
-        let (Some(turn), Some(time)) = (parts.next(), parts.next()) else {
+        let (Some(turn), Some(time), Some(root)) = (parts.next(), parts.next(), parts.next())
+        else {
             continue;
         };
         let at = time.parse::<u64>().ok().map(|t| u64::MAX - t);
-        if starts.get(turn).is_some_and(|s| Some(*s) != at) {
-            out.push(NewRecord::delete_meta(key));
-        }
+        let Some(start) = starts.get(turn).copied().filter(|s| Some(*s) != at) else {
+            continue;
+        };
+        let mut moved: super::Touch = r.decode()?;
+        moved.at_ms = start;
+        let canonical = format!("{root}{SEP}{:020}{SEP}{turn}", u64::MAX - start);
+        out.push([
+            NewRecord::json(kinds::META, Some(&canonical), &moved)?,
+            NewRecord::delete_meta(key),
+        ]);
     }
     Ok(out)
 }
@@ -296,8 +309,13 @@ pub async fn run(
     if !p.dry_run {
         let writer = store.clone();
         blocking(move || {
-            for batch in recs.chunks(BATCH).chain(ended.chunks(BATCH)) {
+            for batch in recs.chunks(BATCH) {
                 writer.append(batch)?;
+            }
+            // A move's two records are never split across frames.
+            for pairs in ended.chunks(BATCH / 2) {
+                let batch: Vec<NewRecord> = pairs.iter().flatten().cloned().collect();
+                writer.append(&batch)?;
             }
             Ok(())
         })
