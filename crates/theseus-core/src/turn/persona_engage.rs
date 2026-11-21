@@ -167,11 +167,7 @@ impl TurnRunner {
                 .options
                 .iter()
                 .find(|o| o.key.as_deref() == Some(k.as_str()))?;
-            let how = match s.by {
-                crate::correction::By::Owner => How::Corrected,
-                crate::correction::By::Layer => How::Learned,
-            };
-            Some((c, how))
+            Some((c, How::Corrected))
         });
         let engaged = engage::decide(
             &e.prior,

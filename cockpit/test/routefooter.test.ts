@@ -1,8 +1,7 @@
-// The route footer and the correction layer in words (`src/lib/routefooter.ts`, theseus-q31l), run by `npm test`.
+// The route footer in words (`src/lib/routefooter.ts`, theseus-q31l), run by `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { RouteCorrectionsResult } from '@protocol'
-import { correctionChoices, correctionLine, layerHead, personaChoices, personaWords, routeLine } from '../src/lib/routefooter.ts'
+import { correctionChoices, personaChoices, personaWords, routeLine } from '../src/lib/routefooter.ts'
 
 test("a turn's route line names its mode, or the correction that placed it", () => {
   assert.equal(routeLine(undefined, 'sonnet'), null)
@@ -48,19 +47,6 @@ test("the footer's controls are a direction each way, then every other profile",
   const c = correctionChoices(['sonnet', 'opus', 'fable'], 'sonnet')
   assert.deepEqual(c.map((x) => x.to), ['stronger', 'cheaper', 'opus', 'fable'])
   assert.equal(c[0].text, '⬆ stronger')
-})
-
-test('the layer reads a head and a line an entry', () => {
-  const r: RouteCorrectionsResult = {
-    pack: 'route.v2',
-    entries: [{
-      id: 'rcx_1', label: 'lbl_1', pack: 'route.v2', session_id: 'ses_a', turn_id: 'turn_1', to: 'fable',
-      words: ['format', 'lighthouse', 'log', 'parser', 'rust', 'write', 'x', 'y', 'z'], at_ms: 1,
-    }],
-    max_entries: 64, similarity: 0.5, retired: 2, enabled: true,
-  }
-  assert.equal(layerHead(r), 'on · 1 of 64 under route.v2 · close at 50% of words in common · 2 retired')
-  assert.equal(correctionLine(r.entries[0]), '→ fable · format lighthouse log parser rust write x y +1')
 })
 
 test("a turn's line says who answered and, when Jev was less than sure, why (route.v5)", () => {

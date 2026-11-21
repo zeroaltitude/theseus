@@ -7,9 +7,8 @@
 //!    here". A turn still running there for the message is stopped first;
 //! 2. the correction is recorded in one frame: the owner's label on the
 //!    `thread` question of the judgment that chose (the right class), the
-//!    `thread.moved` row, and, in memory, an entry in the correction layer
-//!    (`Steer::Thread`), so a close next message routes where the owner said.
-//!    A "wrong thread" label counts on `classify.v2`'s rollback rule;
+//!    `thread.moved` row. A "wrong thread" label counts on `classify.v2`'s
+//!    rollback rule;
 //! 3. the message is submitted again, once, to the right session, the routing
 //!    of unaddressed messages off.
 //!
@@ -22,7 +21,6 @@ use theseus_protocol::{error_code, method, TurnSubmitParams, TurnSubmitResult};
 
 use super::server::{Conn, RpcFailure};
 use super::Core;
-use crate::correction::layer::{words, Entry, Steer};
 use crate::fact;
 use crate::fact::thread_route::ThreadMoved;
 use crate::judge::inbound::{CLASSIFY_PACK, THREAD_QUESTION};
@@ -125,8 +123,7 @@ impl Core {
         self.thread_ungrow(&routed.turn);
 
         // 2. The correction, in one frame.
-        let rcx = crate::new_id("rcx");
-        let label_id = self.write_correction(&routed, &to, &rcx, &who_label, &via, &title)?;
+        let label_id = self.write_correction(&routed, &to, &who_label, &via, &title)?;
 
         // 3. The message again, once, to the right session.
         let place = self.outbox.target(&routed.home);
@@ -247,13 +244,12 @@ impl Core {
     }
 
     /// The label on the `thread` question (the right class), when Jev was
-    /// asked, and the layer's entry, in memory; the `thread.moved` row is the
-    /// caller's. One frame for the label; the ladder counts it.
+    /// asked; the `thread.moved` row is the caller's. One frame for the label;
+    /// the ladder counts it.
     fn write_correction(
         &self,
         r: &Routed,
         to: &str,
-        rcx: &str,
         who: &str,
         via: &str,
         title: &str,
@@ -299,24 +295,6 @@ impl Core {
             }
         }
         judge.wrong_thread();
-        if to != "home" {
-            let w = words(&r.text);
-            if !w.is_empty() {
-                judge.corrections.add(
-                    Entry {
-                        id: rcx.to_string(),
-                        label: label_id.clone(),
-                        pack: CLASSIFY_PACK.to_string(),
-                        session: r.home.clone(),
-                        turn: r.turn.clone(),
-                        words: w,
-                        steer: Steer::Thread(to.to_string()),
-                        at_ms: theseus_protocol::now_unix_ms(),
-                    },
-                    &self.cfg.routing.corrections,
-                );
-            }
-        }
         Ok(label_id)
     }
 }

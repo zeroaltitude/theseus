@@ -47,7 +47,7 @@ use theseus_protocol::route::{TurnData, TurnRoute};
 
 use super::*;
 use crate::config::PackMode;
-use crate::correction::{By, RoutedTurn, Steer, Steering};
+use crate::correction::{RoutedTurn, Steer, Steering};
 use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
 use crate::places::PlaceClass;
 use crate::routing::effort::{self, EffortDecision};
@@ -91,8 +91,6 @@ pub(super) struct RouteState {
     /// Where the owner's correction, or the layer, steers the turn ahead of
     /// the verdict (theseus-q31l).
     pub(super) steer: Option<Steering>,
-    /// The message's content words, for a correction to find it by.
-    pub(super) words: Vec<String>,
     /// Where the turn stands on its session's content labels
     /// (`data_step::Cn`): unchecked at the turn's start, which fails closed.
     pub(super) cn: super::data_step::Cn,
@@ -117,8 +115,7 @@ pub(super) struct RouteState {
     /// two or more personas could answer; and the persona once decided.
     pub(super) engage: Option<super::persona_engage::Engage>,
     pub(super) persona: Option<crate::engage::Engaged>,
-    /// A persona correction or the layer's entry placing the persona ahead of
-    /// Jev's pick (theseus-c1uz).
+    /// A persona correction placing the persona ahead of Jev's pick (theseus-c1uz).
     pub(super) persona_steer: Option<Steering>,
     /// The turn is a task's first, and the verdict on its brief picks the
     /// task's base (theseus-ypnxt.7, `brief_step`).
@@ -815,7 +812,7 @@ impl TurnRunner {
         let fixed = self.fixed_prefix_tokens(&t.target.model, compiled);
         let context = compiled.est_tokens.saturating_sub(fixed);
         let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
-            (Some(s), _, _) => Some(self.decide_steer(t, session, s, context)),
+            (Some(s), _, _) => Some(self.decide_steer(t, session, s)),
             (None, Some(v), None) => Some(self.decide_route(t, session, v, (context, fixed))),
             _ => None,
         };

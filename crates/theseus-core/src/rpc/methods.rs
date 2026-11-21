@@ -981,8 +981,6 @@ impl Core {
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The turn's time, when the client gave one (theseus-yct32).
         crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
-        // The owner's words, read as a correction for the turn (theseus-q31l).
-        self.expect_correction(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
         // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
         // **Nothing is read out of its WORDS here.** What is staged is who

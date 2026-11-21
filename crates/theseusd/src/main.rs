@@ -1267,9 +1267,6 @@ fn warm_after_serving(core: &Arc<Core>) {
     // The ladder (M5 26a): each pack's mode, read once the socket answers,
     // and the adoptions it lacks written then, never on the start path.
     core.warm_ladder();
-    // The owner's corrections of routing (theseus-q31l): the live layer, by
-    // one scan of its scope, so a turn's lookup reads memory alone.
-    core.warm_corrections();
     // Jev's connections (theseus-ddbi): opened now and kept warm, so a
     // fresh daemon's first message pays no connection setup on route.v1's
     // request, and nothing on the start path touches the network.
