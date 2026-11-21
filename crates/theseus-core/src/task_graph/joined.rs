@@ -19,7 +19,7 @@ use anyhow::Result;
 use theseus_kernel::{Execution, Kernel};
 use theseus_store::{kinds, Store as _};
 
-use super::{children, execution_of, get, state_now, TaskRecord, TaskState};
+use super::{children, execution_of, get, state_now, TaskState};
 use crate::store::Store;
 use crate::view::select::sources::{Names, Ref, TaskCards};
 use crate::view::{
@@ -263,9 +263,31 @@ pub fn addressed(named: &[String], judged: Option<&str>, tasks: &[&str]) -> Opti
     }
 }
 
-/// Where a task's home session speaks, as the gate names it, and its audience.
+/// The marks of what a task's home session says: its place as the gate
+/// names it, that place's audience, its seal. A card carries its task's.
 pub trait Homes {
-    fn home(&self, session: &str) -> Option<(String, Audience)>;
+    fn marks(&self, session: &str) -> Marks;
+}
+
+impl Homes for crate::turn::TurnRunner {
+    fn marks(&self, session: &str) -> Marks {
+        use theseus_memory::gate::{Seal, Veil};
+        use theseus_memory::recall::Place;
+        let m = crate::view_gate::session_marks(self, None, session, Veil::Clear);
+        Marks {
+            place: m.place,
+            audience: match m.class {
+                Place::Private => Audience::Private,
+                Place::Shared(_) => Audience::Shared,
+                Place::Open(_) => Audience::Open,
+                Place::Unknown => Audience::Unknown,
+            },
+            author: Author::Theseus,
+            outside: false,
+            sealed: m.seal != Seal::Clear,
+            veiled: false,
+        }
+    }
 }
 
 /// The view's [`TaskCards`] over the store: the card of the one task this
@@ -277,31 +299,6 @@ pub struct StoreCards<'a> {
     pub homes: &'a dyn Homes,
     /// The judge's `addressed_task` answer to this message, as recorded.
     pub judged: Option<String>,
-}
-
-impl StoreCards<'_> {
-    fn marks(&self, all: &[TaskRecord], rec: &TaskRecord) -> Marks {
-        let home = super::home(all, rec);
-        match self.homes.home(&home) {
-            Some((place, audience)) => Marks {
-                place: Some(place),
-                audience,
-                author: Author::Theseus,
-                outside: false,
-                sealed: false,
-                veiled: false,
-            },
-            // A missing mark denies at the gate.
-            None => Marks {
-                place: None,
-                audience: Audience::Unknown,
-                author: Author::Theseus,
-                outside: false,
-                sealed: false,
-                veiled: false,
-            },
-        }
-    }
 }
 
 impl TaskCards for StoreCards<'_> {
@@ -331,7 +328,7 @@ impl TaskCards for StoreCards<'_> {
                     id: id.clone(),
                 },
             },
-            marks: self.marks(&all, rec),
+            marks: self.homes.marks(&super::home(&all, rec)),
             sizes: card.sizes(),
             handle: Handle(format!("{}@v{}", thing_of(&id), card.version)),
             form: Form::Whole,

@@ -423,8 +423,8 @@ impl Tool for TaskUpdate {
          to either becomes a proposal that waits for the operator's yes, and nothing changes \
          until then. On any other task (a plan item, a split's child) they apply at once. When \
          the operator's own message in this exchange asks the change, name it in `said` and say \
-         its `kind`: a change that `narrows` (the objective kept word for word, with only the \
-         operator's quoted words added) or `pauses` (`paused: true`; `resumes` with \
+         its `kind`: a change that `narrows` (the objective kept word for word, with the operator's \
+         whole message added after it) or `pauses` (`paused: true`; `resumes` with \
          `paused: false` undoes it) applies at once; one that `widens` or `replaces` waits for \
          the operator's yes, as does anything else."
     }
@@ -759,21 +759,7 @@ fn update<'a>(
     // (theseus-ext.10); the owner's waits for the operator's yes.
     let touches_layer1 = i.patch.layer1().is_some();
     let layer1 = i.patch.layer1().filter(|_| rec.is_owners());
-    // His own current words, read again under the task's lock (issue 44).
-    let by_words = match (layer1.is_some(), approved) {
-        (true, false) => match super::words::decide(&super::words::Turn(tc), &rec, &i.ask()) {
-            Ok(kind) => Some(kind),
-            Err(_) => {
-                return Err(format!(
-                    "Not applied: a change to task {}'s {} is the operator's, and it ran \
-                     without the operator's yes",
-                    rec.id,
-                    layer1.unwrap_or_default()
-                ))
-            }
-        },
-        _ => None,
-    };
+    let by_words = his_words(tc, &rec, &i, layer1, approved)?;
     if let Some(deps) = &i.patch.deps {
         let all = super::all(tc.store).map_err(|e| format!("{e:#}"))?;
         for d in deps {
@@ -786,47 +772,9 @@ fn update<'a>(
         }
     }
     let from = rec.version;
-    let mut fields: Vec<&str> = vec![];
-    let mut retitled = None;
-    if let Some(t) = i.patch.title {
-        rec.title = t.trim().to_string();
-        fields.push("title");
-        retitled = Some(retitle_mark(tc, &rec.id)?);
-    }
-    if let Some(d) = i.patch.deps {
-        rec.deps = d;
-        fields.push("deps");
-    }
-    if let Some(o) = i.patch.owner {
-        rec.owner = o.trim().to_string();
-        fields.push("owner");
-    }
-    if let Some(d) = &i.patch.due {
-        if rec.kind == theseus_protocol::tasks::TaskKind::Item {
-            return Err(format!(
-                "task {} is a plain item: `due` belongs to a milestone or a project",
-                rec.id
-            ));
-        }
-        rec.due_at_ms = match d.trim() {
-            "none" | "" => None,
-            when => Some(crate::project::create::due_of(tc.kernel, when, "due")?),
-        };
-        fields.push("due");
-    }
-    if let Some(o) = i.patch.objective {
-        rec.objective = o;
-        fields.push("objective");
-    }
-    if let Some(a) = i.patch.acceptance {
-        rec.acceptance = a;
-        fields.push("acceptance");
-    }
     let before = rec.state;
-    if let Some(p) = i.patch.paused {
-        rec.state = paused_state(tc, &rec, p)?;
-        fields.push("paused");
-    }
+    let pausing = i.patch.paused == Some(true);
+    let (fields, retitled) = patched(tc, &mut rec, i.patch)?;
     if touches_layer1 {
         rec.proposal = None;
     }
@@ -834,17 +782,17 @@ fn update<'a>(
     rec.version += 1;
     rec.updated_at_ms = now;
     // The words behind an owner's change, by reference, when the call named them.
-    let kept = match (&i.said, i.kind, layer1) {
+    let kept = match (i.said, i.kind, layer1) {
         (Some(node), Some(kind), Some(_)) => Some(super::words::Words {
             task: rec.id.clone(),
             version: rec.version,
             from,
-            node: node.clone(),
+            node,
             turn: tc.turn_id.into(),
             session: tc.session_id.into(),
             kind,
             carded: by_words.is_none(),
-            before: (i.patch.paused == Some(true)).then_some(before),
+            before: pausing.then_some(before),
             at_ms: now,
         }),
         _ => None,
@@ -881,6 +829,80 @@ fn update<'a>(
     };
     done.meta = json!({"task": rec.id, "version": rec.version, "from": from, "fields": fields});
     Ok(done)
+}
+
+/// His own current words, read again under the task's lock (issue 44): the
+/// kind of a layer-1 change of the owner's task that ran without his yes,
+/// or the refusal; none for a change his yes ran, or no layer-1 change.
+fn his_words(
+    tc: &TurnCtx<'_>,
+    rec: &TaskRecord,
+    i: &UpdateIn,
+    layer1: Option<&str>,
+    approved: bool,
+) -> Result<Option<super::words::Kind>, String> {
+    if layer1.is_none() || approved {
+        return Ok(None);
+    }
+    super::words::decide(&super::words::Turn(tc), rec, &i.ask())
+        .map(Some)
+        .map_err(|_| {
+            format!(
+                "Not applied: a change to task {}'s {} is the operator's, and it ran \
+                 without the operator's yes",
+                rec.id,
+                layer1.unwrap_or_default()
+            )
+        })
+}
+
+/// The patch applied to `rec`: the fields it changed, and a retitle's mark.
+fn patched(
+    tc: &TurnCtx<'_>,
+    rec: &mut TaskRecord,
+    patch: Patch,
+) -> Result<(Vec<&'static str>, Option<NewRecord>), String> {
+    let mut fields: Vec<&'static str> = vec![];
+    let mut retitled = None;
+    if let Some(t) = patch.title {
+        rec.title = t.trim().to_string();
+        fields.push("title");
+        retitled = Some(retitle_mark(tc, &rec.id)?);
+    }
+    if let Some(d) = patch.deps {
+        rec.deps = d;
+        fields.push("deps");
+    }
+    if let Some(o) = patch.owner {
+        rec.owner = o.trim().to_string();
+        fields.push("owner");
+    }
+    if let Some(d) = &patch.due {
+        if rec.kind == theseus_protocol::tasks::TaskKind::Item {
+            return Err(format!(
+                "task {} is a plain item: `due` belongs to a milestone or a project",
+                rec.id
+            ));
+        }
+        rec.due_at_ms = match d.trim() {
+            "none" | "" => None,
+            when => Some(crate::project::create::due_of(tc.kernel, when, "due")?),
+        };
+        fields.push("due");
+    }
+    if let Some(o) = patch.objective {
+        rec.objective = o;
+        fields.push("objective");
+    }
+    if let Some(a) = patch.acceptance {
+        rec.acceptance = a;
+        fields.push("acceptance");
+    }
+    if let Some(p) = patch.paused {
+        rec.state = paused_state(tc, rec, p)?;
+        fields.push("paused");
+    }
+    Ok((fields, retitled))
 }
 
 /// The state a pause (`true`) or its undo (`false`) leaves the task in: the

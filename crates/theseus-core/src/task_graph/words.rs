@@ -21,8 +21,11 @@
 //!   that version;
 //! - the kind is `narrows` or `pauses` (or `resumes`, the undo of a pause
 //!   made so). A narrowing keeps the objective as it was, word for word, and
-//!   adds only a verbatim quote of his message (and acceptance only gains
-//!   lines quoted so): so words that are not his cannot ride an "ok" of his.
+//!   adds his whole message beside it, never a part the model chose (and
+//!   acceptance only gains one line, his whole message): so words that are
+//!   not his cannot ride an "ok" of his, and a part of his words cannot be
+//!   taken out of what he said ("delete the old charts" from "don't delete
+//!   the old charts").
 //!   A pause sets the task `suspended`; its undo restores the state before it.
 //!
 //! `widens`, `replaces`, and anything unsure keep the existing card, with the
@@ -42,7 +45,7 @@ use crate::toolrun::TurnCtx;
 
 /// The words behind a change: `task.words.<id>.<version>`.
 pub const WORDS_PREFIX: &str = "task.words.";
-/// The shortest quote a narrowing adds, in characters.
+/// The shortest message a narrowing adds, in characters.
 pub const QUOTE_MIN: usize = 3;
 
 pub fn words_key(task: &str, version: u64) -> String {
@@ -187,39 +190,39 @@ pub trait Evidence {
     fn words(&self, task: &str, version: u64) -> Result<Option<Words>>;
 }
 
-/// Whitespace runs as one space.
-fn squeeze(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+/// A text as it is compared: whitespace runs as one space, and the
+/// punctuation that joins it to an objective taken off its ends.
+fn plain(s: &str) -> String {
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    s.trim_matches(|c: char| c.is_whitespace() || ";,:.!-—–()\"'".contains(c))
+        .to_string()
 }
 
-/// `part` is a quote of `of`, word for word, and long enough to say something.
-fn quotes(part: &str, of: &str) -> bool {
-    let part = squeeze(part);
-    part.chars().count() >= QUOTE_MIN && squeeze(of).contains(&part)
+/// `part` is the whole of his message, word for word, and says something.
+fn whole(part: &str, his: &str) -> bool {
+    let part = plain(part);
+    part.chars().count() >= QUOTE_MIN && part == plain(his)
 }
 
 /// What a narrowing of `old` to `new` adds, when it keeps all of `old`.
 fn added<'a>(old: &str, new: &'a str) -> Option<&'a str> {
     let rest = new.strip_prefix(old)?;
-    let rest = rest
-        .trim_start_matches(|c: char| c.is_whitespace() || ";,:.-—–(".contains(c))
-        .trim_end_matches(|c: char| c.is_whitespace() || ".)".contains(c));
-    (!rest.is_empty()).then_some(rest)
+    (!plain(rest).is_empty()).then_some(rest)
 }
 
-/// A narrowing's shape: the objective kept and his quote added; the
-/// acceptance kept, line for line, with only lines he said added.
+/// A narrowing's shape: the objective kept and his whole message added; the
+/// acceptance kept, line for line, with one line added, his whole message.
 fn narrows(rec: &TaskRecord, ask: &Ask<'_>, his: &str) -> bool {
     if ask.paused.is_some() || (ask.objective.is_none() && ask.acceptance.is_none()) {
         return false;
     }
     let objective_ok = ask
         .objective
-        .is_none_or(|new| added(&rec.objective, new).is_some_and(|quote| quotes(quote, his)));
+        .is_none_or(|new| added(&rec.objective, new).is_some_and(|more| whole(more, his)));
     let acceptance_ok = ask.acceptance.is_none_or(|new| {
-        new.len() > rec.acceptance.len()
+        new.len() == rec.acceptance.len() + 1
             && new.starts_with(&rec.acceptance)
-            && new[rec.acceptance.len()..].iter().all(|l| quotes(l, his))
+            && whole(&new[rec.acceptance.len()], his)
     });
     objective_ok && acceptance_ok
 }

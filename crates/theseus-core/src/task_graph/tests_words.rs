@@ -159,19 +159,26 @@ fn pause(said: &str) -> Ask<'_> {
     }
 }
 
-/// His own current words narrow it: the objective kept, his quote added.
+/// His own current words narrow it: the objective kept, his whole message
+/// beside it.
 #[test]
 fn his_own_current_words_narrow_it_without_a_card() {
-    let ev = Fake::saying("msg_1", "make it staging only, please");
-    let new = format!("{OBJECTIVE}; staging only");
+    let ev = Fake::saying("msg_1", "make it staging only, please.");
+    let new = format!("{OBJECTIVE}; make it staging only, please");
     assert_eq!(
         decide(&ev, &task(), &narrowing("msg_1", &new)),
         Ok(Kind::Narrows)
     );
-    // Acceptance may gain a line he said, never lose one.
+    // A part of his message the model chose is not his whole word.
+    let part = format!("{OBJECTIVE}; staging only");
+    assert_eq!(
+        decide(&ev, &task(), &narrowing("msg_1", &part)),
+        Err(Why::NotItsKind)
+    );
+    // Acceptance may gain his message as a line, never lose one.
     let rec = task();
     let mut lines = rec.acceptance.clone();
-    lines.push("staging only".into());
+    lines.push("make it staging only, please".into());
     let ask = Ask {
         objective: None,
         acceptance: Some(&lines),
@@ -214,6 +221,13 @@ fn a_page_then_his_ok_changes_nothing() {
         ..narrowing("msg_ok", y)
     };
     assert_eq!(decide(&ev, &rec, &replace), Err(Why::Kind(Kind::Replaces)));
+    // A part of his own words, taken out of what he said.
+    let dont = Fake::saying("msg_dont", "don't delete the old tide tables");
+    let flipped = format!("{OBJECTIVE}; delete the old tide tables");
+    assert_eq!(
+        decide(&dont, &rec, &narrowing("msg_dont", &flipped)),
+        Err(Why::NotItsKind)
+    );
     // Naming the page as his words: it carries no mark of his.
     assert_eq!(
         decide(&ev, &rec, &narrowing("res_page", &appended)),
@@ -414,12 +428,14 @@ fn each_check_alone_falls_to_the_card() {
         decide(&unknown, &rec, &narrowing("msg_1", &new)),
         Err(Why::NotAlone)
     );
-    // A quote too short to say anything.
-    let tiny = format!("{OBJECTIVE}; st");
+    // A message too short to say anything.
+    let tiny = Fake::saying("msg_1", "ok");
+    let ok_added = format!("{OBJECTIVE}; ok");
     assert_eq!(
-        decide(&ok, &rec, &narrowing("msg_1", &tiny)),
+        decide(&tiny, &rec, &narrowing("msg_1", &ok_added)),
         Err(Why::NotItsKind)
     );
+    assert_eq!(plain(" ; staging   only. "), "staging only");
 }
 
 /// Through a turn: a change to the owner's task that names a message with no
@@ -429,7 +445,6 @@ fn each_check_alone_falls_to_the_card() {
 async fn a_change_naming_words_that_are_not_his_waits_on_its_card() {
     use crate::tests_task_graph::{rig, rows, session, turn};
     use serde_json::json;
-    use theseus_store::Store as _;
     let r = rig();
     let c = &r.core;
     let s = session(c);

@@ -54,8 +54,15 @@ impl Names for Named {
 struct Home;
 
 impl Homes for Home {
-    fn home(&self, _: &str) -> Option<(String, Audience)> {
-        Some(("local".into(), Audience::Private))
+    fn marks(&self, _: &str) -> Marks {
+        Marks {
+            place: Some("local".into()),
+            audience: Audience::Private,
+            author: Author::Theseus,
+            outside: false,
+            sealed: false,
+            veiled: false,
+        }
     }
 }
 
