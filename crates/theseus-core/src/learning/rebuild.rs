@@ -337,7 +337,7 @@ mod tests {
     /// carries names.
     #[test]
     fn a_rebuilt_content_state_is_the_stored_one() {
-        let pack = by_name("content.v2").unwrap();
+        let pack = theseus_judge::pack::retired("content.v2").unwrap();
         for (kind, piece, names) in [
             ("fetched_page", None, DataNames::default()),
             (
@@ -370,7 +370,7 @@ mod tests {
     /// building from them again gives the same state.
     #[test]
     fn a_v3_state_is_rebuilt_with_the_fields_it_was_judged_with() {
-        let pack = by_name("content.v3").unwrap();
+        let pack = theseus_judge::pack::retired("content.v3").unwrap();
         let input = ContentInput {
             text: "A page about herons.".into(),
             kind: "tool_result".into(),
@@ -407,7 +407,7 @@ mod tests {
     /// the kind; with nothing given they stay unset, which a v2 candidate wants.
     #[test]
     fn a_v2_state_gets_the_fields_from_now_or_none() {
-        let v2 = by_name("content.v2").unwrap();
+        let v2 = theseus_judge::pack::retired("content.v2").unwrap();
         let input = ContentInput {
             text: "Count the herons.".into(),
             kind: "operator_message".into(),

@@ -30,7 +30,7 @@ fn facts() -> RouteFacts {
 }
 
 fn state_of(i: InboundInput) -> (Value, Vec<String>, u64) {
-    let p = by_name("route.v8").unwrap();
+    let p = crate::pack::retired("route.v8").unwrap();
     let b = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
     (b.state.value(), b.state.fields.clone(), b.state.tokens)
 }
@@ -126,7 +126,7 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
         cheaper_model: Some("c".repeat(5_000).into()),
         previous_turn: None,
     });
-    let p = by_name("route.v8").unwrap();
+    let p = crate::pack::retired("route.v8").unwrap();
     assert_eq!(p.state_cap_tokens, 3000);
     let b = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
     assert!(b.state.tokens <= 3000, "{} tokens", b.state.tokens);
@@ -192,7 +192,7 @@ fn a_job_is_one_paragraph_asked_in_place_job_with_the_facts() {
             PricePeriod::OffPeak
         );
         // The state, which the route pack reads, carries the place and facts.
-        let p = by_name("route.v8").unwrap();
+        let p = crate::pack::retired("route.v8").unwrap();
         let b = job(&job_in(kind.clone(), facts()), p.state_cap_tokens, &NoScrub);
         let v = b.state.value();
         assert_eq!(v["place_kind"], "job", "{kind:?}");

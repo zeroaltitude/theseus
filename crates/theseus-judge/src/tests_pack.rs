@@ -901,7 +901,9 @@ fn the_six_packs_ask_what_the_design_says() {
         ),
     ];
     for (name, lines) in want {
-        let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
+        let p = by_name(name)
+            .or_else(|| crate::pack::retired(name))
+            .unwrap_or_else(|| panic!("{name} is embedded"));
         assert_eq!(shape(&p), *lines, "{name}");
         assert_eq!(p.jev_model, "jev-1.13.0", "{name}");
         assert_eq!(p.sample, 1.0, "{name}: Q16 samples every event");
@@ -928,7 +930,13 @@ fn the_six_packs_ask_what_the_design_says() {
         }
     }
     // §2.7's numbers, as the rules hold them.
-    let rules = |n: &str| by_name(n).unwrap().rollback.clone();
+    let rules = |n: &str| {
+        by_name(n)
+            .or_else(|| crate::pack::retired(n))
+            .unwrap()
+            .rollback
+            .clone()
+    };
     assert_eq!(
         rules("loop.v1")[1],
         RollbackRule::SpendRatio {
@@ -1183,7 +1191,7 @@ fn split_v1_is_one_deciding_question_about_the_work() {
 /// no-match is `prior`, and `seal`, a yes or no.
 #[test]
 fn route_v5_has_a_persona_and_a_seal_question() {
-    let v5 = by_name("route.v5").unwrap();
+    let v5 = crate::pack::retired("route.v5").unwrap();
     let persona = v5.question("persona").unwrap();
     assert!(!persona.decides && persona.kind == Kind::Choice);
     assert_eq!(persona.no_match.as_deref(), Some("prior"));
@@ -1199,7 +1207,10 @@ fn route_v5_has_a_persona_and_a_seal_question() {
 /// the pack's promotion: `data`, three options, `unclear` when nothing fits.
 #[test]
 fn route_v6_is_v5_word_for_word_and_a_data_question() {
-    let (v5, v6) = (by_name("route.v5").unwrap(), by_name("route.v6").unwrap());
+    let (v5, v6) = (
+        crate::pack::retired("route.v5").unwrap(),
+        crate::pack::retired("route.v6").unwrap(),
+    );
     for q in ["mode", "reply_effort", "persona", "seal"] {
         assert_eq!(v6.question(q), v5.question(q), "{q} word for word");
     }
@@ -1237,7 +1248,10 @@ fn route_v6_is_v5_word_for_word_and_a_data_question() {
 /// `expose`, `none` when nothing fits.
 #[test]
 fn route_v7_is_v6_word_for_word_but_the_data_wording() {
-    let (v6, v7) = (by_name("route.v6").unwrap(), by_name("route.v7").unwrap());
+    let (v6, v7) = (
+        crate::pack::retired("route.v6").unwrap(),
+        crate::pack::retired("route.v7").unwrap(),
+    );
     for q in ["mode", "reply_effort", "persona", "seal"] {
         assert_eq!(v7.question(q), v6.question(q), "{q} word for word");
     }
@@ -1304,7 +1318,10 @@ fn route_v7_is_v6_word_for_word_but_the_data_wording() {
 /// checkpoint shows to v7's words.
 #[test]
 fn route_v8_is_v7_word_for_word_but_the_data_options_and_effort_max() {
-    let (v7, v8) = (by_name("route.v7").unwrap(), by_name("route.v8").unwrap());
+    let (v7, v8) = (
+        crate::pack::retired("route.v7").unwrap(),
+        crate::pack::retired("route.v8").unwrap(),
+    );
     for q in ["mode", "persona", "seal", "personal"] {
         assert_eq!(v8.question(q), v7.question(q), "{q} word for word");
     }
@@ -1400,8 +1417,8 @@ fn q<'a>(p: &'a Pack, n: &str) -> &'a QuestionDef {
 #[test]
 fn content_v2_keeps_v1s_shape_and_its_injection_question() {
     let (v1, v2) = (
-        by_name("content.v1").unwrap(),
-        by_name("content.v2").unwrap(),
+        crate::pack::retired("content.v1").unwrap(),
+        crate::pack::retired("content.v2").unwrap(),
     );
     assert_eq!(v2.version, 2);
     assert_eq!(v2.id, v1.id);
@@ -1458,8 +1475,8 @@ fn content_v2_keeps_v1s_shape_and_its_injection_question() {
 #[test]
 fn content_v2_adds_the_reveal_rule_and_changes_nothing_else() {
     let (v1, v2) = (
-        by_name("content.v1").unwrap(),
-        by_name("content.v2").unwrap(),
+        crate::pack::retired("content.v1").unwrap(),
+        crate::pack::retired("content.v2").unwrap(),
     );
     let means = |d: &QuestionDef, id: &str| {
         d.options
@@ -1548,8 +1565,8 @@ fn content_v2_adds_the_reveal_rule_and_changes_nothing_else() {
 #[test]
 fn content_v3_keeps_v2s_shape_and_adds_the_field_cues_to_each_no() {
     let (v2, v3) = (
-        by_name("content.v2").unwrap(),
-        by_name("content.v3").unwrap(),
+        crate::pack::retired("content.v2").unwrap(),
+        crate::pack::retired("content.v3").unwrap(),
     );
     assert_eq!(v3.version, 3);
     assert_eq!(v3.id, v2.id);
@@ -1764,7 +1781,7 @@ fn the_packs_directory_names_no_organisation() {
 /// them, for one that needs another.
 #[test]
 fn recorded_sources_round_trip_and_name_what_is_missing() {
-    let pack = by_name("content.v2").unwrap();
+    let pack = crate::pack::retired("content.v2").unwrap();
     assert_eq!(
         Dynamic::needed(&pack).into_iter().collect::<Vec<_>>(),
         [Source::Untrusted]
@@ -1804,5 +1821,16 @@ fn recorded_sources_round_trip_and_name_what_is_missing() {
             Dynamic::from_record(&rec, &pack).unwrap_err(),
             [Source::Untrusted]
         );
+    }
+}
+
+/// The versions this build retired (issue 44) are out of the binary, and
+/// each still parses from its file, which is what `--pack-file` replays.
+#[test]
+fn the_retired_versions_are_not_embedded_and_still_parse() {
+    for name in crate::pack::RETIRED {
+        assert!(by_name(name).is_none(), "{name} is embedded");
+        let p = crate::pack::retired(name).unwrap_or_else(|| panic!("{name} has no file"));
+        assert_eq!(p.name(), *name);
     }
 }

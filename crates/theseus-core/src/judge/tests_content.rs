@@ -350,13 +350,16 @@ async fn a_calls_path_decides_public_when_the_source_names_none() {
     assert_eq!(public("n2"), None, "the call named a private one");
 }
 
-/// The pack that is live is `content.v4` (theseus-3i6d1); v1 to v3 stay
-/// embedded for their stored judgments.
+/// The pack that is live is `content.v4` (theseus-3i6d1); v1 to v3 are
+/// retired from the binary (issue 44) and still parse from their files, so a
+/// stored judgment of one replays by `--pack-file`.
 #[test]
-fn the_live_pack_is_content_v4_and_the_older_ones_stay_embedded() {
+fn the_live_pack_is_content_v4_and_the_older_ones_stay_readable() {
     assert_eq!(PACK, "content.v4");
-    for old in ["content.v1", "content.v2", "content.v3", "content.v4"] {
-        assert!(theseus_judge::pack::by_name(old).is_some(), "{old}");
+    assert!(theseus_judge::pack::by_name(PACK).is_some());
+    for old in ["content.v1", "content.v2", "content.v3"] {
+        assert!(theseus_judge::pack::by_name(old).is_none(), "{old}");
+        assert!(theseus_judge::pack::retired(old).is_some(), "{old}");
     }
     assert_eq!(
         crate::judge::wired_mode(PACK),

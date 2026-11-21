@@ -35,28 +35,16 @@ use crate::client::{
 };
 use crate::learn::RollbackRule;
 
-/// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
-/// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
-/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
-/// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model and the effort,
-/// theseus-h66v4, revised in place by theseus-h66v4.1; the acting pack: `ROUTE_PACK` names it),
-/// `content.v1` (the four content flags, theseus-9ymz0), and `split.v1` (whether the work divides by area, in shadow,
-/// theseus-z9mze.5), and `undo.v1` (whether a tool call is reversible, the replacement for the approve
-/// lists 1.0.4 deleted; shadow, dispatched from nowhere, theseus-p5kln). Older versions
-/// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
+/// Every pack version this build knows, by file name: the test pack, and each version
+/// the daemon asks or may yet adopt. A version the build retired is under `packs/retired/`
+/// ([`RETIRED`]), out of the binary: a stored judgment of one replays by `--pack-file`.
+/// Older versions (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
-    ("security.v1", include_str!("../packs/security.v1.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
-    ("classify.v2", include_str!("../packs/classify.v2.toml")),
-    ("classify.v3", include_str!("../packs/classify.v3.toml")),
     ("classify.v4", include_str!("../packs/classify.v4.toml")),
-    ("role.v1", include_str!("../packs/role.v1.toml")),
-    ("directive.v1", include_str!("../packs/directive.v1.toml")),
     ("directive.v2", include_str!("../packs/directive.v2.toml")),
-    ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
     ("memory.v1", include_str!("../packs/memory.v1.toml")),
@@ -64,10 +52,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "attribution.v1",
         include_str!("../packs/attribution.v1.toml"),
     ),
-    ("route.v5", include_str!("../packs/route.v5.toml")),
-    ("route.v6", include_str!("../packs/route.v6.toml")),
-    ("route.v7", include_str!("../packs/route.v7.toml")),
-    ("route.v8", include_str!("../packs/route.v8.toml")),
     ("route.v10", include_str!("../packs/route.v10.toml")),
     ("route.v11", include_str!("../packs/route.v11.toml")),
     ("effort.v1", include_str!("../packs/effort.v1.toml")),
@@ -91,9 +75,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ),
     ("precedence.v1", include_str!("../packs/precedence.v1.toml")),
     ("families.v1", include_str!("../packs/families.v1.toml")),
-    ("content.v1", include_str!("../packs/content.v1.toml")),
-    ("content.v2", include_str!("../packs/content.v2.toml")),
-    ("content.v3", include_str!("../packs/content.v3.toml")),
     ("content.v4", include_str!("../packs/content.v4.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
@@ -101,12 +82,84 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
 ];
 
-/// Packs this build retired that a config may still name in a
-/// `[judge.packs."<pack>"]` table: it loads, is warned of, and nothing reads
-/// it (issue 44). `role.v1` and `continue.v1` were shadows that never
-/// graduated. A judgment one of them made still replays from its file, by
-/// `--pack-file`.
-pub const RETIRED: &[&str] = &["role.v1", "continue.v1"];
+/// The versions this build retired from [`EMBEDDED`] (issue 44): the shadows
+/// that never graduated (`role.v1`, `continue.v1`) and the versions the live
+/// ones superseded. Each file is under `packs/retired/`, never embedded in
+/// the daemon: a stored judgment of one still decodes, and replays from its
+/// file by `--pack-file`. A config that names one in a
+/// `[judge.packs."<pack>"]` table loads, is warned of, and nothing reads it.
+pub const RETIRED: &[&str] = &[
+    "classify.v2",
+    "classify.v3",
+    "route.v5",
+    "route.v6",
+    "route.v7",
+    "route.v8",
+    "content.v1",
+    "content.v2",
+    "content.v3",
+    "security.v1",
+    "directive.v1",
+    "role.v1",
+    "continue.v1",
+];
+
+/// A retired version, parsed from its file under `packs/retired/`: for
+/// tests, which still read the builders through them, and other crates'
+/// (the `fake` feature). Never the daemon's.
+#[cfg(any(test, feature = "fake"))]
+pub fn retired(name: &str) -> Option<Arc<Pack>> {
+    const FILES: &[(&str, &str)] = &[
+        (
+            "classify.v2",
+            include_str!("../packs/retired/classify.v2.toml"),
+        ),
+        (
+            "classify.v3",
+            include_str!("../packs/retired/classify.v3.toml"),
+        ),
+        ("route.v5", include_str!("../packs/retired/route.v5.toml")),
+        ("route.v6", include_str!("../packs/retired/route.v6.toml")),
+        ("route.v7", include_str!("../packs/retired/route.v7.toml")),
+        ("route.v8", include_str!("../packs/retired/route.v8.toml")),
+        (
+            "content.v1",
+            include_str!("../packs/retired/content.v1.toml"),
+        ),
+        (
+            "content.v2",
+            include_str!("../packs/retired/content.v2.toml"),
+        ),
+        (
+            "content.v3",
+            include_str!("../packs/retired/content.v3.toml"),
+        ),
+        (
+            "security.v1",
+            include_str!("../packs/retired/security.v1.toml"),
+        ),
+        (
+            "directive.v1",
+            include_str!("../packs/retired/directive.v1.toml"),
+        ),
+        ("role.v1", include_str!("../packs/retired/role.v1.toml")),
+        (
+            "continue.v1",
+            include_str!("../packs/retired/continue.v1.toml"),
+        ),
+    ];
+    static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();
+    let parsed = PARSED.get_or_init(|| {
+        FILES
+            .iter()
+            .map(|(n, text)| {
+                let p = Pack::parse(text).unwrap_or_else(|e| panic!("packs/retired/{n}.toml: {e}"));
+                Arc::new(p)
+            })
+            .collect()
+    });
+    parsed.iter().find(|p| p.name() == name).cloned()
+}
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
 /// dispatches it.

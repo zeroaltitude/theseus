@@ -27,7 +27,7 @@ fn q<'a>(p: &'a crate::pack::Pack, n: &str) -> &'a QuestionDef {
 #[test]
 fn content_v4_restates_personal_and_keeps_the_rest_of_v3() {
     let (v3, v4) = (
-        by_name("content.v3").unwrap(),
+        crate::pack::retired("content.v3").unwrap(),
         by_name("content.v4").unwrap(),
     );
     assert_eq!(v4.version, 4);

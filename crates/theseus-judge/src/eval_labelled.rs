@@ -95,7 +95,9 @@ mod tests {
     #[test]
     fn each_case_asks_what_it_expects() {
         for pack in PACKS {
-            let p = by_name(pack).unwrap();
+            let p = by_name(pack)
+                .or_else(|| crate::pack::retired(pack))
+                .unwrap();
             for case in set(pack).unwrap() {
                 let input = Input::parse(p.builder, &case.input.to_string())
                     .unwrap_or_else(|e| panic!("{}: {e}", case.name));
@@ -519,7 +521,9 @@ mod tests {
         // 3. The input reaches the question v4 changed, and v3 asks it something
         // else. Asked through `prepare`/`ask`, as the daemon asks it.
         let asked_personal = |pack: &str| -> String {
-            let p = by_name(pack).unwrap();
+            let p = by_name(pack)
+                .or_else(|| crate::pack::retired(pack))
+                .unwrap();
             let input = Input::parse(p.builder, &clean.input.to_string())
                 .unwrap_or_else(|e| panic!("{pack}: {e}"));
             let prepared = prepare(&p, &input, &NoScrub).unwrap();

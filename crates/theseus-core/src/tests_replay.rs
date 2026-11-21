@@ -674,7 +674,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     );
 }
 
-const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/content.v3.toml");
+const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/retired/content.v3.toml");
 
 /// A stored `content.v3` judgment of one item, the way the daemon writes it:
 /// the state's blob staged and named in the context, and, when `recorded`,
@@ -953,7 +953,7 @@ async fn a_v3_judgment_is_replayed_with_its_fields_as_judged() {
     let c = &r.core;
     let mut j = content_judgment(c, "jdg_v3", "tool_result", "A page about herons.", true);
     // The stored state, with the fields as they stood when it was judged.
-    let pack = theseus_judge::pack::by_name("content.v3").unwrap();
+    let pack = theseus_judge::pack::retired("content.v3").unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: "A page about herons.".into(),
         kind: "tool_result".into(),

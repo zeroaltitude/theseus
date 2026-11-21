@@ -59,7 +59,7 @@ fn ids(q: &Question) -> Vec<String> {
 /// persona's card, then `prior`.
 #[test]
 fn the_persona_question_offers_each_persona_beside_prior() {
-    let p = by_name("route.v5").unwrap();
+    let p = crate::pack::retired("route.v5").unwrap();
     let mut i = input();
     i.personas = two();
     i.speaker = Some("alder".into());
@@ -92,7 +92,7 @@ fn the_persona_question_offers_each_persona_beside_prior() {
 /// is not asked and the state is the one without personas.
 #[test]
 fn fewer_than_two_personas_ask_nothing() {
-    let p = by_name("route.v5").unwrap();
+    let p = crate::pack::retired("route.v5").unwrap();
     let base = prepare(&p, &Input::Inbound(input()), &NoScrub).unwrap();
     for personas in [
         vec![],
@@ -115,7 +115,7 @@ fn fewer_than_two_personas_ask_nothing() {
 /// in the state, and the `seal` question is asked.
 #[test]
 fn a_thread_adds_its_title_goal_and_last_three_turns() {
-    let p = by_name("route.v5").unwrap();
+    let p = crate::pack::retired("route.v5").unwrap();
     let mut i = input();
     i.thread_now = Some(thread());
     let prepared = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
@@ -143,7 +143,7 @@ fn a_thread_adds_its_title_goal_and_last_three_turns() {
 /// within its cap with twelve personas and a long thread.
 #[test]
 fn the_state_stays_within_its_cap_and_carries_no_persona_file() {
-    let p = by_name("route.v5").unwrap();
+    let p = crate::pack::retired("route.v5").unwrap();
     let mut i = input();
     i.personas = (0..20)
         .map(|n| {
@@ -174,7 +174,7 @@ fn the_state_stays_within_its_cap_and_carries_no_persona_file() {
 /// still reads, and writes back without them.
 #[test]
 fn a_stored_state_reads_with_no_personas_or_thread() {
-    let v5 = by_name("route.v5").unwrap();
+    let v5 = crate::pack::retired("route.v5").unwrap();
     let text = include_str!("../fixtures/inputs/inbound.json");
     assert!(!text.contains("personas") && !text.contains("thread_now"));
     let i: InboundInput = serde_json::from_str(text).unwrap();
@@ -189,7 +189,7 @@ fn a_stored_state_reads_with_no_personas_or_thread() {
 /// fewer than two personas, or none named, the state is the one before.
 #[test]
 fn the_session_categories_are_evidence_for_the_persona_question() {
-    let p = by_name("route.v6").unwrap();
+    let p = crate::pack::retired("route.v6").unwrap();
     let mut i = input();
     i.personas = two();
     i.categories = vec!["theseus › ontology".into(), "Lantern Ledger".into()];

@@ -354,16 +354,17 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
         "loop.v1: canary 1.0 (owner: forced by the owner)"
     );
     let card = rig
-        .call("pack.promote", json!({"pack": "security.v1", "to": "live"}))
+        .call("pack.promote", json!({"pack": "route.v10", "to": "live"}))
         .unwrap();
     let q = card["question"].as_str().unwrap().to_string();
     let listed = rig.call("confirm.list", Value::Null).unwrap();
     assert!(listed.to_string().contains(&q), "{listed}");
-    // security.v1 is wired nowhere, so health has no line for it: its rows are the proof.
+    // route.v10 is embedded and wired nowhere (route.v11 acts), so health has no line for it:
+    // its rows are the proof.
     let moved = |rig: &Rig| {
         rig.rows("pack.mode")
             .iter()
-            .filter(|r| r.to_string().contains("security.v1"))
+            .filter(|r| r.to_string().contains("route.v10"))
             .count()
     };
     assert_eq!(moved(&rig), 0, "no mode yet");
