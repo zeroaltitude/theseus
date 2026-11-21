@@ -38,23 +38,22 @@ fn row(kind: LedgerKind, scope: &str, data: Value, at_ms: u64, key: &str) -> New
     r.scoped(scope)
 }
 
-/// Each retired family's judgment and its label, and a learned `role`
-/// version, as an older build wrote them.
-fn old_rows(now: u64) -> Vec<NewRecord> {
+/// Each retired family's judgment (whole, as the judge wrote one) and its
+/// label, and a learned `role` version, as an older build wrote them.
+fn old_rows(c: &Core, now: u64) -> Vec<NewRecord> {
+    let (state, _) = crate::tests_replay::loop_state(c, "anything");
     let mut out = Vec::new();
-    for (pack, q, i) in [("role.v1", "role", 0u64), ("continue.v1", "decision", 1)] {
+    for (pack, i) in [("role.v1", 0u64), ("continue.v1", 1)] {
         let id = format!("jdg_old_{i}");
-        let scope = crate::rpc::judge::scope_of(pack);
-        let data = json!({"id": id, "pack": pack, "version": 1, "mode": "shadow",
-            "outcome": {"outcome": "answered"}, "context": {"session": "ses_heron"},
-            "answers": [{"question": q, "answer": {"choice": "other", "confidence": 0.8}}]});
-        out.push(row(
-            LedgerKind::JudgeCall,
-            &scope,
-            data,
-            now - 2_000 - i,
+        let j = crate::tests_replay::judgment(
             &id,
-        ));
+            pack,
+            &state,
+            Vec::new(),
+            json!({"session": "ses_heron"}),
+        );
+        out.push(crate::tests_replay::call_row(&j, now - 2_000 - i));
+        let scope = crate::rpc::judge::scope_of(pack);
         let label = json!({"id": format!("lbl_old_{i}"), "judgment": id, "pack": pack,
             "label": "right", "source": "operator"});
         out.push(row(
@@ -87,7 +86,7 @@ async fn a_retired_familys_records_are_still_listed_and_reported() {
     let dir = tempfile::tempdir().unwrap();
     let now = theseus_protocol::now_unix_ms();
     let c = core_at(dir.path());
-    c.store.append(&old_rows(now)).unwrap();
+    c.store.append(&old_rows(&c, now)).unwrap();
     c.runner
         .judge
         .ladder()
