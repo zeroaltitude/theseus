@@ -801,8 +801,12 @@ async fn a_set_up_is_read_through_the_call_that_made_it() {
     );
 }
 
-/// A thread's record, written as the board reads it.
-fn thread_record(core: &Core, slug: &str, sid: &str, seal: &str) {
+/// A thread's record and its binding, written before the core is built, as
+/// the board reads them at its load; the bound session's id is returned.
+fn with_thread(store: &crate::store::Store, slug: &str, seal: &str) -> String {
+    use crate::session::SessionRecord;
+    let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    store.put_session(&r.session_id, &r).unwrap();
     let mut t = json!({"slug": slug, "title": slug});
     match seal {
         "sealed" => t["sealed"] = json!({"by": "cli", "at_ms": 1, "reason": "embargo"}),
@@ -810,10 +814,23 @@ fn thread_record(core: &Core, slug: &str, sid: &str, seal: &str) {
         "corrupt" => t = json!("not a thread"),
         _ => {}
     }
-    core.store.put_meta(&format!("thread:{slug}"), &t).unwrap();
-    core.outbox
-        .bind_place(&format!("thread:{slug}"), sid)
+    store.put_meta(&format!("thread:{slug}"), &t).unwrap();
+    store
+        .put_meta(&format!("discord.session.thread:{slug}"), &r.session_id)
         .unwrap();
+    r.session_id
+}
+
+/// A core with threads `enabled` or not, built over a store that holds the
+/// thread `kelp` sealed as `seal` says; and kelp's session.
+fn threaded(enabled: bool, seal: &str) -> (Rig, String) {
+    let kelp = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup(
+        |c| c.threads.enabled = enabled,
+        |s| *kelp.borrow_mut() = with_thread(s, "kelp", seal),
+    );
+    bind(&r.core);
+    (r, kelp.into_inner())
 }
 
 /// Seals hold with `[threads] enabled = false`, on the paths that ask by
@@ -822,11 +839,8 @@ fn thread_record(core: &Core, slug: &str, sid: &str, seal: &str) {
 #[tokio::test]
 async fn seals_hold_on_every_search_with_threads_off() {
     for seal in ["sealed", "pending", "corrupt"] {
-        let r = rig_scripted(|c| c.threads.enabled = false, script);
-        bind(&r.core);
-        let kelp = session(&r.core, None);
+        let (r, kelp) = threaded(false, seal);
         let open = session(&r.core, None);
-        thread_record(&r.core, "kelp", &kelp, seal);
         turn(&r.core, &kelp, HIS).await;
         turn(&r.core, &open, "the open harbour note").await;
         r.core
@@ -865,21 +879,11 @@ async fn seals_hold_on_every_search_with_threads_off() {
 
 /// What cannot be proven is never clear: a session whose record does not
 /// decode (its nodes still readable), a thread's binding that does not
-/// decode, and a session that names a thread the board does not hold.
+/// decode, and a session bound to a thread whose record does not decode.
 #[tokio::test]
 async fn unreadable_seal_provenance_is_unread() {
     use theseus_store::{kinds, NewRecord};
-    let r = rig();
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "kelp".into(),
-                title: Some("Kelp".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
+    let (r, _) = threaded(true, "none");
     let old = session(&r.core, None);
     turn(&r.core, &old, HIS).await;
     let bad = NewRecord::json(kinds::SESSION, Some(&old), &json!("not a session")).unwrap();
@@ -893,23 +897,24 @@ async fn unreadable_seal_provenance_is_unread() {
     view_gate::seat_owner(&r.core.runner, &desk);
     let read = crate::memory_lookup::call(r.core.clone(), &desk, json!({"session": old})).await;
     assert!(read.is_err(), "{read:?}");
+    assert_eq!(view_gate::seal_of(&r.core.runner, None, &desk), Seal::Clear);
 
     // A binding that does not decode: no session can be proven clear.
-    let r = rig();
+    let r = crate::tests_places::rig_setup(
+        |_| {},
+        |s| {
+            s.put_meta("discord.session.thread:gone", &json!({"no": 1}))
+                .unwrap()
+        },
+    );
     let plain = session(&r.core, None);
-    r.core
-        .store
-        .put_meta("discord.session.thread:gone", &json!({"no": 1}))
-        .unwrap();
     assert_eq!(
         view_gate::seal_of(&r.core.runner, None, &plain),
         Seal::Unread
     );
 
-    // A session bound to a thread the board does not hold.
-    let r = rig();
-    let orphan = session(&r.core, None);
-    thread_record(&r.core, "lost", &orphan, "corrupt");
+    // A session bound to a thread whose record does not decode.
+    let (r, orphan) = threaded(true, "corrupt");
     assert_eq!(
         view_gate::seal_of(&r.core.runner, None, &orphan),
         Seal::Unread

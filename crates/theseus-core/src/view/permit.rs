@@ -83,9 +83,9 @@ pub fn marks(piece: &Piece) -> rule::Marks {
 
 impl Gate for Permit {
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
-        crate::view_gate::Gate::admit(&point_of_view(&self.0, pov), &marks(&piece), ())
+        crate::view_gate::Gate::check(&point_of_view(&self.0, pov), &marks(&piece))
             .ok()
-            .map(|_| Admitted::new(piece))
+            .map(|()| Admitted::new(piece))
     }
 }
 
