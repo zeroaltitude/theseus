@@ -22,7 +22,7 @@ use crate::view::{
     Anchor, Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Reason, Sizes,
     SourceRange, Space,
 };
-use crate::view_gate::{self, Asking};
+use crate::view_gate;
 use crate::Core;
 
 fn cli() -> Answerer {
@@ -232,14 +232,7 @@ fn kelp(r: &Rig) -> (String, String) {
 
 /// Seat `session`'s turn `turn` with `present` at `place`, as the turn's own start does.
 fn seat(core: &Core, session: &str, turn: &str, present: Present, place: &str) {
-    core.runner.presence.set(
-        session,
-        Asking {
-            turn_id: turn.into(),
-            present,
-            place: place.into(),
-        },
-    );
+    view_gate::seat_for_tests(&core.runner, session, turn, present, place);
 }
 
 /// A seal proposed after the view was kept: the owner's inspection and the model's own look, the owner's

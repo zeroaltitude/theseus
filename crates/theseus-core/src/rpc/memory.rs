@@ -87,7 +87,7 @@ impl Core {
             .and_then(|s| self.runner.thread_scene(Some(s), &p.query, false));
         // Seals hold on every path, threads on or off (the gate).
         let asker = p.session_id.as_deref();
-        crate::view_gate::seal_out(&self.runner, asker, &mut answer.0, threads.is_some());
+        let sealed = crate::view_gate::seal_out(&self.runner, asker, &mut answer.0);
         let scene = Scene {
             mode: "search",
             session_id: p.session_id.as_deref(),
@@ -102,14 +102,16 @@ impl Core {
             persona: None,
             category: None,
         };
-        Ok(memory.manifest(
+        let mut m = memory.manifest(
             &scene,
             &begun,
             answer,
             |s| places.of_session(&self.runner, s),
             |ids| crate::recall::links(&self.store, ids),
             true,
-        ))
+        );
+        crate::view_gate::count_sealed(&mut m, sealed);
+        Ok(m)
     }
 
     /// `memory.recalls`: the session's recall rows, newest last, each

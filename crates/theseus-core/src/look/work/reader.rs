@@ -45,6 +45,14 @@ impl<'a> Reader<'a> {
     /// `text`, as a line of at most `max` characters; when `session` is another conversation whose
     /// data is marked, it is noted, so that this session takes its flags on.
     pub(super) fn words(&self, session: &str, text: &str, max: usize) -> String {
+        // Another conversation's words reach this turn only where the gate
+        // admits that conversation for it: its place, for a turn that is not
+        // the owner alone, and its seal, for every turn (issue 44).
+        if session != self.here && !self.admits(session) {
+            return "(held back: that conversation is not this turn's to read: another place's, \
+                    or a sealed thread's)"
+                .into();
+        }
         self.note_given(session);
         super::clip(text, max)
     }
@@ -67,6 +75,15 @@ impl<'a> Reader<'a> {
             Some(session) => self.words(session, text, max),
             None => super::clip(text, max),
         }
+    }
+
+    /// Whether the gate admits `session`'s words for this turn: its place under the turn's presence,
+    /// and its seal.
+    fn admits(&self, session: &str) -> bool {
+        let runner = &self.core.runner;
+        crate::view_gate::RecallPlaces::of(runner, Some(self.here)).may_read(runner, session)
+            && crate::view_gate::seal_of(runner, Some(self.here), session)
+                == theseus_memory::gate::Seal::Clear
     }
 
     /// What `session`'s labels mark it as, when it is not open: `None` for an open one. Read once.

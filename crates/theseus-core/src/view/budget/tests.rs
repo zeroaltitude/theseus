@@ -94,7 +94,11 @@ fn budget(ceiling: u64, here_allowance: u64) -> Budget {
 }
 
 fn run(pieces: Vec<Piece>, b: &Budget) -> Result<View, Overflow> {
-    fit(&pov(), pieces.into_iter().map(Admitted::new).collect(), b)
+    fit(
+        &pov(),
+        pieces.into_iter().map(Admitted::for_tests).collect(),
+        b,
+    )
 }
 
 fn forms(v: &View) -> Vec<(Band, u64, Form)> {

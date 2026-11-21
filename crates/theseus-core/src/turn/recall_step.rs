@@ -278,8 +278,7 @@ impl TurnRunner {
         let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
         let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
         // Seals hold on every path, threads on or off (the gate).
-        let lens = scene.threads.is_some();
-        crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0, lens);
+        let sealed = crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
@@ -288,6 +287,7 @@ impl TurnRunner {
             |ids| crate::recall::links(&self.store, ids),
             false,
         );
+        crate::view_gate::count_sealed(&mut m, sealed);
         self.memory.noted(&m);
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
@@ -621,12 +621,15 @@ impl TurnRunner {
         let recalls = nodes
             .iter()
             .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let sources = match recalls.clone().next() {
+        let mut sources = match recalls.clone().next() {
             Some(_) => self
                 .memory
                 .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
             None => Sources::new(),
         };
+        // Each earlier note is admitted again under this turn's presence and
+        // the seals as they are now (the gate).
+        crate::view_gate::readmit_sources(self, t.tc.session_id, &mut sources);
         (nodes, sources)
     }
 

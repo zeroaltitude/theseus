@@ -42,11 +42,10 @@ impl TurnRunner {
         let scene = self.scene(t, mode, arm, &begun.said);
         // Seals hold on every path, threads on or off, before the rerank
         // or Jev reads a candidate (the gate).
-        let lens = scene.threads.is_some();
-        crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0, lens);
+        let sealed = crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0);
         let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
         if rerank == PackMode::Off && !crossed {
-            return self.memory.manifest(
+            let mut m = self.memory.manifest(
                 &scene,
                 begun,
                 answer,
@@ -54,6 +53,8 @@ impl TurnRunner {
                 |ids| crate::recall::links(&self.store, ids),
                 true,
             );
+            crate::view_gate::count_sealed(&mut m, sealed);
+            return m;
         }
         let (mut m, candidates, links, ranks) = self.memory.manifest_ranked(
             &scene,
@@ -70,7 +71,10 @@ impl TurnRunner {
         let pool = (candidates.as_slice(), links.as_slice(), &ranks);
         self.cross_judged(t, mode, &mut parts, &mut m, pool, &begun.query)
             .await;
+        // The sealed drops are said once the pack is final: Jev's admission
+        // and the rerank's refill write the drops again from the pack.
         if rerank == PackMode::Off {
+            crate::view_gate::count_sealed(&mut m, sealed);
             return m;
         }
         let lens = parts.lens(&candidates);
@@ -98,6 +102,7 @@ impl TurnRunner {
         if !live {
             let r = recalled(candidates);
             self.judge.at_recall(&mut t.trace, r);
+            crate::view_gate::count_sealed(&mut m, sealed);
             return m;
         }
         let r = recalled(candidates.clone());
@@ -109,6 +114,7 @@ impl TurnRunner {
                 .refill(&scene, &mut m, candidates, &links, ranks, order);
         }
         m.rerank = Some(waited.manifest());
+        crate::view_gate::count_sealed(&mut m, sealed);
         m
     }
 }
