@@ -245,6 +245,32 @@ fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
         &snap,
     );
     assert_eq!(pov.present, Present::Private);
+    let stored = piece(
+        "local",
+        &ExchangeRef {
+            turn_id: "t1".into(),
+            session_id: "s".into(),
+            at_ms: 1,
+        },
+        Band::Now,
+    );
+    assert!(
+        Admitted::code(stored.clone()).is_none(),
+        "a stored piece needs the gate"
+    );
+    let clock = Piece {
+        range: SourceRange {
+            space: Space::Code {
+                part: "clock".into(),
+            },
+            ..stored.range.clone()
+        },
+        ..stored
+    };
+    assert!(
+        Admitted::code(clock).is_some(),
+        "code's own text has nothing to permit"
+    );
     assert!(!fold_due(39, 20) && fold_due(40, 20) && !fold_due(0, 0));
     let page = FakeTimeline
         .newest(

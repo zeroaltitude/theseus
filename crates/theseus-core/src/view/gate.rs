@@ -3,7 +3,7 @@
 //! reader cannot skip the check. The gate's logic (the place rule, `owner alone` for every cross-place kind,
 //! the seal and the veil; a missing mark denies) is the gate work's, behind [`Gate`].
 
-use super::{Piece, PointOfView};
+use super::{Piece, PointOfView, Space};
 
 /// A value the gate admitted for one point of view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +21,14 @@ impl<T> Admitted<T> {
 
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl Admitted<Piece> {
+    /// A piece laid by code with no source in the store ([`Space::Code`]: the frame's parts, the clock,
+    /// residue lines) has nothing to permit; any other piece goes through a [`Gate`].
+    pub fn code(piece: Piece) -> Option<Self> {
+        matches!(piece.range.space, Space::Code { .. }).then(|| Self::new(piece))
     }
 }
 
