@@ -192,22 +192,23 @@ async fn a_numbered_item_is_touched_scoped_by_the_places_project_or_unscoped() {
         }
     };
     let turn = said(sid).await;
-    let touched = |term: &str| -> Vec<String> {
-        exchange::newest(&r.core.store, Root::Thing(term), 5)
+    assert_eq!(
+        touched_in(&r, "item:project:prj_lantern#issue-33").await,
+        vec![turn]
+    );
+    assert!(
+        exchange::newest(&r.core.store, Root::Thing("item:issue-33"), 5)
             .unwrap()
-            .into_iter()
-            .map(|t| t.exchange)
-            .collect()
-    };
-    assert_eq!(touched("item:project:prj_lantern#issue-33"), vec![turn]);
-    assert!(touched("item:issue-33").is_empty(), "scoped, not bare");
+            .is_empty(),
+        "scoped, not bare"
+    );
 
     let other =
         crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     r.core.store.put_session(&other.session_id, &other).unwrap();
     let turn = said(other.session_id.clone()).await;
     assert_eq!(
-        touched("item:issue-33"),
+        touched_in(&r, "item:issue-33").await,
         vec![turn],
         "an unscoped candidate"
     );
@@ -665,12 +666,23 @@ async fn late_or_stuck_items_cost_the_things_named_beside_them_nothing() {
             crate::tests_route::turn(&r.core, Some(&sid), "see lantern.rs and issue 33", None)
                 .await
                 .turn_id;
-        let touched: Vec<String> =
-            exchange::newest(&r.core.store, Root::Thing("file:lantern.rs"), 5)
-                .unwrap()
-                .into_iter()
-                .map(|t| t.exchange)
-                .collect();
-        assert_eq!(touched, vec![turn], "never = {never}");
+        assert_eq!(
+            touched_in(&r, "file:lantern.rs").await,
+            vec![turn],
+            "never = {never}"
+        );
     }
+}
+
+/// The touches of `term`, once one is in, within five seconds: a naming
+/// writes its touches on a writer's next frame.
+async fn touched_in(r: &Rig, term: &str) -> Vec<String> {
+    for _ in 0..50 {
+        let got = exchange::newest(&r.core.store, Root::Thing(term), 5).unwrap();
+        if !got.is_empty() {
+            return got.into_iter().map(|t| t.exchange).collect();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Vec::new()
 }

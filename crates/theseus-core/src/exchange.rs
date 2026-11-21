@@ -26,10 +26,8 @@
 //! writes no frame more for it. New META families need no store-format step;
 //! no field is added to any stored record.
 
-use std::collections::VecDeque;
-use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use theseus_store::{kinds, NewRecord, Store as _};
@@ -48,7 +46,7 @@ pub const EXCHANGE_PREFIX: &str = "exchange.";
 /// A touch: `touch.<root>␁<u64::MAX - ms, 20 digits>␁<turn id>`.
 pub const TOUCH_PREFIX: &str = "touch.";
 /// Between a touch key's parts: no root holds it.
-const SEP: char = '\u{1}';
+pub(crate) const SEP: char = '\u{1}';
 /// A thing's term longer than this is not a root (a key stays small).
 const THING_MAX: usize = 200;
 
@@ -296,79 +294,52 @@ pub fn mark_record(m: &OwnerMark) -> anyhow::Result<NewRecord> {
     NewRecord::json(kinds::META, Some(&format!("{SAID_PREFIX}{}", m.node)), m)
 }
 
-/// How long a staged arrival waits for its node, and how many wait at once.
-const LIFE: Duration = Duration::from_secs(600);
-const KEPT: usize = 64;
-
-/// The arrivals `turn.submit` staged for the inbound point (the mark is made
-/// where the live proof is, and written where the node is): by session and
-/// the message's words, held as a hash. At most [`KEPT`], each for [`LIFE`].
-#[derive(Default)]
-pub struct Arrivals(Mutex<VecDeque<(String, u64, Instant, OwnerMark)>>);
-
-fn digest(text: &str) -> u64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut h);
-    h.finish()
-}
-
-impl Arrivals {
-    /// `mark`, for the message `text` that will run in `session`.
-    pub fn stage(&self, session: &str, text: &str, mark: OwnerMark) {
-        let mut q = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        q.retain(|(_, _, at, _)| at.elapsed() < LIFE);
-        if q.len() >= KEPT {
-            q.pop_front();
-        }
-        q.push_back((session.into(), digest(text), Instant::now(), mark));
-    }
-
-    /// The arrival staged for `text` in `session`, taken.
-    pub fn take(&self, session: &str, text: &str) -> Option<OwnerMark> {
-        let mut q = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let d = digest(text);
-        let i = q.iter().position(|(s, h, _, _)| s == session && *h == d)?;
-        q.remove(i).map(|(_, _, _, m)| m)
-    }
-}
-
-/// The places a reply's things wait for, at most.
+/// The places whose last reply's things are kept for the next row, at most.
 const REPLIES_KEPT: usize = 256;
 
-/// A final reply's things being named, for the place's next exchange to touch.
-pub struct Pending {
-    pub turn: String,
-    pub session: String,
-    pub at_ms: u64,
-    pub rx: tokio::sync::oneshot::Receiver<Vec<String>>,
-    /// Its numbered items, named apart (`names::items`).
-    pub items: Option<tokio::sync::oneshot::Receiver<Vec<String>>>,
+/// The touches of `terms`, the things an exchange's words name, keyed at the
+/// exchange's start: an ask and a reply that name one thing make one touch.
+pub fn thing_touches(terms: &[String], turn: &str, session: &str, start_ms: u64) -> Vec<NewRecord> {
+    terms
+        .iter()
+        .filter_map(|t| touch(Root::Thing(t), turn, session, start_ms))
+        .collect()
 }
 
-/// What the turns share of their exchanges: the arrivals staged for the
-/// inbound point, and each place's last reply being named. Small, bounded,
-/// and lost at a restart, which loses only what `exchange.rebuild` restores.
+/// What the turns share of their exchanges: each place's last reply's
+/// things by kind, for the next row's `reply_things`. Small and bounded; a
+/// restart loses only counts, never a touch (each naming writes its own).
 #[derive(Default)]
 pub struct Board {
-    pub arrivals: Arrivals,
-    replies: Mutex<std::collections::HashMap<String, Pending>>,
+    replies: Arc<Mutex<HashMap<String, BTreeMap<String, u64>>>>,
 }
 
 impl Board {
-    pub fn put_reply(&self, place: &str, p: Pending) {
-        let mut m = self.replies.lock().unwrap_or_else(|e| e.into_inner());
-        if m.len() >= REPLIES_KEPT && !m.contains_key(place) {
-            m.clear();
-        }
-        m.insert(place.into(), p);
+    /// The handle a naming task keeps its counts through.
+    pub fn replies(&self) -> Arc<Mutex<HashMap<String, BTreeMap<String, u64>>>> {
+        self.replies.clone()
     }
 
-    pub fn take_reply(&self, place: &str) -> Option<Pending> {
+    /// `place`'s last reply's things, taken.
+    pub fn take_reply(&self, place: &str) -> Option<BTreeMap<String, u64>> {
         self.replies
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(place)
     }
+}
+
+/// Keep `counts` as `place`'s last reply's.
+pub fn put_reply(
+    replies: &Mutex<HashMap<String, BTreeMap<String, u64>>>,
+    place: &str,
+    counts: BTreeMap<String, u64>,
+) {
+    let mut m = replies.lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() >= REPLIES_KEPT && !m.contains_key(place) {
+        m.clear();
+    }
+    m.insert(place.into(), counts);
 }
 
 #[cfg(test)]

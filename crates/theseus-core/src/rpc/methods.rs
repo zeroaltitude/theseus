@@ -1001,7 +1001,7 @@ impl Core {
         // replaced `answer_in_words` and `allow_in_words`, which matched
         // phrases in this exact spot and acted before the turn ran.
         self.hear_for_chat_acts(&p, conn, &session.session_id);
-        self.stage_arrival(&p, conn, (&place_home, arrived), &session.session_id);
+        let arrival = self.arrival_of(&p, conn, (&place_home, arrived), &session.session_id);
         // The place's own session, which the move tool looks for the placed
         // message by: the session this message was routed into may be the
         // thread it names, and the placed message is not in that.
@@ -1081,7 +1081,8 @@ impl Core {
                 p.speaking.as_ref().map(|s| s.discord.clone()),
             ),
         ))
-        .from_agent(conn.answerer(None, None).agent);
+        .from_agent(conn.answerer(None, None).agent)
+        .with_arrival(arrival);
         self.note_agent_input(&session.session_id, sink.agent.as_deref());
         let voice = p.surface.as_deref() == Some("voice");
         let this_session = session.session_id.clone();

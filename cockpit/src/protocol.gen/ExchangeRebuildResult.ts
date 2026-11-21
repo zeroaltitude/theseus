@@ -10,10 +10,15 @@ export type ExchangeRebuildResult = { dry_run: boolean, sessions: number,
  */
 turns: number, kept: number, exchanges: number, touches: number, 
 /**
- * Of the new exchanges, those whose place, and whose person, a stored
- * record proved; the rest say `unknown` and name no person.
+ * Of the new exchanges, those whose place, and whose person, the owner's
+ * mark of their message proved; the rest say `unknown` and name no person.
  */
 place_proven: number, person_proven: number, 
+/**
+ * Touches keyed off their exchange's start (an older build's reply
+ * touches), ended so that one exchange holds one touch of a root.
+ */
+repaired: number, 
 /**
  * Why the things named in them were not looked for, if they were not.
  */

@@ -43,6 +43,9 @@ pub struct Steered {
     pub reply_to: Option<String>,
     /// When it reached the daemon.
     pub arrived: Instant,
+    /// Its submission's mark (issue 44), carried with it to the node it
+    /// becomes; none for a message that has none.
+    pub arrival: Option<Box<crate::exchange::OwnerMark>>,
 }
 
 /// What the turn answers a message it took, once it ends: its result, or why
@@ -438,6 +441,7 @@ mod tests {
             surface: None,
             reply_to: None,
             arrived: Instant::now(),
+            arrival: None,
         }
     }
 

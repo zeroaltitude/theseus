@@ -454,6 +454,7 @@ async fn a_message_queued_behind_the_turn_ends_a_terminals_wait() {
                 surface: None,
                 reply_to: None,
                 arrived: Instant::now(),
+                arrival: None,
             },
         )
         .unwrap();
