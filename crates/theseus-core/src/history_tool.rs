@@ -227,8 +227,7 @@ pub fn presence(
 ) -> Present {
     use theseus_memory::gate::Present as G;
     let message = ex.filter(|e| e.opened_by == Opener::Message);
-    let arrived = message.map(|e| e.place.as_str());
-    let target = arrived.filter(|p| !p.starts_with(crate::view_gate::LOCAL));
+    let target = message.map(|e| e.place.as_str());
     let input = match message.and_then(|e| e.ask.as_deref()) {
         Some(node) => crate::view_gate::Input::Message(node),
         None => crate::view_gate::Input::SetUp(None),

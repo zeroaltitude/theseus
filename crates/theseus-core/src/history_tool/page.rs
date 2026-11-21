@@ -94,9 +94,9 @@ pub struct Lens<'a> {
     pub present: Present,
     /// Whether a session's words are held out: true unless it is proven neither sealed nor seal-pending
     /// (`Core::ladder_hidden`), the asking session itself aside.
-    pub hidden: &'a dyn Fn(&str) -> bool,
+    pub hidden: &'a (dyn Fn(&str) -> bool + Sync),
     /// Whether a session's place is private, by the place rule.
-    pub private: &'a dyn Fn(&str) -> bool,
+    pub private: &'a (dyn Fn(&str) -> bool + Sync),
     /// Where a bare call begins ([`in_view`]).
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
