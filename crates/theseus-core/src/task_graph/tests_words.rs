@@ -589,3 +589,122 @@ async fn the_records_of_real_turns_decide_as_the_rule_says() {
     assert_eq!(decide(&ev, &rec, &narrowing(&node, &new)), Err(Why::NotHim));
     assert_eq!(decide(&ev, &rec, &pause(&node)), Err(Why::NotHim));
 }
+
+/// A model that, asked once, calls `task.update` naming the newest message of
+/// the session it is given: as the conversation model names his message.
+struct Naming {
+    store: crate::store::Store,
+    session: std::sync::Mutex<Option<String>>,
+    call: std::sync::Mutex<Option<serde_json::Value>>,
+}
+
+impl crate::provider::Provider for Naming {
+    fn name(&self) -> &str {
+        "fake"
+    }
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a crate::provider::ProviderRequest,
+        on_delta: crate::provider::DeltaSink<'a>,
+    ) -> crate::provider::ProviderFuture<'a> {
+        use crate::provider::{FakeProvider, Scripted};
+        Box::pin(async move {
+            let session = self.session.lock().unwrap().clone();
+            let call = session.and_then(|s| {
+                let mut input = self.call.lock().unwrap().take()?;
+                let node = self
+                    .store
+                    .session_nodes(&s)
+                    .unwrap()
+                    .into_iter()
+                    .rev()
+                    .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))?
+                    .1
+                    .id;
+                input["said"] = node.into();
+                Some(input)
+            });
+            let answer = match call {
+                Some(input) => Scripted::tools("On it.", &[("t_1", "task_update", input)]),
+                None => Scripted::text("Noted."),
+            };
+            FakeProvider::scripted(vec![answer])
+                .stream_message(req, on_delta)
+                .await
+        })
+    }
+}
+
+/// Through the tool's own path: his narrowing at the terminal applies at once,
+/// versioned, his words kept by reference; the same words from an agent's
+/// process at the terminal wait on the card and change nothing.
+#[tokio::test]
+async fn his_narrowing_applies_through_the_tool_and_an_agents_waits() {
+    use crate::approval::{Client, Surface};
+    use crate::peer_proc::Behind;
+    for (client, his) in [
+        (
+            Client::new("sock#1", Surface::Cli).behind(Behind::Owner),
+            true,
+        ),
+        (
+            Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into())),
+            false,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::Config::example();
+        cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+        let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+        let model = std::sync::Arc::new(Naming {
+            store: store.clone(),
+            session: Default::default(),
+            call: Default::default(),
+        });
+        let core = crate::rpc::Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store))
+            .unwrap();
+        tokio::spawn(crate::harness::drive(core.clone()));
+        core.store
+            .append(&[NewRecord::bytes(
+                kinds::TASK,
+                Some(TASK),
+                crate::tests_layouts::TASK_BEFORE_MODEL_MARK
+                    .as_bytes()
+                    .to_vec(),
+            )])
+            .unwrap();
+        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        let first = call(&core, client.clone(), "hello", None).await;
+        let said = "make it the north side only";
+        let new = format!("{}; {said}", before.objective);
+        *model.session.lock().unwrap() = Some(first.session_id.clone());
+        *model.call.lock().unwrap() = Some(serde_json::json!({
+            "id": TASK, "version": 1, "patch": {"objective": new}, "kind": "narrows"
+        }));
+        let res = call(&core, client, said, Some(&first.session_id)).await;
+        let node = asked(&core, &res);
+        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        let rows = crate::test_support::ledger_rows_100k(&core, "task.change_accepted");
+        if his {
+            assert!(core.confirm_list().unwrap().is_empty(), "no card");
+            assert_eq!((now.version, now.objective.as_str()), (2, new.as_str()));
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].data["words"]["kind"], "narrows");
+            assert_eq!(rows[0].data["words"]["said"], node.as_str());
+            let w = words(&core.store, TASK, 2)
+                .unwrap()
+                .expect("his words, kept");
+            assert_eq!(
+                (w.node.as_str(), w.from, w.carded),
+                (node.as_str(), 1, false)
+            );
+            assert_eq!(w.turn, res.turn_id);
+        } else {
+            assert_eq!(core.confirm_list().unwrap().len(), 1, "the card asks");
+            assert_eq!(now, before, "nothing changed");
+            assert!(rows.is_empty());
+            let proposed = crate::test_support::ledger_rows_100k(&core, "task.change_proposed");
+            assert_eq!(proposed[0].data["words"]["card"], "not_him");
+        }
+    }
+}
