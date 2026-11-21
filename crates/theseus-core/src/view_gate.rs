@@ -1,8 +1,9 @@
 //! The gate (issue 44, step 2; the design note is `docs/design/view-gate.md`):
 //! the one place that decides, for a turn's point of view, what of memory may
-//! reach a model. The rule and its type, `Admitted<T>`, are pure and live in
-//! `theseus_memory::gate`, beside today's place rule; this module reads what
-//! the rule needs from the daemon and is the rule's one caller.
+//! reach a model. The rule is pure and lives in `theseus_memory::gate`, beside
+//! today's place rule; this module reads what the rule needs from the daemon
+//! and is the rule's one caller. What is shown is `view::gate::Admitted`, made
+//! only by the view's gate in that module.
 //!
 //! - **Who is present** ([`present`]): today's reading of the place first (a
 //!   shared place is `Shared`, the open view `Open`, an unreadable one
@@ -16,9 +17,9 @@
 //!   writes it as `said.<node>` (`exchange::mark`).
 //! - **A turn's presence** ([`Asking`]): computed once per turn, after its
 //!   input is written (`turn::gate_step`), from the input's mark, or for a
-//!   wake, a task's report or a task's own turn from the presence recorded
-//!   by the turn that set it up (`presence.<turn>`, [`presence_record`]). It
-//!   is held per session in [`Presences`] for the tools the turn runs.
+//!   wake, a task's report or a task's own turn from the turn that set it up
+//!   (its exchange's ask and that ask's mark, [`set_up`]). It is held per
+//!   session in [`Presences`] for the tools the turn runs.
 //! - **A piece's marks** ([`session_marks`]): the place its session arrived
 //!   in, as the ledger names it (`exchange::place_of`: a binding's target,
 //!   else `local:<dir>`), today's reading of it, its seal ([`seal_of`]) and
@@ -41,11 +42,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use anyhow::Result;
-use theseus_memory::gate::{
-    self as rule, Admitted, Denied, Marks, PointOfView, Present, Seal, Veil,
-};
+use theseus_memory::gate::{self as rule, Denied, Marks, PointOfView, Present, Seal, Veil};
 use theseus_memory::recall::Place;
-use theseus_store::{kinds, NewRecord};
 
 use crate::exchange::OwnerMark;
 use crate::node::Body;
@@ -58,8 +56,6 @@ use crate::turn::TurnRunner;
 /// What the gate names an imported session's place: the owner's own history,
 /// from no place of this daemon's.
 pub const IMPORTED: &str = "imported";
-/// A turn's presence, as the turn that set up a wake or a task reads it.
-pub const PRESENCE_PREFIX: &str = "presence.";
 /// The longest a task's chain is followed to its thread.
 const DEPTH: usize = 4;
 
@@ -154,10 +150,11 @@ pub fn anchor_of(target: Option<&str>) -> String {
 pub struct Gate;
 
 impl Gate {
-    /// `value`, admitted for `pov` when a piece of `marks` may reach its
-    /// model; why not otherwise. The one call of the rule.
-    pub fn admit<T>(pov: &PointOfView, marks: &Marks, value: T) -> Result<Admitted<T>, Denied> {
-        rule::admit(pov, marks, value)
+    /// Whether a piece of `marks` may reach `pov`'s model; why not
+    /// otherwise. The one call of the rule: what is shown is made only by
+    /// the view's gate (`view::gate`), from this answer.
+    pub fn check(pov: &PointOfView, marks: &Marks) -> Result<(), Denied> {
+        rule::check(pov, marks)
     }
 }
 
@@ -335,26 +332,20 @@ impl Presences {
     }
 }
 
-/// The record of a turn's presence, which a wake it set or a task it started
-/// inherits (`presence.<turn>`, META: a new key, no store-format step).
-pub fn presence_record(turn_id: &str, present: Present) -> Result<NewRecord> {
-    NewRecord::json(
-        kinds::META,
-        Some(&format!("{PRESENCE_PREFIX}{turn_id}")),
-        &present.as_str(),
-    )
-}
-
-/// The presence recorded by the turn of `session` that made the call
-/// `call_id` (a `wake.at` or a `task.create`); none when none was recorded.
-pub fn set_up(store: &Store, session: &str, call_id: &str) -> Option<Present> {
+/// The presence of the turn of `session` that made the call `call_id` (a
+/// `wake.at` or a `task.create`), read from what the ledger wrote of it: that
+/// turn's exchange, its ask, and the ask's owner's mark, at `class` (today's
+/// reading of `session`'s place). None when any of it is not there: a turn
+/// no message opened, or one from before the ledger.
+pub fn set_up(store: &Store, class: &Place, session: &str, call_id: &str) -> Option<Present> {
     let nodes = store.session_nodes(session).ok()?;
     let turn = nodes.iter().find_map(|(_, n)| match &n.body {
         Body::ToolCall { tool_use_id, .. } if tool_use_id == call_id => n.turn_id.clone(),
         _ => None,
     })?;
-    let named: String = store.get_meta(&format!("{PRESENCE_PREFIX}{turn}")).ok()??;
-    Present::named(&named)
+    let ask = crate::exchange::exchange(store, &turn).ok()??.ask?;
+    let mark = crate::exchange::mark(store, &ask).ok()??;
+    Some(present_of_mark(class, &mark))
 }
 
 /// Of several set-ups, the narrowest; any not recorded is `Unknown`.
@@ -499,7 +490,16 @@ pub fn stage_mark(runner: &TurnRunner, session: &str, text: &str, in_person: boo
         },
         agent: (!in_person).then(|| "agent:claude".to_string()),
         surface: "cli".into(),
-        place: place_name(runner, session).unwrap_or_else(|| "local".into()),
+        // Where it arrived: a chat binding's target, else the terminal (a
+        // thread's message arrived where its owner typed it).
+        place: crate::exchange::place_of(
+            target_of(runner, session)
+                .ok()
+                .flatten()
+                .filter(|t| t.starts_with("discord:"))
+                .as_deref(),
+            None,
+        ),
         arrived_session: session.into(),
         ran_session: session.into(),
         author: None,

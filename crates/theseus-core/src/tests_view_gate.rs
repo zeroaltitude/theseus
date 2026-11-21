@@ -110,7 +110,7 @@ fn admitted(
         .iter()
         .filter_map(|s| {
             let m = view_gate::session_marks(&core.runner, Some(asker), s, Veil::Clear);
-            Gate::admit(pov, &m, s.clone()).ok().map(|a| a.into_inner())
+            Gate::check(pov, &m).ok().map(|()| s.clone())
         })
         .collect()
 }
@@ -341,25 +341,55 @@ fn no_new_decision_by_place_outside_the_gate() {
     );
 }
 
+/// The names a file gives the rule's module (`use theseus_memory::gate as x;`,
+/// or the path itself), and whether it imports `check` bare.
+fn rule_names(text: &str) -> (Vec<String>, bool) {
+    let mut names = vec!["theseus_memory::gate".to_string()];
+    let mut bare = false;
+    for l in text.lines().map(str::trim) {
+        if let Some(rest) = l.strip_prefix("use theseus_memory::gate") {
+            if let Some(alias) = rest.strip_prefix(" as ") {
+                names.push(alias.trim_end_matches(';').trim().to_string());
+            }
+            if rest.starts_with("::") && rest.contains("check") {
+                bare = true;
+            }
+            if let Some(alias) = rest
+                .split("self as ")
+                .nth(1)
+                .map(|a| a.split(|c: char| !c.is_alphanumeric() && c != '_').next())
+            {
+                names.extend(alias.map(str::to_string));
+            }
+        }
+    }
+    (names, bare)
+}
+
+/// Only `crate::view_gate` calls the rule, under any name a file gives it.
+/// A heuristic over the sources, beside what the types enforce (the view's
+/// `Admitted` is made only in `view::gate`).
 #[test]
 fn only_the_gate_calls_the_rule() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let mut callers = Vec::new();
     for e in std::fs::read_dir(crates).unwrap() {
         let src = e.unwrap().path().join("src");
-        if !src.is_dir() || src.parent().unwrap().ends_with("theseus-memory") {
+        if !src.is_dir() {
             continue;
         }
         let mut files = Vec::new();
         sources(&src, &src, &mut files);
         for (rel, text) in files {
-            let calls = text.contains("gate::admit(")
-                || text.lines().any(|l| {
-                    l.contains("theseus_memory::gate")
-                        && l.split(|c: char| !c.is_alphanumeric() && c != '_')
-                            .any(|w| w == "admit")
-                });
-            if calls && !(src.ends_with("theseus-core/src") && rel == "view_gate.rs") {
+            let (names, bare) = rule_names(&text);
+            let squeezed: String = text.split_whitespace().collect();
+            let calls = names
+                .iter()
+                .any(|n| squeezed.contains(&format!("{n}::check(")))
+                || (bare && squeezed.contains("check("));
+            let home = (src.ends_with("theseus-core/src") && rel == "view_gate.rs")
+                || (src.ends_with("theseus-memory/src") && rel == "gate.rs");
+            if calls && !home {
                 callers.push(format!("{}/{rel}", src.display()));
             }
         }
@@ -368,6 +398,13 @@ fn only_the_gate_calls_the_rule() {
         callers.is_empty(),
         "only crate::view_gate calls the gate's rule: {callers:?}"
     );
+    // The heuristic sees through an alias.
+    let aliased = "use theseus_memory::gate as permits;\nfn f() { permits :: check(&p, &m); }";
+    let (names, _) = rule_names(aliased);
+    let squeezed: String = aliased.split_whitespace().collect();
+    assert!(names
+        .iter()
+        .any(|n| squeezed.contains(&format!("{n}::check("))));
 }
 
 /// A recall in a channel bound private draws on the channel alone; at the
@@ -460,7 +497,7 @@ async fn red_team_an_agent_at_the_terminal_gets_none_of_the_owners_words_from_el
     assert_eq!(agent.present, Present::PrivateChannel);
     assert!(admitted(&r.core, &agent, &desk, &[dm.clone(), lab.clone()]).is_empty());
     let m = view_gate::session_marks(&r.core.runner, Some(&desk), &dm, Veil::Clear);
-    assert_eq!(Gate::admit(&agent, &m, ()).err(), Some(Denied::Alone));
+    assert_eq!(Gate::check(&agent, &m).err(), Some(Denied::Alone));
     let his = pov(&r.core, &desk, Input::Message("his"), &f);
     assert_eq!(his.present, Present::OwnerAlone);
     assert_eq!(
@@ -658,9 +695,8 @@ async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person:
 
 /// Red team, through the paths that run today: an agent's process at the
 /// terminal runs a turn that looks up the owner's words. Its presence is not
-/// the owner alone, its lookup draws on its own place alone, and its turn
-/// records that presence for what it sets up; the owner in person, at the
-/// same terminal, still draws on his other places.
+/// the owner alone and its lookup draws on its own place alone; the owner in
+/// person, at the same terminal, still draws on his other places.
 #[tokio::test]
 async fn an_agent_turn_at_the_terminal_looks_up_nothing_from_elsewhere() {
     let r = rig();
@@ -679,12 +715,6 @@ async fn an_agent_turn_at_the_terminal_looks_up_nothing_from_elsewhere() {
     assert_eq!(a.place, "local");
     let got = crate::tests_places::result_of(&r.core, &agent, "m1");
     assert!(!got.contains(HIS), "{got}");
-    let recorded: Option<String> = r
-        .core
-        .store
-        .get_meta(&format!("{}{}", view_gate::PRESENCE_PREFIX, a.turn_id))
-        .unwrap();
-    assert_eq!(recorded.as_deref(), Some("private_channel"));
     // Its memory.lookup by id, and its listing, keep to its own place too.
     let by_id = crate::memory_lookup::call(r.core.clone(), &agent, json!({"session": dm})).await;
     assert!(by_id.is_err(), "{by_id:?}");
@@ -728,7 +758,7 @@ async fn with_the_ledger_off_the_terminal_reads_places_as_before() {
 }
 
 /// A wake takes the presence of the turn that set it: the call that set it,
-/// in its session, names that turn, whose presence was recorded.
+/// in its session, names that turn, whose ask's mark the ledger wrote.
 #[tokio::test]
 async fn a_set_up_is_read_through_the_call_that_made_it() {
     let r = rig();
@@ -742,11 +772,25 @@ async fn a_set_up_is_read_through_the_call_that_made_it() {
     .unwrap();
     let call = crate::node::Node::tool_call(&desk, Some(&a.turn_id), Some(0), body);
     r.core.store.append(&[call.record().unwrap()]).unwrap();
+    let class = Place::Private;
+    let got = view_gate::set_up(&r.core.store, &class, &desk, "wk1");
+    assert_eq!(got, Some(Present::PrivateChannel));
     assert_eq!(
-        view_gate::set_up(&r.core.store, &desk, "wk1"),
-        Some(Present::PrivateChannel)
+        view_gate::set_up(&r.core.store, &class, &desk, "nobody"),
+        None
     );
-    assert_eq!(view_gate::set_up(&r.core.store, &desk, "nobody"), None);
+    // The owner's own turn sets up a wake that inherits his presence.
+    let mine = session(&r.core, None);
+    turn_as(&r.core, &mine, "plain words", true).await;
+    let a = r.core.runner.presence.get(&mine).unwrap();
+    let body: crate::node::Body = serde_json::from_value(json!({"kind": "tool_call",
+        "tool_use_id": "wk2", "tool": "wake.at", "wire_name": "wake_at", "input": {},
+        "assistant_node": "msg_y"}))
+    .unwrap();
+    let call = crate::node::Node::tool_call(&mine, Some(&a.turn_id), Some(0), body);
+    r.core.store.append(&[call.record().unwrap()]).unwrap();
+    let got = view_gate::set_up(&r.core.store, &class, &mine, "wk2");
+    assert_eq!(got, Some(Present::OwnerAlone));
     assert_eq!(
         view_gate::narrowest([Some(Present::OwnerAlone), None]),
         Some(Present::Unknown)
@@ -902,7 +946,7 @@ async fn the_views_permit_reads_the_turns_verified_presence() {
     assert!(permit.admit(&claimed, piece(&lab_place)).is_some());
     let never = session(&r.core, None);
     let none = crate::view::permit::Permit::for_turn(&r.core.runner, &never);
-    let mut at_desk = claimed.clone();
+    let mut at_desk = claimed;
     at_desk.anchor = crate::view::Anchor::Place("local".into());
     assert!(none.admit(&at_desk, piece("local")).is_none());
 }

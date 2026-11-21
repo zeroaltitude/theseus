@@ -1,14 +1,14 @@
 //! A turn's presence for the gate (issue 44, step 2; `crate::view_gate`):
 //! computed once, after the turn's input is written, from the input's mark;
-//! for a turn no person's message opened, from what the turn that set it up
-//! recorded: a wake's `wake.at` call, a task's `task.create` call, or the
-//! call that started the task whose report this is. None recorded is
-//! `Unknown`. Held per session for the tools the turn runs, and recorded as
-//! `presence.<turn>` (riding a frame the turn writes anyway) for the wakes
-//! and tasks it sets up. With `[context] ledger` off nothing is computed,
-//! and recall reads places as before.
+//! for a turn no person's message opened, from the turn that set it up (a
+//! wake's `wake.at` call, a task's `task.create` call, or the call that
+//! started the task whose report this is), as the ledger wrote that turn's
+//! ask and its mark. None found is `Unknown`. Held per session for the tools
+//! the turn runs; nothing new is written. With `[context] ledger` off
+//! nothing is computed, and recall reads places as before.
 
 use theseus_memory::gate::Present;
+use theseus_memory::recall::Place;
 
 use super::{Turn, TurnRunner};
 use crate::session::SessionRecord;
@@ -34,14 +34,20 @@ impl TurnRunner {
                 let mut set_ups: Vec<Option<Present>> = t
                     .set_ups
                     .iter()
-                    .map(|call| view_gate::set_up(store, sid, call))
+                    .map(|call| view_gate::set_up(store, &today, sid, call))
                     .collect();
                 for r in &t.woke_by {
                     let task = r["task"].as_str().unwrap_or_default();
-                    set_ups.push(task_set_up(store, task));
+                    set_ups.push(task_set_up(store, &today, task));
                 }
                 if let Some(task) = t.tc.task {
-                    set_ups.push(view_gate::set_up(store, &task.parent_session, &task.by));
+                    let class = self.place_of(&task.parent_session);
+                    set_ups.push(view_gate::set_up(
+                        store,
+                        &class,
+                        &task.parent_session,
+                        &task.by,
+                    ));
                 }
                 view_gate::present(
                     &today,
@@ -51,11 +57,6 @@ impl TurnRunner {
                 )
             }
         };
-        if let Ok(r) = view_gate::presence_record(t.tc.turn_id, present) {
-            if let Err(e) = t.tc.store.defer(r) {
-                tracing::warn!(error = %format!("{e:#}"), "a turn's presence was not recorded");
-            }
-        }
         self.presence.set(
             sid,
             Asking {
@@ -67,9 +68,10 @@ impl TurnRunner {
     }
 }
 
-/// The presence the turn that started the task `task` (its session) recorded.
-fn task_set_up(store: &crate::store::Store, task: &str) -> Option<Present> {
+/// The presence of the turn that started the task `task` (its session), whose
+/// report this session takes, at `class`, this session's place.
+fn task_set_up(store: &crate::store::Store, class: &Place, task: &str) -> Option<Present> {
     let rec: SessionRecord = store.get_session(task).ok()??;
     let of = rec.task?;
-    view_gate::set_up(store, &of.parent_session, &of.by)
+    view_gate::set_up(store, class, &of.parent_session, &of.by)
 }
