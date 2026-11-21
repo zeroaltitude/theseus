@@ -178,7 +178,9 @@ pub(crate) async fn try_say(
     let (live, _) = core.live_profile();
     let mut target = core.runner.resolve_target(&live, chosen, None, None)?;
     target.chosen = chosen.map(|p| format!("profile {p}"));
-    let sink = EventSink::new(core.bus.clone(), sid, None);
+    // The owner typed it in person, as `turn.submit` marks it (issue 44).
+    let mark = crate::view_gate::test_mark(&core.runner, sid, true);
+    let sink = EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(TurnRequest {
             prompt: None,

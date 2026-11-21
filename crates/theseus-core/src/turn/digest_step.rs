@@ -82,7 +82,14 @@ impl TurnRunner {
                     .and_then(Result::ok)
             }
         };
-        let live = board.live(PlaceClass::Private);
+        // Only the threads the gate admits for this turn are named, or
+        // counted: other threads where the owner is alone (the gate).
+        let live = crate::view_gate::digest_threads(
+            self,
+            t.tc.session_id,
+            &here,
+            board.live(PlaceClass::Private),
+        );
         let digest = answer.as_ref().filter(|a| a.place).and_then(|_| {
             crate::compiler::place_digest::render(&live, &here, cfg.place_digest_line_chars)
         });
