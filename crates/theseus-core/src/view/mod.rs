@@ -33,6 +33,7 @@ pub mod select;
 pub mod text;
 pub mod timeline;
 pub mod wire;
+pub mod wire_text;
 
 #[cfg(test)]
 mod tests;

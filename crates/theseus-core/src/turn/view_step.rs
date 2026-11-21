@@ -8,11 +8,14 @@ use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
 use crate::config::assembly::Assembly;
 use crate::exchange::{place_of, OWNER};
+use crate::ladder::view::StoreLadder;
 use crate::places::PlaceClass;
 use crate::store::Transcript;
 use crate::view::budget::Budget;
+use crate::view::permit::Permit;
 use crate::view::render::MarkedBlock;
-use crate::view::wire::{assemble, NotAssembled, Parts, StoreSnapshot, StoreTimeline, Unfolded};
+use crate::view::wire::{assemble, NotAssembled, Parts, StoreSnapshot, StoreTimeline};
+use crate::view::wire_text::TextRenderer;
 use crate::view::{Anchor, Arrival, Audience, PointOfView};
 
 impl TurnRunner {
@@ -86,8 +89,17 @@ impl TurnRunner {
             .or_else(|| self.catalog.get(&spec.model).map(|e| e.context_window))
             .unwrap_or(u64::MAX);
         let budget = Budget::new(provider_window, u64::from(spec.max_tokens));
-        let ladder = Unfolded(&snap.timeline);
-        let a = match assemble(&pov, &snap, &Parts::unwired(&ladder), &budget) {
+        let renderer = TextRenderer {
+            store: t.tc.store,
+            zone: &crate::recall::stamp::system,
+        };
+        let parts = Parts {
+            selectors: &[],
+            gate: &Permit,
+            renderer: &renderer,
+            ladder: &StoreLadder(t.tc.store),
+        };
+        let a = match assemble(&pov, &snap, &parts, &budget) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
             Err(NotAssembled::Overflow(o)) => anyhow::bail!("the view's floor does not fit: {o:?}"),
@@ -107,17 +119,13 @@ impl TurnRunner {
                     .cloned(),
             );
         }
+        let ladder = renderer.ladder(&pov, &a.ladder.nodes)?;
         let block = |b: &MarkedBlock| Frozen::block(sid, turn, &b.heading, &b.text);
+        let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&ladder);
         t.view = Some(Frozen {
             turn_id: turn.into(),
             compilation_id: None,
-            front: a
-                .parts
-                .fixed
-                .iter()
-                .chain(&a.parts.ladder)
-                .map(block)
-                .collect(),
+            front: front.map(block).collect(),
             window,
             beside: a.parts.beside.as_ref().map(block),
             memory_page: a.memory_page.1.to_string(),

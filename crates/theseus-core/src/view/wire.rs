@@ -1,9 +1,8 @@
 //! The view wired to the store, for the compiler's strategy `view` (`compiler::view`): the ledger's touch
 //! index as a [`Timeline`], one frozen [`Snapshot`] a turn, and [`assemble`], which runs the selectors, the
-//! gate, the budgeter, the renderer and the ladder's read once, in that order. Until the selector, gate,
-//! renderer and fold work is wired in, [`Parts::unwired`] holds what stands in for each: no selector, a
-//! renderer that lays no block, and a ladder of no node whose window is the place's newest exchanges. The
-//! gate is the gate's own ([`super::permit::Permit`]).
+//! gate, the budgeter, the renderer and the ladder's read once, in that order (`turn::view_step` gives it
+//! the gate's `super::permit::Permit`, the renderer `super::wire_text::TextRenderer` and the ladder
+//! `crate::ladder::view::StoreLadder`).
 
 use super::budget::{fit, Budget, Overflow, View};
 use super::fold::{Ladder, LadderRead, WINDOW_N};
@@ -11,7 +10,7 @@ use super::gate::{Admitted, Gate};
 use super::render::{Renderer, RequestParts};
 use super::select::Selector;
 use super::timeline::{Cursor, ExchangeRef, Timeline, TimelineRoot};
-use super::{Anchor, AtHand, PointOfView, Pos, Snapshot, Space};
+use super::{Anchor, AtHand, PointOfView, Snapshot, Space};
 use crate::exchange::{self, Root};
 use crate::store::Store;
 
@@ -65,53 +64,12 @@ impl Snapshot for StoreSnapshot<'_> {
     }
 }
 
-/// The ladder before the fold work: no node, and as its window the place's newest exchanges, as many as a
-/// window holds before it folds (`2N - 1`), oldest first. `since` (the `/new` mark) cuts the window.
-pub struct Unfolded<'a>(pub &'a dyn Timeline);
-
-impl Ladder for Unfolded<'_> {
-    fn read(&self, place: &str, n: usize, since: Option<&Pos>) -> anyhow::Result<LadderRead> {
-        let root = TimelineRoot::Place(place.to_string());
-        let mut window = self.0.newest(&root, None, (2 * n).saturating_sub(1))?;
-        window.retain(|e| since.is_none_or(|s| e.at_ms > s.at_ms));
-        window.reverse();
-        Ok(LadderRead {
-            nodes: Vec::new(),
-            window,
-        })
-    }
-}
-
-/// The renderer before the renderer work: no memory page and no block.
-pub struct Shell;
-
-impl Renderer for Shell {
-    fn memory_page(&self) -> (u32, &'static str) {
-        (0, "")
-    }
-    fn render(&self, _: &View, _: &dyn Snapshot) -> anyhow::Result<RequestParts> {
-        Ok(RequestParts::default())
-    }
-}
-
 /// What a view is assembled with.
 pub struct Parts<'a> {
     pub selectors: &'a [&'a dyn Selector],
     pub gate: &'a dyn Gate,
     pub renderer: &'a dyn Renderer,
     pub ladder: &'a dyn Ladder,
-}
-
-impl<'a> Parts<'a> {
-    /// The stand-ins (module doc), with `ladder` as the ladder.
-    pub fn unwired(ladder: &'a dyn Ladder) -> Self {
-        Self {
-            selectors: &[],
-            gate: &super::permit::Permit,
-            renderer: &Shell,
-            ladder,
-        }
-    }
 }
 
 /// A turn's view, assembled once: what the budgeter kept, its parts in wire order, and the ladder's read.

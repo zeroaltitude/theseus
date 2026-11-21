@@ -70,10 +70,11 @@ fn view_rig() -> Rig {
     rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)))
 }
 
-/// The requests whose newest user message says `what`, in the order they were sent.
+/// The conversation's requests whose newest user message says `what`, in the order they were sent: a
+/// request with tools (the ladder's own model calls, a did line's, offer none).
 fn asked(r: &Rig, what: &str) -> Vec<ProviderRequest> {
     (r.requests().into_iter())
-        .filter(|q| last_user(q).contains(what))
+        .filter(|q| !q.tools.is_empty() && last_user(q).contains(what))
         .collect()
 }
 
@@ -242,8 +243,8 @@ async fn a_reply_that_names_nothing_sees_the_answer_before_it() {
 /// The next morning: the window is counted in exchanges, so eleven hours on it is the same window.
 #[tokio::test]
 async fn eleven_hours_later_the_window_is_unchanged() {
+    use crate::ladder::view::StoreLadder;
     use crate::view::fold::Ladder;
-    use crate::view::wire::{StoreTimeline, Unfolded};
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
@@ -251,27 +252,42 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     turn(c, &sid, "evening: the second step").await;
     let dir = r.root.to_string_lossy().into_owned();
     let place = crate::exchange::place_of(None, Some(&dir));
-    let timeline = StoreTimeline(&c.store);
-    let ladder = Unfolded(&timeline);
+    let ladder = StoreLadder(&c.store);
     let tonight = ladder
         .read(&place, crate::view::fold::WINDOW_N, None)
         .unwrap();
     assert_eq!(tonight.window.len(), 2, "{tonight:?}");
-    // The snapshot's clock moves; the window does not read it.
-    let snap = |now_ms| crate::view::wire::StoreSnapshot {
-        now_ms,
-        timeline: StoreTimeline(&c.store),
+    // The window is counted in exchanges and reads no clock: the same read eleven hours on.
+    let snap = crate::view::wire::StoreSnapshot {
+        now_ms: theseus_protocol::now_unix_ms() + 11 * 3_600_000,
+        timeline: crate::view::wire::StoreTimeline(&c.store),
         at_hand: None,
     };
-    let now = theseus_protocol::now_unix_ms();
-    for at in [now, now + 11 * 3_600_000] {
-        let s = snap(at);
-        let l = Unfolded(&s.timeline);
-        assert_eq!(
-            l.read(&place, crate::view::fold::WINDOW_N, None).unwrap(),
-            tonight
-        );
-    }
+    let pov = crate::view::PointOfView::compute(
+        &crate::view::Arrival {
+            anchor: crate::view::Anchor::Place(place.clone()),
+            person: None,
+            owner_marked: false,
+            audience: crate::view::Audience::Private,
+        },
+        &snap,
+    );
+    let renderer = crate::view::wire_text::TextRenderer {
+        store: &c.store,
+        zone: &crate::recall::stamp::system,
+    };
+    let parts = crate::view::wire::Parts {
+        selectors: &[],
+        gate: &crate::view::permit::Permit,
+        renderer: &renderer,
+        ladder: &ladder,
+    };
+    let budget = crate::view::budget::Budget::new(200_000, 8_000);
+    let morning = crate::view::wire::assemble(&pov, &snap, &parts, &budget).unwrap();
+    assert_eq!(
+        morning.ladder, tonight,
+        "the next morning's window is the evening's"
+    );
 }
 
 /// A place in company: its request carries its own exchanges and nothing said elsewhere.
