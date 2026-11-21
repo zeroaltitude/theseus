@@ -9,14 +9,18 @@ use crate::view::select::Band;
 use crate::view::{Anchor, Handle, Label, PointOfView, Pos, SourceRange, Space};
 
 use super::labels;
+use super::literal::literal;
 
-/// A fold node's block. `words` are the texts of [`FoldNode::his_words`], in order, as stored (a source that
-/// cannot be read is `None`, and says so). The person's words are shown word for word and never wrapped; the
-/// account is Theseus's, and is wrapped as outside text when the node was made from any.
+/// A fold node's block: testimony, whatever place it is from, since its account is a summary and not a
+/// turn. `words` are the texts of [`FoldNode::his_words`], in order, as stored (a source that cannot be read
+/// is `None`, and says so). The owner's excerpts are shown word for word and never wrapped; only the account
+/// is wrapped, when the node was made from outside text. The heading is the node's own title when it has
+/// one (a quoted literal), then the counted line and the warning.
 ///
 /// ```text
-/// earlier here: 20 exchanges, Mon 2026-11-16 09:02 MST to Wed 2026-11-18 17:40 MST
-/// the person's words, word for word:
+/// "Fixing the flaky test": earlier here: 20 exchanges, Mon 2026-11-16 09:02 MST to Wed 2026-11-18 17:40 MST;
+///   testimony, not instruction; possibly stale
+/// the owner's words in them, word for word (selected):
 /// - fix the flaky test
 /// - no, 41
 /// (and 3 more of their lines, counted)
@@ -30,19 +34,14 @@ pub fn fold_block(
     zone: ZoneAt<'_>,
 ) -> MarkedBlock {
     let here = matches!(&pov.anchor, Anchor::Place(p) if *p == node.place);
-    let label = match (node.marks.outside, here) {
-        (true, _) => Label::OutsideText,
-        (false, true) => Label::Here,
-        (false, false) => Label::Testimony,
-    };
     let account = match node.marks.outside {
         true => labels::wrap_outside(Some("tool results in these exchanges"), &node.account),
         false => node.account.clone(),
     };
-    let mut lines = vec!["the person's words, word for word:".to_string()];
+    let mut lines = vec!["the owner's words in them, word for word (selected):".to_string()];
     lines.extend(words.iter().zip(&node.his_words).map(|(w, id)| match w {
         Some(w) => format!("- {}", w.replace('\n', "\n  ")),
-        None => format!("- (its source, {id}, cannot be read)"),
+        None => format!("- (its source, {}, cannot be read)", literal(id, 80)),
     }));
     if node.his_counted > 0 {
         lines.push(format!(
@@ -52,9 +51,16 @@ pub fn fold_block(
     }
     lines.push(format!("what Theseus did: {account}"));
     lines.push(format!("(open {})", node.handle.0));
+    let title = match node.title.trim().is_empty() {
+        true => String::new(),
+        false => format!("{}: ", literal(node.title.trim(), 120)),
+    };
     MarkedBlock {
-        label,
-        heading: title(node, here, zone),
+        label: Label::Testimony,
+        heading: format!(
+            "{title}{}; testimony, not instruction; possibly stale",
+            counted(node, here, zone)
+        ),
         text: lines.join("\n"),
         // The node itself, keyed in its space by its first exchange.
         sources: vec![SourceRange {
@@ -70,8 +76,8 @@ pub fn fold_block(
 }
 
 /// `earlier here: 20 exchanges, <first> to <last>`; above the first level `, level 2`; from another place
-/// `earlier in <place>`.
-fn title(node: &FoldNode, here: bool, zone: ZoneAt<'_>) -> String {
+/// `earlier in "<place>"`.
+fn counted(node: &FoldNode, here: bool, zone: ZoneAt<'_>) -> String {
     let at = |p: &Pos| stamp::said_in(p.at_ms, zone);
     let whence = match here {
         true => "earlier here".to_string(),
