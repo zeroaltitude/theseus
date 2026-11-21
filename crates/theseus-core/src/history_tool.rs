@@ -65,7 +65,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "Read further back in this place's history: bare, the 100 exchanges before those you see, one line each; before goes further back; open reads one by its handle."
+        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -74,7 +74,7 @@ impl Tool for HistoryTool {
                 "before": {"type": "object"},
                 "open": {"type": "string"},
                 "words": {"type": "string"},
-                "thing": {"type": "string", "description": "type:value"},
+                "thing": {"type": "string"},
                 "place": {"type": "string"}
             },
             "additionalProperties": false

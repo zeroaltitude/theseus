@@ -1170,13 +1170,14 @@ async fn a_self_tasks_compaction_is_counted_on_the_self_budget() {
         // tokens would not fit beside the 41,209 the kept turns take, within
         // the 44,904 the window leaves"). 2,000 puts the room at 4,695, so
         // the summary fits with 599 to spare and the next tool to join does
-        // not tip it again. Nothing about what this test asserts moved: it
+        // not tip it again (2,500 since `context_history` joined every request's tools, issue 44,
+        // and tipped it to a ring once more). Nothing about what this test asserts moved: it
         // still demands a real `compaction` outcome and still checks that
         // the summary's call is counted on the self budget.
         cfg.catalog
             .get_mut("claude-sonnet-5-5")
             .unwrap()
-            .context_window = Some(WINDOW + 2_000);
+            .context_window = Some(WINDOW + 2_500);
         let model = Arc::new(FakeProvider::scripted(vec![]));
         let glm = Arc::new(FakeProvider::scripted(vec![summary(
             "The keeper logged six tides; the operator asked for each one.",

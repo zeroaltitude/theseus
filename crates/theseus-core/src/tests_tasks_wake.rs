@@ -307,7 +307,7 @@ async fn a_task_sessions_typed_turn_is_a_persons() {
     );
 }
 
-const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
+const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminders", "web"];
 // 9908 and 7624 until 1.0.4: the tools note's line about the approve list
 // became one about the floor, four characters shorter (theseus-c4i8m).
 // 9906 and 7622 until theseus-wadu, which put the OS and architecture in
