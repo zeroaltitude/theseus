@@ -36,7 +36,20 @@ fn text_refused(conn: &Conn<'_>, from_job: Option<&str>) -> Option<String> {
 }
 
 impl Core {
-    pub(super) async fn rpc_views(
+    /// `turn.inspect` and `view.show`: what one turn carried, and what it was shown.
+    pub(super) async fn rpc_turn_reads(
+        self: Arc<Self>,
+        name: &str,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        match name {
+            method::TURN_INSPECT => self.rpc_inspect(params, conn).await,
+            _ => self.rpc_views(params, conn).await,
+        }
+    }
+
+    async fn rpc_views(
         self: Arc<Self>,
         params: Value,
         conn: Conn<'_>,

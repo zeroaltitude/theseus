@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// `view.show`: the views of one turn.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewShowParams {
     pub turn_id: String,
@@ -14,22 +15,26 @@ pub struct ViewShowParams {
     pub text: bool,
     /// The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): text is refused then.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub from_job: Option<String>,
 }
 
 /// A turn's views, one per compiled view, in the order they were built.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewShowResult {
     pub turn_id: String,
     pub views: Vec<ViewShown>,
     /// Why some of it is not here, when it is not: text not asked for, or pieces of other places.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub withheld: Option<String>,
 }
 
 /// One view.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewShown {
     pub compilation: String,
@@ -45,6 +50,7 @@ pub struct ViewShown {
 
 /// The point of view the view was built from.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewPov {
     /// `place` or `task`, and its id.
@@ -56,12 +62,14 @@ pub struct ViewPov {
     pub person: bool,
     /// `line_of_work` or `task`, and its id.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub at_hand: Option<String>,
     pub now_ms: u64,
 }
 
 /// One slot's pieces.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewSlot {
     /// `frame`, `who_and_where`, `waiting`, `in_play`, `past`, `elsewhere`, `here`, `called`, `now`.
@@ -72,6 +80,7 @@ pub struct ViewSlot {
 
 /// One piece shown, by reference.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewPiece {
     pub handle: String,
@@ -89,11 +98,13 @@ pub struct ViewPiece {
     pub label: String,
     /// The piece's text, when asked for and allowed; none when its source holds no text this build reads.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub text: Option<String>,
 }
 
 /// One piece left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewDrop {
     pub handle: String,
@@ -108,6 +119,7 @@ pub struct ViewDrop {
 
 /// What a band cut, counted: stated, not silent.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewResidue {
     pub band: String,
@@ -117,6 +129,7 @@ pub struct ViewResidue {
 
 /// A view's totals.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ViewTotals {
     pub shown: u64,

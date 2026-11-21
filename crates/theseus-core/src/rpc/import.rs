@@ -106,9 +106,6 @@ impl Core {
         if name.starts_with("books.") {
             return self.rpc_books(name, params, conn).await;
         }
-        if super::views::OWN.contains(&name) {
-            return self.rpc_views(params, conn).await;
-        }
         if name.starts_with("google.") || name == method::CALENDAR_WINDOW {
             return self.rpc_google(name, params, conn).await;
         }
@@ -174,8 +171,8 @@ impl Core {
         if name == method::FORECAST_CALIBRATION {
             return super::server::reply(self.forecast_calibration().await?);
         }
-        if name == method::TURN_INSPECT {
-            return self.rpc_inspect(params, conn).await;
+        if name == method::TURN_INSPECT || super::views::OWN.contains(&name) {
+            return self.rpc_turn_reads(name, params, conn).await;
         }
         if super::voice_pick::OWN.contains(&name) {
             return self.rpc_voice_pick(name, params, conn).await;

@@ -165,7 +165,7 @@ fn the_tally_counts_each_piece_once_a_slot_and_once_under_each_reason() {
     assert_eq!(t.present, Present::OwnerAlone);
     // Ids and counts only: no text and no person in the row.
     let row = serde_json::to_string(&t).unwrap();
-    assert!(!row.contains("owner"), "{row}");
+    assert!(!row.contains("person") && !row.contains("x:"), "{row}");
 }
 
 #[test]
