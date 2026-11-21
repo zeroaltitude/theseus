@@ -184,8 +184,8 @@ pub mod method {
         JUDGE_LABEL = "judge.label",
         LEARNING_REPORT = "learning.report",
         /// The owner's correction of a turn's routing (theseus-q31l; `route::RouteCorrectParams`), judged as
-        /// `judge.label` is; and the live correction layer (`route::RouteCorrectionsResult`), a read.
-        ROUTE_CORRECT = "route.correct", ROUTE_CORRECTIONS = "route.corrections",
+        /// `judge.label` is.
+        ROUTE_CORRECT = "route.correct",
         /// The owner's runs over the ledger (M5 25d; `judge_runs`): a candidate replayed, an audit,
         /// a backfill (only under the owner's consent); and `judge.prove`, the prove's report (L3), a read.
         JUDGE_REPLAY = "judge.replay", JUDGE_AUDIT = "judge.audit", JUDGE_BACKFILL = "judge.backfill", JUDGE_LEARN = "judge.learn", JUDGE_PROVE = "judge.prove",

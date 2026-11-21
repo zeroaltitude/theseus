@@ -213,8 +213,9 @@ impl Fact for RouteDecided<'_> {
 /// `route.corrected` (theseus-q31l): the owner's correction of a turn's
 /// routing, keyed `rcx_<id>` and scoped `route.corrections`, in one frame
 /// with the owner's label on the turn's route judgment, when it wrote one.
-/// Its provenance is the owner's own message, reaction, or press, by id. The
-/// live layer is rebuilt from these rows after serving.
+/// Its provenance is the reaction or press, by id. (Rows from before the
+/// owner's words stopped counting also carry `words` and `rerun`, which are no
+/// longer written.)
 pub struct RouteCorrected<'a> {
     pub id: &'a str,
     /// The corrected turn, and its route judgment, when it had one.
@@ -230,18 +231,15 @@ pub struct RouteCorrected<'a> {
     pub to: &'a str,
     /// Where the session runs from its next turn, if it moves.
     pub profile: Option<&'a str>,
-    /// Where a close message runs: the layer's entry, when it steers.
+    /// Where the session's next turn runs: the steer, when there is one.
     pub steer: Value,
     /// The owner's label, when the mode was wrong.
     pub label: Option<&'a str>,
-    pub rerun: bool,
     pub who: &'a str,
-    /// `message`, `reaction`, `button`, `cockpit`, `cli`.
+    /// `reaction`, `button`, `cockpit`, `cli`.
     pub via: &'a str,
-    /// The message's node, the reaction, or the press, by id.
+    /// The reaction or the press, by id.
     pub provenance: &'a str,
-    /// The corrected message's content words, which a close one shares.
-    pub words: &'a [String],
     pub at_ms: u64,
 }
 
@@ -253,8 +251,8 @@ impl Fact for RouteCorrected<'_> {
             "id": self.id, "turn": self.turn, "judgment": self.judgment, "pack": self.pack,
             "session": self.session, "mode": self.mode, "ran": self.ran, "to": self.to,
             "profile": self.profile, "steer": self.steer, "label": self.label,
-            "rerun": self.rerun, "who": self.who, "via": self.via,
-            "provenance": self.provenance, "words": self.words, "at_ms": self.at_ms,
+            "who": self.who, "via": self.via,
+            "provenance": self.provenance, "at_ms": self.at_ms,
         })
     }
 
@@ -271,15 +269,10 @@ impl Fact for RouteCorrected<'_> {
             ),
             _ => String::new(),
         };
-        let again = if self.rerun {
-            ", and answers it again there"
-        } else {
-            ""
-        };
         say.line(
             Model,
             format!(
-                "{} corrected turn {}'s routing (it ran on {}): {}{label}{moved}{again} (by {} {}).",
+                "{} corrected turn {}'s routing (it ran on {}): {}{label}{moved} (by {} {}).",
                 self.who, self.turn, self.ran, self.to, self.via, self.provenance
             ),
         );

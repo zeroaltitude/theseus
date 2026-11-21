@@ -392,7 +392,6 @@ mod tests {
         method::JUDGE_LABEL,
         method::LEARNING_REPORT,
         method::ROUTE_CORRECT,
-        method::ROUTE_CORRECTIONS,
         method::JUDGE_REPLAY,
         method::JUDGE_AUDIT,
         method::JUDGE_BACKFILL,

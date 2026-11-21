@@ -593,8 +593,6 @@ export type * from './Rollup';
 export type * from './RouteCell';
 export type * from './RouteCorrectParams';
 export type * from './RouteCorrectResult';
-export type * from './RouteCorrectionInfo';
-export type * from './RouteCorrectionsResult';
 export type * from './RouteHow';
 export type * from './RoutePersona';
 export type * from './RouteReportParams';

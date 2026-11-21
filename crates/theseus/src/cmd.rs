@@ -1504,7 +1504,6 @@ pub async fn judge(conn: &mut Conn, json: bool, cmd: JudgeCmd) -> Result<()> {
             })
         }
         JudgeCmd::Correct(a) => crate::judge_correct::correct(conn, json, a).await,
-        JudgeCmd::Corrections => crate::judge_correct::corrections(conn, json).await,
         JudgeCmd::Replay(a) => crate::judge_runs::replay(conn, json, a).await,
         JudgeCmd::Audit(a) => crate::judge_runs::audit(conn, json, a).await,
         JudgeCmd::Backfill(a) => crate::judge_runs::backfill(conn, json, a).await,

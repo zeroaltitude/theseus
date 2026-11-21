@@ -143,9 +143,9 @@ impl TurnRunner {
         }
         let asked = wait.is_some();
         Self::route_asked(t, wait, route, images, breaker_open);
-        // The owner's correction, or the layer (theseus-q31l): a turn that
-        // asked the route pack can be steered; any turn's words can label.
-        self.correction_point(t, &node.id, text, author, place.as_deref(), route, asked);
+        // The owner's correction by a press or a reaction (theseus-q31l): a
+        // turn that asked the route pack can be steered by it.
+        self.correction_point(t, asked);
         // Then the persona, which a correction may have placed (theseus-c1uz).
         self.engage_start(t, text, asked);
     }
