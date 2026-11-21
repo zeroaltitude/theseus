@@ -1,4 +1,4 @@
-//! Fold nodes (`fold.<id>`) and their rungs (`rung.<place>␁<level>␁…`). A
+//! Fold nodes (`fold.<place>␁<level>␁<first ms>`) and their rungs (`rung.<place>␁<level>␁…`). A
 //! first-level node stands for [`N`](super::N) consecutive exchanges of a
 //! place: the person's words in them by node id, never copied; a title and
 //! an account written once by a small model from their asks, their `did`
@@ -13,11 +13,14 @@ use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::did::{self, Read};
 use super::writer::{Ask, Work, Writer, Written};
-use super::{cut, Marks};
+use super::{cut, union, Marks};
 use crate::store::Store;
 
-/// A node: `fold.<id>`.
-pub const FOLD_PREFIX: &str = "fold.";
+/// A node: `fold.<place>␁<level>␁<first exchange's ms, 20 digits>`, the view
+/// contract's key (`crate::view::fold::FOLD_PREFIX`).
+pub use crate::view::fold::FOLD_PREFIX;
+/// A node's key by its handle: `foldh.<id>`.
+pub const HANDLE_PREFIX: &str = "foldh.";
 /// A node's place in its level: `rung.<place>␁<level, 2 digits>␁<u64::MAX - last_ms, 20 digits>␁<id>`.
 pub const RUNG_PREFIX: &str = "rung.";
 const SEP: char = '\u{1}';
@@ -97,7 +100,16 @@ fn rung_level(place: &str, level: u8) -> String {
     format!("{RUNG_PREFIX}{place}{SEP}{level:02}{SEP}")
 }
 
-/// A node's two records: itself and its rung.
+/// A node's key.
+pub fn key(n: &FoldNode) -> String {
+    format!(
+        "{FOLD_PREFIX}{}{SEP}{}{SEP}{:020}",
+        n.place, n.level, n.first_ms
+    )
+}
+
+/// A node's three records: itself, its rung and its handle, the last two
+/// naming its key.
 pub fn records(n: &FoldNode) -> anyhow::Result<Vec<NewRecord>> {
     let rung = format!(
         "{}{:020}{SEP}{}",
@@ -105,15 +117,20 @@ pub fn records(n: &FoldNode) -> anyhow::Result<Vec<NewRecord>> {
         u64::MAX - n.last_ms,
         n.id
     );
+    let key = key(n);
     Ok(vec![
-        NewRecord::json(kinds::META, Some(&format!("{FOLD_PREFIX}{}", n.id)), n)?,
-        NewRecord::json(kinds::META, Some(&rung), &n.id)?,
+        NewRecord::json(kinds::META, Some(&key), n)?,
+        NewRecord::json(kinds::META, Some(&rung), &key)?,
+        NewRecord::json(kinds::META, Some(&format!("{HANDLE_PREFIX}{}", n.id)), &key)?,
     ])
 }
 
-/// The node `id`: what its handle opens first.
+/// The node whose handle is `id`.
 pub fn node(store: &Store, id: &str) -> anyhow::Result<Option<FoldNode>> {
-    store.get_meta(&format!("{FOLD_PREFIX}{id}"))
+    match store.get_meta::<String>(&format!("{HANDLE_PREFIX}{id}"))? {
+        Some(key) => store.get_meta(&key),
+        None => Ok(None),
+    }
 }
 
 /// The newest `limit` nodes of `place` at `level`, newest first: one read of
@@ -124,13 +141,13 @@ pub fn newest(
     level: u8,
     limit: usize,
 ) -> anyhow::Result<Vec<FoldNode>> {
-    let ids = store
+    let keys = store
         .inner()
         .first_with_prefix(kinds::META, &rung_level(place, level), limit)?;
     let mut out = Vec::new();
-    for r in ids {
-        let id: String = r.decode()?;
-        out.extend(node(store, &id)?);
+    for r in keys {
+        let key: String = r.decode()?;
+        out.extend(store.get_meta::<FoldNode>(&key)?);
     }
     Ok(out)
 }
@@ -171,6 +188,19 @@ pub fn parse(answer: &str) -> Option<(String, String)> {
     let (title, account) = answer.split_once('\n')?;
     let (title, account) = (cut(title, TITLE_CHARS), cut(account, ACCOUNT_CHARS));
     (!title.is_empty() && !account.is_empty()).then_some((title, account))
+}
+
+/// The union of `marks`; a missing place when there are none.
+fn node_marks<'a>(mut marks: impl Iterator<Item = &'a Marks>) -> Marks {
+    let first = marks.next().cloned().unwrap_or(Marks {
+        place: None,
+        audience: crate::view::Audience::Unknown,
+        author: crate::view::Author::Theseus,
+        outside: false,
+        sealed: false,
+        veiled: false,
+    });
+    marks.fold(first, |m, b| union(m, b))
 }
 
 /// The person's lines of `reads`, flagged.
@@ -223,9 +253,7 @@ pub async fn first_level(
         children: Vec::new(),
         title,
         account,
-        marks: reads
-            .iter()
-            .fold(Marks::default(), |m, (r, _)| m.union(r.marks)),
+        marks: node_marks(reads.iter().map(|(r, _)| &r.marks)),
         model: Some(w.model.clone()),
         writer: super::writer::WRITER_VERSION,
         at_ms: theseus_protocol::now_unix_ms(),
@@ -254,9 +282,12 @@ pub fn hidden(reads: &[(Read, did::Said)], flags: &dyn Flags) -> FoldNode {
         children: Vec::new(),
         title: format!("{} exchanges, not summarised", reads.len()),
         account: HIDDEN.into(),
-        marks: reads
-            .iter()
-            .fold(Marks::default(), |m, (r, _)| m.union(r.marks)),
+        // The lens does not say which of the two: both, failing closed.
+        marks: Marks {
+            sealed: true,
+            veiled: true,
+            ..node_marks(reads.iter().map(|(r, _)| &r.marks))
+        },
         model: None,
         writer: super::writer::WRITER_VERSION,
         at_ms: theseus_protocol::now_unix_ms(),
@@ -308,9 +339,7 @@ pub fn above(children: &[FoldNode]) -> Option<FoldNode> {
             TITLE_CHARS,
         ),
         account,
-        marks: children
-            .iter()
-            .fold(Marks::default(), |m, c| m.union(c.marks)),
+        marks: node_marks(children.iter().map(|c| &c.marks)),
         model: None,
         writer: super::writer::WRITER_VERSION,
         at_ms: theseus_protocol::now_unix_ms(),

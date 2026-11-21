@@ -9,10 +9,12 @@
 //!   person's message and the final reply only (never tool results), with the
 //!   model that wrote it and the exchange's marks. An exchange with none reads
 //!   as [`did::NOT_SUMMARISED`] and its handle.
-//! - **A fold node** (`fold.<id>`, [`fold::FoldNode`]): [`N`] consecutive
+//! - **A fold node** (`fold.<place>␁<level>␁<first ms>`, the view contract's
+//!   key, [`fold::FoldNode`]; shown to the view as `crate::view::fold::FoldNode`): [`N`] consecutive
 //!   exchanges of a place at the first level: the person's words in them by
 //!   node id, a title and an account written once by the same kind of job,
-//!   the union of their marks, and a handle (its id) that opens them. A level
+//!   the union of their marks, and a handle (its id, `foldh.<id>` naming its
+//!   key) that opens them. A level
 //!   above the first is built by code from its children's typed fields; no
 //!   model writes one. A node never changes once written.
 //! - **The rungs** (`rung.<place>␁<level>␁<newest first>`): each node's id
@@ -34,6 +36,7 @@ pub mod build;
 pub mod did;
 pub mod fold;
 pub mod read;
+pub mod view;
 pub mod writer;
 
 #[cfg(test)]
@@ -51,21 +54,41 @@ pub const DAY_KEY: &str = "ladder.day";
 /// One summary job at a time, so the day's spend is read and written by one.
 pub(crate) static WRITING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// What a piece was made from, as marks that only grow: any source marked
-/// marks what is made of it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Marks {
-    /// A tool result in it came from outside (a page, a search, an MCP server
-    /// marked external).
-    pub outside_text: bool,
+/// The marks a line or a node carries: the view's (`crate::view::Marks`),
+/// written by Theseus, from its exchanges' place and audience; outside when
+/// any tool result in them came from outside. Marks only grow.
+pub use crate::view::Marks;
+
+/// An exchange's marks before its tool results are read.
+pub fn marks_of(ex: &crate::exchange::Exchange) -> Marks {
+    use crate::view::{Audience, Author};
+    let audience = match (ex.private, ex.place.as_str()) {
+        (_, "unknown") => Audience::Unknown,
+        (true, _) => Audience::Private,
+        (false, _) => Audience::Shared,
+    };
+    Marks {
+        place: Some(ex.place.clone()),
+        audience,
+        author: Author::Theseus,
+        outside: false,
+        sealed: false,
+        veiled: false,
+    }
 }
 
-impl Marks {
-    pub fn union(self, other: Marks) -> Marks {
-        Marks {
-            outside_text: self.outside_text || other.outside_text,
-        }
+/// `a` grown by `b`: its flags, and an audience no more private than either.
+pub fn union(mut a: Marks, b: &Marks) -> Marks {
+    use crate::view::Audience;
+    a.grow(b);
+    if a.audience != b.audience {
+        a.audience = match (a.audience, b.audience) {
+            (Audience::Unknown, _) | (_, Audience::Unknown) => Audience::Unknown,
+            (Audience::Open, _) | (_, Audience::Open) => Audience::Open,
+            _ => Audience::Shared,
+        };
     }
+    a
 }
 
 /// The day's spend on summaries (`ladder.day`).

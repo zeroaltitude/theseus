@@ -1,5 +1,5 @@
 //! The daemon's side of the ladder: the job at an exchange's end (its `did`
-//! line, then its place's fold step), what is sealed or veiled, where a
+//! line, then its place's fold step) in a place assembled as a view, what is sealed or veiled, where a
 //! place's latest `/new` is, the person's lines that made a standing record,
 //! and the build of a place's history ([`Core::ladder_build`]), with a dry
 //! run that counts and prices, and a cap.
@@ -13,6 +13,7 @@ use super::fold::Flags;
 use super::read::{self, Step};
 use super::writer::{Ask, ModelWriter, Work, Writer};
 use super::N;
+use crate::config::assembly::Assembly;
 use crate::exchange::{self, Root};
 use crate::judge::categorize::ExchangeEnd;
 use crate::judge::JudgeService;
@@ -105,8 +106,16 @@ impl Core {
         Standing(all.iter().map(|r| r.source.clone()).collect())
     }
 
-    /// The job at the end of exchange `turn`.
+    /// The job at the end of exchange `turn`: only in a place whose requests
+    /// are assembled as a view (`[context] assembly`), the one reader of what
+    /// is written here; a place on the transcript spends nothing on it.
     async fn ladder_after(self: &Arc<Self>, turn: &str) -> anyhow::Result<()> {
+        let Some(ex) = blocking(|| exchange::exchange(&self.store, turn))? else {
+            return Ok(());
+        };
+        if self.cfg.context.assembly_for(&ex.place) != Assembly::View {
+            return Ok(());
+        }
         let writer = ModelWriter(self.clone());
         let hidden = |sid: &str| self.ladder_hidden(sid);
         match did::write(&self.store, &writer, turn, &hidden, None).await? {
@@ -114,9 +123,6 @@ impl Core {
             Outcome::NotEnded => return Ok(()),
             _ => {}
         }
-        let Some(ex) = blocking(|| exchange::exchange(&self.store, turn))? else {
-            return Ok(());
-        };
         let flags = self.ladder_flags();
         let step = Step {
             writer: &writer,

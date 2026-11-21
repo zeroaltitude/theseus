@@ -107,17 +107,15 @@ pub fn words(n: &Node) -> Option<String> {
     }
 }
 
-/// The marks of one node.
-pub fn marks_of(n: &Node) -> Marks {
-    Marks {
-        outside_text: matches!(
-            &n.body,
-            Body::ToolResult {
-                external: Some(_),
-                ..
-            }
-        ),
-    }
+/// Whether a node is a tool result whose text came from outside.
+pub fn outside(n: &Node) -> bool {
+    matches!(
+        &n.body,
+        Body::ToolResult {
+            external: Some(_),
+            ..
+        }
+    )
 }
 
 /// Exchange `turn` read from the store; none when no exchange was written.
@@ -132,11 +130,11 @@ pub fn read(store: &Store, turn: &str) -> anyhow::Result<Option<Read>> {
         })
     };
     let (ask, reply) = (text(&ex.ask)?, text(&ex.reply)?);
-    let marks = store
+    let mut marks = super::marks_of(&ex);
+    marks.outside = store
         .session_nodes(&ex.session_id)?
         .iter()
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-        .fold(Marks::default(), |m, (_, n)| m.union(marks_of(n)));
+        .any(|(_, n)| n.turn_id.as_deref() == Some(turn) && outside(n));
     Ok(Some(Read {
         ex,
         ask,
@@ -230,7 +228,7 @@ pub async fn write(
                 line,
                 model: w.model.clone(),
                 writer: WRITER_VERSION,
-                marks: r.marks,
+                marks: r.marks.clone(),
                 cost_usd: w.cost_usd,
                 at_ms: now,
             };

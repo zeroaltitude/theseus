@@ -160,11 +160,12 @@ pub async fn fold_step(
     }
 }
 
-type Made = Result<(FoldNode, f64), (String, f64)>;
+/// A first-level node and what it cost, or why there is none and what it cost.
+pub type Made = Result<(FoldNode, f64), (String, f64)>;
 
 /// One first-level node over `exchanges`, and its frame (with the day's
 /// spend): the node and its cost, or why there is none and what it cost.
-async fn first(
+pub async fn first(
     store: &Store,
     exchanges: &[Exchange],
     step: &Step<'_>,

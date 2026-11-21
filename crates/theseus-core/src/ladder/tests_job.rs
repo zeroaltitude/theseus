@@ -9,6 +9,7 @@ use std::time::Duration;
 use super::did::{self, Outcome};
 use super::tests::{exchange_at, Fake};
 use super::N;
+use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::Config;
 use crate::judge::categorize::ExchangeEnd;
 use crate::provider::{FakeProvider, Scripted};
@@ -17,8 +18,16 @@ use crate::rpc::Core;
 const PLACE: &str = "local:/srv/tides";
 
 fn core(lines: &[&str]) -> (tempfile::TempDir, Arc<Core>, Arc<FakeProvider>) {
+    core_with(lines, Some(Assembly::View))
+}
+
+fn core_with(
+    lines: &[&str],
+    assembly: Option<Assembly>,
+) -> (tempfile::TempDir, Arc<Core>, Arc<FakeProvider>) {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
+    cfg.context.assembly = assembly.map(AssemblySetting::All);
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(
@@ -29,7 +38,7 @@ fn core(lines: &[&str]) -> (tempfile::TempDir, Arc<Core>, Arc<FakeProvider>) {
 }
 
 async fn until_line(core: &Core, turn: &str) -> Option<did::DidLine> {
-    for _ in 0..200 {
+    for _ in 0..80 {
         if let Some(d) = did::did(&core.store, turn).unwrap() {
             return Some(d);
         }
@@ -121,4 +130,18 @@ async fn a_sealed_threads_session_is_hidden_and_a_plain_one_is_not() {
         .await
         .unwrap();
     assert!(matches!(out, Outcome::Written(_)), "{out:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_place_on_the_transcript_spends_nothing_on_summaries() {
+    let (_d, core, fake) = core_with(&["Never asked."], None);
+    let turn = exchange_at(&core.store, "ses_t", PLACE, 1_000, false);
+    let e = ExchangeEnd {
+        session_id: "ses_t".into(),
+        execution_id: String::new(),
+        turn_id: turn.clone(),
+    };
+    core.runner.judge.ladder_at_exchange_end(&e, false);
+    assert_eq!(until_line(&core, &turn).await, None);
+    assert!(fake.requests().is_empty());
 }

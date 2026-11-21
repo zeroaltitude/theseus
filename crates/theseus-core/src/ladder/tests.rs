@@ -12,10 +12,11 @@ use super::did::{self, Outcome, Said, NOT_SUMMARISED};
 use super::fold::{self, NoFlags};
 use super::read::{self, Step};
 use super::writer::{Ask, Work, Writer, Written};
-use super::{Marks, N};
+use super::N;
 use crate::exchange::{self, Exchange, Opener, Root};
 use crate::node::{Body, Node};
 use crate::store::Store;
+use crate::view::Audience;
 
 const PLACE: &str = "discord:channel:4242";
 
@@ -135,10 +136,10 @@ async fn a_did_line_reads_the_message_and_the_reply_never_a_tool_result() {
         (d.model.as_str(), d.writer),
         ("fake-small-1", super::writer::WRITER_VERSION)
     );
+    assert!(d.marks.outside, "it carries its exchange's marks");
     assert_eq!(
-        d.marks,
-        Marks { outside_text: true },
-        "it carries its exchange's marks"
+        (d.marks.place.as_deref(), d.marks.audience),
+        (Some(PLACE), Audience::Private)
     );
     let asked = &w.asks.lock().unwrap()[0];
     assert!(
@@ -262,7 +263,7 @@ async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
         "the oldest N, in order"
     );
     assert_eq!(
-        (node.title.as_str(), node.marks.outside_text),
+        (node.title.as_str(), node.marks.outside),
         ("Tide gauges", true)
     );
     assert_eq!(node.account, "Recalibrated gauge 4 and left gauge 5 open.");
@@ -299,6 +300,10 @@ async fn a_sealed_window_folds_by_code_and_no_model_reads_it() {
     assert_eq!(st.made.len(), 1);
     assert_eq!(st.made[0].account, fold::HIDDEN);
     assert_eq!(st.made[0].model, None);
+    assert!(
+        st.made[0].marks.sealed && st.made[0].marks.veiled,
+        "fails closed"
+    );
     assert!(w.asks.lock().unwrap().is_empty());
 }
 
@@ -408,4 +413,43 @@ fn a_fold_answer_is_a_title_and_an_account_cut_by_code() {
         (fold::TITLE_CHARS, fold::ACCOUNT_CHARS)
     );
     assert_eq!(fold::parse("a title alone"), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_views_traits_read_the_ladder_and_write_its_nodes() {
+    use crate::view::fold::{FoldWriter, Ladder};
+    let (_d, s) = store();
+    for i in 0..2 * N as u64 {
+        exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
+    }
+    let w = Fake::default();
+    let hidden = shown();
+    let folds = super::view::StoreFolds {
+        store: &s,
+        writer: &w,
+        flags: &NoFlags,
+        hidden: &hidden,
+    };
+    let ladder = super::view::StoreLadder(&s);
+    let before = ladder.read(PLACE, N, None).unwrap();
+    assert!(before.nodes.is_empty());
+    assert_eq!(before.window.len(), 2 * N);
+    assert!(crate::view::fold::fold_due(before.window.len(), N));
+    let node = folds.fold(PLACE, &before.window[..N]).unwrap();
+    assert_eq!(
+        (node.level, node.exchanges, node.title.as_str()),
+        (1, N as u32, "Tide gauges")
+    );
+    assert_eq!(node.first.id, before.window[0].turn_id);
+    assert_eq!(node.writer.by, "fake-small-1");
+    let after = ladder.read(PLACE, N, None).unwrap();
+    assert_eq!(after.nodes, vec![node.clone()]);
+    assert_eq!(after.window, before.window[N..].to_vec());
+    assert!(ladder.read(PLACE, N + 1, None).is_err(), "one grain");
+    let lifted = folds.lift(2, std::slice::from_ref(&node)).unwrap();
+    assert_eq!((lifted.level, lifted.writer.by.as_str()), (2, "code"));
+    assert!(
+        folds.lift(3, &[node]).is_err(),
+        "a level is built from the level below"
+    );
 }
