@@ -1,21 +1,19 @@
-//! A home turn that served one thread becomes that thread's memory (theseus-98bz.6), through the
-//! core: a message the router runs at home writes a file under one thread's root, and every node
-//! of the turn is keyed to that thread, so the lens passes it for that thread's recall and finds it
-//! another stream's for the other's. What claims nothing (unthreaded files, two threads' files, a
-//! sealed thread, unseen paths), what a split already moved, the undo, the readers (history, a
-//! split over a claim), and the switch off.
+//! A home claim stored by an earlier build, through the core (theseus-98bz.6). Until 2026-11-21 a
+//! turn the router ran at a place's home whose files all fell in one thread's working set was
+//! claimed for that thread; the owner removed routing by a guess that day, and the claim with it.
+//! Now a home turn that writes a thread's file claims nothing, and a claim already in a store
+//! still reads (the history names it, the lens reads its nodes as the thread's) and is undone by
+//! `thread.unclaim`, beside a split over it.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use theseus_judge::fake::{FakeJev, Scripted as Jev};
+use theseus_judge::fake::FakeJev;
 use theseus_memory::threads::{Tie, Verdict};
-use theseus_protocol::thread_route::{RouteHow, ThreadAnswerParams, ThreadTag};
 use theseus_protocol::threads::{
-    ThreadEditParams, ThreadNewParams, ThreadSealParams, ThreadSplitParams, ThreadUnclaimParams,
-    WorkingSet,
+    ThreadEditParams, ThreadNewParams, ThreadSplitParams, ThreadUnclaimParams, WorkingSet,
 };
 use theseus_protocol::{
     method, Id, Message, Request, SessionKind, TurnSubmitParams, TurnSubmitResult,
@@ -25,7 +23,6 @@ use tokio::io::{
 };
 
 use super::home_claim::{claim_key, ClaimRecord};
-use super::thread_flow::Routing;
 use super::Core;
 use crate::approval::{Answerer, Client, Surface};
 use crate::ledger::LedgerRow;
@@ -97,17 +94,6 @@ impl Wire {
             }
         }
     }
-
-    /// The next notification of `method`.
-    async fn notice(&mut self, method: &str) -> Value {
-        loop {
-            if let Message::Notification(n) = self.message().await {
-                if n.method == method {
-                    return n.params;
-                }
-            }
-        }
-    }
 }
 
 fn params(session: &str, input: &str) -> TurnSubmitParams {
@@ -138,21 +124,11 @@ fn result(v: Value) -> TurnSubmitResult {
     serde_json::from_value(v["result"].clone()).unwrap_or_else(|_| panic!("a turn result in {v}"))
 }
 
-/// One `turn.submit`: Jev says `home` surely, so it runs in the place's own session.
+/// One `turn.submit`: it names no thread, so it runs in the place's own session.
 async fn submit(c: &Arc<Core>, session: &str, input: &str) -> TurnSubmitResult {
     let mut w = Wire::open(c);
     let id = w.send(method::TURN_SUBMIT, params(session, input)).await;
     result(w.response(id).await)
-}
-
-fn thread_answer(jev: &FakeJev, slug: &str, p: f64) {
-    jev.script(
-        "thread",
-        Jev::Choice {
-            option: slug.into(),
-            confidence: p,
-        },
-    );
 }
 
 /// The model's turn: it writes each of `paths` in one response, then answers.
@@ -183,12 +159,12 @@ fn writes(paths: &[String]) -> Vec<Scripted> {
 /// (root `tarnlib`) and `sec-fix` (root `secsvc`), roots named bare, under the home's directory.
 struct Place {
     r: Rig,
-    jev: FakeJev,
+    _jev: FakeJev,
     work: tempfile::TempDir,
     home: String,
 }
 
-fn place(rel: &[&str], claim: bool) -> Place {
+fn place(rel: &[&str]) -> Place {
     let jev = FakeJev::start().unwrap();
     let work = tempfile::tempdir().unwrap();
     for d in ["tarnlib/tarn", "secsvc/api", "scratch"] {
@@ -204,8 +180,6 @@ fn place(rel: &[&str], claim: bool) -> Place {
         c.judge.total_secs = 5;
         c.tools.roots = vec![root.clone()];
         c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 5;
-        c.threads.claim_home_turns = claim;
     });
     let c = &r.core;
     for (slug, title, root) in [
@@ -240,7 +214,7 @@ fn place(rel: &[&str], claim: bool) -> Place {
     c.store.put_session(&rec.session_id, &rec).unwrap();
     Place {
         r,
-        jev,
+        _jev: jev,
         work,
         home: rec.session_id,
     }
@@ -304,191 +278,70 @@ fn verdict(c: &Core, slug: &str, home: &str, node: &str) -> Verdict {
         .judge(home, node, 1.0, Tie::Unknown)
 }
 
-/// The key test. A message Jev cannot place is asked about, and the owner answers `home`: the turn
-/// runs in the place's own session and writes `tarnlib/tarn/retry.py`, under pr-round's root alone.
-/// Every node of the turn is keyed to pr-round by a `claim_` value, one `thread.claimed` row names
-/// it, and the lens passes the turn's message for pr-round's recall and finds it another stream's
-/// for sec-fix's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_home_turn_that_served_a_thread_is_claimed() {
-    let p = place(&["tarnlib/tarn/retry.py"], true);
-    let (c, home) = (&p.r.core, p.home.as_str());
-    // Two contend, so the router asks (theseus-e31an: a lone lean is no
-    // contest): the message names pr-round's root, and Jev leans to sec-fix.
-    thread_answer(&p.jev, "sec-fix", 0.7);
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::TURN_SUBMIT,
-            params(home, "the second review comment on the retry in tarnlib"),
-        )
-        .await;
-    let asked = w.notice("thread.asked").await;
-    let mut a = Wire::open(c);
-    let aid = a
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: asked["ask_id"].as_str().unwrap().into(),
-                choice: "home".into(),
-                author: None,
-                discord: None,
-            },
-        )
-        .await;
-    assert!(a.response(aid).await["result"]["routed"].is_null());
-    let res = result(w.response(id).await);
-    assert_eq!(res.session_id, home, "it ran at home");
-    assert_eq!(res.thread.as_ref().map(|t| t.how), Some(RouteHow::Asked));
-    assert!(p.work.path().join("tarnlib/tarn/retry.py").exists());
-
-    let nodes = turn_nodes(c, home, &res.turn_id);
-    assert!(nodes.len() >= 4, "message, call, result, reply: {nodes:?}");
-    let claim = &rows(c, "thread.claimed");
-    assert_eq!(claim.len(), 1, "{claim:?}");
-    let id = claim[0].data["claim"].as_str().unwrap();
-    assert!(id.starts_with("claim_"), "{id}");
-    assert_eq!(claim[0].data["thread"], "pr-round");
-    assert_eq!(claim[0].data["session"], home);
-    assert_eq!(claim[0].data["nodes"], nodes.len());
-    let path = p
-        .work
-        .path()
-        .join("tarnlib/tarn/retry.py")
-        .display()
-        .to_string();
-    assert_eq!(claim[0].data["paths"], json!([path]));
-    for (_, node, to) in &nodes {
-        assert_eq!(
-            to.as_ref(),
-            Some(&MovedTo {
-                thread: "pr-round".into(),
-                split: id.into(),
-            }),
-            "{node}"
+/// A claim as an earlier build wrote it for `turn`'s nodes in `home`: its record, and each node keyed
+/// to `thread` by the claim's value. Its id.
+fn plant_claim(c: &Core, home: &str, turn: &str, thread: &str) -> String {
+    let id = crate::new_id(crate::moved::CLAIM);
+    let nodes: Vec<String> = turn_nodes(c, home, turn)
+        .into_iter()
+        .map(|(_, n, _)| n)
+        .collect();
+    assert!(!nodes.is_empty(), "the turn wrote nodes");
+    let rec = ClaimRecord {
+        id: id.clone(),
+        thread: thread.into(),
+        session: home.into(),
+        turn: turn.into(),
+        nodes: nodes.clone(),
+        paths: vec!["tarnlib/tarn/retry.py".into()],
+        at_ms: 1,
+        undone: false,
+    };
+    let to = MovedTo {
+        thread: thread.into(),
+        split: id.clone(),
+    };
+    let mut recs = vec![theseus_store::NewRecord::json(
+        theseus_store::kinds::META,
+        Some(&claim_key(&id)),
+        &rec,
+    )
+    .unwrap()];
+    for n in &nodes {
+        recs.push(
+            theseus_store::NewRecord::json(
+                theseus_store::kinds::META,
+                Some(&moved_of_key(n)),
+                &Some(&to),
+            )
+            .unwrap(),
         );
     }
-    let rec: ClaimRecord = c.store.get_meta(&claim_key(id)).unwrap().unwrap();
-    assert_eq!(
-        (
-            rec.thread.as_str(),
-            rec.turn.as_str(),
-            rec.nodes.len(),
-            rec.undone
-        ),
-        ("pr-round", res.turn_id.as_str(), nodes.len(), false)
-    );
-
-    let note = user_node(c, home, &res.turn_id);
-    assert!(matches!(verdict(c, "pr-round", home, &note), Verdict::Pass));
-    let other = verdict(c, "sec-fix", home, &note);
-    assert!(
-        !matches!(other, Verdict::Pass),
-        "another stream's: {other:?}"
-    );
+    c.store.append(&recs).unwrap();
+    id
 }
 
-/// A home turn that writes nothing threaded, or one file under each thread's root, claims nothing;
-/// nor does one whose only thread is sealed, nor one with more paths than its result names.
+/// A message with no address runs at home and writes `tarnlib/tarn/retry.py`, under pr-round's root
+/// alone: nothing claims it now. No key, no record, no `thread.claimed` row; the lens reads its
+/// message as the place's own conversation, distant for pr-round.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_home_turn_claims_nothing_that_is_not_one_live_threads() {
-    for (case, rel) in [
-        ("unthreaded", vec!["scratch/scratch.txt".to_string()]),
-        (
-            "two threads",
-            vec![
-                "tarnlib/tarn/a.py".to_string(),
-                "secsvc/api/b.go".to_string(),
-            ],
-        ),
-        (
-            "unseen paths",
-            (0..9).map(|i| format!("tarnlib/tarn/m{i}.py")).collect(),
-        ),
-    ] {
-        let rel: Vec<&str> = rel.iter().map(String::as_str).collect();
-        let p = place(&rel, true);
-        let c = &p.r.core;
-        thread_answer(&p.jev, "home", 0.96);
-        let res = submit(c, &p.home, "tidy the tree").await;
-        assert_eq!(res.session_id, p.home, "{case}");
-        let files = res.files.as_ref().expect("files written");
-        assert_eq!(
-            files.changed.paths.len() + files.changed.more as usize,
-            rel.len(),
-            "{case}"
-        );
-        assert!(rows(c, "thread.claimed").is_empty(), "{case}");
-        assert!(claims(c).is_empty(), "{case}");
-        assert!(
-            turn_nodes(c, &p.home, &res.turn_id)
-                .iter()
-                .all(|(_, _, to)| to.is_none()),
-            "{case}"
-        );
-    }
-
-    // pr-round sealed: its files are claimed by no one, and sec-fix does not hold them.
-    let p = place(&["tarnlib/tarn/retry.py"], true);
-    let c = &p.r.core;
-    c.thread_seal(
-        &ThreadSealParams {
-            slug: "pr-round".into(),
-            reason: Some("embargoed".into()),
-            ..Default::default()
-        },
-        cli(),
-    )
-    .unwrap();
-    thread_answer(&p.jev, "home", 0.96);
-    let res = submit(c, &p.home, "fix the retry").await;
-    assert_eq!(res.session_id, p.home);
+async fn a_home_turn_that_wrote_a_threads_file_claims_nothing() {
+    let p = place(&["tarnlib/tarn/retry.py"]);
+    let (c, home) = (&p.r.core, p.home.as_str());
+    let res = submit(c, home, "fix the retry").await;
+    assert_eq!(res.session_id, home);
+    assert!(res.files.is_some());
+    assert!(p.work.path().join("tarnlib/tarn/retry.py").exists());
     assert!(rows(c, "thread.claimed").is_empty());
     assert!(claims(c).is_empty());
-}
-
-/// A node a split moved already keeps its split's value; the rest of the turn is claimed.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_node_a_split_moved_keeps_its_splits_value() {
-    // The switch off for the turn, so the claim is made here, after the key is planted.
-    let p = place(&["tarnlib/tarn/retry.py"], false);
-    let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "home", 0.96);
-    let res = submit(c, home, "fix the retry").await;
+    assert!(turn_nodes(c, home, &res.turn_id)
+        .iter()
+        .all(|(_, _, to)| to.is_none()));
     let note = user_node(c, home, &res.turn_id);
-    let split = MovedTo {
-        thread: "sec-fix".into(),
-        split: "spl_earlier".into(),
-    };
-    c.store
-        .append(&[theseus_store::NewRecord::json(
-            theseus_store::kinds::META,
-            Some(&moved_of_key(&note)),
-            &Some(&split),
-        )
-        .unwrap()])
-        .unwrap();
-    let routing = Routing {
-        tag: ThreadTag {
-            slug: None,
-            title: "home".into(),
-            how: RouteHow::Home,
-            confidence: 0.96,
-            movable: false,
-        },
-        home: home.into(),
-        session: home.into(),
-        slug: None,
-        bench: None,
-    };
-    let rec = c.try_claim(&routing, &res).unwrap().expect("claimed");
-    for (_, node, to) in turn_nodes(c, home, &res.turn_id) {
-        match node == note {
-            true => assert_eq!(to.as_ref(), Some(&split)),
-            false => assert_eq!(to.map(|m| m.split).as_deref(), Some(rec.id.as_str())),
-        }
-    }
-    assert!(!rec.nodes.contains(&note));
+    assert!(!matches!(
+        verdict(c, "pr-round", home, &note),
+        Verdict::Pass
+    ));
 }
 
 /// A split of the whole turn into a new thread takes the claimed nodes over (a claim is weaker
@@ -527,12 +380,12 @@ fn split_over_the_claim(c: &Core, home: &str, turn: &str) {
         .all(|(_, _, to)| to.is_none()));
 }
 
-/// `thread.unclaim` puts every claimed node back to no thread, so pr-round's lens reads the turn as
+/// `thread.unclaim` puts every node of a stored claim back to no thread, so pr-round's lens reads the turn as
 /// it reads the place's own conversation; a node a split took after the claim keeps the split's;
 /// a second undo, and an unknown claim, are refused with the argument named.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unclaim_restores_the_home_turn_and_leaves_a_later_split() {
-    let p = place(&["tarnlib/tarn/retry.py"], true);
+    let p = place(&["tarnlib/tarn/retry.py"]);
     let (c, home) = (&p.r.core, p.home.as_str());
     let base = {
         let n = crate::node::Node::user(home, None, "test", "the place's own note");
@@ -544,12 +397,8 @@ async fn an_unclaim_restores_the_home_turn_and_leaves_a_later_split() {
         !matches!(before, Verdict::Pass),
         "the base is distant: {before:?}"
     );
-    thread_answer(&p.jev, "home", 0.96);
     let res = submit(c, home, "fix the retry").await;
-    let id = rows(c, "thread.claimed")[0].data["claim"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let id = plant_claim(c, home, &res.turn_id, "pr-round");
     let note = user_node(c, home, &res.turn_id);
     assert!(matches!(verdict(c, "pr-round", home, &note), Verdict::Pass));
 
@@ -620,15 +469,14 @@ async fn an_unclaim_restores_the_home_turn_and_leaves_a_later_split() {
     assert!(unknown.contains("`thread.unclaim`'s `claim`"), "{unknown}");
 }
 
-/// A claimed node's history detail names the thread as `claimed_by` and the claim, never
+/// A stored claim's node: its history detail names the thread as `claimed_by` and the claim, never
 /// `moved_to`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_claimed_nodes_history_says_claimed_by() {
-    let p = place(&["tarnlib/tarn/retry.py"], true);
+    let p = place(&["tarnlib/tarn/retry.py"]);
     let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "home", 0.96);
     let res = submit(c, home, "fix the retry").await;
-    let id = rows(c, "thread.claimed")[0].data["claim"].clone();
+    let id = json!(plant_claim(c, home, &res.turn_id, "pr-round"));
     let mut w = Wire::open(c);
     let h = w
         .send(method::SESSION_HISTORY, json!({"session_id": home}))
@@ -648,61 +496,14 @@ async fn a_claimed_nodes_history_says_claimed_by() {
     }
 }
 
-/// With `claim_home_turns = false` a home turn that wrote pr-round's file leaves no key, no record
-/// and no row: the behaviour before the switch.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn with_the_switch_off_nothing_is_claimed() {
-    let p = place(&["tarnlib/tarn/retry.py"], false);
-    let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "home", 0.96);
-    let res = submit(c, home, "fix the retry").await;
-    assert_eq!(res.session_id, home);
-    assert!(res.files.is_some());
-    assert!(rows(c, "thread.claimed").is_empty());
-    assert!(claims(c).is_empty());
-    assert!(turn_nodes(c, home, &res.turn_id)
-        .iter()
-        .all(|(_, _, to)| to.is_none()));
-    // The template with its `[threads]` table and this one key said: the loader takes it.
-    let text = crate::Config::EXAMPLE_TOML
-        .replace("# [threads]", "[threads]")
-        .replace("# claim_home_turns = true", "claim_home_turns = false");
-    let off = crate::Config::parse(&text).unwrap().0;
-    assert!(!off.threads.claim_home_turns);
-    let on = crate::Config::example();
-    assert!(on.threads.claim_home_turns);
-    assert!(crate::Config::EXAMPLE_TOML.contains("# claim_home_turns = true"));
-}
-
-/// The claim's `Routing` for a turn that ran at `home`.
-fn at_home(home: &str) -> Routing {
-    Routing {
-        tag: ThreadTag {
-            slug: None,
-            title: "home".into(),
-            how: RouteHow::Home,
-            confidence: 0.96,
-            movable: false,
-        },
-        home: home.into(),
-        session: home.into(),
-        slug: None,
-        bench: None,
-    }
-}
-
 /// A node an unsplit nulled after the claim is neither restored nor kept (theseus-l4n39): a split
 /// over the whole claim, its unsplit, then the unclaim counts nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unclaim_counts_a_nulled_node_as_neither() {
-    let p = place(&["tarnlib/tarn/retry.py"], true);
+    let p = place(&["tarnlib/tarn/retry.py"]);
     let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "home", 0.96);
     let res = submit(c, home, "fix the retry").await;
-    let id = rows(c, "thread.claimed")[0].data["claim"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let id = plant_claim(c, home, &res.turn_id, "pr-round");
     split_over_the_claim(c, home, &res.turn_id);
     let out = c
         .thread_unclaim(
@@ -719,91 +520,4 @@ async fn an_unclaim_counts_a_nulled_node_as_neither() {
         (row["restored"].as_u64(), row["kept"].as_u64()),
         (Some(0), Some(0))
     );
-}
-
-/// A home turn longer than a page (64 nodes) is read across pages and claimed whole; one past the
-/// most read (1,024) claims nothing.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_long_home_turn_is_read_across_pages() {
-    let p = place(&["tarnlib/tarn/retry.py"], false);
-    let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "home", 0.96);
-    let res = submit(c, home, "fix the retry").await;
-    let grow = |n: usize| {
-        let recs: Vec<_> = (0..n)
-            .map(|i| {
-                crate::node::Node::user(home, Some(&res.turn_id), "test", &format!("step {i}"))
-                    .record()
-                    .unwrap()
-            })
-            .collect();
-        c.store.append(&recs).unwrap();
-    };
-    grow(70);
-    let whole = turn_nodes(c, home, &res.turn_id).len();
-    assert!(whole > 70, "{whole}");
-    let rec = c.try_claim(&at_home(home), &res).unwrap().expect("claimed");
-    assert_eq!(
-        rec.nodes.len(),
-        whole,
-        "every node of the turn, across pages"
-    );
-    grow(1_024);
-    assert!(
-        c.try_claim(&at_home(home), &res).unwrap().is_none(),
-        "past the most read, nothing"
-    );
-}
-
-/// A split's keys that land while the claim waits are read by it (theseus-l4n39): the claim reads
-/// and writes under the home's execution lock, the lock a split's frame holds. A frame holding that
-/// lock stages a split's key for the turn's message; the claim, started meanwhile, keeps the
-/// split's value and leaves the message out of its record.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_split_landing_beside_the_claim_is_kept() {
-    let p = place(&["tarnlib/tarn/retry.py"], false);
-    let (c, home) = (&p.r.core, p.home.as_str());
-    thread_answer(&p.jev, "home", 0.96);
-    let res = submit(c, home, "fix the retry").await;
-    let note = user_node(c, home, &res.turn_id);
-    let exec = c
-        .store
-        .get_session::<SessionRecord>(home)
-        .unwrap()
-        .unwrap()
-        .execution_id
-        .unwrap();
-    let split = MovedTo {
-        thread: "sec-fix".into(),
-        split: "spl_beside".into(),
-    };
-    let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
-    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
-    let rec = std::thread::scope(|s| {
-        let (exec, note, split) = (&exec, &note, &split);
-        let splitter = s.spawn(move || {
-            c.kernel
-                .frame(&[exec], |k| {
-                    k.stage(&[theseus_store::NewRecord::json(
-                        theseus_store::kinds::META,
-                        Some(&moved_of_key(note)),
-                        &Some(split),
-                    )?])?;
-                    held_tx.send(()).unwrap();
-                    go_rx.recv().unwrap();
-                    Ok(())
-                })
-                .unwrap();
-        });
-        held_rx.recv().unwrap();
-        let claimer = s.spawn(|| c.try_claim(&at_home(home), &res).unwrap());
-        // The claim is under way; the split's frame lands after it began.
-        std::thread::sleep(Duration::from_millis(300));
-        go_tx.send(()).unwrap();
-        splitter.join().unwrap();
-        claimer.join().unwrap().expect("claimed")
-    });
-    assert!(!rec.nodes.contains(&note), "{:?}", rec.nodes);
-    let to: Option<Option<MovedTo>> = c.store.get_meta(&moved_of_key(&note)).unwrap();
-    assert_eq!(to.flatten(), Some(split));
 }

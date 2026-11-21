@@ -105,7 +105,7 @@ fn import(core: &Core) {
 }
 
 fn rig() -> Rig {
-    rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 fn snapshot(c: &Core) -> Arc<Ontology> {

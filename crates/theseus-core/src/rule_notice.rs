@@ -54,7 +54,8 @@ pub enum Rule {
     D15,
     /// The owner card job, per day (an estimate).
     D16,
-    /// Thread import, per day.
+    /// Thread import, per day: the importer is gone (2026-11-21), the row stays
+    /// in the spending table (`EXEMPT`).
     D17,
     /// Route-bench replay, per day and whole.
     D18,
@@ -217,6 +218,10 @@ pub const EXEMPT: &[(Rule, &str)] = &[
     (
         Rule::D13,
         "its budget is pinned, so the session asks (a question card) instead of notifying; asking is louder",
+    ),
+    (
+        Rule::D17,
+        "the thread importer it bounded is gone (2026-11-21): nothing spends under it, so nothing stops",
     ),
 ];
 

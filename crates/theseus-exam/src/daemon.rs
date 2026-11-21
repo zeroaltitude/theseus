@@ -369,7 +369,7 @@ port = 7434
 "#
         .parse()
         .unwrap();
-        for arm in ["none", "bm25", "baseline", "+activation"] {
+        for arm in ["none", "bm25", "baseline"] {
             let t = config_for(&base, arm);
             assert_eq!(t["memory"]["mode"].as_str(), Some("live"));
             assert_eq!(t["memory"]["arm"].as_str(), Some(arm));
@@ -396,7 +396,7 @@ failing_streak = 5
 "#
         .parse()
         .unwrap();
-        let mut configs: Vec<toml::Table> = ["none", "bm25", "baseline", "+activation"]
+        let mut configs: Vec<toml::Table> = ["none", "bm25", "baseline"]
             .iter()
             .map(|a| config_for(&base, a))
             .collect();

@@ -86,7 +86,7 @@ impl Fact for ContentLabelled<'_> {
                 "the operator is told, and under `[content_based_security] injection = \"refuse\"` \
                  writes, programs and sends are refused until he clears it"
             }
-            _ => "China-origin models are off for this session",
+            _ => "the session carries the label until the operator removes it",
         };
         say.line(
             Session,

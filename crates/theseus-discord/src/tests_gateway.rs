@@ -1097,7 +1097,6 @@ mod seal;
 mod self_note;
 mod self_word;
 mod standing;
-mod thread_ask;
 mod threads;
 
 /// A message with a Jev notice's Noise button for `judgment`, posted in

@@ -15,8 +15,6 @@ pub enum Line {
     Morning,
     /// The same, on a day a draft waits for the owner's send.
     MorningWaiting,
-    /// A consolidation pass wrote `n` notes.
-    Consolidation,
 }
 
 /// The table: a line's kind, its words with `{who}` (the emoji, then the name)
@@ -31,11 +29,6 @@ const TABLE: &[(Line, &str, &str)] = &[
         Line::MorningWaiting,
         "{who}: one thing today, and a draft waits for your send.",
         "{who}: {n} things today, and drafts wait for your send.",
-    ),
-    (
-        Line::Consolidation,
-        "{who}: tonight's memory pass wrote one new note from what we talked about.",
-        "{who}: tonight's memory pass wrote {n} new notes from what we talked about.",
     ),
 ];
 
@@ -73,7 +66,7 @@ mod tests {
 
     #[test]
     fn every_line_is_in_the_table_and_names_the_persona() {
-        for line in [Line::Morning, Line::MorningWaiting, Line::Consolidation] {
+        for line in [Line::Morning, Line::MorningWaiting] {
             for n in [1, 4] {
                 let said = say(line, n, &persona("Ondine", Some("🌊")));
                 assert!(said.starts_with("🌊 Ondine: "), "{said}");
@@ -89,8 +82,8 @@ mod tests {
             "Marlow: 3 things happened since yesterday. Nothing needs you."
         );
         assert_eq!(
-            say(Line::Consolidation, 1, &PersonaView::built_in()),
-            "Theseus: tonight's memory pass wrote one new note from what we talked about."
+            say(Line::MorningWaiting, 1, &PersonaView::built_in()),
+            "Theseus: one thing today, and a draft waits for your send."
         );
     }
 }

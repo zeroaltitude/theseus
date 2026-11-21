@@ -1485,21 +1485,3 @@ async fn a_slow_jev_does_not_hold_a_compaction() {
     );
     jev.release();
 }
-
-/// The owner-material floor is the labels': a session with a label that keeps
-/// restricted models off is told `not_allowed`, and a pick of Flash is refused.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_labelled_session_is_told_not_allowed_and_never_summarized_on_flash() {
-    let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    jev_chat(&jev);
-    pick_summary(&jev, "deepseek_flash", 0.97);
-    // `cn_models = never`: no model of restricted origin reads any session.
-    let r = rig_jev(&jev, None, true, |c| {
-        c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
-    });
-    let sid = session(&r.core);
-    until_recompiled(&r, &sid, 6_000).await;
-    let asks = summary_asks(&jev);
-    assert!(!asks.is_empty());
-    assert!(!models_asked(&r).contains(&"deepseek-flash".to_string()));
-}

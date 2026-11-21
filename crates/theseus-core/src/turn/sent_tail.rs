@@ -151,11 +151,8 @@ impl SentTails {
     /// The tails a conversation's earlier requests sent, put back on a request made for it
     /// outside a turn (the keep-warm read), so that it is the prefix the next turn
     /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to.
-    /// Nothing is kept or changed here, and a request for a model of restricted origin gets none.
-    pub(crate) fn warm(&self, session: &str, restricted: bool, compiled: &mut Compiled) {
-        if restricted {
-            return;
-        }
+    /// Nothing is kept or changed here.
+    pub(crate) fn warm(&self, session: &str, compiled: &mut Compiled) {
         let held = {
             let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
             h.by_session.get(session).cloned().unwrap_or_default()
@@ -170,15 +167,8 @@ impl SentTails {
         &self,
         session: &str,
         (turn, key): (&str, &str),
-        restricted: bool,
         compiled: &mut Compiled,
     ) -> Option<Begun> {
-        // A request for a model of restricted origin carries none of what another turn's request
-        // carried after the conversation (a task view, a record, a note drawn from other
-        // sessions): they stay with the requests that had them, kept, and this one is as it was.
-        if restricted {
-            return None;
-        }
         let last = compiled.request.messages.len().checked_sub(1)?;
         let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
         let held = {

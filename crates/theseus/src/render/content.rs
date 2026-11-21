@@ -15,7 +15,7 @@ use super::fmt_date;
 pub fn effect(flag: &str) -> &'static str {
     match flag {
         "injection" => "writes, programs and sends are refused under injection = \"refuse\"",
-        "secret" | "confidential" | "personal" => "China-origin models are off",
+        "secret" | "confidential" | "personal" => "the session is marked by it",
         _ => "",
     }
 }
@@ -89,7 +89,7 @@ pub fn unlabelled_line(r: &UnlabelResult) -> String {
         r.label.source,
         match r.flag.as_str() {
             "injection" => "its calls that act are refused by nothing now",
-            _ => "China-origin models are allowed again, until something else disqualifies it",
+            _ => "the session is no longer marked by it",
         }
     )
 }

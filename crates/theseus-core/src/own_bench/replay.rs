@@ -204,27 +204,6 @@ impl Core {
         self.replay_turn_with(p, by, left, spent, None).await
     }
 
-    /// A replay carries no pass for a session's text (theseus-a1wvq.10): a
-    /// profile of restricted origin is refused, in words, before the rebuild.
-    pub(crate) fn refuse_restricted(&self, target: &crate::turn::Target) -> Result<(), Crossing> {
-        let origin = self
-            .cfg
-            .profile_origin(&target.profile, &self.runner.catalog);
-        if !origin.restricted() {
-            return Ok(());
-        }
-        self.runner
-            .judge
-            .record_data_gate("replay", "restricted_origin");
-        Err(Crossing(format!(
-            "not replayed on `{}`: `{}` is a model of {} origin (a restricted origin), and a \
-             replay carries no pass for a session's text",
-            target.profile,
-            target.model,
-            format!("{origin:?}").to_lowercase()
-        )))
-    }
-
     /// `replay_turn` with a minted flow loaded in the replayed model's tool
     /// set (a whole-turn replay's arm B): the mint step's A/B replay.
     pub(crate) async fn replay_turn_with(
@@ -251,7 +230,6 @@ impl Core {
         let target = self
             .runner
             .resolve_target(&live, Some(&p.profile), None, None)?;
-        self.refuse_restricted(&target)?;
         let effort = match p.effort.as_deref() {
             Some(e) => Some(parse_effort(e).with_context(|| format!("{e:?} is not an effort"))?),
             None => target.effort,
@@ -275,9 +253,6 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .with_context(|| format!("the provider {:?} is not configured", target.provider))?;
-        // The replay sends the turn's own request again: its session's labels
-        // hold it.
-        let provider = crate::data_gate::bound(provider, &p.session);
         let request = self.replay_request(p, &original, &target, effort);
         let (replay, cost, whole_done, original_said) = if whole {
             let done = self

@@ -22,7 +22,6 @@
 //!
 //! Tests: `tests_initiative.rs`.
 
-pub mod consolidation;
 pub mod digest;
 pub mod lines;
 pub mod morning;

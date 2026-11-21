@@ -452,6 +452,6 @@ async fn v1_judgments_already_stored_still_read() {
     assert_eq!(got.judgment.data["pack"], "security.v1");
     assert_eq!(got.judgment.data["answers"][0]["band"]["value"], 0.25);
     // Embedded for replay, wired nowhere.
-    assert!(theseus_judge::pack::by_name("security.v1").is_some());
+    assert!(theseus_judge::pack::retired("security.v1").is_some());
     assert!(crate::judge::WIRED.iter().all(|(p, _)| *p != "security.v1"));
 }

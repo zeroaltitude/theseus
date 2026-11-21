@@ -12,10 +12,11 @@
 //! So does a blocking one that a test of this crate reaches: [`quiet_blocking`] and
 //! [`quiet_blocking_unless`] are the store's own two waits, with the bound the caller
 //! gives, and in a test build they answer zero at once, unless the test faked the
-//! machine's pressure itself (below). Four threads keep the store's wait, on purpose:
-//! the nightly consolidation's plan, the learning tender's packs, the ledger pin and
-//! the WAL's history check, which only `theseusd`'s start runs to a wait (the one test
-//! that runs the check has a log under its 4 MiB stretch, which never waits). A daemon's
+//! machine's pressure itself (below). Three threads keep the store's wait, on purpose:
+//! the learning tender's packs, the ledger pin and the WAL's history check, which
+//! only `theseusd`'s start runs to a wait (the one test that runs the check has a log
+//! under its 4 MiB stretch, which never waits). The nightly consolidation's plan was
+//! a fourth until its writer was retired. A daemon's
 //! own tests link this crate without `cfg(test)`, so nothing here could skip theirs.
 //!
 //! Three tests hold the three halves. The **sites** go through here, by
@@ -62,13 +63,13 @@ pub(crate) use theseus_store::pressure::{quiet_blocking, quiet_blocking_unless};
 /// A test's blocking wait: none, unless the test has made the machine's pressure
 /// an input of its own. The host's pressure is no input of a test (a test under
 /// load waited its whole `bound` at every call); a `/proc/pressure` the test faked
-/// is, and `tests_activation_pace::namespaced` says so by setting `INNER`, as the
+/// is, and `tests_pace::namespaced` says so by setting `INNER`, as the
 /// tests that hold a stop ending the warm build's waits need: they wait as in
 /// production there. Only whether the wait happens differs from production: the
 /// bound and the stop are the caller's, as ever.
 #[cfg(test)]
 pub(crate) fn quiet_blocking_unless(bound: Duration, stopped: impl Fn() -> bool) -> Duration {
-    if std::env::var_os(crate::tests_activation_pace::INNER).is_none() {
+    if std::env::var_os(crate::tests_pace::INNER).is_none() {
         return Duration::ZERO;
     }
     theseus_store::pressure::quiet_blocking_unless(bound, stopped)
@@ -88,10 +89,10 @@ mod tests {
     use theseus_store::pressure::LOOK_EVERY;
 
     use super::{pace, quiet};
-    use crate::tests_activation_pace::{namespaced, INNER};
+    use crate::tests_pace::{namespaced, INNER};
 
     /// In a user and mount namespace of its own, with fake pressure files bound
-    /// over `/proc/pressure` saying IO is busy (as `tests_activation_pace` does),
+    /// over `/proc/pressure` saying IO is busy (as `tests_pace::namespaced` does),
     /// the test's wait is none: [`quiet`] says zero where the production wait
     /// would have spent its whole bound, and [`pace`] goes at once. The control
     /// comes first: the store's own wait, given one look's bound, does wait in
@@ -163,20 +164,14 @@ mod tests {
     }
 
     /// The files whose threads keep the store's blocking wait (the module's docs say
-    /// why): the nightly consolidation's plan, the learning tender's packs, the ledger
-    /// pin and the WAL's history check.
-    const DAEMON_THREADS: [&str; 4] = [
-        "consolidate/run.rs",
-        "learning/tender.rs",
-        "ledger_pin.rs",
-        "rpc/mod.rs",
-    ];
+    /// why): the learning tender's packs, the ledger pin and the WAL's history check.
+    const DAEMON_THREADS: [&str; 3] = ["learning/tender.rs", "ledger_pin.rs", "rpc/mod.rs"];
 
     /// A blocking caller in this crate waits through `pace::quiet_blocking` or
     /// `pace::quiet_blocking_unless`, which a test build skips (theseus-la5oc: six of
     /// them, in the import's frame boundaries, the sampler, the warm build's pages and
     /// the night's mining, each ran its whole bound under load in a test), except the
-    /// four daemon threads. The four are asserted too, so the exception is no list kept
+    /// daemon threads ([`DAEMON_THREADS`]). They are asserted too, so the exception is no list kept
     /// by hand and checked by nothing: a thread that stops waiting on the store leaves
     /// it, and the scan that finds none of them has found nothing.
     #[test]

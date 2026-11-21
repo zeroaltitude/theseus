@@ -427,8 +427,7 @@ async fn a_recall_note_reads_the_same_at_every_step_of_its_turn() {
         Binding::Refuse,
         vec![thinks_then_reads("toolu_a"), Scripted::text("Four.")],
         |c| {
-            c.memory.mode = crate::config::MemoryMode::Canary;
-            c.memory.canary_fraction = 1.0;
+            c.memory.mode = crate::config::MemoryMode::Live;
             c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         },
     );

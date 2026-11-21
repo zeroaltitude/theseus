@@ -9,7 +9,9 @@ use crate::pack::by_name;
 use crate::route_cases::{bar_need, graded_questions, CaseSet, SPLIT, V10, WORK};
 
 fn parse(text: &str, pack: &str) -> CaseSet {
-    let p = by_name(pack).unwrap_or_else(|| panic!("{pack} is embedded"));
+    let p = by_name(pack)
+        .or_else(|| crate::pack::retired(pack))
+        .unwrap_or_else(|| panic!("{pack} is embedded"));
     CaseSet::parse(text, &p).unwrap_or_else(|e| panic!("{pack}: {e}"))
 }
 
@@ -23,7 +25,7 @@ fn counts(set: &CaseSet, q: &str) -> BTreeMap<String, u32> {
 
 #[test]
 fn each_pack_grades_the_questions_it_decides() {
-    let q = |p: &str| graded_questions(&by_name(p).unwrap());
+    let q = |p: &str| graded_questions(&by_name(p).or_else(|| crate::pack::retired(p)).unwrap());
     assert_eq!(q("route.v10"), ["model"]);
     assert_eq!(q("route.v11"), ["model"]);
     assert_eq!(q("effort.v1"), ["effort"]);

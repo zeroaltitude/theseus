@@ -1629,7 +1629,7 @@ fn a_format_51_session_reads_its_open_view_data_as_empty_content_flags() {
     let read: SessionRecord = store.get_session(&old.session_id).unwrap().unwrap();
     let flags = read.data.as_deref().expect("the old layout reads");
     assert_eq!(*flags, ContentFlags::default(), "no labels");
-    assert_eq!(flags.disqualifies_cn(), None);
+    assert!(flags.labels.is_empty());
     assert!(!flags.frozen());
     assert_eq!(
         read.title.as_deref(),
@@ -1721,11 +1721,7 @@ fn a_format_53_session_with_a_mark_reads_it_ignored_and_drops_it() {
         "with its judgment"
     );
     assert_eq!(flags.removed.len(), 1, "the removal reads");
-    assert_eq!(
-        flags.disqualifies_cn(),
-        Some(Flag::Secret),
-        "on the label alone"
-    );
+    assert!(flags.has(Flag::Secret), "on the label alone");
     let written = serde_json::to_string(&read).unwrap();
     assert!(
         !written.contains("judged_through") && !written.contains("unjudged"),

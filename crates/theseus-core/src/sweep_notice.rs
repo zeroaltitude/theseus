@@ -2,9 +2,10 @@
 //! budget sweeps (ontology, people, etc): lets raise to 5$ and it should
 //! notify if it's going to stop").
 //!
-//! Seven background sweeps each hold their own day budget, read back from
-//! their own rows (consolidation, people, ontology, the learn writer, the
-//! owner card, the thread import, the route bench's replay), so their
+//! Six background sweeps each hold their own day budget, read back from
+//! their own rows (the dream's guidance, under the consolidation cap; people,
+//! ontology, the learn writer, the owner card, the route bench's replay), so
+//! their
 //! arithmetic cannot be one function. What can be one is the notice: every
 //! site that is about to refuse a call for want of its day's money first asks
 //! [`TurnRunner::sweep_heads_up`] with its [`SweepId`], and that is the only
@@ -34,7 +35,6 @@ pub enum SweepId {
     Ontology,
     LearnWriter,
     Card,
-    ThreadImport,
     RouteBench,
 }
 
@@ -51,11 +51,14 @@ pub struct Sweep {
 }
 
 /// Every sweep that has a day budget of its own.
-pub const SWEEPS: [Sweep; 7] = [
+pub const SWEEPS: [Sweep; 6] = [
     Sweep {
         id: SweepId::Consolidation,
         row: "D7",
-        name: "consolidation",
+        // What the owner sees: the dream's guidance is all that spends under
+        // this cap since the nightly synthesis writer was retired; the id,
+        // its META key and `[memory] synth_limit_usd_per_day` stay.
+        name: "dream guidance",
         key: "[memory] synth_limit_usd_per_day",
     },
     Sweep {
@@ -81,12 +84,6 @@ pub const SWEEPS: [Sweep; 7] = [
         row: "D16",
         name: "card",
         key: "[card] day_usd",
-    },
-    Sweep {
-        id: SweepId::ThreadImport,
-        row: "D17",
-        name: "thread import",
-        key: "[threads] import_day_usd",
     },
     Sweep {
         id: SweepId::RouteBench,

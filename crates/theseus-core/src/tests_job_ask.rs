@@ -4,14 +4,14 @@
 //! A configured profile key is a pin; an unset key asks Jev through the job
 //! builder (one paragraph, the place `job`), waiting at most `[routing]
 //! max_wait_ms` (the design's 300 ms), and a job that cannot use the answer
-//! runs on `live`. Private material never reaches a model of China origin.
+//! runs on `live`. No pick is refused for its model's origin (2026-11-21).
 //! The pack that asks `model` is route.v10's; these tests install a small one
 //! with `JudgeService::job_pack_with`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use theseus_judge::builders::{JobKind, RestrictedModels};
+use theseus_judge::builders::JobKind;
 use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
 use theseus_judge::Pack;
 
@@ -57,18 +57,16 @@ pub(crate) fn rig_job(jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> 
     r
 }
 
-/// A card-sized job over the owner's material: US options only.
+/// A card-sized job over the owner's material.
 pub(crate) fn owner_site<'a>(pin: Option<&'a str>) -> Site<'a> {
     Site {
         name: "card",
         pin,
         job: JobKind::Card { clusters: 7 },
-        restricted: RestrictedModels::NotAllowed,
     }
 }
 
-/// A job that is no one's private material, in a session whose labels allow
-/// a model of restricted origin.
+/// A job that is no one's private material.
 fn open_site<'a>() -> Site<'a> {
     Site {
         name: "compaction",
@@ -78,7 +76,6 @@ fn open_site<'a>() -> Site<'a> {
             summary_tokens: 4_096,
             labels: Vec::new(),
         },
-        restricted: RestrictedModels::Allowed,
     }
 }
 
@@ -122,7 +119,10 @@ async fn an_unset_key_asks_jev_through_the_job_builder() {
     let state = state_seen(&jev);
     assert!(state.contains("job"), "the place: {state}");
     assert!(state.contains("7 clusters"), "the paragraph: {state}");
-    assert!(state.contains("not_allowed"), "the floor: {state}");
+    assert!(
+        state.contains("\"allowed\""),
+        "no floor since 2026-11-21: {state}"
+    );
     assert!(state.contains("price_period"), "the facts: {state}");
 }
 
@@ -213,110 +213,17 @@ async fn an_answer_under_the_confirm_bar_runs_the_job_on_live() {
     );
 }
 
-/// The data rule: the owner's material never reaches a China-origin model.
-/// The state says `not_allowed`, and a pick of Flash anyway runs on `live`.
+/// A job over the owner's material may be sent to Flash: no pick is refused
+/// for its model's origin (2026-11-21).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn owner_material_never_goes_to_a_china_origin_model() {
+async fn any_job_may_name_a_china_origin_model() {
     let jev = FakeJev::start().unwrap();
     pick(&jev, "deepseek_flash", 0.97);
     let r = rig_job(&jev, |_| {});
     let (choice, how) = r.core.runner.job_choice("sonnet", owner_site(None)).await;
-    assert_eq!(
-        (choice, how),
-        (Choice::Profile("sonnet".into()), How::Live(Why::DataGate))
-    );
-    assert!(state_seen(&jev).contains("not_allowed"));
-}
-
-/// The floor is the job's, not the caller's: a caller that says `allowed` for
-/// a job over the owner's material is still refused Flash, and the state
-/// still says `not_allowed` (the builder floors it).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_caller_cannot_widen_the_owner_material_floor() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "deepseek_flash", 0.97);
-    let r = rig_job(&jev, |_| {});
-    let site = Site {
-        restricted: RestrictedModels::Allowed,
-        ..owner_site(None)
-    };
-    let (choice, how) = r.core.runner.job_choice("sonnet", site).await;
-    assert_eq!(
-        (choice, how),
-        (Choice::Profile("sonnet".into()), How::Live(Why::DataGate))
-    );
-    assert!(state_seen(&jev).contains("not_allowed"));
-}
-
-/// A job that is not private, in a session whose labels allow it, may be sent
-/// to Flash: the rule refuses what the data rule refuses, nothing more.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_job_the_labels_allow_may_name_a_china_origin_model() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "deepseek_flash", 0.97);
-    let r = rig_job(&jev, |_| {});
-    let (choice, how) = r.core.runner.job_choice("sonnet", open_site()).await;
     assert!(matches!(how, How::Jev { .. }), "{how:?}");
     assert_eq!(model_of(&choice), "deepseek-flash");
     assert!(state_seen(&jev).contains("\"allowed\""));
-}
-
-/// And the same job in a session whose labels keep restricted models off is
-/// told `not_allowed`, and refused Flash.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_job_in_a_labelled_session_is_refused_a_china_origin_model() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "deepseek_flash", 0.97);
-    let r = rig_job(&jev, |_| {});
-    let site = Site {
-        restricted: RestrictedModels::NotAllowed,
-        ..open_site()
-    };
-    let (_, how) = r.core.runner.job_choice("sonnet", site).await;
-    assert_eq!(how, How::Live(Why::DataGate));
-}
-
-/// The data rule holds for the fallback as it does for the pick: where `[model] live` is a model
-/// the floor refuses (how every bench cell runs, and anyone who pins one model), a job over the
-/// owner's material whose Jev ask is late has nowhere to run, and says `data_gate`; it does not
-/// run the owner's material on `live`. Under `cn_models = always` the chokepoint would not stop
-/// it (theseus-7l8lr.2, omnibus pass 2 F2).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn owner_material_is_not_run_on_a_live_model_the_floor_refuses() {
-    use crate::config::content_based_security::CnModels;
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "opus", 0.95);
-    jev.set_mode(FakeMode::Held);
-    let r = rig_job(&jev, |c| {
-        c.judge.total_secs = 30;
-        c.content_based_security.cn_models = CnModels::Always;
-    });
-    let run = &r.core.runner;
-    // The ask is late, so the job falls to `live`, and `glm` is of restricted origin.
-    assert!(
-        run.restricted_profile("glm"),
-        "the rig's `glm` is restricted"
-    );
-    let (_, how) = run.job_choice("glm", owner_site(None)).await;
-    assert_eq!(
-        how,
-        How::Live(Why::DataGate),
-        "the fallback is refused, and says why"
-    );
-    let refused = run.job_target("glm", owner_site(None)).await;
-    let e = refused
-        .expect_err("the owner's material has no model to run on")
-        .to_string();
-    assert!(e.contains("glm"), "{e}");
-    // The same late ask on a live model of US origin still runs there.
-    let (t, how) = run.job_target("sonnet", owner_site(None)).await.unwrap();
-    assert_eq!((t.profile.as_str(), how), ("sonnet", How::Live(Why::Late)));
-    // A job that is no one's private material, in a session whose labels allow it, may fall to
-    // a restricted `live`: the rule refuses what the data rule refuses, nothing more.
-    let (t, how) = run.job_target("glm", open_site()).await.unwrap();
-    assert_eq!((t.profile.as_str(), how), ("glm", How::Live(Why::Late)));
-    jev.release();
-    tokio::time::sleep(Duration::from_millis(300)).await;
 }
 
 /// A pick whose provider is not configured runs on `live`

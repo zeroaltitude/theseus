@@ -84,11 +84,10 @@ pub(super) fn begin(
     question: &str,
 ) -> Result<Planned, String> {
     let runner = &core.runner;
-    let mark = crate::content_wait::mark_of(&core.store, tc.session_id);
     let gone = (!core.cfg.all_profiles().contains_key(profile))
         .then(|| crate::config::renamed::renamed_profile(profile))
         .flatten();
-    if let Some(why) = gone.or_else(|| runner.profile_refusal(mark, profile)) {
+    if let Some(why) = gone.or_else(|| runner.profile_refusal(profile)) {
         return Err(why);
     }
     let live = core.live_profile().0;
@@ -197,11 +196,7 @@ pub(super) async fn finish(core: Arc<Core>, p: Planned) -> Result<(String, Value
         correlation_id: Some(p.action.correlation_id.clone()),
     };
     let mut quiet = |_: crate::provider::Delta<'_>| {};
-    let made = crate::exits::for_call(call, || {
-        crate::data_gate::for_session(&p.session, || {
-            p.provider.stream_message(&p.request, &mut quiet)
-        })
-    });
+    let made = crate::exits::for_call(call, || p.provider.stream_message(&p.request, &mut quiet));
     let answered = match tokio::time::timeout(TIME_LIMIT, made).await {
         Ok(r) => r,
         Err(_) => Err(anyhow::anyhow!(

@@ -510,7 +510,7 @@ proptest! {
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
         rt.block_on(async {
             let r = match canary {
-                true => rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0),
+                true => rig_with(MemoryMode::Live, |_| {}),
                 false => rig(MemoryMode::Shadow),
             };
             let c = &r.core;

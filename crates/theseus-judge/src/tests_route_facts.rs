@@ -8,7 +8,6 @@ use crate::builders::{
     job, job_input, prepare, InboundInput, Input, JobInput, JobKind, PricePeriod, RestrictedModels,
     RouteFacts, SwitchCost, TASK_MODELS,
 };
-use crate::pack::by_name;
 use crate::state::NoScrub;
 
 fn input() -> InboundInput {
@@ -30,7 +29,7 @@ fn facts() -> RouteFacts {
 }
 
 fn state_of(i: InboundInput) -> (Value, Vec<String>, u64) {
-    let p = by_name("route.v8").unwrap();
+    let p = crate::pack::retired("route.v8").unwrap();
     let b = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
     (b.state.value(), b.state.fields.clone(), b.state.tokens)
 }
@@ -126,7 +125,7 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
         cheaper_model: Some("c".repeat(5_000).into()),
         previous_turn: None,
     });
-    let p = by_name("route.v8").unwrap();
+    let p = crate::pack::retired("route.v8").unwrap();
     assert_eq!(p.state_cap_tokens, 3000);
     let b = prepare(&p, &Input::Inbound(i), &NoScrub).unwrap();
     assert!(b.state.tokens <= 3000, "{} tokens", b.state.tokens);
@@ -192,7 +191,7 @@ fn a_job_is_one_paragraph_asked_in_place_job_with_the_facts() {
             PricePeriod::OffPeak
         );
         // The state, which the route pack reads, carries the place and facts.
-        let p = by_name("route.v8").unwrap();
+        let p = crate::pack::retired("route.v8").unwrap();
         let b = job(&job_in(kind.clone(), facts()), p.state_cap_tokens, &NoScrub);
         let v = b.state.value();
         assert_eq!(v["place_kind"], "job", "{kind:?}");
@@ -236,50 +235,17 @@ fn the_reviewers_state_names_the_builders_model() {
     );
 }
 
-/// The owner-material floor: private material lists US options only, and a
-/// caller's `allowed` cannot widen it.
+/// No job floors `restricted_models` since the restricted-origin rule was
+/// deleted (2026-11-21): the facts go through as given, private or not.
 #[test]
-fn private_material_is_never_widened_by_the_facts() {
-    let private = [
-        JobKind::Synthesis {
-            subject: "owner notes".into(),
-            sources: 2,
-            owner_material: true,
-        },
-        JobKind::SelfBuilder {
-            brief: "x".into(),
-            private: true,
-        },
-        JobKind::SelfReviewer {
-            diff_summary: "x".into(),
-            builder_model: None,
-            private: true,
-        },
-    ];
-    for kind in private {
-        let mut f = facts();
-        f.restricted_models = RestrictedModels::Allowed;
-        let ji = job_input(&job_in(kind.clone(), f));
-        assert_eq!(
-            ji.route.unwrap().restricted_models,
-            RestrictedModels::NotAllowed,
-            "{kind:?}"
-        );
-    }
-}
-
-/// And the facts never loosen themselves: `not_allowed` stays for any job.
-#[test]
-fn a_job_never_loosens_not_allowed() {
+fn a_jobs_restricted_models_is_the_facts_own() {
     for kind in kinds() {
-        let mut f = facts();
-        f.restricted_models = RestrictedModels::NotAllowed;
-        let ji = job_input(&job_in(kind.clone(), f));
-        assert_eq!(
-            ji.route.unwrap().restricted_models,
-            RestrictedModels::NotAllowed,
-            "{kind:?}"
-        );
+        for r in [RestrictedModels::Allowed, RestrictedModels::NotAllowed] {
+            let mut f = facts();
+            f.restricted_models = r;
+            let ji = job_input(&job_in(kind.clone(), f));
+            assert_eq!(ji.route.unwrap().restricted_models, r, "{kind:?}");
+        }
     }
 }
 

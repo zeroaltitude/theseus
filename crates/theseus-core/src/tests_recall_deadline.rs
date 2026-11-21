@@ -196,7 +196,6 @@ fn slow_rig(
 ) -> (Rig, String, Arc<Seen>, tempfile::TempDir) {
     let r = rig_with(MemoryMode::Live, |c| {
         c.memory.arm = MemoryArm::Baseline;
-        c.memory.canary_fraction = 1.0;
         c.memory.recall_deadline_ms = deadline_ms;
     });
     let c = r.core.clone();

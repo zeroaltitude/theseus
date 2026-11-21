@@ -87,7 +87,6 @@ impl Parts {
             budget_tokens: self.budget_tokens,
             max_items: self.max_items,
             science: self.science.clone(),
-            activation: None,
             threads: self.threads.clone(),
             persona: None,
             category: None,

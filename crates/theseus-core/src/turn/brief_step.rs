@@ -59,9 +59,6 @@ impl TurnRunner {
             return;
         };
         let place = self.outbox.try_target(sid).ok().flatten();
-        let restricted = theseus_judge::builders::RestrictedModels::allowed_if(
-            self.cn_read(t) == super::data_step::Cn::Allowed,
-        );
         let breaker_open = self.judge.breaker_open();
         let wait = self.judge.at_brief(
             &mut t.trace,
@@ -84,7 +81,6 @@ impl TurnRunner {
                 capture: false,
                 data_names: self.cfg.privacy.data_names(),
                 attachments: Vec::new(),
-                restricted,
             },
         );
         t.route.brief = wait.is_some();
@@ -96,7 +92,7 @@ impl TurnRunner {
     /// base, not a move from its parent's model: it is kept as the session's
     /// target and routing's `from` is left empty.
     pub(super) fn decide_brief(&self, t: &Turn<'_>, v: &Verdict) -> Decision {
-        let profiles = self.route_profiles(t.route.floor());
+        let profiles = self.route_profiles();
         routing::decide(
             &self.cfg.routing,
             &profiles,
@@ -106,7 +102,6 @@ impl TurnRunner {
                 context_tokens: 0,
                 hold: None,
                 images: t.route.images,
-                cleared: t.route.floor().cn_ok,
             },
         )
     }

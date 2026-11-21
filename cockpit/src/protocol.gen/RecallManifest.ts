@@ -111,8 +111,8 @@ arm?: string,
  * no test shows (the tests script the verdict).
  *
  * **This field's meaning did not change when the bar was built**
- * (theseus-fpm2): `[memory] small_talk_bar` (off by default, so that
- * promotion is still unmade) makes the withholding real, and this stays
+ * (theseus-fpm2): `[memory] small_talk_bar` (never set, and retired
+ * unpromoted, issue 44) made the withholding real, and this stays
  * the count of what a bar WOULD have dropped, written before the compile
  * knows, so a series counted over these rows reads the same number with
  * the bar on or off. What was actually withheld is the `recall.withheld`

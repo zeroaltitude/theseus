@@ -33,17 +33,12 @@ const FEEDABLE: [&str; 5] = [
 ];
 
 /// Every (pack, rule) pair declared and unfed, sorted.
-const EXPECTED_DEAD: [(&str, &str); 11] = [
+const EXPECTED_DEAD: [(&str, &str); 6] = [
     ("loop.v1", "on_path_p95"),
     ("loop.v1", "operator_stop_within_nudge"),
     ("loop.v1", "spend_ratio"),
-    ("role.v1", "switches_per_exchange"),
     ("route.v10", "on_path_p95"),
     ("route.v11", "on_path_p95"),
-    ("route.v5", "on_path_p95"),
-    ("route.v6", "on_path_p95"),
-    ("route.v7", "on_path_p95"),
-    ("route.v8", "on_path_p95"),
     ("undo.v1", "on_path_p95"),
 ];
 
@@ -66,8 +61,8 @@ fn the_rollback_rules_no_production_code_can_feed_are_exactly_these() {
         .map(|(p, r)| ((*p).to_string(), *r))
         .collect();
     assert_eq!(
-        declared, 29,
-        "the embedded packs declare 29 rollback rules in all"
+        declared, 14,
+        "the embedded packs declare 14 rollback rules in all (15 left with the versions issue 44 retired)"
     );
     assert_eq!(
         dead, expected,

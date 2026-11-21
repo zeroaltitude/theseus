@@ -116,7 +116,6 @@ impl Chat {
             // here must call its handler, not do nothing.
             Purpose::Watch
             | Purpose::Answer
-            | Purpose::Route
             | Purpose::Typing
             | Purpose::Why(_)
             | Purpose::AtRoots => Vec::new(),
@@ -141,10 +140,6 @@ impl Chat {
             // `AtRoots` and `Why` never arrive here (`answered` takes them first);
             // if one is re-routed, `why_got`'s Err path must run instead.
             Purpose::Typing | Purpose::Welcome | Purpose::AtRoots | Purpose::Why(_) => Vec::new(),
-            Purpose::Route => {
-                self.thread_answer_refused(&e.message);
-                Vec::new()
-            }
             Purpose::Health => {
                 self.banner_ready();
                 Vec::new()
@@ -180,7 +175,6 @@ impl Chat {
             Purpose::Submit => {
                 self.live.turn = None;
                 self.released = false;
-                self.thread_ask_over();
                 self.say_words(Sty::Red, &format!("✗ not sent: {}", e.message));
                 Vec::new()
             }
@@ -428,7 +422,6 @@ impl Chat {
                 }
                 self.mine.insert(t.turn_id.clone());
                 self.released = false;
-                self.thread_ask_over();
                 if t.execution_id.is_some() {
                     self.execution = t.execution_id.clone();
                 }
@@ -465,7 +458,7 @@ impl Chat {
                 self.placed_asked(&c);
                 self.ask(c)
             }
-            e @ (Event::ThreadAsked(_) | Event::ThreadPlaced(_)) => {
+            e @ Event::ThreadPlaced(_) => {
                 effects.extend(self.thread_event(e));
             }
             // The mode or the plan moved (theseus-lyxy): the status line

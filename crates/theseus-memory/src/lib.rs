@@ -6,34 +6,19 @@
 //! - [`recall`]: recall's filters, each drop with its reason, the science's
 //!   rank, and the pack under the budget (step 30a), which the core's recall
 //!   step and `memory.search` run;
-//! - [`fsrs`]: FSRS-6 retention (step 32a), from the published algorithm,
-//!   and its fold over a node's events;
-//! - [`access`]: what happened to a node, and the review it is;
-//! - [`activation`]: spreading activation over typed edges (step 32b), and
-//!   [`activated`], the `+activation` arm's science;
 //! - [`rerank`]: the `+rerank` arm's reorder of the top 20 by Jev's answers,
 //!   and the pack it would admit (step 32c);
-//! - [`retention`]: the `+retention` arm's science, the fused score weighed
-//!   by the node's retrievability (step 32a's wire-in).
-//! - [`gate`]: the gate's type, `Admitted<T>`, and its rule over a point of
-//!   view and a piece's marks (issue 44, step 2), which the core's gate runs;
-//! - [`consolidate`]: consolidation's clusters of nodes recall admits
-//!   together, a synthesis's citations and checks, and its shadow score
-//!   (step 31b).
+//! - [`gate`]: the gate's rule over a point of view and a piece's marks
+//!   (issue 44, step 2), which the core's gate runs.
 //!
-//! The core keeps the retention projection (32a's wire-in); 32b's adds the
-//! adjacency projection and the `+activation` arm.
+//! The research arms `+retention` (FSRS-6, 32a), `+activation` (spreading
+//! activation, 32b) and `+synthesis` (31b) never ran live and are gone, with
+//! the nightly synthesis writer; `baseline` and `bm25` are what recall runs.
 
-pub mod access;
-pub mod activated;
-pub mod activation;
-pub mod consolidate;
 pub mod floor;
-pub mod fsrs;
 pub mod gate;
 pub mod recall;
 pub mod rerank;
-pub mod retention;
 pub mod science;
 pub mod threads;
 
@@ -44,17 +29,12 @@ mod tests_persona;
 #[cfg(test)]
 mod tests_threads;
 
-pub use access::{Access, AccessEvent, Durability, Label, Outcome};
-pub use activated::Activated;
-pub use activation::{spread, Adjacency, AdjacencyList, EdgeKind, EdgeWeights, SpreadParams};
 pub use floor::Floor;
-pub use fsrs::{Fsrs6, Grade, ParamsError, Retention, FSRS6_DEFAULT};
 pub use recall::{
     Admitted, Asker, Candidate, CategoryBoost, Dropped, Link, LinkKind, Pack, Params, PersonaBoost,
     Place, Reason,
 };
-pub use retention::RetentionRank;
-pub use science::{Baseline, MemoryScience, ScienceId, SynthesisAdmit, WithSyntheses};
+pub use science::{Baseline, MemoryScience, ScienceId};
 pub use threads::{
     Cause as ThreadCause, Distant, SessionThread, ThreadLens, Verdict as ThreadVerdict,
 };

@@ -275,6 +275,13 @@ async fn a_promotion_cites_its_report_and_its_holdouts_bounds() {
 async fn a_security_promotion_is_the_owners_card() {
     let dir = tempfile::tempdir().unwrap();
     let c = core_at(dir.path(), None, |_| {});
+    // A security version not yet on the ladder: the retired `security.v1`'s
+    // file (issue 44), standing in as a version the build knows.
+    let v1 = theseus_judge::Pack::parse(include_str!(
+        "../../theseus-judge/packs/retired/security.v1.toml"
+    ))
+    .unwrap();
+    c.runner.judge.stand_in("security.v1", v1);
     let ask = |c: &Core| {
         let out = c
             .pack_promote(&promote("security.v1", "live", None), "cli")
@@ -590,7 +597,7 @@ async fn the_adoption_is_written_once_after_serving() {
 }
 
 /// Each adopted rule fires on its scripted events, and not one short:
-/// `route.v1`'s 3 pins, `rerank.v1`'s 2 breaker opens, `recall_cross.v1`'s 2
+/// `route.v11`'s 5 pins (its file's own count), `rerank.v1`'s 2 breaker opens, `recall_cross.v1`'s 2
 /// (theseus-tbqpy), `security.v3`'s 31 notices; each is a day's brake, until
 /// the next local midnight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -599,8 +606,8 @@ async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
     type Event = fn(String) -> CanaryEvent;
     let cases: [(&str, usize, Event, &str); 4] = [
         (
-            "route.v5",
-            3,
+            "route.v11",
+            5,
             |day| CanaryEvent::Pinned { day },
             "pins_per_day",
         ),
@@ -793,7 +800,7 @@ async fn max_mode_shadow_caps_every_pack_after_a_restart() {
     let c = core_at(dir.path(), None, |_| {});
     c.pack_promote(&promote("loop.v1", "canary", Some(1.0)), "cli")
         .unwrap();
-    c.pack_promote(&promote("classify.v2", "live", None), "cli")
+    c.pack_promote(&promote("classify.v4", "live", None), "cli")
         .unwrap();
     drop(c);
     let c = core_at(dir.path(), None, |cfg| {

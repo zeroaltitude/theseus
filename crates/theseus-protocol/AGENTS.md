@@ -216,8 +216,6 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   `RoutinePing`, and `routine.try`; `notices.rs` holds the ping rule's entries (`ROUTINE_PURPOSES`, `routine_urgency`, `routine_pings`,
   `routine_line`, `routine_answers`), sent as `wake.noticed` with a routine purpose.
   `slug_of_place`; since theseus-sjzm also `Speaking` (`turn.submit`'s `speaking`: the Discord origin of a thread turn, and `answer_at`), `ThreadChanged` (the `thread.changed` notification) and `channel_surface`/`surface_channel` (`discord:channel:<id>`). `turn.submit`'s `thread` is in `submit.rs`.
-- `threads_import.rs` (theseus-71ib): `thread.import`'s params (`from`, `since_days`, `min_cluster`, `apply`: none is the dry
-  run) and result (`ThreadCandidate` rows, `ThreadApplied` with the card and its cited handles, `ThreadSkipped`, the spend).
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0: `thread.seal` (`ThreadSealParams`, `ThreadSealResult`,
   `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and `ThreadNewParams.sealed`/`split_from`.
 - `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,

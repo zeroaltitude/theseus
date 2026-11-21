@@ -35,28 +35,17 @@ use crate::client::{
 };
 use crate::learn::RollbackRule;
 
-/// Every pack version this build knows, by file name: the test pack, §2.4's six, `security.v3` beside
-/// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
-/// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
-/// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model and the effort,
-/// theseus-h66v4, revised in place by theseus-h66v4.1; the acting pack: `ROUTE_PACK` names it),
-/// `content.v1` (the four content flags, theseus-9ymz0), and `split.v1` (whether the work divides by area, in shadow,
-/// theseus-z9mze.5), and `undo.v1` (whether a tool call is reversible, the replacement for the approve
-/// lists 1.0.4 deleted; shadow, dispatched from nowhere, theseus-p5kln). Older versions
-/// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
+/// Every pack version this build knows, by file name: the test pack, and each version
+/// the daemon asks or may yet adopt. A version the build retired is under `packs/retired/`
+/// ([`RETIRED`]), out of the binary: a stored judgment of one is still read, never replayed
+/// (`--pack-file` gives a replay's candidate, not its incumbent).
+/// Older versions (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
     ("loop.v1", include_str!("../packs/loop.v1.toml")),
-    ("security.v1", include_str!("../packs/security.v1.toml")),
     ("security.v3", include_str!("../packs/security.v3.toml")),
-    ("classify.v2", include_str!("../packs/classify.v2.toml")),
-    ("classify.v3", include_str!("../packs/classify.v3.toml")),
     ("classify.v4", include_str!("../packs/classify.v4.toml")),
-    ("role.v1", include_str!("../packs/role.v1.toml")),
-    ("directive.v1", include_str!("../packs/directive.v1.toml")),
     ("directive.v2", include_str!("../packs/directive.v2.toml")),
-    ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
     ("memory.v1", include_str!("../packs/memory.v1.toml")),
@@ -64,10 +53,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "attribution.v1",
         include_str!("../packs/attribution.v1.toml"),
     ),
-    ("route.v5", include_str!("../packs/route.v5.toml")),
-    ("route.v6", include_str!("../packs/route.v6.toml")),
-    ("route.v7", include_str!("../packs/route.v7.toml")),
-    ("route.v8", include_str!("../packs/route.v8.toml")),
     ("route.v10", include_str!("../packs/route.v10.toml")),
     ("route.v11", include_str!("../packs/route.v11.toml")),
     ("effort.v1", include_str!("../packs/effort.v1.toml")),
@@ -91,15 +76,263 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ),
     ("precedence.v1", include_str!("../packs/precedence.v1.toml")),
     ("families.v1", include_str!("../packs/families.v1.toml")),
-    ("content.v1", include_str!("../packs/content.v1.toml")),
-    ("content.v2", include_str!("../packs/content.v2.toml")),
-    ("content.v3", include_str!("../packs/content.v3.toml")),
     ("content.v4", include_str!("../packs/content.v4.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
     ("undo.v1", include_str!("../packs/undo.v1.toml")),
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
 ];
+
+/// The versions this build retired from [`EMBEDDED`] (issue 44): the shadows
+/// that never graduated (`role.v1`, `continue.v1`) and the versions the live
+/// ones superseded. Each file is under `packs/retired/`, never embedded in
+/// the daemon. A stored judgment of one still decodes and is still read (its
+/// family is among [`readable_ids`]), but it is not REPLAYED: a replay finds
+/// its incumbent by name, and `--pack-file` gives a candidate, not an
+/// incumbent. A config that names one in a `[judge.packs."<pack>"]` table
+/// loads, is warned of, and nothing reads it.
+/// `docs/design/retired-judge-questions.md` says what went and what stays
+/// readable.
+pub const RETIRED: &[&str] = &[
+    "classify.v2",
+    "classify.v3",
+    "route.v5",
+    "route.v6",
+    "route.v7",
+    "route.v8",
+    "content.v1",
+    "content.v2",
+    "content.v3",
+    "security.v1",
+    "directive.v1",
+    "role.v1",
+    "continue.v1",
+];
+
+/// Each retired version's rollback rules, as its file declares them (the
+/// file's `[[rollback]]` tables, no question text): a stored adoption or mode
+/// row of a retired version is checked by ITS rules, never by the wired
+/// version's (`theseus-core`'s `ladder::rules::rules_of`). A test holds each
+/// to its file.
+const RETIRED_ROLLBACK: &[(&str, &str)] = &[
+    (
+        "classify.v2",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong thread"
+count = 3
+"#,
+    ),
+    (
+        "classify.v3",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong thread"
+count = 3
+"#,
+    ),
+    (
+        "route.v5",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+"#,
+    ),
+    (
+        "route.v6",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+"#,
+    ),
+    (
+        "route.v7",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+"#,
+    ),
+    (
+        "route.v8",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+"#,
+    ),
+    ("content.v1", r#""#),
+    ("content.v2", r#""#),
+    ("content.v3", r#""#),
+    (
+        "security.v1",
+        r#"[[rollback]]
+rule = "notices_per_day"
+max = 30
+
+[[rollback]]
+rule = "labels_per_day"
+label = "noise"
+count = 3
+"#,
+    ),
+    (
+        "directive.v1",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong capture"
+count = 3
+"#,
+    ),
+    (
+        "role.v1",
+        r#"[[rollback]]
+rule = "switches_per_exchange"
+max = 2
+
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong role"
+count = 2
+"#,
+    ),
+    ("continue.v1", r#""#),
+];
+
+/// A retired version's own rollback rules; `None` for a name this build did
+/// not retire.
+pub fn retired_rollback(name: &str) -> Option<Vec<RollbackRule>> {
+    #[derive(Deserialize)]
+    struct Rules {
+        #[serde(default)]
+        rollback: Vec<RollbackRule>,
+    }
+    let (_, text) = RETIRED_ROLLBACK.iter().find(|(n, _)| *n == name)?;
+    let rules: Rules = toml::from_str(text).ok()?;
+    Some(rules.rollback)
+}
+
+/// The pack ids (families) whose stored records a reader reads: every
+/// embedded pack's, and every retired version's, so retiring a family's last
+/// version (`role`, `continue`) leaves its judgments, labels, learned
+/// versions and mode rows listed and reported. Which packs this build can
+/// RUN is [`embedded`]'s, not this.
+pub fn readable_ids() -> Vec<String> {
+    let mut ids: Vec<String> = embedded()
+        .as_ref()
+        .map(|packs| packs.iter().map(|p| p.id.clone()).collect())
+        .unwrap_or_default();
+    ids.extend(
+        RETIRED
+            .iter()
+            .filter_map(|n| n.rsplit_once(".v").map(|(id, _)| id.to_string())),
+    );
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// The one retired file whose text changed in the move (issue 44):
+/// `security.v1`, whose two header comment lines named a person, which the
+/// public repository may not carry. Only those two comment lines differ; no
+/// question, criterion, threshold or rule does. Its stored judgments recorded
+/// the original text's digest, so a reader comparing digests treats exactly
+/// this pair (the archived file's digest, the original's) as one text, and no
+/// other. A test holds the first to the file.
+pub const SAME_TEXT: &[(&str, &str, &str)] = &[(
+    "security.v1",
+    "d3a049748bbadd1597f9f7157d7db67eeb51d6d67f604b69a38ed51c15e4e098",
+    "e155cb50f418728c9d30b2137c3cc9889a8281d6dd2d5108d6723782cd698a19",
+)];
+
+/// Whether two digests of `name`'s text name the same text: equal, or the
+/// one pair [`SAME_TEXT`] records.
+pub fn same_text(name: &str, a: &str, b: &str) -> bool {
+    a == b
+        || SAME_TEXT
+            .iter()
+            .any(|(n, x, y)| *n == name && ((a == *x && b == *y) || (a == *y && b == *x)))
+}
+
+/// A retired version, parsed from its file under `packs/retired/`: for
+/// tests, which still read the builders through them, and other crates'
+/// tests (the `retired-packs` feature, which only dev-dependencies enable, so
+/// no build of the daemon or the simulator carries the files).
+#[cfg(any(test, feature = "retired-packs"))]
+pub fn retired(name: &str) -> Option<Arc<Pack>> {
+    const FILES: &[(&str, &str)] = &[
+        (
+            "classify.v2",
+            include_str!("../packs/retired/classify.v2.toml"),
+        ),
+        (
+            "classify.v3",
+            include_str!("../packs/retired/classify.v3.toml"),
+        ),
+        ("route.v5", include_str!("../packs/retired/route.v5.toml")),
+        ("route.v6", include_str!("../packs/retired/route.v6.toml")),
+        ("route.v7", include_str!("../packs/retired/route.v7.toml")),
+        ("route.v8", include_str!("../packs/retired/route.v8.toml")),
+        (
+            "content.v1",
+            include_str!("../packs/retired/content.v1.toml"),
+        ),
+        (
+            "content.v2",
+            include_str!("../packs/retired/content.v2.toml"),
+        ),
+        (
+            "content.v3",
+            include_str!("../packs/retired/content.v3.toml"),
+        ),
+        (
+            "security.v1",
+            include_str!("../packs/retired/security.v1.toml"),
+        ),
+        (
+            "directive.v1",
+            include_str!("../packs/retired/directive.v1.toml"),
+        ),
+        ("role.v1", include_str!("../packs/retired/role.v1.toml")),
+        (
+            "continue.v1",
+            include_str!("../packs/retired/continue.v1.toml"),
+        ),
+    ];
+    static PARSED: OnceLock<Vec<Arc<Pack>>> = OnceLock::new();
+    let parsed = PARSED.get_or_init(|| {
+        FILES
+            .iter()
+            .map(|(n, text)| {
+                let p = Pack::parse(text).unwrap_or_else(|e| panic!("packs/retired/{n}.toml: {e}"));
+                Arc::new(p)
+            })
+            .collect()
+    });
+    parsed.iter().find(|p| p.name() == name).cloned()
+}
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
 /// dispatches it.

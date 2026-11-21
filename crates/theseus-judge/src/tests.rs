@@ -1060,7 +1060,7 @@ fn every_live_call_fits_inside_its_reservation() {
         let asks: Vec<Ask> = packs
             .iter()
             .map(|n| {
-                let pack = by_name(n).unwrap();
+                let pack = by_name(n).or_else(|| crate::pack::retired(n)).unwrap();
                 let i = Input::parse(pack.builder, &text).unwrap();
                 let prepared = prepare(&pack, &i, &NoScrub).unwrap();
                 Ask::new(pack, &prepared, Mode::Shadow, json!({}))

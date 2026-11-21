@@ -466,9 +466,7 @@ impl TurnRunner {
         spec.defer = self.deferral(sid, false, &spec);
         // The standing block, as the turn puts it (theseus-rr15: it was left
         // out, so a session with a record recompiled here and was never read).
-        if let Some(b) =
-            self.standing_block(sid, place.class, self.restricted_profile(&target.profile))
-        {
+        if let Some(b) = self.standing_block(sid, place.class) {
             b.apply(&mut spec);
         }
         let built = self
@@ -563,23 +561,6 @@ impl TurnRunner {
             kw.postpone(session_id);
             return Err(Outcome::Busy);
         }
-        // A keep-warm read carries no pass (theseus-a1wvq.10): a restricted
-        // target is never read, and not stopped with a blocked row. Judged
-        // before the request is built, which a model it would change stops.
-        let restricted = self.target_for_session(&rec, live).ok().filter(|t| {
-            self.cfg
-                .profile_origin(&t.profile, &self.catalog)
-                .restricted()
-        });
-        if let Some(t) = restricted {
-            self.judge
-                .record_data_gate("keep_warm", "restricted_origin");
-            kw.forget(session_id);
-            return Err(Outcome::Forgotten(format!(
-                "its model `{}` is of restricted origin: a keep-warm read carries no pass",
-                t.model
-            )));
-        }
         let b = match self.keep_warm_request(&rec, live) {
             Ok(b) => b,
             Err((true, why)) => {
@@ -633,9 +614,6 @@ impl TurnRunner {
                 b.target.provider
             ));
         };
-        // The read sends the session's own prefix: the floor holds it as it
-        // holds the session's turns.
-        let provider = crate::data_gate::bound(provider, sid);
         let est = crate::compiler::estimate(
             &b.request,
             crate::catalog::TokenRates::of(&b.target.model),
@@ -847,7 +825,6 @@ impl TurnRunner {
             strip: None,
             overflowed: None,
             sources: &sources,
-            signals: None,
             assembled: None,
             situation: &situation,
             kept: None,
@@ -855,8 +832,7 @@ impl TurnRunner {
         let mut compiled = crate::compiler::compile(input);
         // What the turns sent after the conversation, where they sent it: the next turn's request
         // carries it, so the read does too (`turn::sent_tail`).
-        self.tails
-            .warm(sid, self.restricted_profile(&spec.profile), &mut compiled);
+        self.tails.warm(sid, &mut compiled);
         Ok((current.is_some(), compiled))
     }
 }

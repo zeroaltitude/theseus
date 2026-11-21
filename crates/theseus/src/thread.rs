@@ -13,9 +13,7 @@ use theseus_client::render::postmortem::usd;
 use theseus_client::render::time::fmt_stamp;
 use theseus_client::Conn;
 use theseus_protocol::method;
-use theseus_protocol::thread_route::{
-    ThreadAnswerParams, ThreadAnswerResult, ThreadMoveParams, ThreadMoveResult,
-};
+use theseus_protocol::thread_route::{ThreadMoveParams, ThreadMoveResult};
 use theseus_protocol::threads::{
     crossed_words, ThreadEditParams, ThreadLinkParams, ThreadListParams, ThreadListResult,
     ThreadMergeParams, ThreadMergeResult, ThreadNameParams, ThreadNewParams, ThreadRow,
@@ -24,7 +22,6 @@ use theseus_protocol::threads::{
 
 use crate::cmd::output;
 
-pub(crate) mod ask;
 pub(crate) mod split;
 
 #[derive(Subcommand, Debug)]
@@ -100,10 +97,7 @@ pub enum ThreadCmd {
     /// interactive loop and the TUI on this terminal. `home` clears it. A slug, a number from
     /// `theseus thread list`, or a unique start of a slug or title (four characters) names it.
     Switch { thread: String },
-    /// Candidate threads from your earlier harness: `--from openclaw` is the dry
-    /// run (a table and a plan file to tick, nothing written); `--apply 1,3,5` or `--apply
-    /// all-ticked` makes those threads, each with a card written from its episodes (a Haiku call,
-    /// under `[threads] import_day_usd`). `--vestige PATH` imports a Vestige dump as notes, once.
+    /// `--vestige PATH` imports a Vestige dump as notes, once.
     Import(crate::thread_import::Args),
     /// Seal a thread: its notes never come into another thread's recall, and `thread.read` of it
     /// asks you first. Says what had already crossed into other threads. Only you, from a private
@@ -121,9 +115,6 @@ pub enum ThreadCmd {
     },
     /// Open a sealed thread again. Only you, from a private place.
     Unseal { slug: String },
-    /// Answer a question the router asked ("Is this about the pr round or the security fix?"):
-    /// `1`, `2`, `new` (`n`) or `home` (`h`). The turn that waits for it goes on.
-    Answer { ask: String, choice: String },
     /// "That was for the security fix": run the last message the router placed in a session again in
     /// another thread (a slug) or at `home`, and tell the thread it first ran in to disregard it.
     Move {
@@ -292,7 +283,6 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
         ThreadCmd::Switch { thread } => switch(conn, json, &thread).await,
         ThreadCmd::Import(a) => crate::thread_import::run(conn, json, a).await,
         s @ (ThreadCmd::Seal { .. } | ThreadCmd::Unseal { .. }) => sealing(conn, json, s).await,
-        ThreadCmd::Answer { ask, choice } => answer(conn, json, ask, choice).await,
         ThreadCmd::Move { to, session, turn } => move_message(conn, json, to, session, turn).await,
         cmd @ (ThreadCmd::Merge { .. } | ThreadCmd::Unmerge { .. }) => join(conn, json, cmd).await,
         ThreadCmd::Link { slug, other } => linking(conn, json, true, slug, other).await,
@@ -336,26 +326,6 @@ fn link_line(r: &ThreadRow, other: &str, link: bool) -> String {
     } else {
         format!("Unlinked {slug} from {other}: the distance applies between them again.")
     }
-}
-
-/// `thread answer`: the owner's word on a question the router asked.
-async fn answer(conn: &mut Conn, json: bool, ask: String, choice: String) -> Result<()> {
-    let p = ThreadAnswerParams {
-        ask_id: ask,
-        choice,
-        author: None,
-        discord: None,
-    };
-    let v = conn
-        .request(method::THREAD_ANSWER, serde_json::to_value(&p)?)
-        .await?;
-    output(json, v, |r: ThreadAnswerResult| {
-        match r.routed {
-            Some(s) => println!("The message goes to the thread {s}."),
-            None => println!("The message goes home, or to a new thread."),
-        }
-        Ok(())
-    })
 }
 
 /// `thread move`: the last message the router placed, run again elsewhere.

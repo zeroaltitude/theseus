@@ -152,7 +152,7 @@ async fn a_label_is_one_message_with_one_remove_button() {
     assert!(!raise(&r, &sid, &label(Flag::Injection)));
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert_eq!(notes(&r).len(), 1, "one message, once");
-    // A cn-disqualifying flag is its own message, with its own word and no urgency.
+    // A `confidential` flag is its own message, with its own word and no urgency.
     assert!(raise(&r, &sid, &label(Flag::Confidential)));
     r.until("the second note", || notes(&r).len() == 2).await;
     let c = notes(&r).remove(1);
@@ -160,7 +160,7 @@ async fn a_label_is_one_message_with_one_remove_button() {
         .versions
         .last()
         .unwrap()
-        .starts_with("⚑ **confidential** — China-origin models are off for this session"));
+        .starts_with("⚑ **confidential** — "));
 }
 
 /// The owner's press removes the flag as the presser and settles the
@@ -265,7 +265,7 @@ async fn a_failed_content_ask_is_one_unchecked_notice_in_the_dm() {
     let text = notice.versions.last().unwrap();
     assert!(text.starts_with("⚑ **unchecked** — "), "{text}");
     assert!(
-        text.contains("China-origin models are still allowed"),
+        text.contains("Nothing was labelled for it"),
         "it says what that means: {text}"
     );
     assert!(
@@ -294,8 +294,8 @@ async fn a_failed_content_ask_is_one_unchecked_notice_in_the_dm() {
         .expect("the DM has a session");
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert!(
-        rec.data.is_none_or(|d| d.disqualifies_cn().is_none()),
-        "no label: the session stays eligible"
+        rec.data.is_none_or(|d| d.labels.is_empty()),
+        "no label was raised"
     );
 }
 
@@ -433,21 +433,14 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
     );
 }
 
-/// And the same when the router places that message in a thread, which is what
-/// happened to him: his turn ran in `theseus-design-oct`'s session, not his
-/// DM's. A thread's virtual place is private unconditionally
-/// (`places::class_alone`, theseus-nhew), so the place half was never the
-/// problem — but the `owner` half has to survive the move too.
+/// And the same when the message is placed in a thread, which is what happened
+/// to him (by the router's guess then; by its address now): his turn ran in
+/// `theseus-design-oct`'s session, not his DM's. A thread's virtual place is
+/// private unconditionally (`places::class_alone`, theseus-nhew), so the place
+/// half was never the problem — but the `owner` half has to survive the move too.
 #[tokio::test]
 async fn and_so_is_one_the_router_places_in_a_thread() {
     let jev = jev_of_the_incident();
-    jev.script(
-        "thread",
-        theseus_judge::fake::Scripted::Choice {
-            option: "design-oct".into(),
-            confidence: 0.95,
-        },
-    );
     let r = judged_rig(&jev).await;
     let cli = theseus_core::approval::Answerer {
         label: "the CLI".into(),
@@ -463,26 +456,14 @@ async fn and_so_is_one_the_router_places_in_a_thread() {
                 goal: Some("An ARCHIVE of October design talk".into()),
                 ..Default::default()
             },
-            cli.clone(),
-        )
-        .unwrap();
-    // A working set, so the prefilter has a candidate at all: without one the
-    // router decides `home` outright and never asks Jev, which is how his own
-    // archive thread came to contend (its repo is named in his sentence).
-    r.core
-        .thread_edit(
-            &theseus_protocol::threads::ThreadEditParams {
-                slug: "design-oct".into(),
-                working_set: Some(theseus_protocol::threads::WorkingSet {
-                    repos: vec!["theseus".into()],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
             cli,
         )
         .unwrap();
-    r.say((ANA, "ana"), None, "untrust the theseus repository please");
+    r.say(
+        (ANA, "ana"),
+        None,
+        "#design-oct untrust the theseus repository please",
+    );
     r.until("his message judged", || !asked_of_a_message(&r).is_empty())
         .await;
     let routed = r.ledger("thread.routed");

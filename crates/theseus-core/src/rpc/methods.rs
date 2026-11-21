@@ -969,7 +969,7 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
-        // A message that names no thread finds its own, in a place with threads
+        // A message that names a thread runs there, in a place with threads
         // (theseus-rha2); nothing else changes for a place without.
         let place_home = session.session_id.clone();
         // Where it arrived, before routing can send it elsewhere (issue 44).
@@ -982,7 +982,7 @@ impl Core {
             session.dir.as_deref(),
         );
         let routing = match route {
-            true => self.route_to_thread(&mut p, conn, &mut session).await?,
+            true => self.route_to_thread(&mut p, conn, &mut session)?,
             false => None,
         };
         // A directory it names moves the session there: the turn's session
@@ -990,8 +990,6 @@ impl Core {
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The turn's time, when the client gave one (theseus-yct32).
         crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
-        // The owner's words, read as a correction for the turn (theseus-q31l).
-        self.expect_correction(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
         // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
         // **Nothing is read out of its WORDS here.** What is staged is who
@@ -1238,11 +1236,13 @@ impl Core {
                 provider: p.provider.clone(),
                 model: p.model.clone(),
                 origin: Some(
-                    crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
+                    crate::catalog::origin_word(self.cfg.profile_origin(name, &self.catalog))
+                        .into(),
                 ),
-                // Cleared for a session that carries a label: not of restricted
-                // origin, which is all a label keeps a session off.
-                cleared: Some(!self.cfg.profile_origin(name, &self.catalog).restricted()),
+                // Every profile is cleared for every session: no label keeps a
+                // session off a model since the restricted-origin rule went
+                // (2026-11-21). The field stays for the clients that read it.
+                cleared: Some(true),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())

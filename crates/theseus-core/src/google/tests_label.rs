@@ -190,18 +190,6 @@ fn result_of(core: &crate::Core, sid: &str, tool: &str) -> Node {
         .unwrap_or_else(|| panic!("no {tool} result in {sid}"))
 }
 
-/// Send `req` to the restricted provider as a call made for `sid`.
-async fn send(
-    core: &crate::Core,
-    sid: &str,
-    req: &crate::provider::ProviderRequest,
-) -> anyhow::Result<()> {
-    let zai = &core.runner.providers["zai"];
-    let mut sink = |_: crate::provider::Delta<'_>| {};
-    let made = crate::data_gate::for_session(sid, || zai.stream_message(req, &mut sink));
-    made.await.map(drop)
-}
-
 fn read_files() -> Vec<Scripted> {
     vec![
         call("c1", json!({"method": "drive.files.list"})),
@@ -269,44 +257,6 @@ async fn a_google_result_raises_confidential_from_its_tool() {
     // A session that read nothing carries nothing.
     let other = new_session(&r.core);
     assert!(flags(&r.core, &other).labels.is_empty());
-}
-
-/// Test 2. The label is what keeps a model of restricted origin off the
-/// session, and Remove is what lets one on: the next turn pinned to it is
-/// refused with nothing sent, the chokepoint names the flag, and once the
-/// operator removes it the same request is sent. (This is P3, deliberately.)
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restricted_model_is_refused_by_the_label_and_sent_after_remove() {
-    let fake = Fake::start().await;
-    files(&fake);
-    let (r, _) = rig(None, &fake, read_files());
-    let sid = new_session(&r.core);
-    run_on(&r.core, &sid, "list my files", None).await.unwrap();
-    let ended = run_on(&r.core, &sid, "and now?", Some("glm53")).await;
-    assert!(format!("{ended:?}").contains("data_gate"), "{ended:?}");
-    assert!(r.zai.requests().is_empty(), "nothing went to the model");
-    // The chokepoint's own word names the label.
-    let req = crate::provider::ProviderRequest {
-        model: "glm-5.3".into(),
-        max_tokens: 16,
-        system: vec![],
-        messages: vec![json!({"role": "user", "content": [{"type": "text", "text": "hi"}]})],
-        tools: vec![],
-        thinking: None,
-        output_config: None,
-        cache_control: None,
-        betas: vec![],
-        extra: Default::default(),
-        image_tokens: 0,
-    };
-    let refused = send(&r.core, &sid, &req).await.unwrap_err().to_string();
-    assert!(refused.contains("`confidential` label"), "{refused}");
-    // The operator removes it.
-    r.core.unlabel_session(&sid, "confidential", cli()).unwrap();
-    send(&r.core, &sid, &req)
-        .await
-        .expect("after Remove it is sent");
-    assert_eq!(r.zai.requests().len(), 1);
 }
 
 /// Test 3. A sensitive calendar's read raises `personal`, an ordinary one's
@@ -478,10 +428,6 @@ async fn with_session_flags_off_a_google_read_raises_nothing() {
         false,
         |c| {
             c.content_based_security.session_flags = false;
-            // With nothing judged there are no labels to follow: the config
-            // says what a model of restricted origin is sent.
-            c.content_based_security.cn_models =
-                crate::config::content_based_security::CnModels::Always;
         },
     );
     let sid = new_session(&r.core);

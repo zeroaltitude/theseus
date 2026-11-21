@@ -21,11 +21,6 @@ use crate::tests_judge::kinds;
 
 const LAB: &str = "314159265358979323";
 const PRIVATE_LAB: &str = "271828182845904523";
-/// The rig's profiles by origin, as the catalog reads their providers' hosts:
-/// `glm` is served from a China-origin endpoint, `sonnet` from Anthropic's.
-/// Each test that turns on one asserts its origin first.
-const RESTRICTED: &str = "glm";
-const UNRESTRICTED: &str = "sonnet";
 const M1: &str = "Fix the build. I'm on the M1 now, by the way.";
 /// The sitting's planted line: a fact about the owner's own life, said in
 /// passing inside a request about something else, and what it says.
@@ -488,55 +483,6 @@ async fn a_due_point_with_none_of_the_owners_lines_writes_no_frame() {
     assert!(asked(&r).is_empty() && marks(&r.core, &sid).is_none());
 }
 
-// 4. A China-origin profile is refused at the chokepoint: no request reaches it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_china_origin_profile_is_refused_at_the_chokepoint() {
-    use crate::approval::Surface;
-    // The load refuses a restricted `[card] profile`, so it goes in after the
-    // check: the chokepoint still holds.
-    let r = crate::tests_route::rig_parts(
-        None,
-        EVERY,
-        |_| {},
-        |p| p.cfg.card.profile = Some("glm".into()),
-    );
-    // The session carries a label: only a label keeps a session off a model of
-    // restricted origin (theseus-gyjyo.6).
-    let mut flags = crate::content::ContentFlags::default();
-    flags.raise(crate::content::deterministic::label(
-        crate::content::Flag::Confidential,
-        "nod_earlier",
-        crate::content::ItemKind::ToolResult,
-        "name: Examplecorp".into(),
-        1,
-    ));
-    let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-    rec.data = Some(Box::new(flags));
-    r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    let sid = rec.session_id;
-    for i in 0..EVERY {
-        let p = json!({"session_id": sid, "input": format!("Mooring line {i}: is it chafing?")});
-        crate::tests_capture::call_on(&r.core, Surface::Cli, "turn.submit", p).await;
-    }
-    until("the refusal", || {
-        !kinds(&r.core.store, "data_gate.blocked").is_empty()
-    })
-    .await;
-    settled(&r.core).await;
-    assert!(
-        r.zai
-            .requests()
-            .iter()
-            .all(|q| !q.tools.iter().any(|t| t["name"] == extract::TOOL)),
-        "an observe request reached the China-origin provider"
-    );
-    assert!(observed(&r.core).is_empty());
-    assert!(
-        marks(&r.core, &sid).is_none(),
-        "a refused call moves nothing"
-    );
-}
-
 // 5. Off, or no money, no call.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_day_line_or_observe_off_gives_no_call() {
@@ -944,7 +890,7 @@ async fn a_self_fact_inside_an_off_topic_question_is_learned_and_can_be_named() 
         "no tool offers the card's notes: asked what it has learned about the \
          owner today, a turn has no way to name one"
     );
-    let mine = crate::card::tool::owners_turn(UNRESTRICTED);
+    let mine = crate::card::tool::owners_turn();
     let out = crate::card::tool::call(r.core.clone(), &mine, &sid, json!({})).unwrap();
     assert!(out.text.contains("praying mantis"), "{}", out.text);
     assert!(out.text.contains(&obs[0].id), "{}", out.text);
@@ -959,70 +905,9 @@ async fn a_self_fact_inside_an_off_topic_question_is_learned_and_can_be_named() 
         let theirs = session(&r.core, Some(&target));
         let asked = crate::card::tool::Asking {
             class: r.core.runner.class_of(&theirs),
-            ..mine.clone()
         };
         let why = crate::card::tool::call(r.core.clone(), &asked, &theirs, json!({})).unwrap_err();
         assert_eq!(why, crate::card::tool::NOT_ALONE, "{target}");
-    }
-}
-
-// 13. The notes are the owner's own unconfirmed words, so a model of
-//     restricted origin reads none of them through the tool, exactly as the
-//     day's block gives one none (`card/noted.rs`). Same records, same DM,
-//     same turn, and until this guard the two halves of one feature answered
-//     that question in opposite ways: the block's rule is the owner's
-//     standing one and the tool had no form of it. The data gate cannot
-//     stand in — it moves a *labelled* session off such a model, and these
-//     records raise no label, never being nodes and never indexed.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_model_of_restricted_origin_reads_none_of_the_notes() {
-    let r = rig_with(EVERY, |_| {});
-    let sid = session(&r.core, Some(&dm()));
-    script(&r, answers(json!([item("fact", ASIDE_FACT, &["L3"])])));
-    exchange_of(&r.core, &sid, EVERY, 2, ASIDE_LINE).await;
-    until("an observation", || !observed(&r.core).is_empty()).await;
-    settled(&r.core).await;
-    assert_eq!(observed(&r.core).len(), 1);
-
-    // The two profiles this test turns on, as the catalog reads their hosts.
-    let (cfg, catalog) = (&r.core.cfg, &r.core.runner.catalog);
-    assert!(
-        cfg.profile_origin(RESTRICTED, catalog).restricted(),
-        "{RESTRICTED} is not restricted here: this test proves nothing"
-    );
-    assert!(!cfg.profile_origin(UNRESTRICTED, catalog).restricted());
-
-    // The owner's own DM, on a model that may have them.
-    let out = crate::card::tool::call(
-        r.core.clone(),
-        &crate::card::tool::owners_turn(UNRESTRICTED),
-        &sid,
-        json!({}),
-    )
-    .unwrap();
-    assert!(out.text.contains("praying mantis"), "{}", out.text);
-    assert_eq!(out.meta["observations"], 1, "{}", out.meta);
-
-    // The same call on a model of restricted origin reads none of them.
-    let why = crate::card::tool::call(
-        r.core.clone(),
-        &crate::card::tool::owners_turn(RESTRICTED),
-        &sid,
-        json!({}),
-    )
-    .unwrap_err();
-    assert_eq!(why, crate::card::tool::NOT_THIS_MODEL);
-
-    // And a turn whose model cannot be named at all is refused the same way:
-    // `restricted_profile` counts a profile that does not resolve, and the
-    // wall closes on what it cannot see.
-    for profile in [None, Some("no-such-profile".to_string())] {
-        let asked = crate::card::tool::Asking {
-            profile,
-            ..crate::card::tool::owners_turn(UNRESTRICTED)
-        };
-        let why = crate::card::tool::call(r.core.clone(), &asked, &sid, json!({})).unwrap_err();
-        assert_eq!(why, crate::card::tool::NOT_THIS_MODEL);
     }
 }
 
@@ -1065,7 +950,7 @@ async fn a_tasks_session_reads_none_of_the_notes() {
         "a task's place is no longer its parent's: re-read this guard"
     );
 
-    let mine = crate::card::tool::owners_turn(UNRESTRICTED);
+    let mine = crate::card::tool::owners_turn();
     let out = crate::card::tool::call(r.core.clone(), &mine, &sid, json!({})).unwrap();
     assert_eq!(
         out.meta["observations"], 1,

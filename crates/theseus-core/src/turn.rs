@@ -228,9 +228,6 @@ pub struct TurnRunner {
     pub(crate) spend_marks: budget_step::SpendMarks,
     /// The models found to refuse per-message effort, for this run (theseus-posww).
     pub effort_refusals: effort_step::EffortRefusals,
-    /// What a turn bound for a model of restricted origin waits on for its
-    /// session's items to be judged (theseus-9ymz0, `content_wait.rs`).
-    pub verdicts: crate::content_wait::Handle,
     /// The conversations kept warm after their turns, and the stubs their
     /// cold rewrites decided (theseus-ezeg).
     pub keep_warm: crate::keep_warm::KeepWarm,
@@ -1716,7 +1713,7 @@ impl TurnRunner {
         // books the same way before it is returned. The body's `?`s all
         // land here, so no step after a paid loop can skip its spend.
         match boxed(|| {
-            let fork = (&slots.0, &slots.1, &slots.2, &slots.3);
+            let fork = (&slots.0, &slots.1, &slots.2);
             self.body_kept(&mut t, &mut session, provider.as_ref(), asked, fork)
         })
         .await
@@ -1740,7 +1737,6 @@ impl TurnRunner {
             &'a OnceLock<Target>,
             &'a OnceLock<Target>,
             &'a checkpoint_step::Slots,
-            &'a OnceLock<Target>,
         ),
     ) -> Result<Next> {
         let body = self.turn_body(t, session, provider, asked, fork).await;
@@ -1760,11 +1756,10 @@ impl TurnRunner {
         session: &mut SessionRecord,
         provider: &dyn Provider,
         asked: Asked,
-        (routed, fallback, moves, data_moved): (
+        (routed, fallback, moves): (
             &'a OnceLock<Target>,
             &'a OnceLock<Target>,
             &'a checkpoint_step::Slots,
-            &'a OnceLock<Target>,
         ),
     ) -> Result<Next> {
         let Asked {
@@ -1928,12 +1923,6 @@ impl TurnRunner {
                 self.steer_in(t)?;
                 if let Some(f) =
                     self.checkpoint_apply(t, session, &mut spec, &mut routed_to, moves)?
-                {
-                    return Ok(Next::Fail(f));
-                }
-                if let Some(f) = self
-                    .cn_move(t, session, &mut spec, &mut routed_to, data_moved)
-                    .await?
                 {
                     return Ok(Next::Fail(f));
                 }

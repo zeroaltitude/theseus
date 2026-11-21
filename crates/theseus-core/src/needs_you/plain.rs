@@ -11,7 +11,6 @@ use theseus_protocol::term::words::summarize;
 use theseus_protocol::{ConfirmRequest, PlainWords};
 
 use super::words::short;
-use crate::toolrun::misroute;
 
 /// What the core knows around a request that the request does not carry.
 pub struct Gloss {
@@ -235,13 +234,11 @@ pub fn rule_clause(reason: &str) -> Option<String> {
         .then(|| clause.to_string())
 }
 
-/// Why the gate holds the call, in words: the floor, the thread
-/// guard's doubt, the rule's own clause, else the tool's posture.
+/// Why the gate holds the call, in words: the floor, the rule's own clause,
+/// else the tool's posture.
 fn held_of(req: &ConfirmRequest, clause: Option<&str>) -> String {
     if req.floor {
         floor::words(&req.reason)
-    } else if clause.is_some_and(misroute::is_question) {
-        "it may belong in another thread, so it waits for you".into()
     } else if let Some(c) = clause {
         c.to_string()
     } else {
@@ -262,10 +259,8 @@ fn clause_of(req: &ConfirmRequest) -> Option<String> {
 /// The words of an approval question.
 pub fn plain(req: &ConfirmRequest, g: &Gloss) -> PlainWords {
     let clause = clause_of(req);
-    // The guard's question names both threads and the move; any other rule's
-    // clause stands in when the model said nothing before the call.
+    // A rule's clause stands in when the model said nothing before the call.
     let why = match &clause {
-        Some(c) if misroute::is_question(c) => Some(c.clone()),
         // A floor hold says which program or path, and where the look is, beside
         // the model's own words (issue 26): a surface that prints `why` and not
         // `held` still tells the owner what to do.

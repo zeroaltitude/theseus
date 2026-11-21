@@ -193,26 +193,19 @@ async fn a_backfill_needs_consent_and_a_rebuildable_pack() {
         e.contains("rerank.v1 can't be backfilled: rerank's input"),
         "{e}"
     );
-    let e = r2
-        .core
-        .judge_backfill(p("continue.v1"), "cli")
-        .await
-        .unwrap_err()
-        .to_string();
-    assert!(e.contains("CONTINUE's input"), "{e}");
     // theseus-gyjyo.1 took Content off `unrebuildable` so a stored content
     // judgment can be replayed. Backfill has no event to enumerate for an
     // item, and `backfill_state` hard-codes a loop input, so its own guard is
-    // now the only thing between `judge backfill content.v2` and a content
+    // now the only thing between `judge backfill content.v4` and a content
     // pack fed loop inputs.
     let e = r2
         .core
-        .judge_backfill(p("content.v2"), "cli")
+        .judge_backfill(p("content.v4"), "cli")
         .await
         .unwrap_err()
         .to_string();
     assert!(
-        e.contains("content.v2 can't be backfilled: a content state"),
+        e.contains("content.v4 can't be backfilled: a content state"),
         "{e}"
     );
     let stranger = Answerer {

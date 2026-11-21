@@ -88,8 +88,8 @@ pub(crate) mod reply;
 mod source;
 pub(crate) mod task_home;
 mod thread;
-mod thread_ask;
 mod thread_bind;
+mod thread_move;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -2003,9 +2003,6 @@ impl Place {
             PlaceMsg::Event(e) => {
                 let e = *e;
                 self.adopt_turn(&e);
-                if self.thread_ask_card(&e) {
-                    return; // the router's question (theseus-rha2): its card, apart from the stream
-                }
                 self.saw_failure |= matches!(e, CoreEvent::TurnFailed(_));
                 // The turn a `/stop` stopped (W1) streams no more here, and
                 // what it proposes will not run; its tool messages still

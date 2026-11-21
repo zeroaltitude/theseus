@@ -1,5 +1,5 @@
 //! Recall in front of the model through the whole core (M6 step 30b; §3.2's
-//! tests): a canary turn's `Recall` node, its render after the new message,
+//! tests): a live turn's `Recall` node, its render after the new message,
 //! its edges and `node.reach`, the plan frame it rides, the next request
 //! beginning with the previous one's bytes, the sticky arm and its row, the
 //! session's cap, the operator's labels, and a stalled index. The index is
@@ -29,13 +29,13 @@ use crate::Core;
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
 
 /// Canary with every session on the arm.
+/// A live rig (the name is the retired canary mode's, which ran these the same way).
 fn canary() -> Rig {
     canary_with(|_| {})
 }
 
 fn canary_with(tweak: impl FnOnce(&mut crate::Config)) -> Rig {
-    rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    rig_with(MemoryMode::Live, |c| {
         tweak(c);
     })
 }
@@ -70,16 +70,16 @@ fn last_texts(q: &ProviderRequest) -> Vec<String> {
         .collect()
 }
 
-/// A canary turn's recall reaches the model: a `Recall` node after the new
+/// A live turn's recall reaches the model: a `Recall` node after the new
 /// message, rendered in the same user turn as testimony; its row is
 /// `recall.ran` with the node's recall id and the arm; it rides frames the
 /// turn writes anyway; each source gets a `derived_from` edge scoped
 /// `in:<source>`, and `node.reach` counts the copy; the reply says how many.
 #[tokio::test]
-async fn a_canary_turn_puts_its_recall_in_front_of_the_model() {
+async fn a_live_turn_puts_its_recall_in_front_of_the_model() {
     let mut frames = Vec::new();
-    for mode in [MemoryMode::Off, MemoryMode::Canary] {
-        let r = rig_with(mode, |c| c.memory.canary_fraction = 1.0);
+    for mode in [MemoryMode::Off, MemoryMode::Live] {
+        let r = rig_with(mode, |_| {});
         let c = &r.core;
         let a = session(c, None, &[HERON]);
         let b = session(c, None, &[]);
@@ -140,7 +140,7 @@ async fn a_canary_turn_puts_its_recall_in_front_of_the_model() {
         let m: RecallManifest = serde_json::from_value(ran[1].data.clone()).unwrap();
         assert_eq!(
             (&m.recall_id, m.mode.as_str(), m.arm.as_deref()),
-            (recall_id, "canary", Some("baseline"))
+            (recall_id, "live", Some("baseline"))
         );
         assert!(m.admitted[0].text.is_none(), "the row keeps references");
         let budget = m.budget.unwrap();
@@ -242,11 +242,12 @@ fn restarted(r: &Rig, sessions: Vec<String>) -> Arc<Core> {
     again
 }
 
-/// A session's arm is sticky and recorded once, as `memory.arm`; a control
-/// session runs `none` live, with `baseline` in shadow, and gets no node.
+/// A session's arm is sticky and recorded once, as `memory.arm`; a session
+/// on arm `none` runs `none` live: the index is asked nothing, and it gets no
+/// node.
 #[tokio::test]
 async fn the_arm_is_sticky_and_recorded_once() {
-    let r = rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 0.0);
+    let r = rig_with(MemoryMode::Live, |c| c.memory.arm = MemoryArm::None);
     let c = &r.core;
     let a = session(c, None, &[HERON]);
     let b = session(c, None, &[]);
@@ -261,11 +262,9 @@ async fn the_arm_is_sticky_and_recorded_once() {
     assert_eq!(arms[0].data["live"], false);
     assert_eq!(arms[0].data["experiment"], "m6-1");
     let shadow = rows(c, &b, "recall.shadow");
-    assert_eq!(shadow.len(), 2, "the control recalls in shadow");
-    assert_eq!(shadow[0].data["arm"], "none");
+    assert_eq!(shadow.len(), 0, "arm none recalls nothing");
     assert!(recall_nodes(c, &b).is_empty());
-    // `memory.recalls` reads the recalls alone.
-    assert_eq!(recalls(c, &b).len(), 2);
+    assert_eq!(recalls(c, &b).len(), 0);
     // The assignment is the config's, for this session, every time.
     let a1 = c.runner.memory.cfg().assign(&b).unwrap();
     assert_eq!(a1.arm, MemoryArm::None);
@@ -332,7 +331,8 @@ async fn a_wrong_label_keeps_a_node_out() {
     let _ = OWNER;
 }
 
-/// A stalled index holds a canary turn no longer than its deadline: the
+/// A stalled index holds a live turn (the canary mode it was written for is
+/// retired) no longer than its deadline: the
 /// turn goes on without recall, its row says `deadline`, and no node is
 /// written. On the paused clock: the bound on the turn's time is its own
 /// virtual time.
@@ -349,10 +349,7 @@ async fn a_stalled_index_holds_a_canary_turn_no_longer_than_its_deadline() {
     assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
     assert_eq!((res.loops, res.recalled), (1, 0));
     let m = &recalls(c, &b)[0];
-    assert_eq!(
-        (m.mode.as_str(), m.outcome.as_str()),
-        ("canary", "deadline")
-    );
+    assert_eq!((m.mode.as_str(), m.outcome.as_str()), ("live", "deadline"));
     assert!(recall_nodes(c, &b).is_empty());
 }
 
@@ -410,168 +407,73 @@ async fn shadow_still_writes_no_node() {
         .any(|t| t.contains("Recalled")));
 }
 
-/// A turn whose request carried no recall writes no `Recall` node and says it
-/// recalled nothing (theseus-fpm2).
-///
-/// A request bound for a model of restricted origin carries no `Recall` node
-/// at all (theseus-9ymz0; `recall_view` strips it), but the turn still held
-/// the node its recall built, and the plan frame took it: the reply's footer
-/// counted notes the model never saw, and the next turn rendered them after
-/// the message as though they had been in front of it.
-///
-/// The unrestricted half is the positive count: the same scenario, the same
-/// stand-in index, one note in the request, one node written, `recalled: 1`.
-/// Both halves assert that recall ran and admitted the note, so an empty
-/// index cannot pass the restricted half.
+/// A turn whose request carries its recall writes one `Recall` node and counts
+/// it (theseus-fpm2): the same stand-in index, one note in the request, one
+/// node written, `recalled: 1`. (Its other half, a request bound for a model
+/// of restricted origin that carried none, went with that rule on 2026-11-21;
+/// the small-talk bar's withholding is `tests_tier_manifest`'s.)
 #[tokio::test]
-async fn a_turn_whose_request_carried_no_recall_writes_no_recall_node() {
-    for restricted in [false, true] {
-        let r = canary_with(|c| {
-            if restricted {
-                c.serve_default_from_cn();
-            }
-        });
-        let c = &r.core;
-        let a = session(c, None, &[HERON]);
-        let b = session(c, None, &[]);
-        // The warm-up turn finds nothing: the index learns A after it.
-        c.runner.memory.set_ask(index_of(c, vec![]));
-        turn(c, &b, "warm up").await;
-        c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
-        let res = turn(c, &b, "Where does the grey heron nest?").await;
-        // Recall itself ran and admitted the note on both halves.
-        let m = recalls(c, &b).pop().expect("a recall.ran row");
-        assert_eq!(
-            admitted(&m).len(),
-            1,
-            "recall admitted the note ({restricted})"
-        );
-        let q = requests(&r).pop().expect("a request");
-        let carried = last_texts(&q)
-            .iter()
-            .any(|t| t.starts_with("[Recalled by the harness:"));
-        let written = recall_nodes(c, &b).len();
-        if restricted {
-            assert!(!carried, "a restricted model's request carries no note");
-            assert_eq!(written, 0, "no `Recall` node the request never carried");
-            assert_eq!(res.recalled, 0, "and the reply counts none");
-        } else {
-            assert!(carried, "the request carries the note");
-            assert_eq!(written, 1, "one `Recall` node");
-            assert_eq!(res.recalled, 1, "and the reply counts it");
-        }
-    }
+async fn a_turn_whose_request_carried_its_recall_writes_one_recall_node() {
+    let r = canary_with(|_| {});
+    let c = &r.core;
+    let a = session(c, None, &[HERON]);
+    let b = session(c, None, &[]);
+    // The warm-up turn finds nothing: the index learns A after it.
+    c.runner.memory.set_ask(index_of(c, vec![]));
+    turn(c, &b, "warm up").await;
+    c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
+    let res = turn(c, &b, "Where does the grey heron nest?").await;
+    let m = recalls(c, &b).pop().expect("a recall.ran row");
+    assert_eq!(admitted(&m).len(), 1, "recall admitted the note");
+    let q = requests(&r).pop().expect("a request");
+    let carried = last_texts(&q)
+        .iter()
+        .any(|t| t.starts_with("[Recalled by the harness:"));
+    assert!(carried, "the request carries the note");
+    assert_eq!(recall_nodes(c, &b).len(), 1, "one `Recall` node");
+    assert_eq!(res.recalled, 1, "and the reply counts it");
+    // A request that carried it withheld nothing (theseus-ectzg).
+    assert!(
+        rows(c, &b, "recall.withheld").is_empty(),
+        "a request that carried it withheld nothing"
+    );
 }
 
-/// A withheld recall leaves a ledger row of its own, joined to the admission
-/// it dropped (theseus-ectzg, fpm2 F1).
-///
-/// The `recall.ran` row is queued before the compile knows the request
-/// carries nothing, so it says one note was admitted; the turn's reply says
-/// `recalled: 0`. The `recall.withheld` row joins the two: the same
-/// `recall_id`, and the number of notes the request did not carry. The
-/// unrestricted half is the positive count: the same scenario writes no such
-/// row, so a row written for every turn cannot pass.
+/// A compile whose request carries the recall node folds the pack's budget
+/// drop into its report (theseus-ectzg, fpm2 F1 limit (i)): recall's pack has
+/// room for one of two notes, drops the other for its budget, and the
+/// compile's report names it.
 #[tokio::test]
-async fn a_withheld_recall_writes_a_row_that_joins_the_admission_it_dropped() {
-    for restricted in [false, true] {
-        let r = canary_with(|c| {
-            if restricted {
-                c.serve_default_from_cn();
-            }
-        });
-        let c = &r.core;
-        let a = session(c, None, &[HERON]);
-        let b = session(c, None, &[]);
-        c.runner.memory.set_ask(index_of(c, vec![]));
-        turn(c, &b, "warm up").await;
-        c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
-        turn(c, &b, "Where does the grey heron nest?").await;
-        let m = recalls(c, &b).pop().expect("a recall.ran row");
-        assert_eq!(
-            admitted(&m).len(),
-            1,
-            "recall admitted the note ({restricted})"
-        );
-        let withheld = rows(c, &b, "recall.withheld");
-        if restricted {
-            assert_eq!(
-                withheld.len(),
-                1,
-                "one withholding row, joined to the admission"
-            );
-            assert_eq!(withheld[0].data["recall_id"], m.recall_id.as_str());
-            assert_eq!(
-                withheld[0].data["admitted"], 1,
-                "the notes the request did not carry"
-            );
-        } else {
-            assert!(
-                withheld.is_empty(),
-                "a request that carried it withheld nothing"
-            );
-        }
-    }
-}
-
-/// A compile that withheld the recall node reports none of the pack's budget
-/// drops (theseus-ectzg, fpm2 F1 limit (i)).
-///
-/// Recall's pack has room for one of two notes, so it drops the other for its
-/// budget and its manifest says so. A request that carries the node folds
-/// that drop into the compile's report; one bound for a model of restricted
-/// origin carries nothing of the pack's, so its report must not name a drop
-/// it did not make. Both halves assert the pack's own drop, so an empty pack
-/// cannot pass; the unrestricted half asserts the report names it.
-#[tokio::test]
-async fn a_withheld_nodes_compile_reports_none_of_the_packs_budget_drops() {
-    for restricted in [false, true] {
-        let r = canary_with(|c| {
-            c.memory.recall_budget_tokens = 30;
-            if restricted {
-                c.serve_default_from_cn();
-            }
-        });
-        let c = &r.core;
-        let a = session(
-            c,
-            None,
-            &[
-                "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
-                "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
-            ],
-        );
-        let b = session(c, None, &[]);
-        c.runner.memory.set_ask(index_of(c, vec![a]));
-        turn(c, &b, "Where does the heron nest and fish?").await;
-        let m = recalls(c, &b).pop().expect("a recall.ran row");
-        assert_eq!(
-            admitted(&m).len(),
-            1,
-            "the pack admitted one note ({restricted})"
-        );
-        let packs = m.budget.as_ref().map_or(0, |b| b.dropped.len());
-        assert_eq!(
-            packs, 1,
-            "and dropped the other for its budget ({restricted})"
-        );
-        let all: Vec<(u64, crate::ledger::LedgerRow)> = c.store.ledger_tail(500).unwrap();
-        let reported: Vec<String> = all
-            .into_iter()
-            .filter(|(_, row)| row.kind == "context.compiled")
-            .filter_map(|(_, row)| {
-                let id = row.data["compilation_id"].as_str()?.to_string();
-                c.store.get_compilation(&id).ok().flatten()
-            })
-            .flat_map(|k| k.budget.map(|b| b.dropped).unwrap_or_default())
-            .map(|d| d.tier)
-            .collect();
-        match restricted {
-            true => assert!(
-                reported.is_empty(),
-                "no drop the request never carried: {reported:?}"
-            ),
-            false => assert_eq!(reported, ["recall"], "the carried node's drop is reported"),
-        }
-    }
+async fn a_carried_nodes_compile_reports_the_packs_budget_drop() {
+    let r = canary_with(|c| {
+        c.memory.recall_budget_tokens = 30;
+    });
+    let c = &r.core;
+    let a = session(
+        c,
+        None,
+        &[
+            "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
+            "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
+        ],
+    );
+    let b = session(c, None, &[]);
+    c.runner.memory.set_ask(index_of(c, vec![a]));
+    turn(c, &b, "Where does the heron nest and fish?").await;
+    let m = recalls(c, &b).pop().expect("a recall.ran row");
+    assert_eq!(admitted(&m).len(), 1, "the pack admitted one note");
+    let packs = m.budget.as_ref().map_or(0, |b| b.dropped.len());
+    assert_eq!(packs, 1, "and dropped the other for its budget");
+    let all: Vec<(u64, crate::ledger::LedgerRow)> = c.store.ledger_tail(500).unwrap();
+    let reported: Vec<String> = all
+        .into_iter()
+        .filter(|(_, row)| row.kind == "context.compiled")
+        .filter_map(|(_, row)| {
+            let id = row.data["compilation_id"].as_str()?.to_string();
+            c.store.get_compilation(&id).ok().flatten()
+        })
+        .flat_map(|k| k.budget.map(|b| b.dropped).unwrap_or_default())
+        .map(|d| d.tier)
+        .collect();
+    assert_eq!(reported, ["recall"], "the carried node's drop is reported");
 }

@@ -33,12 +33,10 @@ fn mythos_5_2_is_the_makers_published_row() {
     assert_eq!(m.long_prompt, None);
     assert_eq!(m.provider, "anthropic");
     assert_eq!(m.origin, ModelOrigin::Us);
-    assert!(cleared_for_sensitive(
-        "https://api.anthropic.com",
-        None,
-        ID,
-        Some(m)
-    ));
+    assert_eq!(
+        origin_of("https://api.anthropic.com", None, Some(m)),
+        ModelOrigin::Us
+    );
     // "Adaptive (always on)", default effort high, effort changed per message.
     assert_eq!(m.thinking, ThinkingMode::Always);
     assert_eq!(m.default_effort, Some(Effort::High));
@@ -106,7 +104,6 @@ fn mythos_5_2_is_priced_as_published() {
 #[test]
 fn the_router_cannot_choose_mythos_5_2() {
     assert!(OPTIONS.iter().all(|(_, model)| *model != ID));
-    assert!(SWITCH_CANDIDATES.iter().all(|(_, model)| *model != ID));
 }
 
 /// The template's commented profile that pins it: uncommented, it loads

@@ -1,15 +1,14 @@
 //! `[content_based_security]` (theseus-gyjyo.2; it was `[content]`, theseus-9ymz0): what the content classification
-//! does once it has found something, and the switch for models of restricted origin. The rule itself is
-//! `crate::content`; the ask is `judge/content.rs`. Every key has a default, so an owner's config names none unless
-//! it differs. The old table is a hard error that names each key's new home (`renamed.rs`).
+//! does once it has found something. The rule itself is `crate::content`; the ask is `judge/content.rs`. Every key
+//! has a default, so an owner's config names none unless it differs. The old table is a hard error that names each
+//! key's new home (`renamed.rs`).
 //!
 //! - `session_flags`: the whole mechanism, on by default (it was `[content] enabled`). Off, nothing is asked and no
-//!   label is ever raised. A model of restricted origin then has no labels to follow, so `cn_models` must say what
-//!   it does without them (`never` or `always`); `follow_flags` with the flags off refuses to start.
-//! - `cn_models`: `always`, `follow_flags` (the default) or `never`: whether a request to a model of restricted
-//!   origin is sent whatever the session carries, only when its labels allow it, or never. Read by the provider
-//!   chokepoint (`data_gate.rs`, which reads the session's record and nothing else) and by the route
-//!   (`turn/data_step.rs`, which skips a profile `never` refuses).
+//!   label is ever raised.
+//! - `cn_models` and `wait_ms` are **retired** (2026-11-21): the rule that kept a session off a model of restricted
+//!   origin, and the wait before a turn bound for one, were deleted on the owner's word. A config that still sets
+//!   either loads, is told so once at startup ([`ContentBasedSecurityConfig::retired`]), and the key is ignored
+//!   and never written back.
 //! - `injection`: what an `injection` label does to a call that acts — `notify` (**the default since 1.0.6**) or
 //!   `refuse`. Under `notify` the call runs and the operator is told: the label is raised and its ⚑ card posted,
 //!   and nothing is refused. Under `refuse` every call but a local read of files and code is refused until the
@@ -18,10 +17,6 @@
 //!   WARNS rather than latching the session. `refuse` is what the specialised security use writes, the one L1 is
 //!   kept for, and the bench daemon's config writes it no longer — it gets the default. The design document calls
 //!   that one `freeze`; the spelling in an owner's config is `refuse`, and stays.
-//! - `wait_ms`: how long a turn bound for a model of restricted origin waits for the content asks still out for its
-//!   session to land (`content_wait`, a counter of them). It then goes either way on the labels it reads: it is never
-//!   kept off a model for an ask that did not land. A Claude turn never waits, whatever this says. Zero means it
-//!   never waits.
 //! - `max_pieces`: the bound on how many pieces one long item is split into (`content::split`). Set so the largest
 //!   item that can exist — an `fs.read` at `FS_READ_MAX_CHARS`, 100,000 characters, which is 17 pieces of the pack's
 //!   6,000-character cap — fits whole, with room to spare. Past the bound an item is read from the start and its row
@@ -29,35 +24,25 @@
 //! - `context`: the operator's one paragraph on what the assistant is and which of its work is public, handed to the
 //!   pack verbatim. **Parsed and exposed only**: the pack is fed it by a later row (R9).
 
-use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::content::InjectionMode;
 
-/// What a request to a model of restricted origin (`cn` or `unknown`) is sent under.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CnModels {
-    /// Sent whatever the session carries.
-    Always,
-    /// Refused when the session carries a disqualifying label, else sent.
-    #[default]
-    FollowFlags,
-    /// Never sent.
-    Never,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentBasedSecurityConfig {
     #[serde(default = "on")]
     pub session_flags: bool,
-    #[serde(default)]
-    pub cn_models: CnModels,
+    /// Retired (2026-11-21): read, warned of ([`Self::retired`]), ignored and
+    /// never written back.
+    #[serde(default, skip_serializing)]
+    cn_models: Option<toml::Value>,
     #[serde(default)]
     pub injection: InjectionMode,
-    #[serde(default = "default_wait_ms")]
-    pub wait_ms: u64,
+    /// Retired with `cn_models`: read, warned of, ignored and never written
+    /// back.
+    #[serde(default, skip_serializing)]
+    wait_ms: Option<toml::Value>,
     #[serde(default = "default_max_pieces")]
     pub max_pieces: usize,
     #[serde(default)]
@@ -68,14 +53,6 @@ fn on() -> bool {
     true
 }
 
-/// Long enough for a Jev call made the moment the item landed to be read by the
-/// turn that follows it, short enough that a session waiting on it does not
-/// feel stalled. Provisional, like the bands: it moves when the live numbers
-/// say so.
-fn default_wait_ms() -> u64 {
-    4_000
-}
-
 /// The pack's state cap is 3,000 tokens, which the builder takes as
 /// `PIECE_CHARS` = 6,000 characters a piece. The largest item that can exist is
 /// an `fs.read` at `FS_READ_MAX_CHARS` (100,000 characters), which is 17
@@ -84,8 +61,7 @@ fn default_wait_ms() -> u64 {
 ///
 /// **This was 6 until the review of 2026-10-26**, which did the arithmetic I
 /// had not: 6 pieces is 36 KB, not the "about 72 KB" three documents claimed,
-/// so an ordinary 60 KB file was classified a third of the way through and the
-/// session stayed eligible for a China-origin model.
+/// so an ordinary 60 KB file was classified a third of the way through.
 fn default_max_pieces() -> usize {
     20
 }
@@ -94,9 +70,9 @@ impl Default for ContentBasedSecurityConfig {
     fn default() -> Self {
         Self {
             session_flags: on(),
-            cn_models: CnModels::default(),
+            cn_models: None,
             injection: InjectionMode::default(),
-            wait_ms: default_wait_ms(),
+            wait_ms: None,
             max_pieces: default_max_pieces(),
             context: String::new(),
         }
@@ -108,17 +84,17 @@ impl ContentBasedSecurityConfig {
         *self == Self::default()
     }
 
-    /// With the flags off nothing is judged, so `follow_flags` would have no labels to read: the old behaviour was to
-    /// refuse every request of restricted origin, the opposite of what an off switch says. Say what to write instead.
-    pub fn validate(&self) -> Result<()> {
-        if !self.session_flags && self.cn_models == CnModels::FollowFlags {
-            bail!(
-                "content_based_security.session_flags = false with cn_models = \"follow_flags\": with nothing \
-                 judged there are no labels to follow. Write cn_models = \"never\" to keep models of restricted \
-                 origin off, or cn_models = \"always\" to send to them without labels"
-            );
-        }
-        Ok(())
+    /// The retired keys this section sets, by the name the config gives them:
+    /// what [`crate::Config::parse`] warns of, once.
+    pub fn retired(&self) -> Vec<String> {
+        [
+            ("cn_models", self.cn_models.is_some()),
+            ("wait_ms", self.wait_ms.is_some()),
+        ]
+        .iter()
+        .filter(|(_, set)| *set)
+        .map(|(k, _)| format!("content_based_security.{k}"))
+        .collect()
     }
 }
 
@@ -126,18 +102,18 @@ impl ContentBasedSecurityConfig {
 mod tests {
     use super::*;
 
-    /// The defaults are on, follow the flags, notify (the owner's S17-D8, 2026-11-12), a four-second wait and
-    /// twenty pieces; each key parses on its own; and an unknown key is refused rather than ignored.
+    /// The defaults are on, notify (the owner's S17-D8, 2026-11-12) and twenty
+    /// pieces; each key parses on its own; and an unknown key is refused rather
+    /// than ignored.
     #[test]
     fn the_defaults_are_on_and_notifying() {
         let d = ContentBasedSecurityConfig::default();
         assert!(d.session_flags);
-        assert_eq!(d.cn_models, CnModels::FollowFlags);
         assert_eq!(d.injection, InjectionMode::Notify);
-        assert_eq!(d.wait_ms, 4_000);
         assert_eq!(d.max_pieces, 20);
         assert_eq!(d.context, "");
         assert!(d.is_default());
+        assert!(d.retired().is_empty());
         let c: ContentBasedSecurityConfig = toml::from_str("").unwrap();
         assert_eq!(c, d, "an empty table is the default");
 
@@ -153,23 +129,12 @@ mod tests {
         assert!(c.session_flags, "refuse turns nothing else off");
         assert!(!c.is_default());
 
-        let c: ContentBasedSecurityConfig = toml::from_str("wait_ms = 0").unwrap();
-        assert_eq!(c.wait_ms, 0, "zero means a cn request never waits");
         let c: ContentBasedSecurityConfig = toml::from_str("session_flags = false").unwrap();
         assert!(!c.session_flags);
         let c: ContentBasedSecurityConfig = toml::from_str("max_pieces = 2").unwrap();
         assert_eq!(c.max_pieces, 2);
         let c: ContentBasedSecurityConfig = toml::from_str("context = \"Public: ~/p.\"").unwrap();
         assert_eq!(c.context, "Public: ~/p.");
-        for (word, want) in [
-            ("always", CnModels::Always),
-            ("follow_flags", CnModels::FollowFlags),
-            ("never", CnModels::Never),
-        ] {
-            let c: ContentBasedSecurityConfig =
-                toml::from_str(&format!("cn_models = \"{word}\"")).unwrap();
-            assert_eq!(c.cn_models, want);
-        }
 
         let e = toml::from_str::<ContentBasedSecurityConfig>("inject = \"notify\"")
             .unwrap_err()
@@ -185,27 +150,37 @@ mod tests {
         assert!(e.contains("enabled"), "{e}");
     }
 
-    /// Only the flags off with `follow_flags` refuses, and the message names the two ways out.
+    /// `cn_models` and `wait_ms` are retired (2026-11-21): an old settings file
+    /// that sets either, with any value it could have had and the flags on or
+    /// off, still loads; each is named by `retired()` and never written back.
     #[test]
-    fn only_flags_off_with_follow_flags_is_refused() {
-        for flags in [true, false] {
-            for cn in [CnModels::Always, CnModels::FollowFlags, CnModels::Never] {
-                let c = ContentBasedSecurityConfig {
-                    session_flags: flags,
-                    cn_models: cn,
-                    ..Default::default()
-                };
-                let r = c.validate();
-                assert_eq!(
-                    r.is_err(),
-                    !flags && cn == CnModels::FollowFlags,
-                    "{flags} {cn:?}: {r:?}"
-                );
-                if let Err(e) = r {
-                    let e = e.to_string();
-                    assert!(e.contains("never") && e.contains("always"), "{e}");
-                }
-            }
+    fn a_retired_key_loads_warns_and_is_never_written_back() {
+        for text in [
+            "cn_models = \"always\"",
+            "cn_models = \"follow_flags\"",
+            "cn_models = \"never\"",
+            "cn_models = \"follow_flags\"\nsession_flags = false",
+        ] {
+            let c: ContentBasedSecurityConfig = toml::from_str(text).unwrap();
+            assert_eq!(c.retired(), ["content_based_security.cn_models"], "{text}");
+            assert!(
+                !toml::to_string(&c).unwrap().contains("cn_models"),
+                "{text}"
+            );
         }
+        for text in ["wait_ms = 0", "wait_ms = 30000"] {
+            let c: ContentBasedSecurityConfig = toml::from_str(text).unwrap();
+            assert_eq!(c.retired(), ["content_based_security.wait_ms"], "{text}");
+            assert!(!toml::to_string(&c).unwrap().contains("wait_ms"), "{text}");
+        }
+        let both: ContentBasedSecurityConfig =
+            toml::from_str("cn_models = \"never\"\nwait_ms = 4000").unwrap();
+        assert_eq!(
+            both.retired(),
+            [
+                "content_based_security.cn_models",
+                "content_based_security.wait_ms"
+            ]
+        );
     }
 }

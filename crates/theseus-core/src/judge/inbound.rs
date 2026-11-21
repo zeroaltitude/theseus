@@ -23,17 +23,18 @@
 //!   and the id its row will carry), spawns the point, and goes on. The
 //!   state's build (the session's nodes, its live tasks), its blob, the
 //!   reservation, the call, and the record are the spawned task's.
-//! - **The roles.** Until 26c brings the versioned table, the state carries
-//!   the spec's twelve seed rows (§3.4, [`SEED_ROLES`]) and no current role,
-//!   so `role.v1` (asked only when there are roles) asks in shadow now.
+//! - **The roles.** The state carries the spec's twelve seed rows (§3.4,
+//!   [`SEED_ROLES`]) and no current role. `role.v1`, their one reader, never
+//!   graduated from shadow and is retired; the rows stay because the live
+//!   packs share this state byte for byte, and dropping them would change
+//!   every request they send.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    DataNames, InboundInput, PersonaInput, RestrictedModels, RoleInput, TaskInput, ThreadInput,
-    ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
 };
 use theseus_judge::{Ask, DecisionPoint, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
@@ -58,8 +59,6 @@ pub const THREAD_QUESTION: &str = "thread";
 pub const SCOPE_QUESTION: &str = "scope";
 /// The question of `classify.v3` that finds work to offer as a task.
 pub const OFFER_QUESTION: &str = "offer_task";
-/// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v3`.
-pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
 /// The acting route pack: `route.v11` (theseus-h66v4), where Jev chooses the model
@@ -104,9 +103,8 @@ fn family_of(packs: &[(Arc<Pack>, String, PackMode)]) -> bool {
 }
 
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 6] = [
+pub const PACKS: [&str; 5] = [
     CLASSIFY_PACK,
-    ROLE_PACK,
     ROUTE_PACK,
     DIRECTIVE_PACK,
     ONTO_PACK,
@@ -310,10 +308,6 @@ pub struct Inbound {
     /// ones' first characters (theseus-p6zgq). Only a turn that has its
     /// node carries them.
     pub attachments: Vec<crate::node::Attachment>,
-    /// Whether the session's labels let a model of restricted origin read the
-    /// turn (`data_step::cn_read`), for route.v10's `restricted_models`
-    /// (theseus-9f72b). Fail-closed where no turn read the labels.
-    pub restricted: RestrictedModels,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -583,14 +577,6 @@ impl JudgeService {
         }
     }
 
-    /// A turn the data rule kept off a restricted-origin model, as
-    /// `theseus.route.data_gate` (theseus-a1wvq.11).
-    pub fn record_data_gate(&self, what: &str, why: &str) {
-        if let Some(t) = self.telemetry.get() {
-            t.record_data_gate(what, why);
-        }
-    }
-
     /// The session holds a late verdict (a test's wait for one to land).
     #[cfg(test)]
     pub fn has_late(&self, session: &str) -> bool {
@@ -646,28 +632,6 @@ impl JudgeService {
                 }
             });
         }
-    }
-
-    /// The owner said a message was routed to the wrong thread: a "wrong
-    /// thread" label on `classify.v2`'s count of the day, which its rollback
-    /// rule reads. Landed off the turn's path: `land` writes a frame.
-    pub fn wrong_thread(&self) {
-        let Ok(rt) = tokio::runtime::Handle::try_current() else {
-            return;
-        };
-        let me = self.me.clone();
-        rt.spawn_blocking(move || {
-            if let Some(svc) = me.upgrade() {
-                let day = svc.today();
-                svc.land(
-                    CLASSIFY_PACK,
-                    theseus_judge::learn::CanaryEvent::Label {
-                        day,
-                        label: "wrong thread".into(),
-                    },
-                );
-            }
-        });
     }
 
     /// Whether Jev's breaker is open now: a live verdict would not come, so
@@ -809,18 +773,14 @@ impl JudgeService {
         // is live when ANY ask in it is (`Class::of_asks`), so a shadow ask
         // that shares a request with a live one spends as live and is not
         // stopped at `SHADOW_STOP_PERCENT`. At the wired modes (`WIRED`) that
-        // is `role.v1` and the non-route `split.v1` (both shadow) riding the
-        // `rest` request with `classify` and `directive` (live): `plan`
-        // batches packs of one state, model and assets, and all four ask on
-        // the `inbound` state. Taking a class per request would change
-        // nothing here, since `rest` is live either way; only splitting a
-        // request's reservation by ask would, and that changes who pays: the
-        // owner's call. Not traced to micro-dollars (that needs a built
-        // state): by question count, the shadow share of `rest` is role's 1
-        // and split's 1 of classify's 9, directive's 2 and those 2, so about
-        // 2 of 13 questions (15%). With the route family on, `split.v1` rides
-        // the route lane (live, with route, effort and work) instead, and
-        // `rest` carries `role` alone beside `classify` and `directive`.
+        // is the non-route `split.v1` (shadow) riding the `rest` request with
+        // `classify` and `directive` (live): `plan` batches packs of one
+        // state, model and assets, and all three ask on the `inbound` state.
+        // Taking a class per request would change nothing here, since `rest`
+        // is live either way; only splitting a request's reservation by ask
+        // would, and that changes who pays: the owner's call. With the route
+        // family on, `split.v1` rides the route lane (live, with route,
+        // effort and work) instead.
         let class = spend::Class::of_asks(route.iter().chain(&alone).chain(&rest).copied());
         let need = reserve(route) + reserve(alone) + reserve(rest);
         let beside = self.reserve_beside(today, need, class)?;
@@ -844,18 +804,14 @@ impl JudgeService {
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
         let mut input = input(&nodes, msg, live_tasks);
-        // The route facts: the clock and the labels' rule are the daemon's,
-        // the models are the session's own record (theseus-9f72b).
+        // The route facts: the clock is the daemon's, the models are the
+        // session's own record (theseus-9f72b).
         let before = nodes
             .iter()
             .position(|n| n.id == msg.node_id)
             .map_or(&nodes[..], |i| &nodes[..i]);
-        let mut facts = super::route_facts::facts_of(
-            before,
-            msg.task,
-            msg.restricted,
-            theseus_protocol::now_unix_ms(),
-        );
+        let mut facts =
+            super::route_facts::facts_of(before, msg.task, theseus_protocol::now_unix_ms());
         // How the last turn ran (theseus-8euum): the session's own ledger rows.
         facts.previous_turn =
             crate::routing::effort::previous::previous_turn(&self.store, &msg.session_id)
@@ -1015,9 +971,7 @@ fn unasked_when_pinned(ask: &mut Ask, pinned: bool) {
 /// verdict then carries those alone, with no `mode` word and no `model`
 /// (theseus-7l8lr.2).
 ///
-/// The pack's `data` question is not read: whether a session may use a model
-/// of restricted origin is decided by the labels on it (`crate::content`),
-/// not by a verdict per message.
+/// The pack's `data` question is not read.
 pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing::Verdict> {
     use crate::routing::effort::{EffortAnswer, QUESTION};
     if !j.actionable() {
@@ -1517,7 +1471,7 @@ mod tests {
         assert_eq!(ids.len(), 12);
         assert!(
             !ids.contains(&"other"),
-            "role.v1's no-match option is its own"
+            "a role is never the no-match option's id"
         );
     }
 }

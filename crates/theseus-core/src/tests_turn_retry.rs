@@ -30,8 +30,7 @@ fn build(dir: &Path, model: Arc<FakeProvider>) -> Arc<Core> {
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
-    cfg.memory.mode = MemoryMode::Canary;
-    cfg.memory.canary_fraction = 1.0;
+    cfg.memory.mode = MemoryMode::Live;
     // The call fails its turn, and the retry is the next turn's.
     cfg.model.retries.transient = 0;
     let store = Store::open(&dir.join("store")).unwrap();

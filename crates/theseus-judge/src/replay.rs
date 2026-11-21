@@ -572,7 +572,7 @@ mod tests {
     fn a_content_state_of_v2_is_served_to_v1_and_not_to_v3() {
         use crate::builders::{prepare, ContentInput, Input};
         use crate::state::NoScrub;
-        let v2 = by_name("content.v2").unwrap();
+        let v2 = crate::pack::retired("content.v2").unwrap();
         let built = prepare(
             &v2,
             &Input::Content(ContentInput {
@@ -596,11 +596,11 @@ mod tests {
             dropped: vec![],
         };
         assert_eq!(
-            stored_state_differs(&by_name("content.v1").unwrap(), &rec),
+            stored_state_differs(&crate::pack::retired("content.v1").unwrap(), &rec),
             None
         );
         assert_eq!(stored_state_differs(&v2, &rec), None);
-        let why = stored_state_differs(&by_name("content.v3").unwrap(), &rec).unwrap();
+        let why = stored_state_differs(&crate::pack::retired("content.v3").unwrap(), &rec).unwrap();
         assert!(
             why.contains("version 1") && why.contains("version 2"),
             "{why}"

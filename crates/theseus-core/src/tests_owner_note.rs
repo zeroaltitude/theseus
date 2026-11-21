@@ -177,7 +177,6 @@ fn spend_families() -> Vec<(&'static str, String)> {
 /// Initiative, the ontology, Jev, routines and watches, and the DM's cards.
 fn card_families() -> Vec<(&'static str, String)> {
     let morning = crate::initiative::speak::headed("morning", "Good morning: 2 tasks ended.");
-    let finding = crate::initiative::speak::headed("consolidation", "Two notes say the same.");
     let digest = crate::initiative::digest::posted_text("◆ 2 reported\n📋 task a: done");
     let minted = crate::judge::onto::words::minted_text(
         Some("harbour notes"),
@@ -218,7 +217,6 @@ fn card_families() -> Vec<(&'static str, String)> {
         ("new persona card", new_persona),
         ("personas moved note", moved),
         ("morning note", morning),
-        ("consolidation finding", finding),
         ("posted digest", digest),
         ("ontology mint card", minted),
         ("ontology ask card", onto_ask),

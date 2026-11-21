@@ -247,7 +247,6 @@ pub(crate) fn rig_arm(
 ) {
     let r = rig_with(mode, |c| {
         c.memory.arm = arm;
-        c.memory.canary_fraction = 1.0;
         c.memory.recall_deadline_ms = deadline_ms;
     });
     let c = r.core.clone();

@@ -20,9 +20,6 @@
 //!   own rule): the CLI, the web UI and a DM with an owner. A guild channel
 //!   bound private is not one — anyone it lets in writes there — and a task's
 //!   session is not one either.
-//! - **Never to a model of restricted origin.** These are the owner's
-//!   personal words, unconfirmed and uncurated; the data gate's rule for the
-//!   card's own records holds here (the turn's `restricted_profile`).
 //! - **Only today's**, by the local day the spend counts (`judge::spend`), and
 //!   only those still `Open`: one the owner has answered is a record or a
 //!   declined question, and the block is not a second copy of either.
@@ -92,17 +89,16 @@ fn one_line(text: &str) -> String {
 /// The turn's side (`compile_step::tail_blocks`): the day's observations,
 /// attached to the compiled request after the surface's standing records,
 /// their tokens counted in the estimate. Returns the text it attached; `None`,
-/// and the request untouched, where the owner is not alone, for a model of
-/// restricted origin, or when nothing was noted today.
+/// and the request untouched, where the owner is not alone, or when nothing
+/// was noted today.
 pub fn attach(
     store: &crate::store::Store,
     class: theseus_protocol::PlaceClass,
     place: Option<&str>,
-    restricted: bool,
     now_ms: u64,
     compiled: &mut crate::compiler::Compiled,
 ) -> Option<String> {
-    if restricted || !crate::capture::owner_alone(class, place) {
+    if !crate::capture::owner_alone(class, place) {
         return None;
     }
     let all = match crate::card::state::observations(store, Some(ObservationState::Open)) {

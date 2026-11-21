@@ -2,8 +2,7 @@
 //! mark his employer's work. Route.v6's `data` question and Jev's content pack read it as the private names,
 //! the pack-text check at start reads it, and **an item that holds one raises a removable `confidential`
 //! label on its session at its entry** (`content::deterministic::from_names`), with no model call. A hit
-//! refuses nothing: the label follows `[content_based_security] cn_models` like any other, and the operator
-//! removes it. The matcher is `theseus_judge::names`. Every key has a default, so an owner's config names
+//! refuses nothing: the label is read like any other, and the operator removes it. The matcher is `theseus_judge::names`. Every key has a default, so an owner's config names
 //! none unless it differs.
 //!
 //! - `sensitive_names`: organisations, clients, projects and people, empty by

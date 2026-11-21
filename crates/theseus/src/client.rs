@@ -298,7 +298,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 126] = [
+pub const OPERATORS: [(&str, &str); 123] = [
     (method::CONFIG_HISTORY, "theseus config history"),
     (method::CONFIG_WHOLE, "theseus config show"),
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
@@ -318,7 +318,6 @@ pub const OPERATORS: [(&str, &str); 126] = [
     (method::FILES_RESTORE, "theseus rewind"),
     (method::ACTION_CONFIRM, "theseus answer"),
     (method::WORK_ANSWER, "theseus answer"),
-    (method::THREAD_ANSWER, "theseus thread answer"),
     (method::THREAD_MOVE, "theseus thread move"),
     (method::PROJECT_CREATE, "theseus project new"),
     (method::PROJECT_ATTACH, "theseus project attach"),
@@ -354,7 +353,6 @@ pub const OPERATORS: [(&str, &str); 126] = [
     ),
     (method::MEMORY_LABEL, "theseus memory label"),
     (method::FACT_RETRACT, "theseus retract"),
-    (method::MEMORY_CONSOLIDATE, "theseus memory consolidate"),
     (method::INDEX_REBUILD, "theseus memory index rebuild"),
     (method::JUDGE_LABEL, "theseus judge label"),
     (method::ROUTE_CORRECT, "theseus judge correct"),
@@ -412,7 +410,6 @@ pub const OPERATORS: [(&str, &str); 126] = [
     (method::ROUTINE_TRY, "theseus routine try"),
     (method::ROUTINE_UPDATE, "theseus routine update"),
     (method::ROUTINE_DELETE, "theseus routine rm"),
-    (method::THREAD_IMPORT, "theseus thread import"),
     (method::THREAD_SEAL, "theseus thread seal"),
     (method::THREAD_UNSEAL, "theseus thread unseal"),
     (
@@ -655,7 +652,6 @@ mod tests {
             method::THREAD_RESUME,
             method::THREAD_DONE,
             method::THREAD_REOPEN,
-            method::THREAD_IMPORT,
             method::THREAD_SEAL,
             method::THREAD_UNSEAL,
             method::THREAD_SEAL_DISMISS,

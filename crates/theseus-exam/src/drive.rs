@@ -56,32 +56,17 @@ pub enum Arm {
     None,
     Bm25,
     Baseline,
-    /// `baseline` ranked by FSRS-6 retention too (32a): its daemon's own
-    /// `[memory] arm = "+retention"`.
-    Retention,
-    /// `baseline` with spreading activation as one more ranked source (M6
-    /// 32b): its daemon's own `[memory] arm`.
-    Activation,
     Oracle,
 }
 
 impl Arm {
-    pub const ALL: [Arm; 6] = [
-        Arm::None,
-        Arm::Bm25,
-        Arm::Baseline,
-        Arm::Retention,
-        Arm::Activation,
-        Arm::Oracle,
-    ];
+    pub const ALL: [Arm; 4] = [Arm::None, Arm::Bm25, Arm::Baseline, Arm::Oracle];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Arm::None => "none",
             Arm::Bm25 => "bm25",
             Arm::Baseline => "baseline",
-            Arm::Retention => "+retention",
-            Arm::Activation => "+activation",
             Arm::Oracle => "oracle",
         }
     }
@@ -91,12 +76,8 @@ impl Arm {
             "none" => Ok(Arm::None),
             "bm25" => Ok(Arm::Bm25),
             "baseline" => Ok(Arm::Baseline),
-            "+retention" => Ok(Arm::Retention),
-            "+activation" => Ok(Arm::Activation),
             "oracle" => Ok(Arm::Oracle),
-            o => bail!(
-                "unknown arm {o:?}: the arms are none, bm25, baseline, +retention, +activation and oracle"
-            ),
+            o => bail!("unknown arm {o:?}: the arms are none, bm25, baseline and oracle"),
         }
     }
 
@@ -943,11 +924,10 @@ mod tests {
         }
         assert_eq!(Arm::Oracle.daemon(), "none");
         assert_eq!(Arm::Bm25.daemon(), "bm25");
-        assert_eq!(Arm::Activation.daemon(), "+activation");
+        assert_eq!(Arm::Baseline.daemon(), "baseline");
         assert!(Arm::parse("+rerank")
             .unwrap_err()
             .to_string()
-            .contains("none, bm25, baseline, +retention, +activation and oracle"));
-        assert_eq!(Arm::Retention.daemon(), "+retention");
+            .contains("none, bm25, baseline and oracle"));
     }
 }

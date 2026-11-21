@@ -34,14 +34,12 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         mode: &str,
         arm: MemoryArm,
-        activation: Option<theseus_protocol::memory::RecallActivation>,
         begun: &Begun,
         mut answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
         let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
-        let mut scene = self.scene(t, mode, arm, &begun.said);
-        scene.activation = activation;
+        let scene = self.scene(t, mode, arm, &begun.said);
         // Seals hold on every path, threads on or off, before the rerank
         // or Jev reads a candidate (the gate).
         let lens = scene.threads.is_some();
@@ -75,7 +73,6 @@ impl TurnRunner {
         if rerank == PackMode::Off {
             return m;
         }
-        let retention = self.memory.retention_of(&*parts.science, &candidates);
         let lens = parts.lens(&candidates);
         let live = rerank == PackMode::Live;
         let recalled = |candidates| Recalled {
@@ -90,7 +87,6 @@ impl TurnRunner {
             links: links.clone(),
             params: self.memory.params_of(&m, parts.max_items),
             science: parts.science.clone(),
-            retention: retention.clone(),
             threads: lens.clone(),
             admitted: m
                 .admitted

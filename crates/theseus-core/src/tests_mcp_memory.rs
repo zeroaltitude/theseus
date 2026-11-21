@@ -360,7 +360,6 @@ async fn the_mcp_connection_is_still_refused_every_other_memory_method_and_every
     let r = rig(true);
     for m in [
         method::MEMORY_LABEL,
-        method::MEMORY_CONSOLIDATE,
         method::MEMORY_SEARCH,
         method::MEMORY_RECALLS,
         method::IMPORT_SESSIONS,

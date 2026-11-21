@@ -1,17 +1,17 @@
-//! An unaddressed message finds its thread (theseus-rha2), through the core:
-//! the router's addressing and pre-router with no Jev; Jev's `thread`
-//! question on the very request the inbound batch rides (one request, no
-//! call added); every band of the decision; the question and its answer; the
-//! timeout that leaves the router's guess; the misroute guard; and `thread.move`
-//! with its one note, its one re-submission and the correction the next close
-//! message follows.
+//! A message goes to a thread by its address only (theseus-rha2; the owner,
+//! 2026-11-21), through the core: a `#slug`, `/t slug`, "in the <title>
+//! thread:", a place bound to the thread and a reply to a thread's reply each
+//! place it, certain; a message with no address runs in the place's own
+//! conversation, whatever it names and whatever Jev's `thread` answer says,
+//! while that question still rides the one inbound request; and `thread.move`
+//! with its one note and its one re-submission, which teaches nothing.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
-use theseus_protocol::thread_route::{RouteHow, ThreadAnswerParams, ThreadMoveParams, ThreadTag};
+use theseus_protocol::thread_route::{RouteHow, ThreadMoveParams, ThreadTag};
 use theseus_protocol::threads::{ThreadEditParams, ThreadNewParams, WorkingSet};
 use theseus_protocol::{
     method, Id, Message, Request, SessionKind, TurnSubmitParams, TurnSubmitResult,
@@ -29,9 +29,7 @@ use crate::tests_inbound::inbound_only;
 use crate::tests_judge::{rig_on, texts, Rig};
 
 mod exchange;
-mod large;
 mod tail;
-mod title;
 
 /// The owner, and a second place of theirs.
 const OWNER: u64 = 314_159_265_358_979;
@@ -201,26 +199,6 @@ impl Wire {
             }
         }
     }
-
-    /// Read until a notification of `method`.
-    async fn notice(&mut self, method: &str) -> Value {
-        if let Some(i) = self.heard.iter().position(|n| n["method"] == method) {
-            return self.heard.remove(i)["params"].clone();
-        }
-        loop {
-            match self
-                .message(Duration::from_secs(30))
-                .await
-                .expect("a notification")
-            {
-                Message::Notification(n) if n.method == method => return n.params,
-                Message::Notification(n) => self
-                    .heard
-                    .push(json!({"method": n.method, "params": n.params})),
-                _ => {}
-            }
-        }
-    }
 }
 
 fn params(session: &str, input: &str, reply_to_turn: Option<&str>) -> TurnSubmitParams {
@@ -288,64 +266,92 @@ fn rig(jev: &FakeJev, n: usize) -> Rig {
 
 // ---------------------------------------------------------------- addressing
 
-/// A message that names a thread's PR runs in that thread without waiting for
-/// Jev, which is not asked about threads at all; its reply goes back to the
-/// DM it came from; and the place's own session took no turn.
+fn thread_answer(jev: &FakeJev, slug: &str, p: f64) {
+    jev.script(
+        "thread",
+        Jev::Choice {
+            option: slug.into(),
+            confidence: p,
+        },
+    );
+}
+
+/// A message that names a thread's PR but no address runs in the place's own
+/// conversation at once: no thread takes it, whatever Jev's `thread` answer
+/// says, and so does the follow-up right after the reply. That question still
+/// rides the one inbound request (role and the rest ride it too, no call
+/// added), the turn takes the point over, and the row names none of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_message_that_names_a_threads_pr_runs_there_and_replies_in_the_dm() {
+async fn a_message_with_no_address_runs_at_home_whatever_it_names() {
     let jev = FakeJev::start().unwrap();
     let r = rig(&jev, 4);
     let c = &r.core;
     two_threads(c);
     let dm = home(c, Some(&format!("dm:{OWNER}")));
-    let t0 = Instant::now();
+    thread_answer(&jev, "pr-round", 0.95);
     let res = submit(c, &dm, "what is failing in PR 412?").await;
-    let ran = session_of(c, "pr-round");
-    assert_eq!(res.session_id, ran);
+    assert_eq!(res.session_id, dm, "the place's own conversation took it");
     let t = tag(&res);
     assert_eq!(
         (t.how, t.slug.as_deref(), t.movable),
-        (RouteHow::Quiet, Some("pr-round"), false)
+        (RouteHow::Home, None, false)
     );
-    assert_eq!(t.words().as_deref(), Some("\u{2192} pr round"));
-    assert_eq!(
-        c.outbox.target(&ran).as_deref(),
-        Some(format!("discord:dm:{OWNER}").as_str()),
-        "the thread's reply goes where the message came from"
+    assert_eq!(t.words(), None, "a quiet home message has no tag");
+    assert!(
+        c.threads().get("pr-round").unwrap().session_id.is_none(),
+        "the thread opened no session for it"
     );
+    // One request, carrying the thread question.
+    wait_for(|| jev.seen().len() == 1 && !rows(c, "judge.call").is_empty()).await;
+    assert_eq!(jev.seen().len(), 1, "no call was added");
+    let q = jev.seen()[0].body["questions"].clone();
+    let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
+    assert!(ids.contains(&"classify.v4/thread".to_string()), "{ids:?}");
+    let mut opts: Vec<String> = q["classify.v4/thread"]["criteria"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    opts.sort();
     assert_eq!(
-        c.store
-            .get_session::<SessionRecord>(&dm)
-            .unwrap()
-            .unwrap()
-            .turns,
-        0,
-        "the place's own conversation took no turn"
+        opts,
+        ["home", "new_thread", "pr-round", "security-fix"],
+        "{opts:?}"
     );
     let routed = rows(c, "thread.routed");
     assert_eq!(routed.len(), 1);
-    assert_eq!(routed[0].data["to"], "pr-round");
-    assert_eq!(routed[0].data["early"], false);
+    assert_eq!(routed[0].data["to"], "home");
+    assert_eq!(routed[0].data["early"], true);
     assert_eq!(
         routed[0].turn_id.as_deref(),
         Some(res.turn_id.as_str()),
         "the row rides the turn's own frame"
     );
-    let pre = routed[0].data["pre"].as_array().unwrap();
-    let hits = pre.iter().find(|p| p["thread"] == "pr-round").unwrap();
-    assert_eq!(hits["hits"], json!(["#412"]));
-    // Quick: nothing waited on Jev (a decisive router is free).
-    assert!(t0.elapsed() < Duration::from_secs(5));
-    // The next message, right after the reply, with no entity: the thread is
-    // the likelier, and Jev tells a fragment from a switch.
-    thread_answer(&jev, "pr-round", 0.9);
+    for gone in ["pre", "jev", "timed_out", "waited_ms", "ask"] {
+        assert!(
+            routed[0].data.get(gone).is_none(),
+            "{gone}: {:?}",
+            routed[0].data
+        );
+    }
+    // The judgment rows belong to the turn that ran: the point was taken over.
+    let calls = rows(c, "judge.call");
+    assert!(
+        calls
+            .iter()
+            .all(|j| j.turn_id.as_deref() == Some(res.turn_id.as_str())),
+        "{calls:?}"
+    );
+    // The follow-up right after the reply, with no entity: home again.
+    thread_answer(&jev, "pr-round", 0.95);
     let res2 = submit(c, &dm, "and the tests too").await;
-    assert_eq!(res2.session_id, ran);
-    assert_eq!(tag(&res2).how, RouteHow::Quiet);
+    assert_eq!(res2.session_id, dm);
     assert_eq!(
-        texts_of(c, &ran),
+        texts_of(c, &dm),
         ["what is failing in PR 412?", "and the tests too"]
     );
+    assert!(rows(c, "thread.asked").is_empty(), "nothing is asked");
 }
 
 /// Addressing is first, in order: `#slug` (taken off the message), `/t slug`,
@@ -411,90 +417,11 @@ async fn addressing_comes_first_and_is_certain() {
     );
 }
 
-// ------------------------------------------------------------- Jev's choice
-
-fn thread_answer(jev: &FakeJev, slug: &str, p: f64) {
-    jev.script(
-        "thread",
-        Jev::Choice {
-            option: slug.into(),
-            confidence: p,
-        },
-    );
-}
-
-/// With the router unsure, Jev's `thread` question rides the one inbound
-/// request (role and the rest ride it too), the turn takes the point over, and
-/// the ledger shows one call for the message: the same as with no threads.
-/// Every band: sure routes quietly, likely with a tag and a move handle.
+/// The owner's words in a message with no address, in a place with threads (theseus-slvl.5 on thread-route,
+/// the owner's 2026-10-15 "I think that sounds right"): `directive.v2` rides the call begun before the turn,
+/// the one request the message makes, and the record names the message the turn wrote, at home.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn jevs_thread_answer_rides_the_one_inbound_request_and_the_bands_route() {
-    let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 6);
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    thread_answer(&jev, "security-fix", 0.95);
-    let a = submit(c, &dm, "why is the build red").await;
-    assert_eq!(a.session_id, session_of(c, "security-fix"));
-    let t = tag(&a);
-    assert_eq!((t.how, t.movable), (RouteHow::Quiet, false));
-    // One request, carrying role's question and the thread question.
-    wait_for(|| jev.seen().len() == 1 && !rows(c, "judge.call").is_empty()).await;
-    assert_eq!(jev.seen().len(), 1, "no call was added");
-    let q = jev.seen()[0].body["questions"].clone();
-    let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
-    assert!(ids.contains(&"classify.v4/thread".to_string()), "{ids:?}");
-    assert!(ids.contains(&"role.v1/role".to_string()), "{ids:?}");
-    let mut opts: Vec<String> = q["classify.v4/thread"]["criteria"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
-    opts.sort();
-    assert_eq!(
-        opts,
-        ["home", "new_thread", "pr-round", "security-fix"],
-        "{opts:?}"
-    );
-    let routed = &rows(c, "thread.routed")[0];
-    assert_eq!(routed.data["early"], true);
-    assert_eq!(routed.data["jev"]["pick"], "security-fix");
-    assert_eq!(routed.data["timed_out"], false);
-    // The judgment rows belong to the turn that ran: the point was taken over.
-    let calls = rows(c, "judge.call");
-    assert!(
-        calls
-            .iter()
-            .all(|j| j.turn_id.as_deref() == Some(a.turn_id.as_str())),
-        "{calls:?}"
-    );
-    // Likely: a visible tag and a move handle.
-    // (A place of its own for each band: the last thread is a prior.)
-    thread_answer(&jev, "pr-round", 0.75);
-    let dm = home(c, None);
-    let b = submit(c, &dm, "does the migration need a flag").await;
-    assert_eq!(b.session_id, session_of(c, "pr-round"));
-    let t = tag(&b);
-    assert_eq!((t.how, t.movable), (RouteHow::Visible, true));
-    assert_eq!(
-        t.words().as_deref(),
-        Some("\u{2192} pr round \u{b7} \u{21aa} move")
-    );
-    // Home, sure: no thread, the place's own conversation, no tag.
-    thread_answer(&jev, "home", 0.96);
-    let dm = home(c, None);
-    let h = submit(c, &dm, "what is the weather like").await;
-    assert_eq!(h.session_id, dm);
-    assert_eq!(tag(&h).words(), None);
-}
-
-/// The owner's words in a message the router places (theseus-slvl.5 on thread-route, the owner's 2026-10-15
-/// "I think that sounds right"): `directive.v2` rides the router's early call, the one request the message makes,
-/// and the record names the message the turn wrote, in the thread's session it ran in.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message() {
+async fn a_message_at_home_is_captured_in_the_early_call_and_names_its_message() {
     let jev = FakeJev::start().unwrap();
     let r = rig(&jev, 4);
     let c = &r.core;
@@ -516,7 +443,7 @@ async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message(
         },
     );
     let a = submit(c, &dm, "no tables with me when we talk about the build").await;
-    assert_eq!(a.session_id, session_of(c, "security-fix"));
+    assert_eq!(a.session_id, dm);
     wait_for(|| !rows(c, "standing.captured").is_empty()).await;
     assert_eq!(jev.seen().len(), 1, "no call was added");
     let q = jev.seen()[0].body["questions"].clone();
@@ -533,692 +460,21 @@ async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message(
             .unwrap()
             .iter()
             .any(|(_, n)| n.id == node),
-        "the record names the message the routed turn wrote"
+        "the record names the message the turn wrote"
     );
 }
 
-/// Jev not answering in `[threads] route_wait_ms` leaves the router's pick,
-/// tagged a guess, and the ledger counts the timeout.
+/// "That was for the security fix": the wrong thread gets one note and the
+/// message runs once more in the right one. Nothing is learned: no label is
+/// written, and the next close message runs at home.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_late_jev_leaves_the_routers_guess_and_the_timeout_is_counted() {
-    let jev = FakeJev::start().unwrap();
-    jev.set_latency(Duration::from_millis(1500), Duration::from_millis(1500));
-    thread_answer(&jev, "security-fix", 0.95);
-    let r = rig_on(texts(3), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 60;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let t0 = Instant::now();
-    let a = submit(c, &dm, "tidewatch builds slowly").await;
-    let t = tag(&a);
-    assert_eq!(
-        a.session_id,
-        session_of(c, "pr-round"),
-        "the router's pick: the repo it names"
-    );
-    assert_eq!((t.how, t.movable), (RouteHow::Guess, true));
-    assert!(t.words().unwrap().contains("(a guess)"), "{:?}", t.words());
-    let row = &rows(c, "thread.routed")[0];
-    assert_eq!(row.data["timed_out"], true);
-    assert!(
-        t0.elapsed() < Duration::from_millis(1400),
-        "the message did not wait for Jev"
-    );
-}
-
-// ------------------------------------------------------------------ the ask
-
-/// Two threads named, each with evidence and close, the router asks in one
-/// line and the turn waits (theseus-e31an: a lone weak lean is no contest); the
-/// answer routes it; a question nobody answers runs the message at home.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_message() {
-    let jev = FakeJev::start().unwrap();
-    // Two contend: the message names the security fix's repo, and Jev
-    // leans to the pr round (theseus-e31an: a lone lean is no contest).
-    thread_answer(&jev, "pr-round", 0.55);
-    let r = rig_on(texts(4), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 2;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::TURN_SUBMIT,
-            params(&dm, "why is the build red in vault", None),
-        )
-        .await;
-    let asked = w.notice("thread.asked").await;
-    assert_eq!(asked["session_id"], dm.as_str());
-    assert_eq!(
-        asked["question"],
-        "Is this about the security fix or the pr round?"
-    );
-    let keys: Vec<&str> = asked["options"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|o| o["key"].as_str().unwrap())
-        .collect();
-    assert_eq!(keys, ["1", "2", "home"]);
-    assert_eq!(asked["message"], "why is the build red in vault");
-    // The turn waits: no thread has a session yet.
-    assert!(c.threads().get("pr-round").unwrap().session_id.is_none());
-    // The owner answers "2" over a connection of their own.
-    let mut a = Wire::open(c);
-    let aid = a
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: asked["ask_id"].as_str().unwrap().into(),
-                choice: "2".into(),
-                author: None,
-                discord: None,
-            },
-        )
-        .await;
-    let ans = a.response(aid).await;
-    assert_eq!(ans["result"]["routed"], "pr-round", "{ans}");
-    let res: TurnSubmitResult =
-        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-    assert_eq!(res.session_id, session_of(c, "pr-round"));
-    assert_eq!(tag(&res).how, RouteHow::Asked);
-    let answered = rows(c, "thread.answered");
-    assert_eq!(
-        (answered.len(), answered[0].data["choice"].as_str()),
-        (1, Some("2"))
-    );
-    assert_eq!(rows(c, "thread.asked").len(), 1);
-    // A second answer finds no question waiting.
-    let aid = a
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: asked["ask_id"].as_str().unwrap().into(),
-                choice: "1".into(),
-                author: None,
-                discord: None,
-            },
-        )
-        .await;
-    assert_eq!(
-        a.response(aid).await["error"]["code"],
-        theseus_protocol::error_code::NOT_FOUND
-    );
-    // Nobody answers: the message runs at home when the wait ends. (A place
-    // of its own: the first one's last thread would be the follow-up.)
-    let dm = home(c, None);
-    let mut w2 = Wire::open(c);
-    let id2 = w2
-        .send(
-            method::TURN_SUBMIT,
-            params(&dm, "why is the build red again in vault", None),
-        )
-        .await;
-    let _ = w2.notice("thread.asked").await;
-    let res2: TurnSubmitResult =
-        serde_json::from_value(w2.response(id2).await["result"].clone()).unwrap();
-    assert_eq!(res2.session_id, dm);
-    assert_eq!(tag(&res2).how, RouteHow::Home);
-    assert_eq!(
-        rows(c, "thread.answered").last().unwrap().data["choice"],
-        "expired"
-    );
-}
-
-/// A connection that opens after the router asked can still read the question
-/// (`thread.ask_list`, theseus-nuqut): the same ask the push brought, listed
-/// while it waits and gone once it is answered.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_late_connection_reads_the_waiting_ask_and_it_leaves_once_answered() {
-    let jev = FakeJev::start().unwrap();
-    thread_answer(&jev, "pr-round", 0.55);
-    let r = rig_on(texts(4), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 30;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::TURN_SUBMIT,
-            params(&dm, "why is the build red in vault", None),
-        )
-        .await;
-    let asked = w.notice("thread.asked").await;
-    let mut late = Wire::open(c);
-    let lid = late.send(method::THREAD_ASK_LIST, Value::Null).await;
-    let listed = late.response(lid).await;
-    let asks = listed["result"]["asks"].as_array().expect("asks").clone();
-    assert_eq!(asks.len(), 1, "{listed}");
-    assert_eq!(asks[0], asked, "the list says what the push said");
-    assert_eq!(asks[0]["session_id"], dm.as_str());
-    assert!(!asks[0]["question"].as_str().unwrap().is_empty());
-    let aid = late
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: asked["ask_id"].as_str().unwrap().into(),
-                choice: "2".into(),
-                author: None,
-                discord: None,
-            },
-        )
-        .await;
-    assert_eq!(late.response(aid).await["result"]["routed"], "pr-round");
-    let _ = w.response(id).await;
-    let lid = late.send(method::THREAD_ASK_LIST, Value::Null).await;
-    let after = late.response(lid).await;
-    assert_eq!(
-        after["result"]["asks"].as_array().unwrap().len(),
-        0,
-        "{after}"
-    );
-}
-
-/// Stickiness alone cannot overrule Jev (theseus-eqp1v; the threadbench's
-/// msg-5 shape): right after a thread's reply, a new stream's first message
-/// scores that thread 0.88 from stickiness and the chain alone. Jev dissents,
-/// so the message is asked about (offering a new thread: it names a branch
-/// and a ticket no thread holds), never routed `visible`. With
-/// `sticky_alone_asks` off, the sticky thread takes it as before.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_dissenting_jev_and_a_sticky_place_ask_instead_of_routing() {
-    let fresh = "homesvc maintenance: branch chore/bump-1-8, ticket OPS-4214, bump the base image";
-    for on in [true, false] {
-        let jev = FakeJev::start().unwrap();
-        jev.script_when(
-            fresh,
-            None,
-            "thread",
-            Jev::Choice {
-                option: "security-fix".into(),
-                confidence: 0.3,
-            },
-        );
-        let r = rig_on(texts(4), Some(&jev), |c| {
-            inbound_only(c);
-            c.judge.total_secs = 5;
-            c.threads.route_wait_ms = 3000;
-            c.threads.ask_wait_secs = 2;
-            c.threads.sticky_alone_asks = on;
-        });
-        let c = &r.core;
-        two_threads(c);
-        let dm = home(c, None);
-        let first = submit(c, &dm, "what is failing in PR 412").await;
-        assert_eq!(first.session_id, session_of(c, "pr-round"));
-        let mut w = Wire::open(c);
-        let id = w.send(method::TURN_SUBMIT, params(&dm, fresh, None)).await;
-        let res: TurnSubmitResult =
-            serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-        let routed = rows(c, "thread.routed");
-        let last = &routed.last().unwrap().data;
-        let pre = last["pre"].as_array().unwrap();
-        assert!(
-            pre.iter()
-                .any(|x| (x["score"].as_f64().unwrap() - 0.88).abs() < 0.01),
-            "{last}"
-        );
-        if on {
-            let asked = rows(c, "thread.asked");
-            assert_eq!(asked.len(), 1, "{routed:?}");
-            let keys: Vec<&str> = w
-                .heard
-                .iter()
-                .find(|n| n["method"] == "thread.asked")
-                .map(|n| n["params"]["options"].as_array().unwrap().iter())
-                .into_iter()
-                .flatten()
-                .map(|o| o["key"].as_str().unwrap())
-                .collect();
-            assert!(keys.contains(&"new"), "{keys:?}");
-            assert_ne!(last["how"], "visible", "{last}");
-            assert_eq!(res.session_id, dm, "nobody answered: it ran at home");
-        } else {
-            assert!(rows(c, "thread.asked").is_empty());
-            assert_eq!(last["how"], "visible", "{last}");
-            assert_eq!(res.session_id, session_of(c, "pr-round"));
-        }
-    }
-}
-
-/// A spoken turn the router cannot place is never held for the typed
-/// question (theseus-sro04: the v1 voice check's call waited 215 s on one,
-/// and every word said after it queued behind it): it runs at home at once.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_spoken_turn_it_cannot_place_runs_at_home_without_asking() {
-    let jev = FakeJev::start().unwrap();
-    thread_answer(&jev, "security-fix", 0.45);
-    let r = rig_on(texts(2), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 30;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open_as(c, Surface::Discord);
-    let t0 = Instant::now();
-    let mut spoken = params(&dm, "why is the build red", None);
-    spoken.surface = Some("voice".into());
-    let id = w.send(method::TURN_SUBMIT, spoken).await;
-    let res: TurnSubmitResult =
-        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-    assert!(
-        t0.elapsed() < Duration::from_secs(20),
-        "the spoken turn waited for a question"
-    );
-    assert_eq!(res.session_id, dm);
-    assert_eq!(tag(&res).how, RouteHow::Home);
-    assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
-    assert!(!w.heard.iter().any(|n| n["method"] == "thread.asked"));
-}
-
-/// A lone thread the message names, which Jev puts only a little behind home,
-/// keeps the turn (theseus-m7fwf). The message names the pr round's repo and
-/// nothing else, so one thread contends and theseus-e31an asks nothing; but
-/// the thread led home, and the turn used to go home all the same. It runs in
-/// the thread, with a visible tag and a move handle, and still no question.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_lone_thread_that_leads_home_closely_takes_the_turn_without_asking() {
-    let jev = FakeJev::start().unwrap();
-    // The repo hit scores pr-round 0.80 (weak, so not decisive), fused to
-    // 0.68 against Jev's home at 0.60: a 0.08 gap, inside CLOSE.
-    thread_answer(&jev, "home", 0.60);
-    let r = rig_on(texts(3), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 2;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let a = submit(c, &dm, "why is the build red in tidewatch").await;
-    let t = tag(&a);
-    assert_eq!(
-        (t.how, t.slug.as_deref(), t.movable),
-        (RouteHow::Visible, Some("pr-round"), true),
-        "{t:?}"
-    );
-    assert_eq!(a.session_id, session_of(c, "pr-round"));
-    assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
-}
-
-/// Without Jev, an ask offers a new thread too (theseus-m7fwf). The message
-/// names both threads' repos, so neither leads and the router asks; it also
-/// names two entities no live thread holds, which is the only evidence of a
-/// new stream there is when no Jev ranked one. The card gains a `new` key.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_ask_with_no_jev_offers_a_new_thread_when_the_message_names_new_entities() {
-    let r = rig_on(texts(4), None, |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.ask_wait_secs = 2;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::TURN_SUBMIT,
-            params(
-                &dm,
-                "tidewatch and vault both fail: branch chore/bump-1-8, ticket OPS-4214",
-                None,
-            ),
-        )
-        .await;
-    let asked = w.notice("thread.asked").await;
-    let keys: Vec<&str> = asked["options"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|o| o["key"].as_str().unwrap())
-        .collect();
-    assert!(keys.contains(&"new"), "{asked}");
-    assert_eq!(keys.last(), Some(&"home"), "{asked}");
-    // Nobody answers: the wait ends and the turn runs at home, as before.
-    let res: TurnSubmitResult =
-        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-    assert_eq!(res.session_id, dm);
-}
-
-/// A `new_thread` pick at the confirm bar offers a new thread; one tap makes
-/// it (named from the message) and the message runs in it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_new_thread_is_offered_and_one_tap_makes_it() {
-    let jev = FakeJev::start().unwrap();
-    thread_answer(&jev, "new_thread", 0.8);
-    let r = rig_on(texts(3), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::TURN_SUBMIT,
-            params(&dm, "calibrate the harbor gauge sensors", None),
-        )
-        .await;
-    let asked = w.notice("thread.asked").await;
-    assert!(
-        asked["question"]
-            .as_str()
-            .unwrap()
-            .starts_with("Start a new thread \u{ab}calibrate harbor gauge\u{bb}"),
-        "{asked}"
-    );
-    let keys: Vec<&str> = asked["options"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|o| o["key"].as_str().unwrap())
-        .collect();
-    assert_eq!(keys, ["new", "home"]);
-    let mut a = Wire::open(c);
-    let aid = a
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: asked["ask_id"].as_str().unwrap().into(),
-                choice: "n".into(),
-                author: None,
-                discord: None,
-            },
-        )
-        .await;
-    a.response(aid).await;
-    let res: TurnSubmitResult =
-        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-    let t = tag(&res);
-    assert_eq!(
-        (t.how, t.slug.as_deref()),
-        (RouteHow::NewThread, Some("calibrate-harbor-gauge"))
-    );
-    assert_eq!(
-        c.threads().get("calibrate-harbor-gauge").unwrap().title,
-        "calibrate harbor gauge"
-    );
-    assert_eq!(res.session_id, session_of(c, "calibrate-harbor-gauge"));
-}
-
-// ------------------------------------------------------------------- the guard
-
-fn write_to(path: &str) -> Vec<Scripted> {
-    vec![
-        Scripted::tools(
-            "",
-            &[("w1", "fs_write", json!({"path": path, "content": "x\n"}))],
-        ),
-        Scripted::text("Written."),
-        Scripted::text("ok"),
-    ]
-}
-
-/// A turn placed below the act bar, whose first write names a path outside the
-/// thread's roots, is held for one question; a turn placed at the bar writes
-/// as it would have.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_write_outside_the_threads_roots_is_held_only_below_the_act_bar() {
-    let jev = FakeJev::start().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
-    std::fs::create_dir_all(&mine).unwrap();
-    std::fs::create_dir_all(&theirs).unwrap();
-    let outside = theirs.join("notes.txt").display().to_string();
-    let root = dir.path().to_path_buf();
-    let r = rig_on(write_to(&outside), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.tools.roots = vec![root.display().to_string()];
-    });
-    let c = &r.core;
-    thread(
-        c,
-        "pr-round",
-        "pr round",
-        ws(&["#412"], &["tidewatch"], &[&mine.display().to_string()]),
-    );
-    thread(
-        c,
-        "security-fix",
-        "security fix",
-        ws(&["#977"], &["vault"], &[&theirs.display().to_string()]),
-    );
-    let dm = home(c, None);
-    // Likely (0.75): visible tag, so the guard is armed.
-    thread_answer(&jev, "pr-round", 0.75);
-    let held = submit(c, &dm, "does the migration need a flag").await;
-    assert!(held.awaiting_confirm.is_none(), "the write runs: {held:?}");
-    let told = rows(c, "tool.notified");
-    assert_eq!(told.len(), 1);
-    let why = told[0].data["rule"].as_str().unwrap().to_string();
-    assert!(
-        why.contains("isn't in the pr round thread")
-            && why.contains("the security fix")
-            && why.contains("Undo: files.restore"),
-        "{why}"
-    );
-    assert!(theirs.join("notes.txt").exists(), "the write went on");
-    assert_eq!(rows(c, "thread.misroute_held").len(), 1);
-    assert_eq!(
-        rows(c, "thread.misroute_held")[0].data["thread"],
-        "pr round"
-    );
-}
-
-/// A thread's working set grows relative roots (`tidewatch`), read under the
-/// directory its tools run in: a guess-placed write inside one is not held,
-/// and one in another thread's directory still is.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_guess_placed_turn_inside_its_threads_relative_root_writes_without_a_hold() {
-    let jev = FakeJev::start().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
-    std::fs::create_dir_all(&mine).unwrap();
-    std::fs::create_dir_all(&theirs).unwrap();
-    let inside = mine.join("notes.txt").display().to_string();
-    let root = dir.path().to_path_buf();
-    let r = rig_on(write_to(&inside), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.tools.roots = vec![root.display().to_string()];
-        c.tools.cwd = Some(root.display().to_string());
-    });
-    let c = &r.core;
-    thread(
-        c,
-        "pr-round",
-        "pr round",
-        ws(&["#412"], &["tidewatch"], &["tidewatch"]),
-    );
-    thread(
-        c,
-        "security-fix",
-        "security fix",
-        ws(&["#977"], &["vault"], &["vault"]),
-    );
-    let dm = home(c, None);
-    thread_answer(&jev, "pr-round", 0.75);
-    let done = submit(c, &dm, "does the migration need a flag").await;
-    assert!(done.awaiting_confirm.is_none(), "{done:?}");
-    assert!(mine.join("notes.txt").exists());
-    assert!(rows(c, "thread.misroute_held").is_empty());
-}
-
-/// The same relative roots still hold a write into the other thread's tree.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_guess_placed_write_outside_its_relative_roots_is_still_held() {
-    let jev = FakeJev::start().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
-    std::fs::create_dir_all(&mine).unwrap();
-    std::fs::create_dir_all(&theirs).unwrap();
-    let outside = theirs.join("notes.txt").display().to_string();
-    let root = dir.path().to_path_buf();
-    let r = rig_on(write_to(&outside), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.tools.roots = vec![root.display().to_string()];
-        c.tools.cwd = Some(root.display().to_string());
-    });
-    let c = &r.core;
-    thread(
-        c,
-        "pr-round",
-        "pr round",
-        ws(&["#412"], &["tidewatch"], &["tidewatch"]),
-    );
-    thread(
-        c,
-        "security-fix",
-        "security fix",
-        ws(&["#977"], &["vault"], &["vault"]),
-    );
-    let dm = home(c, None);
-    thread_answer(&jev, "pr-round", 0.75);
-    let held = submit(c, &dm, "does the migration need a flag").await;
-    assert!(held.awaiting_confirm.is_none(), "{held:?}");
-    assert!(theirs.join("notes.txt").exists());
-    assert_eq!(rows(c, "thread.misroute_held").len(), 1);
-}
-
-/// A program run from the session's directory (above every relative root)
-/// names no tree: the guard stays armed, and the turn's next write decides.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_guess_placed_program_from_the_session_directory_is_not_held() {
-    for (target, held_rows) in [("tidewatch", 0), ("vault", 1)] {
-        let jev = FakeJev::start().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
-        std::fs::create_dir_all(&mine).unwrap();
-        std::fs::create_dir_all(&theirs).unwrap();
-        let file = dir.path().join(target).join("notes.txt");
-        let mut script = vec![Scripted::tools(
-            "",
-            &[("p1", "proc_run", json!({"argv": ["true"]}))],
-        )];
-        script.extend(write_to(&file.display().to_string()));
-        let root = dir.path().to_path_buf();
-        let r = rig_on(script, Some(&jev), |c| {
-            inbound_only(c);
-            c.judge.total_secs = 5;
-            c.tools.roots = vec![root.display().to_string()];
-            c.tools.cwd = Some(root.display().to_string());
-        });
-        let c = &r.core;
-        thread(
-            c,
-            "pr-round",
-            "pr round",
-            ws(&["#412"], &["tidewatch"], &["tidewatch"]),
-        );
-        thread(
-            c,
-            "security-fix",
-            "security fix",
-            ws(&["#977"], &["vault"], &["vault"]),
-        );
-        let dm = home(c, None);
-        thread_answer(&jev, "pr-round", 0.75);
-        let res = submit(c, &dm, "does the migration need a flag").await;
-        let held = rows(c, "thread.misroute_held");
-        assert_eq!(held.len(), held_rows, "{target}: {res:?}");
-        // Below the act bar the guard notifies and the write goes on
-        // (theseus-g85jy), so both rows write; what the table tells apart is
-        // whether the guard spoke: a held fact and its notice line for the
-        // vault, neither for tidewatch.
-        assert!(res.awaiting_confirm.is_none(), "{target}: the write runs");
-        assert!(file.exists(), "{target}: the write went on");
-        let told = rows(c, "tool.notified")
-            .iter()
-            .filter(|r| {
-                r.data["rule"]
-                    .as_str()
-                    .is_some_and(|s| s.contains("Undo: files.restore"))
-            })
-            .count();
-        assert_eq!(told, held_rows, "{target}: the guard's notice");
-        if let Some(h) = held.first() {
-            assert!(h.data["path"]
-                .as_str()
-                .unwrap()
-                .ends_with("vault/notes.txt"));
-        }
-    }
-}
-
-/// At the act bar the same write is not held.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_turn_placed_at_the_act_bar_writes_without_the_guard() {
-    let jev = FakeJev::start().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let (mine, theirs) = (dir.path().join("tidewatch"), dir.path().join("vault"));
-    std::fs::create_dir_all(&mine).unwrap();
-    std::fs::create_dir_all(&theirs).unwrap();
-    let outside = theirs.join("notes.txt").display().to_string();
-    let root = dir.path().to_path_buf();
-    let r = rig_on(write_to(&outside), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.tools.roots = vec![root.display().to_string()];
-    });
-    let c = &r.core;
-    thread(
-        c,
-        "pr-round",
-        "pr round",
-        ws(&["#412"], &["tidewatch"], &[&mine.display().to_string()]),
-    );
-    thread(
-        c,
-        "security-fix",
-        "security fix",
-        ws(&["#977"], &["vault"], &[&theirs.display().to_string()]),
-    );
-    let dm = home(c, None);
-    thread_answer(&jev, "pr-round", 0.97);
-    let done = submit(c, &dm, "does the migration need a flag").await;
-    assert!(done.awaiting_confirm.is_none(), "{done:?}");
-    assert!(theirs.join("notes.txt").exists());
-    assert!(rows(c, "thread.misroute_held").is_empty());
-}
-
-// ------------------------------------------------------------------- the move
-
-/// "That was for the security fix": the wrong thread gets one note, the
-/// message runs once more in the right one, the correction is recorded, and
-/// the next close message goes where the owner said.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follows() {
+async fn a_move_writes_one_note_resubmits_once_and_teaches_nothing() {
     let jev = FakeJev::start().unwrap();
     let r = rig(&jev, 8);
     let c = &r.core;
     two_threads(c);
     let dm = home(c, Some(&format!("dm:{OWNER}")));
-    thread_answer(&jev, "pr-round", 0.75);
-    let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
+    let wrong = submit(c, &dm, "#pr-round rotate the signing keys on the gateway").await;
     assert_eq!(wrong.session_id, session_of(c, "pr-round"));
     let before = rows(c, "judge.label").len();
     let mut w = Wire::open(c);
@@ -1254,24 +510,14 @@ async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follow
         rows(c, "thread.moved")[0].data["resubmitted"],
         moved["result"]["turn_id"]
     );
-    // The owner's label on the thread question: the right class.
-    let labels = rows(c, "judge.label");
-    assert_eq!(labels.len(), before + 1);
-    assert_eq!(labels.last().unwrap().data["question"], "thread");
-    assert_eq!(labels.last().unwrap().data["label"], "security-fix");
-    // A close next message goes where the owner said, with no Jev at all.
-    // (Jev, asked, would say pr-round: the owner's word decided it.)
-    thread_answer(&jev, "pr-round", 0.95);
+    assert!(rows(c, "thread.moved")[0].data.get("labeled").is_none());
+    // No label on the thread question: the move corrects no guess.
+    assert_eq!(rows(c, "judge.label").len(), before);
+    // A close next message runs at home: nothing was learned from the move.
     let next = submit(c, &dm, "rotate the signing keys on the gateway again").await;
-    assert_eq!(next.session_id, right);
-    assert_eq!(tag(&next).how, RouteHow::Quiet);
-    assert!(
-        !rows(c, "thread.routed").last().unwrap().data["early"]
-            .as_bool()
-            .unwrap(),
-        "no wait for Jev"
-    );
-    // Moving to where it already is, and a second move of nothing, say so.
+    assert_eq!(next.session_id, dm);
+    assert_eq!(tag(&next).how, RouteHow::Home);
+    // Moving the moved message to where it already is says so.
     let mut w = Wire::open(c);
     let id = w
         .send(
@@ -1279,7 +525,7 @@ async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follow
             ThreadMoveParams {
                 session_id: dm.clone(),
                 to: "security-fix".into(),
-                turn_id: None,
+                turn_id: moved["result"]["turn_id"].as_str().map(str::to_string),
                 author: None,
                 discord: None,
             },
@@ -1302,7 +548,7 @@ async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follow
 /// call of the tool and a line saying it is moving. The move runs when that
 /// turn ends: the note in the wrong thread, the one `thread.moved` row, the
 /// message run again once in the right thread, and the correcting message left
-/// where it was routed.
+/// where it ran (at home: it names no thread).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_model_that_calls_the_move_tool_moves_the_placed_message_and_the_bare_words_move_nothing()
 {
@@ -1330,19 +576,17 @@ async fn a_model_that_calls_the_move_tool_moves_the_placed_message_and_the_bare_
     let c = &r.core;
     two_threads(c);
     let dm = home(c, None);
-    // Nothing placed yet: the words are a message, routed like one.
-    thread_answer(&jev, "home", 0.96);
+    // Nothing placed yet: the words are a message, run at home like one.
     let said = submit(c, &dm, "that was for the security fix").await;
     assert_eq!(said.session_id, dm);
     assert!(rows(c, "thread.moved").is_empty());
     let dm = home(c, None);
-    thread_answer(&jev, "pr-round", 0.75);
-    let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
+    let wrong = submit(c, &dm, "#pr-round rotate the signing keys on the gateway").await;
     assert_eq!(wrong.session_id, session_of(c, "pr-round"));
 
-    // The correcting message: the model chooses to call the tool.
+    // The correcting message, at home: the model chooses to call the tool.
     let said = submit(c, &dm, "No, that was for the security fix.").await;
-    assert_eq!(said.session_id, session_of(c, "pr-round"), "{said:?}");
+    assert_eq!(said.session_id, dm, "{said:?}");
     let moved = rows(c, "thread.moved");
     assert_eq!(moved.len(), 1, "{moved:?}");
     assert_eq!(
@@ -1384,13 +628,12 @@ fn move_rig(jev: &FakeJev, script: Vec<Scripted>) -> Rig {
     })
 }
 
-/// **A correction the router puts into the thread it names still moves the
-/// placed message** (round 2 of issue 13, B2). "No, that was for the security
-/// fix" names that thread's title, which is evidence for it, so the correction
-/// can run in the very thread the message should go to; the tool finds the
-/// placed message by the place's own session, not by where the correction ran.
+/// **A correction addressed to the thread it names still moves the placed
+/// message** (round 2 of issue 13, B2): the correction runs in the very thread
+/// the message should go to; the tool finds the placed message by the place's
+/// own session, not by where the correction ran.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_correction_routed_into_the_thread_it_names_still_moves_the_placed_message() {
+async fn a_correction_addressed_to_the_thread_it_names_still_moves_the_placed_message() {
     let jev = FakeJev::start().unwrap();
     let r = move_rig(
         &jev,
@@ -1408,12 +651,10 @@ async fn a_correction_routed_into_the_thread_it_names_still_moves_the_placed_mes
     let c = &r.core;
     two_threads(c);
     let dm = home(c, None);
-    thread_answer(&jev, "pr-round", 0.75);
-    let wrong = submit(c, &dm, "rotate the signing keys on the gateway").await;
+    let wrong = submit(c, &dm, "#pr-round rotate the signing keys on the gateway").await;
     assert_eq!(wrong.session_id, session_of(c, "pr-round"));
 
-    thread_answer(&jev, "security-fix", 0.75);
-    let said = submit(c, &dm, "No, that was for the security fix.").await;
+    let said = submit(c, &dm, "#security-fix No, that was for the security fix.").await;
     assert_eq!(said.session_id, session_of(c, "security-fix"), "{said:?}");
     let moved = rows(c, "thread.moved");
     assert_eq!(moved.len(), 1, "{moved:?}");
@@ -1452,8 +693,7 @@ async fn a_move_staged_in_a_turn_that_failed_is_not_carried_out_by_the_next_turn
     let c = &r.core;
     two_threads(c);
     let dm = home(c, None);
-    thread_answer(&jev, "pr-round", 0.75);
-    submit(c, &dm, "rotate the signing keys on the gateway").await;
+    submit(c, &dm, "#pr-round rotate the signing keys on the gateway").await;
 
     let mut w = Wire::open(c);
     let id = w
@@ -1472,255 +712,10 @@ async fn a_move_staged_in_a_turn_that_failed_is_not_carried_out_by_the_next_turn
     );
 }
 
-// ---------------------------------------------------- 40 messages, four threads
-
-/// The fixture's threads, each with its working set.
-fn make_fixture_threads(c: &Core, fx: &Value) {
-    for t in fx["threads"].as_array().unwrap() {
-        let list = |k: &str| -> Vec<&str> {
-            t[k].as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect()
-        };
-        let mut w = ws(&list("refs"), &list("repos"), &[]);
-        w.branches = list("branches").iter().map(|s| s.to_string()).collect();
-        w.files = list("files").iter().map(|s| s.to_string()).collect();
-        w.hosts = list("hosts").iter().map(|s| s.to_string()).collect();
-        thread(
-            c,
-            t["slug"].as_str().unwrap(),
-            t["title"].as_str().unwrap(),
-            w,
-        );
-    }
-}
-
-/// Jev's scripted answer for each message that has one.
-fn script_fixture_jev(jev: &FakeJev, msgs: &[Value]) {
-    for m in msgs {
-        if let Some(j) = m["jev"].as_object() {
-            jev.script_when(
-                m["text"].as_str().unwrap(),
-                None,
-                "thread",
-                Jev::Choice {
-                    option: j["pick"].as_str().unwrap().into(),
-                    confidence: j["p"].as_f64().unwrap(),
-                },
-            );
-        }
-    }
-}
-
-/// The option that answers an ask for a message of `truth`: its thread's,
-/// and `new` for a new stream's message (theseus-eqp1v); else home.
-fn fixture_key(c: &Core, truth: &str, options: &Value) -> String {
-    let want = match truth {
-        "new" => None,
-        t => Some(c.threads().get(t).unwrap().title.clone()),
-    };
-    options
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|o| match &want {
-            Some(title) => o["label"] == title.as_str(),
-            None => o["key"] == "new",
-        })
-        .map(|o| o["key"].as_str().unwrap().to_string())
-        .unwrap_or_else(|| "home".into())
-}
-
-/// The scripted check (theseus-rha2): forty unaddressed messages across four
-/// threads in one place (and since theseus-eqp1v three more: a probe, then a
-/// switch and a new stream's first message that stickiness alone must not
-/// keep), on the stand-in model and a scripted Jev (sure, or
-/// unsure, or wrong, as the fixture says), every one through `turn.submit`.
-/// The same messages are `scripts/thread-route-check.py`'s, which the owner
-/// runs on a real Jev. Top-1 is the thread the message ran in against the one
-/// it was for; an ask is answered with the right choice; the ask rate on the
-/// clear messages (all but the ones scripted unclear) is the router's own.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn forty_unaddressed_messages_find_their_thread_and_ask_rarely() {
-    let fx: Value =
-        serde_json::from_str(include_str!("../../fixtures/thread_route_40.json")).unwrap();
-    let jev = FakeJev::start().unwrap();
-    let msgs = fx["messages"].as_array().unwrap();
-    script_fixture_jev(&jev, msgs);
-    let r = rig_on(texts(48), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 30;
-    });
-    let c = &r.core;
-    make_fixture_threads(c, &fx);
-    let main = home(c, None);
-    let (mut right, mut asks, mut clear, mut clear_asks, mut waited) = (0, 0, 0, 0, 0);
-    let mut wrong = Vec::new();
-    for m in msgs {
-        let (text, truth) = (m["text"].as_str().unwrap(), m["thread"].as_str().unwrap());
-        let unclear = m["kind"] == "unclear";
-        let place = if m["cold"] == true {
-            home(c, None)
-        } else {
-            main.clone()
-        };
-        let mut w = Wire::open(c);
-        let id = w
-            .send(method::TURN_SUBMIT, params(&place, text, None))
-            .await;
-        let res: TurnSubmitResult = loop {
-            match w.message(Duration::from_secs(60)).await.expect("a message") {
-                Message::Notification(n) if n.method == "thread.asked" => {
-                    asks += 1;
-                    if !unclear {
-                        clear_asks += 1;
-                    }
-                    let key = fixture_key(c, truth, &n.params["options"]);
-                    let aid = w
-                        .send(
-                            method::THREAD_ANSWER,
-                            ThreadAnswerParams {
-                                ask_id: n.params["ask_id"].as_str().unwrap().into(),
-                                choice: key,
-                                author: None,
-                                discord: None,
-                            },
-                        )
-                        .await;
-                    let _ = aid;
-                }
-                Message::Response(r) if r.id == Id::Num(id) => {
-                    break serde_json::from_value(
-                        serde_json::to_value(r).unwrap()["result"].clone(),
-                    )
-                    .unwrap()
-                }
-                _ => {}
-            }
-        };
-        if !unclear {
-            clear += 1;
-        }
-        let landed = c
-            .threads()
-            .of_session(&res.session_id)
-            .map_or("home".to_string(), |t| t.slug.clone());
-        let fixture = |s: &str| {
-            fx["threads"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|t| t["slug"] == s)
-        };
-        let new = truth == "new" && landed != "home" && !fixture(&landed);
-        match landed == truth || new {
-            true => right += 1,
-            false => wrong.push(format!("{text:?} went to {landed}, was for {truth}")),
-        }
-        if tag(&res).how == RouteHow::Guess {
-            waited += 1;
-        }
-    }
-    let top1 = right as f64 / msgs.len() as f64;
-    let ask_rate = clear_asks as f64 / clear as f64;
-    eprintln!(
-        "thread-route 40: top-1 {right}/{} = {:.0}%, asks {asks} ({clear_asks} of {clear} clear = {:.1}%), guesses {waited}; wrong: {wrong:?}",
-        msgs.len(),
-        top1 * 100.0,
-        ask_rate * 100.0
-    );
-    assert!(top1 >= 0.90, "top-1 {top1}: {wrong:?}");
-    assert!(
-        ask_rate <= 0.10,
-        "asked on {clear_asks} of {clear} clear messages"
-    );
-    assert_eq!(waited, 0, "Jev answered every time");
-}
-
-/// An answer from a stranger in a shared place does not count: the question
-/// still waits, and the refusal says why.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_strangers_answer_does_not_count() {
-    let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 2);
-    let c = &r.core;
-    two_threads(c);
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    c.runner.threads.route.ask(
-        "ask_s1",
-        crate::thread_flow::Pending {
-            home: "ses_x".into(),
-            text: "x".into(),
-            options: crate::thread_route::offer_new("x"),
-            slugs: vec![],
-            tx,
-        },
-    );
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: "ask_s1".into(),
-                choice: "home".into(),
-                author: None,
-                discord: None,
-            },
-        )
-        .await;
-    // The CLI is the owner's own surface: it counts.
-    assert!(w.response(id).await["result"].is_object());
-    assert!(rx.await.is_ok());
-    // A Discord press from an id that is no owner's does not.
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    c.runner.threads.route.ask(
-        "ask_s2",
-        crate::thread_flow::Pending {
-            home: "ses_x".into(),
-            text: "x".into(),
-            options: crate::thread_route::offer_new("x"),
-            slugs: vec![],
-            tx,
-        },
-    );
-    let mut d = Wire::open_as(c, Surface::Discord);
-    let id = d
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: "ask_s2".into(),
-                choice: "home".into(),
-                author: Some("discord:mallory".into()),
-                discord: Some(theseus_protocol::DiscordOrigin {
-                    user_id: "777".into(),
-                    channel_id: "888".into(),
-                    guild_id: Some("9".into()),
-                }),
-            },
-        )
-        .await;
-    let refused = d.response(id).await;
-    assert_eq!(
-        refused["error"]["code"],
-        theseus_protocol::error_code::REFUSED,
-        "{refused}"
-    );
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), rx)
-            .await
-            .is_err(),
-        "the question still waits"
-    );
-}
-
 /// A session the client names with `theseus ask -s` is the owner's choice
-/// (theseus-0rfjx): the router never moves it into a thread, however plainly
-/// the message names one. The same words through a surface that names no
-/// session choice (the chat's own home session) are placed as before.
+/// (theseus-0rfjx): the router never moves it into a thread, even when the
+/// message addresses one. The same words through a surface that names no
+/// session choice (the chat's own home session) are placed by their address.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_named_with_ask_s_is_never_placed_in_a_thread() {
     let jev = FakeJev::start().unwrap();
@@ -1728,7 +723,7 @@ async fn a_session_named_with_ask_s_is_never_placed_in_a_thread() {
     let c = &r.core;
     two_threads(c);
     let pinned = home(c, None);
-    let mut p = params(&pinned, "what is failing in PR 412?", None);
+    let mut p = params(&pinned, "#pr-round what is failing in PR 412?", None);
     p.via = Some("ask".into());
     let mut w = Wire::open(c);
     let id = w.send(method::TURN_SUBMIT, p).await;
@@ -1743,72 +738,12 @@ async fn a_session_named_with_ask_s_is_never_placed_in_a_thread() {
     assert!(rows(c, "thread.routed").is_empty());
     // The chat's own session, on the same words, is placed.
     let chat = home(c, None);
-    let mut p = params(&chat, "what is failing in PR 412?", None);
+    let mut p = params(&chat, "#pr-round what is failing in PR 412?", None);
     p.via = Some("tui".into());
     let id = w.send(method::TURN_SUBMIT, p).await;
     let res: TurnSubmitResult =
         serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
     assert_eq!(tag(&res).slug.as_deref(), Some("pr-round"));
-}
-
-/// What `theseus chat` does (theseus-wapgp): one connection sends
-/// `session.typing`, then a long message the router cannot place. The turn
-/// waits in the daemon for the owner's word, and the chat's own answer, sent
-/// on that same connection while the turn waits, frees it at once (the wait
-/// is a minute here: only the answer can). The message is stored when it
-/// does, in the order it was sent.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_chat_that_types_then_sends_a_long_message_frees_it_by_answering_on_its_connection() {
-    let jev = FakeJev::start().unwrap();
-    // Two contend: the message names the security fix's repo, and Jev
-    // leans to the pr round (theseus-e31an: a lone lean is no contest).
-    thread_answer(&jev, "pr-round", 0.55);
-    let r = rig_on(texts(4), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 60;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open(c);
-    let typing = w
-        .send(
-            method::SESSION_TYPING,
-            json!({"session_id": dm, "author": "theseus chat"}),
-        )
-        .await;
-    assert!(w.response(typing).await["result"].is_object());
-    let long = format!(
-        "why is the build red in vault? {}",
-        "and the weather is fine ".repeat(7)
-    );
-    assert!(long.len() >= 160, "the length that hung: {}", long.len());
-    let id = w.send(method::TURN_SUBMIT, params(&dm, &long, None)).await;
-    let asked = w.notice("thread.asked").await;
-    assert!(texts_of(c, &dm).is_empty(), "held for the question");
-    let t0 = Instant::now();
-    let a = w
-        .send(
-            method::THREAD_ANSWER,
-            ThreadAnswerParams {
-                ask_id: asked["ask_id"].as_str().unwrap().into(),
-                choice: "home".into(),
-                author: Some("theseus chat".into()),
-                discord: None,
-            },
-        )
-        .await;
-    assert!(w.response(a).await["result"].is_object());
-    let res: TurnSubmitResult =
-        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-    assert!(
-        t0.elapsed() < Duration::from_secs(20),
-        "freed by the answer"
-    );
-    assert_eq!(res.session_id, dm);
-    assert_eq!(texts_of(c, &dm), [long]);
 }
 
 async fn wait_for(mut cond: impl FnMut() -> bool) {
@@ -1817,41 +752,6 @@ async fn wait_for(mut cond: impl FnMut() -> bool) {
         assert!(t0.elapsed() < Duration::from_secs(20), "timed out waiting");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-}
-
-/// A plainly new, self-contained request that no thread claims runs at home
-/// at once, with no "which thread?" card (theseus-e31an: the walkthrough's
-/// step 1 was asked about at route confidence 0.38).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_new_request_no_thread_claims_runs_at_home_without_asking() {
-    let jev = FakeJev::start().unwrap();
-    thread_answer(&jev, "security-fix", 0.38);
-    let r = rig_on(texts(2), Some(&jev), |c| {
-        inbound_only(c);
-        c.judge.total_secs = 5;
-        c.threads.route_wait_ms = 3000;
-        c.threads.ask_wait_secs = 2;
-    });
-    let c = &r.core;
-    two_threads(c);
-    let dm = home(c, None);
-    let mut w = Wire::open(c);
-    let id = w
-        .send(
-            method::TURN_SUBMIT,
-            params(
-                &dm,
-                "start two tasks: a census of the disk, and a slow load",
-                None,
-            ),
-        )
-        .await;
-    let res: TurnSubmitResult =
-        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-    assert_eq!(res.session_id, dm);
-    assert_eq!(tag(&res).how, RouteHow::Home);
-    assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
-    assert!(!w.heard.iter().any(|n| n["method"] == "thread.asked"));
 }
 
 /// The sender hears where its message went when it is placed, not at the turn's
@@ -1922,229 +822,6 @@ async fn a_chat_on_a_threads_own_session_is_never_rerouted() {
     assert!(!w.heard.iter().any(|n| n["method"] == "thread.placed"));
 }
 
-// ------------------------------------------------------- the directory rule
-
-/// The walkthrough's misplacement (theseus-vw8k7): a dry run typed in a
-/// directory that is no thread's went to the place's last thread, which the
-/// owner had once moved a dry run like it to. A thread whose roots are set
-/// keeps only what the message names of it when the turn's directory lies
-/// under none of them: the learned correction, stickiness and the reply chain
-/// no longer place it, and Jev's pick decides. The same message from under
-/// the thread's root, and one to a thread with no roots, go there as before.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_message_from_another_directory_is_not_placed_by_stickiness() {
-    const ROOT: &str = "/w/projects/lighthouse";
-    let dry = |n: u32| format!("[dry-run] Start 2 tasks, $1 each: bash slow.sh census {n}");
-    // The dev thread's roots, the turn's directory, and where it must run.
-    let cases: [(&[&str], &str, bool); 3] = [
-        (&[ROOT], "/w/projects/walkthrough", false),
-        (&[ROOT], "/w/projects/lighthouse/crates", true),
-        (&[], "/w/projects/walkthrough", true),
-    ];
-    for (roots, dir, to_dev) in cases {
-        let jev = FakeJev::start().unwrap();
-        // The working sets stay as made: the priors alone are on trial here
-        // (growth's file names are the next test's).
-        let r = rig_on(texts(8), Some(&jev), |c| {
-            inbound_only(c);
-            c.judge.total_secs = 5;
-            c.places.owner = Some(vec![format!("discord:{OWNER}")]);
-            c.threads.working_set_grows = false;
-        });
-        let c = &r.core;
-        thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], roots));
-        thread(c, "ops", "ops rota", ws(&["#977"], &[], &[]));
-        let dm = home(c, Some(&format!("dm:{OWNER}")));
-        // An earlier dry run went to ops, and the owner moved it to dev: the
-        // correction is learned, and dev is the place's last thread.
-        thread_answer(&jev, "ops", 0.75);
-        let first = submit(c, &dm, &dry(1)).await;
-        assert_eq!(first.session_id, session_of(c, "ops"));
-        let mut w = Wire::open(c);
-        let id = w
-            .send(
-                method::THREAD_MOVE,
-                ThreadMoveParams {
-                    session_id: dm.clone(),
-                    to: "dev".into(),
-                    turn_id: None,
-                    author: None,
-                    discord: None,
-                },
-            )
-            .await;
-        assert_eq!(w.response(id).await["result"]["redirected"], true);
-        // Jev, asked, would keep it at home.
-        thread_answer(&jev, "home", 0.95);
-        let mut p = params(&dm, &dry(2), None);
-        p.dir = Some(dir.into());
-        let id = w.send(method::TURN_SUBMIT, p).await;
-        let res: TurnSubmitResult =
-            serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-        let routed = rows(c, "thread.routed");
-        let last = &routed.last().unwrap().data;
-        match to_dev {
-            true => assert_eq!(
-                res.session_id,
-                session_of(c, "dev"),
-                "{dir} {roots:?}: {last}"
-            ),
-            false => {
-                assert_eq!(res.session_id, dm, "{dir} {roots:?}: {last}");
-                let dev = last["pre"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|x| x["thread"] == "dev")
-                    .unwrap_or_else(|| panic!("dev's score: {last}"));
-                assert_eq!(
-                    dev["score"].as_f64(),
-                    Some(0.0),
-                    "dev kept no prior: {last}"
-                );
-            }
-        }
-    }
-}
-
-/// The walkthrough's other half (theseus-vw8k7): the earlier dry run ran in
-/// dev, whose working set grew the message's `slow.sh`; the next dry run,
-/// typed in another directory, names `slow.sh` too, a hit on a bare file name
-/// that is another directory's file. Apart from dev's roots it counts for
-/// nothing, with stickiness and the chain, and Jev decides; from under dev's
-/// root the same message still goes to dev.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_file_named_from_another_directory_is_not_the_threads() {
-    const ROOT: &str = "/w/projects/lighthouse";
-    let dry = |n: u32| format!("[dry-run] Start 2 tasks, $1 each: bash slow.sh census {n}");
-    for (dir, to_dev) in [
-        ("/w/projects/walkthrough", false),
-        ("/w/projects/lighthouse", true),
-    ] {
-        let jev = FakeJev::start().unwrap();
-        let r = rig(&jev, 8);
-        let c = &r.core;
-        // The thread holds `slow.sh` as an owner or an import gave it: growth
-        // no longer adds a bare file name (theseus-iw50k).
-        let mut dev = ws(&["#412"], &[], &[ROOT]);
-        dev.files = vec!["slow.sh".into()];
-        thread(c, "dev", "lighthouse dev", dev);
-        thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
-        let dm = home(c, Some(&format!("dm:{OWNER}")));
-        thread_answer(&jev, "dev", 0.75);
-        let first = submit(c, &dm, &dry(1)).await;
-        assert_eq!(first.session_id, session_of(c, "dev"));
-        let files = c.threads().get("dev").unwrap().working_set.files.clone();
-        assert_eq!(files, ["slow.sh"], "grown: {files:?}");
-        thread_answer(&jev, "home", 0.95);
-        let mut p = params(&dm, &dry(2), None);
-        p.dir = Some(dir.into());
-        let mut w = Wire::open(c);
-        let id = w.send(method::TURN_SUBMIT, p).await;
-        let res: TurnSubmitResult =
-            serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
-        let routed = rows(c, "thread.routed");
-        let last = &routed.last().unwrap().data;
-        let want = match to_dev {
-            true => session_of(c, "dev"),
-            false => dm.clone(),
-        };
-        assert_eq!(res.session_id, want, "{dir}: {last}");
-    }
-}
-
-/// The directory rule's silence, in words (theseus-2gtyi): a turn typed in a
-/// directory above every thread's root (home) finds each thread near, so the
-/// rule drops nothing; the `thread.routed` row says so, naming the directory
-/// and the way out. From inside a root, or apart from all of them, the row
-/// carries no such words.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_turn_above_every_root_says_so_in_its_row() {
-    const ROOT: &str = "/w/projects/lighthouse";
-    let mut said = 0;
-    for (dir, above) in [
-        ("/w/projects", true),
-        ("/w", true),
-        ("/w/projects/lighthouse/crates", false),
-        ("/w/projects/walkthrough", false),
-    ] {
-        let jev = FakeJev::start().unwrap();
-        let r = rig(&jev, 8);
-        let c = &r.core;
-        thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], &[ROOT]));
-        thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
-        let dm = home(c, Some(&format!("dm:{OWNER}")));
-        thread_answer(&jev, "home", 0.95);
-        let mut p = params(&dm, "[dry-run] Start 2 tasks: bash slow.sh census 2", None);
-        p.dir = Some(dir.into());
-        let mut w = Wire::open(c);
-        let id = w.send(method::TURN_SUBMIT, p).await;
-        w.response(id).await;
-        let routed = rows(c, "thread.routed");
-        let last = &routed.last().expect("a routed row").data;
-        match (above, last["above"].as_str()) {
-            (true, Some(words)) => {
-                said += 1;
-                assert!(words.contains(dir), "{dir}: {words}");
-                // Only a thread whose root lies under the directory is named.
-                assert!(words.contains("dev"), "{words}");
-                assert_eq!(words.contains("ops"), dir == "/w", "{words}");
-                assert!(
-                    words.contains("/move") && words.contains("cd into a root"),
-                    "{words}"
-                );
-            }
-            (false, None) => {}
-            (_, got) => panic!("{dir}: above {above}, row said {got:?}: {last}"),
-        }
-    }
-    assert_eq!(said, 2, "the words came from above a root, and only there");
-}
-
-/// The same words, in the mixed directory (theseus-2gtyi): `/w/projects` is
-/// above `dev`'s root and apart from `ops`'s, so the rule did place something
-/// (it set `ops` apart). The sentence must not say the directory "placed
-/// nothing" nor that it "could not choose among" a list of one; it names
-/// `dev`, and says a thread whose roots lie elsewhere is still set apart,
-/// without naming `ops`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_turn_above_one_root_and_apart_from_another_does_not_say_nothing_was_placed() {
-    let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 8);
-    let c = &r.core;
-    thread(
-        c,
-        "dev",
-        "lighthouse dev",
-        ws(&["#412"], &[], &["/w/projects/lighthouse"]),
-    );
-    thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
-    let dm = home(c, Some(&format!("dm:{OWNER}")));
-    thread_answer(&jev, "home", 0.95);
-    let mut p = params(&dm, "[dry-run] Start 2 tasks: bash slow.sh census 2", None);
-    p.dir = Some("/w/projects".into());
-    let mut w = Wire::open(c);
-    let id = w.send(method::TURN_SUBMIT, p).await;
-    w.response(id).await;
-    let routed = rows(c, "thread.routed");
-    let last = &routed.last().expect("a routed row").data;
-    let words = last["above"]
-        .as_str()
-        .expect("the mixed case is still said");
-    assert!(
-        words.contains("dev") && words.contains("/w/projects"),
-        "{words}"
-    );
-    assert!(!words.contains("ops"), "{words}");
-    assert!(!words.contains("placed nothing"), "{words}");
-    assert!(!words.contains("among them"), "{words}");
-    assert!(words.contains("is still set apart"), "{words}");
-    assert!(
-        words.contains("/move") && words.contains("cd into a root"),
-        "{words}"
-    );
-}
-
 /// A message the owner moved grows the thread it was moved to, and not the
 /// one it ran in (theseus-iw50k): what its words grew into the wrong thread
 /// is taken back before the message runs again, so the right thread, which
@@ -2157,8 +834,7 @@ async fn a_moved_message_grows_the_thread_it_was_moved_to() {
     thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], &[]));
     thread(c, "ops", "ops rota", ws(&["#977"], &[], &[]));
     let dm = home(c, Some(&format!("dm:{OWNER}")));
-    thread_answer(&jev, "ops", 0.75);
-    let first = submit(c, &dm, "look at OPS-4214 for the census").await;
+    let first = submit(c, &dm, "#ops look at OPS-4214 for the census").await;
     assert_eq!(first.session_id, session_of(c, "ops"));
     let refs = |slug: &str| c.threads().get(slug).unwrap().working_set.refs.clone();
     assert!(

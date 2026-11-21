@@ -496,10 +496,11 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
                 return None;
             }
             let (c, p) = (word(&d["class"]), word(&d["provider"]));
-            // The floor under the sensitive names refusing a request is the
-            // privacy policy working, with nothing sent: the provider never
-            // failed, so there is no fault of its to file.
-            if c == crate::data_gate::DATA_GATE_CLASS {
+            // The data floor's refusal (`data_gate`, written until the floor
+            // was deleted on 2026-11-21; old rows still carry it) sent
+            // nothing: the provider never failed, so there is no fault of its
+            // to file.
+            if c == "data_gate" {
                 return None;
             }
             o.key = format!("provider.error:{c}:{p}");

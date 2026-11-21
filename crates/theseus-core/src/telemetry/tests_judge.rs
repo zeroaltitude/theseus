@@ -131,18 +131,14 @@ async fn the_judges_metrics_carry_their_names_and_attributes() {
 /// point's, at a conversation's first loop, is `reply`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_count_it() {
-    use crate::config::{JudgePackConfig, PackMode, SignalsConfig};
+    use crate::config::{JudgePackConfig, PackMode};
     use crate::tests_judge::{judge_config, off};
 
     let rx = Receiver::start(vec![]).await;
     let jev = FakeJev::start().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), Some(&jev));
-    cfg.judge.signals = SignalsConfig {
-        dormancy_minutes: 0,
-        ..SignalsConfig::default()
-    };
-    let on = ["classify.v4", "role.v1", "continue.v1"];
+    let on = ["classify.v4"];
     for (pack, _) in crate::judge::WIRED {
         let mode = if on.contains(pack) {
             PackMode::Shadow
@@ -174,21 +170,20 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
     let first = turn(&core, None, "Say done.").await;
     tokio::time::sleep(Duration::from_millis(30)).await;
     turn(&core, Some(&first.session_id), "And again.").await;
-    // Two messages' classify and role, and the second turn's continue.
+    // Two messages' classify.
     let t0 = std::time::Instant::now();
     let rows: Vec<crate::ledger::LedgerRow> = loop {
-        let rows: Vec<crate::ledger::LedgerRow> =
-            ["judge:classify", "judge:role", "judge:continue"]
-                .iter()
-                .flat_map(|scope| core.store.scope_after(scope, 0).unwrap())
-                .map(|r| r.decode().unwrap())
-                .collect();
-        if rows.len() >= 5 {
+        let rows: Vec<crate::ledger::LedgerRow> = ["judge:classify"]
+            .iter()
+            .flat_map(|scope| core.store.scope_after(scope, 0).unwrap())
+            .map(|r| r.decode().unwrap())
+            .collect();
+        if rows.len() >= 2 {
             break rows;
         }
         assert!(
             t0.elapsed() < Duration::from_secs(20),
-            "{} of 5 rows",
+            "{} of 2 rows",
             rows.len()
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -200,8 +195,6 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
             .collect()
     };
     assert_eq!(class_of("classify.v4"), ["unknown", "unknown"]);
-    assert_eq!(class_of("role.v1"), ["unknown", "unknown"]);
-    assert_eq!(class_of("continue.v1"), ["reply"]);
 
     let got = rx
         .until("the judge's metrics by class", |g| {
@@ -215,7 +208,7 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
                         .unwrap_or(0)
                 })
                 .sum::<u64>()
-                >= 5
+                >= 2
         })
         .await;
     let m = last_metrics(&got);
@@ -231,6 +224,4 @@ async fn the_inbound_and_compile_judgments_carry_their_class_and_the_metrics_cou
             .sum()
     };
     assert_eq!(count("classify.v4", "unknown"), 2);
-    assert_eq!(count("role.v1", "unknown"), 2);
-    assert_eq!(count("continue.v1", "reply"), 1);
 }

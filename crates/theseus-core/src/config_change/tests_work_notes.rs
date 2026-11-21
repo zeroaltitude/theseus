@@ -1,17 +1,16 @@
 //! `look.work`'s review notes, played through the whole core (issue 28): a session given another
-//! conversation's marked words takes their flags on, so the data gate refuses it a restricted-origin model
-//! at once; a project's next milestone is another conversation's words; and the confirm list's bounded walk
-//! lists what the walk of every session did.
+//! conversation's marked words takes their flags on; a project's next milestone is another conversation's
+//! words; and the confirm list's bounded walk lists what the walk of every session did. (Nothing is held back
+//! from a turn bound for a model of restricted origin since that rule was deleted, 2026-11-21:
+//! `restricted_rig` is such a turn, and is given the same words.)
 
 use serde_json::json;
 use theseus_protocol::SessionKind;
 
 use super::tests::{change, rig, rig_with, Rig};
 use super::tests_work_global::{conversation, latest, mark, said, task};
-use crate::bus::EventSink;
 use crate::content::Flag;
 use crate::session::SessionRecord;
-use crate::turn::TurnRequest;
 
 fn restricted_rig() -> Rig {
     rig_with(|cfg, _| cfg.serve_default_from_cn())
@@ -22,45 +21,10 @@ fn flags(r: &Rig, session: &str) -> Option<crate::content::ContentFlags> {
     crate::content_wait::flags_of(&r.core.store, session).filter(|f| !f.labels.is_empty())
 }
 
-/// A turn of a new session carrying `flags`, on the rig's own live profile: the floor reads the labels.
-async fn turn_with(r: &Rig, flags: &crate::content::ContentFlags) -> anyhow::Result<()> {
-    let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-    rec.data = Some(Box::new(flags.clone()));
-    r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    let (live, _) = r.core.live_profile();
-    let target = r
-        .core
-        .runner
-        .resolve_target(&live, None, None, None)
-        .unwrap();
-    let sink = EventSink::new(r.core.bus.clone(), &rec.session_id, None);
-    r.core
-        .runner
-        .run(TurnRequest {
-            prompt: None,
-            surface: None,
-            session: rec,
-            input: Some("say done".into()),
-            target,
-            sink,
-            author: "test".into(),
-            recompile: None,
-            attachments: vec![],
-            arrived: None,
-            reply_to: None,
-            answer_at: None,
-        })
-        .await
-        .map(|_| ())
-}
-
-/// A look that gives another conversation's marked words to an unrestricted turn leaves this session
-/// carrying that conversation's flag, from `look.work` as the source, and the data gate's own rule then
-/// refuses the session a model of restricted origin at once: the turn is moved off it with the flag's word
-/// on the route, no judgment awaited.
+/// A look that gives another conversation's marked words to a turn leaves this session carrying that
+/// conversation's flag, from `look.work` as the source, and its mark then says so.
 #[tokio::test]
-async fn marked_words_given_to_a_turn_leave_their_flags_on_it_and_the_gate_refuses_a_restricted_model(
-) {
+async fn marked_words_given_to_a_turn_leave_their_flags_on_it() {
     let r = rig();
     let (here, other) = (conversation(&r).await, conversation(&r).await);
     task(&r, &other, "Chart the outer reef", None);
@@ -71,29 +35,11 @@ async fn marked_words_given_to_a_turn_leave_their_flags_on_it_and_the_gate_refus
     let f = flags(&r, &here).expect("the flags were taken on");
     let l = f.label(Flag::Confidential).expect("confidential");
     assert_eq!(l.source, crate::content::deterministic::LOOK_SOURCE);
-    // The data gate's own rule reads them: the session is kept off a model of restricted origin (the
-    // check `session.profile` makes, and the route's floor), where a clean one is not.
-    assert_eq!(f.disqualifies_cn(), Some(Flag::Confidential));
-    assert!(r.core.runner.profile_refusal(f.mark(), "glm").is_some());
-    assert!(r
-        .core
-        .runner
-        .profile_refusal(crate::content::ContentFlags::default().mark(), "glm")
-        .is_none());
-    // And a turn of a session carrying them, on a rig whose own model is of restricted origin, has
-    // nowhere to run: it fails before any model call, in the gate's words, as it would on a label a
-    // judgment had raised.
-    let ended = turn_with(&restricted_rig(), &f).await;
-    let said = format!("{ended:?}");
-    assert!(
-        said.contains("No model cleared for this request's data is usable"),
-        "{said}"
-    );
-    assert!(said.contains("data_gate"), "{said}");
+    assert_eq!(f.mark(), theseus_protocol::ops::DataMark::Private);
 }
 
 /// A look that gave no marked words raises nothing: an open conversation's words, this conversation's own,
-/// a conversation marked but held back from a restricted turn, and a look of no other conversation's.
+/// and a look of no other conversation's.
 #[tokio::test]
 async fn a_look_that_gave_no_marked_words_raises_nothing() {
     // Open: given, nothing to take.
@@ -103,14 +49,6 @@ async fn a_look_that_gave_no_marked_words_raises_nothing() {
     task(&r, &here, "Sort the charts", None);
     let text = said(&r, &here, json!({"what": ["tasks"]})).await;
     assert!(text.contains("Mend the lamp"), "{text}");
-    assert!(flags(&r, &here).is_none(), "{:?}", flags(&r, &here));
-    // Marked, but held back from a restricted turn: not given, so not taken.
-    let r = restricted_rig();
-    let (here, marked) = (conversation(&r).await, conversation(&r).await);
-    task(&r, &marked, "Chart the outer reef", None);
-    mark(&r, &marked);
-    let text = said(&r, &here, json!({"what": ["tasks"]})).await;
-    assert!(text.contains("held back"), "{text}");
     assert!(flags(&r, &here).is_none(), "{:?}", flags(&r, &here));
     // Marked, and this look reads only what is this conversation's.
     let r = rig();
@@ -122,8 +60,8 @@ async fn a_look_that_gave_no_marked_words_raises_nothing() {
 }
 
 /// A model-made project's next milestone is the words of the session that made it (the record says the
-/// model wrote it, `origin.by_model`): given and taken on where that conversation is marked and the turn is
-/// unrestricted, held back from a restricted one, and this conversation's own when it wrote it. (The owner's
+/// model wrote it, `origin.by_model`): given and taken on where that conversation is marked, and this
+/// conversation's own when it wrote it. (The owner's
 /// own project is given as theirs: `an_owners_project_and_milestone_are_given_as_theirs`.)
 #[tokio::test]
 async fn a_projects_next_milestone_is_another_conversations_words() {
@@ -138,16 +76,6 @@ async fn a_projects_next_milestone_is_another_conversations_words() {
         "{text}"
     );
     assert!(flags(&r, &here).is_some(), "taken on");
-    // Restricted: the title and the milestone are both that conversation's words, held.
-    let r = restricted_rig();
-    let wrote = model_project(&r, conversation(&r).await).await;
-    mark(&r, &wrote);
-    let here = conversation(&r).await;
-    let text = said(&r, &here, json!({"what": ["projects"]})).await;
-    assert!(!text.contains("Harbour survey"), "{text}");
-    assert!(!text.contains("Outer harbour"), "{text}");
-    assert!(text.contains("held back"), "{text}");
-    assert!(flags(&r, &here).is_none());
     // Written in this conversation: its own words, whatever it holds.
     let r = rig();
     let wrote = model_project(&r, conversation(&r).await).await;
@@ -208,8 +136,8 @@ async fn an_owners_project_and_milestone_are_given_as_theirs() {
 }
 
 /// A model retitles the owner's project (`task.update { title }`: no yes is asked, and the record's origin does
-/// not move): the title is then that model's words, in the session that retitled it, held from a restricted
-/// turn and taken on by an unrestricted one; the owner's milestone beside it is still theirs. And a project a
+/// not move): the title is then that model's words, in the session that retitled it, taken on by the turn
+/// given them; the owner's milestone beside it is still theirs. And a project a
 /// model made in one conversation and another retitled has the retitling conversation's words, not the
 /// first's. The owner has no verb that retitles, so the reverse (the owner retitling a model's) cannot occur.
 #[tokio::test]
@@ -258,24 +186,8 @@ async fn a_title_a_model_retitled_is_that_conversations_words() {
         "{text}"
     );
     assert!(flags(&r, &here).is_some(), "the renamer's flags are taken");
-    // Restricted: the new title is held; the owner's milestone is not.
-    let r = restricted_rig();
-    let id = owners(&r);
-    let renamer = conversation(&r).await;
-    retitle(&r, id, renamer.clone()).await;
-    mark(&r, &renamer);
-    let here = conversation(&r).await;
-    let text = said(&r, &here, json!({"what": ["projects"]})).await;
-    assert!(
-        !text.contains("Reef survey") && !text.contains("Harbour survey"),
-        "{text}"
-    );
-    assert!(
-        text.contains("held back") && text.contains("next Outer harbour"),
-        "{text}"
-    );
     // A model's project from a marked conversation, retitled in an unmarked one: the second's words.
-    let r = restricted_rig();
+    let r = rig();
     let made = model_project(&r, conversation(&r).await).await;
     mark(&r, &made);
     let id = crate::task_graph::all(&r.core.store).unwrap()[0].id.clone();
@@ -283,10 +195,15 @@ async fn a_title_a_model_retitled_is_that_conversations_words() {
     retitle(&r, id, second).await;
     let here = conversation(&r).await;
     let text = said(&r, &here, json!({"what": ["projects"]})).await;
-    // The title is the second conversation's (unmarked, given); the milestone the first made is still its.
+    // The title is the second conversation's (unmarked); the milestone the first made is still its words,
+    // so its flags are taken on.
     assert!(
-        text.contains("Reef survey") && text.contains("next (held back"),
+        text.contains("Reef survey") && text.contains("next Outer harbour"),
         "{text}"
+    );
+    assert!(
+        flags(&r, &here).is_some(),
+        "the first conversation's flags are taken"
     );
 }
 
@@ -375,18 +292,14 @@ async fn a_routine_is_in_the_hand_that_made_it_and_a_reminder_in_its_sessions() 
             .unwrap();
         let text = said(&r, &here, json!({"what": ["routines", "coming"]})).await;
         let held = |w: &str| text.lines().any(|l| l.contains(w));
-        // The owner's routine is given whatever; a model's, and a reminder, follow the session's mark.
+        // Every one is given; a model's routine and a reminder are the marked session's words.
         assert!(held("Tide check"), "{restricted}: {text}");
         for words in ["Lamp check", "water the ferns", "feed the gulls"] {
-            assert_eq!(
-                held(words),
-                !restricted,
-                "{words}, restricted {restricted}: {text}"
-            );
+            assert!(held(words), "{words}, restricted {restricted}: {text}");
         }
-        assert_eq!(text.contains("held back"), restricted, "{text}");
-        // Taken on only where the model's marked words were given.
-        assert_eq!(flags(&r, &here).is_some(), !restricted, "{restricted}");
+        assert!(!text.contains("held back"), "{text}");
+        // Taken on, as the model's marked words were given.
+        assert!(flags(&r, &here).is_some(), "{restricted}");
     }
 }
 
@@ -495,20 +408,12 @@ async fn model_project(r: &Rig, sid: String) -> String {
 }
 
 /// A project a model made in a conversation (`task_create` with `kind: "project"`) has a title that
-/// conversation's model wrote, not the owner's: it is that conversation's words, held back from a restricted
-/// turn and taken on by an unrestricted one, as a task's title is. Review finding (issue 28, after landing):
+/// conversation's model wrote, not the owner's: it is that conversation's words, taken on by the turn given
+/// them, as a task's title is. Review finding (issue 28, after landing):
 /// `horizon::project_line` gives `p.title` as the owner's whatever made it.
 #[tokio::test]
 async fn a_project_a_model_made_has_that_conversations_words_for_its_title() {
-    // Restricted: held back.
-    let r = restricted_rig();
-    let wrote = model_project(&r, conversation(&r).await).await;
-    mark(&r, &wrote);
-    let here = conversation(&r).await;
-    let text = said(&r, &here, json!({"what": ["projects"]})).await;
-    assert!(!text.contains("Harbour survey"), "{text}");
-    assert!(text.contains("held back"), "{text}");
-    // Unrestricted: given, and that conversation's flags are taken on.
+    // Given, and that conversation's flags are taken on.
     let r = rig();
     let wrote = model_project(&r, conversation(&r).await).await;
     mark(&r, &wrote);
@@ -548,13 +453,11 @@ async fn a_look_whose_flags_cannot_be_written_gives_no_words() {
 }
 
 /// Review note 2: with content judging switched off no source raises a label, so none is taken and the look
-/// still answers: `cn_models` alone decides what a restricted model is sent.
+/// still answers.
 #[tokio::test]
 async fn with_content_judging_off_the_look_takes_nothing_and_still_answers() {
     let r = rig_with(|cfg, _| {
         cfg.content_based_security.session_flags = false;
-        cfg.content_based_security.cn_models =
-            crate::config::content_based_security::CnModels::Always;
     });
     let (here, other) = (conversation(&r).await, conversation(&r).await);
     task(&r, &other, "Chart the outer reef", None);
@@ -568,7 +471,7 @@ async fn with_content_judging_off_the_look_takes_nothing_and_still_answers() {
 /// those words, not its parent's. The title (the brief's first line, written in the parent) follows the parent.
 #[tokio::test]
 async fn a_tasks_ended_reason_is_the_words_of_its_own_session() {
-    let r = restricted_rig();
+    let r = rig();
     let (here, parent) = (conversation(&r).await, conversation(&r).await);
     let t = task(&r, &parent, "Chart the outer reef", None);
     r.core
@@ -583,8 +486,10 @@ async fn a_tasks_ended_reason_is_the_words_of_its_own_session() {
         .lines()
         .find(|l| l.contains("Chart the outer reef"))
         .unwrap();
+    assert!(line.contains("the owner said stop"), "{line}");
+    // The reason is the task's own session's words: its flags are taken on, not its parent's (unmarked).
     assert!(
-        line.contains("held back") && !line.contains("the owner said stop"),
-        "{line}"
+        flags(&r, &here).is_some(),
+        "the task session's flags are taken"
     );
 }

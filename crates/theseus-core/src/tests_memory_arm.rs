@@ -103,33 +103,29 @@ async fn a_daemon_runs_the_arm_its_config_names() {
     assert_eq!(node.as_deref(), Some("baseline"));
 }
 
-/// Shadow, and a canary's control, ask for `baseline`'s sources whatever
-/// `arm` says: the control's diagnostics measure the default pipeline.
+/// Shadow asks for `baseline`'s sources whatever `arm` says: its
+/// diagnostics measure the default pipeline.
 #[tokio::test]
-async fn shadow_and_a_canarys_control_ask_for_baselines_sources() {
-    for (mode, fraction) in [(MemoryMode::Shadow, 1.0), (MemoryMode::Canary, 0.0)] {
-        let r = rig_with(mode, |c| {
-            c.memory.arm = MemoryArm::Bm25;
-            c.memory.canary_fraction = fraction;
-        });
-        let c = &r.core;
-        let past = session(c, None, &[KITE]);
-        let now = session(c, None, &[]);
-        let asked = Arc::new(Mutex::new(Vec::new()));
-        let inner = index_of(c, vec![past]);
-        let seen = asked.clone();
-        c.runner
-            .memory
-            .set_ask(Arc::new(move |p: IndexQueryParams| -> AskFuture {
-                seen.lock().unwrap().push(p.sources.clone());
-                inner(p)
-            }));
-        let res = turn(c, &now, "Where does the red kite roost?").await;
-        assert_eq!(res.recalled, 0, "{mode:?}");
-        assert_eq!(
-            *asked.lock().unwrap(),
-            [vec!["bm25", "entity", "vector"], vec!["bm25", "entity"]],
-            "{mode:?}"
-        );
-    }
+async fn shadow_asks_for_baselines_sources() {
+    let mode = MemoryMode::Shadow;
+    let r = rig_with(mode, |c| c.memory.arm = MemoryArm::Bm25);
+    let c = &r.core;
+    let past = session(c, None, &[KITE]);
+    let now = session(c, None, &[]);
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let inner = index_of(c, vec![past]);
+    let seen = asked.clone();
+    c.runner
+        .memory
+        .set_ask(Arc::new(move |p: IndexQueryParams| -> AskFuture {
+            seen.lock().unwrap().push(p.sources.clone());
+            inner(p)
+        }));
+    let res = turn(c, &now, "Where does the red kite roost?").await;
+    assert_eq!(res.recalled, 0, "{mode:?}");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [vec!["bm25", "entity", "vector"], vec!["bm25", "entity"]],
+        "{mode:?}"
+    );
 }
