@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import type { ConfirmRequest, ThreadAsk, WorkView } from '../src/protocol.gen/index.ts'
+import type { ConfirmRequest, WorkView } from '../src/protocol.gen/index.ts'
 import { allCounters, boardRows, columnsOf, contextOf, shown, type OpsRow } from '../src/ops/board.ts'
 import { layoutRows, type LaneMeta } from '../src/ops/graph.ts'
 import { asksWord, queueOf } from '../src/ops/queue.ts'
@@ -40,9 +40,10 @@ function fixture() {
     record('tsk_b1', { title: 'Order buoys', state: 'accepted', origin: { session: 'ses_hv' } as never }),
     record('tsk_b2', { title: 'Order rope', state: 'accepted', origin: { session: 'ses_hv' } as never }),
   ]
-  const confirms: ConfirmRequest[] = [confirm('act_c1', { session_id: 'ses_ak' }), confirm('act_c2', { session_id: 'ses_ak', tool: 'fs.delete' })]
-  const loose = { ask_id: 'ask_1', session_id: 'ses_elsewhere', question: 'Which harbour?', options: [], message: 'survey it', expires_ms: NOW + HOUR } as unknown as ThreadAsk
-  const queue = queueOf({ confirms, views, records, asks: [{ ask: loose, heard_ms: NOW - 5 * MIN }] })
+  // A loose ask: an approval in a conversation no card holds.
+  const loose = confirm('act_c9', { session_id: 'ses_elsewhere', execution_id: 'exe_elsewhere', requested_at_ms: NOW - 5 * MIN })
+  const confirms: ConfirmRequest[] = [confirm('act_c1', { session_id: 'ses_ak' }), confirm('act_c2', { session_id: 'ses_ak', tool: 'fs.delete' }), loose]
+  const queue = queueOf({ confirms, views, records })
   return { views, records, queue }
 }
 
@@ -95,14 +96,14 @@ test('every graph node is a row of the work set, and every record is a row or ri
 test('the needs counter under Q1 B is the Needs-you list’s length; under Q1 A, the page’s setting, it is the cards', () => {
   const { views, records, queue } = fixture()
   const b = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false, calls: BEFORE })
-  assert.equal(queue.length, 3, 'two approvals on one task and a loose router ask')
+  assert.equal(queue.length, 3, 'two approvals on one task and a loose approval')
   assert.equal(allCounters(b, NOW, 0, BEFORE).needs, queue.length)
   const a = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false, calls: RECOMMENDED })
   assert.equal(allCounters(a, NOW, 0, RECOMMENDED).needs, 3, 'the task with two asks, the loose ask, and the blocked step')
   const page = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false })
   assert.equal(allCounters(page, NOW, 0).needs, 3, 'the page, with no setting passed, counts cards')
   assert.equal(b.find((r) => r.id === 'ses_ak')!.asks, 2)
-  assert.equal(b.find((r) => r.id === 'a:ask_1')!.kind, 'ask')
+  assert.equal(b.find((r) => r.id === 'q:act_c9')!.kind, 'ask')
 })
 
 // ---- the owner's calls, proved by tests that pass the setting and fail without the code (join fixes of theseus-odj0m) ----

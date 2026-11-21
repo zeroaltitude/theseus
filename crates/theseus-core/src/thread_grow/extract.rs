@@ -1,4 +1,6 @@
-//! The working set a stream's text names (theseus-71ib): repos, pull-request
+//! The working set a text names (theseus-71ib, and since the thread importer
+//! was removed on 2026-11-21, a thread's growth and the entity readers'):
+//! repos, pull-request
 //! and issue and Beads ids, branches, files and hosts, found by rules, never
 //! by a model. A token is read whole between whitespace, with the punctuation
 //! of prose trimmed off its ends; each kind has one shape (below), so the
@@ -251,4 +253,86 @@ fn file_like(t: &str) -> bool {
         } else {
             CODE_EXT.contains(&ext.to_ascii_lowercase().as_str())
         }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ws(texts: &[&str]) -> WorkingSet {
+        working_set(texts.iter().copied())
+    }
+
+    #[test]
+    fn the_working_set_is_what_the_text_names_by_rule() {
+        let w = ws(&[
+            "See https://github.com/reef-lab/gauge-log/pull/12 and #12, tracked as theseus-ab12.",
+            "I pushed lane/gauge-sync; also `git checkout -b fix/drift` and branch hotfix-7.",
+            "Edit src/gauge.rs, notes/drift.md and Cargo.toml, then ask https://tides.example.org/api/x.",
+            "clone reef-lab/other-repo, plus git@github.com:reef-lab/third.git and -R reef-lab/fourth",
+            "Issue #14 too, and #12 again; version v1.2 and e.g. nothing.",
+        ]);
+        assert_eq!(
+            w.repos,
+            [
+                "reef-lab/fourth",
+                "reef-lab/gauge-log",
+                "reef-lab/other-repo",
+                "reef-lab/third"
+            ],
+            "{w:?}"
+        );
+        assert_eq!(w.refs[0], "#12", "the most named first: {:?}", w.refs);
+        for r in ["#14", "reef-lab/gauge-log#12", "theseus-ab12"] {
+            assert!(w.refs.iter().any(|x| x == r), "{r} in {:?}", w.refs);
+        }
+        for b in ["lane/gauge-sync", "fix/drift"] {
+            assert!(w.branches.iter().any(|x| x == b), "{b} in {:?}", w.branches);
+        }
+        for f in ["src/gauge.rs", "notes/drift.md", "Cargo.toml"] {
+            assert!(w.files.iter().any(|x| x == f), "{f} in {:?}", w.files);
+        }
+        assert_eq!(
+            w.hosts,
+            ["tides.example.org"],
+            "github is a repo, not a host"
+        );
+        assert!(
+            !w.files.iter().any(|f| f.contains("v1.2") || f == "e.g"),
+            "{:?}",
+            w.files
+        );
+        assert!(w.roots.is_empty());
+        assert!(ws(&["nothing to see here", "plain words only."]).is_empty());
+    }
+
+    /// theseus-eqp1v: a tracker's ticket is a ref, upper case and numbered; a standard's name, one digit
+    /// and a version are not.
+    #[test]
+    fn a_trackers_ticket_is_a_ref() {
+        let w = ws(&[
+            "homesvc: ticket OPS-4214, see PRR-4142 (not AB-x1, UTF-16, SHA-256, OPS-7 or v-12).",
+        ]);
+        assert_eq!(w.refs, ["OPS-4214", "PRR-4142"], "{:?}", w.refs);
+    }
+
+    /// theseus-mg1ox: the word after "branch" is a branch only when it looks like one; English that follows
+    /// the word names none.
+    #[test]
+    fn english_after_the_word_branch_is_no_branch() {
+        let w = ws(&[
+            "Then merge the branch and, before that, check the branch has landed; the branch in question, or the branch. Then I left.",
+            "Switch to branch release-3 or branch main, not branch involving nothing.",
+        ]);
+        assert_eq!(w.branches, ["main", "release-3"], "{:?}", w.branches);
+    }
+
+    #[test]
+    fn a_working_set_keeps_its_most_named_entries_in_a_fixed_order() {
+        let text: String = (1..=20).map(|n| format!("#{n} ")).collect::<String>() + "#20 #20 #7";
+        let w = ws(&[&text]);
+        assert_eq!(w.refs.len(), KEEP);
+        assert_eq!(&w.refs[..2], ["#20", "#7"], "{:?}", w.refs);
+        assert_eq!(w, ws(&[&text]), "the same text, the same set");
+    }
 }

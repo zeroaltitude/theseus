@@ -969,11 +969,11 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
-        // A message that names no thread finds its own, in a place with threads
+        // A message that names a thread runs there, in a place with threads
         // (theseus-rha2); nothing else changes for a place without.
         let place_home = session.session_id.clone();
         let routing = match route {
-            true => self.route_to_thread(&mut p, conn, &mut session).await?,
+            true => self.route_to_thread(&mut p, conn, &mut session)?,
             false => None,
         };
         // A directory it names moves the session there: the turn's session

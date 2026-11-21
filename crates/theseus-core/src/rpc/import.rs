@@ -135,9 +135,6 @@ impl Core {
         if name.starts_with("card.") {
             return self.rpc_card(name, params, conn).await;
         }
-        if name == method::THREAD_IMPORT {
-            return self.rpc_thread_import(params, conn).await;
-        }
         if name == method::THREAD_MOVE {
             return super::server::reply(self.thread_move_message(parse(params)?, conn).await?);
         }

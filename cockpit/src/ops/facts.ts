@@ -262,7 +262,6 @@ export const ITEM_LOOK: Readonly<Record<QueueItem['kind'], { glyph: string; word
   question: { glyph: '?', word: 'question', tone: 'wait' },
   failure: { glyph: '✗', word: 'failure', tone: 'fault' },
   seal: { glyph: '🔒', word: 'seal', tone: 'think' },
-  ask: { glyph: '↪', word: 'which thread', tone: 'live' },
 }
 
 export function itemFacts(i: QueueItem, now: number): ItemFacts {

@@ -626,8 +626,6 @@ events! {
     WorkNotice(crate::notices::Notice) = notify::WORK_NOTICE,
     /// A thread changed (theseus-sjzm).
     ThreadChanged(crate::threads::ThreadChanged) = notify::THREAD_CHANGED,
-    /// A message waits for the owner to say which thread it is about.
-    ThreadAsked(crate::thread_route::ThreadAsk) = notify::THREAD_ASKED,
     /// The router placed a message in a thread's session (theseus-7kjb7).
     ThreadPlaced(crate::thread_placed::ThreadPlaced) = notify::THREAD_PLACED,
     /// A followed job's output, to the connection that follows it.
@@ -664,7 +662,6 @@ impl Event {
             Event::JudgeNoticed(e) => Some(&e.session_id),
             Event::TaskChanged(e) => Some(&e.session_id),
             Event::WakeNoticed(e) => Some(&e.session_id),
-            Event::ThreadAsked(e) => Some(&e.session_id),
             Event::ThreadPlaced(e) => Some(&e.session_id),
             Event::StandingNoticed(e) => Some(&e.session_id),
             Event::SessionMode(e) => Some(&e.session_id),
@@ -722,7 +719,6 @@ impl Event {
             | Event::WorkChanged(_)
             | Event::WorkNotice(_)
             | Event::ThreadChanged(_)
-            | Event::ThreadAsked(_)
             | Event::ActionOutputChunk(_)
             | Event::ActionOutputEnd(_)
             | Event::SelfChanged(_)

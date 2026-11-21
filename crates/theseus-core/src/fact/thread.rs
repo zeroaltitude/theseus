@@ -289,37 +289,6 @@ impl Fact for ThreadUnsplit<'_> {
     }
 }
 
-/// A home turn that served one thread became that thread's memory (`thread.claimed`,
-/// theseus-98bz.6): its nodes keyed to the thread, which its recall reads as its own. The paths are
-/// the turn's result's, scrubbed already.
-pub struct ThreadClaimed<'a> {
-    pub claim: &'a str,
-    pub thread: &'a str,
-    pub session: &'a str,
-    pub turn: &'a str,
-    pub nodes: u32,
-    pub paths: &'a [String],
-}
-
-impl Fact for ThreadClaimed<'_> {
-    const KIND: Option<LedgerKind> = Some(LedgerKind::ThreadClaimed);
-
-    fn row(&self) -> Value {
-        json!({"claim": self.claim, "thread": self.thread, "session": self.session,
-               "turn": self.turn, "nodes": self.nodes, "paths": self.paths})
-    }
-
-    fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            Session,
-            format!(
-                "Thread: the turn's {} nodes are the thread {}'s memory now, by the files it wrote (`thread unclaim {}` undoes it).",
-                self.nodes, self.thread, self.claim
-            ),
-        );
-    }
-}
-
 /// A claim undone (`thread.unclaimed`): its nodes belong to no thread again, but those a split took.
 pub struct ThreadUnclaimed<'a> {
     pub claim: &'a str,

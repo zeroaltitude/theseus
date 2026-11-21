@@ -1255,17 +1255,13 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # new`, then `theseus ask --thread <slug>`). Two threads are two executions and
 # run at once; a thread is private always, and a shared place never lists or
 # addresses one. max_live bounds the active and paused threads together.
-# A message in a private place that names no thread finds its own (theseus-rha2)
-# when the place has two or more live threads: by the place, a "#slug" or
-# "/t slug", a reply to a thread's reply, then what it is about (the threads'
-# working sets, the place's last thread, and Jev's classify.v2); it asks one
-# line only when it cannot tell. One-offs run in the place's own conversation.
+# A message goes to a thread by its address only (theseus-rha2): the place the
+# thread is bound to, a "#slug" or "/t slug", or a reply to a thread's reply.
+# A message that names none runs in the place's own conversation, always.
 # [threads]
 # enabled = true                          # false: no thread is made or addressed (the records stay)
 # max_live = 50                           # active and paused threads at once
 # discord_channel = "123456789012345678"  # a channel (text or forum) in your guild: each active thread gets a Discord thread there, made at its first message; unset: none
-# import_day_usd = 2.0                    # what the cards of `theseus thread import --apply` may spend a local day (one Haiku call a thread, cited to its episodes); past it a thread is made without a card
-# import_profile = "haiku"                # a pin: the profile whose model writes those cards; unset: Jev chooses (US options only)
 # cross_recall_penalty = 0.35             # in a threaded session, the share of its score a recalled note from another thread pays
 # cross_recall_bar = 0.75                 # ...and it is admitted only above this share of the query's best score, unless the message names that thread (slug, title, or a working-set entity)
 # cross_recall_beats_own = true           # ...and, once it has paid its penalty, only when it still outranks the asking thread's own best hit of the query (false: the bar alone decides)
@@ -1276,15 +1272,10 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # cross_recall_judge_k = 3                # at most this many notes a request (1 to 10)
 # place_digest = true                     # a message in a thread that Jev reads as asking across everything going on gets, for that turn, one labelled line for each other live thread of the place (a sealed one only counted; false: none, and no turn waits for the answer)
 # place_digest_line_chars = 200           # the longest a digest's line is, in characters
-# sticky_half_life_secs = 600             # a place's last thread stays the likely one for its next message, halving every this many seconds
-# route_wait_ms = 400                     # at most this long an unaddressed message waits for Jev's choice of thread; on timeout the router's own pick stands, tagged a guess
-# ask_wait_secs = 900                     # how long a message waits for your answer to "which thread?" before it runs in the place's own conversation
-# sticky_alone_asks = true               # a thread that stands only on being the place's last one (no entity of its named) cannot overrule Jev's other pick: the message is asked about, offering a new thread when it names two or more entities no thread holds (false: as before)
-# ask_every_thread = true                # "which thread?" lists every live, unsealed thread (past four, the best three and "another thread"), and any thread's slug answers it (false: the best two)
+# sticky_half_life_secs = 600             # a turn that runs in another session than the place's last exchange is given what was said from this many seconds before that exchange
+# route_wait_ms = 400                     # at most this long a thread's turn waits for Jev's reading of another thread's notes (cross_recall_judge) and of its scope (place_digest)
 # working_set_grows = true               # after a turn in a thread, the files its calls touched (and their first directory) and the entities its message named join the thread's working set, but for what another live thread holds (false: only your edits, splits and merges change it)
-# bench_clock = false                    # a test hook for the threadbench: a turn.submit carrying route_at_ms is routed at that clock, even from `ask -s` (false: such a submit is refused); never on in a real config
-# single_offers_new = true               # with one live thread, a message it does not clearly hold that names two or more entities no thread holds is asked about: that thread, a new one, or home (false: it runs at home unasked)
-# unsure = "guess"                       # a message the router cannot place runs at once in its best guess (never a sealed thread; a new thread offered becomes a guess of home) and can be moved after; "ask" holds it and asks which thread
+# bench_clock = false                    # a test hook for the threadbench: a turn.submit carrying route_at_ms is placed at that clock, even from `ask -s` (false: such a submit is refused); never on in a real config
 # A thread's next message after its cache window (the profile's cache_ttl since
 # its last call) finds the provider's cache gone, so the request is rewritten
 # whole anyway: the rewrite is made small. The thread's fresh card, the
@@ -1305,7 +1296,6 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # persona_engage = "shadow"               # shadow | act
 # seal_recommend = false                  # true: Jev's route.v5 `seal` question, answered yes at 0.60 or above in a thread, proposes sealing it (a card to your DM; Jev recommends, you seal)
 # link_proposals = true                   # Jev admits another live, unsealed thread's notes into a thread's recall twice: one sentence to your DM offers `theseus thread link` (once a pair; it links nothing itself; false: nothing is counted or posted)
-# claim_home_turns = true                 # a turn run at home whose written files all fall in one live, unsealed thread's working set becomes that thread's memory (`theseus thread unclaim ID` undoes one; false: nothing is claimed)
 
 # ---------------------------------------------------------------- initiative
 # What Theseus says first, in its persona's voice (theseus-slvl.9). How readily

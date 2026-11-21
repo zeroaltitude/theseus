@@ -433,21 +433,14 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
     );
 }
 
-/// And the same when the router places that message in a thread, which is what
-/// happened to him: his turn ran in `theseus-design-oct`'s session, not his
-/// DM's. A thread's virtual place is private unconditionally
-/// (`places::class_alone`, theseus-nhew), so the place half was never the
-/// problem — but the `owner` half has to survive the move too.
+/// And the same when the message is placed in a thread, which is what happened
+/// to him (by the router's guess then; by its address now): his turn ran in
+/// `theseus-design-oct`'s session, not his DM's. A thread's virtual place is
+/// private unconditionally (`places::class_alone`, theseus-nhew), so the place
+/// half was never the problem — but the `owner` half has to survive the move too.
 #[tokio::test]
 async fn and_so_is_one_the_router_places_in_a_thread() {
     let jev = jev_of_the_incident();
-    jev.script(
-        "thread",
-        theseus_judge::fake::Scripted::Choice {
-            option: "design-oct".into(),
-            confidence: 0.95,
-        },
-    );
     let r = judged_rig(&jev).await;
     let cli = theseus_core::approval::Answerer {
         label: "the CLI".into(),
@@ -463,26 +456,14 @@ async fn and_so_is_one_the_router_places_in_a_thread() {
                 goal: Some("An ARCHIVE of October design talk".into()),
                 ..Default::default()
             },
-            cli.clone(),
-        )
-        .unwrap();
-    // A working set, so the prefilter has a candidate at all: without one the
-    // router decides `home` outright and never asks Jev, which is how his own
-    // archive thread came to contend (its repo is named in his sentence).
-    r.core
-        .thread_edit(
-            &theseus_protocol::threads::ThreadEditParams {
-                slug: "design-oct".into(),
-                working_set: Some(theseus_protocol::threads::WorkingSet {
-                    repos: vec!["theseus".into()],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
             cli,
         )
         .unwrap();
-    r.say((ANA, "ana"), None, "untrust the theseus repository please");
+    r.say(
+        (ANA, "ana"),
+        None,
+        "#design-oct untrust the theseus repository please",
+    );
     r.until("his message judged", || !asked_of_a_message(&r).is_empty())
         .await;
     let routed = r.ledger("thread.routed");

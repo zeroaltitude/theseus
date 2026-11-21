@@ -73,7 +73,7 @@ pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use standing::StandingConfig;
-pub use threads::{PersonaEngage, ThreadsConfig, Unsure};
+pub use threads::{PersonaEngage, ThreadsConfig};
 pub use watches::WatchesConfig;
 pub mod defer;
 mod sparse;
@@ -1666,6 +1666,19 @@ impl Config {
                 "{} retired (nothing reads it any more): read and ignored, remove {}",
                 trimmed.join(", "),
                 match trimmed.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
+        // Routing by a guess and the thread importer (the owner, 2026-11-21).
+        let threads = cfg.threads.retired();
+        if !threads.is_empty() {
+            warnings.push(format!(
+                "{} retired (a message goes to a thread by its address only, and the thread \
+                 importer is gone): read and ignored, remove {}",
+                threads.join(", "),
+                match threads.len() {
                     1 => "it",
                     _ => "them",
                 }

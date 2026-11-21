@@ -200,7 +200,7 @@ impl ToolRuntime {
             },
             Ok((d, class)) => match glided {
                 Some(why) => stop(why, true),
-                None => Decided::Runs(self.misroute_hold(tc, tool, plan, d), class),
+                None => Decided::Runs(d, class),
             },
         }
     }

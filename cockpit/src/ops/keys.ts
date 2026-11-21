@@ -123,7 +123,7 @@ export const CTX_WORDS: Readonly<Record<Ctx, string>> = {
 }
 
 /** The verbs that act: off under the time machine. The table's, and the buttons' that no key presses. */
-export const BUTTON_ACTS = ['answer', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'thread_answer', 'mark',
+export const BUTTON_ACTS = ['answer', 'seal', 'seal_dismiss', 'unseal', 'thread_pause', 'thread_resume', 'thread_done', 'thread_reopen', 'thread_edit', 'thread_new', 'mark',
   // ops-timeline (theseus-jid7t.5): an event's verbs that reach the daemon, and a drag with its Undo.
   'event_remind', 'event_prep', 'event_ask', 'drag', 'undo',
   // ops-act (theseus-jid7t.6): the Join pane, the menus, the session's life and the task sheets.

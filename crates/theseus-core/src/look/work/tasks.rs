@@ -245,14 +245,10 @@ pub(super) fn needs_you(r: &Reader<'_>, here: bool) -> String {
             "Cards and questions of Theseus's own ({}). {OTHERS}:",
             more.waiting()
         );
-        for l in more.cards.iter().chain(&more.asks) {
+        for l in &more.cards {
             out.push_str(l);
         }
-        left_out(
-            &mut out,
-            more.cards_more + more.asks_more,
-            "cards and questions",
-        );
+        left_out(&mut out, more.cards_more, "cards and questions");
     }
     out.push_str(&owed::standing_words(more.standing));
     out

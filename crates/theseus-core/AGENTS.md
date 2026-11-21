@@ -692,33 +692,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   publishes the changed groups as `work.changed { threads }`; the seed reads the held board, never the store. A watch's
   snapshot reads each thread's stats once (`Core::thread_groups`: context tokens, today's dollars) and a connection that
   reads no private text is given and sent no group. A group's update leaves the stats it did not read.
-- **Threads from the owner's earlier harness** (theseus-71ib, T11; no format bump: a ledger kind and two META keys):
-  `thread.import` (`rpc/thread_import.rs`, `threads_import/`), `judge_act(Act::Thread)`, the owner from a private place.
-  With no `apply` it is the dry run: `source::scan` reads the imported sessions of every tag holding a source that
-  starts with `from` (`openclaw` takes `openclaw-store`, `openclaw-sync`) that ended in the window, their owner
-  messages (`Integrity::Operator`) and summary; `candidates::candidates` (pure) makes one candidate of each channel
-  conversation (a Slack or Discord channel, by its id) with an owner message in the last `since_days` (30) and, for the
-  DMs, one of each topic cluster (an episode's first topic label cut to two path parts) with at least `min_cluster`
-  (8) owner messages. The title is the channel's label, the persona the agent's only if `[personas]` has it, the
-  topics the episodes' labels (3), the working set what `extract.rs` finds by rules in the owner's lines and
-  summaries (repos, `#N` and `owner/name#N` and Beads ids, branches, files, hosts; no model). **A partner-confidential
-  episode counts and gives no text**: its messages are in the numbers and the sensitivity counts, and in no title,
-  topic, working set or model request; a stream of nothing else is titled `confidential <kind> conversation`.
-  With `apply` (slugs, looked up in a fresh scan) each thread is made one at a time: the card's call
-  (`card.rs`: Haiku by `[threads] import_profile`, one tool, `write_card`, scrubbed input, the newest 30 episodes within
-  24,000 characters), then `thread.new` and `thread.edit` (card, working set, persona), then one `thread.imported` row
-  (cost, tokens, the citations as handle, node and session; a day-ceiling spend kind) with the day's spend
-  (META `threads.import.day`) in one frame. A call whose worst case passes `[threads] import_day_usd` (2.0) or that the
-  day ceiling refuses is not made: the thread is made without a card, the result says why. A card line must cite
-  episodes the call offered (`E1`…) and ends in their recall handles (`[m:a1b2c3]`, `cite::handles_for` over the
-  episodes' anchor nodes); a line citing none, or repeating a message of 60 characters or more, is dropped and counted
-  (`dropped`). **Imported history stays testimony**: no node is written into any session and the thread has no session
-  of its own until its first message. The Vestige dump (`--vestige`) is the CLI's: each memory an episode of source
-  `vestige` (`episode::VESTIGE_SOURCE`, scrubbed as the harnesses' are), its id the digest of its text. Not here: the
-  Discord channel's bind (T6; `ThreadCandidate.channel` and a note say it can be the thread's place), and the
-  card's reach into a turn (T2). Tests: `threads_import/tests.rs`, `rpc/tests_thread_import.rs`, theseusd's
-  `tests/thread_import.rs`; the invented export is `threads_import/fixture.rs` and
-  `tests/fixtures/threads-import/openclaw.jsonl` (`THESEUS_GOLDEN=write` rewrites it).
+- **The thread importer is gone** (the owner, 2026-11-21): `thread.import` and its `[threads] import_day_usd` and
+  `import_profile` (read and ignored, `ThreadsConfig::retired`) with it; old `thread.imported` rows still read. The
+  rule extractor it brought is `thread_grow/extract.rs`. The session import (`import/`) is unrelated and unchanged.
   **Thread recall and seals** (theseus-f2g0; no store change; owner D12: Jev recommends, the owner seals).
   `thread_recall.rs` maps a candidate's session to its thread (`Board::of_session`, else the record's supersession
   link naming `thread:<slug>`, else its task parent, kept in `Memory::thread_memo`) and builds the pure
@@ -770,55 +746,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   query?}` (private places; the card and the top hits, cited by thread and position; `gate` raises it to `approve`
   when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
 
-- **The thread router** (theseus-rha2; no store change): an unaddressed message in a place with live threads finds its
-  thread (never one `theseus ask -s` named: `via` is `ask`, `may_route`, theseus-0rfjx). `rpc/thread_flow.rs`
-  (`route_to_thread`, called from `turn_submit` with `route` true) runs in this order: addressing by place, an
-  explicit word (`#slug`, `/t slug`, "in the … thread:") and a reply to a routed turn
-  (`thread_route::address`, certain, no judge); then the in-memory pre-router (`thread_route.rs`, pure: entity matches
-  against each live thread's working set, stickiness `[threads] sticky_half_life_secs`, the reply chain, fused as a
-  noisy-or, a thread whose title the message names in every content word adding 0.35 unshared (`thread_title.rs`,
-  theseus-4qdh8: two titles named contend and are asked; a title names its thread as an entity does, so it halves
-  another thread's stickiness and takes the replier's chain, and an apart thread keeps it, theseus-7nx13; with Jev down
-  a single title named routes there as a guess, `GUESS` 0.30 under the title's 0.35); `thread_flow.rs` holds its
-  `State`: the last thread per
-  home session, routed turns, pending asks, correction memory); then `classify.v2`'s `thread` question
-  (`Source::Threads`, at most 50 options plus `new_thread`
-  and `home`), which rides **the same inbound request** as the rest of the batch: `JudgeService::inbound_early` begins
-  the point before the turn and the turn takes the handed-off `Early` (keyed by session, with a pre-minted turn id), so
-  routing adds no model call (`tests_thread_route::jevs_thread_answer_rides_the_one_inbound_request…` holds
-  `jev.seen().len() == 1`). `thread_route::decide` is the table: bar 0.90 quiet (a tag in the reply), 0.60 to 0.90 a
-  visible tag with a move handle, below that one question (`thread.asked`, answered by `thread.answer`, with `[1] [2]
-  [n]ew [h]ome` in the CLI and buttons on Discord), a new-thread offer on one tap, a one-off at home, and only two or
-  more live threads wait. `[threads] route_wait_ms` (400) bounds the wait: a timeout keeps the pre-router's pick as a
-  `guess` and the `thread.routed` row counts it (`timed_out`). **The misroute guard** (`toolrun/misroute.rs`, armed by
-  `arm_guard` for a placement below the act bar only): the session's first write or `proc.run` outside the thread's
-  working-set roots (a relative one read under the session's directory, `cwd_for`, the one the working set grew it in)
-  goes on once at the notify posture with a one-line notice (path, thread, the next likeliest thread, `Undo: files.restore <path>`; a stricter decision is kept; theseus-g85jy); a `proc.run` from a directory above the roots (the session's directory)
-  decides nothing, and the next write or program does. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus thread
-  move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
-  one, and writes a correction (a `wrong thread` label on the `thread` question). A thread session's replies go to the place the message came from through
-  the outbox overlay (`Outbox::show_at`). Known limits: pending asks, router memory and thread corrections are in memory
-  (lost at a restart); a thread session's live stream does not reach the Discord place actor (its durable post does); the
-  early judgment's rows carry the home session. Tests: `rpc/tests_thread_route.rs`, `thread_route::tests`,
-  theseus-judge's `tests_threads.rs`; the 40-message fixture `fixtures/thread_route_40.json` is also
-  `scripts/thread-route-check.py`'s input.
-  **The ask and the sticky rule** (theseus-98bz.2, theseus-eqp1v, theseus-98bz.4, theseus-q3ggn): an ask's options are
-  its threads (`[threads] ask_every_thread`: every live, unsealed one up to four, else three and `other`, which an
-  answer of a slug fills; off, the best two), `new` when raised, and `home`. With `sticky_alone_asks` (on) a top thread
-  that stands on stickiness and the chain alone (no entity, no learned correction) and that Jev did not pick is held
-  just under the confirm bar, so the message is asked about; the `new` option rides that ask alone when the message
-  names two or more entities no working set holds (`new_entities`: the import's extractor, a ticket shape `OPS-4214`
-  read as a ref), and any ask Jev raised `new` in. **The directory rule** (theseus-vw8k7; `thread_route::apart_by_dir`,
-  called by `Core::keep_apart_by_dir` in `rpc/home_claim.rs` right after `pre_route`): with the turn's directory
-  known (the submit's `dir`, else the session's), a thread whose roots are set (absolute or `~/`; a relative one read
-  under the thread's own session's directory) and none of which holds the directory or lies under it keeps only its
-  entity score: stickiness, the chain and a learned correction are dropped; Jev's pick still fuses. A thread with no
-  readable root, or a turn with no directory, is scored as before. What the rule drops is then scored as if it had never been there (`thread_route::settle`, shared with `pre_route`: another thread's entity counts less, and stickiness halves, only while another thread is still named; theseus-ax4dp). The roots predicate is `thread_route::holds_path`,
-  which `home_claim::thread_of` reads too. Tests: `rpc/tests_thread_route.rs`
-  (`a_message_from_another_directory_is_not_placed_by_stickiness`), `thread_route::tests`.
-  **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. A list takes nothing past `thread_join::MAX_SET` (64), and nothing is evicted yet. A message's bare file name (`slow.sh`) grows nothing, only a path does (`thread_grow::paths_only`); a message the owner moves takes back what its words grew into the thread it ran in (`thread_ungrow`, from `State::take_grew`), and the thread it moves to grows from the message's resubmitted turn (theseus-iw50k). **A generic folder names no thread** (theseus-2uhsy, the owner's option (b), 2026-11-07): a root that is `notes`, `misc`, `stuff` or any name `generic_folder::is_generic_folder` reads as generic (its `PLACEHOLDERS`, the judge's layout directories `mine::is_layout_dir`, and the router's `GENERIC` words) is not grown into a set (`touched_in`), and one a stored set already holds is read as no name by the router's entity hits and the recall waiver (`thread_recall::named`), so no stored thread needs mending. A new placeholder goes in `generic_folder.rs`; its `every_generic_name_is_refused_by_every_reader` walks every entry through the three readers and names the file to correct. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`, `generic_folder::tests`.
-  **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` (`TurnSubmitParams.route_at_ms`) is routed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
-  **A lone thread offers a new one** (theseus-98bz.7; `thread_route::lone_offer`, `[threads] single_offers_new`): with one live thread below the confirm bar and two or more entities no working set holds, the message is asked about (the thread, new, home); a spoken turn runs at home. Tests: `rpc/tests_thread_lone.rs`.
+- **The thread router** (theseus-rha2; the owner, 2026-11-21: by address only): a message in a place with live threads
+  runs in a thread only by its address (`thread_route::address`, certain, no judge): the place a thread alone lists, an
+  explicit word (`#slug`, `/t slug`, "in the … thread:"), or a reply to a routed turn. Anything else runs at home, at
+  once: no pre-router, no fusion, no wait, no ask, no learned correction, no misroute guard (never a session `theseus ask
+  -s` named: `may_route`, theseus-0rfjx). `rpc/thread_flow.rs` (`route_to_thread`) keeps `thread_flow::State` (the place's
+  last exchange, routed turns, handoffs) for the place tail (`compiler::place_tail`) and `thread.move`. With two or more
+  live threads a home message's inbound point still begins early (`begin_inbound`), so `classify`'s request is
+  unchanged and its `thread` question still asked; nothing reads the answer. `rpc/thread_move.rs`: `/move`, `theseus
+  thread move` or `chat.move_to_thread` writes a redirect note, re-submits once, and learns nothing. Tests:
+  `rpc/tests_thread_route.rs` (and `tail.rs`), `thread_route::tests`.
+  **A thread's working set grows from its turns** (theseus-98bz.5; `thread_grow.rs`, `rpc/thread_grow.rs`, `[threads] working_set_grows`): after a turn in a thread (`routing.slug`, else `Board::of_session`), one page of the session's nodes after the turn's start gives its calls' paths (relative to the session's directory: the file and its first component as a root) and the message's entities (`thread_grow::extract::working_set`) join the set, but for what another live thread holds; one frame with a `thread.edited` row by the harness, only when the set changed. A list takes nothing past `thread_join::MAX_SET` (64), and nothing is evicted yet. A message's bare file name (`slow.sh`) grows nothing, only a path does (`thread_grow::paths_only`); a message the owner moves takes back what its words grew into the thread it ran in (`thread_ungrow`, from `State::take_grew`), and the thread it moves to grows from the message's resubmitted turn (theseus-iw50k). **A generic folder names no thread** (theseus-2uhsy, the owner's option (b), 2026-11-07): a root that is `notes`, `misc`, `stuff` or any name `generic_folder::is_generic_folder` reads as generic (its `PLACEHOLDERS`, the judge's layout directories `mine::is_layout_dir`, and the router's `GENERIC` words) is not grown into a set (`touched_in`), and one a stored set already holds is read as no name by the router's entity hits and the recall waiver (`thread_recall::named`), so no stored thread needs mending. A new placeholder goes in `generic_folder.rs`; its `every_generic_name_is_refused_by_every_reader` walks every entry through the three readers and names the file to correct. Tests: `rpc/tests_thread_grow.rs`, `thread_grow::tests`, `generic_folder::tests`.
+  **The bench's clock** (theseus-98bz.3; `[threads] bench_clock`, false, a test hook): a `turn.submit` carrying `route_at_ms` (`TurnSubmitParams.route_at_ms`) is placed at that clock, `ask -s` included, and refused when the key is off; the threadbench sends each message's plan time. Tests: `rpc/tests_thread_bench.rs`.
 - **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): a thread's session is a private conversation, so the
   keep-warm reads it as it reads any; what differs is who is kept. An active thread whose owner wrote within `[threads]
   keep_warm_hours` (4; 0 keeps none), the shorter of that and the profile's window, never a paused or done one:
@@ -897,18 +836,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   needed** (writes nothing); its words end with the CLI form, `theseus thread link a b`. A pair is asked once, whatever the owner
   did. Off, nothing is counted, written or posted. Discord's `/thread link` and `/thread unlink` are the same calls.
   Tests: `rpc/tests_thread_link.rs`, the layouts' format-47 thread sample.
-  **A home turn's claim** (theseus-98bz.6; no store format change: the META key `thread.claim.<id>`, `claim_` values of
-  `moved.of.<node>`, the ledger kinds `thread.claimed` and `thread.unclaimed`; `rpc/home_claim.rs`, `[threads] claim_home_turns`, on):
-  a routed turn that ran at home (`thread_routed_turn`, no slug) whose result's files, all of them (`more` zero), fall in exactly one
-  live, unsealed thread's working set (`home_claim::thread_of`, pure: a `files` entry, or under a `roots` entry, a relative one under
-  the turn's directory) has its own nodes (paged back from the session's newest, at most 1,024) keyed to that thread by a `MovedTo`
-  whose `split` is `claim_…` (`MovedTo::is_claim`), one frame with the claim's record and its row; a node a split moved keeps its
-  value. The lens and recall read it as a split's; the home's compile, which reads `Body::Moved` nodes, is unchanged. `history`
-  marks it `claimed_by` (never `moved_to`), and a split may take a claimed node (`refuse_moved`). `thread.unclaim` (`theseus thread
-  unclaim ID`) writes null where the key still holds the claim's value; its `kept` counts only keys holding another claim's
-  or a split's value (a null one is neither, theseus-l4n39). The claim and its undo read the keys and write in one frame
-  under the home session's execution lock, the lock a split's and an unsplit's frames hold, so a split lands wholly
-  before or after them. Tests: `rpc/tests_home_claim.rs`, `home_claim::tests`.
+  **A home turn's claim** (theseus-98bz.6) is no longer made (2026-11-21); a stored one still reads (`claim_` values of
+  `moved.of.<node>`, `MovedTo::is_claim`, `history`'s `claimed_by`) and `thread.unclaim` undoes it under the home
+  session's execution lock (`rpc/home_claim.rs`). Tests: `rpc/tests_home_claim.rs`.
 - **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
   what a turn hands it in `toolrun/turn_ctx.rs` (`TurnCtx`), the `ResultNode` a call site fills and the answers a call
   writes back in `toolrun/result_node.rs`, and a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
@@ -1227,7 +1157,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   kernel (not the push, which is seeded by the first watcher), and one still open after `escalate_after_secs` (60) with no
   screen open (`Bus::interactive_watchers`), or `escalate_with_screen_secs` (300) with one, gets one `needs_you` outbox post to
   the owner's DM on that tick, whatever the pacer's window: the window paces the buzz, never the card (theseus-27p6w), so a post made while it is closed is `silent: true` and does not take it (the courier pings it otherwise). With `[notify] dm_cards` (on; off, the one-line posts of before byte for byte) each such question is a card of its own (theseus-suvpe): `needs_you/words.rs` words it in three lines from the request's structured fields (what, why, what yes does; the asker of a self task is "Theseus's self-repair: <backlog title>" from its task record), several due together are a header post (`header: true`, which pings) and a card post each (`silent: true`), and the Discord binding gives each its buttons, Details and a reply that answers it. The outbox indexes it as the question's card
-  **Plain words and fail open** (theseus-cudar; the owner, 2026-10-19 20:08 and 2026-10-20 07:26): an approval's request carries `plain` (`ConfirmRequest::plain`, worded once by `needs_you/plain.rs`, from `Core::plain_of` in `rpc/confirms.rs` and at ask time in `toolrun.rs`): who asks (the asker's name, never a raw id but one short tag), what (a verb and a friendly object: `object_of` names an earlier run's report "its own report from the 05:12 run", the store "Theseus's own store (conversation content)", a path keeps its end), the model's one-line reason (the last line of the assistant message that made the call, `reason_line`), a risk badge (`risk_of`: read-only, writes, runs a program, network, spends, touches secrets) and what Yes and No do. The Discord card, its settle line (`card.line`, so an Expired card keeps the whole question), the Details press, `theseus answer` and both TUI panes read it; a request with none keeps the gate's reason. **Where the reason comes from** (theseus-zcn80): `needs_you::rule_clause` reads the clause of the reason's last `— approve (…)` (the owner's own posture has none), and `plain` words it once for every surface: `held` is the floor, outside text, the thread guard's doubt (`toolrun::misroute::is_question`, "it may belong in another thread"), the clause, else "`tool` is set to ask"; `why` is the guard's question (both threads and the move) or the model's line, else the clause. Discord's `why it asks` reads the same clause, and `words.rs` the same `held`. A thread's session is asked by its thread's title (`Core::asker_name`). **Self-improvement fails open** (`toolrun/order.rs`, `ToolPolicy::fails_open`, `own_tree::fail_open`): a self session's call that the policy layer holds for approval runs with a notice (`tool.notified`, "self-improvement fails open") unless it is the floor (store, spool, bindings, the 1Password token, sealed sets), a task's layer 1, an AWS call, a private address, an approve-listed program or argument, an approve-listed path other than the state dir's own, a write or a run in the state dir, or an L1 call; every later layer (web text, a place's floor, a language server's start) still holds it. `self.evidence` (`rsi/evidence.rs`, registered with `[self] mode = "act"`, self sessions only) reads ledger rows of a cause key in a time range, an item's earlier reports and the gate files, plain names inside `self/reports` and `self/gates`, so a self session never searches the state dir or its store; a started item's brief names its earlier reports (`evidence::briefing`).
+  **Plain words and fail open** (theseus-cudar; the owner, 2026-10-19 20:08 and 2026-10-20 07:26): an approval's request carries `plain` (`ConfirmRequest::plain`, worded once by `needs_you/plain.rs`, from `Core::plain_of` in `rpc/confirms.rs` and at ask time in `toolrun.rs`): who asks (the asker's name, never a raw id but one short tag), what (a verb and a friendly object: `object_of` names an earlier run's report "its own report from the 05:12 run", the store "Theseus's own store (conversation content)", a path keeps its end), the model's one-line reason (the last line of the assistant message that made the call, `reason_line`), a risk badge (`risk_of`: read-only, writes, runs a program, network, spends, touches secrets) and what Yes and No do. The Discord card, its settle line (`card.line`, so an Expired card keeps the whole question), the Details press, `theseus answer` and both TUI panes read it; a request with none keeps the gate's reason. **Where the reason comes from** (theseus-zcn80): `needs_you::rule_clause` reads the clause of the reason's last `— approve (…)` (the owner's own posture has none), and `plain` words it once for every surface: `held` is the floor, outside text, the clause, else "`tool` is set to ask"; `why` is the model's line, else the clause. Discord's `why it asks` reads the same clause, and `words.rs` the same `held`. A thread's session is asked by its thread's title (`Core::asker_name`). **Self-improvement fails open** (`toolrun/order.rs`, `ToolPolicy::fails_open`, `own_tree::fail_open`): a self session's call that the policy layer holds for approval runs with a notice (`tool.notified`, "self-improvement fails open") unless it is the floor (store, spool, bindings, the 1Password token, sealed sets), a task's layer 1, an AWS call, a private address, an approve-listed program or argument, an approve-listed path other than the state dir's own, a write or a run in the state dir, or an L1 call; every later layer (web text, a place's floor, a language server's start) still holds it. `self.evidence` (`rsi/evidence.rs`, registered with `[self] mode = "act"`, self sessions only) reads ledger rows of a cause key in a time range, an item's earlier reports and the gate files, plain names inside `self/reports` and `self/gates`, so a self session never searches the state dir or its store; a started item's brief names its earlier reports (`evidence::briefing`).
   (`Outbox::pinged`), so the answer's `card_closed` writes the settle that edits it; a question that has a card in a Discord place
   (`Outbox::has_card`) gets no second post; with no DM bound nothing is written. Half-way to a question's expiry the work board
   reminds (the policy's rule 2): `WorkBoard::remind`, from `Push::remind_questions` on the same tick, reading nothing until
@@ -2161,7 +2091,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     before any call ("No model cleared for this request's data is usable: …"); the driver parks that class, never retries it.
     `verdicts` is a `content_wait::Handle`: `Ready` (answers at once) until the judge that lands verdicts stands behind it;
     `content_wait::judging::Judging` is the tests' judge. The config refuses a restricted profile for the owner-material keys
-    (`[people] extract_profile`, `[card] profile`, `[threads] import_profile`, `[judge.learn] writer_profile`, `[self]
+    (`[people] extract_profile`, `[card] profile`, `[judge.learn] writer_profile`, `[self]
     reviewer_profile`, `[initiative] profile`, `[ontology] name_profile`, `[memory] synth_profile`) and a China-origin `[judge]
     api_base`. Tests: `tests_content_gate.rs`, `tests_content_floor.rs`, `tests_content_freeze.rs`, `tests_data_gate.rs`,
     `data_gate.rs`, `config/data_floor.rs`.

@@ -122,7 +122,6 @@ pub(crate) mod task_start;
 mod thread_flow;
 mod thread_grow;
 mod thread_home;
-mod thread_import;
 mod thread_join;
 mod thread_link;
 mod thread_move;
@@ -240,15 +239,11 @@ mod tests_thread_grow;
 #[cfg(test)]
 mod tests_thread_home;
 #[cfg(test)]
-pub(crate) mod tests_thread_import;
-#[cfg(test)]
 mod tests_thread_join;
 #[cfg(test)]
 mod tests_thread_keep_warm;
 #[cfg(test)]
 mod tests_thread_link;
-#[cfg(test)]
-mod tests_thread_lone;
 #[cfg(test)]
 mod tests_thread_mix;
 #[cfg(test)]

@@ -13,7 +13,7 @@
 //!   component; a URL its host. A generic folder (`notes`, `misc`, `src`;
 //!   [`crate::generic_folder`], theseus-2uhsy) is no root: it names no thread.
 //! - **Named** is the message's entities, as the import's extractor reads them
-//!   (`threads_import::extract::working_set`).
+//!   (`thread_grow::extract::working_set`).
 //! - **Streams stay apart**: an entity another live thread holds (a sealed one
 //!   included), compared without case as `thread_route::new_entities` does, is
 //!   not added; that thread keeps it, and nothing is removed here.
@@ -26,6 +26,8 @@ use theseus_protocol::threads::WorkingSet;
 
 use crate::generic_folder::is_generic_folder;
 use crate::thread_join::MAX_SET;
+
+pub mod extract;
 
 /// A path as it reads from the session's directory: a relative one as it
 /// is, an absolute one under `dir` made relative to it, `/`-joined; none for

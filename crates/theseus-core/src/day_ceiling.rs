@@ -41,8 +41,7 @@
 //! - consolidation (`synthesis.proposed`), and the owner's learning runs
 //!   (`judge.replay`, `judge.audit`, `judge.backfill`'s `cost_usd`), and the
 //!   learning loop's writer (`judge.proposal`'s `writer_usd`), and the
-//!   people's extractor (`people.extracted`, theseus-wy7y), and a thread
-//!   import's cards (`thread.imported`, theseus-71ib), and the card's observer
+//!   people's extractor (`people.extracted`, theseus-wy7y), and the card's observer
 //!   (`card.observed`, theseus-6f8t0), and the keep-warm reads (`keep_warm`,
 //!   theseus-ezeg, booked to their sessions).
 
@@ -60,7 +59,7 @@ use crate::store::Store;
 use crate::turn::TurnRunner;
 
 /// The kinds whose rows of today carry model spend (the module's list).
-pub const SPEND_KINDS: [&str; 17] = [
+pub const SPEND_KINDS: [&str; 16] = [
     "action.succeeded",
     "action.failed",
     "action.outcome_unknown",
@@ -72,7 +71,6 @@ pub const SPEND_KINDS: [&str; 17] = [
     "judge.backfill",
     "judge.proposal",
     "people.extracted",
-    "thread.imported",
     "card.proposed",
     "card.observed",
     "keep_warm",

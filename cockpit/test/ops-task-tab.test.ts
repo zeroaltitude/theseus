@@ -1,22 +1,14 @@
 // The Ops page's Tasks tab (theseus-nuqut): the needs-me reasons, then the counts and the selection.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { ThreadAsk } from '../src/protocol.gen/index.ts'
 import { boardRows } from '../src/ops/board.ts'
-import { needsEntries, reasonOf } from '../src/ops/needsReason.ts'
+import { needsEntries } from '../src/ops/needsReason.ts'
 import { queueOf } from '../src/ops/queue.ts'
-import { board, NOW, MIN } from './ops-fixtures.ts'
-
-const routerAsk = (over: Partial<ThreadAsk> = {}): ThreadAsk => ({
-  ask_id: 'ask_1', session_id: 'ses_tides', question: 'Which thread is this for?', options: [{ key: '1', label: 'tide tables' }, { key: 'home', label: 'here' }],
-  message: 'why is the build red', expires_ms: NOW + 20 * MIN, ...over,
-} as ThreadAsk)
+import { board, NOW } from './ops-fixtures.ts'
 
 function world() {
   const b = board()
-  // A late-opened tab: the router's ask was read by `thread.ask_list`, not heard.
-  const asks = [{ ask: routerAsk(), heard_ms: NOW - 5 * MIN }]
-  const queue = queueOf({ confirms: b.confirms, views: b.views, groups: b.groups, asks, titleOf: (s) => s })
+  const queue = queueOf({ confirms: b.confirms, views: b.views, groups: b.groups, titleOf: (s) => s })
   const rows = boardRows({ views: b.views, tasks: b.tasks, sessions: b.sessions, queue, now: NOW })
   return { b, queue, rows }
 }
@@ -32,14 +24,6 @@ test('every row in the needs-me column has a task and a non-empty reason', () =>
   const by = new Map(entries.map((e) => [e.task, e.reason]))
   assert.match(by.get('ses_t5') ?? '', /chart server refused/, 'a failure says why it failed')
   assert.match(by.get('ses_t1') ?? '', /Which pier first|write under the projects root/, 'a task’s question or approval')
-})
-
-test('a router ask read after it was posted is "waiting on you" against the right task', () => {
-  const { rows, queue } = world()
-  const e = needsEntries(rows, queue).find((x) => x.task === 'ses_tides')
-  assert.ok(e, 'the conversation the ask came from is in the column')
-  assert.match(e.reason, /Which thread is this for\?/)
-  assert.equal(reasonOf(queue.find((i) => i.kind === 'ask')!), 'Which thread is this for?')
 })
 
 // ------------------------------------------------------------------ the counts and the selection

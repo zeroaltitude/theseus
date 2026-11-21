@@ -1,21 +1,20 @@
 //! `thread.move` (theseus-rha2): "that was for the security fix". The owner
-//! says an unaddressed message was routed wrong; it is run again where they
-//! say. In this order, each step standing if a later one fails:
+//! says a message the router placed belongs elsewhere (a message with no
+//! address ran at home); it is run again where they say. In this order, each
+//! step standing if a later one fails:
 //!
 //! 1. the wrong thread (when it was a thread) is told, as a harness note in
 //!    its session: "the message at @p was for «security fix»; disregard it
 //!    here". A turn still running there for the message is stopped first;
-//! 2. the correction is recorded in one frame: the owner's label on the
-//!    `thread` question of the judgment that chose (the right class), the
-//!    `thread.moved` row. A "wrong thread" label counts on `classify.v2`'s
-//!    rollback rule;
+//! 2. the `thread.moved` row is written;
 //! 3. the message is submitted again, once, to the right session, the routing
 //!    of unaddressed messages off.
 //!
-//! The owner's act, from a private place, judged as every move of a thread is.
+//! Nothing is learned from a move: no message is placed by a guess, so there
+//! is no guess to correct (the owner, 2026-11-21). The owner's act, from a
+//! private place, judged as every move of a thread is.
 
 use anyhow::anyhow;
-use serde_json::json;
 use theseus_protocol::thread_route::{RouteHow, ThreadMoveParams, ThreadMoveResult, ThreadTag};
 use theseus_protocol::{error_code, method, TurnSubmitParams, TurnSubmitResult};
 
@@ -23,7 +22,6 @@ use super::server::{Conn, RpcFailure};
 use super::Core;
 use crate::fact;
 use crate::fact::thread_route::ThreadMoved;
-use crate::judge::inbound::{CLASSIFY_PACK, THREAD_QUESTION};
 use crate::node::{Body, Node, Origin};
 use crate::thread_flow::Routed;
 
@@ -93,8 +91,8 @@ impl Core {
             .ok_or_else(|| {
                 RpcFailure::new(
                     error_code::NOT_FOUND,
-                    "no message routed here since the daemon started: only a message that named no \
-                     thread can be moved",
+                    "no message placed here since the daemon started: only a message the router \
+                     placed can be moved",
                 )
             })?;
         let from = routed.to.clone().unwrap_or_else(|| "home".into());
@@ -122,10 +120,7 @@ impl Core {
         // The words that grew the wrong thread's set are taken back.
         self.thread_ungrow(&routed.turn);
 
-        // 2. The correction, in one frame.
-        let label_id = self.write_correction(&routed, &to, &who_label, &via, &title)?;
-
-        // 3. The message again, once, to the right session.
+        // 2. and 3. The message again, once, to the right session.
         let place = self.outbox.target(&routed.home);
         if to != "home" {
             if let Err(e) = self.outbox.show_at(&target_session, place.as_deref()) {
@@ -160,7 +155,6 @@ impl Core {
             text: routed.text.clone(),
             author: routed.author.clone(),
             how: RouteHow::Moved,
-            judgment: None,
             at_ms: theseus_protocol::now_unix_ms(),
         });
         state.replied(&routed.home, theseus_protocol::now_unix_ms());
@@ -172,7 +166,6 @@ impl Core {
             via: &via,
             resubmitted: &result.turn_id,
             redirected,
-            labeled: label_id.as_deref(),
         });
         Ok((
             ThreadMoveResult {
@@ -241,61 +234,6 @@ impl Core {
             }
         }
         false
-    }
-
-    /// The label on the `thread` question (the right class), when Jev was
-    /// asked; the `thread.moved` row is the caller's. One frame for the label;
-    /// the ladder counts it.
-    fn write_correction(
-        &self,
-        r: &Routed,
-        to: &str,
-        who: &str,
-        via: &str,
-        title: &str,
-    ) -> Result<Option<String>, RpcFailure> {
-        let judge = &self.runner.judge;
-        let mut label_id = None;
-        if let Some((judgment, offered)) = &r.judgment {
-            let pack = judge
-                .pack(CLASSIFY_PACK)
-                .ok_or_else(|| RpcFailure::invalid(anyhow!("this build has no {CLASSIFY_PACK}")))?;
-            // A class the question did not offer is no label of it: `home`
-            // and the slugs on offer are.
-            if to == "home" || offered.iter().any(|o| o == to) {
-                let label =
-                    crate::learning::labels::check(&pack, Some(THREAD_QUESTION), &json!(to))
-                        .map_err(|e| RpcFailure::invalid(anyhow!(e)))?;
-                let id = crate::new_id("lbl");
-                let note = format!(
-                    "the owner moved the message to {title} ({via}): the thread question's answer was wrong"
-                );
-                let f = fact::judge::JudgeLabel {
-                    id: &id,
-                    judgment,
-                    pack: CLASSIFY_PACK,
-                    question: Some(THREAD_QUESTION),
-                    about: None,
-                    label,
-                    source: "operator",
-                    who,
-                    via,
-                    weight: 1.0,
-                    note: &note,
-                    correlation_id: None,
-                    rule: None,
-                };
-                let mut rec =
-                    fact::row(&f, Some(&r.home), Some(&r.turn)).map_err(RpcFailure::invalid)?;
-                rec.key = Some(id.clone());
-                let rec = rec.scoped(&super::judge::scope_of(CLASSIFY_PACK));
-                self.store.append(&[rec]).map_err(RpcFailure::invalid)?;
-                self.session_rec(&r.home).announce(&f);
-                label_id = Some(id);
-            }
-        }
-        judge.wrong_thread();
-        Ok(label_id)
     }
 }
 

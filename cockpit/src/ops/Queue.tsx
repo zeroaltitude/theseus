@@ -112,7 +112,6 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
   return (
     <div className="mt-2 flex flex-col gap-1.5">
       {i.proposal && <div className="text-[11.5px] text-think">{changeWords(i.proposal.record)}</div>}
-      {i.ask && <div className="text-[11px] text-ink-dim">“{i.ask.message}”</div>}
       <div className="flex flex-wrap gap-1.5">
         {(i.confirm || i.proposal) && i.kind !== 'question' && <>
           {b('approve', { verb: 'approve' }, 'ok', <>y · {i.confirm?.budget ? 'Reset' : i.confirm?.change || i.proposal ? 'Accept' : 'Approve'}</>)}
@@ -125,7 +124,6 @@ export function Answers({ i, whole, note, onNote, past }: { i: QueueItem; whole:
         {b('dismiss', { verb: 'dismiss' }, 'fault', 'd · Dismiss')}
         {b('seal', { verb: 'seal' }, 'wait', 'Seal')}
         {b('seal_dismiss', { verb: 'seal_dismiss' }, 'fault', 'Not now')}
-        {i.ask && [...i.ask.options, ...(i.ask.others ?? [])].map((o) => b('thread_answer', { verb: 'thread_answer', key: o.key }, 'live', o.label))}
         {i.kind === 'failure' && i.sessionId && <Link to={`/session/${i.sessionId}`} className="self-center text-[11.5px] text-live hover:underline">o · open</Link>}
       </div>
       {note !== null && (
