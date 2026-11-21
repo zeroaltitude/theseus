@@ -232,7 +232,8 @@ pub fn presence(
         Some(node) => crate::view_gate::Input::Message(node),
         None => crate::view_gate::Input::SetUp(None),
     };
-    let g = crate::view_gate::present(&core.runner.place_of(session), target, input, &core.store);
+    let place = crate::view_gate::RecallPlaces::default().of_session(&core.runner, session);
+    let g = crate::view_gate::present(&place, target, input, &core.store);
     let p = match g {
         G::OwnerAlone => Present::OwnerAlone,
         G::PrivateChannel => Present::Private,
@@ -327,7 +328,8 @@ pub(crate) async fn answer(
         },
         &done,
     );
-    let private = |s: &str| core.runner.place_of(s) == Place::Private;
+    let places = crate::view_gate::RecallPlaces::default();
+    let private = |s: &str| places.of_session(&core.runner, s) == Place::Private;
     let hidden = |s: &str| s != session && core.ladder_hidden(s);
     let mut lens = page::Lens {
         store: &core.store,

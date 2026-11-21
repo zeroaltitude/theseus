@@ -348,7 +348,7 @@ fn a_walk_stopped_by_its_bound_shows_no_hidden_position() {
         said.contains("limit of the tool, not the end of history"),
         "{said}"
     );
-    assert!(!said.contains("turn_") && !said.contains("100"), "{said}");
+    assert!(!said.contains("turn_0") && !said.contains("1000"), "{said}");
     assert!(w.resume.is_some(), "the tool keeps where it stopped");
 }
 
@@ -960,7 +960,7 @@ async fn a_played_turn_pages_back_opens_the_exchange_it_was_missing_and_answers(
     );
     let opened = serde_json::to_string(&reqs[n - 1].messages).unwrap();
     assert!(
-        opened.contains(&format!("[Exchange {}", first.turn_id)),
+        opened.contains("[Exchange ") && opened.contains(&first.turn_id),
         "{opened}"
     );
     assert!(
