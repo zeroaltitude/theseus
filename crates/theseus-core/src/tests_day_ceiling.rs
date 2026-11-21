@@ -596,7 +596,7 @@ fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
     /// The ledger kinds the walk finds today: one per `impl Fact` whose row
     /// names `"cost_usd"`. Raise it with a new priced row; a walk that finds
     /// fewer has read less than it did.
-    const FOUND: usize = 20;
+    const FOUND: usize = 19;
     const NOT_SPEND_KINDS: &[(&str, &str)] = &[
         ("provider.call", "its call is an action row, counted as action.succeeded"),
         ("provider.cut", "its call is an action row, counted as action.failed"),

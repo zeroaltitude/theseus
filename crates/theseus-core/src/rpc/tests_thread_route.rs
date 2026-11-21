@@ -517,7 +517,7 @@ async fn a_move_writes_one_note_resubmits_once_and_teaches_nothing() {
     let next = submit(c, &dm, "rotate the signing keys on the gateway again").await;
     assert_eq!(next.session_id, dm);
     assert_eq!(tag(&next).how, RouteHow::Home);
-    // Moving to where it already is, and a second move of nothing, say so.
+    // Moving the moved message to where it already is says so.
     let mut w = Wire::open(c);
     let id = w
         .send(
@@ -525,7 +525,7 @@ async fn a_move_writes_one_note_resubmits_once_and_teaches_nothing() {
             ThreadMoveParams {
                 session_id: dm.clone(),
                 to: "security-fix".into(),
-                turn_id: None,
+                turn_id: moved["result"]["turn_id"].as_str().map(str::to_string),
                 author: None,
                 discord: None,
             },
