@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, TimelineRoot};
 use super::super::{Form, Piece, PointOfView, Pos, Present, Reason};
-use super::here::place_of;
+use super::here::anchor_place;
 use super::make;
 use super::sources::Sources;
 use super::{Band, Selector, Snapshot};
@@ -29,7 +29,7 @@ impl<'a> Beside<'a> {
 
     /// The things touched in the newest exchanges here since `/new`, newest first, each once.
     fn in_play(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(place) = place_of(pov) else {
+        let Some(place) = anchor_place(pov) else {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
