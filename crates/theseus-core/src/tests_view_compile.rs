@@ -374,10 +374,10 @@ async fn a_small_view_conversations_requests_are_the_golden() {
 }
 
 /// A turn of `sid` whose input `turn.submit` marked as typed by the owner in person, or by an agent's
-/// process (the gate's own staging, `view_gate::stage_mark`).
+/// process (the gate's own test mark, `view_gate::test_mark`).
 async fn turn_as(core: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_person: bool) {
     use crate::session::SessionRecord;
-    let mark = crate::view_gate::stage_mark(&core.runner, sid, input, in_person);
+    let mark = crate::view_gate::test_mark(&core.runner, sid, in_person);
     let rec = (core.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
