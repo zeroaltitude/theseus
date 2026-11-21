@@ -631,8 +631,10 @@ fn default_proc_sync_secs() -> u64 {
 fn default_reconsider_every_secs() -> u64 {
     300
 }
+/// The limit a `proc.run` job gets when its call names none.
+pub const DEFAULT_PROC_TIMEOUT_SECS: u64 = 3600;
 fn default_proc_timeout_secs() -> u64 {
-    3600
+    DEFAULT_PROC_TIMEOUT_SECS
 }
 fn default_proc_timeout_max_secs() -> u64 {
     3600

@@ -73,6 +73,8 @@ pub(crate) mod tool;
 mod word;
 
 #[cfg(test)]
+mod tests_chosen_limit;
+#[cfg(test)]
 mod tests_refusal_rate;
 #[cfg(test)]
 mod tests_refused;
