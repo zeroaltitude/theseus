@@ -12,6 +12,9 @@ rust-version.workspace = true
 # crate's own unit tests always have it. It also exports `names::OLD` (the old
 # names' digests) for other crates' tests.
 fake = []
+# The retired pack files (`pack::retired`, issue 44), for other crates' tests:
+# enabled only through dev-dependencies, never by a crate a release builds.
+retired-packs = []
 # The `jev-probe` binary: real calls with a key from the environment.
 probe = ["fake", "dep:clap"]
 

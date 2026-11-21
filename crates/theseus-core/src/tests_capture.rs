@@ -547,3 +547,40 @@ async fn the_notice_and_the_ask_reach_the_sessions_watchers() {
     assert!(got[0].lines()[1].starts_with("Undo: theseus standing revoke std_"));
     assert!(got[1].lines()[1].contains("theseus standing answer ask_"));
 }
+
+/// The inbound batch's cost is split between its packs by question count, at
+/// unequal weights: `classify.v4` and `directive.v2` ride one call (since
+/// `role.v1` left the batch, issue 44, they are its two packs), each row
+/// names that call, and the two costs are the call's, split as
+/// `batch::shares` splits it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_batchs_two_packs_split_its_cost_by_question_count() {
+    let jev = FakeJev::start().unwrap();
+    hears(&jev, "none", 0.9, ("session", 0.9));
+    let r = rig_capture(&jev, 1);
+    ask(&r.core, None, "what changed in the harbour schedule").await;
+    let of = |pack: &str| -> Option<Value> {
+        rows(&r.core, "judge.call")
+            .into_iter()
+            .find(|d| d["pack"] == pack)
+    };
+    until("both rows", || {
+        of("classify.v4").is_some() && of("directive.v2").is_some()
+    })
+    .await;
+    let (c, d) = (of("classify.v4").unwrap(), of("directive.v2").unwrap());
+    assert_eq!(c["call"]["id"], d["call"]["id"], "one call");
+    assert_eq!(c["call"]["packs"], 2, "{c}");
+    let (qc, qd) = (
+        c["questions"].as_u64().unwrap() as usize,
+        d["questions"].as_u64().unwrap() as usize,
+    );
+    assert!(qc > qd && qd > 0, "{qc} {qd}");
+    assert_eq!(c["call"]["questions"].as_u64(), Some((qc + qd) as u64));
+    let (cc, cd) = (
+        c["cost_micros"].as_u64().unwrap(),
+        d["cost_micros"].as_u64().unwrap(),
+    );
+    assert!(cc > cd && cd > 0, "{cc} {cd}");
+    assert_eq!(theseus_judge::batch::shares(cc + cd, &[qc, qd]), [cc, cd]);
+}

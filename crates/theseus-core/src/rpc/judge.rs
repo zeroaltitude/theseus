@@ -88,10 +88,12 @@ impl Core {
     ) -> anyhow::Result<(JudgeListResult, ListRead)> {
         let mut scopes: Vec<String> = match &p.pack {
             Some(pack) => vec![scope_of(pack)],
-            None => theseus_judge::pack::embedded()
-                .as_ref()
-                .map(|packs| packs.iter().map(|p| scope_of(&p.id)).collect())
-                .unwrap_or_default(),
+            // Every readable family, a retired one's too (issue 44).
+            None => theseus_judge::pack::readable_ids()
+                .iter()
+                .map(String::as_str)
+                .map(scope_of)
+                .collect(),
         };
         scopes.sort();
         scopes.dedup();

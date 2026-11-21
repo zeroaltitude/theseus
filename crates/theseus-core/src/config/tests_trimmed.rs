@@ -89,3 +89,35 @@ fn an_old_settings_file_with_the_retired_modes_loads() {
     assert_eq!(trimmed(&warnings).len(), 1, "{warnings:?}");
     assert_eq!(cfg.routing.trimmed(), ["routing.rung"]);
 }
+
+/// The one line says what changes when a retired key set something: a
+/// shadow rung no longer holds routing back, and a small-talk bar that was on
+/// no longer withholds recall. A value that changed nothing says nothing more.
+#[test]
+fn the_line_says_what_changes_with_each_retired_mode() {
+    let route = crate::judge::inbound::ROUTE_PACK;
+    let routing = format!("routing now follows `[judge.packs.\"{route}\"] rung` and may act live");
+    let recall = "small-talk turns now carry admitted recall";
+    let line = |text: &str| -> String {
+        let (_, warnings) = parse(text).unwrap();
+        let lines = trimmed(&warnings);
+        assert_eq!(lines.len(), 1, "{warnings:?}");
+        lines[0].clone()
+    };
+    let both = line("[routing]\nrung = \"shadow\"\n\n[memory]\nsmall_talk_bar = true\n");
+    assert!(both.contains(&routing) && both.contains(recall), "{both}");
+    let shadow = line("[routing]\nrung = \"shadow\"\n");
+    assert!(
+        shadow.contains(&routing) && !shadow.contains(recall),
+        "{shadow}"
+    );
+    let bar = line("[memory]\nsmall_talk_bar = true\n");
+    assert!(bar.contains(recall) && !bar.contains(&routing), "{bar}");
+    for quiet in [
+        "[routing]\nrung = \"live\"\n",
+        "[memory]\nsmall_talk_bar = false\n",
+    ] {
+        let l = line(quiet);
+        assert!(!l.contains("What changes"), "{l}");
+    }
+}

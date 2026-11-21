@@ -314,6 +314,12 @@ impl Default for MemoryConfig {
 }
 
 impl MemoryConfig {
+    /// The retired `small_talk_bar` was on: a small-talk turn's admitted
+    /// notes were withheld, and now they are carried.
+    pub fn small_talk_bar_was_on(&self) -> bool {
+        self.small_talk_bar.as_ref().and_then(toml::Value::as_bool) == Some(true)
+    }
+
     /// The keys the trim of unused modes retired (issue 44) that this
     /// section sets: what [`crate::Config::parse`] warns of, once.
     pub fn trimmed(&self) -> Vec<String> {

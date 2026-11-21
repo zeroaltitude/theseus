@@ -988,3 +988,61 @@ async fn a_v3_judgment_is_replayed_with_its_fields_as_judged() {
     assert_eq!(sent["context"], "As it stood.", "{sent}");
     assert_eq!(sent["project"], "~/projects/lantern");
 }
+
+/// The archived `security.v1` (issue 44: two header comments no longer name a
+/// person) is the text its stored judgments recorded under the original
+/// digest: a replay of it as a candidate is not refused for its name, and any
+/// other text under that name still is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_archived_security_v1_is_the_text_its_judgments_recorded() {
+    // sha256 of `crates/theseus-judge/packs/security.v1.toml` at 9840525d.
+    const ORIGINAL: &str = "e155cb50f418728c9d30b2137c3cc9889a8281d6dd2d5108d6723782cd698a19";
+    let jev = scripted_fake();
+    let r = rig(texts(1), &jev, |_| {});
+    let c = &r.core;
+    let (state, _) = loop_state(c, "anything");
+    let ctx = json!({"session": "ses_a", "blob": "gone"});
+    let mut old = judgment(
+        "jdg_v1_orig",
+        "security.v1",
+        &state,
+        vec![noul("risky", 0.3)],
+        ctx.clone(),
+    );
+    old.pack_sha256 = ORIGINAL.into();
+    let v3 = judgment(
+        "jdg_v3",
+        "security.v3",
+        &state,
+        vec![noul("risky", 0.3)],
+        ctx,
+    );
+    c.store
+        .append(&[call_row(&old, 10), call_row(&v3, 11)])
+        .unwrap();
+    let archived = include_str!("../../theseus-judge/packs/retired/security.v1.toml");
+    let replay = |text: String| {
+        let c = c.clone();
+        async move {
+            c.judge_replay(
+                JudgeReplayParams {
+                    pack_text: Some(text),
+                    judgments: vec!["jdg_v3".into()],
+                    ..Default::default()
+                },
+                "cli",
+            )
+            .await
+            .map_err(|e| e.to_string())
+        }
+    };
+    if let Err(e) = replay(archived.to_string()).await {
+        assert!(!e.contains("already recorded under another text"), "{e}");
+    }
+    let edited = archived.replacen("# security.v1:", "# security.v1, edited:", 1);
+    let e = replay(edited).await.unwrap_err();
+    assert!(
+        e.contains("security.v1 is already recorded under another text"),
+        "{e}"
+    );
+}

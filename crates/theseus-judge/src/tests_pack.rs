@@ -1835,3 +1835,42 @@ fn the_retired_versions_are_not_embedded_and_still_parse() {
         assert_eq!(p.name(), *name);
     }
 }
+
+/// Each retired version's rollback metadata is its file's, rule for rule, so
+/// a stored row of one is checked by its own rules.
+#[test]
+fn a_retired_versions_rollback_rules_are_its_files() {
+    for name in crate::pack::RETIRED {
+        let file = crate::pack::retired(name).unwrap();
+        assert_eq!(
+            crate::pack::retired_rollback(name).as_ref(),
+            Some(&file.rollback),
+            "{name}"
+        );
+    }
+    assert!(crate::pack::retired_rollback("route.v11").is_none());
+}
+
+/// Retiring a family's last version keeps the family readable: `role` and
+/// `continue` are among the ids readers scan, beside every embedded one.
+#[test]
+fn the_readable_families_are_the_embedded_and_the_retired() {
+    let ids = crate::pack::readable_ids();
+    for id in ["role", "continue", "classify", "route", "loop"] {
+        assert!(ids.iter().any(|i| i == id), "{id}: {ids:?}");
+    }
+    assert!(by_name("role.v1").is_none() && by_name("continue.v1").is_none());
+}
+
+/// The archived security.v1 file is the one recorded pair's first digest,
+/// the original's digest is its second, and no other text is the same.
+#[test]
+fn the_archived_security_v1_and_its_original_are_one_text() {
+    let archived = crate::pack::retired("security.v1").unwrap();
+    let (name, now, then) = crate::pack::SAME_TEXT[0];
+    assert_eq!((name, archived.sha256.as_str()), ("security.v1", now));
+    assert!(crate::pack::same_text("security.v1", now, then));
+    assert!(crate::pack::same_text("security.v1", then, now));
+    assert!(!crate::pack::same_text("security.v3", now, then));
+    assert!(!crate::pack::same_text("security.v1", now, &"0".repeat(64)));
+}
