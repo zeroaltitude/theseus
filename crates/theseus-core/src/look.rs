@@ -46,6 +46,7 @@ use crate::Core;
 
 mod theseus;
 mod vault;
+mod view;
 mod work;
 
 pub(crate) use vault::vault_named;
@@ -142,7 +143,8 @@ impl Tool for LookTheseus {
     fn description(&self) -> &str {
         "Look at Theseus itself: its model profiles and which is live, each provider and whether its key \
          resolved, its health and the build that runs; when asked for (`ontology`), its kinds, categories \
-         and pending proposals, and the people it holds by name. Use this for such questions; Theseus's \
+         and pending proposals, and the people it holds by name; when asked for (`view`), what this turn \
+         was given, what was left out, and why, by id and reason. Use this for such questions; Theseus's \
          own command line in a shell is not the way, and the floor holds it. Never a key's value. Changes \
          nothing. Offered only to the owner, in a private place."
     }
@@ -328,8 +330,12 @@ impl Board {
                     Ok(p) => p,
                     Err(e) => return fail(e),
                 };
+                let (session, turn) = (tc.session_id.to_string(), tc.turn_id.to_string());
                 Box::pin(async move {
-                    let said = theseus::words(&core, target.as_ref(), &parts);
+                    let mut said = theseus::words(&core, target.as_ref(), &parts);
+                    if parts.contains(&"view") {
+                        said.push_str(&view::words(&core, &session, &turn));
+                    }
                     Ok((output(said, THESEUS), None, None))
                 })
             }

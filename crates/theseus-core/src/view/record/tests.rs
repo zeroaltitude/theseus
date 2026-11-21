@@ -73,7 +73,7 @@ fn shown(p: Piece) -> Shown {
 }
 
 /// A view at `local`: two pieces here, one from another place, a frame piece, one drop of each place.
-fn view(now_ms: u64) -> View {
+pub(crate) fn view(now_ms: u64) -> View {
     let mut frame = piece("local", "frame", Band::Frame, &[Reason::Fixed]);
     frame.range = range(
         Space::Code {

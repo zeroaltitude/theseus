@@ -25,8 +25,16 @@ use crate::Core;
 /// The parts of the look, in the order they are given.
 const PARTS: [&str; 4] = ["profiles", "providers", "health", "build"];
 /// What may be asked for: the four, and the ontology, which only a call that names it gets (it lists
-/// the owner's topics and people, so it is not part of "everything").
-const ASKABLE: [&str; 5] = ["profiles", "providers", "health", "build", "ontology"];
+/// the owner's topics and people, so it is not part of "everything"); and this turn's view (issue 44,
+/// `look/view.rs`), which the look reads with the turn's own presence.
+const ASKABLE: [&str; 6] = [
+    "profiles",
+    "providers",
+    "health",
+    "build",
+    "ontology",
+    "view",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,6 +70,8 @@ pub(super) fn words(core: &Core, target: Option<&Target>, parts: &[&str]) -> Str
     let mut out = String::new();
     for p in parts {
         let part = match *p {
+            // Read with the turn's presence, by the look itself (`look/view.rs`).
+            "view" => continue,
             "profiles" => profiles(core, target),
             "providers" => providers(core),
             "health" => health(core),
@@ -303,7 +313,7 @@ pub(super) fn schema() -> Value {
         "properties": {
             "what": {
                 "type": "array",
-                "description": "Which parts: profiles, providers, health, build, ontology. Omit for all but ontology.",
+                "description": "Which parts: profiles, providers, health, build, ontology, view (what this turn was given, what was left out, and why). Omit for all but ontology and view.",
                 "items": {"type": "string", "enum": ASKABLE}
             }
         },

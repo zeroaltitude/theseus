@@ -27,7 +27,7 @@ use crate::store::Store;
 
 pub mod show;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod text;
 
 pub use text::StoreText;
