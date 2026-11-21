@@ -25,6 +25,7 @@ use crate::config::assembly::Assembly;
 use crate::store::Store;
 
 pub mod show;
+pub mod source;
 #[cfg(test)]
 pub(crate) mod tests;
 mod text;
