@@ -199,7 +199,8 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
     );
     assert_eq!(first.lines[99].handle.0, "turn_0050");
     assert_eq!(first.end, PageEnd::More);
-    let second = walk(&l, &HistoryArgs::default(), first.next, 1);
+    let next = first.next.clone().expect("a cursor");
+    let second = walk(&l, &HistoryArgs::default(), Some(next), 1);
     assert_eq!(turns(&second).len(), 50);
     assert_eq!(
         (
@@ -217,6 +218,7 @@ fn a_bare_page_is_the_hundred_before_what_is_in_view_and_pages_on_with_no_horizo
         said.contains("History is exhausted") && said.contains("you may ask the person"),
         "{said}"
     );
+    assert!(!said.contains("allowance"), "{said}");
 }
 
 /// The index orders one millisecond's exchanges by turn id; a cursor continues from exactly the next key.
@@ -259,8 +261,12 @@ fn five_looks_a_turn_then_the_allowance_is_told_apart_from_the_end_of_history() 
         "{said}"
     );
     assert!(!said.contains("History is exhausted"), "{said}");
+    assert!(fifth.next.is_some(), "the next turn may go on from here");
     let sixth = walk(&l, &HistoryArgs::default(), None, LOOKS_PER_TURN);
-    assert!(sixth.lines.is_empty() && sixth.end == PageEnd::AllowanceUsed);
+    assert!(sixth.lines.is_empty());
+    assert_eq!(sixth.end, PageEnd::AllowanceUsed);
+    let earlier = walk(&l, &HistoryArgs::default(), None, 0);
+    assert_eq!(earlier.end, PageEnd::More);
 }
 
 /// Inserting exchanges this point of view may not read (a sealed thread's, a private one for a shared
@@ -430,7 +436,53 @@ fn where_the_owner_is_alone_his_other_private_places_read_but_never_a_shared_one
 }
 
 #[test]
-fn a_line_cuts_and_flattens_his_words_and_reads_a_did_line_first() {
+fn words_filter_the_walk_and_a_thing_reads_its_own_timeline_through_the_same_rule() {
+    let (_d, s) = store();
+    for i in 0..10 {
+        put(&s, &ex(i, HERE, "ses_a"));
+    }
+    put(
+        &s,
+        &Ex {
+            things: &["issue:33"],
+            ..ex(20, HERE, "ses_a")
+        },
+    );
+    put(
+        &s,
+        &Ex {
+            things: &["issue:33"],
+            ..ex(21, DM, "ses_dm")
+        },
+    );
+    put(
+        &s,
+        &Ex {
+            things: &["issue:33"],
+            person: Some("discord:7"),
+            ..ex(22, LOBBY, "ses_lobby")
+        },
+    );
+    let mut l = lens(&s, HERE, Present::OwnerAlone, &no);
+    l.words = Some(["turn_0003".to_string(), "turn_0007".to_string()].into());
+    assert_eq!(
+        turns(&walk(&l, &HistoryArgs::default(), None, 0)),
+        ["turn_0007", "turn_0003"]
+    );
+    l.words = None;
+    let thing = args(json!({"thing": "issue:33"}));
+    assert_eq!(
+        turns(&walk(&l, &thing, None, 0)),
+        ["turn_0021", "turn_0020"]
+    );
+    let company = lens(&s, LOBBY, Present::Shared, &no);
+    assert_eq!(turns(&walk(&company, &thing, None, 0)), ["turn_0022"]);
+    let both = l.walk(&args(json!({"thing": "issue:33", "place": DM})), None, 0);
+    assert!(both.is_err(), "a place or a thing, not both");
+}
+
+#[test]
+fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
     let (_d, s) = store();
     put(
         &s,
@@ -466,10 +518,10 @@ fn a_line_cuts_and_flattens_his_words_and_reads_a_did_line_first() {
 }
 
 #[test]
-fn an_opened_exchange_names_each_message_by_its_own_mark_and_shows_no_call_input() {
+fn an_opened_exchange_is_spoken_with_tool_traffic_as_stubs_and_outside_text_marked() {
     let (_d, s) = store();
     let e = ex(1, LOBBY, "ses_lobby");
-    let (ask, _) = put(&s, &e);
+    put(&s, &e);
     let steer = |who: Option<&str>, text: &str| {
         let n = Node::user("ses_lobby", Some(&e.turn), "x", text);
         let mut recs = vec![n.record().unwrap()];
@@ -555,7 +607,7 @@ fn an_opened_exchange_names_each_message_by_its_own_mark_and_shows_no_call_input
         said.contains("Theseus: \u{2502} reply to message 1"),
         "{said}"
     );
-    let _ = ask;
+    assert!(!said.contains("IGNORE ALL"), "a result is a stub: {said}");
 }
 
 #[test]
