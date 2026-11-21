@@ -377,6 +377,9 @@ pub struct EventSink {
     /// there is one (`peer_proc`): what an agent typed is not the owner's own
     /// word for an act that is the owner's alone (`mcp.attach`, issue 22).
     pub agent: Option<String>,
+    /// This submission's owner's mark (issue 44): made where its live proof
+    /// is, and written beside the node it becomes, never matched by text.
+    pub arrival: Option<Box<crate::exchange::OwnerMark>>,
 }
 
 impl EventSink {
@@ -388,7 +391,14 @@ impl EventSink {
             surface: None,
             owner: false,
             agent: None,
+            arrival: None,
         }
+    }
+
+    /// The sink of a submission whose mark is `arrival`.
+    pub fn with_arrival(mut self, arrival: Option<crate::exchange::OwnerMark>) -> Self {
+        self.arrival = arrival.map(Box::new);
+        self
     }
 
     /// The sink of the owner's own input (theseus-slmj1).

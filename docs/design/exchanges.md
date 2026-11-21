@@ -26,7 +26,8 @@ back: the walk starts at the key that `ms` sorts to (`Store::first_with_prefix_f
 
 **Things** are the index's own extractor's terms (paths, files, Beads ids, commits, hosts, crates, mentions), asked
 of the tender off the turn's path: the message's when it is heard, collected at the turn's end if they are in by
-then; the final reply's after the turn, touched by the place's next exchange. Without an index, none.
+then. Each naming writes its own touches when the index answers, riding any writer's next frame, keyed at the
+exchange's start, so an ask and a reply that name one thing make one touch. Without an index, none.
 
 ## The measuring row
 
@@ -45,16 +46,22 @@ binding's start would be a frame of its own there.
 
 ## The rebuild
 
-`theseus ledger rebuild-exchanges [--dry-run]` writes the exchanges and touches of turns that have none, from their
-nodes, and keeps every exchange written as it happened. A place is filled only from the binding's record of a
-place's session, a `/new`'s link to the place it moved, or a thread's shown place; a person only in a direct
-conversation with an owner. Everything else says `unknown`. No mark is ever made backwards.
+`theseus ledger rebuild-exchanges [--dry-run]` writes the exchanges of turns that have none, from their nodes, and
+keeps every exchange and mark written as it happened, writing only the touches it lacks (a restart or a late index
+can leave one unwritten). A new exchange's place and person come from its message's own mark alone: a session's
+binding is where it posts now, not proof of where a message arrived or who typed it, so history from before the
+mark says `unknown` and names no person. A touch an older build keyed off its exchange's start is moved, not
+re-derived: its own record is written at the start's key and the old key ended in the same frame, with no index
+asked; the index only ever adds touches. The rebuild names things in the same 64 KiB of text as a live turn. No
+mark is ever made backwards. A reply's counts for the next row carry the exchange that made them, so a naming that
+finishes late never stands for a newer reply's. A touch whose place or person holds the key's separator is refused,
+and a read keeps only keys that are exactly its own root's.
 
 ## Settings and bounds
 
-`[context] ledger` (default on) writes none of it when false. In memory: the arrivals staged between
-`turn.submit` and the inbound point (at most 64, each for ten minutes) and one pending reply per place (at most
-256), both lost at a restart, which loses only what the rebuild restores.
+`[context] ledger` (default on) writes none of it when false. The mark rides its own submission (its event sink,
+and its steer when it joins a running turn) to the node it becomes, so no other submission can take it, and a
+refused submission takes it with it. In memory: one count of things per place for the next row (at most 256).
 
 The outbox's load used to read every META record at a start; it reads its own three prefixes now, so these
 families, which grow with history, add nothing to a start.
