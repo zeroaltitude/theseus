@@ -104,7 +104,7 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 27] = [
+const INBOUND_ALONE: [&str; 25] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
@@ -234,7 +234,7 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
         "and the integration tests too",
     )
     .await;
-    let (classify, _) = until_inbound(&r.core.store, 2).await;
+    let classify = until_inbound(&r.core.store, 2).await;
     let digest = classify[1].data["state"]["sha256"].as_str().unwrap();
     let state = std::fs::read_to_string(r.core.store.blobs().path(digest)).unwrap();
     let state: Value = serde_json::from_str(&state).unwrap();
