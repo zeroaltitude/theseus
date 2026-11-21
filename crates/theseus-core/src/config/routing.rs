@@ -46,17 +46,19 @@ pub struct RoutingConfig {
     /// model-facing tools note decided which model answered.
     #[serde(default = "cold_switch_tokens")]
     pub cold_switch_tokens: u64,
-    /// The owner's corrections of routing (theseus-q31l).
-    #[serde(default)]
-    pub corrections: CorrectionsConfig,
     /// A running task's model ranges (theseus-ypnxt.9).
     #[serde(default)]
     pub task_checkpoints: TaskCheckpoints,
-    /// The keys Jev's choice retired (route.v10, theseus-h66v4): read, warned
+    /// The keys Jev's choice retired (route.v10, theseus-h66v4) and the
+    /// corrections section (`[routing.corrections]`: reading the owner's words
+    /// for a correction, and the layer that steered close messages, are gone;
+    /// a press, a reaction and `theseus judge correct` remain): read, warned
     /// of ([`Self::retired`]), ignored and never written back. `classes` is
     /// the table of profiles per class, with its `cn_*`, `final` and
     /// `first_pass` keys. `trivial_context_turns` was the detour's, and
     /// the detour is gone.
+    #[serde(default, skip_serializing)]
+    corrections: Option<toml::Value>,
     #[serde(default, skip_serializing)]
     switch_confidence: Option<toml::Value>,
     #[serde(default, skip_serializing)]
@@ -73,36 +75,6 @@ pub struct RoutingConfig {
     trivial_context_turns: Option<toml::Value>,
     #[serde(default, skip_serializing)]
     classes: Option<toml::Table>,
-}
-
-/// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
-/// private place ("that should have been on fable", a reaction, a press),
-/// and the live layer that steers a close message the same way.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CorrectionsConfig {
-    /// Read the owner's words as a correction, and let the layer steer.
-    /// Off: words are messages and the layer steers nothing; `route.correct`
-    /// (a reaction, a press, the CLI) still labels and switches.
-    #[serde(default = "yes")]
-    pub enabled: bool,
-    /// A new message whose content words share at least this much with a
-    /// corrected one's (Jaccard) runs where the owner said.
-    #[serde(default = "similarity")]
-    pub similarity: f64,
-    /// The layer's bound: the oldest out past it.
-    #[serde(default = "max_entries")]
-    pub max_entries: u32,
-}
-
-impl Default for CorrectionsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            similarity: similarity(),
-            max_entries: max_entries(),
-        }
-    }
 }
 
 /// `[routing] rung`.
@@ -125,12 +97,6 @@ fn max_wait_ms() -> u64 {
 fn cold_switch_tokens() -> u64 {
     30_000
 }
-fn similarity() -> f64 {
-    0.5
-}
-fn max_entries() -> u32 {
-    64
-}
 
 impl Default for RoutingConfig {
     fn default() -> Self {
@@ -139,7 +105,7 @@ impl Default for RoutingConfig {
             mode: live(),
             max_wait_ms: max_wait_ms(),
             cold_switch_tokens: cold_switch_tokens(),
-            corrections: CorrectionsConfig::default(),
+            corrections: None,
             task_checkpoints: TaskCheckpoints::default(),
             switch_confidence: None,
             effort_bounds: None,
@@ -166,13 +132,6 @@ impl RoutingConfig {
             );
         }
         self.task_checkpoints.validate()?;
-        let c = &self.corrections;
-        if !(c.similarity > 0.0 && c.similarity <= 1.0) {
-            anyhow::bail!("routing.corrections.similarity must be above 0 and at most 1");
-        }
-        if !(1..=4096).contains(&c.max_entries) {
-            anyhow::bail!("routing.corrections.max_entries must be 1 to 4096");
-        }
         Ok(())
     }
 
@@ -180,6 +139,7 @@ impl RoutingConfig {
     /// them: what [`crate::Config::parse`] warns of, once.
     pub fn retired(&self) -> Vec<String> {
         let keys = [
+            ("corrections", self.corrections.is_some()),
             ("switch_confidence", self.switch_confidence.is_some()),
             ("effort_bounds", self.effort_bounds.is_some()),
             (
@@ -234,7 +194,6 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     assert!(r.enabled);
     assert_eq!(r.mode, RoutingMode::Live);
     assert_eq!((r.max_wait_ms, r.cold_switch_tokens), (200, 30_000));
-    assert_eq!(r.corrections, CorrectionsConfig::default());
     assert_eq!(r.task_checkpoints, TaskCheckpoints::default());
     assert!(r.retired().is_empty(), "the template sets no retired key");
 }
@@ -252,23 +211,6 @@ mod tests {
         let d = cfg("").unwrap();
         assert_eq!(d, RoutingConfig::default());
         d.validate().unwrap();
-        assert_eq!(
-            (
-                d.corrections.enabled,
-                d.corrections.similarity,
-                d.corrections.max_entries
-            ),
-            (true, 0.5, 64)
-        );
-        let c = cfg("[corrections]\nsimilarity = 0.7").unwrap();
-        assert_eq!(
-            (c.corrections.similarity, c.corrections.max_entries),
-            (0.7, 64)
-        );
-        assert!(
-            cfg("[corrections]\nthreshold = 0.7").is_err(),
-            "an unknown key"
-        );
         assert!(cfg("wait_ms = 1").is_err(), "an unknown key");
     }
 
@@ -286,12 +228,14 @@ mod tests {
                     trivial_context_turns = 2\n\
                     [classes.deep_coding]\nprofiles = [\"sonnet\", \"opus\"]\n\
                     [classes.trivial]\nprofiles = [\"haiku\"]\ncn_draft = \"dsflash\"\n\
-                    [task_checkpoints]\nmax_switches = 99\n";
+                    [task_checkpoints]\nmax_switches = 99\n\
+                    [corrections]\nsimilarity = 0.7\n";
         let c = cfg(text).unwrap();
         c.validate().unwrap();
         assert_eq!(
             c.retired(),
             [
+                "routing.corrections",
                 "routing.switch_confidence",
                 "routing.effort_bounds",
                 "routing.high_effort_confidence",
@@ -327,17 +271,17 @@ mod tests {
         assert!(format!("{e:#}").contains("routing.max_wait_ms"));
     }
 
+    /// The corrections section is gone with the reading of the owner's words
+    /// and the layer: a settings file that still sets it loads, whatever its
+    /// values were (even ones the old bounds refused), is named by
+    /// `retired()` and is never written back.
     #[test]
-    fn the_corrections_bounds_are_checked() {
-        for bad in [
-            "similarity = 0.0",
-            "similarity = 1.5",
-            "max_entries = 0",
-            "max_entries = 5000",
-        ] {
-            let c = cfg(&format!("[corrections]\n{bad}")).unwrap();
-            assert!(c.validate().is_err(), "{bad}");
-        }
+    fn an_old_corrections_section_loads_warns_and_is_never_written_back() {
+        let c = cfg("[corrections]\nenabled = false\nsimilarity = 1.5\nmax_entries = 0\n").unwrap();
+        c.validate().unwrap();
+        assert_eq!(c.retired(), ["routing.corrections"]);
+        assert!(!toml::to_string(&c).unwrap().contains("corrections"));
+        assert!(cfg("").unwrap().retired().is_empty());
     }
 
     #[test]

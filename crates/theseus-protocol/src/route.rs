@@ -195,39 +195,6 @@ pub struct RouteCorrectResult {
     pub line: String,
 }
 
-/// `route.corrections`: the live correction layer, a read.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct RouteCorrectionsResult {
-    /// The route pack version acting; entries of any other have retired.
-    pub pack: String,
-    /// Newest first.
-    pub entries: Vec<RouteCorrectionInfo>,
-    pub max_entries: u32,
-    pub similarity: f64,
-    /// Entries retired since the daemon started.
-    pub retired: u64,
-    pub enabled: bool,
-}
-
-/// One correction in the layer.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct RouteCorrectionInfo {
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub label: Option<String>,
-    pub pack: String,
-    pub session_id: String,
-    pub turn_id: String,
-    /// Where a close message runs: a profile, or `mode <id>`.
-    pub to: String,
-    /// The corrected message's content words, which a close message shares.
-    pub words: Vec<String>,
-    pub at_ms: u64,
-}
-
 /// A refusal's client-side fallback in one turn (theseus-7gir.18): the model
 /// that declined, the one its request went to instead, and the refusal's
 /// category. The fallback answers the refused request and the next goes back

@@ -444,9 +444,6 @@ impl Core {
         let state = &self.runner.threads.route;
         let half = self.cfg.threads.sticky_half_life_secs.saturating_mul(1000);
         let mut pre = pre_route(&p.input, live, state.last(home).as_ref(), now, half);
-        if at.1 == crate::places::PlaceClass::Private {
-            self.learned_thread(&p.input, &mut pre);
-        }
         row.above = self.keep_apart_by_dir(p, session, live, &mut pre);
         let follow = home_follow(&pre, state.last(home).as_ref(), now, half);
         row.follow = (follow > 0.0).then_some(follow);
@@ -560,20 +557,6 @@ impl Core {
             }
             (Some(_), false) => self.tools.misroute.disarm(run),
             (None, _) => {}
-        }
-    }
-
-    /// The layer's entry closest to the message, when the owner moved one
-    /// like it: that thread gains the evidence of the owner's word.
-    fn learned_thread(&self, text: &str, pre: &mut [Pre]) {
-        let cfg = &self.cfg.routing.corrections;
-        let words = crate::correction::layer::words(text);
-        let Some(slug) = self.runner.judge.corrections.nearest_thread(&words, cfg) else {
-            return;
-        };
-        if let Some(p) = pre.iter_mut().find(|p| p.slug == slug) {
-            p.score = p.score.max(crate::thread_route::LEARNED);
-            p.learned = true;
         }
     }
 

@@ -276,9 +276,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and `node.list` take the asking surface and withhold an imported session's words from one that reads no private text
   (`Surface::reads_private`; `docs/design/imported-surface.md` is the rule). A new protocol method is classified into
   `ALLOWED`, `JUDGED` or `NOT_FOR_MCP` (`mcp_server.rs`) before it lands, and the census in `mcp_server::tests` fails
-  otherwise. The correction layer steers only a turn whose place class is `PlaceClass::Private`
-  (`turn/route_step/correct.rs`, theseus-c2rv); how far "private" reaches there is for the owner to confirm. Tests:
-  `tests_places.rs`, `places::tests`.
+  otherwise. Tests: `tests_places.rs`, `places::tests`.
   - **Ceilings** (step 38a, theseus-ext.3; `ceiling.rs`): the bindings file may give a place a ceiling, which
     narrows what its class allows and never widens it. It is read with the class (`TurnRunner::view_of`, so a task
     has its parent's), and rides in `TurnCtx.ceiling`: its `tools` filter the catalog (`PlaceView::offered`) and the
@@ -798,8 +796,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   goes on once at the notify posture with a one-line notice (path, thread, the next likeliest thread, `Undo: files.restore <path>`; a stricter decision is kept; theseus-g85jy); a `proc.run` from a directory above the roots (the session's directory)
   decides nothing, and the next write or program does. **Recovery** (`rpc/thread_move.rs`): `/move`, `theseus thread
   move`, or "that was for …" writes a redirect note in the wrong thread, re-submits the message once to the right
-  one, and writes a correction (a `wrong thread` label on the `thread` question, and `Steer::Thread` in the correction
-  layer, so the next close message follows). A thread session's replies go to the place the message came from through
+  one, and writes a correction (a `wrong thread` label on the `thread` question). A thread session's replies go to the place the message came from through
   the outbox overlay (`Outbox::show_at`). Known limits: pending asks, router memory and thread corrections are in memory
   (lost at a restart); a thread session's live stream does not reach the Discord place actor (its durable post does); the
   early judgment's rows carry the home session. Tests: `rpc/tests_thread_route.rs`, `thread_route::tests`,
@@ -812,7 +809,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   just under the confirm bar, so the message is asked about; the `new` option rides that ask alone when the message
   names two or more entities no working set holds (`new_entities`: the import's extractor, a ticket shape `OPS-4214`
   read as a ref), and any ask Jev raised `new` in. **The directory rule** (theseus-vw8k7; `thread_route::apart_by_dir`,
-  called by `Core::keep_apart_by_dir` in `rpc/home_claim.rs` right after `learned_thread`): with the turn's directory
+  called by `Core::keep_apart_by_dir` in `rpc/home_claim.rs` right after `pre_route`): with the turn's directory
   known (the submit's `dir`, else the session's), a thread whose roots are set (absolute or `~/`; a relative one read
   under the thread's own session's directory) and none of which holds the directory or lies under it keeps only its
   entity score: stickiness, the chain and a learned correction are dropped; Jev's pick still fuses. A thread with no
@@ -2085,7 +2082,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`persona_line`, like the surface's standing records), so a switch changes no prefix byte. The decision
     (`engage::decide`, pure) is, in order: an explicit address (`engage::address`: a name then a comma or colon at the
     message's start, `@name`, `/as name`; confidence 1; Jev still asked), the owner's persona correction (`Steer::Persona`,
-    how `corrected`) or the layer's entry close to the message (`learned`), Jev's `persona` answer when
+    how `corrected`), Jev's `persona` answer when
     `[threads] persona_engage = "act"` and the judgment acts (at the pack's act bar silent, from confirm to act with the
     why shown, below that or late the prior), else the prior: who answered the session's last turn
     (`persona::Board::engaged`, in memory), else the session's own. A late verdict, or one carried from the last message,
@@ -2279,18 +2276,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     told again if it grows back. With no owner DM bound nothing is posted or marked. Tests: `tests_home_size.rs`,
     `turn/home_size_step.rs`, `config/threads.rs`.
   - **The owner's corrections** (theseus-q31l; `correction/`, `turn/route_step/correct.rs`,
-    `rpc/route_correct.rs`): words (`correction::words`, deterministic and narrow, read by `turn.submit`
-    unless a job sent it, and taken at the inbound point only where the owner alone writes, the CLI, the web
-    UI or an owner's DM, never a guild channel bound private and never a task's turn; after a bare verb a lone
-    adjective is a remark, not a name: `named_plainly`), or `route.correct` (a reaction, a press, `theseus judge
-    correct`: `judge_act(Act::RouteCorrect)`).
-    Each writes the owner's label (`not:<mode>` on `mode`, only when the profile named is not one the
-    verdict's mode leads to) and a `route.corrected` row (scoped `route.corrections`, its provenance by
-    id) in one frame: the turn's own for words. The turn steers ahead of the verdict (`Steering`,
-    `routing::steer_to`, `Reason::Correction`, `route.decided`'s `source`/`follows`) and waits for none.
-    The layer (`correction::layer`) is in memory, bounded, rebuilt after serving (`warm_corrections`),
-    and retires when another route pack version acts; the route pack is in `lineage::LEFT_ALONE`, so
-    no nightly rewrite folds it today. Tests: `tests_route_correct.rs`, `correction::*::tests`.
+    `rpc/route_correct.rs`): `route.correct` only (a footer's press, a reaction, `theseus judge correct`:
+    `judge_act(Act::RouteCorrect)`), naming a profile, a model, `stronger`, `cheaper` or `persona:<key>`.
+    Nothing reads the owner's words for one (his ruling of 2026-11-14: an act on what a person says is a tool or
+    a slash command); the word lists and the layer that steered similar messages are gone, and a settings file
+    that still sets `[routing.corrections]` loads and is named as retired. It writes the owner's label
+    (`not:<mode>` on `mode`, only when the profile named is not one the verdict's mode leads to) and a
+    `route.corrected` row (scoped `route.corrections`; old rows keep `words` and `rerun`, no longer written) in
+    one frame. The session's next turn steers ahead of the verdict (`Steering`, `routing::steer_to`,
+    `Reason::Correction`, `route.decided`'s `source`/`follows`); the turn after is the verdict's. Tests:
+    `tests_route_correct.rs`, `correction::tests`.
   - **Replay, audit, and backfill** (step 25d, theseus-0j2.14; the owner's runs, each `judge_act(Act::JudgeRun)`
     and in the CLI's `OPERATORS`, each on a `learning` thread at nice 19, routed together by `rpc/judge_runs.rs`).
     `learning/replay.rs` (`Core::judge_replay`, public for the learning loop): a candidate the build does not wire

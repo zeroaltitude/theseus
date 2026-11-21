@@ -1,44 +1,66 @@
-//! The owner's corrections of routing (theseus-q31l): "that should have been
-//! on fable", a reaction on a reply, or a press of a route footer's control.
+//! The owner's corrections of routing (theseus-q31l): a reaction on a reply,
+//! a press of a route footer's control, or `theseus judge correct`. All three
+//! go through `route.correct`; nothing reads the owner's words for one (his
+//! ruling of 2026-11-14: an act on what a person says is a tool or a slash
+//! command, never a match of the message's words).
 //!
-//! - **The owner's alone.** Words count only in a private place (the place
-//!   rule), from the owner's own message: a turn of a task, a message a job
-//!   sent (`opened_from`), or one through the MCP server is a message, never
-//!   a correction. A reaction, a press and the CLI go through `route.correct`,
-//!   judged as `judge.label` is (`judge_act`: the owner, from a private
-//!   place). No tool writes one: the model can neither label nor correct.
+//! - **The owner's alone.** `route.correct` is judged as `judge.label` is
+//!   (`judge_act`: the owner, from a private place). No tool writes one: the
+//!   model can neither label nor correct.
 //! - **A label.** A correction of a turn whose route pack judged it writes
 //!   the owner's label on that judgment (`not:<mode>` on the `mode` question,
 //!   when the place the owner names is not one the mode leads to), with the
 //!   correction named in its note, and a `route.corrected` row (scoped
-//!   [`SCOPE`]) that keeps its provenance: the owner's message, reaction or
-//!   press, by id. Both in one frame. The nightly loop reads the label as it
-//!   reads any operator label.
-//! - **At once.** The session runs where the owner said from the next turn
-//!   (words: from the correcting message's own turn, so "rerun that on opus"
-//!   answers there), through routing's switch of the session's `routed`
-//!   profile, recorded on `route.decided` as `source: correction`.
-//! - **The layer** ([`layer`]): a later message close to a corrected one runs
-//!   where the owner said, ahead of the verdict, until its pack version no
-//!   longer acts. In memory, bounded, rebuilt after serving from
-//!   [`SCOPE`]'s rows.
-
-pub mod layer;
-pub mod words;
+//!   [`SCOPE`]) that keeps its provenance: the reaction or press, by id. Both
+//!   in one frame. The nightly loop reads the label as it reads any operator
+//!   label.
+//! - **At the next turn.** The session runs where the owner said from its
+//!   next turn, through routing's switch of the session's `routed` profile,
+//!   recorded on `route.decided` as `source: correction`.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub use layer::{Entry, Layer, Steer};
-pub use words::{Said, To};
-
-use crate::config::routing::CorrectionsConfig;
 use crate::routing::Profiles;
 
-/// The `route.corrected` rows' scope: the layer's truth.
+/// Where a correction steers a turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Steer {
+    /// The profile itself.
+    Profile(String),
+    /// The persona (a `[personas]` key) that should answer (route.v5,
+    /// theseus-c1uz).
+    Persona(String),
+}
+
+/// Where the owner says the turn should have run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum To {
+    /// A configured profile, by name.
+    Profile(String),
+    /// A dearer profile than the one it ran on.
+    Stronger,
+    /// A cheaper one.
+    Cheaper,
+    /// A persona that should have answered, by its `[personas]` key
+    /// (route.v5, theseus-c1uz).
+    Persona(String),
+}
+
+/// What a correction may name.
+#[derive(Debug, Clone, Default)]
+pub struct Names {
+    /// Each configured profile, by name, with its model's id.
+    pub profiles: Vec<(String, String)>,
+    /// Each configured persona: its key and what it is called.
+    pub personas: Vec<(String, String)>,
+}
+
+/// The `route.corrected` rows' scope.
 pub const SCOPE: &str = "route.corrections";
 /// The routed turns kept for a correction, a reaction or a press to find.
 pub const RECENT: usize = 256;
@@ -66,20 +88,9 @@ pub struct RoutedTurn {
     pub from: String,
     /// Where it ran.
     pub profile: String,
-    /// The message's content words ([`layer::words`]).
-    pub words: Vec<String>,
     /// The verdict carried a `persona` answer (route.v5): a persona
     /// correction labels it.
     pub persona_asked: bool,
-}
-
-/// Who steers a turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum By {
-    /// The owner's correction itself: a switch at once.
-    Owner,
-    /// A layer's entry, close to the message: the cache's rule holds.
-    Layer,
 }
 
 /// Where a turn runs ahead of the verdict, and what it follows.
@@ -88,7 +99,6 @@ pub struct Steering {
     pub steer: Steer,
     /// The owner's label it follows, else the correction.
     pub follows: String,
-    pub by: By,
 }
 
 /// A correction resolved against the turn it corrects.
@@ -107,8 +117,8 @@ pub struct Resolved {
 
 /// What a correction may name in words: every configured profile with its
 /// model, and each persona.
-pub fn names(cfg: &crate::Config, book: &crate::personas::Book) -> words::Names {
-    words::Names {
+pub fn names(cfg: &crate::Config, book: &crate::personas::Book) -> Names {
+    Names {
         profiles: cfg
             .all_profiles()
             .iter()
@@ -123,7 +133,7 @@ pub fn names(cfg: &crate::Config, book: &crate::personas::Book) -> words::Names 
 
 /// Read a correction's target from a protocol word: a profile,
 /// `stronger` (`up`), or `cheaper` (`down`).
-pub fn to_of(word: &str, names: &words::Names) -> Option<To> {
+pub fn to_of(word: &str, names: &Names) -> Option<To> {
     let w = word.trim().to_lowercase();
     match w.as_str() {
         "stronger" | "up" | "more" => return Some(To::Stronger),
@@ -217,16 +227,12 @@ pub fn next(profiles: &Profiles, from: &str, up: bool) -> Option<String> {
     .map(|(_, n)| n)
 }
 
-/// The corrections the daemon holds: the turns routing decided lately, the
-/// words a `turn.submit` read, the steers waiting for a session's next turn,
-/// and the layer.
+/// The corrections the daemon holds: the turns routing decided lately and
+/// the steers waiting for a session's next turn.
 #[derive(Default)]
 pub struct Corrections {
     recent: Mutex<VecDeque<RoutedTurn>>,
-    said: Mutex<HashMap<String, (Said, String)>>,
     pending: Mutex<HashMap<String, Steering>>,
-    layer: Mutex<Layer>,
-    warmed: AtomicBool,
 }
 
 impl Corrections {
@@ -257,22 +263,6 @@ impl Corrections {
             .cloned()
     }
 
-    /// Words `turn.submit` read as a correction, for the turn of `session`
-    /// whose input is `text`: its inbound point takes them, and acts on them
-    /// only in a private place.
-    pub fn expect(&self, session: &str, said: Said, text: &str) {
-        lock(&self.said).insert(session.to_string(), (said, text.to_string()));
-    }
-
-    /// The words read for this input, taken.
-    pub fn take_said(&self, session: &str, text: &str) -> Option<Said> {
-        let mut m = lock(&self.said);
-        match m.get(session) {
-            Some((_, t)) if t == text => m.remove(session).map(|(s, _)| s),
-            _ => None,
-        }
-    }
-
     /// A correction for the session's next turn (a reaction, a press, the CLI).
     pub fn set_pending(&self, session: &str, s: Steering) {
         lock(&self.pending).insert(session.to_string(), s);
@@ -280,38 +270,6 @@ impl Corrections {
 
     pub fn take_pending(&self, session: &str) -> Option<Steering> {
         lock(&self.pending).remove(session)
-    }
-
-    /// An entry, into the layer.
-    pub fn add(&self, e: Entry, cfg: &CorrectionsConfig) {
-        lock(&self.layer).add(e, cfg.max_entries as usize);
-    }
-
-    /// The entry closest to a message's `words`, under `acting`.
-    pub fn nearest(
-        &self,
-        words: &[String],
-        acting: &str,
-        cfg: &CorrectionsConfig,
-    ) -> Option<(Entry, f64)> {
-        if !cfg.enabled || words.is_empty() {
-            return None;
-        }
-        lock(&self.layer).nearest(words, acting, cfg.similarity)
-    }
-
-    /// The persona an entry of the layer says a message close to `words`
-    /// should be answered by, under `acting` (theseus-c1uz).
-    pub fn nearest_persona(
-        &self,
-        words: &[String],
-        acting: &str,
-        cfg: &CorrectionsConfig,
-    ) -> Option<(Entry, f64)> {
-        if !cfg.enabled || words.is_empty() {
-            return None;
-        }
-        lock(&self.layer).nearest_persona(words, acting, cfg.similarity)
     }
 
     /// The session's pending steer, taken only when `want` says so.
@@ -325,80 +283,6 @@ impl Corrections {
             Some(s) if want(s) => m.remove(session),
             _ => None,
         }
-    }
-
-    /// The thread an entry of the layer says a message close to `words`
-    /// belongs in (theseus-rha2).
-    pub fn nearest_thread(&self, words: &[String], cfg: &CorrectionsConfig) -> Option<String> {
-        if !cfg.enabled || words.is_empty() {
-            return None;
-        }
-        lock(&self.layer).nearest_thread(words, cfg.similarity)
-    }
-
-    /// The layer's entries under `acting`, newest first, and how many retired.
-    pub fn list(&self, acting: &str) -> (Vec<Entry>, u64) {
-        let mut l = lock(&self.layer);
-        l.retire(acting);
-        let mut out: Vec<Entry> = l.entries().cloned().collect();
-        out.reverse();
-        (out, l.retired)
-    }
-
-    /// The layer rebuilt from [`SCOPE`]'s rows, once (after serving, never
-    /// on the start path): the newest `max_entries` of the acting pack
-    /// version, oldest first. Later ones were added as they were written.
-    pub fn warm(&self, store: &crate::store::Store, acting: &str, cfg: &CorrectionsConfig) {
-        if self.warmed.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let rows = match store.scope_after(SCOPE, 0) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "corrections: the layer was not read");
-                return;
-            }
-        };
-        let read: Vec<Entry> = rows
-            .iter()
-            .filter_map(|r| r.decode::<crate::ledger::LedgerRow>().ok())
-            .filter(|r| r.kind == theseus_protocol::LedgerKind::RouteCorrected.as_str())
-            .filter_map(|r| entry_of(&r.data))
-            .filter(|e| layer::steers_under(&e.pack, acting))
-            .collect();
-        let mut l = lock(&self.layer);
-        let have: Vec<Entry> = l.entries().cloned().collect();
-        let mut fresh = Layer::default();
-        for e in read.into_iter().chain(have) {
-            fresh.add(e, cfg.max_entries as usize);
-        }
-        fresh.retired = l.retired;
-        *l = fresh;
-    }
-}
-
-/// A `route.corrected` row's entry, when it steers.
-pub fn entry_of(d: &Value) -> Option<Entry> {
-    let s = |k: &str| d[k].as_str().map(str::to_string);
-    let steer: Steer = serde_json::from_value(d["steer"].clone()).ok()?;
-    Some(Entry {
-        id: s("id")?,
-        label: s("label"),
-        pack: s("pack")?,
-        session: s("session").unwrap_or_default(),
-        turn: s("turn")?,
-        words: serde_json::from_value(d["words"].clone()).unwrap_or_default(),
-        steer,
-        at_ms: d["at_ms"].as_u64().unwrap_or(0),
-    })
-}
-
-/// A steer's words, as a line or a listing says it.
-pub fn steer_line(s: &Steer) -> String {
-    match s {
-        Steer::Profile(p) => p.clone(),
-        Steer::Thread(t) => format!("thread {t}"),
-        Steer::Persona(p) => format!("persona {p}"),
     }
 }
 
@@ -444,7 +328,6 @@ mod tests {
             mode: mode.map(str::to_string),
             from: "sonnet".into(),
             profile: profile.into(),
-            words: vec![],
             persona_asked: false,
         }
     }
@@ -486,7 +369,7 @@ mod tests {
 
     #[test]
     fn a_protocol_word_names_a_profile_or_a_direction() {
-        let n = words::Names {
+        let n = Names {
             profiles: vec![("fable".into(), "claude-fable-5-2".into())],
             personas: vec![("birch".into(), "Birch".into())],
         };
@@ -499,20 +382,6 @@ mod tests {
         assert_eq!(to_of("up", &n), Some(To::Stronger));
         assert_eq!(to_of("cheaper", &n), Some(To::Cheaper));
         assert_eq!(to_of("mars", &n), None);
-    }
-
-    /// The words a submit read reach only the turn of that input.
-    #[test]
-    fn the_words_read_reach_only_their_own_input() {
-        let c = Corrections::default();
-        let said = Said {
-            to: To::Stronger,
-            rerun: false,
-        };
-        c.expect("ses_a", said.clone(), "that needed more effort");
-        assert_eq!(c.take_said("ses_a", "something else"), None);
-        assert_eq!(c.take_said("ses_a", "that needed more effort"), Some(said));
-        assert_eq!(c.take_said("ses_a", "that needed more effort"), None);
     }
 
     #[test]

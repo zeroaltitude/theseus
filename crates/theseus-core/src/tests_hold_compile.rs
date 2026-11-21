@@ -5,7 +5,7 @@
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 
-use crate::correction::{By, Steer, Steering};
+use crate::correction::{Steer, Steering};
 use crate::node::Body;
 use crate::outbox::{body_of, kind_of, OPERATOR_TARGET};
 use crate::rpc::Core;
@@ -50,7 +50,6 @@ fn steer() -> Steering {
     Steering {
         steer: Steer::Profile("sonnet".into()),
         follows: "quick".into(),
-        by: By::Owner,
     }
 }
 

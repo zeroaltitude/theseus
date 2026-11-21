@@ -1863,16 +1863,11 @@ enabled = true
 failing_streak = 3                      # loops in a row that each had a failed tool result
 quiet_loops = 8                         # loops in a row with no progress signal
 min_loops_between = 4                   # at most one verdict per this many loops
-# Your corrections (theseus-q31l): in a private place, "that should have been on fable",
-# "use opus for that", "that needed more effort" or "rerun that on opus" labels the last
-# turn's route judgment as yours and moves the session there at once; so does a reaction
-# on a reply (Discord's ⬆️ and ⬇️) or the cockpit's control, and `theseus judge correct`.
-# A later message close to a corrected one (its content words in common) runs where you
-# said, ahead of the verdict, until another version of the route pack acts.
-# [routing.corrections]
-# enabled = true                        # off: words are messages, and the layer steers nothing
-# similarity = 0.5                      # the share of content words a close message has in common
-# max_entries = 64                      # the layer's bound, the oldest out
+# Your corrections (theseus-q31l): a reaction on a reply (Discord's ⬆️ and ⬇️), the cockpit's
+# control on a reply and `theseus judge correct` label the last turn's route judgment as yours
+# and move the session there from its next turn. Nothing reads your words for one, and no
+# later message is steered by another's. A `[routing.corrections]` section from before still
+# loads: it is ignored, and the daemon says so once at startup.
 # Sensitive names (theseus-oejh3, theseus-gyjyo.4): organisations, clients, projects and people
 # that mark your employer's work. An item that holds one (a message you send, a tool result, a
 # file read, a page fetched) raises a `confidential` label on its session at the moment it

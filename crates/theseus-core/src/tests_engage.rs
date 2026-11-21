@@ -287,10 +287,10 @@ async fn a_switch_changes_no_prefix_byte() {
     );
 }
 
-/// The owner's correction labels the persona question, answers the next
-/// message as the persona named, and a close message after it learns.
+/// The owner's correction labels the persona question and answers the next
+/// message as the persona named; a close message after it is not steered.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_correction_labels_steers_and_teaches() {
+async fn a_correction_labels_and_steers_one_message() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
     persona(&jev, "alder", 0.95);
@@ -329,7 +329,7 @@ async fn a_correction_labels_steers_and_teaches() {
         (rows[1]["persona"].as_str(), rows[1]["how"].as_str()),
         (Some("birch"), Some("corrected"))
     );
-    // A message close to the corrected one is learned.
+    // A message close to the corrected one is not steered by it.
     turn(
         &r.core,
         Some(&sid),
@@ -338,10 +338,8 @@ async fn a_correction_labels_steers_and_teaches() {
     )
     .await;
     let rows = engaged(&r);
-    assert_eq!(
-        (rows[2]["persona"].as_str(), rows[2]["how"].as_str()),
-        (Some("birch"), Some("learned"))
-    );
+    assert_ne!(rows[2]["how"].as_str(), Some("learned"));
+    assert_ne!(rows[2]["how"].as_str(), Some("corrected"));
 }
 
 /// Every persona's files are in the request's persona layer whoever answers

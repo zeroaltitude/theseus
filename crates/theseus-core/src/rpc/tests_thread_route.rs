@@ -3,8 +3,7 @@
 //! question on the very request the inbound batch rides (one request, no
 //! call added); every band of the decision; the question and its answer; the
 //! timeout that leaves the router's guess; the misroute guard; and `thread.move`
-//! with its one note, its one re-submission and the correction the next close
-//! message follows.
+//! with its one note, its one re-submission and its correction.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1207,10 +1206,9 @@ async fn a_turn_placed_at_the_act_bar_writes_without_the_guard() {
 // ------------------------------------------------------------------- the move
 
 /// "That was for the security fix": the wrong thread gets one note, the
-/// message runs once more in the right one, the correction is recorded, and
-/// the next close message goes where the owner said.
+/// message runs once more in the right one, and the correction is recorded.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follows() {
+async fn a_move_writes_one_note_resubmits_once_and_records_the_correction() {
     let jev = FakeJev::start().unwrap();
     let r = rig(&jev, 8);
     let c = &r.core;
@@ -1258,18 +1256,6 @@ async fn a_move_writes_one_note_resubmits_once_and_the_next_close_message_follow
     assert_eq!(labels.len(), before + 1);
     assert_eq!(labels.last().unwrap().data["question"], "thread");
     assert_eq!(labels.last().unwrap().data["label"], "security-fix");
-    // A close next message goes where the owner said, with no Jev at all.
-    // (Jev, asked, would say pr-round: the owner's word decided it.)
-    thread_answer(&jev, "pr-round", 0.95);
-    let next = submit(c, &dm, "rotate the signing keys on the gateway again").await;
-    assert_eq!(next.session_id, right);
-    assert_eq!(tag(&next).how, RouteHow::Quiet);
-    assert!(
-        !rows(c, "thread.routed").last().unwrap().data["early"]
-            .as_bool()
-            .unwrap(),
-        "no wait for Jev"
-    );
     // Moving to where it already is, and a second move of nothing, say so.
     let mut w = Wire::open(c);
     let id = w
@@ -1927,9 +1913,9 @@ async fn a_chat_on_a_threads_own_session_is_never_rerouted() {
 /// directory that is no thread's went to the place's last thread, which the
 /// owner had once moved a dry run like it to. A thread whose roots are set
 /// keeps only what the message names of it when the turn's directory lies
-/// under none of them: the learned correction, stickiness and the reply chain
-/// no longer place it, and Jev's pick decides. The same message from under
-/// the thread's root, and one to a thread with no roots, go there as before.
+/// under none of them: stickiness and the reply chain no longer place it, and
+/// Jev's pick decides. The same message from under the thread's root, and one
+/// to a thread with no roots, keep the thread's prior as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_message_from_another_directory_is_not_placed_by_stickiness() {
     const ROOT: &str = "/w/projects/lighthouse";
@@ -1954,8 +1940,8 @@ async fn a_message_from_another_directory_is_not_placed_by_stickiness() {
         thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], roots));
         thread(c, "ops", "ops rota", ws(&["#977"], &[], &[]));
         let dm = home(c, Some(&format!("dm:{OWNER}")));
-        // An earlier dry run went to ops, and the owner moved it to dev: the
-        // correction is learned, and dev is the place's last thread.
+        // An earlier dry run went to ops, and the owner moved it to dev: dev
+        // is the place's last thread.
         thread_answer(&jev, "ops", 0.75);
         let first = submit(c, &dm, &dry(1)).await;
         assert_eq!(first.session_id, session_of(c, "ops"));
@@ -1982,20 +1968,19 @@ async fn a_message_from_another_directory_is_not_placed_by_stickiness() {
             serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
         let routed = rows(c, "thread.routed");
         let last = &routed.last().unwrap().data;
+        let dev = last["pre"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["thread"] == "dev")
+            .unwrap_or_else(|| panic!("dev's score: {last}"));
         match to_dev {
-            true => assert_eq!(
-                res.session_id,
-                session_of(c, "dev"),
-                "{dir} {roots:?}: {last}"
+            true => assert!(
+                dev["score"].as_f64().unwrap() > 0.0,
+                "{dir} {roots:?}: dev keeps its prior: {last}"
             ),
             false => {
                 assert_eq!(res.session_id, dm, "{dir} {roots:?}: {last}");
-                let dev = last["pre"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|x| x["thread"] == "dev")
-                    .unwrap_or_else(|| panic!("dev's score: {last}"));
                 assert_eq!(
                     dev["score"].as_f64(),
                     Some(0.0),

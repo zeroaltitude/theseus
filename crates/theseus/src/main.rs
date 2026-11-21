@@ -1279,11 +1279,8 @@ enum JudgeCmd {
     Learn(judge_runs::LearnArgs),
     /// Correct a turn's routing: it should have run on a profile, a task class, `stronger`, or
     /// `cheaper`. Labels its route judgment as yours and moves the session there from its next
-    /// turn; a later message close to it runs there too. The operator's alone: refused inside a
-    /// Theseus job, and from a shared place.
+    /// turn. The operator's alone: refused inside a Theseus job, and from a shared place.
     Correct(judge_correct::CorrectArgs),
-    /// The live correction layer: each correction that steers a close message, newest first.
-    Corrections,
     /// The prove: loop.v1's canary against its control, from the ledger's finished tasks, at
     /// equal total spend, per task and per dollar; "insufficient" with its counts until each arm
     /// has its labeled tasks. A read.
