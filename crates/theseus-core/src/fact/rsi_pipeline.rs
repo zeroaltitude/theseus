@@ -129,7 +129,7 @@ impl Moved {
         self
     }
 
-    fn row(&self) -> Value {
+    pub(super) fn row(&self) -> Value {
         let mut m = match &self.fields {
             Value::Object(m) => m.clone(),
             _ => Map::new(),

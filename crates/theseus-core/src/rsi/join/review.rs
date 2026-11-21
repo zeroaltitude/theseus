@@ -5,7 +5,10 @@
 //! item's evidence, rendered as a check's claim (`check::render`), and
 //! nothing of the builder's transcript. Its verdict is the reply's last
 //! `VERDICT: accept` or `VERDICT: reject` line, with the lines after it as
-//! its reasons; a reply without one is a reject.
+//! its reasons; a reply without one is a reject. While `[self_fix]` is on, it
+//! may also answer `VERDICT: fix` (issue 36: a small, local repair would make
+//! the change acceptable; `fix`), and a head a fix already repaired is told so
+//! and is offered no second one.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -42,12 +45,19 @@ pub struct Ask {
     pub scratch: String,
     /// The self repo, which holds the branch: where a checkout for the review is taken from.
     pub repo: String,
+    /// A fix may be asked for (`[self_fix]` is on and this head was not fixed at review yet):
+    /// the most lines and files it may change.
+    pub offer_fix: Option<(u64, u64)>,
+    /// This head is a fix's: what was repaired, by whom, and what approved it.
+    pub fixed: Option<String>,
 }
 
 /// The reviewer's verdict.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Review {
     pub accept: bool,
+    /// It answered `VERDICT: fix`: a small repair, said in its reasons (`fix`).
+    pub fix: bool,
     pub reasons: Vec<String>,
     pub cost_usd: f64,
     /// The session it ran in.
@@ -87,7 +97,7 @@ pub fn prompt(a: &Ask) -> String {
         "{}\n\n{proof}You are the independent reviewer of a change Theseus made to its own source. Judge \
          whether the diff does what the report claims, fixes what the evidence shows, and breaks \
          nothing else; a test that would pass without the fix proves nothing. Then end your reply \
-         with one line, `VERDICT: accept` or `VERDICT: reject`, and after it one line per reason.\n\n\
+         with one line, {verdicts}, and after it one line per reason.{offer}\n\n\
          If you need a checkout or a build to check this, make them under `{scratch}`. That \
          directory is yours for this review and is removed when you have answered, so there is \
          nothing to clean up. Take the checkout from the self repository (`git -C {repo} worktree \
@@ -95,14 +105,48 @@ pub fn prompt(a: &Ask) -> String {
          worktree to any other checkout, and write nothing under the self trees directory.",
         crate::check::render(&[], Some(&claim)),
         proof = a.proof,
+        verdicts = match a.offer_fix {
+            Some(_) => "`VERDICT: accept`, `VERDICT: reject` or `VERDICT: fix`",
+            None => "`VERDICT: accept` or `VERDICT: reject`",
+        },
+        offer = offer(a),
         scratch = a.scratch,
         repo = a.repo,
         head = a.head,
     )
 }
 
+/// What the reviewer is told of a fix: when it may ask for one, or the one already made.
+fn offer(a: &Ask) -> String {
+    if let Some(f) = &a.fixed {
+        return format!(
+            "\n\nThis branch was repaired in place after an earlier review asked for it: {f}. \
+             Judge the whole branch as it is now. A fix is not offered a second time: answer \
+             accept or reject."
+        );
+    }
+    let Some((lines, files)) = a.offer_fix else {
+        return String::new();
+    };
+    format!(
+        "\n\nAnswer fix only when the change is right in what it does and a small, local repair \
+         would make it acceptable: at most {lines} lines added and removed, in at most {files} \
+         files, touching no test that existed before the branch. Never ask a fix to change what \
+         the change is for. After `VERDICT: fix`, say exactly what to repair, one line each: \
+         another model makes that repair as one commit, the model that built the branch must \
+         accept it, the gate and the planted revert run again, and a fresh review reads the whole."
+    )
+}
+
 /// The verdict a reply gives: its last `VERDICT:` line and the lines after.
 pub fn verdict_of(reply: &str) -> (bool, Vec<String>) {
+    let (word, reasons) = word_of(reply);
+    (word == "accept", reasons)
+}
+
+/// The verdict's word (`accept`, `reject` or `fix`) and the lines after it. Anything else, or no
+/// `VERDICT:` line at all, is a reject.
+pub fn word_of(reply: &str) -> (&'static str, Vec<String>) {
     let lines: Vec<&str> = reply.lines().collect();
     let Some(at) = lines.iter().rposition(|l| {
         l.trim()
@@ -110,7 +154,7 @@ pub fn verdict_of(reply: &str) -> (bool, Vec<String>) {
             .to_ascii_lowercase()
             .starts_with("verdict:")
     }) else {
-        return (false, vec!["the reviewer gave no verdict line".into()]);
+        return ("reject", vec!["the reviewer gave no verdict line".into()]);
     };
     let word = lines[at]
         .trim()
@@ -118,7 +162,12 @@ pub fn verdict_of(reply: &str) -> (bool, Vec<String>) {
         .split_once(':')
         .map(|(_, w)| w.trim().to_ascii_lowercase())
         .unwrap_or_default();
-    let accept = word.starts_with("accept");
+    let word = match word {
+        w if w.starts_with("accept") => "accept",
+        w if w.starts_with("fix") => "fix",
+        _ => "reject",
+    };
+    let accept = word == "accept";
     let mut reasons: Vec<String> = lines[at + 1..]
         .iter()
         .map(|l| l.trim().trim_start_matches(['-', '*', ' ']).to_string())
@@ -126,9 +175,12 @@ pub fn verdict_of(reply: &str) -> (bool, Vec<String>) {
         .take(20)
         .collect();
     if reasons.is_empty() && !accept {
-        reasons.push("the reviewer rejected it and gave no reason".into());
+        reasons.push(match word {
+            "fix" => "the reviewer asked for a fix and said nothing of what to repair".into(),
+            _ => "the reviewer rejected it and gave no reason".into(),
+        });
     }
-    (accept, reasons)
+    (word, reasons)
 }
 
 /// The core's own reviewer: one check turn in a new `"self"` session.
@@ -149,33 +201,44 @@ impl Reviewer for CheckTurn {
                 None,
             )?;
             let session = rec.session_id.clone();
+            let exec = rec.execution_id.clone();
+            // A reviewer's session is offered a reviewer's tools, and builds nothing (`rsi::roles`).
+            core.tools
+                .self_pr
+                .set_role(&session, crate::rsi::roles::Role::Reviewer)?;
             // Its scratch is what it may remove while it runs (`rsi::own_removals`).
             core.tools
                 .self_pr
                 .review_opened(&session, std::path::Path::new(&ask.scratch));
             let sink = crate::bus::EventSink::new(core.bus.clone(), &session, None);
-            let r = core
-                .runner
-                .run(TurnRequest {
-                    session: rec,
-                    input: Some(prompt(ask)),
-                    target: ask.target.clone(),
-                    sink,
-                    author: "self:review".into(),
-                    recompile: None,
-                    attachments: vec![],
-                    arrived: None,
-                    reply_to: None,
-                    surface: None,
-                    answer_at: None,
-                    prompt: None,
-                })
-                .await;
+            let run = core.runner.run(TurnRequest {
+                session: rec,
+                input: Some(prompt(ask)),
+                target: ask.target.clone(),
+                sink,
+                author: "self:review".into(),
+                recompile: None,
+                attachments: vec![],
+                arrived: None,
+                reply_to: None,
+                surface: None,
+                answer_at: None,
+                prompt: None,
+            });
+            // Bounded while `[self_fix]` is on; with it off a review runs as long as it did before.
+            let r = match crate::rsi::join::fix::turns::review_limit(core) {
+                Some(limit) => {
+                    let within = crate::rsi::join::fix::turns::within;
+                    within(core, &session, exec.as_deref(), limit, run).await
+                }
+                None => run.await,
+            };
             core.tools.self_pr.review_closed(&session);
             let r = r?;
-            let (accept, reasons) = verdict_of(&r.output);
+            let (word, reasons) = word_of(&r.output);
             Ok(Review {
-                accept,
+                accept: word == "accept",
+                fix: word == "fix",
                 reasons,
                 cost_usd: r.cost_usd.unwrap_or(0.0),
                 session: Some(session),
@@ -203,5 +266,16 @@ mod tests {
         let (a, r) = verdict_of("I think it is fine.");
         assert!(!a);
         assert_eq!(r, ["the reviewer gave no verdict line"]);
+    }
+
+    /// `fix` is a word of its own (issue 36), never an accept; anything else is a reject.
+    #[test]
+    fn fix_is_its_own_word_and_no_accept() {
+        let (w, r) = word_of("Close.\nVERDICT: fix\n- the new test asserts the wrong field");
+        assert_eq!(w, "fix");
+        assert_eq!(r, ["the new test asserts the wrong field"]);
+        assert!(!verdict_of("VERDICT: fix\n- x").0, "a fix is no accept");
+        assert_eq!(word_of("VERDICT: fixed it myself").0, "fix");
+        assert_eq!(word_of("VERDICT: maybe").0, "reject");
     }
 }

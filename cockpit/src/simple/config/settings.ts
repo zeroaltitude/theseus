@@ -75,7 +75,7 @@ export const FIXED: FixedSetting[] = [
   { id: 'memory', name: 'What it remembers and how', words: 'The search index, memory, sessions and threads, the standing rules’ and people’s and ontology’s own settings, the cards, and what is imported from elsewhere.', tables: ['index', 'memory', 'sessions', 'threads', 'standing', 'people', 'ontology', 'card', 'import'] },
   { id: 'judging', name: 'Judging and routing', words: 'The small judging model, its packs and its learning, and how a message is routed and the corrections of the routing kept.', tables: ['judge', 'routing', 'route_bench', 'prefix'] },
   { id: 'initiative', name: 'What it does on its own', words: 'Its initiative, routines, watches and notices, and the projects it knows.', tables: ['initiative', 'routines', 'watch_for', 'notify', 'project', 'projects'] },
-  { id: 'self', name: 'Improving itself', words: 'The self-improvement loop, its own spend account, the pattern miner, and the sealed exams kept out of its reach.', tables: ['self', 'self_issues'] },
+  { id: 'self', name: 'Improving itself', words: 'The self-improvement loop, its own spend account, the pattern miner, the sealed exams kept out of its reach, and the small repairs made in place.', tables: ['self', 'self_issues', 'self_fix'] },
   { id: 'telemetry', name: 'What it reports about itself', words: 'Whether and where Theseus sends its own telemetry.', tables: ['telemetry'] },
 ]
 

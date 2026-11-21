@@ -89,8 +89,8 @@ impl Fact for SelfJoined {
     fn row(&self) -> Value {
         json!({"item": self.item, "branch": self.branch, "head": self.head,
                "merge": self.merge, "gate": self.gate, "cost_usd": self.cost_usd,
-               "what": format!("self branch {} joined main as {}", self.branch,
-                   short(&self.merge)),
+               "what": format!("self branch {} joined main as {}{}", self.branch,
+                   short(&self.merge), ran_again(&self.numbers)),
                "why": self.why, "numbers": self.numbers,
                "undo": format!("theseus self revert {}", self.merge)})
     }
@@ -195,4 +195,45 @@ impl Fact for SelfJoinReopened {
 
 fn short(c: &str) -> &str {
     &c[..c.len().min(12)]
+}
+
+/// What a join says of the gate runs main's moves cost it: nothing when its gate ran once.
+fn ran_again(numbers: &Value) -> String {
+    match numbers["tries"].as_u64() {
+        Some(n) if n > 1 => format!("; its gate ran {n} times: main moved under it"),
+        _ => String::new(),
+    }
+}
+
+/// A join's gate starts again because main moved under it before its push (issue 36, round 2):
+/// the pipeline's view and `self log` say how often, as it happens.
+pub struct SelfJoinAgain {
+    pub item: String,
+    pub branch: String,
+    pub head: String,
+    /// The gate runs so far, this one's before included.
+    pub runs: u32,
+}
+
+impl Fact for SelfJoinAgain {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SelfJoinAgain);
+
+    fn row(&self) -> Value {
+        json!({"item": self.item, "branch": self.branch, "head": self.head, "runs": self.runs,
+               "what": format!("the join of self branch {} starts its gate again: main moved \
+                   under it (its gate has run {} times)", self.branch, self.runs),
+               "why": "main moved before the push, so the merge is made and gated again",
+               "numbers": {"runs": self.runs}, "undo": null})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Approval,
+            format!(
+                "Self-join of {}: main moved under it, so its gate runs again (run {}).",
+                self.branch,
+                self.runs + 1
+            ),
+        );
+    }
 }

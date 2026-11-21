@@ -48,6 +48,7 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
+pub mod self_fix;
 pub mod self_improve;
 pub mod self_issues;
 pub mod self_mint;
@@ -289,6 +290,11 @@ pub struct Config {
     #[serde(default)]
     #[serde(skip_serializing_if = "self_issues::SelfIssuesConfig::is_default")]
     pub self_issues: self_issues::SelfIssuesConfig,
+    /// `[self_fix]`: the self loop's repair in place (issue 36), ON by default, in
+    /// `config/self_fix.rs`, a section of its own for the same reason as `[self_issues]`.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "self_fix::SelfFixConfig::is_default")]
+    pub self_fix: self_fix::SelfFixConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,

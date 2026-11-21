@@ -36,6 +36,9 @@ fn item_line(i: &SelfPipelineItem) -> String {
     if i.rejections > 0 {
         l.push_str(&format!("  rejected {}x", i.rejections));
     }
+    if let Some(f) = &i.fixing {
+        l.push_str(&format!("  Fixing {f}"));
+    }
     l
 }
 
@@ -238,6 +241,20 @@ mod tests {
             "  1. tsk_mast  Mend the mast  [self/20261014-tsk-mast]  rejected 1x"
         );
         assert_eq!(l[5], "     rejected by fable: unproved");
+        // A branch being repaired in place says where and by which model (issue 36).
+        let fixing = SelfPipelineItem {
+            item: "tsk_sail".into(),
+            title: "Patch the sail".into(),
+            place: 1,
+            branch: Some("self/20261014-tsk-sail".into()),
+            fixing: Some("at the gate, by fable (claude-fable-5-2)".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            item_line(&fixing),
+            "  1. tsk_sail  Patch the sail  [self/20261014-tsk-sail]  Fixing at the gate, by fable \
+             (claude-fable-5-2)"
+        );
         assert_eq!(l[6], "Building: none.");
         assert_eq!(l[10], "Today: no self budget (mode off); 0 pipeline rows.");
         r.week = Some(SelfPipelineWeek {

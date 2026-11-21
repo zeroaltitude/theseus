@@ -638,6 +638,60 @@ pub fn open(p: &Place, item: &str, now_ms: u64) -> Result<Tree> {
     })
 }
 
+/// The item's tree again, on its existing `branch` at `head` (a fix at review, issue 36: the
+/// builder's tree was closed when its branch went green). The branch must still be at `head`, and
+/// no tree may be open for the item; the same directory, build tree and build folder as [`open`]
+/// makes, so the fixer in it has exactly a builder's confinement (`own_tree`).
+pub fn reopen(p: &Place, item: &str, branch: &str, head: &str) -> Result<Tree> {
+    let repo = std::fs::canonicalize(&p.repo)
+        .with_context(|| format!("[self] repo {} is not there", p.repo.display()))?;
+    let _one = REPO
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let slug = slug(item);
+    if p.trees().join(&slug).exists() {
+        bail!("a tree for {item} is open already");
+    }
+    let tip = p.git_ok(
+        &repo,
+        &[
+            "rev-parse",
+            "-q",
+            "--verify",
+            &format!("refs/heads/{branch}"),
+        ],
+    )?;
+    if tip != head {
+        bail!("{branch} is at {tip}, not at {head}");
+    }
+    std::fs::create_dir_all(p.trees())?;
+    let dir = std::fs::canonicalize(p.trees())?.join(&slug);
+    super::builder_dir::remove(&p.state, &slug)?;
+    p.git_ok(
+        &repo,
+        &["worktree", "add", "-q", &dir.to_string_lossy(), branch],
+    )?;
+    let target = p.targets().join(&slug);
+    std::fs::create_dir_all(&target)?;
+    Ok(Tree {
+        slug,
+        branch: branch.to_string(),
+        dir,
+        target,
+    })
+}
+
+/// Move the tree to `from`, a commit it already holds, on the branch it has (a branch whose fix did
+/// not hold starts its next attempt from before the fix, issue 36). What is not committed goes.
+pub fn reset_to(p: &Place, tree: &Tree, from: &str) -> Result<()> {
+    p.git_ok(
+        &tree.dir,
+        &["checkout", "-q", "-f", "-B", &tree.branch, from],
+    )?;
+    p.git_ok(&tree.dir, &["clean", "-fdq"])?;
+    Ok(())
+}
+
 /// Move the tree to a fresh branch for another attempt, from where it is.
 pub fn next_branch(p: &Place, tree: &mut Tree) -> Result<()> {
     let b = next_name(p, &tree.dir, &tree.branch)?;

@@ -44,6 +44,7 @@ impl Reviewer for Keeps {
         Box::pin(async move {
             Ok(Review {
                 accept,
+                fix: false,
                 reasons,
                 cost_usd: 0.0,
                 session: None,

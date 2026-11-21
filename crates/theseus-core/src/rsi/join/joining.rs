@@ -8,7 +8,7 @@ use theseus_protocol::tasks::{TaskEvidence, TaskState};
 
 use super::install::Started;
 use super::{blocking, dependencies, git, keel, lock, lock_dir, moved, refused, Run, TRIES};
-use crate::fact::rsi_join::SelfJoined;
+use crate::fact::rsi_join::{SelfJoinAgain, SelfJoined};
 use crate::rsi::rerun;
 use crate::rsi::tree::{self, GateRun, Tree, Verdict};
 
@@ -260,6 +260,16 @@ impl Run<'_> {
             }
             Ok(git::Pushed::Moved(now)) => {
                 tracing::info!(branch = %self.b.branch, main = %now, attempt, "self-join: main moved; the dry run again");
+                // Said as it happens (issue 36, round 2): a join that main keeps moving under is
+                // seen, and bounded by `TRIES`.
+                if attempt < TRIES {
+                    self.core.rec(None).record(&SelfJoinAgain {
+                        item: self.b.item.clone(),
+                        branch: self.b.branch.clone(),
+                        head: self.b.head.clone(),
+                        runs: attempt,
+                    });
+                }
                 Ok(Try::Moved)
             }
             Err(e) => {

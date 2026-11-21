@@ -66,6 +66,7 @@ impl Reviewer for Litter {
         Box::pin(async {
             Ok(Review {
                 accept: false,
+                fix: false,
                 reasons: vec!["its test passes without the fix".into()],
                 cost_usd: 0.1,
                 session: None,

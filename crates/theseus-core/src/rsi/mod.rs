@@ -74,6 +74,7 @@ pub mod pr;
 pub mod reach;
 pub mod rerun;
 pub mod revert;
+pub(crate) mod roles;
 pub mod sealed;
 mod switch;
 #[cfg(test)]

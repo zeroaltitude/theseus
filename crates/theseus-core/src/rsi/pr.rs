@@ -66,6 +66,22 @@ pub struct Board {
     pub(super) reviews: Mutex<std::collections::HashMap<String, PathBuf>>,
     /// Added to every git call and the gate's (a test's hermetic git).
     env: Mutex<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
+    /// A test's fixer and main (`fixing`); none in a daemon, which uses its own.
+    fix: Mutex<Option<fixing::GateSeams>>,
+    /// Each session's role, once read (`super::roles`): none for a session the loop did not open
+    /// for one job.
+    roles: Mutex<std::collections::HashMap<String, Option<super::roles::Role>>>,
+    /// The branches whose fix runs now in this process: a fix row with no end is cut short only
+    /// when its branch is not here (`fixing::resumed`).
+    live_fixes: Mutex<std::collections::HashSet<String>>,
+    /// A test's switch (`set_role_ceilings_off`); never set in a daemon.
+    role_ceilings_off: std::sync::atomic::AtomicBool,
+    /// A test's switch (`set_index_unread`): the fix rows read as a ledger index still being
+    /// built reads; never set in a daemon.
+    index_unread: std::sync::atomic::AtomicBool,
+    /// A test's switch (`set_resets_fail`): how many resets of a self tree after a fix fail;
+    /// never set in a daemon.
+    resets_fail: std::sync::atomic::AtomicUsize,
     /// A test's place runs its stand-in gate at L0 unless it asks for L1
     /// (`set_jailed`); a daemon's never does (`Place::jail`).
     #[cfg(test)]
@@ -91,6 +107,128 @@ impl Board {
     /// The state dir the self trees, reports and gates live under.
     pub(crate) fn state_dir(&self) -> &Path {
         &self.state
+    }
+
+    /// Record that the self loop opened `session` for `role` (`super::roles`), in memory and in
+    /// the store, before its first turn.
+    pub(crate) fn set_role(&self, session: &str, role: super::roles::Role) -> anyhow::Result<()> {
+        if let Some(core) = self.core() {
+            core.store.append(&[role.record(session)?])?;
+        }
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session.to_string(), Some(role));
+        Ok(())
+    }
+
+    /// `session`'s role, if the self loop opened it for one: what memory holds, else the store's
+    /// record, kept once read.
+    pub(crate) fn role(&self, session: &str) -> Option<super::roles::Role> {
+        if let Some(r) = self
+            .roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session)
+        {
+            return *r;
+        }
+        // What is kept stays small: the sessions with no role are forgotten past a bound (each is
+        // read again from the store if it asks again).
+        {
+            let mut kept = self.roles.lock().unwrap_or_else(PoisonError::into_inner);
+            if kept.len() >= ROLES_KEPT {
+                kept.retain(|_, r| r.is_some());
+            }
+        }
+        let read = self.core().and_then(|c| {
+            c.store
+                .get_meta::<super::roles::Role>(&super::roles::key(session))
+                .ok()
+                .flatten()
+        });
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session.to_string(), read);
+        read
+    }
+
+    /// `branch`'s fix runs now in this process, until what this returns is dropped.
+    pub(crate) fn live_fix(&self, branch: &str) -> LiveFix<'_> {
+        self.live_fixes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(branch.to_string());
+        LiveFix(self, branch.to_string())
+    }
+
+    /// Whether `branch`'s fix runs now in this process.
+    pub(crate) fn fix_is_live(&self, branch: &str) -> bool {
+        self.live_fixes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(branch)
+    }
+
+    /// A test's switch: a role's session is offered what any self session is, so that
+    /// `self.propose_change`'s own refusal is shown to hold without the role's ceiling.
+    #[cfg(test)]
+    pub(crate) fn set_role_ceilings_off(&self) {
+        self.role_ceilings_off
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether a role's session has its role's ceiling (always, but in a test that switched it off).
+    pub(crate) fn role_ceilings(&self) -> bool {
+        !self
+            .role_ceilings_off
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A test's switch: the fix rows read as unreadable, as while the ledger's index is built.
+    #[cfg(test)]
+    pub(crate) fn set_index_unread(&self) {
+        self.index_unread
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A test's switch: the next `n` resets of a tree after a fix that did not hold fail.
+    #[cfg(test)]
+    pub(crate) fn set_resets_fail(&self, n: usize) {
+        self.resets_fail
+            .store(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether this reset fails (a test's switch; never in a daemon): one of the `n` is used.
+    pub(crate) fn reset_fails(&self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.resets_fail
+            .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1))
+            .is_ok()
+    }
+
+    /// Whether the fix rows are read as unreadable (a test's switch; never in a daemon).
+    pub(crate) fn index_unread(&self) -> bool {
+        self.index_unread.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// How many sessions' roles this process keeps.
+    #[cfg(test)]
+    pub(crate) fn roles_kept(&self) -> usize {
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
+    /// What this process remembers of the roles, gone: as after a restart.
+    #[cfg(test)]
+    pub(crate) fn forget_roles(&self) {
+        self.roles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 
     pub fn attach(&self, core: &Arc<Core>) {
@@ -200,6 +338,22 @@ pub(super) fn notice_body(halt: bool, text: String) -> serde_json::Value {
     }
 }
 
+/// How many sessions' roles `Board::role` keeps before it forgets those with none.
+const ROLES_KEPT: usize = 4_096;
+
+/// A fix that runs now (`Board::live_fix`): its branch is no longer live once this is dropped.
+pub(crate) struct LiveFix<'a>(&'a Board, String);
+
+impl Drop for LiveFix<'_> {
+    fn drop(&mut self) {
+        self.0
+            .live_fixes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.1);
+    }
+}
+
 /// Where the self trees live, which join the workspace roots while
 /// `[self] mode = "act"` and a repo is set: what the file tools edit.
 pub fn trees_root(cfg: &crate::Config, state: &Path) -> Option<PathBuf> {
@@ -280,6 +434,10 @@ struct Input {
 #[path = "tests_pr/gated.rs"]
 mod tests_gated;
 
+#[path = "pr_fix.rs"]
+mod fixing;
+pub use fixing::GateSeams;
+
 fn input_of(v: &Value) -> Result<Input, String> {
     let i: Input = serde_json::from_value(v.clone()).map_err(|e| format!("invalid input: {e}"))?;
     if i.item.trim().is_empty() || i.why.trim().is_empty() {
@@ -306,6 +464,8 @@ struct Attempt<'a> {
     diff: (u64, u64, u64),
     /// The suite's failures that were run once more and passed (`rerun`).
     reran: Vec<String>,
+    /// A fix at the gate, when one was tried (issue 36, `fixing`).
+    fix: Option<fixing::Note>,
     /// Why the daemon's git would not run in the tree (`tree_git`), when that stopped it.
     refused: Option<String>,
 }
@@ -317,7 +477,9 @@ pub async fn propose(
     tc: &TurnCtx<'_>,
     input: &Value,
 ) -> Result<(String, Value), String> {
-    let i = input_of(input)?;
+    // A session the loop opened as a fixer, an approver or a reviewer builds nothing, whatever it
+    // was offered (issue 36, round 2: `super::roles`).
+    let i = fixing::builder_input(board, tc.session_id, input)?;
     let core = board
         .core
         .get()
@@ -389,15 +551,10 @@ pub async fn propose(
             i.item
         ));
     }
-    // A branch that has its report is done: another attempt is a new branch.
-    if report_path(&place, &t.branch).exists() {
-        let p = place.clone();
-        t = blocking(move || {
-            tree::next_branch(&p, &mut t)?;
-            Ok(t)
-        })
-        .await?;
-    }
+    // A branch that has its report is done: another attempt is a new branch; one whose fix a
+    // restart cut short is put back to before the fix first (issue 36, round 2).
+    let cut;
+    (t, cut) = fixing::prepared(&core, board, &place, t, i.item.trim()).await?;
     let mut a = Attempt {
         i: &i,
         tree: t,
@@ -409,9 +566,10 @@ pub async fn propose(
         verdict: "halted",
         diff: (0, 0, 0),
         reran: vec![],
+        fix: cut,
         refused: None,
     };
-    let said = attempt(&core, &place, tc, &mut a).await;
+    let said = attempt(&core, board, &place, tc, &mut a).await;
     super::infra::watch(
         &core,
         &place,
@@ -457,7 +615,8 @@ pub(super) fn stop_of(core: &Arc<Core>, execution_id: &str) -> tree::Stop {
 
 /// The attempt's phases after the tree is open: commit, gate, report, push.
 async fn attempt(
-    core: &Core,
+    core: &Arc<Core>,
+    board: &Board,
     place: &Place,
     tc: &TurnCtx<'_>,
     a: &mut Attempt<'_>,
@@ -477,12 +636,13 @@ async fn attempt(
         return halted(a, COMMIT, &why);
     }
     let (p, t, subject) = (place.clone(), a.tree.clone(), subject(a.i));
-    let body = format!(
+    // The model's words, with no line that reads as a fix commit's trailer (`fix::neutralised`).
+    let body = super::join::fix::neutralised(&format!(
         "{}\n\nIssue: {}\nItem: {}\n\nCo-Authored-By: Theseus (self) <noreply@anthropic.com>",
         a.i.why.trim(),
         a.i.issue.trim(),
         a.i.item.trim()
-    );
+    ));
     let (head, commits, diff) = blocking(move || committed(&p, &t, &subject, body))
         .await
         .map_err(|e| refused(a, e))?;
@@ -499,8 +659,9 @@ async fn attempt(
     if let Some(why) = stopped(core) {
         return halted(a, GATE, &why);
     }
-    let run = match judged(a, place).await {
-        Ok(run) => run,
+    // The gate, and a red in the change's own work once to a fixer (issue 36).
+    let (run, commits) = match fixing::gated(core, board, place, tc, a, commits).await {
+        Ok(r) => r,
         Err(out) => return out,
     };
     a.verdict = run.verdict.name();
@@ -694,7 +855,8 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
     let quiet = task
         .as_ref()
         .is_some_and(crate::rsi::backlog::attempts::red_tonight);
-    let capped = told_on_task(core, task, &e, run);
+    let fixed = a.fix.as_ref().map(|f| f.words.as_str());
+    let capped = told_on_task(core, task, &e, run, fixed);
     told_where_it_reports(core, tc, &e, run, quiet);
     if let Some(text) = capped {
         core.stage_self_digest(&text);
@@ -779,6 +941,7 @@ fn told_on_task(
     task: Option<theseus_protocol::tasks::TaskRecord>,
     e: &crate::rsi::backlog::Ended,
     run: &GateRun,
+    fixed: Option<&str>,
 ) -> Option<String> {
     let mut t = task?;
     let now = theseus_protocol::now_unix_ms();
@@ -791,11 +954,12 @@ fn told_on_task(
         node: None,
         identity: format!("gate:{}", e.verdict),
         note: Some(format!(
-            "{}{} (exit {}, {} s)",
+            "{}{} (exit {}, {} s){}",
             kept_aborting.unwrap_or_default(),
             e.line(),
             run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
-            run.secs
+            run.secs,
+            fixed.map(|f| format!("; {f}")).unwrap_or_default()
         )),
         by: "self-pr".into(),
         at_ms: now,
@@ -891,8 +1055,13 @@ fn keel(
 /// The result the model reads: the gate's verdict and where to look.
 fn said(a: &Attempt<'_>, after: &str) -> (String, Value) {
     let g = a.gate.as_ref();
+    let fixed = a
+        .fix
+        .as_ref()
+        .map(|f| format!("A fix was tried at the gate: {}. ", f.words))
+        .unwrap_or_default();
     let text = format!(
-        "{}: the gate is {} (exit {}, {} s); report {}. {after}",
+        "{}: the gate is {} (exit {}, {} s); report {}. {fixed}{after}",
         a.tree.branch,
         a.verdict,
         g.and_then(|g| g.exit)
@@ -1000,7 +1169,7 @@ fn write_report(
          - Gate log: {log}\n- Change: {files} files, +{added} -{removed}\n\
          - Cost: ${cost:.4} (the self session's model spend so far)\n- Remote: {remote}\n\n\
          ## What and why\n\n{why}\n\n## Commits\n\n{commits}\n\
-         ## The gate's last lines\n\n```text\n{tail}\n```\n\n{COMPLETE}\n",
+         {fix}## The gate's last lines\n\n```text\n{tail}\n```\n\n{COMPLETE}\n",
         branch = a.tree.branch,
         item = a.i.item.trim(),
         issue = a.i.issue.trim(),
@@ -1015,6 +1184,11 @@ fn write_report(
         removed = a.diff.2,
         cost = cost_usd(tc),
         why = a.i.why.trim(),
+        fix = a
+            .fix
+            .as_ref()
+            .map(fixing::Note::section)
+            .unwrap_or_default(),
         tail = g.tail,
     );
     let (text, _) = core.tools.scrubber.scrub(&text);

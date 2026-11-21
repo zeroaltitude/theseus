@@ -63,6 +63,9 @@ impl Core {
                 "self.joined",
                 "self.reverted",
                 "self.vetoed",
+                "self.fix.made",
+                "self.fix.verdict",
+                "self.fix.refused",
             ],
         )? {
             Some(all) => Outcomes::of_rows(&all, since, until),

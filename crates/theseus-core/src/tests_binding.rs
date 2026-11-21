@@ -218,6 +218,8 @@ async fn a_review_turn_with_a_tool_step_sends_its_first_step_again() {
         built_ms: 0,
         scratch: scratch.display().to_string(),
         repo: r._dir.path().join("work").display().to_string(),
+        offer_fix: None,
+        fixed: None,
     };
     let review = CheckTurn.review(&r.core, &ask).await.unwrap();
     assert!(review.accept, "{:?}", review.reasons);

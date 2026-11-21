@@ -34,6 +34,21 @@ pub fn rules(tries: u32) -> String {
     )
 }
 
+/// The rule's last sentence while `[self_fix]` is on (issue 36), after [`rules`]: with it off, a
+/// builder is told what it was told before.
+pub const FIX_RULE: &str =
+    "A small fault your gate or your review finds may be repaired in place by \
+     another model, which is no reason to skip running your own tests.";
+
+/// [`rules`] as a builder is told them under `cfg`: with [`FIX_RULE`] after them while `[self_fix]`
+/// is on.
+pub fn rules_now(cfg: &crate::Config, tries: u32) -> String {
+    match cfg.self_fix.on() {
+        true => format!("{}\n{FIX_RULE}", rules(tries)),
+        false => rules(tries),
+    }
+}
+
 /// What a builder is told when its change came back because main had moved (issue 20): its tree
 /// holds the finished change with main already merged into it, uncommitted, and what clashes is
 /// left for it to resolve. None unless the item's newest word is a tree made so, newer than its
