@@ -665,7 +665,7 @@ async fn a_shared_place_keeps_todays_rule() {
 /// an agent's process.
 async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person: bool) {
     use crate::session::SessionRecord;
-    view_gate::stage_mark(&core.runner, sid, input, in_person);
+    let mark = view_gate::stage_mark(&core.runner, sid, input, in_person);
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -673,7 +673,7 @@ async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person:
         .unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None);
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
