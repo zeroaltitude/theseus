@@ -655,22 +655,26 @@ impl Outbox {
 
     /// The META records the index holds (a task's target, a thread's shown
     /// place, a place's session), read at load (split out of `load` to keep
-    /// it under clippy's line ceiling).
+    /// it under clippy's line ceiling). Each family by its own prefix: the
+    /// store's other META families (issue 44's exchanges and touches among
+    /// them) grow with history, and a start reads none of them.
     fn read_meta_into(&self, ix: &mut Index) -> Result<()> {
-        for r in self.store.inner().latest_of_kind(kinds::META)? {
+        let inner = self.store.inner();
+        let of = |r: &theseus_store::Record| r.decode::<String>().ok().filter(|t| !t.is_empty());
+        for r in inner.latest_with_prefix(kinds::META, TASK_META_PREFIX)? {
             let key = r.key.as_deref().unwrap_or("");
-            if let Some(task) = key.strip_prefix(TASK_META_PREFIX) {
-                if let Some(target) = r.decode::<String>().ok().filter(|t| !t.is_empty()) {
-                    ix.tasks.insert(task.to_string(), target);
-                }
-                continue;
+            if let (Some(task), Some(target)) = (key.strip_prefix(TASK_META_PREFIX), of(&r)) {
+                ix.tasks.insert(task.to_string(), target);
             }
-            if let Some(thread_session) = key.strip_prefix(SHOWN_PREFIX) {
-                if let Some(target) = r.decode::<String>().ok().filter(|t| !t.is_empty()) {
-                    ix.shown.insert(thread_session.to_string(), target);
-                }
-                continue;
+        }
+        for r in inner.latest_with_prefix(kinds::META, SHOWN_PREFIX)? {
+            let key = r.key.as_deref().unwrap_or("");
+            if let (Some(thread_session), Some(target)) = (key.strip_prefix(SHOWN_PREFIX), of(&r)) {
+                ix.shown.insert(thread_session.to_string(), target);
             }
+        }
+        for r in inner.latest_with_prefix(kinds::META, PLACE_META_PREFIX)? {
+            let key = r.key.as_deref().unwrap_or("");
             let Some(place) = key.strip_prefix(PLACE_META_PREFIX) else {
                 continue;
             };

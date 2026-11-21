@@ -295,7 +295,8 @@ impl MemoryPass {
         self.tx.get()
     }
 
-    fn index(&self) -> Option<Arc<dyn PassIndex>> {
+    /// The index the pass asks; the exchange ledger names things by it too (issue 44).
+    pub(crate) fn index(&self) -> Option<Arc<dyn PassIndex>> {
         self.index
             .read()
             .unwrap_or_else(PoisonError::into_inner)

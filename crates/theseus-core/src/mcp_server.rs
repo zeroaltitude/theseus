@@ -224,6 +224,8 @@ mod tests {
         method::LEDGER_TAIL,
         method::LEDGER_WINDOW,
         method::LEDGER_VERIFY,
+        method::EXCHANGE_REPORT,
+        method::EXCHANGE_REBUILD,
         method::CONFIG_HISTORY,
         method::CONFIG_WHOLE,
         method::PROFILE_LIST,
