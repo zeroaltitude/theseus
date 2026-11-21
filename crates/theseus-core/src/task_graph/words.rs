@@ -3,36 +3,40 @@
 //! decision 6). The gate the build already has stays the one gate: the
 //! objective and acceptance are the owner's layer, every edit is a version
 //! under compare-and-set, and a model's change is a proposal that waits for
-//! his yes on a card. This module says when the card is not needed, and
-//! keeps the words behind each change.
+//! his yes on a card. This module says when the card would not be needed,
+//! and keeps the words behind each change.
 //!
-//! The conversation model proposes through `task.update`, naming his message
-//! (`said`) and the change's kind (`kind`). It applies without a card only
-//! when every check of [`decide`] holds:
+//! **Built, not live.** The conversation model proposes through `task.update`,
+//! naming his message (`said`) and the change's kind (`kind`), but the kind is
+//! the proposing model's own label: nothing in this build checks that his
+//! words mean that, about that task ("Also deploy to production" appended
+//! under `narrows` widens it). So the first check is an independent typed
+//! judgment recorded for this exact message ([`judged_change`]), and no pack
+//! asks that question yet: every change keeps its card, counted as
+//! `no_judgment`. The rest of [`decide`] holds the rule's shape for when the
+//! question exists:
 //!
+//! - the judgment names exactly this task, this version, and `restricts`;
+//! - the kind is `narrows` (`widens`, `replaces` and anything else keep the
+//!   card);
+//! - this is not a task's own session; the call names the whole id; the
+//!   version it names is the newest, and his message is not older than it;
+//! - nothing from outside was read since his last message;
 //! - the message carries the owner's mark (`exchange::mark`), in person, and
 //!   is of the current exchange of this very session;
 //! - the owner is alone here, as the gate's `present` says (a channel, an
 //!   agent's process at the terminal, an unreadable mark: not alone);
-//! - nothing from outside was read since his last message, and this is not
-//!   a task's own session;
-//! - exactly one task is identified (the call names its whole id), and the
-//!   version it names is still the newest, and his message is not older than
-//!   that version;
-//! - the kind is `narrows` or `pauses` (or `resumes`, the undo of a pause
-//!   made so). A narrowing keeps the objective as it was, word for word, and
-//!   adds his whole message beside it, never a part the model chose (and
-//!   acceptance only gains one line, his whole message): so words that are
-//!   not his cannot ride an "ok" of his, and a part of his words cannot be
-//!   taken out of what he said ("delete the old charts" from "don't delete
-//!   the old charts").
-//!   A pause sets the task `suspended`; its undo restores the state before it.
+//! - a narrowing keeps the objective as it was, word for word, and adds his
+//!   whole message beside it, never a part the model chose (and acceptance
+//!   only gains one line, his whole message): words that are not his cannot
+//!   ride an "ok" of his, and a part of his words cannot be taken out of what
+//!   he said ("delete the old charts" from "don't delete the old charts").
 //!
-//! `widens`, `replaces`, and anything unsure keep the existing card, with the
-//! objective before and after. The words are kept by reference, never by
-//! text, in a small META record, `task.words.<id>.<version>`; the proposal
-//! that falls to the card says why in its `task.change_proposed` row
-//! (`words`), so the cards are counted. No stored record gains a field.
+//! The words are kept by reference, never by text, in a small META record,
+//! `task.words.<id>.<version>`; a proposal that named his words and fell to
+//! the card says why in its `task.change_proposed` row (`words`), so the cards
+//! are counted. No stored record gains a field. A pause is not offered here:
+//! the owner's own `task.pause` is the durable one.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -53,6 +57,8 @@ pub fn words_key(task: &str, version: u64) -> String {
 }
 
 /// What a proposed change does to the owner's task, as the model declares it.
+/// `pauses` and `resumes` are read, never offered: the tool's schema names
+/// the other three, and a call that says either keeps its card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
@@ -91,7 +97,7 @@ pub struct Words {
     pub kind: Kind,
     /// It went by the card (his yes), not by his words alone.
     pub carded: bool,
-    /// For a pause: the state it paused, which its undo restores.
+    /// For a pause: the state it paused. Read only: no pause is offered now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<TaskState>,
     pub at_ms: u64,
@@ -106,12 +112,51 @@ pub fn words(store: &crate::store::Store, task: &str, version: u64) -> Result<Op
     store.get_meta::<Words>(&words_key(task, version))
 }
 
+/// What an independent judge said one message of the owner's asks of one
+/// task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Operation {
+    /// It narrows the task's objective: less, never more or other.
+    Restricts,
+    Pauses,
+    Resumes,
+    Widens,
+    Replaces,
+    /// The judge could not tell.
+    Unsure,
+}
+
+/// The typed judgment a change without a card needs: recorded for this exact
+/// message, naming exactly one task, the version it read, and the operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JudgedChange {
+    pub node: String,
+    pub task: String,
+    pub base_version: u64,
+    pub operation: Operation,
+}
+
+/// The judgment recorded for the message `node`. **None today: no pack asks
+/// this question yet**, so every change to the owner's task keeps its card
+/// (`no_judgment`). The question, when it exists, is the judge's, asked of
+/// his message, the one task it addresses and that task's objective; it is
+/// never the proposing model's own word.
+pub fn judged_change(_store: &crate::store::Store, _node: &str) -> Option<JudgedChange> {
+    None
+}
+
 /// Why a change falls to the card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {
     /// The call names no message of his, or no kind.
     NoWords,
-    /// `widens` or `replaces`.
+    /// No independent judgment is recorded for his message.
+    NoJudgment,
+    /// The judgment names another task, another version, or another
+    /// operation than restricting this one.
+    Misjudged,
+    /// Any kind but `narrows`.
     Kind(Kind),
     /// A task's own session.
     TaskSession,
@@ -132,14 +177,14 @@ pub enum Why {
     /// The change does not have its kind's shape: a narrowing that drops or
     /// rewrites any of the objective, or adds words that are not his.
     NotItsKind,
-    /// A resume with no pause made by his words to undo.
-    NoPause,
 }
 
 impl Why {
     pub fn as_str(self) -> &'static str {
         match self {
             Why::NoWords => "no_words",
+            Why::NoJudgment => "no_judgment",
+            Why::Misjudged => "misjudged",
             Why::Kind(Kind::Widens) => "widens",
             Why::Kind(Kind::Replaces) => "replaces",
             Why::Kind(_) => "kind",
@@ -152,7 +197,6 @@ impl Why {
             Why::NotCurrent => "not_current",
             Why::NotAlone => "not_alone",
             Why::NotItsKind => "not_its_kind",
-            Why::NoPause => "no_pause",
         }
     }
 }
@@ -167,7 +211,6 @@ pub struct Ask<'a> {
     pub kind: Option<Kind>,
     pub objective: Option<&'a str>,
     pub acceptance: Option<&'a [String]>,
-    pub paused: Option<bool>,
 }
 
 /// What [`decide`] reads beyond the call: each a read of a record, or the gate.
@@ -188,6 +231,8 @@ pub trait Evidence {
     fn outside(&self) -> bool;
     /// The words kept for a version of a task.
     fn words(&self, task: &str, version: u64) -> Result<Option<Words>>;
+    /// The independent judgment recorded for the message `node`.
+    fn judged(&self, node: &str) -> Option<JudgedChange>;
 }
 
 /// A text as it is compared: whitespace runs as one space, and the
@@ -213,7 +258,7 @@ fn added<'a>(old: &str, new: &'a str) -> Option<&'a str> {
 /// A narrowing's shape: the objective kept and his whole message added; the
 /// acceptance kept, line for line, with one line added, his whole message.
 fn narrows(rec: &TaskRecord, ask: &Ask<'_>, his: &str) -> bool {
-    if ask.paused.is_some() || (ask.objective.is_none() && ask.acceptance.is_none()) {
+    if ask.objective.is_none() && ask.acceptance.is_none() {
         return false;
     }
     let objective_ok = ask
@@ -234,8 +279,20 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
     let (Some(said), Some(kind)) = (ask.said, ask.kind) else {
         return Err(Why::NoWords);
     };
-    if matches!(kind, Kind::Widens | Kind::Replaces) {
+    // The meaning is never the proposing model's word: an independent
+    // judgment of this very message must say it restricts this very task.
+    let Some(judged) = ev.judged(said) else {
+        return Err(Why::NoJudgment);
+    };
+    if kind != Kind::Narrows {
         return Err(Why::Kind(kind));
+    }
+    if judged.node != said
+        || judged.task != rec.id
+        || judged.base_version != rec.version
+        || judged.operation != Operation::Restricts
+    {
+        return Err(Why::Misjudged);
     }
     if ev.is_task() {
         return Err(Why::TaskSession);
@@ -273,29 +330,9 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
     if ev.present(&mark) != Present::OwnerAlone {
         return Err(Why::NotAlone);
     }
-    let shaped = match kind {
-        Kind::Narrows => match ev.text(said) {
-            Ok(Some(his)) => narrows(rec, ask, &his),
-            _ => false,
-        },
-        Kind::Pauses => {
-            ask.paused == Some(true)
-                && ask.objective.is_none()
-                && ask.acceptance.is_none()
-                && rec.state != TaskState::Suspended
-        }
-        Kind::Resumes => {
-            if ask.paused != Some(false) || ask.objective.is_some() || ask.acceptance.is_some() {
-                false
-            } else {
-                let paused = ev.words(&rec.id, rec.version).ok().flatten();
-                if !paused.is_some_and(|w| w.kind == Kind::Pauses && !w.carded) {
-                    return Err(Why::NoPause);
-                }
-                rec.state == TaskState::Suspended
-            }
-        }
-        Kind::Widens | Kind::Replaces => false,
+    let shaped = match ev.text(said) {
+        Ok(Some(his)) => narrows(rec, ask, &his),
+        _ => false,
     };
     match shaped {
         true => Ok(kind),
@@ -387,6 +424,10 @@ impl Evidence for Records<'_> {
 
     fn words(&self, task: &str, version: u64) -> Result<Option<Words>> {
         words(self.store, task, version)
+    }
+
+    fn judged(&self, node: &str) -> Option<JudgedChange> {
+        judged_change(self.store, node)
     }
 }
 
