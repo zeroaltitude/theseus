@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::places::PlacesConfig;
 use crate::secrets::{OpReader, SecretRef};
 
+pub mod assembly;
 mod aws;
 mod context;
 mod google;
