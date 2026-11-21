@@ -30,6 +30,7 @@ pub mod permit;
 pub mod record;
 pub mod render;
 pub mod select;
+pub mod text;
 pub mod timeline;
 
 #[cfg(test)]
