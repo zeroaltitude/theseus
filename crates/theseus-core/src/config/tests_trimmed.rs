@@ -59,3 +59,26 @@ fn an_unknown_pack_is_still_refused() {
         "{e:#}"
     );
 }
+
+/// `[routing] rung` and `[memory] small_talk_bar` load whatever their value,
+/// do nothing, and are named in the same one line. The route pack's own
+/// `[judge.packs."<pack>"] rung` is what lowers routing now.
+#[test]
+fn an_old_settings_file_with_the_retired_modes_loads() {
+    use crate::config::PackMode;
+    let text = "[routing]\nrung = \"shadow\"\n\n[memory]\nsmall_talk_bar = true\n";
+    let (cfg, warnings) = Config::parse(text).unwrap();
+    let lines = trimmed(&warnings);
+    assert_eq!(lines.len(), 1, "{warnings:?}");
+    for key in ["routing.rung", "memory.small_talk_bar"] {
+        assert!(lines[0].contains(key), "{key}: {}", lines[0]);
+    }
+    assert_eq!(
+        cfg.routing.pack_mode(PackMode::Live),
+        PackMode::Live,
+        "the retired rung lowers nothing"
+    );
+    let (cfg, warnings) = Config::parse("[routing]\nrung = \"live\"\n").unwrap();
+    assert_eq!(trimmed(&warnings).len(), 1, "{warnings:?}");
+    assert_eq!(cfg.routing.trimmed(), ["routing.rung"]);
+}

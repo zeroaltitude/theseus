@@ -9,7 +9,7 @@
 
 use theseus_protocol::features::Features;
 
-use crate::config::{MemoryMode, PackMode, RoutingMode};
+use crate::config::{MemoryMode, PackMode};
 use crate::Config;
 
 /// The features `cfg` turns on. `key` is the Jev key's state when it is
@@ -53,7 +53,6 @@ fn jev_words(cfg: &Config, key: Option<&str>) -> String {
         return format!("Jev off ({})", j.off_why());
     }
     let routing_acts = cfg.routing.enabled
-        && cfg.routing.mode == RoutingMode::Live
         && j.mode_of(crate::judge::inbound::ROUTE_PACK, PackMode::Live) == PackMode::Live;
     let routing = if routing_acts {
         "routing live"

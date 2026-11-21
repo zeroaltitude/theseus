@@ -173,26 +173,12 @@ pub struct MemoryConfig {
     /// be recalled.
     #[serde(default)]
     pub include_external: bool,
-    /// The small-talk recall bar (theseus-fpm2): on a turn whose peeked
-    /// verdict calls the reply `low` effort (`effort.v1` at its confirm bar:
-    /// a greeting, small talk), the recall's admitted notes are withheld
-    /// from the request instead of carried, as a request bound for a model
-    /// of restricted origin withholds them
-    /// (`turn::recall_step::recall_carries`). Nothing else changes: the pack
-    /// still runs, its `recall.ran` row still says what it admitted, and its
-    /// shadow `would_drop` still counts, so the measurement series is the
-    /// same with the bar on or off.
-    ///
-    /// **Off by default, and the default is the owner's to move.** Two
-    /// statements in this tree say so and neither has been answered:
-    /// `turn::tier::is_low_effort`'s doc ("UNPROVEN: no test shows that
-    /// `effort.v1` calls a real greeting `low`") and
-    /// `RecallManifest::would_drop`'s ("The bar for promoting the drop from
-    /// shadow to live is the owner's to set", with a candidate criterion of
-    /// at least 200 low-effort turns read from the rows and cites under
-    /// 5 %). Turning it on here is that promotion, in one line.
-    #[serde(default)]
-    pub small_talk_bar: bool,
+    /// `small_talk_bar` withheld a greeting's recalled notes on a `low`
+    /// verdict (theseus-fpm2). It was never set and is retired (issue 44):
+    /// read, warned of ([`Self::trimmed`]), ignored and never written back.
+    /// The shadow count it would have promoted, `would_drop`, stays.
+    #[serde(default, skip_serializing)]
+    small_talk_bar: Option<toml::Value>,
     /// The profile that summarizes what the ring would drop (step 30c):
     /// compaction. A configured key is a pin (route.v10, theseus-ej6bj):
     /// `session` is the turn's own profile, provider and model, so the range
@@ -334,7 +320,7 @@ impl Default for MemoryConfig {
             recall_floor: default_recall_floor(),
             recall_subject_bar: 0.0,
             include_external: false,
-            small_talk_bar: false,
+            small_talk_bar: None,
             summary_profile: None,
             assembled_budget_tokens: default_assembled_budget(),
             synth_profile: None,
@@ -346,6 +332,14 @@ impl Default for MemoryConfig {
 }
 
 impl MemoryConfig {
+    /// The keys the trim of unused modes retired (issue 44) that this
+    /// section sets: what [`crate::Config::parse`] warns of, once.
+    pub fn trimmed(&self) -> Vec<String> {
+        (self.small_talk_bar.iter())
+            .map(|_| "memory.small_talk_bar".into())
+            .collect()
+    }
+
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
