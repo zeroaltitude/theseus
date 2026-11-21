@@ -35,11 +35,11 @@ pub(crate) fn label_session(core: &Core, sid: &str, flag: crate::content::Flag) 
 
 pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     // The owner typed it in person, as `turn.submit` would mark it (issue 44).
-    crate::view_gate::stage_mark(&core.runner, sid, input, true);
+    let mark = crate::view_gate::stage_mark(&core.runner, sid, input, true);
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), sid, None);
+    let sink = EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(TurnRequest {
             prompt: None,
@@ -77,10 +77,10 @@ pub(crate) async fn turn_in(
         }
     };
     // The owner typed it in person, as `turn.submit` would mark it (issue 44).
-    crate::view_gate::stage_mark(&core.runner, &rec.session_id, input, true);
+    let mark = crate::view_gate::stage_mark(&core.runner, &rec.session_id, input, true);
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = EventSink::new(core.bus.clone(), &rec.session_id, None);
+    let sink = EventSink::new(core.bus.clone(), &rec.session_id, None).with_arrival(Some(mark));
     core.runner
         .run(TurnRequest {
             prompt: None,
