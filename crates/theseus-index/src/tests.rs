@@ -490,6 +490,39 @@ fn the_socket_names_the_entities_of_texts_with_the_one_extractor() {
     assert!(r.error.is_some(), "a request past the limit is refused");
 }
 
+/// `index.items` (issue 44): each text's numbered items, in order, which
+/// `index.entities` does not name.
+#[test]
+fn the_socket_names_the_numbered_items_of_texts_apart_from_the_entities() {
+    let rig = Rig::new();
+    rig.put(&[user("ses_1", "seed")]);
+    let mut t = rig.open();
+    settle(&mut t);
+    let shared = t.shared();
+    let ask = |m: &str| {
+        let line = serde_json::to_string(&theseus_protocol::Request::new(
+            theseus_protocol::Id::Num(8),
+            m,
+            crate::proto::EntitiesParams {
+                texts: vec!["issue 33, then #4".into(), "none".into()],
+            },
+        ))
+        .unwrap();
+        let r = server::answer(&line, &shared);
+        serde_json::from_value::<crate::proto::EntitiesResult>(r.result.expect("answered"))
+            .unwrap()
+            .entities
+    };
+    assert_eq!(
+        ask(method::ITEMS),
+        vec![vec!["item:4".to_string(), "item:issue-33".into()], vec![]]
+    );
+    assert!(ask(method::ENTITIES)
+        .iter()
+        .flatten()
+        .all(|t| !t.starts_with("item:")));
+}
+
 #[test]
 fn as_of_hides_later_nodes() {
     let rig = Rig::new();

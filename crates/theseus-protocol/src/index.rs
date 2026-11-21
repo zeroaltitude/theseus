@@ -30,6 +30,10 @@ pub mod method {
     /// The entities the index's one extractor finds in texts (the memory
     /// pass's labels and attribution: M6 step 31a).
     pub const ENTITIES: &str = "index.entities";
+    /// The numbered items the extractor finds in texts, apart from the
+    /// entity field (the exchange's things: issue 44). Its params and result
+    /// are `index.entities`'s.
+    pub const ITEMS: &str = "index.items";
 }
 
 fn default_k() -> usize {

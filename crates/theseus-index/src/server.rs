@@ -282,6 +282,16 @@ pub fn answer_while(line: &str, shared: &Shared, gone: &(dyn Fn() -> bool + Sync
                 Err(e) => Response::err(id, error_code::INVALID_PARAMS, e),
             }
         }
+        method::ITEMS => {
+            let p: EntitiesParams = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => return Response::err(id, error_code::INVALID_PARAMS, e.to_string()),
+            };
+            match items(&p) {
+                Ok(r) => Response::ok(id, r),
+                Err(e) => Response::err(id, error_code::INVALID_PARAMS, e),
+            }
+        }
         method::FORGET => {
             let p: ForgetParams = match serde_json::from_value(req.params) {
                 Ok(p) => p,
@@ -304,9 +314,23 @@ pub fn answer_while(line: &str, shared: &Shared, gone: &(dyn Fn() -> bool + Sync
 /// `index.entities`: each text through the one extractor the entity field
 /// is built by (`entity::entities`). Pure: no index, no model.
 pub fn entities(p: &EntitiesParams) -> Result<EntitiesResult, String> {
+    each(p, method::ENTITIES, crate::entity::entities)
+}
+
+/// `index.items`: each text's numbered items (`entity::item::items`), which
+/// the entity field never holds. Pure, as `index.entities` is.
+pub fn items(p: &EntitiesParams) -> Result<EntitiesResult, String> {
+    each(p, method::ITEMS, crate::entity::item::items)
+}
+
+fn each(
+    p: &EntitiesParams,
+    name: &str,
+    of: fn(&str) -> std::collections::BTreeSet<String>,
+) -> Result<EntitiesResult, String> {
     if p.texts.len() > EntitiesParams::MAX_TEXTS {
         return Err(format!(
-            "{} texts: index.entities takes at most {}",
+            "{} texts: {name} takes at most {}",
             p.texts.len(),
             EntitiesParams::MAX_TEXTS
         ));
@@ -315,7 +339,7 @@ pub fn entities(p: &EntitiesParams) -> Result<EntitiesResult, String> {
         entities: p
             .texts
             .iter()
-            .map(|t| crate::entity::entities(t).into_iter().collect())
+            .map(|t| of(t).into_iter().collect())
             .collect(),
     })
 }

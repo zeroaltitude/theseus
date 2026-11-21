@@ -85,6 +85,7 @@ pub mod mcp_server;
 pub mod memory_lookup;
 pub mod memory_pass;
 pub mod moved;
+pub mod names;
 pub mod narrative;
 pub mod native;
 pub mod needs_you;
@@ -487,6 +488,8 @@ mod tests_memory_arm;
 mod tests_memory_lookup;
 #[cfg(test)]
 mod tests_money;
+#[cfg(test)]
+mod tests_names;
 #[cfg(test)]
 mod tests_never;
 #[cfg(test)]
