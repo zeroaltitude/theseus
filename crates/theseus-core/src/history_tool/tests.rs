@@ -433,15 +433,18 @@ fn an_opened_exchange_is_spoken_with_tool_traffic_as_stubs_and_outside_text_mark
 }
 
 #[test]
-fn the_tool_is_offered_in_company_and_never_deferred() {
+fn the_tool_is_offered_in_company_and_loads_in_a_dm_and_a_channel() {
+    use crate::tools_defer::family::{of_wire, PlaceKind, HISTORY};
     let name = crate::view::history::HISTORY_TOOL;
     assert!(crate::places::offered(
         crate::places::PlaceClass::Shared,
         name,
         &[]
     ));
-    let family = crate::tools_defer::family::of_wire("context_history");
-    assert!(!crate::tools_defer::family::hideable(&family), "{family}");
+    assert_eq!(of_wire("context_history"), HISTORY);
+    for k in [PlaceKind::Dm, PlaceKind::Channel] {
+        assert!(k.defaults().contains(&HISTORY), "{}", k.as_str());
+    }
 }
 
 /// The played turn of the addendum's part 6: a message leans on an exchange not in view (said in an earlier

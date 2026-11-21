@@ -119,8 +119,9 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
     ),
     (
         "context_history",
-        &["cli", "dm", "channel", "task", "headless"],
-        "history: offered on every turn by the owner's design of 2026-11-21 (issue 44); its family, tools, is never deferred",
+        &["dm", "channel"],
+        "history: offered on every turn by the owner's design of 2026-11-21 (issue 44); a cli, task or headless \
+         first request has no room for it under its budget, so there it is deferred",
     ),
     (
         "term_open",

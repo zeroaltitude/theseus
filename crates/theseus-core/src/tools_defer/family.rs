@@ -23,6 +23,8 @@ pub const HELPERS: &str = "helpers";
 /// The family of `card_observed` (theseus-6f8t0): what has been learned about
 /// the owner from his own words, deferred everywhere.
 pub const CARD: &str = "card";
+/// The family of `context_history` (issue 44): loaded where the first request has room for it.
+pub const HISTORY: &str = "history";
 
 /// The families, with the line that says what each holds. An MCP server's
 /// tools are the family `mcp:<server>`, outside this table.
@@ -62,6 +64,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "routines that run on a schedule, and watches that tell you when something changes",
     ),
     ("threads", "read another thread of the conversation"),
+    (
+        HISTORY,
+        "read further back through this place's history, one line an exchange, and open one",
+    ),
     // Deferred everywhere (theseus-6f8t0): the owner asks what has been
     // learned about him now and then, nowhere near one session in five, so
     // `first_request::ALWAYS_LOADED` is not where it belongs; a search for
@@ -170,8 +176,8 @@ pub fn of_wire(wire: &str) -> String {
         return format!("flow:{name}");
     }
     let family = match wire {
-        // The history tool is offered on every turn (issue 44): `tools` is never deferred.
-        "tools_find" | "context_history" => TOOLS,
+        "tools_find" => TOOLS,
+        "context_history" => HISTORY,
         "file_read" => "files",
         "memory_lookup" => "memory",
         "card_observed" => CARD,
@@ -354,8 +360,11 @@ impl PlaceKind {
             // 2026-10-14): `task_create`, `task_update`, `task_close`, `task_claim` and
             // `task_split` had no call in 30 days, and with them the DM's request read 13,290
             // tokens; `wake_at` had one, so the reminders stay. A shared channel keeps both.
-            PlaceKind::Dm => &["memory", "reminders", "web"],
-            PlaceKind::Channel => &["memory", "tasks", "reminders", "web", "channels"],
+            //
+            // The history tool loads in both (issue 44, the owner's design: offered on every turn). The
+            // terminal's first request has no room for it under its budget, so there it is one search away.
+            PlaceKind::Dm => &["memory", HISTORY, "reminders", "web"],
+            PlaceKind::Channel => &["memory", HISTORY, "tasks", "reminders", "web", "channels"],
             // A task's session works: the files and commands. Its wakes and
             // sub-tasks, and the language servers, load once its place kind
             // has used them.
@@ -428,6 +437,7 @@ mod tests {
             ("self_propose_change", "self"),
             ("mcp__docs__search", "mcp:docs"),
             ("tools_find", TOOLS),
+            ("context_history", HISTORY),
             ("something_new", OTHER),
         ] {
             assert_eq!(of_wire(wire), want, "{wire}");
@@ -484,10 +494,10 @@ mod tests {
         }
         let was: [(PlaceKind, &[&str]); 5] = [
             (PlaceKind::Cli, &["memory"]),
-            (PlaceKind::Dm, &["memory", "reminders", "web"]),
+            (PlaceKind::Dm, &["memory", HISTORY, "reminders", "web"]),
             (
                 PlaceKind::Channel,
-                &["memory", "tasks", "reminders", "web", "channels"],
+                &["memory", HISTORY, "tasks", "reminders", "web", "channels"],
             ),
             (PlaceKind::Task, &[]),
             (PlaceKind::Headless, &["terminals"]),

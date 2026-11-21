@@ -15,8 +15,10 @@
 //!   The shared gate (`view::gate`) is not in this branch's base yet, so the two checks are applied here
 //!   through the place rule (`TurnRunner::place_of`) and the seal lens (`compiler::place_digest::held`).
 //!   [`LOOKS_PER_TURN`] pages a turn, then a typed "allowance used"; "history is exhausted" is told apart.
-//! - **Offered everywhere**: a public tool (`places::public_tool`) in the `tools` family, which is never
-//!   deferred (`tools_defer::family::hideable`). Costs nothing until called: the core is reached through a weak
+//! - **Offered everywhere**: a public tool (`places::public_tool`), so a shared place has it too. Its family,
+//!   `history`, loads by default in a DM and a channel; a terminal's, a task's and a headless run's first
+//!   request has no room for it under its budget (`first_request`), so there it is declared and deferred, one
+//!   search away, and the self card names it. Costs nothing until called: the core is reached through a weak
 //!   handle given at build (`Board::attach`).
 
 use std::collections::{HashMap, HashSet};
@@ -63,17 +65,17 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "Read back further through this conversation's history. Bare: the 100 exchanges before the oldest one you see in full, one line each with a handle; pass a page's before to go further back; open a handle to read that exchange."
+        "Read further back in this place's history: bare, the 100 exchanges before those you see, one line each; before goes further back; open reads one by its handle."
     }
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "before": {"type": "object", "description": "The cursor a page ended with"},
-                "open": {"type": "string", "description": "A line's handle: that exchange, as said"},
-                "words": {"type": "string", "description": "Only exchanges that say these words"},
-                "thing": {"type": "string", "description": "Only exchanges that named a thing (type:value)"},
-                "place": {"type": "string", "description": "Another private place's history"}
+                "before": {"type": "object"},
+                "open": {"type": "string"},
+                "words": {"type": "string"},
+                "thing": {"type": "string", "description": "type:value"},
+                "place": {"type": "string"}
             },
             "additionalProperties": false
         })
