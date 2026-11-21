@@ -534,7 +534,7 @@ fn decisions(
 ) {
     let _ = writeln!(o, "## The decision per feature");
     let _ = writeln!(o);
-    let _ = writeln!(o, "Under the plan's rule: clause 1, a disclosure the feature caused: off, and a P1 bug; clause 2, on by default only if the canary shows no harm (its one-sided 90% interval excludes a drop of more than 5 points), it gains on a primary metric, the exam's held-out half agrees in sign, and its recall p95 stays within budget; clause 3, otherwise off by default, and \"insufficient\" counts as otherwise.");
+    let _ = writeln!(o, "Under the plan's rule: clause 1, a disclosure the feature caused: off, and a P1 bug, which this report checks from the exam's records. Clause 2 turned a feature on only on a live canary's evidence; the canary mode of recall is retired (2026-11-21), so clause 2 (and clause 3, its otherwise) is not evaluated by this report, and live rollout evidence is not in its input. Where clause 1 does not hold, the exam's own measurements are given, and the decision is not made here.");
     let _ = writeln!(o);
     let _ = writeln!(
         o,
@@ -545,7 +545,7 @@ fn decisions(
         if !arms.contains(&a) || !arms.contains(&b) {
             let _ = writeln!(
                 o,
-                "| {name} | off by default | 3 | not run: the records hold no `{}` cells | – |",
+                "| {name} | not decided here | – | not run: the records hold no `{}` cells | – |",
                 if arms.contains(&a) { b } else { a }
             );
             continue;
@@ -571,10 +571,10 @@ fn decisions(
         } else {
             let pr = paired(cells, a, b, |c| !c.held_out);
             (
-                "off by default",
-                "3",
+                "not decided here",
+                "2 (retired)",
                 format!(
-                    "insufficient: clause 2 needs the canary, which has no data yet (n = 0 sessions per arm; the plan's minimum is 120); the exam alone never turns a feature on (held-in n = {} items)",
+                    "no disclosure in these records; the canary rule (clause 2) is retired and not evaluated by this report, and live rollout evidence is not in its input; the exam alone never turns a feature on (held-in n = {} items)",
                     pr.items
                 ),
             )
@@ -591,7 +591,7 @@ fn decisions(
 fn unmeasured(o: &mut String, recs: &[Record], arms: &[&str]) {
     let _ = writeln!(o, "## What could not be measured, and why");
     let _ = writeln!(o);
-    let _ = writeln!(o, "- **The canary**: no canary data exists yet (the operator's daemon runs `[memory] mode = \"shadow\"`), so task success, false completion, stale recall, re-supply, and disclosure in live traffic have n = 0, and clause 2 cannot hold for any feature.");
+    let _ = writeln!(o, "- **Live rollout**: evidence from live traffic (task success, false completion, stale recall, re-supply, and disclosure) is not in this report's input, which is the exam's records alone. The canary rule that would have read it (clause 2) is retired with the canary mode, and this report does not evaluate it.");
     let vectorless: Vec<&CellRecall> = recs
         .iter()
         .filter(|r| r.arm == "baseline")
@@ -865,10 +865,16 @@ mod tests {
         has("| none | 14 | 3 | $0.1400 | $0.04667 |");
         // oracle's 14 for 14.
         has("| oracle | 14 | 14 | $0.1400 | $0.01000 |");
-        // The decisions: no canary, so clause 3, with the exam's n.
-        has("| recall (`baseline` against `none`) | off by default | 3 | insufficient: clause 2 needs the canary, which has no data yet (n = 0 sessions per arm; the plan's minimum is 120); the exam alone never turns a feature on (held-in n = 4 items) | insufficient (+58); insufficient (+50) |");
-        has("| vectors (`baseline` against `bm25`) | off by default | 3 |");
-        has("- **The canary**: no canary data exists yet");
+        // The decisions: no disclosure, and the canary rule retired, so not
+        // decided here, with the exam's own measurements and n.
+        has("| recall (`baseline` against `none`) | not decided here | 2 (retired) | no disclosure in these records; the canary rule (clause 2) is retired and not evaluated by this report, and live rollout evidence is not in its input; the exam alone never turns a feature on (held-in n = 4 items) | insufficient (+58); insufficient (+50) |");
+        has("| vectors (`baseline` against `bm25`) | not decided here | 2 (retired) |");
+        has("- **Live rollout**: evidence from live traffic");
+        has("is not in this report's input");
+        has("clause 2 (and clause 3, its otherwise) is not evaluated by this report");
+        // It never claims to know what mode a daemon runs.
+        assert!(!md.contains("mode = \"shadow\""), "{md}");
+        assert!(!md.contains("no data yet"), "{md}");
         has("- **The replay**");
     }
 
