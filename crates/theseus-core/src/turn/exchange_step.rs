@@ -1,8 +1,9 @@
 //! A turn's exchange (issue 44, step 1; `crate::exchange`): the owner's mark
 //! as the input's node is heard, the exchange's opening half once the input
 //! is written, what the first compile sent, and the end with its measuring
-//! row. Every record rides a frame the turn writes anyway (`Store::defer`),
-//! and nothing here changes what any request carries. A task's turns have no
+//! row. Every record rides a frame the turn writes anyway (`Store::defer`);
+//! a naming of things, off the path, rides any writer's next one. Nothing here
+//! changes what any request carries. A task's turns have no
 //! place, and write none of it.
 
 use std::collections::{BTreeMap, HashSet};
@@ -14,24 +15,30 @@ use super::{Turn, TurnRunner};
 use crate::compiler::{Compiled, RequestSpec};
 use crate::exchange::ledger::{self, Given, Seen, View};
 use crate::exchange::{
-    exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Pending, Root,
+    exchange_record, mark_record, put_reply, thing_touches, touch, Exchange, Opener, OwnerMark,
+    ReplyThings, Root,
 };
 use crate::node::Node;
 use crate::places::PlaceClass;
 use crate::store::Transcript;
 
 /// The most of a message the index is asked to name things in.
-const THINGS_TEXT: usize = 64 * 1024;
+const THINGS_TEXT: usize = crate::exchange::THINGS_TEXT;
 
 /// What a turn holds of its exchange until it ends.
 #[derive(Default)]
 pub(super) struct Held {
     ex: Option<Exchange>,
-    /// The message that opened it, heard before the exchange is opened.
+    /// The message that opened it, heard before the exchange is opened: its
+    /// node, its length, and its words until the naming of its things starts.
     ask: Option<(String, u64)>,
+    ask_text: Option<String>,
     mark: Option<OwnerMark>,
-    /// The index naming the things in the message.
-    things: Option<oneshot::Receiver<Vec<String>>>,
+    /// The message's things by kind, told once the index has named them.
+    things: Option<oneshot::Receiver<BTreeMap<String, u64>>>,
+    /// The scope of its numbered items (`names::items::scope_for`): the
+    /// project of the session the message arrived at.
+    scope: Option<String>,
     /// The things of the reply before it, when they were named in time.
     reply_things: Option<BTreeMap<String, u64>>,
     seen: Option<Seen>,
@@ -49,6 +56,12 @@ impl Held {
             self.mark.as_ref().and_then(|m| m.person()),
             self.mark.is_some(),
         )
+    }
+
+    /// The mark of the message that opened the turn, when one was written
+    /// (the gate reads it, `turn::gate_step`).
+    pub(super) fn mark(&self) -> Option<&OwnerMark> {
+        self.mark.as_ref()
     }
 }
 
@@ -75,42 +88,115 @@ impl TurnRunner {
         self.cfg.context.ledger_on() && t.tc.task.is_none()
     }
 
-    /// The index's things in `text`, named off the turn's path: none with no
-    /// index, or outside a runtime.
-    fn things_of(&self, text: &str) -> Option<oneshot::Receiver<Vec<String>>> {
+    /// The index's things in `text`, named off the turn's path: the task
+    /// writes their touches itself, keyed at the exchange's `start_ms`, riding
+    /// any writer's next frame (`Store::defer_waiting`), however long the index
+    /// takes; `counts` is told their counts by kind. None with no index, or
+    /// outside a runtime.
+    /// The core, weakly, for a naming task: upgraded only at the moment it
+    /// writes, so a core dropped while the index is still answering lets its
+    /// store go at once (a restart opens it again); the touches it would have
+    /// written are then not written, and `exchange.rebuild` fills them. None
+    /// outside a core.
+    fn weak_core(&self) -> Option<std::sync::Weak<crate::rpc::Core>> {
+        self.threads.core().map(|c| std::sync::Arc::downgrade(&c))
+    }
+
+    fn things_of(
+        &self,
+        text: &str,
+        (turn, session, start_ms): (&str, &str, u64),
+        counts: impl FnOnce(BTreeMap<String, u64>) + Send + 'static,
+    ) -> Option<()> {
         let index = self.pass.index()?;
         let rt = tokio::runtime::Handle::try_current().ok()?;
         let mut cut = text.len().min(THINGS_TEXT);
         while !text.is_char_boundary(cut) {
             cut -= 1;
         }
-        let text = text[..cut].to_string();
-        let (tx, rx) = oneshot::channel();
+        let (text, core) = (text[..cut].to_string(), self.weak_core()?);
+        let (turn, session) = (turn.to_string(), session.to_string());
         rt.spawn(async move {
-            if let Ok(mut e) = index.entities(vec![text]).await {
-                let _ = tx.send(e.pop().unwrap_or_default());
+            let Ok(mut named) = index.entities(vec![text]).await else {
+                return;
+            };
+            let terms = named.pop().unwrap_or_default();
+            let Some(core) = core.upgrade() else {
+                return;
+            };
+            for r in thing_touches(&terms, &turn, &session, start_ms) {
+                if let Err(e) = core.store.defer_waiting(r) {
+                    tracing::warn!(error = %format!("{e:#}"), "a thing's touch was not written");
+                }
             }
+            counts(ledger::by_kind(&terms));
         });
-        Some(rx)
+        Some(())
     }
 
-    /// A person's message, its node written: its mark, staged by
-    /// `turn.submit` where the live proof was, is written beside it. The one
+    /// `text`'s numbered items scoped by `scope` (`names::items`), named
+    /// apart from its things so a slow tender costs them nothing, given up
+    /// after `names::items::WAIT`, and touched as the things are.
+    fn items_of(
+        &self,
+        text: &str,
+        (turn, session, start_ms): (&str, &str, u64),
+        scope: Option<String>,
+    ) {
+        let (Some(index), Ok(rt), Some(core)) = (
+            self.pass.index(),
+            tokio::runtime::Handle::try_current(),
+            self.weak_core(),
+        ) else {
+            return;
+        };
+        let mut cut = text.len().min(THINGS_TEXT);
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let text = text[..cut].to_string();
+        let (turn, session) = (turn.to_string(), session.to_string());
+        rt.spawn(async move {
+            let asked = index.items(vec![text]);
+            let Ok(Ok(mut named)) = tokio::time::timeout(crate::names::items::WAIT, asked).await
+            else {
+                return;
+            };
+            let items =
+                crate::names::items::scoped(named.pop().unwrap_or_default(), scope.as_deref());
+            let Some(core) = core.upgrade() else {
+                return;
+            };
+            for r in thing_touches(&items, &turn, &session, start_ms) {
+                if let Err(e) = core.store.defer_waiting(r) {
+                    tracing::warn!(error = %format!("{e:#}"), "an item's touch was not written");
+                }
+            }
+        });
+    }
+
+    /// A person's message, its node written: `arrival`, the mark its own
+    /// submission carried (a steer's with it), is written beside it. The one
     /// that opens the turn is its ask; a steer joins the exchange's messages.
-    pub(super) fn exchange_heard(&self, t: &mut Turn<'_>, node: &Node, text: &str, steered: bool) {
+    pub(super) fn exchange_heard(
+        &self,
+        t: &mut Turn<'_>,
+        node: &Node,
+        arrival: Option<&OwnerMark>,
+        steered: bool,
+    ) {
+        let crate::node::Body::UserMessage { text, .. } = &node.body else {
+            return;
+        };
         if !self.ledger_on(t) {
             return;
         }
-        let mark = self
-            .exchanges
-            .arrivals
-            .take(t.tc.session_id, text)
-            .map(|m| OwnerMark {
-                node: node.id.clone(),
-                ran_session: t.tc.session_id.into(),
-                at_ms: node.created_at_ms,
-                ..m
-            });
+        let mark = arrival.map(|m| OwnerMark {
+            node: node.id.clone(),
+            ran_session: t.tc.session_id.into(),
+            at_ms: node.created_at_ms,
+            ..m.clone()
+        });
         defer(t, mark.as_ref().and_then(|m| mark_record(m).ok()));
         if steered {
             if let Some(ex) = &mut t.exchange.ex {
@@ -119,15 +205,17 @@ impl TurnRunner {
             return;
         }
         t.exchange.ask = Some((node.id.clone(), text.chars().count() as u64));
+        t.exchange.ask_text = Some(text.clone());
         t.exchange.mark = mark;
-        t.exchange.things = self.things_of(text);
+        t.exchange.scope =
+            crate::names::items::scope_for(t.tc.store, t.exchange.mark.as_ref(), t.tc.session_id);
     }
 
     /// The exchange's opening half, once the turn's input is written: what
     /// opened it, its place (where a person's message arrived, else the
     /// session's own), and its person, with the place's and the person's
-    /// touches. The things of the place's last reply, named since, are
-    /// touched now for that exchange.
+    /// touches; the naming of its message's things starts here, keyed at its
+    /// start, and the counts of the place's last reply's are taken for its row.
     pub(super) fn exchange_open(&self, t: &mut Turn<'_>, prompted: bool) {
         if !self.ledger_on(t) {
             return;
@@ -172,12 +260,25 @@ impl TurnRunner {
         if let Some(p) = &ex.person {
             defer(t, touch(Root::Person(p), &ex.turn_id, sid, at));
         }
-        if let Some(mut p) = self.exchanges.take_reply(&ex.place) {
-            if let Ok(terms) = p.rx.try_recv() {
-                for term in &terms {
-                    defer(t, touch(Root::Thing(term), &p.turn, &p.session, p.at_ms));
-                }
-                t.exchange.reply_things = Some(ledger::by_kind(&terms));
+        // The place's exchange before this one, whose reply's counts these are.
+        let before =
+            crate::exchange::newest(t.tc.store, Root::Place(&ex.place), 2).unwrap_or_default();
+        let preceding = before
+            .iter()
+            .find(|p| p.exchange != ex.turn_id)
+            .map(|p| p.exchange.as_str());
+        t.exchange.reply_things = self.exchanges.take_reply(&ex.place, preceding);
+        if let Some(text) = t.exchange.ask_text.take() {
+            self.items_of(&text, (&ex.turn_id, sid, at), t.exchange.scope.clone());
+            let (tx, rx) = oneshot::channel();
+            let told = move |c| {
+                let _ = tx.send(c);
+            };
+            if self
+                .things_of(&text, (&ex.turn_id, sid, at), told)
+                .is_some()
+            {
+                t.exchange.things = Some(rx);
             }
         }
         t.exchange.ex = Some(ex);
@@ -226,8 +327,9 @@ impl TurnRunner {
 
     /// The exchange's end, in the turn's last frame: the same key again with
     /// its end, its final reply and how it stopped; the message's things; in
-    /// a private place, its measuring row. The reply's things are named for
-    /// the place's next exchange to touch.
+    /// a private place, its measuring row. The reply's things are named off
+    /// the path, touched at this exchange's start, and counted for the
+    /// place's next row.
     pub(super) fn exchange_close(&self, t: &mut Turn<'_>, result: &TurnSubmitResult) {
         let Some(mut ex) = t.exchange.ex.take() else {
             return;
@@ -241,12 +343,6 @@ impl TurnRunner {
             .things
             .take()
             .and_then(|mut rx| rx.try_recv().ok());
-        for term in things.iter().flatten() {
-            defer(
-                t,
-                touch(Root::Thing(term), &ex.turn_id, &ex.session_id, ex.start_ms),
-            );
-        }
         if ex.private {
             let h = &t.exchange;
             let row = ledger::row(
@@ -258,22 +354,28 @@ impl TurnRunner {
                     arrived_session: h.mark.as_ref().map(|m| m.arrived_session.as_str()),
                     ask_chars: h.ask.as_ref().map(|(_, n)| *n),
                     usage: &result.usage,
-                    things: things.as_deref().map(ledger::by_kind),
+                    things,
                     reply_things: h.reply_things.clone(),
                 },
             );
             t.record(&row);
         }
-        if let Some(rx) = self.things_of(&result.output) {
-            self.exchanges.put_reply(
-                &ex.place,
-                Pending {
-                    turn: ex.turn_id,
-                    session: ex.session_id,
-                    at_ms: ex.end_ms.unwrap_or(ex.start_ms),
-                    rx,
+        let replies = self.exchanges.replies();
+        let place = ex.place.clone();
+        let (turn, start_ms) = (ex.turn_id.clone(), ex.start_ms);
+        let keep = move |counts| {
+            put_reply(
+                &replies,
+                &place,
+                ReplyThings {
+                    turn,
+                    start_ms,
+                    counts,
                 },
-            );
-        }
+            )
+        };
+        let at = (ex.turn_id.as_str(), ex.session_id.as_str(), ex.start_ms);
+        self.items_of(&result.output, at, t.exchange.scope.take());
+        self.things_of(&result.output, at, keep);
     }
 }

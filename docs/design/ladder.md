@@ -9,9 +9,11 @@ answers a turn: the renderer reads it. The code is `crates/theseus-core/src/ladd
 | Record | Key | Written | Holds |
 |---|---|---|---|
 | A `did` line | `did.<turn>` | once, after the exchange ends, by a background job | at most 200 characters on what Theseus did, found or decided; the model that wrote it and the writer's version; the exchange's marks; its cost |
-| A fold node | `fold.<id>` | once, when its place's window or level is full | its level; the exchanges it stands for, by turn; the person's lines by node id; a title (at most 120 characters) and an account (at most 2,400); the union of its sources' marks; its handle, the id |
+| A fold node | `fold.<place>␁<level>␁<first ms>␁<range digest>` (handle: `foldh.<id>`) | once per range, when its place's window or level is full | its level; the exchanges it stands for, by turn; the person's lines by node id; a title (at most 120 characters) and an account (at most 2,400); the union of its sources' marks; its handle, the id |
 | A rung | `rung.<place>␁<level>␁<u64::MAX - last ms>␁<id>` | with its node | the node's id, so a level's newest nodes are the first keys of its prefix |
-| The day's spend | `ladder.day` | with every call's record | the local day and what the summaries spent in it |
+| The day's spend | `ladder.day` | a reservation before every call, its settlement after | the local day, what was settled, and the calls reserved and not yet settled (counted as spent) |
+| A `/new` | `ladder.new.<place>` | where Discord's `/new` is handled | the position (time, turn) after which the place's ladder counts |
+| A correction | `ladder.correction.<turn>` | in the judge's frame, when `classify` calls the turn's message a correction | `true` |
 
 New META families only: no field on an existing record, no store-format step.
 
@@ -20,19 +22,30 @@ New META families only: no field on an existing record, no store-format step.
 - **A `did` line reads two things**: the person's message and the final reply, each cut by code at 4,000
   characters. Tool results are read only for the marks (outside text). An exchange with no line is shown as
   "reply not summarised" and its handle (`did::Said`).
-- **Sealed and veiled sources are skipped**: a session of a sealed or seal-pending thread, and an imported
-  conversation (whose labels the ladder does not read, so it fails closed). Their window still folds, by code:
-  the node keeps the person's lines by reference and its handle, and says it is not summarised.
-- **A fold is by count**, never by a judge or the clock. The window is the place's exchanges after its newest
-  first-level node: at 2N (N = 20) ended exchanges, the oldest N become one node and the window is N again. A level
+- **A source is summarised only when it is proven neither sealed nor veiled** (`ladder/seal.rs`): the thread a
+  session served is read from the board and from the session's own supersession links (a thread's earlier
+  sessions too) and its task parent; a sealed or seal-pending thread, one merged into such, one the board does
+  not hold, an unreadable board or session record, and an imported conversation are all held out. It is checked
+  again after the model is picked, just before the call. Held-out windows fold by code, marked sealed and veiled.
+- **Marks never widen an audience**: private wins over shared and open, unknown over all.
+- **Outside text is wrapped**: an exchange that read outside text is sent to the writer inside the outside-text
+  wrapper, and the instructions say it is data, not instructions.
+- **Places are exact**: every exchange and node read is checked to be of the place (and level) asked; a place whose
+  name holds the key separator (U+0001) has no ladder.
+- **A fold is by count**, never by a judge or the clock. The window is every exchange of the place after the last one
+  a first-level node holds, read page by page (nothing is passed over; a long failure grows it, and the budgeter
+  bounds what is shown): at 2N (N = 20) ended exchanges, the oldest N become one node and the window is N again. A level
   of 2N standing nodes folds its oldest N into one node of the level above.
 - **No model writes a level above the first.** Code builds it from its children's typed fields: their titles and
   handles, the person's lines that are corrections or made a standing record, and a count of the rest.
-- **A node never changes once written**, and a correction rewrites none.
-- **`/new`**: only what began at or after the place's latest `/new` counts: the start of the session its binding
-  runs on now. A place no binding moves (the terminal) has none.
-- **Money**: every call reserves its worst case on what is left of the day's line (a constant, `ladder::DAY_USD`,
-  $2) and then on the daemon's day ceiling, and is settled at its price. The model is a background job's
+- **A node never changes once written**: its range (place, level, exact turns) has one key, and a writer that finds
+  it returns it. A correction rewrites none.
+- **`/new`**: only what came after the place's latest `/new` mark counts (`ladder::new_mark`). No mark is no reset; a
+  mark that does not read is an error; a session merely being replaced is not a reset. The terminal has no `/new`.
+- **Money**: every call reserves its worst case in `ladder.day` before it is sent (the day's line is a constant,
+  `ladder::DAY_USD`, $2), then on the daemon's day ceiling, and is settled at its price. A build's `--cap-usd` is the
+  smaller of it and what is left of the day's line; passing the line takes `--over-day-line` (with a cap). A failed
+  call's cost is the build's, and a build whose lines stopped folds nothing. Only the owner in person may build. The model is a background job's
   (`job_model`): Jev's pick for a synthesis over the owner's material, else `live`.
 
 ## When it runs
@@ -45,6 +58,4 @@ lines and the folds, prices them at their worst case, and writes nothing.
 
 ## Not yet
 
-- The judge's answer that a message is a correction is not kept per message today, so above the first level only
-  the lines that made a standing record are kept by name; the rest are counted.
 - The renderer shows none of this yet; no request changes.

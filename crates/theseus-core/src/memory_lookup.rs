@@ -523,10 +523,11 @@ async fn by_catalog(
         }
         _ => Vec::new(),
     };
-    // A channel bound private lists its own sessions and no imported
-    // episode, which is the owner's history from elsewhere.
+    // A channel bound private, or a turn that is not the owner alone, lists
+    // its own place's sessions and no imported episode, which is the owner's
+    // history from elsewhere.
     if crate::view_gate::RecallPlaces::of(&core.runner, Some(asker))
-        .channel()
+        .narrowed()
         .is_some()
     {
         let n = own.len() as u64;
@@ -536,7 +537,7 @@ async fn by_catalog(
             .take(limit as usize)
             .collect();
         let head = format!(
-            "memory.lookup: {} of this channel {}, newest first; a channel bound private lists no other place's.",
+            "memory.lookup: {} of this place {}, newest first; only the owner alone, at the terminal, the web page or a DM, is listed other places'.",
             crate::narrative::count(n, "session", "sessions"),
             what(a, when)
         );
@@ -645,9 +646,13 @@ async fn by_words(
         sessions,
     );
     begun.max_items = Some(k);
-    let answer = begun.answer().await;
-    // A channel bound private recalls as a place of one (the gate's decision 5).
+    let mut answer = begun.answer().await;
+    // A channel bound private, or a turn that is not the owner alone, recalls
+    // as a place of one (the gate's decision 5).
     let places = crate::view_gate::RecallPlaces::of(&core.runner, session);
+    let threads = core.runner.thread_scene(session, &words, false);
+    // Seals hold on every path, threads on or off (the gate).
+    crate::view_gate::seal_out(&core.runner, session, &mut answer.0, threads.is_some());
     let scene = crate::recall::Scene {
         mode: "lookup",
         session_id: session,
@@ -660,7 +665,7 @@ async fn by_words(
         science: memory.science_for(MemoryArm::Baseline),
         activation: None,
         // Asked for, so no distance; a sealed thread's notes stay out.
-        threads: core.runner.thread_scene(session, &words, false),
+        threads,
         persona: None,
         category: None,
     };

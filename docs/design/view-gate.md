@@ -1,66 +1,83 @@
 # The gate: what of memory may reach a model (issue 44, step 2)
 
 Issue 44's context design builds every view from one memory, for one point of view. This step builds the gate that
-view stands on: the type that only the gate can make, the narrowest value of who is present ("owner alone"), the
-property tests that hold the rule, and two repairs that stand whatever happens to the rest of the design.
+view stands on: the rule, the narrowest value of who is present ("owner alone"), the turn's presence carried to
+the readers that run today, seals on every path, and the view's permit.
 
-## The type and the rule
+## The rule
 
-`theseus_memory::gate` is pure, beside today's place rule (`theseus_memory::recall::Place`):
+`theseus_memory::gate` is pure, beside today's place rule (`theseus_memory::recall::Place`), and returns a decision
+only (`check(pov, marks) -> Result<(), Denied>`):
 
-- `Admitted<T>`: a value the rule let through. Its fields are private and `gate::admit` is its one constructor,
-  so a reader that takes an `Admitted<T>` cannot be handed a piece nobody checked.
-- `PointOfView { anchor, place, present }`: the place a turn is anchored at, today's reading of it, and who is
-  present.
-- `Present`: `OwnerAlone`, `PrivateChannel`, `Shared`, `Open`, `Unknown`.
+- `PointOfView { anchor, place, present }`: the exact arrival place, today's reading of it, and who is present.
+- `Present`: `OwnerAlone`, `PrivateChannel`, `Shared`, `Open`, `Unknown`, ordered widest first.
 - `Marks { place, class, time_ms, seal, veil }`: what the gate reads of one piece.
 
-The rule (`gate::check`), in order: a point of view whose presence is unknown admits nothing; a piece whose place,
-seal or veil cannot be read is denied (a missing or uncertain mark denies); a sealed or veiled piece is denied;
-today's place rule (`Place::may_draw_at`) must hold; a piece from any place other than the anchor needs
-`OwnerAlone`. `OwnerAlone` is believed only where today's rule reads the anchor as private. There is no rule by
-model provider (the owner's decision 8).
+In order: unknown presence admits nothing; a piece whose place, seal or veil cannot be read is denied; a sealed or
+veiled piece is denied; today's place rule (`Place::may_draw_at`) must hold; a piece from another place than the
+anchor needs `OwnerAlone`, believed only where today's rule reads the anchor as private. No rule is by model
+provider (the owner's decision 8).
 
-`theseus_core::view_gate` is the rule's one caller (`Gate::admit`). It reads the point of view from the turn and
-a piece's marks from the store:
+`theseus_core::view_gate` is the rule's one caller (`Gate::check`). What a model is shown is
+`view::gate::Admitted`, which only the view's gate makes (`view::permit::Permit`), from that answer.
 
-- `present(place, target, input, marks)`: a shared place is `Shared`, the open view `Open`, an unreadable place
-  `Unknown`; a private place is `OwnerAlone` only on the terminal, the web page or a DM, for an input whose
-  owner's mark says the owner typed it in person. A channel is never alone, whoever is in it (decision 5). An
-  agent's process at the terminal is not alone: its mark says it was not the owner in person. An input with no
-  mark is not alone. A mark that cannot be read is `Unknown`. A wake or a task's report takes the presence of the
-  turn that set it up (`Input::SetUp`); none recorded is `Unknown`.
-- `session_marks(runner, asker, session, veil)`: a session's place (its target, `local` for the terminal and the
-  web page, `imported` for imported history), today's reading of it, and its seal (`seal_of`).
-- The owner's mark is read through the trait `OwnerMarks`. Step 1 (the ledger) writes it as META `said.<node>`;
-  until step 1's reader `exchange::mark` is on the same line, the store's impl reads that key itself, taking only
-  its `in_person` field.
+## A turn's presence
 
-## The repairs
+`turn::gate_step` computes it once, after the turn's input is written, when `[context] ledger` is on:
 
-- **A session read by id holds out a sealed thread's.** `memory.lookup`'s read of a session (alone or with
-  words), its listing of a span's sessions, and the MCP server's `memory_get` refuse or leave out a session that
-  serves a sealed thread or one whose seal is proposed (`view_gate::seal_of`), unless the asker is that thread.
-  Recall's own pipeline already held them out (`theseus_memory::threads`); a read by id did not.
-- **A channel bound private draws on itself alone** (decision 5: "someone could join after and read the
-  history"). `view_gate::RecallPlaces` reads places for recall: for an asker in a channel bound private, the
-  asker reads as that channel and its own sessions as it, so today's place rule drops every other session for
-  `place`. The turn's recall and its rerank, `memory.lookup` (words, a session by id, a span's listing, which
-  then lists no imported episode), `memory.search` with a session, and `thread.read` follow it. The terminal, the
-  web page, a DM and a shared place recall as before.
+- a person's message: its owner's mark (`exchange::mark`, written by step 1). `OwnerAlone` only when the mark
+  says the owner typed it in person and it arrived at the terminal, the web page (`local…`) or a DM. A channel is
+  never alone, whoever is in it (decision 5); an agent's process is not alone; a message with no mark is not
+  alone.
+- a turn no message opened: the presence the turn that set it up recorded. Each turn records its own as META
+  `presence.<turn>`; a wake's `wake.at` call, a task's `task.create` call (for the task's own turns and for its
+  report) name the turn that made them. Of several, the narrowest; none recorded is `Unknown`.
+
+It is held per session (`TurnRunner::presence`) for the tools the turn runs, and lost at a restart: a session with
+none reads as not the owner alone.
+
+## Recall's places
+
+`view_gate::RecallPlaces` reads places for recall, `memory.lookup` (words, a session by id, a span's listing),
+`memory.search` with a session, and `thread.read`:
+
+- a channel bound private draws on itself alone, whatever the ledger says;
+- with the ledger on, a turn that is not the owner alone, proof absent included, draws on its exact arrival place
+  alone (the ledger's `local:<dir>`, or a binding's target). Its listing names no imported episode, and it opens
+  no other thread;
+- with the ledger off, the terminal, the web page and a DM read places as before.
+
+The MCP server's memory tools (`[mcp_server] memory`) read as before: they are another agent by design, behind the
+owner's own switch, kept to private sessions and now to seals.
+
+## Seals on every path
+
+`view_gate::seal_out` reads the seal of every index hit, before anything ranks, reranks or sends it, on the turn's
+recall, its rerank, `memory.lookup` and the MCP server's search, and `memory.search`, whatever `[threads] enabled`
+says. A hit not proven clear is held out; the thread's own sessions are not held from it. When the thread lens is
+on, a `Held` hit is left to it, so its drop is counted `sealed`.
+
+The seal's resolver (`view_gate::seal_of`) fails closed: a session, ancestry or binding record that does not
+decode, a task chain too long to follow, a thread the board does not hold, or a thread record that did not decode
+when the board loaded (`threads::Board` keeps those) is `Unread`. A thread binding that did not decode makes every
+session with no proven thread `Unread`.
+
+## The view's permit
+
+`view::permit::Permit` is made for one turn from `view_gate::Verified` (the turn's computed presence, today's
+reading of its place, its exact arrival place). The view's own `PointOfView`, which `PointOfView::compute` makes
+from a caller's `Arrival`, may only narrow it, and a view anchored elsewhere than the verified turn passes nothing.
+`Admitted::code` admits only a piece with no source place and no seal, veil or outside mark.
 
 ## What stays, and the registry
 
 The core decides by place in many places today (`place_of`, a target's `class_of`, `may_draw_on`, `may_draw_at`,
-`owner_alone`). They stay as they are. `tests_view_gate::no_new_decision_by_place_outside_the_gate` names each
-file's count as it was when the gate landed and fails when one grows or a new file starts deciding by place: a new
-reader reads places through the gate. `only_the_gate_calls_the_rule` fails on a second caller of the rule anywhere
-in the workspace.
+`owner_alone`). They stay. `tests_view_gate::no_new_decision_by_place_outside_the_gate` names each file's count as
+it was when the gate landed and fails when one grows; `only_the_gate_calls_the_rule` fails on another caller of
+the rule under any name a file gives it. Both are heuristics over the sources, not proofs.
 
 ## Left for the steps that follow
 
-- Today's recall at the terminal does not yet narrow for an agent's process: that needs the owner's mark on every
-  turn's input, which step 1 writes. Once it does, the turn's recall can read its presence through `present` and
-  an agent's session draws on its own place alone, as decision 5 says.
-- The selectors and the renderer of the view call `Gate::admit` for every piece they bring; the byte test (the
-  bytes sent are identical with the forbidden records deleted) lands with the assembler (step 6).
+- `view::gate::Admitted::new` is visible to all of `crate::view` (the view contract's signature); only `Permit`
+  should call it outside tests.
+- The byte test (the bytes sent are identical with the forbidden records deleted) lands with the assembler (step 6).

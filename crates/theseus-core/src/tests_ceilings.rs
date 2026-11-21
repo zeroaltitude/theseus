@@ -163,11 +163,13 @@ async fn a_ceiling_never_offers_a_shared_place_a_private_tool() {
     let pier = session(&r.core, Some(&format!("channel:{PIER}")));
     assert_eq!(r.core.runner.class_of(&pier), PlaceClass::Shared);
     turn(&r.core, &pier, "look around").await;
-    assert_eq!(
-        offered(&r.requests()[0]),
-        SHARED_TOOLS,
-        "the place rule's set"
-    );
+    // The ceiling lists no `context` tool, so the history tool the place rule offers is not offered here.
+    let set: Vec<&str> = SHARED_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| *t != "context_history")
+        .collect();
+    assert_eq!(offered(&r.requests()[0]), set, "the place rule's set");
     let program = result_of(&r.core, &pier, "p1");
     assert!(
         program.starts_with("Not run: proc.run is not offered in a shared place"),

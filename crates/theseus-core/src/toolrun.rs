@@ -353,6 +353,8 @@ pub struct ToolRuntime {
     pub judge: std::sync::OnceLock<Arc<crate::judge::JudgeService>>,
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
+    /// What `context.history` reads (issue 44): the core, once built, and each turn's looks.
+    pub history: crate::history_tool::Board,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
     pub routines: crate::routine::Book,
     /// What `thread.read` reads (theseus-f2g0): the core, once built.
@@ -564,6 +566,7 @@ impl ToolRuntime {
             lsp: None,
             judge: Default::default(),
             lookup: Default::default(),
+            history: Default::default(),
             routines: Default::default(),
             thread_read: Default::default(),
             look: Default::default(),
@@ -1205,7 +1208,7 @@ impl ToolRuntime {
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(
-                tc.store,
+                tc,
                 tool.name(),
                 &call.input,
                 p,
@@ -2036,6 +2039,8 @@ pub fn build_runtime(
         r.register(Arc::new(crate::file_read::FileRead));
         // A read of memory the model calls (theseus-w9qv).
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
+        // The conversation's history, read further back, offered everywhere (issue 44).
+        r.register(Arc::new(crate::history_tool::HistoryTool));
         // Another thread's card and notes, read on purpose (theseus-f2g0).
         r.register(Arc::new(crate::thread_read::ThreadRead));
         // What the live observer has kept about the owner, read when he asks
@@ -2186,6 +2191,7 @@ pub fn build_runtime(
         extend,
         judge: Default::default(),
         lookup: Default::default(),
+        history: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
         thread_read: Default::default(),
         look: Default::default(),

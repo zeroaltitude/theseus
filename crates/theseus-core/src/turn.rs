@@ -93,6 +93,7 @@ mod exchange_step;
 mod fallback_step;
 mod families_step;
 mod fill_step;
+mod gate_step;
 pub(crate) mod helper_step;
 pub(crate) mod home_size_step;
 mod inbound_step;
@@ -250,6 +251,9 @@ pub struct TurnRunner {
     pub tails: sent_tail::SentTails,
     /// The turns' shared part of their exchanges (issue 44).
     pub exchanges: crate::exchange::Board,
+    /// Each session's presence, as its latest turn computed it (issue 44,
+    /// `view_gate`).
+    pub presence: crate::view_gate::Presences,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -436,6 +440,9 @@ struct Turn<'a> {
     /// The wakes this turn took (DD8): each one's id and line, which the
     /// reply's post shows above it.
     wakes: Vec<Value>,
+    /// The calls that set the wakes this turn took, for its presence
+    /// (`gate_step`).
+    set_ups: Vec<String>,
     /// Where the first of them was set from, for a reply whose session posts
     /// nowhere now.
     wake_target: Option<String>,
@@ -607,6 +614,7 @@ impl<'a> Turn<'a> {
             reply_to: None,
             answer_at: None,
             wakes: Vec::new(),
+            set_ups: Vec::new(),
             wake_target: None,
             woke_by: Vec::new(),
             booked: false,
@@ -1828,6 +1836,9 @@ impl TurnRunner {
             // Stored: the next request on its client's lane may run (theseus-klo2).
             crate::rpc::ordered::applied();
             t.tc.node_written(&node);
+            // Its submission's mark and its exchange (issue 44).
+            let arrival = t.tc.sink.arrival.clone();
+            self.exchange_heard(t, &node, arrival.as_deref(), false);
             self.inbound_point(t, &node, &author, false);
             self.content_input(t, &node);
         } else {
@@ -1836,6 +1847,7 @@ impl TurnRunner {
             self.content_brief(t);
         }
         self.exchange_open(t, prompted);
+        self.gate_asking(t);
 
         // 3. The loops, while the model has something new to read.
         let mut run_model = Self::has_news(t, input.is_some() || caught_up > 0)?;

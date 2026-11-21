@@ -339,6 +339,8 @@ pub(crate) fn session(core: &Core, place: Option<&str>) -> String {
 }
 
 pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
+    // The owner typed it in person, as `turn.submit` would mark it (issue 44).
+    crate::view_gate::stage_mark(&core.runner, sid, input, true);
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -396,6 +398,7 @@ impl Rig {
 pub(crate) const SHARED_TOOLS: &[&str] = &[
     "channel_post",
     "channel_read",
+    "context_history",
     "fs_edit",
     "fs_glob",
     "fs_grep",

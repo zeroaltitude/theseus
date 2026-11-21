@@ -6,7 +6,6 @@
 
 use std::collections::BTreeSet;
 
-use super::super::fold::WINDOW_N;
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, ExchangeRef, TimelineRoot};
 use super::super::{Anchor, Audience, Form, Piece, PointOfView, Present, Reason};
@@ -52,7 +51,10 @@ impl Who<'_> {
     }
 }
 
-/// His exchanges elsewhere: the last 48 hours, then the newest in each of his five newest other places.
+/// His exchanges elsewhere, in one pass over his own timeline, newest first, in bounded pages: every
+/// admitted one of the last 48 hours, and the first admitted one in each of his five newest other private
+/// places, whatever its age. The pass ends when both are found, or the timeline ends. Every choice is made
+/// over exchanges the gate admits.
 fn scan(pov: &PointOfView, snap: &dyn Snapshot, src: &Sources<'_>) -> anyhow::Result<Vec<Seen>> {
     let Some(who) = Who::of(pov) else {
         return Ok(Vec::new());
@@ -60,52 +62,43 @@ fn scan(pov: &PointOfView, snap: &dyn Snapshot, src: &Sources<'_>) -> anyhow::Re
     let cutoff = pov.now_ms.saturating_sub(LATELY_MS);
     let root = TimelineRoot::Person(who.person.to_owned());
     let mut seen = Vec::new();
+    let mut places = BTreeSet::new();
     let mut before: Option<Cursor> = None;
-    'pages: loop {
+    loop {
         let page = snap
             .timeline()
             .newest(&root, before.as_ref(), PAGE_EXCHANGES)?;
         let Some(last) = page.last() else { break };
         before = Some(last.cursor());
         for e in page {
-            if e.at_ms < cutoff {
-                break 'pages;
+            let lately = e.at_ms >= cutoff;
+            if !lately && places.len() >= PLACES_ALWAYS {
+                return Ok(seen);
             }
-            if let Some(f) = src.exchanges.facts(&e.turn_id)?.filter(|f| who.keeps(f)) {
+            let Some(f) = src.exchanges.facts(&e.turn_id)?.filter(|f| who.keeps(f)) else {
+                continue;
+            };
+            let p = make::exchange(
+                &e,
+                &f,
+                Band::ElsewhereWords,
+                Reason::Elsewhere,
+                Form::Line,
+                Cut::Elsewhere,
+            );
+            if !make::admits(src, pov, &p) {
+                continue;
+            }
+            let first_here = places.len() < PLACES_ALWAYS && !places.contains(&f.place);
+            if first_here {
+                places.insert(f.place.clone());
+            }
+            if lately || first_here {
                 seen.push(Seen { e, f });
             }
         }
     }
-    let mut newest = newest_per_place(&who, snap, src)?;
-    newest.sort_by_key(|s| std::cmp::Reverse(s.e.cursor()));
-    let have: BTreeSet<String> = seen.iter().map(|s| s.e.turn_id.clone()).collect();
-    seen.extend(
-        newest
-            .into_iter()
-            .take(PLACES_ALWAYS)
-            .filter(|s| !have.contains(&s.e.turn_id)),
-    );
     Ok(seen)
-}
-
-/// His newest exchange in each other private place he has spoken in.
-fn newest_per_place(
-    who: &Who<'_>,
-    snap: &dyn Snapshot,
-    src: &Sources<'_>,
-) -> anyhow::Result<Vec<Seen>> {
-    let places: BTreeSet<String> = src.places.places_of(who.person)?.into_iter().collect();
-    let mut out = Vec::new();
-    for place in places.iter().filter(|p| Some(p.as_str()) != who.here) {
-        let root = TimelineRoot::Place(place.clone());
-        for e in snap.timeline().newest(&root, None, WINDOW_N)? {
-            if let Some(f) = src.exchanges.facts(&e.turn_id)?.filter(|f| who.keeps(f)) {
-                out.push(Seen { e, f });
-                break;
-            }
-        }
-    }
-    Ok(out)
 }
 
 /// One selector of slot F.
@@ -150,6 +143,7 @@ impl Selector for Elsewhere<'_> {
         let mut places = BTreeSet::new();
         let mut newest: Vec<&Seen> = seen.iter().collect();
         newest.sort_by_key(|s| std::cmp::Reverse(s.e.cursor()));
+        // `seen` holds admitted exchanges only, so a denied newer reply cannot take a place's turn.
         Ok(newest
             .into_iter()
             .filter(|s| places.insert(s.f.place.clone()))

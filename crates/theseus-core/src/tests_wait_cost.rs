@@ -462,7 +462,8 @@ async fn a_wait_that_ends_before_the_cache_lapses_reads_it_once_or_not_at_all() 
 /// unchanged: a prefix under the line is a cheap rewrite, not read. The cause is
 /// the token count, not `keep_warm_wait::caches`' widening: the request carries
 /// the top-level breakpoint, so both readings of it agree.
-const SMALL_PREFIX: u64 = 21_000;
+/// And 21,500 since `context_history` joined every request's tools (issue 44): its definition passed the line.
+const SMALL_PREFIX: u64 = 21_500;
 
 /// A one-hour cache is read at `[cache] keep_warm_every_minutes`, so a wait of the
 /// longest length reads nothing; a prefix under `keep_warm_min_tokens` is

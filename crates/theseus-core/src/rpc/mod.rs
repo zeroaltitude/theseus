@@ -27,6 +27,7 @@ mod google;
 mod home_claim;
 mod inspect;
 mod mcp_card;
+mod views;
 pub(crate) use mcp_card::agent_input_key;
 mod question_waits;
 pub(crate) use answer::offer;
@@ -1004,6 +1005,7 @@ impl Core {
             verdicts: Default::default(),
             yes_facts: Default::default(),
             exchanges: Default::default(),
+            presence: Default::default(),
             tails: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
@@ -1120,6 +1122,7 @@ impl Core {
         core.tools.extend.attach_core(Arc::downgrade(&core));
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
+        core.tools.history.attach(&core);
         core.tools.thread_read.attach(&core);
         core.tools.look.attach(&core);
         core.tools.profile.attach(&core);

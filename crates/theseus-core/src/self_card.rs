@@ -28,14 +28,28 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
     if offers(crate::wake::AT) || offers("task.create") {
         lines.push("You can set a wake to follow up later and run background tasks.".into());
     }
-    if offers(crate::memory_lookup::LOOKUP) {
-        // Issue 43: a reference the turn cannot place is looked for first.
-        lines.push(
+    // Issue 43: a reference the turn cannot place is looked for first; issue 44: by the history tool,
+    // the owner's design, before anything else.
+    let history = offers(crate::view::history::HISTORY_TOOL);
+    match (offers(crate::memory_lookup::LOOKUP), history) {
+        (true, true) => lines.push(
+            "You can look up past conversations: before asking the person what they meant by \
+             something you cannot place, read back through this place's history with \
+             context_history, or look it up by its name with memory_lookup."
+                .into(),
+        ),
+        (true, false) => lines.push(
             "You can look up past conversations: before asking the person what they meant by \
              something you cannot place, look it up by its name, or with none read back through \
              this place's conversation, further each time."
                 .into(),
-        );
+        ),
+        (false, true) => lines.push(
+            "Before asking the person what they meant by something you cannot place, read back \
+             through this place's history with context_history."
+                .into(),
+        ),
+        (false, false) => {}
     }
     if place.class == crate::places::PlaceClass::Private && cfg.web.enabled {
         let host = match cfg.web.bind.contains(':') {

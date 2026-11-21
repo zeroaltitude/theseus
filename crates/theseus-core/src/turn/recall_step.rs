@@ -321,9 +321,12 @@ impl TurnRunner {
     /// recalls, its span, and its line.
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
-        let answer = begun.answer().await;
+        let mut answer = begun.answer().await;
         let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
         let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
+        // Seals hold on every path, threads on or off (the gate).
+        let lens = scene.threads.is_some();
+        crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0, lens);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use super::super::budget::{fit, Budget, Overflow, View};
+use super::super::budget::{fit, unit_of, Budget, Overflow, View};
 use super::super::gate::{Admitted, Gate};
 use super::super::{
     Audience, Author, Form, Handle, Marks, Piece, PointOfView, Pos, Present, Reason, Sizes,
@@ -118,6 +118,15 @@ pub fn table<'a>(
         .collect()
 }
 
+/// A turn's assembly, and how many pieces were left out as programming faults: a stored reference that
+/// claimed code's own space ([`Space::Code`]) from any selector but slot A's and I's. A fault is never shown
+/// and never counted in the view; it is logged, and counted here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Assembled {
+    pub view: Result<View, Overflow>,
+    pub faults: u32,
+}
+
 /// Run every selector once, gate every piece, and fit. A band absent in company (slots C and F) is not run
 /// unless the owner is alone. The outer error is a source's read; the inner one is rule 9's overflow.
 pub fn assemble(
@@ -127,18 +136,53 @@ pub fn assemble(
     gate: &dyn Gate,
     budget: &Budget,
 ) -> anyhow::Result<Result<View, Overflow>> {
+    assemble_counted(pov, snap, selectors, gate, budget).map(|a| a.view)
+}
+
+/// [`assemble`], with its count of faults.
+///
+/// - Code's own text ([`Space::Code`]) is admitted without the gate ONLY from the selectors of slots A and
+///   I ([`Fixed`]'s bands); from any other selector it is a fault.
+/// - Every other piece loses its authority (`make::retrieved`, the one place that does it) and goes
+///   through the gate.
+/// - A unit (a stale fact and its correction) with any member the gate denies is left out whole, before
+///   the budgeter: no residue, no dropped entry.
+pub fn assemble_counted(
+    pov: &PointOfView,
+    snap: &dyn Snapshot,
+    selectors: &[Box<dyn Selector + '_>],
+    gate: &dyn Gate,
+    budget: &Budget,
+) -> anyhow::Result<Assembled> {
     let mut admitted = Vec::new();
+    let mut denied_units = BTreeSet::new();
+    let mut faults = 0u32;
     for s in selectors {
         if !s.band().in_company() && pov.present != Present::OwnerAlone {
             continue;
         }
+        let laid_by_code = matches!(s.band(), Band::Frame | Band::Now);
         for piece in s.select(pov, snap)? {
-            let piece = match piece.range.space {
-                Space::Code { .. } => Admitted::code(piece),
-                _ => gate.admit(pov, piece),
-            };
-            admitted.extend(piece);
+            if let Space::Code { part } = &piece.range.space {
+                if laid_by_code {
+                    admitted.extend(Admitted::code(piece));
+                } else {
+                    tracing::error!(band = ?s.band(), part = %part, "a stored piece claimed code's own text; left out");
+                    faults = faults.saturating_add(1);
+                }
+                continue;
+            }
+            let piece = super::make::retrieved(piece);
+            let unit = unit_of(&piece).map(str::to_owned);
+            match gate.admit(pov, piece) {
+                Some(a) => admitted.push(a),
+                None => denied_units.extend(unit),
+            }
         }
     }
-    Ok(fit(pov, admitted, budget))
+    admitted.retain(|a| unit_of(a.get()).is_none_or(|u| !denied_units.contains(u)));
+    Ok(Assembled {
+        view: fit(pov, admitted, budget),
+        faults,
+    })
 }

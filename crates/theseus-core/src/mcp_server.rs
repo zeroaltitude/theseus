@@ -414,6 +414,7 @@ mod tests {
         method::CONTEXT_EXPLAIN,
         method::CONTEXT_CENSUS,
         method::TURN_INSPECT,
+        method::VIEW_SHOW,
         method::BOOKS_LIST,
         method::BOOKS_PAGE,
         method::IMPORT_TOPICS,

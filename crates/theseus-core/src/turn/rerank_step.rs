@@ -36,12 +36,16 @@ impl TurnRunner {
         arm: MemoryArm,
         activation: Option<theseus_protocol::memory::RecallActivation>,
         begun: &Begun,
-        answer: (Answer, Duration),
+        mut answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
         let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
         let mut scene = self.scene(t, mode, arm, &begun.said);
         scene.activation = activation;
+        // Seals hold on every path, threads on or off, before the rerank
+        // or Jev reads a candidate (the gate).
+        let lens = scene.threads.is_some();
+        crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0, lens);
         let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
         if rerank == PackMode::Off && !crossed {
             return self.memory.manifest(

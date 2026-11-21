@@ -58,10 +58,13 @@ pub struct ExchangeRebuildResult {
     pub kept: u64,
     pub exchanges: u64,
     pub touches: u64,
-    /// Of the new exchanges, those whose place, and whose person, a stored
-    /// record proved; the rest say `unknown` and name no person.
+    /// Of the new exchanges, those whose place, and whose person, the owner's
+    /// mark of their message proved; the rest say `unknown` and name no person.
     pub place_proven: u64,
     pub person_proven: u64,
+    /// Touches keyed off their exchange's start (an older build's reply
+    /// touches), moved to it so that one exchange holds one touch of a root.
+    pub repaired: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -71,26 +74,40 @@ pub struct ExchangeRebuildResult {
 /// `exchange.ladder` (issue 44, step 4): build a place's ladder from its
 /// history since its latest `/new`: the missing `did` lines, then the folds.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeLadderParams {
     /// The place, as the ledger names it (`discord:channel:<id>`, `local:<dir>`).
     pub place: String,
     /// Count and price what it would do, and write nothing.
     pub dry_run: bool,
-    /// The most this run may spend, in dollars; none: what is left of the
-    /// day's line for summaries.
+    /// The most this run may spend, in dollars: the smaller of it and what is
+    /// left of the day's line for summaries (none: that line alone).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub cap_usd: Option<f64>,
+    /// Leave to pass the day's line, up to `cap_usd` (which it needs).
+    pub over_day_line: bool,
 }
 
 /// What a ladder build found, would do or did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeLadderResult {
     pub dry_run: bool,
     pub place: String,
-    /// The place's latest `/new`; 0 for a place none moved.
+    /// The place's latest `/new`; 0 for a place that has had none.
     pub since_ms: u64,
+    /// How the place's requests are assembled (`transcript` or `view`): a
+    /// place on the transcript shows nothing a build writes.
+    pub assembly: String,
+    /// The place's name holds a character no ladder key may: nothing done.
+    pub skipped: bool,
+    /// What is left of the day's line, and whether this run would need
+    /// `over_day_line` to finish.
+    pub day_left_usd: f64,
+    pub needs_over_day_line: bool,
     pub exchanges: u64,
     /// Lines there already, and lines it would write (wrote).
     pub lines_had: u64,
@@ -102,5 +119,6 @@ pub struct ExchangeLadderResult {
     pub spent_usd: f64,
     /// Why it stopped before it was done.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub stopped: Option<String>,
 }

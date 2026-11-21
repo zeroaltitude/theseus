@@ -90,9 +90,16 @@ impl Core {
         let deadline = Duration::from_millis(memory.cfg().recall_deadline_ms).max(SEARCH_DEADLINE);
         let mut begun = memory.begin(p.query.clone(), p.as_of, p.k.unwrap_or(K), arm, deadline);
         let answer = begun.answer().await;
-        let (answer, activation) = memory
+        let (mut answer, activation) = memory
             .activated(&self.store, arm, &begun, answer, in_context.clone(), true)
             .await;
+        let threads = p
+            .session_id
+            .as_deref()
+            .and_then(|s| self.runner.thread_scene(Some(s), &p.query, false));
+        // Seals hold on every path, threads on or off (the gate).
+        let asker = p.session_id.as_deref();
+        crate::view_gate::seal_out(&self.runner, asker, &mut answer.0, threads.is_some());
         let scene = Scene {
             mode: "search",
             session_id: p.session_id.as_deref(),
@@ -104,10 +111,7 @@ impl Core {
             max_items: None,
             science: memory.science_for(arm),
             activation,
-            threads: p
-                .session_id
-                .as_deref()
-                .and_then(|s| self.runner.thread_scene(Some(s), &p.query, false)),
+            threads,
             persona: None,
             category: None,
         };

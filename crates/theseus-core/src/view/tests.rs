@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::budget::{fit, Budget, Overflow};
+use super::budget::{fit, Budget, Overflow, HEADING_TOKENS};
 use super::fold::fold_due;
 use super::gate::{Admitted, Gate};
 use super::record::{view_record, ViewRecord, VIEW_PREFIX};
@@ -181,7 +181,11 @@ fn a_view_is_built_from_fakes_through_the_shells() {
         ],
         "table order, then newest first; the denied piece is not mentioned"
     );
-    assert_eq!(view.tokens, 400);
+    assert_eq!(
+        view.tokens,
+        4 * (100 + HEADING_TOKENS),
+        "each shown piece is charged its heading"
+    );
     assert_eq!(Label::of(&view.shown[0].piece, &pov), Label::Here);
     assert_eq!(Label::of(&view.shown[3].piece, &pov), Label::Testimony);
     let record = ViewRecord::new("c1", view);
@@ -207,7 +211,7 @@ fn a_floor_that_cannot_fit_is_a_typed_overflow() {
         err,
         Overflow::Floor {
             handle: Handle("x:t5".into()),
-            tokens: 300,
+            tokens: 3 * (100 + HEADING_TOKENS),
             room: 100
         }
     );
@@ -258,7 +262,7 @@ fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
         Admitted::code(stored.clone()).is_none(),
         "a stored piece needs the gate"
     );
-    let clock = Piece {
+    let relabelled = Piece {
         range: SourceRange {
             space: Space::Code {
                 part: "clock".into(),
@@ -266,6 +270,17 @@ fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
             ..stored.range.clone()
         },
         ..stored
+    };
+    assert!(
+        Admitted::code(relabelled.clone()).is_none(),
+        "a stored piece relabelled as code still needs the gate"
+    );
+    let clock = Piece {
+        marks: Marks {
+            place: None,
+            ..relabelled.marks.clone()
+        },
+        ..relabelled
     };
     assert!(
         Admitted::code(clock).is_some(),

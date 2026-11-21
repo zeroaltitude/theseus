@@ -96,6 +96,10 @@ impl ToolRuntime {
                 crate::file_read::FAMILY => self.read_file(tc, &input, &ctx),
                 // The owner's memory, read for this session (theseus-w9qv).
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
+                // This place's history, read further back (issue 44).
+                _ if tool.name() == crate::view::history::HISTORY_TOOL => {
+                    self.history.run(tc, &input)
+                }
                 // Another thread, read on purpose (theseus-f2g0).
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // Theseus and its vault, looked at by name (issue 26).

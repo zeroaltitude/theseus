@@ -4,8 +4,9 @@
 
 use std::collections::BTreeSet;
 
-use super::super::timeline::TimelineRoot;
-use super::super::{Piece, PointOfView, Present, Reason};
+use super::super::history::PAGE_EXCHANGES;
+use super::super::timeline::{Cursor, TimelineRoot};
+use super::super::{Form, Piece, PointOfView, Pos, Present, Reason};
 use super::here::anchor_place;
 use super::make;
 use super::sources::Sources;
@@ -41,17 +42,9 @@ impl<'a> Beside<'a> {
                     .map(|r| make::of_ref(r, self.band, Reason::AtHand)),
             );
         }
-        let mark = self.src.places.new_mark(place)?;
-        let root = TimelineRoot::Place(place.to_owned());
         let mut things = BTreeSet::new();
-        for e in snap.timeline().newest(&root, None, IN_PLAY_EXCHANGES)? {
-            if mark
-                .as_ref()
-                .is_some_and(|m| (e.at_ms, e.turn_id.as_str()) < (m.at_ms, m.id.as_str()))
-            {
-                continue;
-            }
-            for thing in self.src.things.named_in(&e.turn_id)? {
+        for turn in self.played(pov, snap, place)? {
+            for thing in self.src.things.named_in(&turn)? {
                 if things.insert(thing.clone()) {
                     out.extend(
                         self.src
@@ -60,6 +53,51 @@ impl<'a> Beside<'a> {
                             .into_iter()
                             .map(|r| make::of_ref(r, self.band, Reason::InPlay)),
                     );
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The newest [`IN_PLAY_EXCHANGES`] exchanges here since the `/new` mark that the gate admits, newest
+    /// first, read in bounded pages: a denied exchange never pushes a permitted one out of play.
+    fn played(
+        &self,
+        pov: &PointOfView,
+        snap: &dyn Snapshot,
+        place: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let mark = self.src.places.new_mark(place)?;
+        let root = TimelineRoot::Place(place.to_owned());
+        let mut out = Vec::new();
+        let mut before: Option<Cursor> = None;
+        loop {
+            let page = snap
+                .timeline()
+                .newest(&root, before.as_ref(), PAGE_EXCHANGES)?;
+            let Some(last) = page.last() else { break };
+            before = Some(last.cursor());
+            for e in page {
+                let pos = Pos {
+                    at_ms: e.at_ms,
+                    id: e.turn_id.clone(),
+                };
+                if mark.as_ref().is_some_and(|m| pos < *m) || out.len() >= IN_PLAY_EXCHANGES {
+                    return Ok(out);
+                }
+                let Some(f) = self.src.exchanges.facts(&e.turn_id)? else {
+                    continue;
+                };
+                let p = make::exchange(
+                    &e,
+                    &f,
+                    self.band,
+                    Reason::InPlay,
+                    Form::Line,
+                    make::Cut::Window,
+                );
+                if make::admits(&self.src, pov, &p) {
+                    out.push(e.turn_id);
                 }
             }
         }

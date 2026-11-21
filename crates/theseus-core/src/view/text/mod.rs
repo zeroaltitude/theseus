@@ -3,7 +3,9 @@
 //! pieces there are. The renderer ([`super::render`]) calls these; nothing here reads the store or the clock.
 //!
 //! - [`forms`]: the three forms of an exchange, from its stored nodes, and the marked cuts.
-//! - [`labels`]: the five labels' headings, and the wrapper around outside text.
+//! - [`labels`]: the five labels' headings, the label of one provenance, and the wrapper around outside text.
+//! - [`parts`]: an exchange's parts, each labelled by its own provenance.
+//! - [`literal`]: data in framing (a place, a source, a path, a name) as a visibly quoted literal.
 //! - [`blocks`]: a fold node's block and a band's closing count.
 //! - [`page`]: the memory page, the fixed text of the system part that tells the model how its context is
 //!   built.
@@ -11,7 +13,9 @@
 pub mod blocks;
 pub mod forms;
 pub mod labels;
+pub mod literal;
 pub mod page;
+pub mod parts;
 
 #[cfg(test)]
 mod tests;

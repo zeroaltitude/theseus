@@ -1,10 +1,10 @@
 //! The gate's type and its rule (issue 44, step 2; the design's §4): what
 //! may reach a model for one point of view, decided once, from marks alone.
 //!
-//! - **[`Admitted`]** is a value the rule let through. Its fields are
-//!   private and [`admit`] is its one constructor, so a reader that takes an
-//!   `Admitted<T>` cannot be handed a piece nobody checked. The core's gate
-//!   (`theseus_core::view_gate`) is the one caller of [`admit`]: it reads the
+//! - **A decision only** ([`check`]): what a model may be shown is a value
+//!   of the core's view (`theseus_core::view::gate::Admitted`), made only by
+//!   the core's gate; this crate says yes or why not. The core's gate
+//!   (`theseus_core::view_gate`) is the one caller of [`check`]: it reads the
 //!   marks from the store and the point of view from the turn, and its
 //!   registry test fails on a second caller.
 //! - **The point of view** ([`PointOfView`]): the place a turn is anchored
@@ -23,7 +23,8 @@
 
 use crate::recall::Place;
 
-/// Who may see this context (§4's `present`).
+/// Who may see this context (§4's `present`). Ordered from the widest to the
+/// narrowest: the greater of two is the narrower.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Present {
     /// The terminal, the web page or a direct conversation with the owner,
@@ -42,6 +43,19 @@ pub enum Present {
 }
 
 impl Present {
+    /// The value `as_str` names; none for any other word.
+    pub fn named(s: &str) -> Option<Present> {
+        [
+            Present::OwnerAlone,
+            Present::PrivateChannel,
+            Present::Shared,
+            Present::Open,
+            Present::Unknown,
+        ]
+        .into_iter()
+        .find(|p| p.as_str() == s)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Present::OwnerAlone => "owner_alone",
@@ -128,29 +142,6 @@ impl Denied {
     }
 }
 
-/// A value the gate admitted for one point of view. Only [`admit`] makes
-/// one.
-#[derive(Debug)]
-pub struct Admitted<T> {
-    value: T,
-    present: Present,
-}
-
-impl<T> Admitted<T> {
-    pub fn get(&self) -> &T {
-        &self.value
-    }
-
-    pub fn into_inner(self) -> T {
-        self.value
-    }
-
-    /// The presence it was admitted for.
-    pub fn present(&self) -> Present {
-        self.present
-    }
-}
-
 /// Whether `pov` may be shown a piece of `marks`: the rule of the module.
 pub fn check(pov: &PointOfView, marks: &Marks) -> Result<(), Denied> {
     if pov.present == Present::Unknown || pov.place == Place::Unknown {
@@ -178,15 +169,6 @@ pub fn check(pov: &PointOfView, marks: &Marks) -> Result<(), Denied> {
         return Err(Denied::Alone);
     }
     Ok(())
-}
-
-/// `value`, admitted for `pov` when [`check`] lets a piece of `marks`
-/// through; the reason otherwise.
-pub fn admit<T>(pov: &PointOfView, marks: &Marks, value: T) -> Result<Admitted<T>, Denied> {
-    check(pov, marks).map(|()| Admitted {
-        value,
-        present: pov.present,
-    })
 }
 
 #[cfg(test)]
@@ -229,35 +211,29 @@ mod tests {
     #[test]
     fn the_owner_alone_draws_on_his_other_private_places() {
         let p = pov("local", Present::OwnerAlone);
-        assert!(admit(&p, &marks("discord:dm:7"), ()).is_ok());
-        assert!(admit(&p, &marks("discord:channel:11"), ()).is_ok());
-        assert_eq!(
-            admit(&p, &marks("discord:dm:7"), 5).map(|a| (a.present(), a.into_inner())),
-            Ok((Present::OwnerAlone, 5))
-        );
+        assert!(check(&p, &marks("discord:dm:7")).is_ok());
+        assert!(check(&p, &marks("discord:channel:11")).is_ok());
+        assert_eq!(check(&p, &marks("discord:dm:7")), Ok(()));
     }
 
     #[test]
     fn a_private_channel_draws_on_itself_alone() {
         let p = pov("discord:channel:11", Present::PrivateChannel);
-        assert!(admit(&p, &marks("discord:channel:11"), ()).is_ok());
-        assert_eq!(admit(&p, &marks("local"), ()).err(), Some(Denied::Alone));
-        assert_eq!(
-            admit(&p, &marks("discord:dm:7"), ()).err(),
-            Some(Denied::Alone)
-        );
+        assert!(check(&p, &marks("discord:channel:11")).is_ok());
+        assert_eq!(check(&p, &marks("local")).err(), Some(Denied::Alone));
+        assert_eq!(check(&p, &marks("discord:dm:7")).err(), Some(Denied::Alone));
     }
 
     #[test]
     fn a_presence_of_owner_alone_in_a_shared_place_is_not_believed() {
         let p = pov("discord:channel:12", Present::OwnerAlone);
-        assert!(admit(&p, &marks("discord:channel:12"), ()).is_ok());
-        assert_eq!(admit(&p, &marks("local"), ()).err(), Some(Denied::Place));
+        assert!(check(&p, &marks("discord:channel:12")).is_ok());
+        assert_eq!(check(&p, &marks("local")).err(), Some(Denied::Place));
         let mut odd = pov("discord:channel:12", Present::OwnerAlone);
         odd.place = Place::Shared("discord:channel:12".into());
         let mut there = marks("discord:channel:13");
         there.class = Place::Shared("discord:channel:12".into());
-        assert_eq!(admit(&odd, &there, ()).err(), Some(Denied::Alone));
+        assert_eq!(check(&odd, &there).err(), Some(Denied::Alone));
     }
 
     #[test]

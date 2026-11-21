@@ -99,6 +99,7 @@ ledger_kinds! {
     ContentUnjudged = "content.unjudged",
     ContextCompiled = "context.compiled",
     ContextTurn = "context.turn",
+    ContextView = "context.view",
     ContextDetoured = "context.detoured",
     ContextCompacted = "context.compacted",
     ContextCleared = "context.cleared",

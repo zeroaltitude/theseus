@@ -24,21 +24,23 @@ pub(super) const OWN: &[&str] = &[
 ];
 
 impl Core {
-    /// A message's mark (issue 44), made from what `turn.submit` knows of its
-    /// sender before it runs: whether `places::owner_in_person_of` holds for
-    /// it, whether its chat author holds an owner handle, the process behind
-    /// it, and `place`, where it arrived (at `home`, the place's own session)
-    /// before routing chose `runs_in`. Staged for the inbound point, which
-    /// writes it beside the message's node. Records only: it decides nothing.
-    pub(super) fn stage_arrival(
+    /// A submission's mark (issue 44), made from what `turn.submit` knows of
+    /// its sender before it runs: whether `places::owner_in_person_of` holds
+    /// for it, whether its chat author holds an owner handle, the process
+    /// behind it, and `place`, where it arrived (at `home`, the place's own
+    /// session) before routing chose `runs_in`. It rides this submission's
+    /// own sink to the node it becomes, a steer's included; a submission
+    /// refused before its node is written takes it with it. Records only: it
+    /// decides nothing.
+    pub(super) fn arrival_of(
         &self,
         p: &TurnSubmitParams,
         conn: Conn<'_>,
         (home, place): (&str, String),
         runs_in: &str,
-    ) {
+    ) -> Option<OwnerMark> {
         if !self.cfg.context.ledger_on() || p.prompt.is_some() {
-            return;
+            return None;
         }
         let discord = p.speaking.as_ref().map(|s| s.discord.clone());
         let who = conn.answerer(p.author.clone(), discord.clone());
@@ -54,7 +56,7 @@ impl Core {
             Some("voice") => "voice",
             _ => conn.surface.as_str(),
         };
-        let mark = OwnerMark {
+        Some(OwnerMark {
             node: String::new(),
             in_person,
             owner_handle,
@@ -66,11 +68,7 @@ impl Core {
             ran_session: runs_in.into(),
             author: discord.map(|d| format!("discord:{}", d.user_id)),
             at_ms: 0,
-        };
-        self.runner
-            .exchanges
-            .arrivals
-            .stage(runs_in, &p.input, mark);
+        })
     }
 
     pub(super) async fn rpc_exchanges(
@@ -110,14 +108,41 @@ impl Core {
             }
             method::EXCHANGE_LADDER => {
                 let p: ExchangeLadderParams = parse(params)?;
+                // It spends money: the owner in person only, never an agent's
+                // process at the terminal.
+                let who = conn.answerer(None, None);
+                let rule = &self.runner.place_rule;
+                if let Err(why) = crate::places::owner_in_person_of(
+                    &who,
+                    rule,
+                    &self.cfg,
+                    "building a ladder spends money",
+                    "",
+                ) {
+                    return Err(RpcFailure::new(
+                        error_code::REFUSED,
+                        format!("not built: {why}"),
+                    ));
+                }
+                let money = crate::ladder::build::Allowance {
+                    cap_usd: p.cap_usd,
+                    over_day_line: p.over_day_line,
+                };
                 let b = self
-                    .ladder_build(&p.place, p.dry_run, p.cap_usd)
+                    .ladder_build(&p.place, p.dry_run, money)
                     .await
                     .map_err(|e| RpcFailure::new(error_code::INTERNAL, format!("{e:#}")))?;
                 serde_json::to_value(ExchangeLadderResult {
                     dry_run: b.dry_run,
                     place: b.place,
-                    since_ms: b.since_ms,
+                    since_ms: b.since.map_or(0, |p| p.at_ms),
+                    assembly: match b.assembly {
+                        crate::config::assembly::Assembly::View => "view".into(),
+                        crate::config::assembly::Assembly::Transcript => "transcript".into(),
+                    },
+                    skipped: b.skipped,
+                    day_left_usd: b.day_left_usd,
+                    needs_over_day_line: b.needs_over_day_line,
                     exchanges: b.exchanges,
                     lines_had: b.lines_had,
                     lines: b.lines,

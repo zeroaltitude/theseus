@@ -420,7 +420,8 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
     assert_eq!(c["decision"], "recompile", "{c}");
     assert_eq!(c["trigger"], "cold_resume");
     assert!(
-        c["est_tokens"].as_u64().unwrap() <= 22_200,
+        // 22,200 until `context_history` joined every request's tools (issue 44): about 120 tokens more.
+        c["est_tokens"].as_u64().unwrap() <= 22_400,
         "{}",
         c["est_tokens"]
     );

@@ -562,9 +562,11 @@ pub fn owner_in_person_of(
 }
 
 /// The tools whose results are public by nature, which a shared place is
-/// offered whatever its config.
+/// offered whatever its config; and the history tool, which reads a shared
+/// place's own history alone (`history_tool`).
 pub fn public_tool(name: &str) -> bool {
     matches!(name, "web.search" | "http.fetch" | "tools.find")
+        || name == crate::view::history::HISTORY_TOOL
         || name == "wake.at"
         || (name.starts_with("task.") && !crate::task_wait::helper_tool(name))
 }

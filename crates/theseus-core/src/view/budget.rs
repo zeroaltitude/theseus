@@ -6,10 +6,13 @@
 //! 3. Identical or overlapping ranges ([`super::SourceRange::overlaps`]) merge, keeping every reason and the
 //!    fullest form asked for, shown once: in slot G if the window or ladder asked, else in the first row of
 //!    [`super::select::ADMISSION`] that asked.
-//! 4. A stale fact and its correction (one [`super::Piece::unit`]) are admitted together or not at all.
+//! 4. A stale fact and its correction (one [`super::Piece::unit`]) are admitted together or not at all: a
+//!    unit with a member the gate denies is left out whole before the budgeter
+//!    ([`super::select::assemble`]), and a unit is cut whole here. A window exchange is never a unit.
 //! 5. One budget, [`Budget::total`]: the smaller of the ceiling plus slot G's allowance and the provider's
-//!    window, less the reserve for the reply and the turn's own calls. Everything is charged to it. Sizes are
-//!    today's estimate.
+//!    window, less the reserve for the reply and the turn's own calls. Everything is charged to it, headings
+//!    and residue lines included. Sizes are today's estimate. Only never-cut text may stand over its own
+//!    pool (see [`fit`]).
 //! 6. Admission follows [`super::select::ADMISSION`]; within a row, newest first, then by id.
 //! 7. Over budget, cut from the end of that order; a piece steps down a form (`Whole → Spoken → Line`)
 //!    before it is dropped, and what is dropped is counted in its band's [`Residue`].
@@ -32,10 +35,38 @@ mod merge;
 #[cfg(test)]
 mod tests;
 
+/// A count of the budgeter's inner operations, for the test that holds it linear; nothing outside tests.
+pub(super) mod ops {
+    #[cfg(test)]
+    thread_local!(static OPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) });
+
+    #[cfg(test)]
+    pub fn tick(n: u64) {
+        OPS.with(|c| c.set(c.get() + n));
+    }
+
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub fn tick(_: u64) {}
+
+    /// The count so far on this thread, and reset it.
+    #[cfg(test)]
+    pub fn take() -> u64 {
+        OPS.with(|c| c.replace(0))
+    }
+}
+
 /// The one ceiling, in tokens, over everything but slot G (trim item 1).
 pub const CEILING: u64 = 60_000;
 /// Slot G's own allowance (the window and the ladder), outside the ceiling.
 pub const HERE_ALLOWANCE: u64 = 150_000;
+/// What a shown piece's heading and handle cost when rendered, charged to every shown piece (a conservative
+/// bound; the renderer's own headings decide the real number). At least [`RESIDUE_LINE_TOKENS`], so a drop
+/// never adds tokens.
+pub const HEADING_TOKENS: u64 = 40;
+/// What a band's residue line (its count of what was left out, and a handle) costs when rendered, charged
+/// once for each band that leaves one.
+pub const RESIDUE_LINE_TOKENS: u64 = 40;
 
 /// The numbers rule 5 takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,26 +163,34 @@ pub enum Overflow {
 }
 
 /// Fit admitted pieces into one budget: the nine rules of the module comment.
+///
+/// What is charged is what will be rendered: each shown piece's form plus [`HEADING_TOKENS`], and
+/// [`RESIDUE_LINE_TOKENS`] for each band that leaves a residue line; `View.tokens` is that sum.
+///
+/// The three sums of rule 5 have ONE exception: text that is never cut (the frame and the floor) may
+/// stand over its own pool (the ceiling, or slot G's allowance) as long as the whole fits the one budget.
+/// Everything else is held to its own pool and to the whole. The typed overflow is for the whole only:
+/// when what cannot be cut does not fit [`Budget::total`].
 pub fn fit(
     pov: &PointOfView,
     pieces: Vec<Admitted<Piece>>,
     budget: &Budget,
 ) -> Result<View, Overflow> {
     let items = merge::merge(pieces.into_iter().map(Admitted::into_inner).collect());
-    let groups = merge::unit_groups(&items);
-    let fate = cut::cut(&items, &groups, budget);
-    let tokens = cut::charged(&items, &fate);
+    let (groups, members) = merge::unit_groups(&items);
+    let done = cut::cut(&items, &groups, &members, budget);
     let room = budget.total();
-    if tokens > room {
-        return Err(overflow(&items, &fate, tokens, room));
-    }
+    let tokens = match u64::try_from(done.tokens) {
+        Ok(t) if t <= room => t,
+        _ => return Err(overflow(&items, &done.fate, done.tokens, room)),
+    };
     let mut shown = Vec::new();
     let mut dropped = Vec::new();
-    for (it, f) in items.into_iter().zip(fate) {
+    for (it, f) in items.into_iter().zip(done.fate) {
         dropped.extend(it.merged.iter().map(|q| drop_of(q, DropWhy::Merged)));
         match f {
             cut::Fate::Shown(form) => shown.push(Shown {
-                tokens: it.piece.sizes.at(form),
+                tokens: it.piece.sizes.at(form).saturating_add(HEADING_TOKENS),
                 form,
                 piece: it.piece,
             }),
@@ -175,6 +214,15 @@ pub fn fit(
         shown,
         dropped,
     })
+}
+
+/// A piece's unit (rule 4): a current fact tied to its correction. A window exchange is history, never a
+/// unit, whatever its source says.
+pub(in crate::view) fn unit_of(p: &Piece) -> Option<&str> {
+    match p.range.space {
+        super::Space::Exchanges { .. } => None,
+        _ => p.unit.as_deref(),
+    }
 }
 
 /// Rule 6's order for what is shown: the row, newest first, then by handle.
@@ -204,8 +252,8 @@ fn residue(dropped: &[Dropped]) -> Vec<Residue> {
     for d in dropped.iter().filter(|d| d.why != DropWhy::Merged) {
         match out.iter_mut().find(|r| r.band == d.band) {
             Some(r) => {
-                r.pieces += 1;
-                r.tokens += d.tokens;
+                r.pieces = r.pieces.saturating_add(1);
+                r.tokens = r.tokens.saturating_add(d.tokens);
             }
             None => out.push(Residue {
                 band: d.band,
@@ -220,7 +268,7 @@ fn residue(dropped: &[Dropped]) -> Vec<Residue> {
 
 /// Rule 9: what is left after every permitted cut still does not fit; it is all never-cut text. Name the
 /// newest piece of the floor (or of what else could not be cut).
-fn overflow(items: &[merge::Item], fate: &[cut::Fate], tokens: u64, room: u64) -> Overflow {
+fn overflow(items: &[merge::Item], fate: &[cut::Fate], tokens: u128, room: u64) -> Overflow {
     let left = || {
         items
             .iter()
@@ -234,7 +282,7 @@ fn overflow(items: &[merge::Item], fate: &[cut::Fate], tokens: u64, room: u64) -
         .or_else(|| left().min_by_key(|p| order(p)));
     Overflow::Floor {
         handle: first.map_or(Handle(String::new()), |p| p.handle.clone()),
-        tokens,
+        tokens: u64::try_from(tokens).unwrap_or(u64::MAX),
         room,
     }
 }

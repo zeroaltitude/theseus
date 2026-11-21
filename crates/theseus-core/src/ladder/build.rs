@@ -12,25 +12,36 @@ use super::did::{self, Outcome};
 use super::fold::Flags;
 use super::read::{self, Step};
 use super::writer::{Ask, ModelWriter, Work, Writer};
+use super::DayPurse;
 use super::N;
 use crate::config::assembly::Assembly;
 use crate::exchange::{self, Root};
 use crate::judge::categorize::ExchangeEnd;
 use crate::judge::JudgeService;
 use crate::rpc::Core;
-use crate::session::SessionRecord;
+use crate::view::Pos;
 
-/// The person's lines a standing record was made from: by the record's source.
-pub struct Standing(pub Vec<String>);
+/// The person's lines a standing record was made from (by the record's
+/// source), and those the judge's `classify` called a correction (the flag
+/// its sink writes, [`super::corrected`]).
+pub struct Standing<'a> {
+    pub sources: Vec<String>,
+    pub store: &'a crate::store::Store,
+}
 
-impl Flags for Standing {
-    /// The judge's answer of a correction is not kept per message today, so
-    /// no line is called one (`docs/design/ladder.md`).
-    fn correction(&self, _: &str) -> bool {
-        false
+impl Flags for Standing<'_> {
+    /// The message that opened `turn`, when the judge called it a correction.
+    /// A flag that does not read is not a correction: the line is counted,
+    /// never shown as more than it is.
+    fn correction(&self, turn: &str, node: &str) -> bool {
+        let ask = crate::exchange::exchange(self.store, turn)
+            .ok()
+            .flatten()
+            .and_then(|e| e.ask);
+        ask.as_deref() == Some(node) && super::corrected(self.store, turn).unwrap_or(false)
     }
     fn standing(&self, node: &str) -> bool {
-        self.0.iter().any(|s| s == node)
+        self.sources.iter().any(|s| s == node)
     }
 }
 
@@ -65,7 +76,13 @@ impl JudgeService {
 pub struct Built {
     pub dry_run: bool,
     pub place: String,
-    pub since_ms: u64,
+    /// The place's latest `/new`, if it has one.
+    pub since: Option<Pos>,
+    /// How the place's requests are assembled (`[context] assembly`): a
+    /// place on the transcript shows none of what a build writes.
+    pub assembly: Assembly,
+    /// A place whose name holds the key separator: no ladder, nothing done.
+    pub skipped: bool,
     /// The place's exchanges since its latest `/new`.
     pub exchanges: u64,
     /// Those with a line already, and those a line would be (was) written for.
@@ -74,36 +91,49 @@ pub struct Built {
     /// First-level nodes it would make (made); and the nodes above, by code.
     pub folds: u64,
     pub above: u64,
-    /// The worst case of its calls, and what was spent.
+    /// The worst case of its calls, what is left of the day's line, whether
+    /// the run would need leave to pass it, and what was spent (failed calls
+    /// included).
     pub estimated_usd: f64,
+    pub day_left_usd: f64,
+    pub needs_over_day_line: bool,
     pub spent_usd: f64,
     pub stopped: Option<String>,
 }
 
+/// A build's money: the most it may spend, and leave to pass the day's line.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Allowance {
+    pub cap_usd: Option<f64>,
+    pub over_day_line: bool,
+}
+
 impl Core {
-    /// Whether session `sid` is sealed or veiled: a sealed or seal-pending
-    /// thread's, or an imported conversation's (whose labels the ladder does
-    /// not read, so fails closed).
-    pub(crate) fn ladder_hidden(&self, sid: &str) -> bool {
-        crate::import::is_imported(sid)
-            || self
-                .threads()
-                .of_session(sid)
-                .is_some_and(crate::compiler::place_digest::held)
+    /// Write `place`'s `/new` mark: from now, its ladder and window count only
+    /// what comes after it. The position is now, and the place's newest
+    /// exchange when it began in this same millisecond.
+    pub fn ladder_mark_new(&self, place: &str) -> anyhow::Result<()> {
+        let now = theseus_protocol::now_unix_ms();
+        let newest = exchange::newest(&self.store, Root::Place(place), 1)?;
+        let id = newest
+            .first()
+            .filter(|t| t.at_ms >= now)
+            .map(|t| t.exchange.clone())
+            .unwrap_or_default();
+        let at = Pos {
+            at_ms: now.max(newest.first().map_or(0, |t| t.at_ms)),
+            id,
+        };
+        self.store.append(&[super::new_mark_record(place, &at)?])?;
+        Ok(())
     }
 
-    /// When `place`'s latest `/new` was: the start of the session its
-    /// binding runs on now; 0 for a place no binding moves (the terminal).
-    pub(crate) fn ladder_since(&self, place: &str) -> u64 {
-        let bare = place.strip_prefix("discord:").unwrap_or(place);
-        let sid = self.outbox.place_session(bare).ok().flatten();
-        sid.and_then(|s| self.store.get_session::<SessionRecord>(&s).ok().flatten())
-            .map_or(0, |r| r.created_at_unix_ms)
-    }
-
-    fn ladder_flags(&self) -> Standing {
+    fn ladder_flags(&self) -> Standing<'_> {
         let all = self.runner.standing.all(&self.store).unwrap_or_default();
-        Standing(all.iter().map(|r| r.source.clone()).collect())
+        Standing {
+            sources: all.iter().map(|r| r.source.clone()).collect(),
+            store: &self.store,
+        }
     }
 
     /// The job at the end of exchange `turn`: only in a place whose requests
@@ -113,13 +143,16 @@ impl Core {
         let Some(ex) = blocking(|| exchange::exchange(&self.store, turn))? else {
             return Ok(());
         };
-        if self.cfg.context.assembly_for(&ex.place) != Assembly::View {
+        if self.cfg.context.assembly_for(&ex.place) != Assembly::View || !super::laddered(&ex.place)
+        {
             return Ok(());
         }
+        let since = blocking(|| super::new_mark(&self.store, &ex.place))?;
         let writer = ModelWriter(self.clone());
         let hidden = |sid: &str| self.ladder_hidden(sid);
-        match did::write(&self.store, &writer, turn, &hidden, None).await? {
-            Outcome::Failed(why) => tracing::info!(turn, %why, "ladder: no did line"),
+        let purse = DayPurse::new(&self.store, None, false);
+        match did::write(&self.store, &writer, turn, &hidden, &purse).await? {
+            Outcome::Failed { why, .. } => tracing::info!(turn, %why, "ladder: no did line"),
             Outcome::NotEnded => return Ok(()),
             _ => {}
         }
@@ -128,10 +161,9 @@ impl Core {
             writer: &writer,
             flags: &flags,
             hidden: &hidden,
-            cap_usd: None,
+            purse: &purse,
         };
-        let since = self.ladder_since(&ex.place);
-        let s = read::fold_step(&self.store, &ex.place, since, &step).await?;
+        let s = read::fold_step(&self.store, &ex.place, since.as_ref(), &step).await?;
         if let Some(why) = s.failed {
             tracing::info!(place = %ex.place, %why, "ladder: a fold waits");
         }
@@ -139,18 +171,18 @@ impl Core {
     }
 
     /// Build `place`'s ladder from its history since its latest `/new`: the
-    /// missing `did` lines, oldest first, then the folds, all within
-    /// `cap_usd` (the day's line when none). A dry run writes nothing and
-    /// says what it would do and its worst case.
+    /// missing `did` lines, oldest first, then the folds, within the
+    /// smaller of `money.cap_usd` and what is left of the day's line (the
+    /// cap alone with `over_day_line`). A dry run writes nothing and says
+    /// what it would do, its worst case and whether it would need that leave.
     pub async fn ladder_build(
         self: &Arc<Self>,
         place: &str,
         dry_run: bool,
-        cap_usd: Option<f64>,
+        money: Allowance,
     ) -> anyhow::Result<Built> {
         let writer = ModelWriter(self.clone());
-        self.ladder_build_with(&writer, place, dry_run, cap_usd)
-            .await
+        self.ladder_build_with(&writer, place, dry_run, money).await
     }
 
     pub(crate) async fn ladder_build_with(
@@ -158,79 +190,92 @@ impl Core {
         writer: &dyn Writer,
         place: &str,
         dry_run: bool,
-        cap_usd: Option<f64>,
+        money: Allowance,
     ) -> anyhow::Result<Built> {
-        let since = self.ladder_since(place);
         let mut b = Built {
             dry_run,
             place: place.to_string(),
-            since_ms: since,
+            assembly: self.cfg.context.assembly_for(place),
             ..Built::default()
         };
+        if !super::laddered(place) {
+            b.skipped = true;
+            b.stopped = Some("the place's name holds a character no ladder key may".into());
+            return Ok(b);
+        }
+        if money.over_day_line && money.cap_usd.is_none() {
+            anyhow::bail!("passing the day's line needs a cap of its own (--cap-usd)");
+        }
+        b.since = blocking(|| super::new_mark(&self.store, place))?;
+        let since = b.since.clone();
+        let l = blocking(|| read::ladder(&self.store, place, since.as_ref()))?;
         let mut todo = Vec::new();
-        let touches = blocking(|| exchange::newest(&self.store, Root::Place(place), usize::MAX))?;
-        for t in touches.iter().rev().filter(|t| t.at_ms >= since) {
-            b.exchanges += 1;
-            if blocking(|| did::did(&self.store, &t.exchange))?.is_some() {
+        b.exchanges = l.window.len() as u64;
+        for e in &l.window {
+            if blocking(|| did::did(&self.store, &e.turn_id))?.is_some() {
                 b.lines_had += 1;
                 continue;
             }
-            let Some(r) = blocking(|| did::read(&self.store, &t.exchange))? else {
+            let Some(r) = blocking(|| did::read(&self.store, &e.turn_id))? else {
                 continue;
             };
             if r.ex.end_ms.is_some() && r.reply.is_some() && !self.ladder_hidden(&r.ex.session_id) {
                 todo.push(r);
             }
         }
-        let l = blocking(|| read::ladder(&self.store, place, since))?;
+        let purse = DayPurse::new(&self.store, money.cap_usd, money.over_day_line);
+        b.day_left_usd = DayPurse::new(&self.store, None, false).left()?;
         let w = l.window.len();
         let folds = if w >= 2 * N { (w - N) / N } else { 0 };
         if dry_run {
             b.lines = todo.len() as u64;
             b.folds = folds as u64;
             b.estimated_usd = estimate(writer, &todo, folds);
+            b.needs_over_day_line = b.estimated_usd > b.day_left_usd;
             return Ok(b);
         }
-        self.ladder_lines(writer, &todo, cap_usd, &mut b).await?;
+        let stopped = self.ladder_lines(writer, &todo, &purse, &mut b).await?;
+        b.spent_usd = purse.spent();
+        if stopped {
+            // A run whose lines stopped (its allowance, a failed call) folds nothing.
+            return Ok(b);
+        }
         let flags = self.ladder_flags();
         let hidden = |sid: &str| self.ladder_hidden(sid);
         let step = Step {
             writer,
             flags: &flags,
             hidden: &hidden,
-            cap_usd: cap_usd.map(|c| c - b.spent_usd),
+            purse: &purse,
         };
-        let s = read::fold_step(&self.store, place, since, &step).await?;
-        b.spent_usd += s.spent_usd;
+        let s = read::fold_step(&self.store, place, since.as_ref(), &step).await?;
+        b.spent_usd = purse.spent();
         b.folds = s.made.iter().filter(|n| n.level == 1).count() as u64;
         b.above = s.made.len() as u64 - b.folds;
-        b.stopped = b.stopped.take().or(s.failed);
+        b.stopped = s.failed;
         Ok(b)
     }
 
+    /// The missing lines, oldest first: whether the run stopped short.
     async fn ladder_lines(
         &self,
         writer: &dyn Writer,
         todo: &[did::Read],
-        cap_usd: Option<f64>,
+        purse: &DayPurse<'_>,
         b: &mut Built,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let hidden = |sid: &str| self.ladder_hidden(sid);
         for r in todo {
-            let cap = cap_usd.map(|c| c - b.spent_usd);
-            match did::write(&self.store, writer, &r.ex.turn_id, &hidden, cap).await? {
-                Outcome::Written(d) => {
-                    b.lines += 1;
-                    b.spent_usd += d.cost_usd;
-                }
-                Outcome::Failed(why) => {
+            match did::write(&self.store, writer, &r.ex.turn_id, &hidden, purse).await? {
+                Outcome::Written(_) => b.lines += 1,
+                Outcome::Failed { why, .. } => {
                     b.stopped = Some(why);
-                    return Ok(());
+                    return Ok(true);
                 }
                 _ => {}
             }
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -244,6 +289,7 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
                 work: Work::Did,
                 text: did::material(r),
                 sources: 1,
+                sessions: Vec::new(),
             })
         })
         .sum();
@@ -253,6 +299,7 @@ fn estimate(writer: &dyn Writer, todo: &[did::Read], folds: usize) -> f64 {
             work: Work::Fold,
             text: "x".repeat(most),
             sources: N as u32,
+            sessions: Vec::new(),
         })
         .unwrap_or(0.0);
     lines + fold * folds as f64
