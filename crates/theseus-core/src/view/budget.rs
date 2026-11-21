@@ -18,14 +18,19 @@
 //! 9. If the floor alone cannot fit the provider's window, the turn does not answer from a shortened view:
 //!    [`Overflow::Floor`] names what did not fit and its handle.
 //!
-//! The body of [`fit`] is a SHELL (the contract): it admits every piece in table order with its form as
-//! asked, and only rule 9's check. The assembler fills rules 3, 4 and 7; the signature is fixed.
+//! Rules 3 and 4 are [`merge`]'s; rules 5, 7 and 8 are [`cut`]'s. Nothing here depends on the order the
+//! pieces arrive in: they are put in one canonical order first.
 
 use serde::{Deserialize, Serialize};
 
 use super::gate::Admitted;
 use super::select::Band;
 use super::{Form, Handle, Piece, PointOfView, Reasons, Slot, SourceRange};
+
+mod cut;
+mod merge;
+#[cfg(test)]
+mod tests;
 
 /// The one ceiling, in tokens, over everything but slot G (trim item 1).
 pub const CEILING: u64 = 60_000;
@@ -126,46 +131,110 @@ pub enum Overflow {
     },
 }
 
-/// Fit admitted pieces into one budget. SHELL: see the module comment.
+/// Fit admitted pieces into one budget: the nine rules of the module comment.
 pub fn fit(
     pov: &PointOfView,
     pieces: Vec<Admitted<Piece>>,
     budget: &Budget,
 ) -> Result<View, Overflow> {
-    let mut pieces: Vec<Piece> = pieces.into_iter().map(Admitted::into_inner).collect();
-    pieces.sort_by(|a, b| {
-        let key = |p: &Piece| (p.band.priority(), std::cmp::Reverse(p.range.last.clone()));
-        key(a).cmp(&key(b))
-    });
+    let items = merge::merge(pieces.into_iter().map(Admitted::into_inner).collect());
+    let groups = merge::unit_groups(&items);
+    let fate = cut::cut(&items, &groups, budget);
+    let tokens = cut::charged(&items, &fate);
     let room = budget.total();
-    let floor: u64 = pieces
-        .iter()
-        .filter(|p| p.band.row().floor)
-        .map(Piece::tokens)
-        .sum();
-    if floor > room {
-        let first = pieces.iter().find(|p| p.band.row().floor);
-        return Err(Overflow::Floor {
-            handle: first
-                .map(|p| p.handle.clone())
-                .unwrap_or(Handle(String::new())),
-            tokens: floor,
-            room,
-        });
+    if tokens > room {
+        return Err(overflow(&items, &fate, tokens, room));
     }
-    let shown: Vec<Shown> = pieces
-        .into_iter()
-        .map(|piece| Shown {
-            form: piece.form,
-            tokens: piece.tokens(),
-            piece,
-        })
-        .collect();
+    let mut shown = Vec::new();
+    let mut dropped = Vec::new();
+    for (it, f) in items.into_iter().zip(fate) {
+        dropped.extend(it.merged.iter().map(|q| drop_of(q, DropWhy::Merged)));
+        match f {
+            cut::Fate::Shown(form) => shown.push(Shown {
+                tokens: it.piece.sizes.at(form),
+                form,
+                piece: it.piece,
+            }),
+            cut::Fate::OverBudget => dropped.push(drop_of(&it.piece, DropWhy::OverBudget)),
+            cut::Fate::UnitCut => dropped.push(drop_of(&it.piece, DropWhy::UnitCut)),
+        }
+    }
+    shown.sort_by_cached_key(|s| order(&s.piece));
+    dropped.sort_by_cached_key(|d| {
+        (
+            d.band.priority(),
+            std::cmp::Reverse(d.range.last.clone()),
+            d.handle.clone(),
+            d.why as u8,
+        )
+    });
     Ok(View {
         pov: pov.clone(),
-        tokens: shown.iter().map(|s| s.tokens).sum(),
+        tokens,
+        residue: residue(&dropped),
         shown,
-        dropped: Vec::new(),
-        residue: Vec::new(),
+        dropped,
     })
+}
+
+/// Rule 6's order for what is shown: the row, newest first, then by handle.
+fn order(p: &Piece) -> (usize, std::cmp::Reverse<super::Pos>, Handle) {
+    (
+        p.band.priority(),
+        std::cmp::Reverse(p.range.last.clone()),
+        p.handle.clone(),
+    )
+}
+
+fn drop_of(p: &Piece, why: DropWhy) -> Dropped {
+    Dropped {
+        range: p.range.clone(),
+        slot: p.slot,
+        band: p.band,
+        reasons: p.reasons.clone(),
+        handle: p.handle.clone(),
+        tokens: p.tokens(),
+        why,
+    }
+}
+
+/// Rule 7's count: per band, what was cut (a merged piece is shown, so it is not counted).
+fn residue(dropped: &[Dropped]) -> Vec<Residue> {
+    let mut out: Vec<Residue> = Vec::new();
+    for d in dropped.iter().filter(|d| d.why != DropWhy::Merged) {
+        match out.iter_mut().find(|r| r.band == d.band) {
+            Some(r) => {
+                r.pieces += 1;
+                r.tokens += d.tokens;
+            }
+            None => out.push(Residue {
+                band: d.band,
+                pieces: 1,
+                tokens: d.tokens,
+            }),
+        }
+    }
+    out.sort_by_key(|r| r.band.priority());
+    out
+}
+
+/// Rule 9: what is left after every permitted cut still does not fit; it is all never-cut text. Name the
+/// newest piece of the floor (or of what else could not be cut).
+fn overflow(items: &[merge::Item], fate: &[cut::Fate], tokens: u64, room: u64) -> Overflow {
+    let left = || {
+        items
+            .iter()
+            .zip(fate)
+            .filter(|(_, f)| matches!(f, cut::Fate::Shown(_)))
+            .map(|(it, _)| &it.piece)
+    };
+    let first = left()
+        .filter(|p| p.band == Band::Floor)
+        .min_by_key(|p| order(p))
+        .or_else(|| left().min_by_key(|p| order(p)));
+    Overflow::Floor {
+        handle: first.map_or(Handle(String::new()), |p| p.handle.clone()),
+        tokens,
+        room,
+    }
 }
