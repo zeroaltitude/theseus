@@ -518,7 +518,7 @@ struct AllowPrivate;
 impl Gate for AllowPrivate {
     fn admit(&self, _: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
         (piece.marks.audience == Audience::Private && !piece.marks.sealed)
-            .then(|| Admitted::new(piece))
+            .then(|| Admitted::for_tests(piece))
     }
 }
 

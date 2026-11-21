@@ -182,8 +182,6 @@ pub(crate) fn index_of(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
 }
 
 pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    // The owner typed it in person, as `turn.submit` would mark it (issue 44).
-    let mark = crate::view_gate::stage_mark(&core.runner, sid, input, true);
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -191,6 +189,8 @@ pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmit
         .unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    // The owner typed it in person, as `turn.submit` marks it (issue 44).
+    let mark = crate::view_gate::test_mark(&core.runner, sid, true);
     let sink = EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(TurnRequest {

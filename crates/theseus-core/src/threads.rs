@@ -303,11 +303,13 @@ impl Threads {
             }
         }
         let mut board = Board::build(records, &sessions);
-        board.unread_sessions = sessions
+        // A binding to a thread whose record is absent, or did not read.
+        let unread_sessions = sessions
             .iter()
-            .filter(|(slug, _)| unread_slugs.contains(*slug))
+            .filter(|(slug, _)| unread_slugs.contains(*slug) || board.get(slug).is_none())
             .map(|(_, sid)| sid.clone())
             .collect();
+        board.unread_sessions = unread_sessions;
         board.unread_slugs = unread_slugs;
         board.unread_binding = unread_binding;
         let board = Arc::new(board);

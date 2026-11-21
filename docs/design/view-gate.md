@@ -78,6 +78,28 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
 
 ## Left for the steps that follow
 
-- `view::gate::Admitted::new` is visible to all of `crate::view` (the view contract's signature); only `Permit`
-  should call it outside tests.
 - The byte test (the bytes sent are identical with the forbidden records deleted) lands with the assembler (step 6).
+
+## After the second review
+
+- **Seals.** `seal_out` takes out every hit not proven clear, whatever the thread lens is; the drops are said in
+  the recall's manifest as `sealed`, ids and scores only. A binding to a thread whose record is absent, and a native
+  session with stored nodes and no record, are `Unread`. A node moved or claimed into a thread
+  (`moved.of.<node>`) is checked against that thread's seal on a search and on every message a read by id or by
+  session returns (`node_seal`, `readable_nodes`); a `moved.of` that does not decode, or names a thread the board
+  does not hold, is `Unread`. A seal follows a merge chain. The ladder's `ladder_hidden` asks the same rule.
+- **thread.read** holds the call for the owner when the board cannot be read at planning, and at execution reads a
+  sealed thread only on a call the owner approved.
+- **Presence** is made only by the gate (`view_gate::begin`, from the input's mark or what set the turn up, and
+  `steered`, which only narrows). `Asking`'s fields and the table's writer are private. A steer the running turn
+  absorbs narrows it at once; what the turn sets up inherits the narrowest of its exchange's messages' marks.
+  `memory.lookup` takes the turn's presence whole when the call starts.
+- **A task's report** whose place has moved or narrowed since the task started is delivered as a content-free
+  notice (`report_shown`, `withheld_report`); its body stays in the task's session.
+- **The transcript path**: an earlier `Recall` node's sources are admitted again under the current turn
+  (`readmit_sources`); the place digest names and counts other threads only for the owner alone
+  (`digest_threads`); look.work gives another conversation's words only where the gate admits it; a standing record
+  kept from another conversation's message is held where the gate does not admit that conversation
+  (`standing_held`).
+- **`view::gate::Admitted::new` is private to its module**; `admit_checked` beside it is the gate's construction
+  (the contract's authorized amendment), with a `cfg(test)` constructor for the view's own tests.
