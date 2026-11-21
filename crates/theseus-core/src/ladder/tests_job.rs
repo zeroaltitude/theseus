@@ -353,7 +353,7 @@ async fn a_correction_the_judge_named_is_kept_above_the_first_level() {
         !flags.correction(&turn, "msg_other"),
         "only the message that opened it"
     );
-    let mut other = j.clone();
+    let mut other = j;
     other.pack = "loop.v1".into();
     assert!(super::correction_record(&other, Some(&turn)).is_none());
 }
