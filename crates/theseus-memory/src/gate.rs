@@ -23,7 +23,8 @@
 
 use crate::recall::Place;
 
-/// Who may see this context (§4's `present`).
+/// Who may see this context (§4's `present`). Ordered from the widest to the
+/// narrowest: the greater of two is the narrower.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Present {
     /// The terminal, the web page or a direct conversation with the owner,
@@ -42,6 +43,19 @@ pub enum Present {
 }
 
 impl Present {
+    /// The value `as_str` names; none for any other word.
+    pub fn named(s: &str) -> Option<Present> {
+        [
+            Present::OwnerAlone,
+            Present::PrivateChannel,
+            Present::Shared,
+            Present::Open,
+            Present::Unknown,
+        ]
+        .into_iter()
+        .find(|p| p.as_str() == s)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Present::OwnerAlone => "owner_alone",
