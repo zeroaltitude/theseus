@@ -46,6 +46,7 @@ use crate::Core;
 
 mod theseus;
 mod vault;
+mod view;
 mod work;
 
 pub(crate) use vault::vault_named;
@@ -328,8 +329,12 @@ impl Board {
                     Ok(p) => p,
                     Err(e) => return fail(e),
                 };
+                let (session, turn) = (tc.session_id.to_string(), tc.turn_id.to_string());
                 Box::pin(async move {
-                    let said = theseus::words(&core, target.as_ref(), &parts);
+                    let mut said = theseus::words(&core, target.as_ref(), &parts);
+                    if parts.contains(&"view") {
+                        said.push_str(&view::words(&core, &session, &turn));
+                    }
                     Ok((output(said, THESEUS), None, None))
                 })
             }

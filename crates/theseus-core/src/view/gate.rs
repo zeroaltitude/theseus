@@ -27,8 +27,12 @@ impl<T> Admitted<T> {
 impl Admitted<Piece> {
     /// A piece laid by code with no source in the store ([`Space::Code`]: the frame's parts, the clock,
     /// residue lines) has nothing to permit; any other piece goes through a [`Gate`].
+    /// A piece that names a source place, or carries a seal, a veil or outside text, is not code's own,
+    /// whatever its space says: relabelling a stored piece as code does not get it past the gate.
     pub fn code(piece: Piece) -> Option<Self> {
-        matches!(piece.range.space, Space::Code { .. }).then(|| Self::new(piece))
+        let m = &piece.marks;
+        let source_free = m.place.is_none() && !m.sealed && !m.veiled && !m.outside;
+        (matches!(piece.range.space, Space::Code { .. }) && source_free).then(|| Self::new(piece))
     }
 }
 

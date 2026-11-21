@@ -103,6 +103,8 @@ pub const VERBS: &[Entry] = &[
     e("reach", &[], Unserved),
     e("why", &[], Unserved),
     e("inspect", &[], Unserved),
+    // `view show TURN` names a turn; `look.theseus` (`view`) reads this turn's view alone.
+    e("view", &[], Unserved),
     e("judge", &[], Unserved),
     e("self", &[], Unserved),
     e("sessions", &[], Unserved),
