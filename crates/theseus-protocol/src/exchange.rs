@@ -21,7 +21,7 @@ pub struct ExchangeReportParams {
 /// The rows, summed. `counts` is a group's values and how many rows had
 /// each (`prev`: `transcript`, `place_tail`, `missed`, `none`; `peer`;
 /// `kind`; …); `tokens` is each part of the sent context, added up over the
-/// rows, est. at the catalog's bytes a token.
+/// rows, est. at 3.6 bytes a token.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]

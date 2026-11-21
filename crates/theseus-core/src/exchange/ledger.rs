@@ -103,12 +103,13 @@ impl View<'_> {
 /// words and recall's notes read from the nodes the view holds (a turn's
 /// pending recall among them). `cleared` are the results the compile
 /// cleared, by node id; `files` the project files' bytes; `total` the
-/// compiler's estimate.
+/// compiler's estimate; `json` its census's JSON bytes, of which what the
+/// messages do not hold is the tools' schemas (no second walk of them).
 pub fn sent(
     request: &ProviderRequest,
     nodes: &[(u64, crate::stub::Stub)],
     view: &View<'_>,
-    (cleared, files, total): (&HashSet<&str>, u64, u64),
+    (cleared, files, total, json): (&HashSet<&str>, u64, u64, u64),
 ) -> Sent {
     let ids: HashSet<&str> = view.includes.iter().map(String::as_str).collect();
     let (mut words, mut recall, mut cleared_calls) = (0, 0, HashSet::new());
@@ -156,7 +157,7 @@ pub fn sent(
     let system: u64 = request.system.iter().map(|b| str_len(&b["text"])).sum();
     s.header = tok(system.saturating_sub(files));
     s.files = tok(files);
-    s.tools = tok(json_len(&request.tools));
+    s.tools = tok(json.saturating_sub(calls + whole + gone));
     (s.replies, s.calls) = (tok(replies), tok(calls));
     (s.results_whole, s.results_cleared) = (tok(whole), tok(gone));
     (s.words, s.recall) = (tok(words), recall);

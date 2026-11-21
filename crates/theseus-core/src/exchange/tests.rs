@@ -425,7 +425,7 @@ async fn the_ledgers_cost_to_a_turn_is_small() {
     };
     let t0 = std::time::Instant::now();
     for _ in 0..100 {
-        ledger::sent(&request, &nodes, &view, (&Default::default(), 0, 0));
+        ledger::sent(&request, &nodes, &view, (&Default::default(), 0, 0, 0));
     }
     let sent_us = t0.elapsed().as_micros() / 100;
     let (on, off) = (wal_bytes(true).await, wal_bytes(false).await);
