@@ -599,7 +599,6 @@ fn no_retrieved_piece_may_authorise_whatever_made_it() {
         id: format!("n{h}"),
     };
     s.nodes.push(FoldNode {
-        title: String::new(),
         level: 1,
         place: "local".into(),
         first: at(900),
@@ -607,6 +606,7 @@ fn no_retrieved_piece_may_authorise_whatever_made_it() {
         exchanges: 20,
         his_words: Vec::new(),
         his_counted: 0,
+        title: String::new(),
         account: String::new(),
         marks: his,
         handle: Handle("fold:1".into()),
