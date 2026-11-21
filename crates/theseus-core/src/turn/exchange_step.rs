@@ -72,6 +72,15 @@ impl TurnRunner {
     /// any writer's next frame (`Store::defer_waiting`), however long the index
     /// takes; `counts` is told their counts by kind. None with no index, or
     /// outside a runtime.
+    /// The core, weakly, for a naming task: upgraded only at the moment it
+    /// writes, so a core dropped while the index is still answering lets its
+    /// store go at once (a restart opens it again); the touches it would have
+    /// written are then not written, and `exchange.rebuild` fills them. None
+    /// outside a core.
+    fn weak_core(&self) -> Option<std::sync::Weak<crate::rpc::Core>> {
+        self.threads.core().map(|c| std::sync::Arc::downgrade(&c))
+    }
+
     fn things_of(
         &self,
         text: &str,
@@ -84,15 +93,18 @@ impl TurnRunner {
         while !text.is_char_boundary(cut) {
             cut -= 1;
         }
-        let (text, store) = (text[..cut].to_string(), self.store.clone());
+        let (text, core) = (text[..cut].to_string(), self.weak_core()?);
         let (turn, session) = (turn.to_string(), session.to_string());
         rt.spawn(async move {
             let Ok(mut named) = index.entities(vec![text]).await else {
                 return;
             };
             let terms = named.pop().unwrap_or_default();
+            let Some(core) = core.upgrade() else {
+                return;
+            };
             for r in thing_touches(&terms, &turn, &session, start_ms) {
-                if let Err(e) = store.defer_waiting(r) {
+                if let Err(e) = core.store.defer_waiting(r) {
                     tracing::warn!(error = %format!("{e:#}"), "a thing's touch was not written");
                 }
             }
@@ -110,15 +122,18 @@ impl TurnRunner {
         (turn, session, start_ms): (&str, &str, u64),
         scope: Option<String>,
     ) {
-        let (Some(index), Ok(rt)) = (self.pass.index(), tokio::runtime::Handle::try_current())
-        else {
+        let (Some(index), Ok(rt), Some(core)) = (
+            self.pass.index(),
+            tokio::runtime::Handle::try_current(),
+            self.weak_core(),
+        ) else {
             return;
         };
         let mut cut = text.len().min(THINGS_TEXT);
         while !text.is_char_boundary(cut) {
             cut -= 1;
         }
-        let (text, store) = (text[..cut].to_string(), self.store.clone());
+        let text = text[..cut].to_string();
         let (turn, session) = (turn.to_string(), session.to_string());
         rt.spawn(async move {
             let asked = index.items(vec![text]);
@@ -128,8 +143,11 @@ impl TurnRunner {
             };
             let items =
                 crate::names::items::scoped(named.pop().unwrap_or_default(), scope.as_deref());
+            let Some(core) = core.upgrade() else {
+                return;
+            };
             for r in thing_touches(&items, &turn, &session, start_ms) {
-                if let Err(e) = store.defer_waiting(r) {
+                if let Err(e) = core.store.defer_waiting(r) {
                     tracing::warn!(error = %format!("{e:#}"), "an item's touch was not written");
                 }
             }
