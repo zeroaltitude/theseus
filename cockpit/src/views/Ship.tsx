@@ -511,8 +511,8 @@ function StateBar({ filter, counts, onPick, reads }: { filter: ShipFilter; count
         </button>
       ))}
       {reads && reads.rest > 0 && filter !== 'live' && (
-        <button type="button" title="Read the rest of this state's ships (the Ship reads its newest twenty first)" onClick={reads.loadAll} className="brass-button !px-2 !py-0.5 text-[11.5px]">
-          Load all <b className="num ml-1 text-ink">({reads.rest})</b>
+        <button type="button" title="Read the ships of this state not yet read: the number is how many more that is (the Ship reads the newest twenty first)" onClick={reads.loadAll} className="brass-button !px-2 !py-0.5 text-[11.5px]">
+          Load all <b className="num ml-1 text-ink">({reads.rest} more)</b>
         </button>
       )}
     </div>
