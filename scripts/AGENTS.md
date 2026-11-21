@@ -35,6 +35,8 @@ including in a commit message, because it is stale by the next departure.
   says "size: skipped: no release build of <commit>". It fails on growth over 1 MB, not on §9's 60 MB.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
+- `stats.py`, `tests/test_stats.py` (issue 45): writes the root's `STATS.md` (lines of code, test code and comment per crate,
+  build sizes). Branches never touch STATS.md; a landing recounts it. Sizes only from `--sizes-from`/`--installed`.
 - `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
   `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
   reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either
