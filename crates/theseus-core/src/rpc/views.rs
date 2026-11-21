@@ -1,42 +1,91 @@
-//! `view.show` (issue 44; `crate::view::record`): what a turn was shown and why, from its view records. A
-//! read, from the terminal or the web UI alone, as the other ledgers of a turn are. Ids, kinds, forms,
-//! tokens, reasons and counts; a piece's text only when asked for and only for the owner's own shell: the
-//! CLI on this machine, with no Theseus job's marker and no agent's process behind it.
+//! `view.show` (issue 44; `crate::view::record`): what a turn was shown and why, from its view records. The
+//! owner's inspection, whole or not at all: it answers the owner in person alone, by the rule the other
+//! owner-only methods use (`places::owner_in_person_of`): the CLI or the web UI with no agent's process
+//! behind the connection (a Theseus job's is one), and no job's marker. Anyone else is refused in words, the
+//! record and its text alike; and text at his own terminal alone, not the web UI. Every piece's source is checked again today; a sealed, seal-pending or
+//! unreadable one is not listed, and inspecting lifts no seal.
 
 use std::sync::Arc;
 
 use serde_json::Value;
-use theseus_protocol::view::{ViewShowParams, ViewShowResult};
+use theseus_memory::gate::{PointOfView, Present};
+use theseus_memory::recall::Place;
+use theseus_protocol::view::{ViewCount, ViewShowParams, ViewShowResult, ViewTally};
 use theseus_protocol::{error_code, method};
 
 use super::server::{parse, Conn, RpcFailure};
 use super::Core;
 use crate::approval::Surface;
-use crate::view::record::show::{PieceText, Reader};
-use crate::view::record::{self, StoreText};
+use crate::view::record::show::{name, PieceText, Reader};
+use crate::view::record::source::GateSource;
+use crate::view::record::{self, Count, StoreText, Tally, ViewRecord};
+use crate::view::Anchor;
 
 /// The methods `rpc_views` answers.
 pub(super) const OWN: &[&str] = &[method::VIEW_SHOW];
 
 /// What a reader is told when no text was asked for.
-const NO_TEXT: &str =
-    "a piece's text is shown only when asked for (`--text`), at the owner's own terminal";
+const NO_TEXT: &str = "a piece's text is shown only when asked for (`--text`)";
 
-/// Why `--text` is refused on `conn`, or none for the owner's own shell.
-fn text_refused(conn: &Conn<'_>, from_job: Option<&str>) -> Option<String> {
+/// Why `view.show` is refused on `conn`, or none for the owner in person.
+fn refused(core: &Core, conn: &Conn<'_>, from_job: Option<&str>) -> Option<String> {
+    if !conn.surface.reads_private() {
+        return Some(format!(
+            "it came through {}, and what a turn was shown is the owner's to inspect, from his own \
+             terminal or the web UI",
+            conn.surface.name()
+        ));
+    }
+    if from_job.is_some() {
+        return Some(
+            "this shell is a Theseus job's, and what a turn was shown is the owner's alone to inspect"
+                .into(),
+        );
+    }
     let who = conn.answerer(None, None);
-    refused_for(who.surface, from_job.is_some(), who.agent.as_deref())
+    crate::places::owner_in_person_of(
+        &who,
+        &core.runner.place_rule,
+        &core.cfg,
+        "what a turn was shown is the owner's alone to inspect",
+        "it is inspected",
+    )
+    .err()
 }
 
-/// [`text_refused`], on the facts: the CLI with no job's marker and no agent's process behind it.
-fn refused_for(surface: Surface, job: bool, agent: Option<&str>) -> Option<String> {
-    match (surface, job, agent) {
-        (Surface::Cli, false, None) => None,
-        (Surface::Cli, true, _) => Some("this shell is a Theseus job's".into()),
-        (Surface::Cli, false, Some(agent)) => {
-            Some(format!("it came from an agent's process ({agent})"))
-        }
-        (other, _, _) => Some(format!("it came through {}", other.name())),
+/// A stored tally, by name.
+fn tally_shown(t: &Tally) -> ViewTally {
+    fn by<K: serde::Serialize>(
+        m: &std::collections::BTreeMap<K, Count>,
+    ) -> std::collections::BTreeMap<String, ViewCount> {
+        m.iter()
+            .map(|(k, c)| {
+                let c = ViewCount {
+                    pieces: c.pieces,
+                    tokens: c.tokens,
+                };
+                (name(k), c)
+            })
+            .collect()
+    }
+    ViewTally {
+        compilation: t.compilation.clone(),
+        present: name(&t.present),
+        slots: by(&t.slots),
+        reasons: by(&t.reasons),
+        dropped: t
+            .dropped
+            .iter()
+            .map(|(k, c)| {
+                let c = ViewCount {
+                    pieces: c.pieces,
+                    tokens: c.tokens,
+                };
+                (k.clone(), c)
+            })
+            .collect(),
+        dropped_reasons: by(&t.dropped_reasons),
+        tokens: t.tokens,
     }
 }
 
@@ -59,62 +108,70 @@ impl Core {
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        if !conn.surface.reads_private() {
+        let p: ViewShowParams = parse(params)?;
+        if let Some(why) = refused(&self, &conn, p.from_job.as_deref()) {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
-                "what a turn was shown is read from your own terminal or the web UI",
+                format!("not shown: {why}"),
             ));
         }
-        let p: ViewShowParams = parse(params)?;
-        if p.text {
-            if let Some(why) = text_refused(&conn, p.from_job.as_deref()) {
-                return Err(RpcFailure::new(
-                    error_code::REFUSED,
-                    format!("{why}, and a piece's text is shown only at the owner's own terminal: run it there without `--text` for ids and counts"),
-                ));
-            }
+        if p.text && conn.surface != Surface::Cli {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                "not shown: a piece's text is shown at the owner's own terminal alone",
+            ));
         }
         let core = self.clone();
         let r = super::import::blocking(move || core.view_show(&p)).await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// A turn's views, for the owner: every piece, its text when `p.text` (checked by the caller).
+    /// A turn's views, for the owner in person (checked by the caller).
     fn view_show(&self, p: &ViewShowParams) -> anyhow::Result<ViewShowResult> {
         let views = record::of_turn(&self.store, &p.turn_id)?;
         let text = StoreText(&self.store);
         let shown: Option<&dyn PieceText> = p.text.then_some(&text);
-        let reader = Reader {
-            place: None,
-            text: shown,
+        let tallies = match p.tally {
+            true => views
+                .iter()
+                .filter_map(|v| record::tally(&self.store, &v.compilation).ok().flatten())
+                .map(|t| tally_shown(&t))
+                .collect(),
+            false => Vec::new(),
         };
         Ok(ViewShowResult {
             turn_id: p.turn_id.clone(),
-            views: views.iter().map(|v| reader.show(v)).collect(),
+            views: views.iter().map(|v| self.owners(v, shown)).collect(),
+            tallies,
             withheld: (!p.text).then(|| NO_TEXT.into()),
         })
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn text_is_for_the_owners_own_shell_alone() {
-        assert_eq!(refused_for(Surface::Cli, false, None), None);
-        for (surface, job, agent) in [
-            (Surface::Cli, true, None),
-            (Surface::Cli, false, Some("claude")),
-            (Surface::Web, false, None),
-            (Surface::Discord, false, None),
-            (Surface::Mcp, false, None),
-            (Surface::Unnamed, false, None),
-        ] {
-            assert!(
-                refused_for(surface, job, agent).is_some(),
-                "{surface:?} {job} {agent:?}"
-            );
+    /// One view as the owner inspects it: the owner alone, at the view's own anchor, with no asker, so a
+    /// sealed or seal-pending source stays out.
+    fn owners(
+        &self,
+        v: &ViewRecord,
+        text: Option<&dyn PieceText>,
+    ) -> theseus_protocol::view::ViewShown {
+        let anchor = match &v.pov.anchor {
+            Anchor::Place(p) => p.clone(),
+            Anchor::Task(t) => format!("task:{t}"),
+        };
+        let source = GateSource {
+            runner: &self.runner,
+            pov: PointOfView {
+                anchor,
+                place: Place::Private,
+                present: Present::OwnerAlone,
+            },
+            asker: None,
+        };
+        Reader {
+            source: &source,
+            text,
+            restricted: false,
         }
+        .show(v)
     }
 }

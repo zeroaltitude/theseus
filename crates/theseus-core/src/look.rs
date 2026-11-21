@@ -46,7 +46,7 @@ use crate::Core;
 
 mod theseus;
 mod vault;
-mod view;
+pub(crate) mod view;
 mod work;
 
 pub(crate) use vault::vault_named;

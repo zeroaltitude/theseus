@@ -799,6 +799,8 @@ mod tests_view_compile;
 #[cfg(test)]
 mod tests_view_gate;
 #[cfg(test)]
+mod tests_view_record;
+#[cfg(test)]
 mod tests_wait_cost;
 #[cfg(test)]
 mod tests_waiting_split;

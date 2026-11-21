@@ -354,7 +354,7 @@ pub struct ToolRuntime {
     /// What `memory.lookup` reads (theseus-w9qv): the core, once built.
     pub lookup: crate::memory_lookup::Board,
     /// What `context.history` reads (issue 44): the core, once built, and each turn's looks.
-    pub history: crate::history_tool::Board,
+    pub history: Arc<crate::history_tool::Board>,
     /// Routines (theseus-pvm5c): the records in memory and the defaults.
     pub routines: crate::routine::Book,
     /// What `thread.read` reads (theseus-f2g0): the core, once built.
