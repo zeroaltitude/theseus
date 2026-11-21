@@ -37,6 +37,14 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
                 .into(),
         );
     }
+    if offers(crate::view::history::HISTORY_TOOL) {
+        // Issue 44: the owner's design, a tool always offered to extend the conversation's history.
+        lines.push(
+            "When you think you are missing something said earlier, read further back through this \
+             place's history with context_history before asking the person what they meant."
+                .into(),
+        );
+    }
     if place.class == crate::places::PlaceClass::Private && cfg.web.enabled {
         let host = match cfg.web.bind.contains(':') {
             true => format!("[{}]", cfg.web.bind),

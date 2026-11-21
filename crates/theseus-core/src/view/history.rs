@@ -45,6 +45,12 @@ pub struct HistoryLine {
     pub his_words: String,
     /// The `did` line; `None` reads "reply not summarised".
     pub did: Option<String>,
+    /// Whose words they are: the owner's mark's person (`owner`, a chat author), none when no mark proves one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
+    /// With no `did` line: the final reply's first characters, shown as its beginning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_begins: Option<String>,
 }
 
 /// How a page ends: told apart, so the model knows whether it may ask or should offer to go on.

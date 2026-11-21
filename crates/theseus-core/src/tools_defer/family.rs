@@ -170,7 +170,8 @@ pub fn of_wire(wire: &str) -> String {
         return format!("flow:{name}");
     }
     let family = match wire {
-        "tools_find" => TOOLS,
+        // The history tool is offered on every turn (issue 44): `tools` is never deferred.
+        "tools_find" | "context_history" => TOOLS,
         "file_read" => "files",
         "memory_lookup" => "memory",
         "card_observed" => CARD,
