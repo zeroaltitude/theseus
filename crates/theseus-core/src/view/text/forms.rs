@@ -215,6 +215,20 @@ fn call_line(input: &Value) -> String {
     }
 }
 
+/// A tool result's text as the model reads it wherever it is rendered, the window's real turns included: its
+/// content, wrapped when it came from outside ([`labels::wrap_outside`]). `None` for a node that is no result.
+pub fn result_text(n: &Node) -> Option<String> {
+    match &n.body {
+        Body::ToolResult {
+            content, external, ..
+        } => Some(match external {
+            Some(e) => labels::wrap_outside(Some(&e.url), content),
+            None => content.clone(),
+        }),
+        _ => None,
+    }
+}
+
 /// The person's words of an exchange: its first message's text, exactly.
 pub fn ask_of(nodes: &[Node]) -> Option<String> {
     nodes
