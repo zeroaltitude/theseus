@@ -67,7 +67,7 @@ impl TurnRunner {
     /// The index's things in `text`, named off the turn's path: none with no
     /// index, or outside a runtime.
     fn things_of(&self, text: &str) -> Option<oneshot::Receiver<Vec<String>>> {
-        self.named(text, |index, text| index.entities(text))
+        self.extracted(text, |index, text| index.entities(text))
     }
 
     /// `text`'s numbered items scoped by `scope`, named apart from its things
@@ -78,7 +78,7 @@ impl TurnRunner {
         text: &str,
         scope: Option<String>,
     ) -> Option<oneshot::Receiver<Vec<String>>> {
-        self.named(text, move |index, text| {
+        self.extracted(text, move |index, text| {
             let asked = index.items(text);
             Box::pin(async move {
                 match tokio::time::timeout(crate::names::items::WAIT, asked).await {
@@ -96,7 +96,7 @@ impl TurnRunner {
     }
 
     /// One extraction of the index over `text`, off the turn's path.
-    fn named(
+    fn extracted(
         &self,
         text: &str,
         ask: impl FnOnce(
