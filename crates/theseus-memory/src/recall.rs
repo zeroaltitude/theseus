@@ -4,9 +4,9 @@
 //! and this decides what would be admitted.
 //!
 //! 30b adds `labeled_wrong`: a node the operator labeled wrong or stale.
-//! 31b adds a synthesis's two: `arm`, a synthesis under an arm that admits
-//! none (every arm but `+synthesis`), and `unchecked`, one whose citations
-//! were not checked and supported (`MemoryScience::synthesis`).
+//! 31b added `arm`: a synthesis, which no arm admits (the `+synthesis` arm
+//! that did, and the nightly writer, are gone; a stored synthesis stays
+//! readable, and recall drops it).
 //! 31a adds the memory pass's edges, read by a science that prefers the
 //! newer node (`baseline`'s second version): of a `same_entity` group only
 //! the newest is kept (`duplicate`), and the older side of a `supersedes`
@@ -24,8 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::floor::Floor;
-use crate::fsrs::Retention;
-use crate::science::{MemoryScience, RankCtx, Scored, SynthesisAdmit};
+use crate::science::{MemoryScience, RankCtx, Scored};
 use crate::threads::{Cause, Distant, ThreadLens, Tie, Verdict};
 
 /// Where a session speaks, as the core read it.
@@ -82,10 +81,8 @@ pub enum Reason {
     LabeledWrong,
     /// A recall, or a line the harness wrote.
     Recursion,
-    /// A synthesis, and the arm admits none (31b: only `+synthesis` does).
+    /// A synthesis: no arm admits one (31b).
     Arm,
-    /// A synthesis whose citations were not checked and supported (31b).
-    Unchecked,
     /// A newer node corrects it, and is a candidate or in context (31a).
     Superseded,
     /// A newer node of its `same_entity` group is a candidate or in context
@@ -107,14 +104,13 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub const ALL: [Reason; 17] = [
+    pub const ALL: [Reason; 16] = [
         Reason::Place,
         Reason::InContext,
         Reason::Untrusted,
         Reason::LabeledWrong,
         Reason::Recursion,
         Reason::Arm,
-        Reason::Unchecked,
         Reason::Superseded,
         Reason::Duplicate,
         Reason::Threshold,
@@ -135,7 +131,6 @@ impl Reason {
             Reason::LabeledWrong => "labeled_wrong",
             Reason::Recursion => "recursion",
             Reason::Arm => "arm",
-            Reason::Unchecked => "unchecked",
             Reason::Superseded => "superseded",
             Reason::Duplicate => "duplicate",
             Reason::Threshold => "threshold",
@@ -206,23 +201,16 @@ pub struct Asker<'a> {
     /// The memory pass's edges among the candidates (31a).
     pub links: &'a [Link],
     pub now_ms: u64,
-    /// The candidates' retention by node (32a), for a science that reads
-    /// it; empty for one that does not, or before the projection is built.
-    pub retention: &'a BTreeMap<String, Retention>,
     /// What the threads do to this recall (theseus-f2g0); none when no
     /// thread is known.
     pub threads: Option<&'a ThreadLens>,
 }
 
 impl Asker<'_> {
-    /// The rank's context for `kept`: the turn's time, and their retention.
-    pub fn rank_ctx(&self, kept: &[Candidate]) -> RankCtx {
+    /// The rank's context: the turn's time.
+    pub fn rank_ctx(&self) -> RankCtx {
         RankCtx {
             now_ms: self.now_ms,
-            retention: kept
-                .iter()
-                .filter_map(|c| Some((c.node_id.clone(), *self.retention.get(&c.node_id)?)))
-                .collect(),
         }
     }
 }
@@ -460,11 +448,7 @@ fn other_filters(
         return Some(Reason::Recursion);
     }
     if c.kind == "synthesis" {
-        match science.synthesis(&c.node_id) {
-            SynthesisAdmit::NotThisArm => return Some(Reason::Arm),
-            SynthesisAdmit::Unchecked => return Some(Reason::Unchecked),
-            SynthesisAdmit::Admit => {}
-        }
+        return Some(Reason::Arm);
     }
     if c.fused < science.min_score() || c.fused.is_nan() {
         return Some(Reason::Threshold);
@@ -578,7 +562,7 @@ pub fn recall(
                         .unwrap_or(1.0),
             })
             .collect(),
-        &asker.rank_ctx(&kept),
+        &asker.rank_ctx(),
     );
     let mut by_key: std::collections::BTreeMap<String, Candidate> =
         kept.into_iter().map(|c| (c.key(), c)).collect();
@@ -683,7 +667,6 @@ mod tests {
             labeled: &labeled,
             links,
             now_ms: 0,
-            retention: &BTreeMap::new(),
             threads: None,
         };
         recall(
@@ -702,43 +685,6 @@ mod tests {
             .iter()
             .find(|d| d.candidate.node_id == node)
             .map(|d| d.reason)
-    }
-
-    /// Under `+synthesis` (31b), a checked synthesis and an unchecked one.
-    fn synthesis_pack(p: &Params) -> Pack {
-        let mut checked = cand("syn_ok", "ses_mem", Place::Private, 0.5);
-        checked.kind = "synthesis".into();
-        let mut unchecked = cand("syn_no", "ses_mem", Place::Private, 0.5);
-        unchecked.kind = "synthesis".into();
-        let arm = crate::science::WithSyntheses {
-            base: Baseline {
-                min_score: 0.01,
-                ..Baseline::default()
-            },
-            checked: std::sync::Arc::new(BTreeSet::from(["syn_ok".to_string()])),
-        };
-        let none = BTreeSet::new();
-        let asker = Asker {
-            session_id: "ses_here",
-            place: &Place::Private,
-            in_context: &none,
-            labeled: &none,
-            links: &[],
-            now_ms: 0,
-            retention: &BTreeMap::new(),
-            threads: None,
-        };
-        recall(&arm, &asker, vec![checked, unchecked], p)
-    }
-
-    /// Under `+synthesis`, a checked synthesis is a candidate, and an
-    /// unchecked one is dropped for it (31b).
-    #[test]
-    fn the_synthesis_arm_admits_a_checked_one_alone() {
-        let synth = synthesis_pack(&Params::default());
-        assert_eq!(synth.admitted.len(), 1);
-        assert_eq!(synth.admitted[0].candidate.node_id, "syn_ok");
-        assert_eq!(reason_of(&synth, "syn_no"), Some(Reason::Unchecked));
     }
 
     /// The threads' reasons (theseus-f2g0): a sealed thread's note, and
@@ -783,7 +729,6 @@ mod tests {
             labeled: &none,
             links: &[],
             now_ms: 0,
-            retention: &BTreeMap::new(),
             threads: Some(&lens),
         };
         let threaded = recall(
@@ -900,7 +845,6 @@ mod tests {
         for node in ["private", "unknown", "other"] {
             assert_eq!(reason_of(&placed, node), Some(Reason::Place), "{node}");
         }
-        let synth = synthesis_pack(&p);
         let threaded = threaded_pack(&p);
         let subject = subject_pack();
         // Every reason this step builds is met above.
@@ -908,7 +852,6 @@ mod tests {
             assert!(
                 pack.dropped_for(r)
                     + placed.dropped_for(r)
-                    + synth.dropped_for(r)
                     + threaded.dropped_for(r)
                     + subject.dropped_for(r)
                     > 0,
@@ -1142,7 +1085,6 @@ mod tests {
             labeled: &labeled,
             links: &links,
             now_ms: 0,
-            retention: &BTreeMap::new(),
             threads: None,
         };
         let pack = recall(&v1, &asker, cands(), &p);

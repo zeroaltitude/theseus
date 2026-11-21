@@ -88,7 +88,7 @@ fn scored(c: &Arc<Core>, picks: Vec<Pick>) -> Ask {
 }
 
 fn rig() -> Rig {
-    rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 /// The headers frozen on the Recall node of a turn that asked after the

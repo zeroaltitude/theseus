@@ -313,12 +313,10 @@ impl Core {
             labeled: &labeled,
         };
         frame.push(fact::row(&f, Some(&node.session_id), None)?.scoped(SCOPE));
-        let records = frame.clone();
-        let positions = memory.corrections.add(&self.store, frame, notes)?;
+        memory.corrections.add(&self.store, frame, notes)?;
         for (id, label) in &labeled {
             memory.labeled_now(id, label);
         }
-        memory.retention_written(&records, &positions);
         if let Some(a) = post {
             self.outbox.posted(&a);
         }

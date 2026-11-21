@@ -17,8 +17,7 @@
 //! - `memory.search` runs the same pipeline for a query, writing nothing, and
 //!   `memory.recalls` reads a session's rows (`rpc/memory.rs`).
 //!
-//! **In front of the model (step 30b).** In `canary` (a sticky share of
-//! sessions, `[memory] canary_fraction`) and `live`, the read finishes before
+//! **In front of the model (step 30b).** In `live`, the read finishes before
 //! the first loop's compile, under the same deadline, and what it admits is
 //! a `Recall` node (`node::Body::Recall`, references and never copies) with
 //! a `derived_from` edge to each source (`via = "recall"`), which ride the
@@ -26,11 +25,9 @@
 //! own. It renders after the new message, read from each source by position
 //! (`render`). A session's recall notes in its tail are capped
 //! (`session_recall_cap_tokens`): past it recall pauses until the next
-//! recompile. A control session runs `none` live with `baseline` in shadow.
+//! recompile.
 //! The operator's labels (`labels`) keep a node out as `labeled_wrong`.
 
-pub mod activation;
-pub mod adjacency;
 pub mod cite;
 pub mod current;
 pub mod evidence;
@@ -40,7 +37,6 @@ pub mod neighbour;
 pub mod outcomes;
 pub mod relevance;
 pub mod render;
-pub mod retention;
 pub mod stamp;
 pub mod temporal;
 pub mod when;
@@ -59,11 +55,10 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use theseus_memory::recall::{self as pipeline, Asker, Candidate, Link, LinkKind, Pack, Place};
-use theseus_memory::{Activated, Baseline, MemoryScience, Retention, RetentionRank};
+use theseus_memory::{Baseline, MemoryScience};
 use theseus_protocol::index::{IndexQueryParams, IndexQueryResult};
 use theseus_protocol::memory::{
-    BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallRetention,
-    RecallTimings,
+    BudgetDrop, BudgetReport, RecallDrop, RecallItem, RecallManifest, RecallTimings,
 };
 
 use crate::config::memory::MemoryArm;
@@ -139,10 +134,6 @@ impl From<String> for RecallQuery {
 pub struct Memory {
     cfg: MemoryConfig,
     science: Baseline,
-    /// The `+activation` arm's science (32b).
-    activated: Arc<Activated>,
-    /// The adjacency projection it spreads over, built after serving.
-    pub(crate) adjacency: Arc<activation::Adjacent>,
     ask: RwLock<Option<Ask>>,
     /// The tender's two queries on one connection; none for a stand-in,
     /// whose two are asked apart.
@@ -160,12 +151,11 @@ pub struct Memory {
     armed: Mutex<BTreeSet<String>>,
     /// Sources a `Recall` node rendered, by id: they never change.
     sources: Mutex<render::Sources>,
-    /// Each node's FSRS-6 retention (32a), once something reads it.
-    retention: retention::Projection,
-    /// Where the projection's size is measured, once telemetry is built.
+    /// Where the warm-up's outcome is counted, once telemetry is built.
     telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
-    /// The memory's harness session and its checked syntheses (31b), once
-    /// read (`syntheses`).
+    /// The memory's harness session, where the nightly writer kept its
+    /// syntheses (31b), once read (`syntheses`): recall asks the index
+    /// without it.
     syntheses: RwLock<Option<Syntheses>>,
     /// The last turns' recalls by outcome, for health (theseus-w9qv).
     outcomes: Mutex<outcomes::Outcomes>,
@@ -173,12 +163,12 @@ pub struct Memory {
     thread_memo: Arc<crate::thread_recall::Memo>,
 }
 
-/// The memory's harness session (31b), and the syntheses in it whose
-/// citations were checked and supported: the `+synthesis` arm's candidates.
+/// The memory's harness session (31b): the syntheses a store may still
+/// hold are kept there. The writer is gone; the session stays out of
+/// recall, as it always was.
 #[derive(Clone, Debug, Default)]
 pub struct Syntheses {
     pub session: Option<String>,
-    pub checked: Arc<BTreeSet<String>>,
 }
 
 impl Memory {
@@ -197,8 +187,6 @@ impl Memory {
         Self {
             cfg,
             science: Baseline::default(),
-            activated: Arc::new(Activated::default()),
-            adjacency: Arc::new(activation::Adjacent::default()),
             ask: RwLock::new(ask),
             two: RwLock::new(two),
             warm: RwLock::new(warm),
@@ -207,7 +195,6 @@ impl Memory {
             corrections: crate::retract::Notes::default(),
             armed: Mutex::new(BTreeSet::new()),
             sources: Mutex::new(render::Sources::new()),
-            retention: retention::Projection::default(),
             telemetry: std::sync::OnceLock::new(),
             syntheses: RwLock::new(None),
             outcomes: Mutex::new(outcomes::Outcomes::default()),
@@ -321,51 +308,16 @@ impl Memory {
         Arc::new(self.science.clone())
     }
 
-    /// An arm's science: `+retention`'s (32a), `+activation`'s (32b) and
-    /// `+synthesis`'s (31b: `baseline`'s, admitting the checked syntheses) for
-    /// theirs, `baseline`'s for every other. Shadow, a canary's control, and a
-    /// search that names no arm run `baseline`. The arms' seam: each arm that
-    /// ranks its own way adds its line here.
+    /// An arm's science: `baseline`'s for every arm this build has. The
+    /// arms' seam: an arm that ranks its own way adds its line here.
     pub fn science_for(&self, arm: MemoryArm) -> Arc<dyn MemoryScience> {
         match arm {
-            MemoryArm::Retention => Arc::new(RetentionRank {
-                base: self.science.clone(),
-                fsrs: self.retention.fsrs().clone(),
-                ..RetentionRank::default()
-            }),
-            MemoryArm::Activation => self.activated.clone(),
-            MemoryArm::Synthesis => Arc::new(theseus_memory::WithSyntheses {
-                base: self.science.clone(),
-                checked: self.syntheses_known().checked,
-            }),
             MemoryArm::None | MemoryArm::Bm25 | MemoryArm::Baseline => self.science_owned(),
         }
     }
 
-    /// The retention of `candidates`' nodes for a science that reads it,
-    /// and the projection's state in a word (`ready`, or why the rank went
-    /// without: `building`, `unbuilt`, `failed`); none for one that does
-    /// not.
-    fn retention_for(
-        &self,
-        science: &dyn MemoryScience,
-        candidates: &[Candidate],
-    ) -> (BTreeMap<String, Retention>, Option<String>) {
-        if !science.reads_retention() {
-            return (BTreeMap::new(), None);
-        }
-        let phase = self.retention.phase();
-        let map = match phase {
-            retention::Phase::Ready => self
-                .retention
-                .of(candidates.iter().map(|c| c.node_id.as_str())),
-            _ => BTreeMap::new(),
-        };
-        (map, Some(phase.word().to_string()))
-    }
-
-    /// The harness session and its checked syntheses, read once from the
-    /// store (the session by its META key, then its nodes).
+    /// The memory's harness session, read once from the store (by its META
+    /// key).
     pub fn syntheses(&self, store: &crate::store::Store) -> Syntheses {
         if let Some(s) = self
             .syntheses
@@ -376,23 +328,8 @@ impl Memory {
             return s;
         }
         let read = || -> anyhow::Result<Syntheses> {
-            let Some(session) =
-                store.get_meta::<String>(crate::consolidate::run::MEMORY_SESSION)?
-            else {
-                return Ok(Syntheses::default());
-            };
-            let checked = store
-                .session_nodes(&session)?
-                .into_iter()
-                .filter(
-                    |(_, n)| matches!(&n.body, Body::Synthesis { check, .. } if check.checked()),
-                )
-                .map(|(_, n)| n.id)
-                .collect();
-            Ok(Syntheses {
-                session: Some(session),
-                checked: Arc::new(checked),
-            })
+            let session = store.get_meta::<String>(crate::consolidate::MEMORY_SESSION)?;
+            Ok(Syntheses { session })
         };
         match read() {
             Ok(s) => {
@@ -403,13 +340,45 @@ impl Memory {
                 s
             }
             Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "recall: the syntheses cannot be read; none is a candidate");
+                tracing::warn!(error = %format!("{e:#}"), "recall: the memory's harness session cannot be read");
                 Syntheses::default()
             }
         }
     }
 
-    /// What is known of the syntheses without a read.
+    /// Where recall's warm-ups are counted, once telemetry is built.
+    pub fn export_to(&self, t: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(t);
+    }
+
+    /// Memory's line in health: the mode and the arm. The retention and
+    /// adjacency projections went with their arms; their fields say so.
+    pub fn health(&self) -> theseus_protocol::memory::MemoryHealth {
+        theseus_protocol::memory::MemoryHealth {
+            mode: self.cfg.mode.as_str().into(),
+            arm: self.cfg.arm.as_str().into(),
+            retention: "unbuilt".into(),
+            why: None,
+            nodes: 0,
+            events: 0,
+            adjacency: None,
+            recalls: None,
+        }
+    }
+
+    /// A test planted the harness session after recall first read it (the
+    /// retired writer told recall so as it opened the session).
+    #[cfg(test)]
+    pub(crate) fn harness_opened(&self, session: &str) {
+        *self
+            .syntheses
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Syntheses {
+            session: Some(session.to_string()),
+        });
+    }
+
+    /// What is known of the harness session without a read.
     fn syntheses_known(&self) -> Syntheses {
         self.syntheses
             .read()
@@ -418,27 +387,10 @@ impl Memory {
             .unwrap_or_default()
     }
 
-    /// Consolidation kept a synthesis in `session`; `checked`, when its
-    /// citations were supported.
-    pub fn kept_synthesis(&self, session: &str, id: &str, checked: bool) {
-        let mut w = self
-            .syntheses
-            .write()
-            .unwrap_or_else(PoisonError::into_inner);
-        let Some(s) = w.as_mut() else {
-            // Not read yet: the first read finds it.
-            return;
-        };
-        s.session = Some(session.to_string());
-        if checked {
-            Arc::make_mut(&mut s.checked).insert(id.to_string());
-        }
-    }
-
     /// Ask the index for `query`'s hits as of `as_of` from `arm`'s sources
     /// (`MemoryArm::sources`), in a task of its own, bounded by `deadline`.
-    /// Every arm but `+synthesis` leaves the memory's harness session out
-    /// before the index's top k (`exclude_sessions`).
+    /// Every arm leaves the memory's harness session out before the index's
+    /// top k (`exclude_sessions`).
     pub fn begin(
         &self,
         query: impl Into<RecallQuery>,
@@ -517,14 +469,7 @@ impl Memory {
             fast,
         } = within;
         let sources = arm.sources();
-        let exclude: Vec<String> = match arm {
-            MemoryArm::Synthesis => Vec::new(),
-            MemoryArm::None
-            | MemoryArm::Bm25
-            | MemoryArm::Baseline
-            | MemoryArm::Retention
-            | MemoryArm::Activation => self.syntheses_known().session.into_iter().collect(),
-        };
+        let exclude: Vec<String> = self.syntheses_known().session.into_iter().collect();
         let ask = self
             .ask
             .read()
@@ -798,10 +743,8 @@ pub struct Scene<'a> {
     /// (theseus-d9je7). A `Begun`'s own page size wins.
     pub max_items: Option<usize>,
     /// The turn's arm's science (`Memory::science_for`): `baseline` in
-    /// shadow, for a canary's control, and for a search with no arm.
+    /// shadow, and for a search with no arm.
     pub science: Arc<dyn MemoryScience>,
-    /// What spreading activation did before the pipeline (32b).
-    pub activation: Option<theseus_protocol::memory::RecallActivation>,
     /// The threads' part of the recall (theseus-f2g0); none when no thread
     /// exists or the recall is not a session's.
     pub threads: Option<crate::thread_recall::ThreadScene>,
@@ -879,7 +822,6 @@ impl Memory {
             recall_id: crate::new_id("rcl"),
             mode: scene.mode.into(),
             science: scene.science.id().to_string(),
-            activation: scene.activation.clone(),
             outcome: begun.outcome().into(),
             why: begun.words_only.clone(),
             temporal: begun.temporal.map(|k| k.as_str().into()),
@@ -945,8 +887,6 @@ impl Memory {
         } else {
             Vec::new()
         };
-        let (retention, state) = self.retention_for(&*scene.science, &candidates);
-        m.retention = state;
         let lens = scene.lens(&candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
@@ -955,7 +895,6 @@ impl Memory {
             labeled: &scene.labeled,
             links: &links,
             now_ms: theseus_protocol::now_unix_ms(),
-            retention: &retention,
             threads: lens.as_ref(),
         };
         let mut params = begun.params(self.cfg.params(), (m.budget_tokens, scene.max_items));
@@ -971,7 +910,6 @@ impl Memory {
         fill(&mut m, pack, &mut ranks, texts);
         neighbour::apply(&mut m.admitted, &neighbour::marks(&candidates));
         current::mark(&mut m.admitted, begun, &links, &candidates);
-        self.retention_items(&*scene.science, &mut m, &retention, asker.now_ms);
         m.timings.pack_ms = ms(t0.elapsed());
         m.timings.total_ms = ms(begun.started.elapsed());
         (m, candidates, links, kept)
@@ -989,7 +927,6 @@ impl Memory {
         mut ranks: Ranks,
         order: Vec<String>,
     ) {
-        let (retention, _) = self.retention_for(&*scene.science, &candidates);
         let lens = scene.lens(&candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
@@ -998,7 +935,6 @@ impl Memory {
             labeled: &scene.labeled,
             links,
             now_ms: theseus_protocol::now_unix_ms(),
-            retention: &retention,
             threads: lens.as_ref(),
         };
         let params = self.params_of(m, scene.max_items);
@@ -1013,47 +949,6 @@ impl Memory {
         fill(m, pack, &mut ranks, true);
         neighbour::apply(&mut m.admitted, &marks);
         current::apply(&mut m.admitted, &superseded);
-        self.retention_items(&*scene.science, m, &retention, asker.now_ms);
-    }
-
-    /// The retention of `candidates`' nodes as the turn's science reads it:
-    /// for the judge's rerank, whose repack ranks as the recall did.
-    pub fn retention_of(
-        &self,
-        science: &dyn MemoryScience,
-        candidates: &[Candidate],
-    ) -> BTreeMap<String, Retention> {
-        self.retention_for(science, candidates).0
-    }
-
-    /// Under a science that reads retention, each admitted and dropped
-    /// item's: its retrievability at the turn's time, stability, difficulty
-    /// and last review (none for a node without one).
-    fn retention_items(
-        &self,
-        science: &dyn MemoryScience,
-        m: &mut RecallManifest,
-        retention: &BTreeMap<String, Retention>,
-        now_ms: u64,
-    ) {
-        if !science.reads_retention() {
-            return;
-        }
-        let fsrs = self.retention.fsrs();
-        let of = |node: &str| {
-            retention.get(node).map(|r| RecallRetention {
-                retrievability: fsrs.retrievability_at(r, now_ms),
-                stability: r.stability,
-                difficulty: r.difficulty,
-                last_review_ms: r.last_review_ms,
-            })
-        };
-        for item in &mut m.admitted {
-            item.retention = of(&item.node_id);
-        }
-        for drop in &mut m.dropped {
-            drop.retention = of(&drop.node_id);
-        }
     }
 
     /// The pack's limits for a manifest's budget, at `max_items` when its
@@ -1162,17 +1057,6 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
             paid: d.distance.map(|x| x.paid),
         })
         .collect();
-    // Activation's share of what was admitted (32b).
-    if let Some(a) = &mut m.activation {
-        let ranked = |i: &&RecallItem| i.sources.contains_key(activation::SOURCE);
-        a.admitted = m.admitted.iter().filter(ranked).count() as u64;
-        a.admitted_added = m
-            .admitted
-            .iter()
-            .filter(ranked)
-            .filter(|i| i.sources.len() == 1)
-            .count() as u64;
-    }
 }
 
 fn ms(d: Duration) -> f64 {

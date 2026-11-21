@@ -10,7 +10,7 @@
 //!   `confidential`: the `[model]` default writes the summary and the row says
 //!   why.
 //!
-//! The consolidation, keep-warm and replay tests are in their own suites.
+//! The keep-warm and replay tests are in their own suites.
 
 use std::sync::Arc;
 
@@ -261,7 +261,7 @@ async fn a_restricted_summary_profile_in_a_labelled_session_falls_back() {
 
 /// theseus-4h85l: each background path that refuses a restricted-origin model
 /// counts it on `theseus.route.data_gate`, by caller and why: a compaction
-/// (the flag's word), a consolidation, a keep-warm read and a replay.
+/// (the flag's word), a keep-warm read and a replay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_background_refusals_are_counted() {
     let (rx, tel) = telemetry().await;
@@ -277,11 +277,6 @@ async fn the_background_refusals_are_counted() {
     let sid = dm(&r.core);
     until_rang(&r, &sid, &messages).await;
 
-    let mut report = theseus_protocol::memory::SynthesisReport::default();
-    assert_eq!(
-        r.core.unrestricted("glm".into(), &mut report).as_deref(),
-        Some("default")
-    );
     let target = r
         .core
         .runner
@@ -307,7 +302,6 @@ async fn the_background_refusals_are_counted() {
         got,
         vec![
             pair("compaction", "confidential"),
-            pair("consolidation", "restricted_origin"),
             pair("keep_warm", "restricted_origin"),
             pair("replay", "restricted_origin"),
         ]

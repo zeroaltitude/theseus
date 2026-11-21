@@ -5,11 +5,14 @@
 //! `off` turns it off. `shadow` asks
 //! the index on a turn's first loop, filters and packs what it answers, and
 //! records what would have been admitted in a `recall.shadow` row: it writes
-//! no frame, and the model's request is the same byte for byte. `canary` and
-//! `live` (step 30b) put recall in front of the model: `live` for every
-//! session, `canary` for the share `canary_fraction` of sessions a hash of
-//! the session and `experiment` picks, sticky, while the others (the
-//! control) run `none` live with `baseline` in shadow.
+//! no frame, and the model's request is the same byte for byte. `live` (step
+//! 30b) puts recall in front of the model for every session.
+//!
+//! **Retired** (the owner, 2026-11-21): the research arms `+retention`,
+//! `+activation` and `+synthesis`, the `canary` mode and its
+//! `canary_fraction`, which never ran live. A config that still names them
+//! loads: an old arm is read as `baseline`, `canary` as `live`, and the
+//! fraction is ignored, and the start says so once ([`MemoryConfig::retired`]).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -22,11 +25,10 @@ pub enum MemoryMode {
     Off,
     /// Recall runs and is recorded, and nothing reaches the model.
     Shadow,
-    /// A sticky share of sessions get `arm` in front of the model; the rest
-    /// run `none`, with `baseline` in shadow.
-    Canary,
-    /// Every session gets `arm` in front of the model.
+    /// Every session gets `arm` in front of the model. `canary`, retired,
+    /// reads as this.
     #[default]
+    #[serde(alias = "canary")]
     Live,
 }
 
@@ -35,33 +37,30 @@ impl MemoryMode {
         match self {
             MemoryMode::Off => "off",
             MemoryMode::Shadow => "shadow",
-            MemoryMode::Canary => "canary",
             MemoryMode::Live => "live",
         }
     }
 }
 
 /// The arms this build has (§2.9): `none`, today's compiler; `bm25`, the
-/// index's BM25 and entities alone (34b); `baseline`, the fused pipeline;
-/// `+retention` (32a), `baseline` ranked by FSRS-6 retention too;
-/// `+activation` (32b), `baseline` with spreading activation as one more
-/// ranked source; and `+synthesis` (31b), `baseline` with consolidation's
-/// checked syntheses as candidates. Later steps add theirs.
+/// index's BM25 and entities alone (34b); and `baseline`, the fused
+/// pipeline. The retired arms ([`RETIRED_ARMS`]) read as `baseline`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryArm {
     None,
     Bm25,
     #[default]
+    #[serde(alias = "+retention", alias = "+activation", alias = "+synthesis")]
     Baseline,
-    #[serde(rename = "+retention")]
-    Retention,
-    #[serde(rename = "+activation")]
-    Activation,
-    /// `baseline` with consolidation's checked syntheses as candidates (31b).
-    #[serde(rename = "+synthesis")]
-    Synthesis,
 }
+
+/// The research arms retired on 2026-11-21 (FSRS-6 retention, spreading
+/// activation, the nightly syntheses): a config that names one loads on
+/// `baseline`, with a line at the start.
+pub const RETIRED_ARMS: [&str; 3] = ["+retention", "+activation", "+synthesis"];
+/// The retired mode: it reads as `live`.
+pub const RETIRED_MODE: &str = "canary";
 
 impl MemoryArm {
     pub fn as_str(self) -> &'static str {
@@ -69,45 +68,26 @@ impl MemoryArm {
             MemoryArm::None => "none",
             MemoryArm::Bm25 => "bm25",
             MemoryArm::Baseline => "baseline",
-            MemoryArm::Retention => "+retention",
-            MemoryArm::Activation => "+activation",
-            MemoryArm::Synthesis => "+synthesis",
         }
-    }
-
-    /// Whether the arm's science reads the retention projection (32a).
-    pub fn reads_retention(self) -> bool {
-        self == MemoryArm::Retention
     }
 
     /// The index's sources the arm asks for (`index.query`'s `sources`):
     /// none for `none`, which asks nothing; BM25 and entities for `bm25`;
     /// and all three, fused, for `baseline`. A tender without its model
     /// answers `baseline` without vectors, and says so in `skipped`.
-    /// `+activation` asks for `baseline`'s: its own source is the core's.
     pub fn sources(self) -> &'static [&'static str] {
         match self {
             MemoryArm::None => &[],
             MemoryArm::Bm25 => &["bm25", "entity"],
-            MemoryArm::Baseline
-            | MemoryArm::Retention
-            | MemoryArm::Activation
-            | MemoryArm::Synthesis => &["bm25", "entity", "vector"],
+            MemoryArm::Baseline => &["bm25", "entity", "vector"],
         }
     }
 
     /// The arm a name names (`memory search --arm`).
     pub fn named(name: &str) -> Option<Self> {
-        [
-            MemoryArm::None,
-            MemoryArm::Bm25,
-            MemoryArm::Baseline,
-            MemoryArm::Retention,
-            MemoryArm::Activation,
-            MemoryArm::Synthesis,
-        ]
-        .into_iter()
-        .find(|a| a.as_str() == name)
+        [MemoryArm::None, MemoryArm::Bm25, MemoryArm::Baseline]
+            .into_iter()
+            .find(|a| a.as_str() == name)
     }
 }
 
@@ -116,14 +96,18 @@ impl MemoryArm {
 pub struct MemoryConfig {
     #[serde(default)]
     pub mode: MemoryMode,
-    /// The arm canary and live sessions get.
+    /// The arm live sessions get.
     #[serde(default)]
     pub arm: MemoryArm,
-    /// The share of sessions canary puts on `arm`, 0 to 1.
-    #[serde(default = "default_canary_fraction")]
-    pub canary_fraction: f64,
-    /// The experiment's name: it seeds the sticky assignment, and each
-    /// `memory.arm` row names it.
+    /// `canary_fraction`, retired with the `canary` mode: read, warned of
+    /// ([`Self::retired`]), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    pub(crate) canary_fraction: Option<toml::Value>,
+    /// The retired arm or mode the document named (`Config::from_toml`
+    /// reads them from it), for [`Self::retired`].
+    #[serde(skip)]
+    pub(crate) retired_names: Vec<String>,
+    /// The experiment's name: each `memory.arm` row names it.
     #[serde(default = "default_experiment")]
     pub experiment: String,
     /// The tokens of recall notes a session's tail may hold; past it, recall
@@ -255,9 +239,6 @@ fn default_vector_tokens() -> u64 {
 fn default_rerank_wait_ms() -> u64 {
     200
 }
-fn default_canary_fraction() -> f64 {
-    0.5
-}
 fn default_experiment() -> String {
     "m6-1".into()
 }
@@ -321,7 +302,8 @@ impl Default for MemoryConfig {
         Self {
             mode: MemoryMode::default(),
             arm: MemoryArm::default(),
-            canary_fraction: default_canary_fraction(),
+            canary_fraction: None,
+            retired_names: Vec::new(),
             experiment: default_experiment(),
             session_recall_cap_tokens: default_session_cap(),
             recall_budget_tokens: default_budget(),
@@ -364,13 +346,34 @@ impl MemoryConfig {
         }
     }
 
-    pub(crate) fn validate(&self) -> Result<()> {
-        if !(0.0..=1.0).contains(&self.canary_fraction) {
-            bail!(
-                "memory.canary_fraction = {} is outside 0 to 1",
-                self.canary_fraction
-            );
+    /// Note the retired arm or mode `doc`'s `[memory]` names (the parsed
+    /// document's own values: serde has already read them as `baseline`
+    /// and `live`).
+    pub(crate) fn note_retired(&mut self, doc: &toml::Table) {
+        let Some(m) = doc.get("memory").and_then(toml::Value::as_table) else {
+            return;
+        };
+        let said = |key: &str| m.get(key).and_then(toml::Value::as_str);
+        if let Some(arm) = said("arm").filter(|a| RETIRED_ARMS.contains(a)) {
+            self.retired_names.push(format!("memory.arm = \"{arm}\""));
         }
+        if said("mode") == Some(RETIRED_MODE) {
+            self.retired_names
+                .push(format!("memory.mode = \"{RETIRED_MODE}\""));
+        }
+    }
+
+    /// What this section sets that this build retired, by the name the
+    /// config gives it: what `Config::parse` warns of, once.
+    pub fn retired(&self) -> Vec<String> {
+        let mut out = self.retired_names.clone();
+        if self.canary_fraction.is_some() {
+            out.push("memory.canary_fraction".into());
+        }
+        out
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
         if self.experiment.trim().is_empty() {
             bail!("memory.experiment is empty: it names the plan, and seeds each session's arm");
         }
@@ -474,43 +477,27 @@ impl MemoryConfig {
     }
 }
 
-/// Which arm a session runs, and whether recall reaches its model: sticky,
-/// from a hash of the session and the experiment (§2.9's minimal
-/// assignment, which M5's ladder replaces), so a session keeps its arm across
-/// turns and restarts.
+/// Which arm a session runs, and whether recall reaches its model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Assigned {
     pub arm: MemoryArm,
-    /// The arm is in front of the model (canary or live, `baseline`).
+    /// The arm is in front of the model (live, and not `none`).
     pub live: bool,
 }
 
 impl MemoryConfig {
-    /// `session_id`'s arm under this config; `None` while memory is off or
-    /// in shadow, which assigns nothing.
-    pub fn assign(&self, session_id: &str) -> Option<Assigned> {
-        let arm = match self.mode {
-            MemoryMode::Off | MemoryMode::Shadow => return None,
-            MemoryMode::Live => self.arm,
-            MemoryMode::Canary if bucket(session_id, &self.experiment) < self.canary_fraction => {
-                self.arm
-            }
-            MemoryMode::Canary => MemoryArm::None,
-        };
-        Some(Assigned {
-            arm,
-            live: arm != MemoryArm::None,
-        })
+    /// A session's arm under this config: `arm`, live; `None` while memory
+    /// is off or in shadow, which assigns nothing. The same for every
+    /// session since the `canary` mode's share went.
+    pub fn assign(&self, _session_id: &str) -> Option<Assigned> {
+        match self.mode {
+            MemoryMode::Off | MemoryMode::Shadow => None,
+            MemoryMode::Live => Some(Assigned {
+                arm: self.arm,
+                live: self.arm != MemoryArm::None,
+            }),
+        }
     }
-}
-
-/// Where `session_id` falls in `[0, 1)` for `experiment`: the first 8 bytes
-/// of SHA-256 over both, so every build and every restart agrees.
-pub fn bucket(session_id: &str, experiment: &str) -> f64 {
-    use sha2::{Digest, Sha256};
-    let d = Sha256::digest(format!("{experiment}\n{session_id}").as_bytes());
-    let n = u64::from_be_bytes(d[..8].try_into().unwrap_or([0; 8]));
-    (n >> 11) as f64 / (1u64 << 53) as f64
 }
 
 /// The template's `[memory]`, un-commented (`config.rs`'s
@@ -542,7 +529,7 @@ mod tests {
     }
 
     /// Live on `baseline` by default (theseus-is8t); `off` turns it off,
-    /// and shadow, canary, and live each turn it on; the limits are checked.
+    /// and shadow and live each turn it on; the limits are checked.
     #[test]
     fn memory_is_live_by_default_and_off_turns_it_off() {
         let example = crate::Config::example().memory;
@@ -552,7 +539,7 @@ mod tests {
             (MemoryMode::Live, MemoryArm::Baseline)
         );
         assert!(!parse("[memory]\nmode = \"off\"\n").unwrap().memory.on());
-        for mode in ["shadow", "canary", "live"] {
+        for mode in ["shadow", "live"] {
             let cfg = parse(&format!("[memory]\nmode = \"{mode}\"\n")).unwrap();
             assert!(cfg.memory.on(), "{mode}");
             cfg.validate().unwrap();
@@ -573,9 +560,6 @@ mod tests {
             ("none", MemoryArm::None),
             ("bm25", MemoryArm::Bm25),
             ("baseline", MemoryArm::Baseline),
-            ("+retention", MemoryArm::Retention),
-            ("+activation", MemoryArm::Activation),
-            ("+synthesis", MemoryArm::Synthesis),
         ] {
             let cfg = parse(&format!("[memory]\nmode = \"live\"\narm = \"{arm}\"\n")).unwrap();
             assert_eq!(cfg.memory.arm, want);
@@ -597,8 +581,6 @@ mod tests {
             "recall_vector_tokens = 501",
             "rerank_wait_ms = 0",
             "rerank_wait_ms = 601",
-            "canary_fraction = 1.5",
-            "canary_fraction = -0.1",
             "experiment = \" \"",
             "session_recall_cap_tokens = 100",
             "summary_profile = \"\"",
@@ -641,41 +623,66 @@ mod tests {
         }
     }
 
-    /// The arm is sticky (a session's is the same at every ask), canary's
-    /// share follows the fraction, live puts every session on the arm, and
-    /// shadow assigns none.
+    /// Live puts every session on the arm (`none` is not in front of the
+    /// model), and off and shadow assign none.
     #[test]
-    fn a_sessions_arm_is_sticky_and_canary_takes_its_fraction() {
-        let mut m = MemoryConfig {
-            mode: MemoryMode::Canary,
-            canary_fraction: 0.3,
-            ..MemoryConfig::default()
-        };
-        let ids: Vec<String> = (0..2000).map(|i| format!("ses_heron{i:04}")).collect();
-        let live = ids.iter().filter(|s| m.assign(s).unwrap().live).count();
-        assert!((500..700).contains(&live), "{live} of 2000 at 0.3");
-        for s in &ids[..50] {
-            assert_eq!(m.assign(s), m.assign(s), "{s}");
+    fn live_puts_every_session_on_the_arm() {
+        let mut m = MemoryConfig::default();
+        let ids: Vec<String> = (0..50).map(|i| format!("ses_heron{i:04}")).collect();
+        for s in &ids {
+            assert_eq!(
+                m.assign(s),
+                Some(Assigned {
+                    arm: MemoryArm::Baseline,
+                    live: true
+                })
+            );
         }
-        let control = ids.iter().find(|s| !m.assign(s).unwrap().live).unwrap();
-        assert_eq!(m.assign(control).unwrap().arm, MemoryArm::None);
-        m.canary_fraction = 1.0;
-        assert!(ids.iter().all(|s| m.assign(s).unwrap().live));
-        m.canary_fraction = 0.0;
-        assert!(ids.iter().all(|s| !m.assign(s).unwrap().live));
-        // Another experiment draws again.
-        let other = MemoryConfig {
-            experiment: "m6-2".into(),
-            canary_fraction: 0.3,
-            ..m.clone()
-        };
-        m.canary_fraction = 0.3;
-        assert!(ids.iter().any(|s| m.assign(s) != other.assign(s)));
-        m.mode = MemoryMode::Live;
-        assert!(ids.iter().all(|s| m.assign(s).unwrap().live));
         m.arm = MemoryArm::None;
         assert!(ids.iter().all(|s| !m.assign(s).unwrap().live));
-        m.mode = MemoryMode::Shadow;
-        assert_eq!(m.assign("ses_heron0001"), None);
+        for mode in [MemoryMode::Shadow, MemoryMode::Off] {
+            m.mode = mode;
+            assert_eq!(m.assign("ses_heron0001"), None);
+        }
+    }
+
+    /// A config written for the retired arms and the canary mode still
+    /// loads (the owner, 2026-11-21): an old arm reads as `baseline`,
+    /// `canary` as `live`, `canary_fraction` is ignored, and the start
+    /// says so in one line that names each.
+    #[test]
+    fn a_config_that_names_a_retired_arm_or_canary_still_loads() {
+        for arm in RETIRED_ARMS {
+            let text = format!(
+                "{}\n[memory]\nmode = \"canary\"\narm = \"{arm}\"\ncanary_fraction = 0.3\n",
+                crate::Config::EXAMPLE_TOML
+            );
+            let (cfg, warnings) = crate::Config::parse(&text).unwrap();
+            assert_eq!(
+                (cfg.memory.mode, cfg.memory.arm),
+                (MemoryMode::Live, MemoryArm::Baseline)
+            );
+            let said: Vec<&String> = warnings.iter().filter(|w| w.contains("memory.")).collect();
+            assert_eq!(said.len(), 1, "{warnings:?}");
+            for key in [
+                format!("memory.arm = \"{arm}\""),
+                "memory.mode = \"canary\"".into(),
+                "memory.canary_fraction".into(),
+            ] {
+                assert!(said[0].contains(&key), "{key}: {}", said[0]);
+            }
+            assert!(
+                !toml::to_string(&cfg.memory)
+                    .unwrap()
+                    .contains("canary_fraction"),
+                "never written back"
+            );
+        }
+        // A config that names none of them hears nothing of it.
+        let (_, warnings) = crate::Config::parse(crate::Config::EXAMPLE_TOML).unwrap();
+        assert!(
+            warnings.iter().all(|w| !w.contains("memory.")),
+            "{warnings:?}"
+        );
     }
 }

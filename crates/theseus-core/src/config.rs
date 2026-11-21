@@ -1643,6 +1643,19 @@ impl Config {
                 }
             ));
         }
+        // The research arms and the canary mode (the owner, 2026-11-21).
+        let memory = cfg.memory.retired();
+        if !memory.is_empty() {
+            warnings.push(format!(
+                "{} retired (recall's research arms and the canary mode never ran live): read as \
+                 `arm = \"baseline\"` and `mode = \"live\"`, and ignored; remove {}",
+                memory.join(", "),
+                match memory.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
         if cfg.server.drafts_dir.is_some() {
             warnings.push(
                 "[server] drafts_dir is retired: the China-origin draft is gone, so the key \
@@ -2050,6 +2063,7 @@ impl Config {
         })?;
         let m = &cfg.model;
         let doc: toml::Table = text.parse()?;
+        cfg.memory.note_retired(&doc);
         let mut profiles = inherit::profiles(&doc)?;
         profiles
             .entry("default".into())

@@ -32,8 +32,6 @@ use theseus_protocol::memory::{BudgetDrop, BudgetRange};
 
 pub(crate) mod gate;
 
-/// The profile the `[model]` section builds: where a restricted background call falls back.
-pub(crate) use super::data_step::DEFAULT_PROFILE;
 use super::{Failure, Target, Turn, TurnRunner};
 use crate::catalog::ThinkingMode;
 use crate::compiler::{self, compaction, CompileInput, Compiled};

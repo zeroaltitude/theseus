@@ -3,7 +3,7 @@
 //! weighted by the kind, and the term admits nothing: the place rule and
 //! every other filter run first.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::recall::{recall, Asker, Candidate, CategoryBoost, Pack, Params, Place, Reason};
 use crate::science::Baseline;
@@ -43,7 +43,7 @@ fn run(asker_place: &Place, category: Option<CategoryBoost>, cands: Vec<Candidat
         labeled: &none,
         links: &[],
         now_ms: 0,
-        retention: &BTreeMap::new(),
+
         threads: None,
     };
     let p = Params {

@@ -1,6 +1,6 @@
-//! The dream writes guidance (theseus-olt3h): after the nightly consolidation,
-//! a category of the ontology that five sessions or more hold and that has
-//! none gets its first, written from what those sessions say. The compile
+//! The dream writes guidance (theseus-olt3h): at the nightly run, a category
+//! of the ontology that five sessions or more hold and that has none gets
+//! its first, written from what those sessions say. The compile
 //! composes a category's guidance into every session that holds it, so a
 //! category written this way changes the next compile of each of its
 //! sessions' system block (a session's next recompile, not a turn in flight).
@@ -10,7 +10,7 @@
 //!   sessions of private places that a person wrote (never a task's, an
 //!   import's or a shared place's); at most [`PER_NIGHT`] a night, most held
 //!   first.
-//! - **The call**: one, through the provider path consolidation uses, so the
+//! - **The call**: one, through the provider path the background jobs use, so the
 //!   data rule's gate and the China-origin rule apply unchanged. **Its model
 //!   is route.v10's one named exception (theseus-xdi65), see [`DREAM_MODEL`]:**
 //!   a `[memory] synth_profile` that is set pins it, as it pins every other
@@ -28,7 +28,8 @@
 //!   category waits only when fewer than [`MIN_SESSIONS`] remain.
 //! - **Money**: no new budget. The worst case is reserved at the profile's
 //!   prices first, and the night stops before a call would pass `[memory]
-//!   synth_limit_usd_per_day`, counting consolidation's spend today and these
+//!   synth_limit_usd_per_day`, counting the syntheses' spend today (none since
+//!   their writer was retired, 2026-11-21) and these
 //!   calls' (the META record [`MARK`], so a restart reads it back; a refused
 //!   answer's call is counted too).
 //! - **The write**: an answer that is empty, or over 400 characters once
@@ -37,7 +38,7 @@
 //!   undo`, which restores the empty guidance. No card goes out at night: the
 //!   write is in the morning note.
 //!
-//! Never run by the owner's `memory.consolidate`: only the nightly tender calls
+//! Never run by hand: only the nightly tender calls
 //! it, and only while `[ontology] dream_guidance` is on (the default; off is
 //! its rollback: nothing is read, called or written).
 
@@ -88,7 +89,7 @@ pub const TEXT_CHARS: usize = 300;
 ///   `routing::checkpoint::CHARS_PER_TOKEN`) that ceiling is 400 / 3 = 134
 ///   tokens. The guidance answers that exist to be measured are far under it:
 ///   62 characters (`tests_guidance`'s scripted answer, about 21 tokens) and
-///   30 (`tests_consolidate`'s synthesis, about 10). The live ledger's own p95
+///   30 (the retired writer's test synthesis, about 10). The live ledger's own p95
 ///   is not readable from a build lane, so the ceiling is what this is sized
 ///   against, and the ceiling is the number that binds: nothing longer is ever
 ///   kept.
@@ -335,8 +336,9 @@ impl Core {
         out
     }
 
-    /// What consolidation spent today: its `synthesis.proposed` rows since
-    /// local midnight.
+    /// What the syntheses spent today: their `synthesis.proposed` rows since
+    /// local midnight (none are written since the writer was retired; a row
+    /// of the day it was is still counted).
     fn consolidation_spent(&self, now_ms: u64) -> Result<Micros> {
         let midnight = crate::learning::local_midnight(now_ms);
         Ok(self

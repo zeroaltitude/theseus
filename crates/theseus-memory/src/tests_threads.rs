@@ -62,7 +62,7 @@ fn run(lens: &ThreadLens, cands: Vec<Candidate>) -> Pack {
         labeled: &none,
         links: &[],
         now_ms: 0,
-        retention: &BTreeMap::new(),
+
         threads: Some(lens),
     };
     recall(&Baseline::default(), &asker, cands, &Params::default())

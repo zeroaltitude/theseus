@@ -53,8 +53,7 @@ fn build(dir: &Path, model: Arc<FakeProvider>) -> Arc<Core> {
         cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     }
     cfg.tools.roots = vec![];
-    cfg.memory.mode = MemoryMode::Canary;
-    cfg.memory.canary_fraction = 1.0;
+    cfg.memory.mode = MemoryMode::Live;
     let store = Store::open(&dir.join("store")).unwrap();
     Core::build(crate::rpc::Parts::for_tests(cfg, model, store)).unwrap()
 }

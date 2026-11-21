@@ -34,7 +34,7 @@ pub(super) fn cli() -> Answerer {
 }
 
 pub(super) fn canary() -> Rig {
-    rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 1.0)
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 pub(super) fn new_thread(c: &Core, slug: &str, title: &str) {
@@ -145,7 +145,6 @@ pub(super) async fn ambient(c: &Arc<Core>, asker: &str, message: &str, ask: Ask)
         budget_tokens: None,
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
-        activation: None,
         threads: c.runner.thread_scene(Some(asker), message, true),
         persona: None,
         category: None,

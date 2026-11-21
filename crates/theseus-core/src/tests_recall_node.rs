@@ -1,5 +1,5 @@
 //! Recall in front of the model through the whole core (M6 step 30b; §3.2's
-//! tests): a canary turn's `Recall` node, its render after the new message,
+//! tests): a live turn's `Recall` node, its render after the new message,
 //! its edges and `node.reach`, the plan frame it rides, the next request
 //! beginning with the previous one's bytes, the sticky arm and its row, the
 //! session's cap, the operator's labels, and a stalled index. The index is
@@ -29,13 +29,13 @@ use crate::Core;
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
 
 /// Canary with every session on the arm.
+/// A live rig (the name is the retired canary mode's, which ran these the same way).
 fn canary() -> Rig {
     canary_with(|_| {})
 }
 
 fn canary_with(tweak: impl FnOnce(&mut crate::Config)) -> Rig {
-    rig_with(MemoryMode::Canary, |c| {
-        c.memory.canary_fraction = 1.0;
+    rig_with(MemoryMode::Live, |c| {
         tweak(c);
     })
 }
@@ -70,16 +70,16 @@ fn last_texts(q: &ProviderRequest) -> Vec<String> {
         .collect()
 }
 
-/// A canary turn's recall reaches the model: a `Recall` node after the new
+/// A live turn's recall reaches the model: a `Recall` node after the new
 /// message, rendered in the same user turn as testimony; its row is
 /// `recall.ran` with the node's recall id and the arm; it rides frames the
 /// turn writes anyway; each source gets a `derived_from` edge scoped
 /// `in:<source>`, and `node.reach` counts the copy; the reply says how many.
 #[tokio::test]
-async fn a_canary_turn_puts_its_recall_in_front_of_the_model() {
+async fn a_live_turn_puts_its_recall_in_front_of_the_model() {
     let mut frames = Vec::new();
-    for mode in [MemoryMode::Off, MemoryMode::Canary] {
-        let r = rig_with(mode, |c| c.memory.canary_fraction = 1.0);
+    for mode in [MemoryMode::Off, MemoryMode::Live] {
+        let r = rig_with(mode, |_| {});
         let c = &r.core;
         let a = session(c, None, &[HERON]);
         let b = session(c, None, &[]);
@@ -140,7 +140,7 @@ async fn a_canary_turn_puts_its_recall_in_front_of_the_model() {
         let m: RecallManifest = serde_json::from_value(ran[1].data.clone()).unwrap();
         assert_eq!(
             (&m.recall_id, m.mode.as_str(), m.arm.as_deref()),
-            (recall_id, "canary", Some("baseline"))
+            (recall_id, "live", Some("baseline"))
         );
         assert!(m.admitted[0].text.is_none(), "the row keeps references");
         let budget = m.budget.unwrap();
@@ -242,11 +242,12 @@ fn restarted(r: &Rig, sessions: Vec<String>) -> Arc<Core> {
     again
 }
 
-/// A session's arm is sticky and recorded once, as `memory.arm`; a control
-/// session runs `none` live, with `baseline` in shadow, and gets no node.
+/// A session's arm is sticky and recorded once, as `memory.arm`; a session
+/// on arm `none` runs `none` live: the index is asked nothing, and it gets no
+/// node.
 #[tokio::test]
 async fn the_arm_is_sticky_and_recorded_once() {
-    let r = rig_with(MemoryMode::Canary, |c| c.memory.canary_fraction = 0.0);
+    let r = rig_with(MemoryMode::Live, |c| c.memory.arm = MemoryArm::None);
     let c = &r.core;
     let a = session(c, None, &[HERON]);
     let b = session(c, None, &[]);
@@ -261,11 +262,9 @@ async fn the_arm_is_sticky_and_recorded_once() {
     assert_eq!(arms[0].data["live"], false);
     assert_eq!(arms[0].data["experiment"], "m6-1");
     let shadow = rows(c, &b, "recall.shadow");
-    assert_eq!(shadow.len(), 2, "the control recalls in shadow");
-    assert_eq!(shadow[0].data["arm"], "none");
+    assert_eq!(shadow.len(), 0, "arm none recalls nothing");
     assert!(recall_nodes(c, &b).is_empty());
-    // `memory.recalls` reads the recalls alone.
-    assert_eq!(recalls(c, &b).len(), 2);
+    assert_eq!(recalls(c, &b).len(), 0);
     // The assignment is the config's, for this session, every time.
     let a1 = c.runner.memory.cfg().assign(&b).unwrap();
     assert_eq!(a1.arm, MemoryArm::None);
@@ -332,7 +331,8 @@ async fn a_wrong_label_keeps_a_node_out() {
     let _ = OWNER;
 }
 
-/// A stalled index holds a canary turn no longer than its deadline: the
+/// A stalled index holds a live turn (the canary mode it was written for is
+/// retired) no longer than its deadline: the
 /// turn goes on without recall, its row says `deadline`, and no node is
 /// written. On the paused clock: the bound on the turn's time is its own
 /// virtual time.
@@ -349,10 +349,7 @@ async fn a_stalled_index_holds_a_canary_turn_no_longer_than_its_deadline() {
     assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
     assert_eq!((res.loops, res.recalled), (1, 0));
     let m = &recalls(c, &b)[0];
-    assert_eq!(
-        (m.mode.as_str(), m.outcome.as_str()),
-        ("canary", "deadline")
-    );
+    assert_eq!((m.mode.as_str(), m.outcome.as_str()), ("live", "deadline"));
     assert!(recall_nodes(c, &b).is_empty());
 }
 

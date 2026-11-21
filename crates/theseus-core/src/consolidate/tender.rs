@@ -1,9 +1,8 @@
-//! Consolidation's nightly run (M6 31b; M5's nightly pattern, as the
-//! learning tender's): at `[memory] consolidate_hour` local time (4 by
-//! default), a missed night once as soon as it may, never within 10 minutes
-//! of a start, on a `learning` thread at nice 19 that sleeps 19 times as
-//! long as it works (about 5% of a core). Nothing with memory off: the
-//! tender is not started.
+//! The nightly run (M6 31b; M5's nightly pattern, as the learning
+//! tender's): at `[memory] consolidate_hour` local time (4 by default), a
+//! missed night once as soon as it may, never within 10 minutes of a start.
+//! It runs the dream's guidance; the synthesis writer it ran first is
+//! retired. Nothing with memory off: the tender is not started.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,13 +10,13 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio::time::Instant;
 
-use super::run::LAST_RUN;
+use super::LAST_RUN;
 use crate::learning::tender::{due, tend};
 use crate::rpc::Core;
 
 impl Core {
-    /// Consolidation's tender, after serving: nothing with memory off.
-    pub fn consolidate_after_serving(self: &Arc<Self>) {
+    /// The nightly tender, after serving: nothing with memory off.
+    pub fn dream_after_serving(self: &Arc<Self>) {
         if !self.runner.memory.on() {
             return;
         }
@@ -47,19 +46,15 @@ impl Core {
                 );
                 async move {
                     let Some(c) = core.upgrade() else { return };
-                    match c.consolidate_now(false, "nightly").await {
-                        Ok(r) => tracing::info!(
-                            clusters = r.clusters.len(),
-                            recalls = r.recalls,
-                            spent_today_usd = r.spent_today_usd,
-                            "consolidation: the nightly run ran"
-                        ),
-                        Err(e) => {
-                            tracing::warn!(error = %format!("{e:#}"), "consolidation: the nightly run did not run");
-                        }
+                    let now = theseus_protocol::now_unix_ms();
+                    // The night is marked first, as the writer's run marked it,
+                    // so a restart does not run it again.
+                    let mark = serde_json::json!({"at_unix_ms": now});
+                    if let Err(e) = theseus_store::blocking(|| c.store.put_meta(LAST_RUN, &mark)) {
+                        tracing::warn!(error = %format!("{e:#}"), "dream: the night's mark was not written");
                     }
-                    // The dream's guidance, after its own run (theseus-olt3h).
-                    match c.dream_guidance(theseus_protocol::now_unix_ms()).await {
+                    // The dream's guidance (theseus-olt3h).
+                    match c.dream_guidance(now).await {
                         Ok(d) => tracing::info!(
                             written = d.written.len(),
                             refused = d.refused,

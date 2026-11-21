@@ -3,22 +3,22 @@
 Theseus's memory science (M6), as pure logic with no I/O: every input is explicit, so each result replays from the
 record. It has no dependencies.
 
-Key modules: `science.rs`, `recall.rs`, `rerank.rs`, `retention.rs`, `fsrs.rs`, `activation.rs`, `access.rs`. Read
+Key modules: `science.rs`, `recall.rs`, `rerank.rs`. Read
 by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the judge's rerank).
 
 ## What's here
 
-- `science.rs` (step 30a): the `MemoryScience` trait (design §2.3: `gate`, `schedule`, `activate`, `decay_sweep`,
-  `rank`, with `id` and `min_score`) and `Baseline`, its answers by §2.3's table. A science names its parameter set
-  by digest (`baseline@<16 hex>`), and a recall's row says it. 30a reads `id`, `min_score`, and `rank`; the memory
-  pass (31a), the retention and adjacency projections (32a, 32b), and tiering (33) read the rest.
+- `science.rs` (step 30a): the `MemoryScience` trait (design §2.3: `gate`, `decay_sweep`, `rank`, with `id` and
+  `min_score`) and `Baseline`, its answers by §2.3's table. A science names its parameter set by digest
+  (`baseline@<16 hex>`), and a recall's row says it. 30a reads `id`, `min_score`, and `rank`; the memory pass (31a)
+  and tiering (33) read the rest.
 - `recall.rs` (step 30a): the pipeline after the index. Each candidate is dropped by the first filter that takes it,
   in this order, with its reason: `place` (the place rule: a turn in a shared place draws only on that place's own
   sessions, a private place's on any session (theseus-1is6), a session whose place cannot be read only in a
   private place, and an open request (`Place::Open`, theseus-a1wvq.7) only an open session's nodes from before its
   taint, `may_draw_at`), `in_context`, `untrusted` (external text, unless `include_external`), `labeled_wrong` (the operator
-  labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `arm` and `unchecked` (a synthesis
-  under an arm whose science admits none, or one not checked: 31b's `MemoryScience::synthesis`), `threshold`;
+  labeled it wrong or stale; 30b), `recursion` (a harness line or a recall), `arm` (a synthesis: no arm admits
+  one), `threshold`;
   then the science's rank,
   and a greedy pack under the tokens and items (`budget`). A second chunk of an admitted node is `in_context`. The
   core reads each candidate's place (`TurnRunner::place_of`).
@@ -48,23 +48,10 @@ by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the 
   fused place; the rest follow in the fused order); `repack` runs `recall`'s filters and pack ranked by that order
   (a `Reranked` science). The core's rerank (`judge/rerank.rs`) calls all three, and since 32d a live
   rerank's turn packs again in Jev's order with `repack` too (`Memory::refill`), so the row and the request agree.
-- `consolidate.rs` (step 31b): consolidation's pure half. `clusters` (pairs admitted together in 3 distinct turns,
-  components of 3 to 8, none a synthesis or a recall, none synthesized before by digest), `check` (every sentence
-  cites, every cited number is a source, at most 120 words, on `entry`'s text: a leading heading set aside, a
-  Markdown or bold first line of at most 8 words, or a plain first line or sentence of at most 8 uncited words all of
-  which its next sentence restates; a sentence that says something new is never set aside), and `score` (a
-  synthesis scored as its best admitted source, ranked just ahead of it: rows keep no query). `science.rs`'s `WithSyntheses` is the `+synthesis` arm.
-- `fsrs.rs` (32a's math), `access.rs` (what happened to a node, and the review it is: the operator's four labels,
-  `should_have` graded Easy as `useful` is), `activation.rs` (32b's math).
-- `retention.rs` (32a's wire-in): `RetentionRank`, the `+retention` arm's science: `baseline` in every verb but
-  `schedule` (FSRS-6's step) and `rank`, `fused × ((1 − w) + w × R(now))` with `w` = 0.5; a node with no retention
-  keeps its fused score. The form, the weight, FSRS-6's parameters and the baseline's line are in its digest
-  (`retention@<16 hex>`). `RankCtx::retention` carries the candidates' retention by node, filled by the core
-  (through `Asker::retention`) only for a science whose `reads_retention` says so; `Reranked` forwards it, so a
-  repack in Jev's order keeps the arm's science.
-- `activated.rs` (32b's wire-in): `Activated`, the `+activation` arm's science: `baseline` in every verb but
-  `activate`, which spreads with its `SpreadParams`; and its numbers as a fusion source (`weight`, its term
-  `weight / (60 + rank)` as the tender fuses, the 10 seeds, the 20 nodes it may add), all in its digest.
+- **Retired** (2026-11-21): the research arms `+retention` (FSRS-6, 32a: `fsrs.rs`, `access.rs`, `retention.rs`),
+  `+activation` (spreading activation, 32b: `activation.rs`, `activated.rs`) and `+synthesis` (31b:
+  `consolidate.rs`, `science.rs`'s `WithSyntheses`), which never ran live, and the nightly writer only `+synthesis`
+  read. They are in git. A stored synthesis stays readable; recall drops it (`arm`).
 
 ## Invariants
 

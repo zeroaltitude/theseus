@@ -1151,16 +1151,15 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # model: its request is the same byte for byte. See it with
 # `theseus memory recalled <session>` and `theseus memory search "<query>"`.
 # An older binary refuses a [memory] table: install first, then paste.
-# Canary and live (step 30b) put recall in front of the model: a note after
+# Live (step 30b) puts recall in front of the model: a note after
 # the turn's new message, testimony with each source's date, a Recall node
 # that references its sources (`theseus reach` counts each copy), a
 # recall.ran row, and a "🧠 N recalled" footer on Discord. Label a node
 # with `theseus memory label <node> wrong` to keep it out.
 # [memory]
-# mode = "live"                           # live (the default) | canary | shadow | off
-# arm = "baseline"                        # the arm canary and live sessions get: none | bm25 | baseline | +retention (FSRS-6 in the rank) | +activation (spreading activation as one more ranked source; its adjacency projection is built after serving) | +synthesis (consolidation's checked syntheses as candidates)
-# canary_fraction = 0.5                   # canary: the share of sessions on the arm, sticky by a hash of session and experiment; the rest run none, with baseline in shadow
-# experiment = "m6-1"                     # names the plan; seeds each session's arm
+# mode = "live"                           # live (the default) | shadow | off; the retired "canary" reads as live
+# arm = "baseline"                        # the arm live sessions get: none | bm25 | baseline; the retired +retention, +activation and +synthesis read as baseline
+# experiment = "m6-1"                     # names the plan in each memory.arm row
 # session_recall_cap_tokens = 64000       # the recall notes a session's tail may hold; past it, recall pauses until the next recompile
 # recall_budget_tokens = 3000             # the pack's tokens
 # recall_max_items = 8                    # the pack's items, at most 40; both are an ordinary prompt's (a trivial detour's request carries none)
@@ -1184,22 +1183,16 @@ resident_mb = 128                         # the index's memory at rest, the mode
 #                                         # model for each summary (until the route pack that asks him is acting,
 #                                         # unset runs as "session"). A key of [profiles] such as "haiku" sends the
 #                                         # range to that profile's provider whatever the session's provider
-# assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
-# Consolidation (step 31b): off every turn, nodes recall admits together in
-# three or more turns become one short synthesis per cluster, every sentence
-# citing its sources, checked by Jev (citation.v1) and kept as a Synthesis node.
-# Never shown in shadow: only arm "+synthesis" puts a checked one before a model.
-# "session" (the default) writes it with the profile every source's session
-# last used, so no second provider reads a session's text; sources whose
-# sessions disagree wait. A key of [profiles] is the operator's choice.
-# synth_profile = "session"               # a pin: "session", or a key of [profiles]. Unset: Jev chooses the model for
-#                                         # each cluster, from US options only (until the route pack that asks him is
-#                                         # acting, unset runs as "session"). A profile of your own that runs Haiku 5.5 at
-#                                         # high effort gets about 18x the clusters of Sonnet 5.5 for the day's limit, each still
-#                                         # checked by citation.v1. The dream's guidance ([ontology] dream_guidance)
-#                                         # is the one site that never asks Jev: unset, it writes with Sonnet 5.5 at
-#                                         # high effort (the owner's ruling, theseus-xdi65); a set key pins it
-# synth_limit_usd_per_day = 0.50          # what consolidation may spend in a local day, read from its rows
+# assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (live)
+# The nightly dream ([ontology] dream_guidance) writes a category's first
+# guidance. The nightly synthesis writer these keys once served is retired
+# (2026-11-21); a synthesis a store already holds stays readable.
+# "session" writes with the profile all the sampled sessions last used, so no
+# second provider reads a session's text; sessions that disagree wait. A key
+# of [profiles] is the operator's choice.
+# synth_profile = "session"               # a pin: "session", or a key of [profiles]. Unset: the dream writes with
+#                                         # Sonnet 5.5 at high effort (the owner's ruling, theseus-xdi65); a set key pins it
+# synth_limit_usd_per_day = 0.50          # what the dream may spend in a local day, the syntheses' rows of the day counted
 # consolidate_hour = 4                    # the local hour of the nightly run (0 to 23); never within 10 minutes of a start
 # Tiering (step 33): decoded nodes stay in a cache shared across turns, so a
 # turn decodes only what no reader decoded before it; past the bound, the
@@ -1543,7 +1536,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 #                                         # the US allowlist (theseus-und4g).
 # sweep = true                            # nightly: a machine's membership unconfirmed for 30 days decays, and a duplicate category a machine wrote merges into its twin (each undoable; no model, no spend); false is the rollback
 # sweep_usd_per_day = 1.0                 # the sweep's model calls a local day (theseus-nzzz4): Jev judges two categories that look alike (same_thing.v1: merged at 0.85), a category of 12 sessions or more (two_things.v1: split in two at 0.85), a category whose name has gone stale (name_it.v1: renamed to a name mined from its sessions at 0.85), and names the `other` answers mined (same_kind.v1: joined into one kind; name_it.v1: the minted kind's name); a call that would pass what is left of the day's cap is not begun; 0 turns the model's part off and the deterministic sweep still runs
-# dream_guidance = true                   # nightly, after consolidation: a machine's category that 5 private sessions hold and that has no guidance gets its first, under [memory] synth_limit_usd_per_day; false is the rollback
+# dream_guidance = true                   # nightly: a machine's category that 5 private sessions hold and that has no guidance gets its first, under [memory] synth_limit_usd_per_day; false is the rollback
 # not_topics = []                         # topic names Jev never proposes (a "new topic" or an existing one), matched on name with case and spacing ignored, as [people] not_people does for people; the cockpit's Never button keeps its own list in the store (undo it there), this is the part you keep here
 
 # ---------------------------------------------------------------- import

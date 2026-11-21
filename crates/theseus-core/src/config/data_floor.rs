@@ -10,10 +10,10 @@ use crate::catalog::{origin_of, Catalog, ModelOrigin};
 
 impl Config {
     /// The keys whose profile reads the owner's material, with the profile
-    /// each names. `[memory] synth_profile` is one (theseus-z1ros): a
-    /// consolidation mixes many sessions, so no open request's pass can ever
-    /// clear it; its word `session` is no profile and stays the run time's
-    /// (`consolidate/run.rs`, `unrestricted`). `[memory] summary_profile` is
+    /// each names. `[memory] synth_profile` is one (theseus-z1ros): the
+    /// dream's guidance mixes many sessions, so no open request's pass can
+    /// ever clear it; its word `session` is no profile and stays the run
+    /// time's (`Core::session_profile`). `[memory] summary_profile` is
     /// not: a compaction in an open request may use a restricted model with
     /// a pass of its own (`turn/compaction/gate.rs`), and falls back
     /// otherwise.

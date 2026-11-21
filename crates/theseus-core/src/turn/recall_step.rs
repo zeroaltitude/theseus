@@ -1,15 +1,14 @@
 //! The recall step on a turn's first loop (M6 steps 30a, 30b;
 //! `crate::recall`).
 //!
-//! - **Shadow** (30a, and a canary's control): begun as the loop's model call
+//! - **Shadow** (30a): begun as the loop's model call
 //!   goes out, and read once it has answered, so the index's wait overlaps
 //!   the model's. Its row rides in the turn's next frame, and the request
 //!   the model got is the one compiled without it.
 //! - **The arm's sources** (34b): a live arm asks the index for its own
 //!   (`MemoryArm::sources`: `bm25` BM25 and entities, `baseline` all three);
-//!   shadow, and a canary's control, ask for `baseline`'s; and `live` with
-//!   arm `none` asks nothing.
-//! - **Canary and live** (30b): read before the compile, never past
+//!   shadow asks for `baseline`'s; and `live` with arm `none` asks nothing.
+//! - **Live** (30b): read before the compile, never past
 //!   `[memory] recall_deadline_ms`. What it admits is a `Recall` node, built
 //!   here and held in the turn (`Recalled`) until it rides the provider
 //!   call's plan frame with its `derived_from` edges; the compile renders it
@@ -148,16 +147,15 @@ impl TurnRunner {
                 None
             }
             // `live` with arm `none` (the exam's `none` daemon, 34b): today's
-            // compiler, and the index is asked nothing. A canary's control
-            // still runs `baseline` in shadow.
-            Some(_) if self.memory.cfg().mode == MemoryMode::Live => None,
-            _ => self.recall_begin(t, MemoryArm::Baseline),
+            // compiler, and the index is asked nothing.
+            Some(_) => None,
+            // Shadow: `baseline`, recorded and kept from the model.
+            None => self.recall_begin(t, MemoryArm::Baseline),
         }
     }
 
     /// Ask the index for `arm`'s sources, when the turn brings something
-    /// new; every arm but `+synthesis` leaves the memory's harness session
-    /// out (31b).
+    /// new; every arm leaves the memory's harness session out (31b).
     fn recall_begin(&self, t: &Turn<'_>, arm: MemoryArm) -> Option<Begun> {
         self.memory.syntheses(&self.store);
         let nodes = match t.tc.store.transcript(t.tc.session_id) {
@@ -193,8 +191,8 @@ impl TurnRunner {
         Some(begun)
     }
 
-    /// The session's `memory.arm` row, once: its first turn under canary or
-    /// live writes it, in the turn's next frame.
+    /// The session's `memory.arm` row, once: its first turn under live
+    /// writes it, in the turn's next frame.
     fn record_arm(&self, t: &mut Turn<'_>, a: Assigned) {
         let sid = t.tc.session_id;
         match self.memory.arm_recorded(t.tc.store, sid) {
@@ -225,9 +223,7 @@ impl TurnRunner {
 
     /// The scene of the turn's recall under `arm`'s science: its place, the
     /// nodes its request carries (and the sources of the recalls among
-    /// them), and the labels. An arm that reads retention builds the
-    /// projection when nothing has yet (off the turn's path: this recall
-    /// ranks without).
+    /// them), and the labels.
     pub(super) fn scene<'a>(
         &self,
         t: &'a Turn<'_>,
@@ -235,9 +231,6 @@ impl TurnRunner {
         arm: MemoryArm,
         message: &str,
     ) -> Scene<'a> {
-        if arm.reads_retention() {
-            crate::recall::retention::warm(&self.memory, &self.store);
-        }
         let in_context = Self::in_context(t);
         let labeled = self
             .memory
@@ -274,7 +267,6 @@ impl TurnRunner {
             budget_tokens,
             max_items,
             science: self.memory.science_for(arm),
-            activation: None,
             threads,
             persona: self.persona_scene(t.target.persona.as_deref()),
             category,
@@ -326,7 +318,6 @@ impl TurnRunner {
         self.memory.noted(&m);
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
-        let retention = self.memory.retention_of(&*scene.science, &candidates);
         let lens = scene.lens(&candidates);
         let Scene {
             place,
@@ -362,7 +353,6 @@ impl TurnRunner {
                 links,
                 params: self.memory.cfg().params(),
                 science,
-                retention,
                 threads: lens,
                 admitted: m
                     .admitted
@@ -389,19 +379,7 @@ impl TurnRunner {
         // The tier, if the verdict has landed; ordinary if not: never a wait.
         self.injection(t, true);
         let mode = self.memory.cfg().mode.as_str();
-        // The arm's own source before the pipeline (32b): activation.
-        let (answer, activation) = Box::pin(self.memory.activated(
-            &self.store,
-            a.arm,
-            &begun,
-            answer,
-            Self::in_context(t),
-            false,
-        ))
-        .await;
-        let mut m = self
-            .recall_reranked(t, mode, a.arm, activation, &begun, answer)
-            .await;
+        let mut m = self.recall_reranked(t, mode, a.arm, &begun, answer).await;
         self.memory.noted(&m);
         m.arm = Some(a.arm.as_str().into());
         let cap = self.memory.cfg().session_recall_cap_tokens;
