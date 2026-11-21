@@ -327,9 +327,11 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"]
 // turn loads.
 // And 10032 and 7747 until `proc.run`'s schema lost words its description and its error already say
 // (issue 28): 58 and 59 tokens fewer, in the family every person's turn loads.
-const DM_PERSON_TOKENS: u64 = 10032;
+// And 10032 and 7747 until the self card said to look a reference up before asking about it
+// (issue 43): 53 more tokens in the tools note every person's turn carries.
+const DM_PERSON_TOKENS: u64 = 10085;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7747;
+const CLI_PERSON_TOKENS: u64 = 7800;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
