@@ -359,23 +359,24 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
     let q = card["question"].as_str().unwrap().to_string();
     let listed = rig.call("confirm.list", Value::Null).unwrap();
     assert!(listed.to_string().contains(&q), "{listed}");
-    // A security pack's promotion is the owner's card. `security.v3` already
-    // has its adoption row (security.v1, which this used to promote, is retired
-    // from the binary, issue 44), so the card's row is the one more.
+    // A security pack's promotion is the owner's card. `security.v3` also has
+    // its adoption row, written whenever the ladder warms (security.v1, which
+    // this used to promote, is retired from the binary, issue 44): the card's
+    // rows are its others.
     let moved = |rig: &Rig| {
         rig.rows("pack.mode")
             .iter()
             .filter(|r| r.to_string().contains("security.v3"))
+            .filter(|r| !r.to_string().contains("\"via\":\"adoption\""))
             .count()
     };
-    // Whatever rows it stood on before: the card writes none until it is answered.
-    let adopted = moved(&rig);
+    assert_eq!(moved(&rig), 0, "no mode yet");
     rig.call(
         "action.confirm",
         json!({"correlation_id": q, "approve": true}),
     )
     .unwrap();
-    assert_eq!(moved(&rig), adopted + 1, "the approved card wrote its mode");
+    assert_eq!(moved(&rig), 1, "the approved card wrote its mode");
     let rows = rig.rows("pack.mode").len();
     assert_eq!(
         rows, 5,
