@@ -66,6 +66,7 @@ pub mod glide;
 pub mod google;
 pub mod graph;
 pub mod harness;
+pub mod history_tool;
 pub mod import;
 pub mod initiative;
 pub(crate) mod job_model;

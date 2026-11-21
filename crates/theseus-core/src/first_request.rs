@@ -118,6 +118,12 @@ pub const ALWAYS_LOADED: &[(&str, &[&str], &str)] = &[
         "memory: a committed default of cli and dm (PlaceKind::defaults); the use column of `theseus census` confirms it",
     ),
     (
+        "context_history",
+        &["dm", "channel"],
+        "history: offered on every turn by the owner's design of 2026-11-21 (issue 44); a cli, task or headless \
+         first request has no room for it under its budget, so there it is deferred",
+    ),
+    (
         "term_open",
         &["headless"],
         "terminals: a committed default of headless runs (programs that want a screen)",
