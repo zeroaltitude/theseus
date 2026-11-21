@@ -1,9 +1,9 @@
-# security.v1: Eddie's "this is risky: 0-100%" (§3.9), and the atomic signals
+# security.v1: the owner's "this is risky: 0-100%" (§3.9), and the atomic signals
 # behind it. At `gate`: every call whose class is not `read`, and every
 # http.fetch or web.search in a session that holds external text (the
 # exfiltration path T1 leaves open by design). After the gate decides; it
 # never delays dispatch. Jev may make a call's treatment stricter, never
-# looser, and is never the sole gate. Live only with Eddie's approval: a
+# looser, and is never the sole gate. Live only with the owner's approval: a
 # notice for a risky `open` call (§2.8b). Never a wait.
 id = "security"
 version = 1
