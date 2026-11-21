@@ -972,6 +972,15 @@ impl Core {
         // A message that names no thread finds its own, in a place with threads
         // (theseus-rha2); nothing else changes for a place without.
         let place_home = session.session_id.clone();
+        // Where it arrived, before routing can send it elsewhere (issue 44).
+        let arrived = crate::exchange::place_of(
+            self.outbox
+                .try_target(&place_home)
+                .ok()
+                .flatten()
+                .as_deref(),
+            session.dir.as_deref(),
+        );
         let routing = match route {
             true => self.route_to_thread(&mut p, conn, &mut session).await?,
             false => None,
@@ -992,6 +1001,7 @@ impl Core {
         // replaced `answer_in_words` and `allow_in_words`, which matched
         // phrases in this exact spot and acted before the turn ran.
         self.hear_for_chat_acts(&p, conn, &session.session_id);
+        self.stage_arrival(&p, conn, (&place_home, arrived), &session.session_id);
         // The place's own session, which the move tool looks for the placed
         // message by: the session this message was routed into may be the
         // thread it names, and the placed message is not in that.

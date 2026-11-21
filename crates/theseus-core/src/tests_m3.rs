@@ -2600,6 +2600,8 @@ async fn a_plain_turn_stays_within_its_frame_budget() {
             "provider.call",
             "loop.ended",
             "turn.ended",
+            // The exchange ledger's row of a private turn, in the last frame (issue 44).
+            "context.turn",
             "turn.trace",
             "execution.waiting"
         ]

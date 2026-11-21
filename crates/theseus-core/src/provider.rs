@@ -338,7 +338,7 @@ fn str_len(v: &Value) -> u64 {
 }
 
 /// The length of `v` as compact JSON, without building the string.
-fn json_len<T: Serialize + ?Sized>(v: &T) -> u64 {
+pub(crate) fn json_len<T: Serialize + ?Sized>(v: &T) -> u64 {
     struct Count(u64);
     impl std::io::Write for Count {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

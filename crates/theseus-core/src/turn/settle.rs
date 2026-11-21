@@ -254,6 +254,7 @@ impl TurnRunner {
                 cost_usd: t.cost,
                 tool_calls: t.tool_calls,
             });
+            super::exchange_step::failed(&mut t, &f.class);
         }
         let trace = t
             .trace
@@ -438,6 +439,8 @@ impl TurnRunner {
         let frames = t.tc.store.turn_frames().map(|n| n + 1);
         // A judgment of this turn's end is marked before its last frame (23b).
         self.mark_end(&mut t, &result);
+        // Its exchange's end and its measuring row, in the last frame (issue 44).
+        self.exchange_close(&mut t, &result);
         let attrs = Self::end_attrs(&t, &result, frames);
         result.trace = Some(t.trace.finish(attrs));
         // The trace is finished: the fact draws no span.

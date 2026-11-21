@@ -24,6 +24,7 @@ mod cmd;
 mod config_cmd;
 mod content_cmd;
 mod digest;
+mod exchanges_cmd;
 mod extend;
 mod follow;
 mod fork;

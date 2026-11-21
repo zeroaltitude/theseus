@@ -39,6 +39,12 @@ pub struct ContextConfig {
     /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"transcript"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assembly: Option<super::assembly::AssemblySetting>,
+    /// The exchange ledger (issue 44, step 1; `crate::exchange`): each
+    /// person's message's mark, each turn's exchange and touches, and a
+    /// measuring row per private turn, all beside the conversation and none
+    /// of it sent to a model. Absent: on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger: Option<bool>,
 }
 
 /// `persona_max_tokens`' default and bounds.
@@ -54,6 +60,7 @@ impl ContextConfig {
             && self.default_persona.is_none()
             && self.working_window_tokens.is_none()
             && self.kept_mb.is_none()
+            && self.ledger.is_none()
             && self.persona_max_tokens.is_none()
             && self.assembly.is_none()
     }
@@ -78,6 +85,11 @@ impl ContextConfig {
             anyhow::bail!("context.persona_max_tokens = {n} is out of range: 200 to 8000");
         }
         Ok(())
+    }
+
+    /// Whether the exchange ledger is written.
+    pub fn ledger_on(&self) -> bool {
+        self.ledger.unwrap_or(true)
     }
 
     /// The kept renders' bound, in bytes.

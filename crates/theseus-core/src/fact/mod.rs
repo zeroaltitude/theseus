@@ -331,6 +331,7 @@ facts![
     owner_proof::WindowUsed<'static>,
     owner_proof::WindowsEnded<'static>,
     place::PlaceViewed<'static>,
+    crate::exchange::ledger::Row,
     place::PlaceWarned<'static>,
     privacy::PrivacyWarned<'static>,
     content::ContentJudged<'static>,

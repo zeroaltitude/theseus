@@ -50,6 +50,7 @@ pub(super) fn prefixed(name: &str) -> bool {
     name.starts_with("pack.")
         || name.starts_with("import.")
         || name.starts_with("books.")
+        || super::exchanges::OWN.contains(&name)
         || name.starts_with("google.")
         || name == method::CALENDAR_WINDOW
         || super::vault_keep::OWN.contains(&name)
@@ -102,7 +103,7 @@ impl Core {
         if super::context::prefixed(name) {
             return self.rpc_context(name, params, conn).await;
         }
-        if name.starts_with("books.") {
+        if name.starts_with("books.") || super::exchanges::OWN.contains(&name) {
             return self.rpc_books(name, params, conn).await;
         }
         if name.starts_with("google.") || name == method::CALENDAR_WINDOW {
