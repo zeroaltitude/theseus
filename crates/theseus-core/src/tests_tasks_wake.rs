@@ -329,7 +329,9 @@ const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminde
 // (issue 28): 58 and 59 tokens fewer, in the family every person's turn loads.
 // And 10032 and 7747 until the self card said to look a reference up before asking about it
 // (issue 43): 53 more tokens in the tools note every person's turn carries.
-const DM_PERSON_TOKENS: u64 = 10085;
+// And 10085 until the DM loaded `context_history`, the history tool (issue 44): its definition, and the
+// self card's sentence naming it, 150 more tokens in the families a person's turn loads.
+const DM_PERSON_TOKENS: u64 = 10235;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
 const CLI_PERSON_TOKENS: u64 = 7800;
 
