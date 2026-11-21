@@ -36,6 +36,9 @@ pub struct ContextConfig {
     /// Absent: `KEPT_MB`; 0 keeps none, and every compile renders whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept_mb: Option<u64>,
+    /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"transcript"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assembly: Option<super::assembly::AssemblySetting>,
 }
 
 /// `persona_max_tokens`' default and bounds.
@@ -52,6 +55,14 @@ impl ContextConfig {
             && self.working_window_tokens.is_none()
             && self.kept_mb.is_none()
             && self.persona_max_tokens.is_none()
+            && self.assembly.is_none()
+    }
+
+    /// The one reader of `[context] assembly`: how `place`'s requests are assembled.
+    pub fn assembly_for(&self, place: &str) -> super::assembly::Assembly {
+        self.assembly
+            .as_ref()
+            .map_or_else(Default::default, |a| a.for_place(place))
     }
 
     /// A persona's soul may be this many tokens.
