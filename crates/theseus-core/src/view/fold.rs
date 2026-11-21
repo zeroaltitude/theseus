@@ -35,6 +35,10 @@ pub struct FoldNode {
     pub first: Pos,
     pub last: Pos,
     pub exchanges: u32,
+    /// A title of at most 120 characters: a small model's at the first level, code's above it (added by the
+    /// fold work; absent on a node read from before it).
+    #[serde(default)]
+    pub title: String,
     /// His words in them, by reference (node ids), word for word at level 1. Above it: his lines that are
     /// corrections, made a standing record or still wait.
     pub his_words: Vec<String>,

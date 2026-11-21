@@ -1,12 +1,15 @@
 //! `theseus ledger exchanges` and `theseus ledger rebuild-exchanges` (issue
 //! 44, step 1): the exchange ledger's measuring rows summed into counts and shares,
 //! and the exchanges of older history written from the conversations' nodes
-//! (`--dry-run` counts and writes nothing). Ids, kinds and counts only.
+//! (`--dry-run` counts and writes nothing). Ids, kinds and counts only. And
+//! `theseus ledger ladder` (step 4): a place's `did` lines and fold nodes built
+//! from its history, with a dry run that counts and prices, and a cap.
 
 use anyhow::Result;
 use theseus_client::Conn;
 use theseus_protocol::exchange::{
-    ExchangeRebuildParams, ExchangeRebuildResult, ExchangeReportParams, ExchangeReportResult,
+    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeRebuildResult,
+    ExchangeReportParams, ExchangeReportResult,
 };
 use theseus_protocol::method;
 
@@ -17,6 +20,26 @@ pub async fn report(conn: &mut Conn, json: bool, n: Option<u64>) -> Result<()> {
     match json {
         true => println!("{}", serde_json::to_string(&v)?),
         false => println!("{}", report_lines(&serde_json::from_value(v)?)),
+    }
+    Ok(())
+}
+
+/// `theseus ledger ladder`.
+pub async fn ladder(
+    conn: &mut Conn,
+    json: bool,
+    place: String,
+    (dry_run, cap_usd): (bool, Option<f64>),
+) -> Result<()> {
+    let p = serde_json::to_value(ExchangeLadderParams {
+        place,
+        dry_run,
+        cap_usd,
+    })?;
+    let v = conn.request(method::EXCHANGE_LADDER, p).await?;
+    match json {
+        true => println!("{}", serde_json::to_string(&v)?),
+        false => println!("{}", ladder_lines(&serde_json::from_value(v)?)),
     }
     Ok(())
 }
@@ -83,6 +106,23 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
         s.push_str(&format!(
             "; the things they name were not looked for: {why}"
         ));
+    }
+    s
+}
+
+/// A ladder build in one line, and why it stopped when it did.
+pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
+    let (lines, folds) = match r.dry_run {
+        true => ("would write", "would make"),
+        false => ("wrote", "made"),
+    };
+    let mut s = format!(
+        "{}: {} exchanges since its latest /new; {} had a summary, {lines} {}; {folds} {} fold \
+         nodes and {} above them; worst case ${:.2}, spent ${:.2}",
+        r.place, r.exchanges, r.lines_had, r.lines, r.folds, r.above, r.estimated_usd, r.spent_usd
+    );
+    if let Some(why) = &r.stopped {
+        s.push_str(&format!("; stopped: {why}"));
     }
     s
 }

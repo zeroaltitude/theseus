@@ -226,6 +226,7 @@ mod tests {
         method::LEDGER_VERIFY,
         method::EXCHANGE_REPORT,
         method::EXCHANGE_REBUILD,
+        method::EXCHANGE_LADDER,
         method::CONFIG_HISTORY,
         method::CONFIG_WHOLE,
         method::PROFILE_LIST,
