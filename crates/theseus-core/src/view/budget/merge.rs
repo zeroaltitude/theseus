@@ -116,7 +116,10 @@ pub(super) fn unit_groups(items: &[Item]) -> Vec<usize> {
     for (i, it) in items.iter().enumerate() {
         for u in &it.units {
             match first_of.get(u.as_str()) {
-                Some(&j) => relabel(&mut group, group[i], group[j]),
+                Some(&j) => {
+                    let (from, to) = (group[i], group[j]);
+                    relabel(&mut group, from, to);
+                }
                 None => {
                     first_of.insert(u, i);
                 }

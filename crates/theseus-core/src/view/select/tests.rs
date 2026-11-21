@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 
 use super::super::budget::{Budget, View};
-use super::super::fold::{FoldNode, LadderRead, Writer};
+use super::super::fold::{FoldNode, LadderRead};
 use super::super::gate::{Admitted, Gate};
 use super::super::timeline::{Cursor, ExchangeRef, Timeline, TimelineRoot};
 use super::super::*;
