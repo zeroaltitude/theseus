@@ -281,7 +281,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
         selectors: &[],
         gate: &crate::view::permit::Permit::of(crate::view_gate::Verified::for_tests(
             theseus_memory::gate::PointOfView {
-                anchor: place.clone(),
+                anchor: place,
                 place: theseus_memory::recall::Place::Private,
                 present: theseus_memory::gate::Present::OwnerAlone,
             },

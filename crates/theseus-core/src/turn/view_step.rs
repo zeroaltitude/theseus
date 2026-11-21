@@ -137,21 +137,7 @@ impl TurnRunner {
             kernel: Some(&self.kernel),
             zone: &crate::recall::stamp::system,
         };
-        let system = [
-            &spec.system_text,
-            &spec.persona_text,
-            &spec.context_text,
-            &spec.session_text,
-        ];
-        let frame = vec![Part {
-            name: "system".into(),
-            tokens: system.iter().map(|s| tokens(s)).sum::<u64>()
-                + tokens(renderer.memory_page().1),
-        }];
-        let now = vec![Part {
-            name: "message".into(),
-            tokens: tokens(&message),
-        }];
+        let (frame, now) = frame_and_now(spec, renderer.memory_page().1, &message);
         let selectors = table(src, frame, now);
         let parts = Parts {
             selectors: &selectors,
@@ -199,6 +185,25 @@ impl TurnRunner {
             .unwrap_or(u64::MAX);
         Budget::new(provider_window, u64::from(spec.max_tokens))
     }
+}
+
+/// Slots A and I as code lays them: the system part with the memory page, and the message.
+fn frame_and_now(spec: &RequestSpec, page: &str, message: &str) -> (Vec<Part>, Vec<Part>) {
+    let system = [
+        &spec.system_text,
+        &spec.persona_text,
+        &spec.context_text,
+        &spec.session_text,
+    ];
+    let frame = Part {
+        name: "system".into(),
+        tokens: system.iter().map(|s| tokens(s)).sum::<u64>() + tokens(page),
+    };
+    let now = Part {
+        name: "message".into(),
+        tokens: tokens(message),
+    };
+    (vec![frame], vec![now])
 }
 
 /// The view's point of view from the turn's verified one: its anchor and its presence are the gate's, never
