@@ -200,7 +200,7 @@ fn node_marks<'a>(mut marks: impl Iterator<Item = &'a Marks>) -> Marks {
         sealed: false,
         veiled: false,
     });
-    marks.fold(first, |m, b| union(m, b))
+    marks.fold(first, union)
 }
 
 /// The person's lines of `reads`, flagged.
