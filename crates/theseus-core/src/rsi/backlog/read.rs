@@ -413,6 +413,18 @@ pub(super) fn action_why(d: &Value) -> String {
     }
 }
 
+/// Whether a job's timeout was at a limit its call chose. A job runs under
+/// `proc.run`'s default limit unless the call names a shorter one, so a job
+/// cut after less than the default was held to the limit its caller asked for
+/// (a probe with `timeout_secs: 2`): the cut is that call's answer, which the
+/// model reads (`[cut at its 2 s limit]`) and changes its call by, as it does
+/// an exit. A job cut at the default or beyond it is a wedge, and ours.
+fn cut_at_a_limit_the_call_chose(d: &Value) -> bool {
+    d["duration_ms"]
+        .as_u64()
+        .is_some_and(|ms| ms < crate::config::DEFAULT_PROC_TIMEOUT_SECS * 1000)
+}
+
 /// A failed action's observation. A job's own non-zero exit is its command's
 /// answer, not a fault of ours, and neither is an in-process tool's own
 /// refusal (`refused`: the edit text is not in the file); the model reads
@@ -435,6 +447,9 @@ fn of_action_failed(mut o: Obs, d: &Value) -> Option<Obs> {
         // A job's own exit, a tool's refusal, and a call that failed because its own session's
         // working copy was closed (issue 20) are no faults of ours.
         if f == "exit" || f == "refused" || f == theseus_kernel::TREE_GONE {
+            return None;
+        }
+        if f == "timeout" && p == "wrapper" && cut_at_a_limit_the_call_chose(d) {
             return None;
         }
         let f = word(&d["failure"]);
@@ -1283,9 +1298,13 @@ mod tests {
     }
 
     fn failed_job(pid: u32, failure: Option<&str>) -> LedgerRow {
+        failed_job_after(pid, failure, 5)
+    }
+
+    fn failed_job_after(pid: u32, failure: Option<&str>, duration_ms: u64) -> LedgerRow {
         let mut data = json!({
             "correlation_id": "act_1", "producer": format!("wrapper:{pid}"),
-            "duration_ms": 5, "outcome": "failed",
+            "duration_ms": duration_ms, "outcome": "failed",
         });
         if let Some(f) = failure {
             data["failure"] = json!(f);
@@ -1303,7 +1322,11 @@ mod tests {
     /// and the wrapper's pid never splits one.
     #[test]
     fn a_job_that_timed_out_or_never_started_is_its_own_cause_whatever_the_pid() {
-        let key = |pid, f| of_row(1, &failed_job(pid, Some(f))).unwrap().key;
+        let key = |pid, f| {
+            of_row(1, &failed_job_after(pid, Some(f), 3_600_000))
+                .unwrap()
+                .key
+        };
         assert_eq!(key(10, "timeout"), "action.failed:wrapper:timeout");
         assert_eq!(key(99, "timeout"), key(10, "timeout"));
         assert_eq!(key(10, "spawn"), "action.failed:wrapper:spawn");
