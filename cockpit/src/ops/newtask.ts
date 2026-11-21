@@ -1,6 +1,6 @@
 // The New task sheet's rules (theseus-jid7t.6), pure: the form's fields as `task.start`'s params, the budget's check,
-// and the profile choices with the floor's greying by the home's data mark. A caller (the Timeline, for a sensitive
-// calendar event) may pass a "US only" reason: then every profile of another origin is greyed with it.
+// and the profile choices with the floor's greying by the home's data mark. (A sensitive calendar event's "US only"
+// reason went with the daemon's rule about a model's origin, 2026-11-21: every profile is offered alike.)
 import type { DataMark, ProfileInfo, TaskStartParams } from '@protocol'
 import { greyOf } from './floor.ts'
 
@@ -38,18 +38,9 @@ export function startParams(f: NewTaskForm): TaskStartParams | null {
 
 export interface Choice { name: string; label: string; grey: string | null }
 
-/** The profiles a task may run on: each with the floor's reason when the home's data refuses it, or the caller's "US
- *  only" reason for a profile the daemon does not clear (ops-timeline: a sensitive calendar's event). Under "US only" the sheet
- *  picks one that is not greyed (the live one if it may, else the first), and none when none may: it fails closed.
- *  Otherwise it picks none (the parent's model). */
-export function profileChoices(profiles: readonly ProfileInfo[], mark: DataMark | undefined, usOnly?: string, live?: string): { choices: Choice[]; pick: string } {
-  const choices = profiles.map((p) => ({ name: p.name, label: `${p.name} · ${p.model}${p.origin ? ` · ${p.origin}` : ''}`, grey: (usOnly && p.cleared !== true ? usOnly : null) ?? greyOf(mark, p.name, p) }))
-  if (!usOnly) return { choices, pick: '' }
-  const ok = choices.filter((c) => !c.grey)
-  return { choices, pick: (ok.find((c) => c.name === live) ?? ok[0])?.name ?? '' }
+/** The profiles a task may run on: each with the floor's reason when the home's data refuses it (the daemon clears
+ *  every profile, so none is greyed by origin). No profile is picked: the task runs on the parent's model unless the
+ *  owner picks one. */
+export function profileChoices(profiles: readonly ProfileInfo[], mark: DataMark | undefined): { choices: Choice[] } {
+  return { choices: profiles.map((p) => ({ name: p.name, label: `${p.name} · ${p.model}${p.origin ? ` · ${p.origin}` : ''}`, grey: greyOf(mark, p.name, p) })) }
 }
-
-/** Under "US only" the sheet starts nothing unless the profile is one of the choices and not greyed: "the parent's
- *  model" (no profile) may be of any origin. */
-export const usClosed = (choices: readonly Choice[], profile: string, usOnly?: string): boolean =>
-  !!usOnly && !choices.some((c) => c.name === profile && !c.grey)

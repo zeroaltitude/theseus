@@ -2,7 +2,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ProfileInfo } from '../src/protocol.gen/index.ts'
-import { dollarsOf, EMPTY_FORM, profileChoices, quotesOf, startParams, usClosed } from '../src/ops/newtask.ts'
+import { dollarsOf, EMPTY_FORM, profileChoices, quotesOf, startParams } from '../src/ops/newtask.ts'
 
 test('the old form’s fields, trimmed, and only those given', () => {
   assert.equal(startParams(EMPTY_FORM), null, 'no brief')
@@ -28,36 +28,23 @@ test('a bad budget blocks the start; blank is a quarter of what is left', () => 
 
 const prof = (name: string, origin: string): ProfileInfo => ({ name, provider: 'p', model: `m-${name}`, max_output_tokens: 1, has_system: false, live: false, origin, cleared: origin === 'us' })
 
-test('profile choices: the home’s mark greys other origins; a caller’s US-only reason does too', () => {
+test('profile choices: the home’s mark greys a profile the daemon does not clear', () => {
   const ps = [prof('quick', 'us'), prof('kimi', 'cn')]
   assert.deepEqual(profileChoices(ps, 'open').choices.map((c) => c.grey), [null, null])
   const sens = profileChoices(ps, 'sensitive').choices
   assert.equal(sens[0].grey, null)
   assert.match(sens[1].grey!, /not a model of US origin/)
-  const cal = profileChoices(ps, 'open', 'a sensitive calendar event: US models only').choices
-  assert.equal(cal[1].grey, 'a sensitive calendar event: US models only')
-  assert.equal(cal[0].grey, null)
 })
 
-test('US only reads the daemon’s answer: a vouched US profile it does not clear is grey', () => {
-  const vouched: ProfileInfo = { ...prof('proxy', 'us'), cleared: false }
-  const why = 'this event’s calendar is sensitive: US models only'
-  const { choices, pick } = profileChoices([vouched, prof('quick', 'us')], 'open', why, 'proxy')
-  assert.equal(choices[0].grey, why)
-  assert.equal(choices[1].grey, null)
-  assert.equal(pick, 'quick')
-  assert.equal(profileChoices([{ ...vouched, cleared: undefined }], 'open', why).pick, '', 'no answer: fail closed')
-})
-
-test('US only fails closed (ops-timeline x ops-act): no profile, or a greyed one, starts nothing; one of US origin does', () => {
-  const ps = [prof('quick', 'us'), prof('kimi', 'cn')]
-  const why = 'this event’s calendar is sensitive: US models only'
-  const { choices, pick } = profileChoices(ps, 'open', why, 'kimi')
-  assert.equal(pick, 'quick', 'the live one may not: the first of US origin is picked')
-  assert.equal(usClosed(choices, '', why), true, 'the parent’s model may be of any origin')
-  assert.equal(usClosed(choices, 'kimi', why), true)
-  assert.equal(usClosed(choices, 'nowhere', why), true, 'a profile not listed')
-  assert.equal(usClosed(choices, 'quick', why), false)
-  assert.equal(usClosed(choices, '', undefined), false, 'without US only, the parent’s model starts')
-  assert.equal(profileChoices([prof('kimi', 'cn')], 'open', why).pick, '', 'none of US origin: none picked')
+// The daemon clears every profile since its rule about a model's origin went (2026-11-21): a profile of China origin,
+// as `profile.list` now sends it, is offered like any other, whatever the home holds, and nothing is picked for the owner.
+test('a profile of cn origin that the daemon clears is offered like any other', () => {
+  const kimi: ProfileInfo = { ...prof('kimi', 'cn'), cleared: true }
+  const ps = [prof('quick', 'us'), kimi]
+  for (const mark of ['open', 'private', 'sensitive'] as const) {
+    const { choices } = profileChoices(ps, mark)
+    assert.deepEqual(choices.map((c) => [c.name, c.grey]), [['quick', null], ['kimi', null]], mark)
+    assert.match(choices[1].label, /kimi · m-kimi · cn/)
+  }
+  assert.ok(!('pick' in profileChoices(ps, 'open')), 'nothing is picked: the parent’s model, or the owner’s choice')
 })
