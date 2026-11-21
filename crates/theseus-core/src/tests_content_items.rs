@@ -12,7 +12,7 @@
 //!   every profile (a bounded wait for outstanding judgments before each acting call) is the owner's
 //!   decision.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::json;
 use theseus_judge::fake::{FakeJev, FakeMode};
