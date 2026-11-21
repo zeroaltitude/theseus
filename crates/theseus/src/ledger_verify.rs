@@ -52,9 +52,13 @@ pub enum LedgerCmd {
         /// Count what would be written and its worst case, and write nothing.
         #[arg(long)]
         dry_run: bool,
-        /// The most this run may spend, in dollars (default: what is left of the day's line).
+        /// The most this run may spend, in dollars: the smaller of it and what is left of the
+        /// day's line (default: what is left of the day's line).
         #[arg(long)]
         cap_usd: Option<f64>,
+        /// Let this run pass the day's line, up to --cap-usd (which it needs).
+        #[arg(long)]
+        over_day_line: bool,
     },
 }
 
@@ -76,7 +80,16 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: LedgerCmd) -> Result<()> {
             place,
             dry_run,
             cap_usd,
-        } => return crate::exchanges_cmd::ladder(conn, json, place, (dry_run, cap_usd)).await,
+            over_day_line,
+        } => {
+            return crate::exchanges_cmd::ladder(
+                conn,
+                json,
+                place,
+                (dry_run, cap_usd, over_day_line),
+            )
+            .await
+        }
         LedgerCmd::Head => (
             LedgerVerifyParams {
                 head_only: true,

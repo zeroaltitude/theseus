@@ -1,19 +1,27 @@
 //! The ladder through the core: the job an exchange's end starts writes its
-//! `did` line on a background job's model, its call held and priced; a task's
-//! end starts none; the build of a place's history counts and prices in a dry
-//! run and writes nothing, then writes within its cap. Every name is invented.
+//! `did` line on a background job's model, its call reserved and priced; a
+//! task's end and a place on the transcript start none; the build counts and
+//! prices in a dry run, and spends within the smaller of its cap and the
+//! day's line, failed calls counted; `/new` is a durable mark; and a source is
+//! summarised only when its provenance proves it unsealed. Every name is
+//! invented.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use theseus_protocol::SessionLink;
+
+use super::build::Allowance;
 use super::did::{self, Outcome};
 use super::tests::{exchange_at, Fake};
-use super::N;
+use super::{Day, DayPurse, Purse, Reserved, DAY_KEY, N};
 use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::Config;
 use crate::judge::categorize::ExchangeEnd;
 use crate::provider::{FakeProvider, Scripted};
 use crate::rpc::Core;
+use crate::session::SessionRecord;
+use theseus_protocol::SessionKind;
 
 const PLACE: &str = "local:/srv/tides";
 
@@ -37,6 +45,13 @@ fn core_with(
     (dir, core, fake)
 }
 
+/// A conversation's session, recorded: provenance that proves no thread.
+fn session(core: &Core) -> String {
+    let r = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&r.session_id, &r).unwrap();
+    r.session_id
+}
+
 async fn until_line(core: &Core, turn: &str) -> Option<did::DidLine> {
     for _ in 0..80 {
         if let Some(d) = did::did(&core.store, turn).unwrap() {
@@ -47,13 +62,21 @@ async fn until_line(core: &Core, turn: &str) -> Option<did::DidLine> {
     None
 }
 
+fn money(cap_usd: Option<f64>, over_day_line: bool) -> Allowance {
+    Allowance {
+        cap_usd,
+        over_day_line,
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_exchanges_end_writes_its_line_off_the_turns_path() {
     let (_d, core, fake) = core(&["Read gauge 7 and found it 2 mm high."]);
-    let turn = exchange_at(&core.store, "ses_t", PLACE, 1_000, false);
+    let sid = session(&core);
+    let turn = exchange_at(&core.store, &sid, PLACE, 1_000, false);
     let end = |task| {
         let e = ExchangeEnd {
-            session_id: "ses_t".into(),
+            session_id: sid.clone(),
             execution_id: String::new(),
             turn_id: turn.clone(),
         };
@@ -72,76 +95,265 @@ async fn an_exchanges_end_writes_its_line_off_the_turns_path() {
     );
     assert!(asked.tools.is_empty());
     assert!(d.cost_usd > 0.0, "priced, as every background call is");
-    let day: super::Day = core.store.get_meta(super::DAY_KEY).unwrap().unwrap();
+    let day: Day = core.store.get_meta(DAY_KEY).unwrap().unwrap();
     assert!((day.spent_usd - d.cost_usd).abs() < 1e-12);
-}
-
-#[tokio::test]
-async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
-    let (_d, core, _) = core(&[]);
-    let total = 2 * N + 3;
-    for i in 0..total as u64 {
-        exchange_at(&core.store, "ses_t", PLACE, 1_000 + i, false);
-    }
-    let w = Fake {
-        cost: 0.01,
-        ..Fake::default()
-    };
-    let dry = core.ladder_build_with(&w, PLACE, true, None).await.unwrap();
-    assert_eq!(
-        (dry.exchanges, dry.lines, dry.folds),
-        (total as u64, total as u64, 1)
-    );
-    assert!(dry.estimated_usd > 0.0);
-    assert!(w.asks.lock().unwrap().is_empty(), "a dry run asks nothing");
-    assert!(core
-        .store
-        .get_meta::<super::Day>(super::DAY_KEY)
-        .unwrap()
-        .is_none());
-    // A cap of five calls: five lines, then it stops and says why.
-    let capped = core
-        .ladder_build_with(&w, PLACE, false, Some(0.05))
-        .await
-        .unwrap();
-    assert_eq!(capped.lines, 5);
-    assert!(capped.stopped.is_some());
-    let full = core
-        .ladder_build_with(&w, PLACE, false, Some(10.0))
-        .await
-        .unwrap();
-    assert_eq!(
-        (full.lines_had, full.lines, full.folds),
-        (5, total as u64 - 5, 1)
-    );
-    let l = super::read::ladder(&core.store, PLACE, 0).unwrap();
-    assert_eq!(l.window.len(), total - N);
-}
-
-#[tokio::test]
-async fn a_sealed_threads_session_is_hidden_and_a_plain_one_is_not() {
-    let (_d, core, _) = core(&[]);
-    assert!(!core.ladder_hidden("ses_plain"));
-    assert!(core.ladder_hidden(&format!("{}x", crate::import::SESSION_PREFIX)));
-    let w = Fake::default();
-    let turn = exchange_at(&core.store, "ses_plain", PLACE, 1_000, false);
-    let hidden = |sid: &str| core.ladder_hidden(sid);
-    let out = did::write(&core.store, &w, &turn, &hidden, None)
-        .await
-        .unwrap();
-    assert!(matches!(out, Outcome::Written(_)), "{out:?}");
+    assert!(day.reserved.is_empty(), "the reservation was settled");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_place_on_the_transcript_spends_nothing_on_summaries() {
     let (_d, core, fake) = core_with(&["Never asked."], None);
-    let turn = exchange_at(&core.store, "ses_t", PLACE, 1_000, false);
+    let sid = session(&core);
+    let turn = exchange_at(&core.store, &sid, PLACE, 1_000, false);
     let e = ExchangeEnd {
-        session_id: "ses_t".into(),
+        session_id: sid,
         execution_id: String::new(),
         turn_id: turn.clone(),
     };
     core.runner.judge.ladder_at_exchange_end(&e, false);
     assert_eq!(until_line(&core, &turn).await, None);
     assert!(fake.requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
+    let (_d, core, _) = core(&[]);
+    let sid = session(&core);
+    let total = 2 * N + 3;
+    for i in 0..total as u64 {
+        exchange_at(&core.store, &sid, PLACE, 1_000 + i, false);
+    }
+    let w = Fake {
+        cost: 0.01,
+        ..Fake::default()
+    };
+    let dry = core
+        .ladder_build_with(&w, PLACE, true, money(None, false))
+        .await
+        .unwrap();
+    assert_eq!(
+        (dry.exchanges, dry.lines, dry.folds),
+        (total as u64, total as u64, 1)
+    );
+    assert!(dry.estimated_usd > 0.0 && !dry.needs_over_day_line);
+    assert_eq!(dry.assembly, Assembly::View);
+    assert!(w.asks.lock().unwrap().is_empty(), "a dry run asks nothing");
+    assert!(core.store.get_meta::<Day>(DAY_KEY).unwrap().is_none());
+    // A cap of five calls: five lines, then it stops, and folds nothing.
+    let capped = core
+        .ladder_build_with(&w, PLACE, false, money(Some(0.05), false))
+        .await
+        .unwrap();
+    assert_eq!((capped.lines, capped.folds), (5, 0));
+    assert!(capped.stopped.is_some());
+    assert!((capped.spent_usd - 0.05).abs() < 1e-9);
+    let full = core
+        .ladder_build_with(&w, PLACE, false, money(Some(10.0), false))
+        .await
+        .unwrap();
+    assert_eq!(
+        (full.lines_had, full.lines, full.folds),
+        (5, total as u64 - 5, 1)
+    );
+    let l = super::read::ladder(&core.store, PLACE, None).unwrap();
+    assert_eq!(l.window.len(), total - N);
+}
+
+#[tokio::test]
+async fn a_cap_is_the_smaller_of_its_own_and_the_days_line_unless_given_leave() {
+    let (_d, core, _) = core(&[]);
+    let sid = session(&core);
+    for i in 0..10 {
+        exchange_at(&core.store, &sid, PLACE, 1_000 + i, false);
+    }
+    let today = crate::judge::spend::local_day(theseus_protocol::now_unix_ms());
+    let spent = Day {
+        day: today.clone(),
+        spent_usd: super::DAY_USD - 0.02,
+        reserved: Vec::new(),
+    };
+    core.store.put_meta(DAY_KEY, &spent).unwrap();
+    let w = Fake {
+        cost: 0.01,
+        ..Fake::default()
+    };
+    let dry = core
+        .ladder_build_with(&w, PLACE, true, money(Some(5.0), false))
+        .await
+        .unwrap();
+    assert!(dry.needs_over_day_line, "{dry:?}");
+    let b = core
+        .ladder_build_with(&w, PLACE, false, money(Some(5.0), false))
+        .await
+        .unwrap();
+    assert_eq!(
+        b.lines, 2,
+        "a cap of $5 is held to the $0.02 the day has left"
+    );
+    assert!(core
+        .ladder_build_with(&w, PLACE, false, money(None, true))
+        .await
+        .is_err());
+    let over = core
+        .ladder_build_with(&w, PLACE, false, money(Some(0.03), true))
+        .await
+        .unwrap();
+    assert_eq!(over.lines, 3, "leave to pass the line, up to its own cap");
+}
+
+#[tokio::test]
+async fn an_unsettled_reservation_counts_as_spent() {
+    let (_d, core, _) = core(&[]);
+    let today = crate::judge::spend::local_day(theseus_protocol::now_unix_ms());
+    let crashed = Day {
+        day: today,
+        spent_usd: 0.0,
+        reserved: vec![Reserved {
+            id: "lres_lost".into(),
+            usd: super::DAY_USD - 0.01,
+        }],
+    };
+    core.store.put_meta(DAY_KEY, &crashed).unwrap();
+    let purse = DayPurse::new(&core.store, None, false);
+    assert!((purse.left().unwrap() - 0.01).abs() < 1e-9);
+    assert!(purse.reserve(0.02).is_err());
+    // A reservation is written before its call.
+    let id = purse.reserve(0.01).unwrap();
+    let day: Day = core.store.get_meta(DAY_KEY).unwrap().unwrap();
+    assert!(day.reserved.iter().any(|r| r.id == id));
+    purse.settle(&id, 0.004);
+    let day: Day = core.store.get_meta(DAY_KEY).unwrap().unwrap();
+    assert_eq!(day.reserved.len(), 1);
+    assert!((day.spent_usd - 0.004).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn a_failed_calls_cost_is_the_builds_and_it_folds_nothing_after() {
+    let (_d, core, _) = core(&[]);
+    let sid = session(&core);
+    for i in 0..2 * N as u64 {
+        exchange_at(&core.store, &sid, PLACE, 1_000 + i, false);
+    }
+    let w = Fake {
+        cost: 0.01,
+        fail: 1.into(),
+        ..Fake::default()
+    };
+    let b = core
+        .ladder_build_with(&w, PLACE, false, money(Some(1.0), false))
+        .await
+        .unwrap();
+    assert_eq!((b.lines, b.folds), (0, 0));
+    assert!((b.spent_usd - 0.01).abs() < 1e-9, "{b:?}");
+    assert!(b.stopped.is_some());
+}
+
+#[tokio::test]
+async fn new_is_a_durable_mark_for_a_bound_place_and_a_terminal_has_none() {
+    let (_d, core, _) = core(&[]);
+    let sid = session(&core);
+    let bound = "discord:channel:777";
+    for place in [bound, PLACE] {
+        for i in 0..5 {
+            exchange_at(&core.store, &sid, place, 1_000 + i, false);
+        }
+    }
+    let w = Fake::default();
+    let build = |place: &'static str| core.ladder_build_with(&w, place, true, money(None, false));
+    assert_eq!(
+        build(bound).await.unwrap().exchanges,
+        5,
+        "no mark: no reset"
+    );
+    core.ladder_mark_new(bound).unwrap();
+    let now = theseus_protocol::now_unix_ms();
+    for i in 0..3 {
+        exchange_at(&core.store, &sid, bound, now + 10 + i, false);
+    }
+    let b = build(bound).await.unwrap();
+    assert_eq!(b.exchanges, 3, "only what came after /new");
+    assert!(b.since.is_some());
+    assert_eq!(super::new_mark(&core.store, bound).unwrap(), b.since);
+    // The terminal's place has no /new: all of it counts.
+    assert_eq!(build(PLACE).await.unwrap().exchanges, 5);
+    assert_eq!(super::new_mark(&core.store, PLACE).unwrap(), None);
+    // A mark that does not read is an error, never "no reset".
+    core.store
+        .put_meta(&format!("{}{PLACE}", super::NEW_PREFIX), &"broken")
+        .unwrap();
+    assert!(super::new_mark(&core.store, PLACE).is_err());
+    assert!(build(PLACE).await.is_err());
+}
+
+#[tokio::test]
+async fn a_source_is_summarised_only_when_its_provenance_proves_it_unsealed() {
+    let (_d, core, _) = core(&[]);
+    let plain = session(&core);
+    assert!(!core.ladder_hidden(&plain));
+    assert!(
+        core.ladder_hidden("ses_never_recorded"),
+        "no record: not proven"
+    );
+    assert!(core.ladder_hidden(&format!("{}x", crate::import::SESSION_PREFIX)));
+    // A thread's earlier session: its supersession link names the thread,
+    // which the board does not hold (or holds sealed): held either way.
+    let mut old = SessionRecord::new(SessionKind::Conversation, None);
+    old.superseded_by = Some(SessionLink {
+        session_id: plain.clone(),
+        at_ms: 1,
+        place: Some("thread:tide-gauges".into()),
+    });
+    core.store.put_session(&old.session_id, &old).unwrap();
+    assert!(core.ladder_hidden(&old.session_id));
+    let w = Fake::default();
+    let turn = exchange_at(&core.store, &old.session_id, PLACE, 1_000, false);
+    let hidden = |sid: &str| core.ladder_hidden(sid);
+    let purse = DayPurse::new(&core.store, None, false);
+    let out = did::write(&core.store, &w, &turn, &hidden, &purse)
+        .await
+        .unwrap();
+    assert_eq!(out, Outcome::Hidden);
+    assert!(w.asks.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_correction_the_judge_named_is_kept_above_the_first_level() {
+    use super::build::Standing;
+    use super::fold::Flags;
+    let (_d, core, _) = core(&[]);
+    let sid = session(&core);
+    let turn = exchange_at(&core.store, &sid, PLACE, 1_000, false);
+    let ask = crate::exchange::exchange(&core.store, &turn)
+        .unwrap()
+        .unwrap()
+        .ask
+        .unwrap();
+    let flags = Standing {
+        sources: Vec::new(),
+        store: &core.store,
+    };
+    assert!(!flags.correction(&turn, &ask));
+    let kinds = ["new_ask", "follow_up", "correction", "other"];
+    let j = crate::tests_learning::judgment(
+        "jdg_1",
+        "classify.v4",
+        vec![crate::tests_learning::choice(
+            "kind",
+            "correction",
+            0.9,
+            &kinds,
+        )],
+        serde_json::json!({"turn": turn}),
+        5,
+    );
+    let rec = super::correction_record(&j, Some(&turn)).expect("a correction is flagged");
+    core.store.append(&[rec]).unwrap();
+    assert!(flags.correction(&turn, &ask));
+    assert!(
+        !flags.correction(&turn, "msg_other"),
+        "only the message that opened it"
+    );
+    let mut other = j;
+    other.pack = "loop.v1".into();
+    assert!(super::correction_record(&other, Some(&turn)).is_none());
 }

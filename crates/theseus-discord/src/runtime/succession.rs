@@ -198,6 +198,16 @@ impl Place {
         // A thread's place has the thread's session: `theseus thread done`
         // ends it, `/thread unbind` gives the place back.
         self.fresh = self.fresh || self.thread_slug().is_none();
+        // The ladder counts only what comes after it (issue 44, step 4).
+        if self.fresh {
+            if let Err(e) = self
+                .shared
+                .core
+                .ladder_mark_new(&format!("discord:{}", self.key))
+            {
+                tracing::warn!(error = %format!("{e:#}"), "the /new mark was not written");
+            }
+        }
     }
 
     /// Point this place at `sid`, the session just opened for it.

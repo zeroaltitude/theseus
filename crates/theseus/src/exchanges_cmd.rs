@@ -29,12 +29,13 @@ pub async fn ladder(
     conn: &mut Conn,
     json: bool,
     place: String,
-    (dry_run, cap_usd): (bool, Option<f64>),
+    (dry_run, cap_usd, over_day_line): (bool, Option<f64>, bool),
 ) -> Result<()> {
     let p = serde_json::to_value(ExchangeLadderParams {
         place,
         dry_run,
         cap_usd,
+        over_day_line,
     })?;
     let v = conn.request(method::EXCHANGE_LADDER, p).await?;
     match json {
@@ -123,6 +124,16 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
     );
     if let Some(why) = &r.stopped {
         s.push_str(&format!("; stopped: {why}"));
+    }
+    s.push_str(&format!("; ${:.2} left of today's line", r.day_left_usd));
+    if r.needs_over_day_line {
+        s.push_str("; finishing would pass it: run again with --cap-usd N --over-day-line");
+    }
+    if r.assembly != "view" {
+        s.push_str(&format!(
+            "; this place is assembled as a {}, so nothing built here is shown until it is a view",
+            r.assembly
+        ));
     }
     s
 }
