@@ -1584,7 +1584,7 @@ fn a_follow_up_of_homes_reply_has_a_threads_credit() {
     );
     let thread = Last {
         slug: Some("pr-round".into()),
-        ..home.clone()
+        ..home
     };
     assert_eq!(at("say more", &thread, 240_000), 0.0, "a thread's own");
     let mut learned = pre_route("say more", &t, Some(&home), 240_000, half);
