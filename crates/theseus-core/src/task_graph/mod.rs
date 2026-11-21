@@ -23,12 +23,21 @@
 //!   evidence, and a failure `failed`, in the frame that ends the task.
 //! - **The view** (`view.rs`): the graph a turn's scope holds, in the
 //!   request's tail.
+//! - **A joined task's card** (`joined.rs`, issue 44): what a conversation
+//!   where the owner is alone is shown of the one task his message
+//!   addresses, from records only.
+//! - **His own words** (`words.rs`, issue 44): a change to the owner's task
+//!   that only narrows or pauses, in his marked message of the current
+//!   exchange, applies without a card; the words behind each change are kept
+//!   by reference.
 
+pub mod joined;
 pub mod lease;
 pub mod plan;
 pub mod retitle;
 pub mod tools;
 pub mod view;
+pub mod words;
 
 use anyhow::Result;
 use theseus_kernel::{ExecState, Execution, Wake};
@@ -177,8 +186,11 @@ pub fn all(store: &Store) -> Result<Vec<TaskRecord>> {
 /// A task's state as it reads now: a closed record's own, or for a task
 /// with a session, its execution's running state (the default 39a takes:
 /// derived when read, never written at each transition).
+///
+/// A pause the owner asked (`suspended` on the record, issue 44) reads as
+/// written: nothing else writes that state to a task session's record.
 pub fn state_now(rec: &TaskRecord, exec: Option<&Execution>) -> TaskState {
-    if rec.state.is_closed() || rec.session.is_none() {
+    if rec.state.is_closed() || rec.session.is_none() || rec.state == TaskState::Suspended {
         return rec.state;
     }
     let Some(e) = exec else { return rec.state };

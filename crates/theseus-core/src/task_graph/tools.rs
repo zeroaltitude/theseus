@@ -73,6 +73,9 @@ struct Patch {
     /// it (theseus-n5ui2).
     #[serde(default)]
     due: Option<String>,
+    /// Pause the task (`true`), or undo a pause (`false`): layer 1 (issue 44).
+    #[serde(default)]
+    paused: Option<bool>,
 }
 
 impl Patch {
@@ -82,7 +85,11 @@ impl Patch {
             (true, true) => Some("objective and acceptance"),
             (true, false) => Some("objective"),
             (false, true) => Some("acceptance"),
-            (false, false) => None,
+            (false, false) => match self.paused {
+                Some(true) => Some("pause"),
+                Some(false) => Some("resume"),
+                None => None,
+            },
         }
     }
 
@@ -101,6 +108,37 @@ struct UpdateIn {
     id: String,
     version: u64,
     patch: Patch,
+    /// The owner's message the change is in (issue 44): its node id.
+    #[serde(default)]
+    said: Option<String>,
+    /// What the change does to his objective.
+    #[serde(default)]
+    kind: Option<super::words::Kind>,
+}
+
+impl UpdateIn {
+    fn ask(&self) -> super::words::Ask<'_> {
+        super::words::Ask {
+            named: &self.id,
+            version: self.version,
+            said: self.said.as_deref(),
+            kind: self.kind,
+            objective: self.patch.objective.as_deref(),
+            acceptance: self.patch.acceptance.as_deref(),
+            paused: self.patch.paused,
+        }
+    }
+}
+
+/// Whether a `task.update` on the owner's task applies without a card, in
+/// his own current words (`words.rs`); why not otherwise. Read again under
+/// the task's lock when the call runs.
+pub fn by_words(tc: &TurnCtx<'_>, input: &Value) -> Result<super::words::Kind, super::words::Why> {
+    use super::words::Why;
+    let i = update_in(input).map_err(|_| Why::NoWords)?;
+    let all = super::all(tc.store).map_err(|_| Why::NotOneTask)?;
+    let rec = super::resolve(&all, &i.id).map_err(|_| Why::NotOneTask)?;
+    super::words::decide(&super::words::Turn(tc), rec, &i.ask())
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,7 +193,8 @@ fn update_in(input: &Value) -> Result<UpdateIn, String> {
     let i: UpdateIn = parse(input)?;
     if i.patch.is_empty() {
         return Err(
-            "the patch changes nothing: give title, deps, owner, objective, or acceptance".into(),
+            "the patch changes nothing: give title, deps, owner, objective, acceptance, or paused"
+                .into(),
         );
     }
     if let Some(t) = &i.patch.title {
@@ -220,6 +259,13 @@ fn authority_of(name: &str, input: &Value) -> Option<String> {
             if let Some(a) = &i.patch.acceptance {
                 s.push_str(&format!("; acceptance after: \"{}\"", a.join("\"; \"")));
             }
+            if let Some(p) = i.patch.paused {
+                s.push_str(if p {
+                    "; it pauses the task"
+                } else {
+                    "; it resumes the task"
+                });
+            }
             Some(s)
         }
         CLOSE => {
@@ -268,6 +314,13 @@ pub fn change_of(
                 before.push(lines(&t.acceptance));
                 after.push(lines(a));
             }
+            if let Some(p) = i.patch.paused {
+                before.push(t.state.as_str().to_string());
+                after.push(match p {
+                    true => TaskState::Suspended.as_str().to_string(),
+                    false => "as before its pause".to_string(),
+                });
+            }
             (field, before.join(" / "), after.join(" / "))
         }
     };
@@ -311,7 +364,7 @@ fn waits(store: &crate::store::Store, name: &str, input: &Value) -> bool {
 /// once, so its plan names no authority and the call runs at its tool's own
 /// posture. The owner's tasks keep it.
 pub fn authority_for(
-    store: &crate::store::Store,
+    tc: &TurnCtx<'_>,
     name: &str,
     input: &Value,
     plan: Plan,
@@ -335,7 +388,12 @@ pub fn authority_for(
     // Only a task edit's authority is conditional; another tool that names one
     // (`thread.split`, and task.create's plan naming a project's review
     // routine, theseus-n5ui2) always waits for the owner.
-    if plan.authority.is_some() && !own && is_edit(name) && !waits(store, name, input) {
+    if plan.authority.is_some() && !own && is_edit(name) && !waits(tc.store, name, input) {
+        plan.authority = None;
+    }
+    // A change in the owner's own current words that only narrows or pauses
+    // needs no card (issue 44); anything else keeps it.
+    if plan.authority.is_some() && name == UPDATE && by_words(tc, input).is_ok() {
         plan.authority = None;
     }
     plan
@@ -363,7 +421,12 @@ impl Tool for TaskUpdate {
          (the tasks it waits on), and `owner` apply at once. On a task the task graph marks \
          \"the operator's objective\", `objective` and `acceptance` are the operator's: a change \
          to either becomes a proposal that waits for the operator's yes, and nothing changes \
-         until then. On any other task (a plan item, a split's child) they apply at once."
+         until then. On any other task (a plan item, a split's child) they apply at once. When \
+         the operator's own message in this exchange asks the change, name it in `said` and say \
+         its `kind`: a change that `narrows` (the objective kept word for word, with only the \
+         operator's quoted words added) or `pauses` (`paused: true`; `resumes` with \
+         `paused: false` undoes it) applies at once; one that `widens` or `replaces` waits for \
+         the operator's yes, as does anything else."
     }
 
     fn input_schema(&self) -> Value {
@@ -380,10 +443,13 @@ impl Tool for TaskUpdate {
                         "owner": {"type": "string", "description": "`agent`, or a person."},
                         "due": {"type": "string", "description": "A milestone's or project's date (`2026-11-03`, `fri 09:00`, `in 3d`), or `none`. A milestone's date sets its reminder."},
                         "objective": {"type": "string", "description": "On the operator's task, a proposal that waits for the operator."},
-                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."}
+                        "acceptance": {"type": "array", "items": {"type": "string"}, "description": "One line each. On the operator's task, a proposal that waits for the operator."},
+                        "paused": {"type": "boolean", "description": "true pauses the task; false undoes a pause."}
                     },
                     "additionalProperties": false
-                }
+                },
+                "said": {"type": "string", "description": "The id of the operator's message in this exchange that asks the change."},
+                "kind": {"type": "string", "enum": ["narrows", "pauses", "resumes", "widens", "replaces"], "description": "What the change does to the operator's objective."}
             },
             "required": ["id", "version", "patch"],
             "additionalProperties": false
@@ -413,6 +479,7 @@ impl Tool for TaskUpdate {
             ("due", i.patch.due.is_some()),
             ("objective", i.patch.objective.is_some()),
             ("acceptance", i.patch.acceptance.is_some()),
+            ("paused", i.patch.paused.is_some()),
         ] {
             if on {
                 fields.push(f);
@@ -692,14 +759,21 @@ fn update<'a>(
     // (theseus-ext.10); the owner's waits for the operator's yes.
     let touches_layer1 = i.patch.layer1().is_some();
     let layer1 = i.patch.layer1().filter(|_| rec.is_owners());
-    if layer1.is_some() && !approved {
-        return Err(format!(
-            "Not applied: a change to task {}'s {} is the operator's, and it ran \
-             without the operator's yes",
-            rec.id,
-            layer1.unwrap_or_default()
-        ));
-    }
+    // His own current words, read again under the task's lock (issue 44).
+    let by_words = match (layer1.is_some(), approved) {
+        (true, false) => match super::words::decide(&super::words::Turn(tc), &rec, &i.ask()) {
+            Ok(kind) => Some(kind),
+            Err(_) => {
+                return Err(format!(
+                    "Not applied: a change to task {}'s {} is the operator's, and it ran \
+                     without the operator's yes",
+                    rec.id,
+                    layer1.unwrap_or_default()
+                ))
+            }
+        },
+        _ => None,
+    };
     if let Some(deps) = &i.patch.deps {
         let all = super::all(tc.store).map_err(|e| format!("{e:#}"))?;
         for d in deps {
@@ -748,33 +822,105 @@ fn update<'a>(
         rec.acceptance = a;
         fields.push("acceptance");
     }
+    let before = rec.state;
+    if let Some(p) = i.patch.paused {
+        rec.state = paused_state(tc, &rec, p)?;
+        fields.push("paused");
+    }
     if touches_layer1 {
         rec.proposal = None;
     }
     super::lease::renew(&mut rec, tc, lease_ms);
     rec.version += 1;
     rec.updated_at_ms = now;
+    // The words behind an owner's change, by reference, when the call named them.
+    let kept = match (&i.said, i.kind, layer1) {
+        (Some(node), Some(kind), Some(_)) => Some(super::words::Words {
+            task: rec.id.clone(),
+            version: rec.version,
+            from,
+            node: node.clone(),
+            turn: tc.turn_id.into(),
+            session: tc.session_id.into(),
+            kind,
+            carded: by_words.is_none(),
+            before: (i.patch.paused == Some(true)).then_some(before),
+            at_ms: now,
+        }),
+        _ => None,
+    };
     let verb = if layer1.is_some() {
         "change_accepted"
     } else {
         "updated"
     };
-    let c = change(tc, &rec, Some(from), json!({"fields": fields.join(",")}));
+    let mut detail = json!({"fields": fields.join(",")});
+    if let (Some(w), Some(kind)) = (&kept, by_words) {
+        detail["words"] = json!({"said": w.node, "kind": kind.as_str()});
+    }
+    let c = change(tc, &rec, Some(from), detail);
     done.row(tc, verb, c)?;
     done.records.extend(retitled);
-    done.text = format!(
-        "Updated task {} ({}): v{from} → v{}.{}",
-        rec.id,
-        fields.join(", "),
-        rec.version,
-        if layer1.is_some() {
-            " The operator accepted the change."
-        } else {
-            ""
-        }
-    );
+    if let Some(w) = &kept {
+        done.records
+            .push(super::words::words_record(w).map_err(|e| format!("{e:#}"))?);
+    }
+    done.text = match by_words {
+        Some(kind) => by_words_text(&rec, from, kind),
+        None => format!(
+            "Updated task {} ({}): v{from} → v{}.{}",
+            rec.id,
+            fields.join(", "),
+            rec.version,
+            if layer1.is_some() {
+                " The operator accepted the change."
+            } else {
+                ""
+            }
+        ),
+    };
     done.meta = json!({"task": rec.id, "version": rec.version, "from": from, "fields": fields});
     Ok(done)
+}
+
+/// The state a pause (`true`) or its undo (`false`) leaves the task in: the
+/// undo restores the state its pause kept, else `accepted`.
+fn paused_state(tc: &TurnCtx<'_>, rec: &TaskRecord, pause: bool) -> Result<TaskState, String> {
+    match (pause, rec.state == TaskState::Suspended) {
+        (true, true) => Err(format!("task {} is paused already", rec.id)),
+        (true, false) => Ok(TaskState::Suspended),
+        (false, false) => Err(format!("task {} is not paused", rec.id)),
+        (false, true) => Ok(super::words::words(tc.store, &rec.id, rec.version)
+            .map_err(|e| format!("{e:#}"))?
+            .and_then(|w| w.before)
+            .unwrap_or(TaskState::Accepted)),
+    }
+}
+
+/// What the model is told of a change made in the owner's own words: what
+/// was accepted, so the reply can say it back, and the task hears it at its
+/// next step.
+fn by_words_text(rec: &TaskRecord, from: u64, kind: super::words::Kind) -> String {
+    use super::words::Kind;
+    match kind {
+        Kind::Pauses => format!(
+            "Paused task {} by the operator's message: v{from} → v{}. Accepted, not yet heard: \
+             the task hears it at its next step. To undo it: task_update with `paused: false`, \
+             `kind: resumes`, and the operator's message that asks it.",
+            rec.id, rec.version
+        ),
+        Kind::Resumes => format!(
+            "Resumed task {} by the operator's message: v{from} → v{}, {} again.",
+            rec.id,
+            rec.version,
+            rec.state.as_str()
+        ),
+        _ => format!(
+            "Version {} of task {}'s objective accepted, in the operator's own words: \"{}\". \
+             Accepted, not yet heard: the task hears it at its next step.",
+            rec.version, rec.id, rec.objective
+        ),
+    }
 }
 
 /// The mark that says the new title is this session's model's words, whoever wrote the one before
@@ -1132,7 +1278,8 @@ pub fn proposed(
         ) {
             (true, true) => "objective,acceptance",
             (true, false) => "objective",
-            _ => "acceptance",
+            (false, true) => "acceptance",
+            (false, false) => "paused",
         },
     };
     rec.proposal = Some(TaskProposal {
@@ -1149,12 +1296,18 @@ pub fn proposed(
         base_version: rec.version,
         at_ms: theseus_protocol::now_unix_ms(),
     });
-    let c = change(
-        tc,
-        &rec,
-        None,
-        json!({"fields": fields, "card": card, "before": {"objective": rec.objective, "acceptance": rec.acceptance}}),
-    );
+    let mut detail = json!({"fields": fields, "card": card, "before": {"objective": rec.objective, "acceptance": rec.acceptance}});
+    // A proposal that named his words and fell to the card says why: the cards counted (issue 44).
+    if name == UPDATE && input.get("said").is_some() {
+        if let Err(why) = by_words(tc, input) {
+            detail["words"] = json!({
+                "said": input["said"],
+                "kind": input.get("kind").cloned().unwrap_or(Value::Null),
+                "card": why.as_str(),
+            });
+        }
+    }
+    let c = change(tc, &rec, None, detail);
     let records = vec![
         record(&rec)?,
         facts::row_of(&tc.rec(), "change_proposed", &c)?,
