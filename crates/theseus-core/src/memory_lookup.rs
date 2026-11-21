@@ -78,6 +78,14 @@ const DEADLINE: Duration = Duration::from_secs(2);
 /// The most sessions a book or a topic narrows a search of words to.
 const SESSIONS_MAX: u64 = 500;
 
+/// Why a session of a sealed thread is not read.
+pub const SEALED: &str =
+    "is a sealed thread's, or a seal is proposed for it: memory.lookup does not \
+     read it from here. The owner opens it in its own thread, or unseals it";
+/// Why a channel bound private reads no other place.
+pub const CHANNEL: &str = "is not this channel's: a channel bound private draws on its own \
+     conversation alone, since anyone who joins it later reads what was said in it";
+
 /// Why a shared place gets nothing.
 pub const SHARED: &str = "memory.lookup reads the owner's memory, and this place is shared: \
      people besides the owner read it, so nothing of memory is looked up here";
@@ -338,6 +346,20 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
     let limit = a.limit.unwrap_or(PAGE).clamp(1, PAGE_MAX);
     let offset = a.cursor.unwrap_or(0);
     let budget = a.budget_tokens.unwrap_or(BUDGET).clamp(100, BUDGET_MAX);
+    // A session by id is read only when the gate would admit it whole: never
+    // a sealed thread's (or one whose seal is proposed) unless it is the
+    // asker's own thread, and from a channel bound private only its own.
+    if let Some(id) = some(&a.session) {
+        let runner = &core.runner;
+        if crate::view_gate::seal_of(runner, Some(&session), id)
+            != theseus_memory::gate::Seal::Clear
+        {
+            return Err(format!("session {id} {SEALED}"));
+        }
+        if !crate::view_gate::RecallPlaces::of(runner, Some(&session)).may_read(runner, id) {
+            return Err(format!("session {id} {CHANNEL}"));
+        }
+    }
     if some(&a.session).is_some() && some(&a.words).is_none() {
         return read::session(&core, &a, when.as_ref(), (offset, limit, budget)).await;
     }
@@ -355,7 +377,7 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
             )
             .await?
         }
-        None => by_catalog(&core, &a, when.as_ref(), offset, limit).await?,
+        None => by_catalog(&core, &session, &a, when.as_ref(), offset, limit).await?,
     };
     let counted = some(&a.words).is_none();
     let items: Vec<Item> = match some(&a.words) {
@@ -489,6 +511,7 @@ fn offset_words() -> String {
 /// book or topic lists this harness's own sessions in it first (`read`).
 async fn by_catalog(
     core: &Arc<Core>,
+    asker: &str,
     a: &Args,
     when: Option<&When>,
     offset: u64,
@@ -496,10 +519,29 @@ async fn by_catalog(
 ) -> Result<(String, Vec<Item>, u64), String> {
     let own = match when {
         Some(w) if some(&a.book).is_none() && some(&a.topic).is_none() => {
-            read::own_sessions(core, w).await?
+            read::own_sessions(core, asker, w).await?
         }
         _ => Vec::new(),
     };
+    // A channel bound private lists its own sessions and no imported
+    // episode, which is the owner's history from elsewhere.
+    if crate::view_gate::RecallPlaces::of(&core.runner, Some(asker))
+        .channel()
+        .is_some()
+    {
+        let n = own.len() as u64;
+        let items: Vec<Item> = own
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .collect();
+        let head = format!(
+            "memory.lookup: {} of this channel {}, newest first; a channel bound private lists no other place's.",
+            crate::narrative::count(n, "session", "sessions"),
+            what(a, when)
+        );
+        return Ok((head, items, n));
+    }
     let n_own = own.len() as u64;
     let mut items: Vec<Item> = own
         .into_iter()
@@ -604,11 +646,13 @@ async fn by_words(
     );
     begun.max_items = Some(k);
     let answer = begun.answer().await;
+    // A channel bound private recalls as a place of one (the gate's decision 5).
+    let places = crate::view_gate::RecallPlaces::of(&core.runner, session);
     let scene = crate::recall::Scene {
         mode: "lookup",
         session_id: session,
         turn_id: None,
-        place: Place::Private,
+        place: places.asker(Place::Private),
         in_context,
         labeled: memory.labeled(&core.store).map_err(|e| format!("{e:#}"))?,
         budget_tokens: Some(BUDGET_MAX * 4),
@@ -624,7 +668,7 @@ async fn by_words(
         &scene,
         &begun,
         answer,
-        |s| core.runner.place_of(s),
+        |s| places.of_session(&core.runner, s),
         |ids| crate::recall::links(&core.store, ids),
         true,
     );

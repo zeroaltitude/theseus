@@ -246,11 +246,15 @@ impl TurnRunner {
                 tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
                 BTreeSet::new()
             });
-        let place = self.place_of(t.tc.session_id);
+        // A channel bound private recalls as a place of one (the gate's
+        // decision 5); the category reads the place as it is.
+        let today = self.place_of(t.tc.session_id);
+        let place =
+            crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id)).asker(today.clone());
         let threads = self.thread_scene(Some(t.tc.session_id), message, true);
         let category = self.category_scene(
             Some(t.tc.session_id),
-            place == theseus_memory::Place::Private,
+            today == theseus_memory::Place::Private,
             threads.as_ref(),
         );
         // The prompt's tier sizes the pack (theseus-d9je7); an assembled
@@ -314,12 +318,13 @@ impl TurnRunner {
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
         let answer = begun.answer().await;
+        let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
         let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
             answer,
-            |s| self.place_of(s),
+            |s| places.of_session(self, s),
             |ids| crate::recall::links(&self.store, ids),
             false,
         );

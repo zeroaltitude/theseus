@@ -71,12 +71,14 @@ impl Core {
                 }
             },
         };
+        // A channel bound private recalls as a place of one (the gate's decision 5).
+        let places = crate::view_gate::RecallPlaces::of(&self.runner, p.session_id.as_deref());
         let (place, in_context) = match &p.session_id {
             Some(sid) => {
                 self.session_exists(sid)?;
                 let nodes = self.store.session_nodes(sid)?;
                 let ids: BTreeSet<String> = nodes.into_iter().map(|(_, n)| n.id).collect();
-                (self.runner.place_of(sid), ids)
+                (places.asker(self.runner.place_of(sid)), ids)
             }
             None => (Place::Private, BTreeSet::new()),
         };
@@ -113,7 +115,7 @@ impl Core {
             &scene,
             &begun,
             answer,
-            |s| self.runner.place_of(s),
+            |s| places.of_session(&self.runner, s),
             |ids| crate::recall::links(&self.store, ids),
             true,
         ))
