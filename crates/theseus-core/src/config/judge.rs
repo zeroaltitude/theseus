@@ -128,7 +128,7 @@ pub struct JudgeConfig {
     /// with `continue.v1`: read, warned of ([`Self::retired`]), ignored and
     /// never written back.
     #[serde(default, skip_serializing)]
-    signals: Option<toml::Value>,
+    pub(crate) signals: Option<toml::Value>,
 }
 
 /// `[judge.learn]` (design §2.17): nightly, after the report, each wired

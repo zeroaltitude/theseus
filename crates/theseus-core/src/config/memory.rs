@@ -178,7 +178,7 @@ pub struct MemoryConfig {
     /// read, warned of ([`Self::trimmed`]), ignored and never written back.
     /// The shadow count it would have promoted, `would_drop`, stays.
     #[serde(default, skip_serializing)]
-    small_talk_bar: Option<toml::Value>,
+    pub(crate) small_talk_bar: Option<toml::Value>,
     /// The profile that summarizes what the ring would drop (step 30c):
     /// compaction. A configured key is a pin (route.v10, theseus-ej6bj):
     /// `session` is the turn's own profile, provider and model, so the range
