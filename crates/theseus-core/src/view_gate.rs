@@ -629,6 +629,38 @@ pub fn digest_threads<'b>(
         .collect()
 }
 
+/// The standing records, of `(id, source)`, a turn of `asker` may not be
+/// shown: each kept from a message (`capture:<node>`) of a conversation the
+/// gate does not admit for it, or whose message cannot be read. A record
+/// from no conversation (the owner's own surfaces) is source-free.
+pub fn standing_held<'r>(
+    runner: &TurnRunner,
+    asker: &str,
+    records: impl Iterator<Item = (&'r str, &'r str)>,
+) -> std::collections::HashSet<String> {
+    let places = RecallPlaces::of(runner, Some(asker));
+    let board = board(runner, "standing records");
+    records
+        .filter(|(_, source)| {
+            let Some(node) = source.strip_prefix("capture:") else {
+                return false;
+            };
+            let Ok(Some((_, n))) = runner.store.get_node(node) else {
+                return true;
+            };
+            if n.session_id == asker {
+                return false;
+            }
+            let Some(b) = &board else {
+                return true;
+            };
+            !places.may_read(runner, &n.session_id)
+                || node_seal(&runner.store, b, Some(asker), &n.session_id, &n.id) != Seal::Clear
+        })
+        .map(|(id, _)| id.to_string())
+        .collect()
+}
+
 /// Of several set-ups, the narrowest; any not recorded is `Unknown`.
 pub fn narrowest(all: impl IntoIterator<Item = Option<Present>>) -> Option<Present> {
     all.into_iter().map(|p| p.unwrap_or(Present::Unknown)).max()

@@ -1339,3 +1339,47 @@ async fn a_place_digest_names_other_threads_only_for_the_owner_alone() {
     ));
     assert_eq!(got, ["tide"]);
 }
+
+/// A standing record kept from a message of another conversation is held
+/// from a turn the gate does not admit that conversation for: an agent's at
+/// the terminal, a channel bound private; the owner alone is shown it, and a
+/// record from no conversation is shown to every turn (item 8b).
+#[tokio::test]
+async fn a_standing_record_keeps_its_source_place() {
+    let r = rig();
+    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &dm, HIS).await;
+    let (_, said) = r.core.store.session_nodes(&dm).unwrap().remove(0);
+    let source = format!("capture:{}", said.id);
+    let records = [("std_dm", source.as_str()), ("std_cli", "the CLI")];
+    let held = |sid: &str| {
+        let mut h: Vec<String> =
+            view_gate::standing_held(&r.core.runner, sid, records.iter().copied())
+                .into_iter()
+                .collect();
+        h.sort();
+        h
+    };
+    let desk = session(&r.core, None);
+    let seat = |sid: &str, in_person: bool| {
+        let m = view_gate::test_mark(&r.core.runner, sid, in_person);
+        let place = m.place.clone();
+        view_gate::begin(
+            &r.core.runner,
+            sid,
+            "turn_st",
+            place,
+            view_gate::Proof::Mark(&m),
+        );
+    };
+    seat(&desk, true);
+    assert!(held(&desk).is_empty());
+    seat(&desk, false);
+    assert_eq!(held(&desk), ["std_dm"]);
+    let lab = session(&r.core, Some(&format!("channel:{LAB}")));
+    seat(&lab, true);
+    assert_eq!(held(&lab), ["std_dm"]);
+    // Where it was said, it is its own.
+    seat(&dm, false);
+    assert!(held(&dm).is_empty());
+}
