@@ -3,8 +3,9 @@
 //! notify if it's going to stop").
 //!
 //! Seven background sweeps each hold their own day budget, read back from
-//! their own rows (consolidation, people, ontology, the learn writer, the
-//! owner card, the thread import, the route bench's replay), so their
+//! their own rows (the dream's guidance, under the consolidation cap; people,
+//! ontology, the learn writer, the owner card, the thread import, the route
+//! bench's replay), so their
 //! arithmetic cannot be one function. What can be one is the notice: every
 //! site that is about to refuse a call for want of its day's money first asks
 //! [`TurnRunner::sweep_heads_up`] with its [`SweepId`], and that is the only
@@ -55,7 +56,10 @@ pub const SWEEPS: [Sweep; 7] = [
     Sweep {
         id: SweepId::Consolidation,
         row: "D7",
-        name: "consolidation",
+        // What the owner sees: the dream's guidance is all that spends under
+        // this cap since the nightly synthesis writer was retired; the id,
+        // its META key and `[memory] synth_limit_usd_per_day` stay.
+        name: "dream guidance",
         key: "[memory] synth_limit_usd_per_day",
     },
     Sweep {

@@ -11,8 +11,10 @@
 //! **Retired** (the owner, 2026-11-21): the research arms `+retention`,
 //! `+activation` and `+synthesis`, the `canary` mode and its
 //! `canary_fraction`, which never ran live. A config that still names them
-//! loads: an old arm is read as `baseline`, `canary` as `live`, and the
-//! fraction is ignored, and the start says so once ([`MemoryConfig::retired`]).
+//! loads: an old arm is read as `baseline`, `canary` as `live` (so every
+//! session, a former control too, gets live recall), and the fraction is
+//! ignored; the start says which of these happened, once
+//! ([`MemoryConfig::retirement`]).
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -100,13 +102,16 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub arm: MemoryArm,
     /// `canary_fraction`, retired with the `canary` mode: read, warned of
-    /// ([`Self::retired`]), ignored and never written back.
+    /// ([`Self::retirement`]), ignored and never written back.
     #[serde(default, skip_serializing)]
     pub(crate) canary_fraction: Option<toml::Value>,
-    /// The retired arm or mode the document named (`Config::from_toml`
-    /// reads them from it), for [`Self::retired`].
+    /// The retired arm the document named (`Config::from_toml` reads it from
+    /// the document: serde has already read it as `baseline`).
     #[serde(skip)]
-    pub(crate) retired_names: Vec<String>,
+    pub(crate) retired_arm: Option<String>,
+    /// The document said `mode = "canary"`, which serde read as `live`.
+    #[serde(skip)]
+    pub(crate) retired_canary: bool,
     /// The experiment's name: each `memory.arm` row names it.
     #[serde(default = "default_experiment")]
     pub experiment: String,
@@ -289,7 +294,8 @@ impl Default for MemoryConfig {
             mode: MemoryMode::default(),
             arm: MemoryArm::default(),
             canary_fraction: None,
-            retired_names: Vec::new(),
+            retired_arm: None,
+            retired_canary: false,
             experiment: default_experiment(),
             session_recall_cap_tokens: default_session_cap(),
             recall_budget_tokens: default_budget(),
@@ -348,23 +354,51 @@ impl MemoryConfig {
             return;
         };
         let said = |key: &str| m.get(key).and_then(toml::Value::as_str);
-        if let Some(arm) = said("arm").filter(|a| RETIRED_ARMS.contains(a)) {
-            self.retired_names.push(format!("memory.arm = \"{arm}\""));
-        }
-        if said("mode") == Some(RETIRED_MODE) {
-            self.retired_names
-                .push(format!("memory.mode = \"{RETIRED_MODE}\""));
-        }
+        self.retired_arm = said("arm")
+            .filter(|a| RETIRED_ARMS.contains(a))
+            .map(str::to_string);
+        self.retired_canary = said("mode") == Some(RETIRED_MODE);
     }
 
-    /// What this section sets that this build retired, by the name the
-    /// config gives it: what `Config::parse` warns of, once.
-    pub fn retired(&self) -> Vec<String> {
-        let mut out = self.retired_names.clone();
-        if self.canary_fraction.is_some() {
-            out.push("memory.canary_fraction".into());
+    /// The start's one line about what this section sets that this build
+    /// retired, built from the retired keys actually present and the mode
+    /// and arm that actually result; none when it sets none. An old arm
+    /// names its replacement alone; the fraction is ignored; and `canary`
+    /// says that every session now gets live recall, since a session that
+    /// was a canary's control had none in front of its model before.
+    pub fn retirement(&self) -> Option<String> {
+        let arm = self.arm.as_str();
+        let mut said = Vec::new();
+        if let Some(old) = &self.retired_arm {
+            said.push(format!(
+                "memory.arm = \"{old}\" is retired and runs as arm = \"{arm}\""
+            ));
         }
-        out
+        if self.retired_canary {
+            said.push(match self.arm {
+                MemoryArm::None => format!(
+                    "memory.mode = \"{RETIRED_MODE}\" is retired: canary sampling is removed, and \
+                     every session now runs mode = \"live\" on arm = \"none\", which recalls \
+                     nothing"
+                ),
+                _ => format!(
+                    "memory.mode = \"{RETIRED_MODE}\" is retired: canary sampling is removed, and \
+                     every session now gets live recall on arm = \"{arm}\", the sessions that were \
+                     the canary's controls included (they had none in front of the model before)"
+                ),
+            });
+        }
+        if self.canary_fraction.is_some() {
+            said.push("memory.canary_fraction is retired and ignored".into());
+        }
+        if said.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "{}; set what you mean, and remove the retired {}",
+            said.join("; "),
+            if said.len() == 1 { "key" } else { "keys" }
+        ))
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
@@ -640,30 +674,39 @@ mod tests {
         }
     }
 
+    /// The start's lines about `[memory]` for `body` appended to the
+    /// template, and the config it loads.
+    fn loaded(body: &str) -> (crate::Config, Vec<String>) {
+        let text = format!("{}\n[memory]\n{body}\n", crate::Config::EXAMPLE_TOML);
+        let (cfg, warnings) = crate::Config::parse(&text).unwrap();
+        let said = warnings
+            .into_iter()
+            .filter(|w| w.contains("memory."))
+            .collect();
+        (cfg, said)
+    }
+
     /// A config written for the retired arms and the canary mode still
     /// loads (the owner, 2026-11-21): an old arm reads as `baseline`,
     /// `canary` as `live`, `canary_fraction` is ignored, and the start
-    /// says so in one line that names each.
+    /// says what each did in one line.
     #[test]
     fn a_config_that_names_a_retired_arm_or_canary_still_loads() {
         for arm in RETIRED_ARMS {
-            let text = format!(
-                "{}\n[memory]\nmode = \"canary\"\narm = \"{arm}\"\ncanary_fraction = 0.3\n",
-                crate::Config::EXAMPLE_TOML
-            );
-            let (cfg, warnings) = crate::Config::parse(&text).unwrap();
+            let (cfg, said) = loaded(&format!(
+                "mode = \"canary\"\narm = \"{arm}\"\ncanary_fraction = 0.3"
+            ));
             assert_eq!(
                 (cfg.memory.mode, cfg.memory.arm),
                 (MemoryMode::Live, MemoryArm::Baseline)
             );
-            let said: Vec<&String> = warnings.iter().filter(|w| w.contains("memory.")).collect();
-            assert_eq!(said.len(), 1, "{warnings:?}");
-            for key in [
-                format!("memory.arm = \"{arm}\""),
-                "memory.mode = \"canary\"".into(),
-                "memory.canary_fraction".into(),
+            assert_eq!(said.len(), 1, "{said:?}");
+            for part in [
+                format!("memory.arm = \"{arm}\" is retired and runs as arm = \"baseline\""),
+                "every session now gets live recall on arm = \"baseline\"".into(),
+                "memory.canary_fraction is retired and ignored".into(),
             ] {
-                assert!(said[0].contains(&key), "{key}: {}", said[0]);
+                assert!(said[0].contains(&part), "{part}: {}", said[0]);
             }
             assert!(
                 !toml::to_string(&cfg.memory)
@@ -673,10 +716,80 @@ mod tests {
             );
         }
         // A config that names none of them hears nothing of it.
-        let (_, warnings) = crate::Config::parse(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(
-            warnings.iter().all(|w| !w.contains("memory.")),
-            "{warnings:?}"
+        let (_, said) = loaded("");
+        assert_eq!(said, Vec::<String>::new());
+    }
+
+    /// An old arm alone names its replacement and nothing else: memory that
+    /// is off stays off, and the line never says live.
+    #[test]
+    fn an_old_arm_with_memory_off_names_only_its_replacement() {
+        let (cfg, said) = loaded("mode = \"off\"\narm = \"+retention\"");
+        assert_eq!(
+            (cfg.memory.mode, cfg.memory.arm),
+            (MemoryMode::Off, MemoryArm::Baseline)
         );
+        assert_eq!(
+            said,
+            [
+                "memory.arm = \"+retention\" is retired and runs as arm = \"baseline\"; set \
+              what you mean, and remove the retired key"
+            ]
+        );
+        assert!(!said[0].contains("live"), "{}", said[0]);
+    }
+
+    /// The fraction alone is ignored, and nothing else changes: shadow on
+    /// `bm25` stays shadow on `bm25`.
+    #[test]
+    fn the_fraction_alone_is_ignored_and_shadow_on_bm25_stays() {
+        let (cfg, said) = loaded("mode = \"shadow\"\narm = \"bm25\"\ncanary_fraction = 0.1");
+        assert_eq!(
+            (cfg.memory.mode, cfg.memory.arm),
+            (MemoryMode::Shadow, MemoryArm::Bm25)
+        );
+        assert_eq!(
+            said,
+            [
+                "memory.canary_fraction is retired and ignored; set what you mean, and remove \
+              the retired key"
+            ]
+        );
+        assert_eq!(
+            cfg.memory.assign("ses_heron0001"),
+            None,
+            "shadow assigns none"
+        );
+    }
+
+    /// A canary of a tenth now puts every session on live recall, the nine
+    /// tenths that were its controls too, and the line says so plainly.
+    #[test]
+    fn a_canary_of_a_tenth_says_every_session_now_gets_live_recall() {
+        let (cfg, said) = loaded("mode = \"canary\"\narm = \"bm25\"\ncanary_fraction = 0.1");
+        assert_eq!(
+            (cfg.memory.mode, cfg.memory.arm),
+            (MemoryMode::Live, MemoryArm::Bm25)
+        );
+        let every = (0..200).all(|i| {
+            cfg.memory.assign(&format!("ses_heron{i:04}"))
+                == Some(Assigned {
+                    arm: MemoryArm::Bm25,
+                    live: true,
+                })
+        });
+        assert!(every, "every session is live on the arm");
+        assert_eq!(said.len(), 1, "{said:?}");
+        for part in [
+            "canary sampling is removed",
+            "every session now gets live recall on arm = \"bm25\"",
+            "the canary's controls included",
+            "memory.canary_fraction is retired and ignored",
+        ] {
+            assert!(said[0].contains(part), "{part}: {}", said[0]);
+        }
+        // On arm `none` it says that nothing is recalled.
+        let (_, said) = loaded("mode = \"canary\"\narm = \"none\"");
+        assert!(said[0].contains("which recalls nothing"), "{}", said[0]);
     }
 }

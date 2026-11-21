@@ -1643,19 +1643,9 @@ impl Config {
                 }
             ));
         }
-        // The research arms and the canary mode (the owner, 2026-11-21).
-        let memory = cfg.memory.retired();
-        if !memory.is_empty() {
-            warnings.push(format!(
-                "{} retired (recall's research arms and the canary mode never ran live): read as \
-                 `arm = \"baseline\"` and `mode = \"live\"`, and ignored; remove {}",
-                memory.join(", "),
-                match memory.len() {
-                    1 => "it",
-                    _ => "them",
-                }
-            ));
-        }
+        // The research arms and the canary mode (the owner, 2026-11-21):
+        // what each retired key now does, in one line.
+        warnings.extend(cfg.memory.retirement());
         // What the trim of unused judge questions and modes retired (issue 44):
         // nothing reads any of it now.
         let mut trimmed = cfg.judge.retired();
