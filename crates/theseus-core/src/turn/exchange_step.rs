@@ -190,12 +190,12 @@ impl TurnRunner {
             _ if !t.woke_by.is_empty() => Opener::Report,
             _ => Opener::Continuation,
         };
+        // With no message, where the turn's reply is delivered (`speaks_at`: a wake's or a report's target
+        // too); a route that cannot be read is no place, never the terminal's.
         let place = h.mark.as_ref().map_or_else(
-            || {
-                crate::exchange::place_of(
-                    self.outbox.try_target(sid).ok().flatten().as_deref(),
-                    t.tc.dir,
-                )
+            || match self.outbox.speaks_at(sid) {
+                Ok(at) => crate::exchange::place_of(at.as_deref(), t.tc.dir),
+                Err(_) => crate::exchange::rebuild::UNKNOWN.into(),
             },
             |m| m.place.clone(),
         );
