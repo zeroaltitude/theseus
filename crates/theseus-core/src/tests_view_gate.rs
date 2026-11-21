@@ -1383,3 +1383,20 @@ async fn a_standing_record_keeps_its_source_place() {
     seat(&dm, false);
     assert!(held(&dm).is_empty());
 }
+
+/// The ledger's F1, through the gate: an owner's submission that is refused
+/// before it runs leaves nothing behind, so an agent's identical text after
+/// it computes a narrow presence (the mark rides its own submission).
+#[tokio::test]
+async fn a_refused_owners_submission_lends_nothing_to_an_agents_identical_text() {
+    let r = rig();
+    let desk = session(&r.core, None);
+    let text = "look up the harbour gate in my other conversations";
+    // The owner's submission, marked, refused before its turn ran: its sink
+    // is dropped with its mark.
+    let owner = view_gate::test_mark(&r.core.runner, &desk, true);
+    drop(crate::bus::EventSink::new(r.core.bus.clone(), &desk, None).with_arrival(Some(owner)));
+    turn_as(&r.core, &desk, text, false).await;
+    let a = r.core.runner.presence.get(&desk).unwrap();
+    assert_eq!(a.present(), Present::PrivateChannel);
+}
