@@ -326,7 +326,10 @@ async fn a_small_view_conversations_requests_are_the_golden() {
     let mut got = String::new();
     let calls = (r.requests().into_iter()).filter(|q| !q.tools.is_empty());
     for (i, q) in calls.enumerate() {
-        got.push_str(&format!("== call {i}\n{}", body(&q, &tmp, &[sid.clone()])));
+        got.push_str(&format!(
+            "== call {i}\n{}",
+            body(&q, &tmp, std::slice::from_ref(&sid))
+        ));
     }
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         let to = std::env::var("THESEUS_GOLDEN_TO").unwrap_or_else(|_| VIEW_GOLDEN.to_string());
