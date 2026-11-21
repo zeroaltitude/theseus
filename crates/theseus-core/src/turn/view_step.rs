@@ -16,7 +16,7 @@ use crate::stub::Kind;
 use crate::view::budget::Budget;
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
-use crate::view::render::MarkedBlock;
+use crate::view::render::{MarkedBlock, Renderer};
 use crate::view::select::sources::Sources;
 use crate::view::select::{table, Part};
 use crate::view::sources_store::StoreSources;
