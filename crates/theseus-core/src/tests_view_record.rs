@@ -99,6 +99,18 @@ fn piece(place: &str, turn: &str) -> Piece {
 
 /// A view at `anchor` holding `pieces`, kept for `turn` under `compilation`.
 fn keep(core: &Core, turn: &str, compilation: &str, anchor: &str, pieces: Vec<Piece>) {
+    keep_at(core, turn, compilation, anchor, pieces, 5_000);
+}
+
+/// [`keep`], built at `now_ms`.
+fn keep_at(
+    core: &Core,
+    turn: &str,
+    compilation: &str,
+    anchor: &str,
+    pieces: Vec<Piece>,
+    now_ms: u64,
+) {
     let shown: Vec<Shown> = pieces
         .into_iter()
         .map(|p| Shown {
@@ -113,7 +125,7 @@ fn keep(core: &Core, turn: &str, compilation: &str, anchor: &str, pieces: Vec<Pi
             person: None,
             present: crate::view::Present::OwnerAlone,
             at_hand: None,
-            now_ms: 5_000,
+            now_ms,
         },
         tokens: shown.iter().map(|s| s.tokens).sum(),
         shown,
@@ -284,13 +296,15 @@ async fn the_look_reads_this_turns_presence_and_its_newest_view() {
     let r = rig();
     let desk = session(&r.core, None);
     exchange_of(&r.core, "t-here", &desk, "local");
-    for i in 0..100 {
-        keep(
+    for i in 0..100u64 {
+        let c = format!("cmp_{i:03}");
+        keep_at(
             &r.core,
             "t-desk",
-            &format!("cmp_{i:03}"),
+            &c,
             "local",
             vec![piece("local", "t-here")],
+            5_000 + i,
         );
     }
     let unknown = crate::look::view::words(&r.core, &desk, "t-desk");

@@ -169,8 +169,9 @@ fn within_one_millisecond_the_order_is_by_compilation_id() {
         .into_iter()
         .map(|v| v.compilation)
         .collect();
-    assert_eq!(order, ["c-a", "c-z"]);
-    assert_eq!(newest(&store, "t1").unwrap().unwrap().compilation, "c-z");
+    // Newest first, the smaller id first: listed in the order built, the larger first.
+    assert_eq!(order, ["c-z", "c-a"]);
+    assert_eq!(newest(&store, "t1").unwrap().unwrap().compilation, "c-a");
 }
 
 #[test]

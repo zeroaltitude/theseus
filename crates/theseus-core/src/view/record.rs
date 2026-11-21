@@ -35,7 +35,8 @@ pub use text::StoreText;
 /// `view.<compilation id>`.
 pub const VIEW_PREFIX: &str = "view.";
 /// `view_turn.<turn id>\u{1}<20-digit u64::MAX - ms>\u{1}<compilation id>`: a turn's views, newest first.
-/// Within one millisecond the order is by compilation id (descending), not by the order of the calls.
+/// Within one millisecond the order is by compilation id (the smaller is read as the newer), not by the
+/// order of the calls: production ids (`cmp_<UUIDv7>`) are apart by then.
 pub const VIEW_TURN_PREFIX: &str = "view_turn.";
 /// `view_tally.<compilation id>`: a view's counts ([`Tally`]).
 pub const VIEW_TALLY_PREFIX: &str = "view_tally.";
