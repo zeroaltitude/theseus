@@ -258,3 +258,23 @@ fn the_window_clears_on_its_own_numbers_and_the_clearing_holds() {
         "the clearing holds"
     );
 }
+
+/// An exchange the budgeter kept spoken shows its calls with their results as receipts, in that request
+/// only: the compilation it persists records no clearing of them.
+#[test]
+fn a_window_exchange_kept_spoken_shows_its_results_as_receipts() {
+    let window = exchange("t0", 5_000);
+    let mut f = frozen("t1", &window);
+    f.spoken = vec![window[2].id.clone()];
+    let c = run(&f, &[Node::user("s", Some("t1"), "cli", "now")], None);
+    let all = serde_json::to_string(&c.request.messages).unwrap();
+    assert!(
+        all.contains("[Result cleared to save context: fs_read ct0.rs"),
+        "{all}"
+    );
+    assert!(c.cleared.is_none(), "no pass ran");
+    assert!(
+        clearing::of(&c.compilation).is_empty(),
+        "nothing cleared is persisted"
+    );
+}

@@ -14,7 +14,7 @@ use super::{Turn, TurnRunner};
 use crate::compiler::{Compiled, RequestSpec};
 use crate::exchange::ledger::{self, Given, Seen, View};
 use crate::exchange::{
-    exchange_record, mark_record, place_of, touch, Exchange, Opener, OwnerMark, Pending, Root,
+    exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Pending, Root,
 };
 use crate::node::Node;
 use crate::places::PlaceClass;
@@ -143,7 +143,7 @@ impl TurnRunner {
         };
         let place = h.mark.as_ref().map_or_else(
             || {
-                place_of(
+                crate::exchange::place_of(
                     self.outbox.try_target(sid).ok().flatten().as_deref(),
                     t.tc.dir,
                 )
