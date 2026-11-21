@@ -240,8 +240,9 @@ pub struct ContextCompiled {
     /// place's that are not marked public.
     #[serde(default, skip_serializing_if = "crate::is_zero")]
     pub withheld: u64,
-    /// CONTINUE's candidate signals that fired (M5 25b): a compile that
-    /// fired one and no trigger asks `continue.v1` in shadow.
+    /// CONTINUE's candidate signals that fired (M5 25b). No longer written
+    /// (`continue.v1` was retired with them); read so an older row still
+    /// decodes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signals: Vec<crate::signals::CompileSignal>,
     /// The task graph the request showed (39a); absent when its scope has

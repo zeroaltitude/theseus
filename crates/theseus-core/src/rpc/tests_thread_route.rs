@@ -438,13 +438,12 @@ async fn jevs_thread_answer_rides_the_one_inbound_request_and_the_bands_route() 
     assert_eq!(a.session_id, session_of(c, "security-fix"));
     let t = tag(&a);
     assert_eq!((t.how, t.movable), (RouteHow::Quiet, false));
-    // One request, carrying role's question and the thread question.
+    // One request, carrying the thread question.
     wait_for(|| jev.seen().len() == 1 && !rows(c, "judge.call").is_empty()).await;
     assert_eq!(jev.seen().len(), 1, "no call was added");
     let q = jev.seen()[0].body["questions"].clone();
     let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
     assert!(ids.contains(&"classify.v4/thread".to_string()), "{ids:?}");
-    assert!(ids.contains(&"role.v1/role".to_string()), "{ids:?}");
     let mut opts: Vec<String> = q["classify.v4/thread"]["criteria"]
         .as_object()
         .unwrap()

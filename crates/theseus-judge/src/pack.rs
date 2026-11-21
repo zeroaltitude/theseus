@@ -101,6 +101,13 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
 ];
 
+/// Packs this build retired that a config may still name in a
+/// `[judge.packs."<pack>"]` table: it loads, is warned of, and nothing reads
+/// it (issue 44). `role.v1` and `continue.v1` were shadows that never
+/// graduated. A judgment one of them made still replays from its file, by
+/// `--pack-file`.
+pub const RETIRED: &[&str] = &["role.v1", "continue.v1"];
+
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
 /// dispatches it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

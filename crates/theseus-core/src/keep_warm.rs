@@ -847,7 +847,6 @@ impl TurnRunner {
             strip: None,
             overflowed: None,
             sources: &sources,
-            signals: None,
             assembled: None,
             situation: &situation,
             kept: None,

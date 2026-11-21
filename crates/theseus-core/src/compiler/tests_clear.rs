@@ -84,7 +84,6 @@ fn compile_capped(
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        signals: None,
         assembled: None,
         situation: &situation::Situation::Continuation,
         kept: None,

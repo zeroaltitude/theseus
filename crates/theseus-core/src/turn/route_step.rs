@@ -1130,7 +1130,7 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         if let Some(d) = t.route.deferred.take() {
-            self.compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
+            Self::compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
         }
         // Its compile carries the recall's drops (theseus-3urn).
         t.recall.drops.clear();

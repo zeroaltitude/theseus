@@ -1524,7 +1524,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 
 # ---------------------------------------------------------------- ontology
 # Jev files each message's session into the ontology (`onto.v1`, in the inbound batch
-# beside `classify.v4` and `role.v1`): which topic, project, event, resource, capability
+# beside `classify.v4`): which topic, project, event, resource, capability
 # and expertise it is about, and whether a new one is called for. From `act` Theseus
 # writes the membership (origin `jev`) and mints a new category, and tells you in the
 # reply's footer (`filed: topic > theseus > ontology (new)`); a mint sends one card to
@@ -1743,13 +1743,12 @@ output_mb = 64                          # the largest file an L1 job may write; 
 # order of a recall in front of the model, and security.v3's notices (below). A judgment sends its state (your messages, the assistant's final
 # text, and its tool calls, trimmed and scrubbed of secrets) to TypeSafe. It
 # runs beside the turn and the turn never waits for it: a slow or failing Jev
-# changes no turn. Today eight packs judge: loop.v1, at each turn that ends
+# changes no turn. Among the packs that judge: loop.v1, at each turn that ends
 # with no tool calls (where does the work on the ask stand?); security.v3, at
-# each call that acts once the gate has decided (how risky is it?); classify.v4 and role.v1, in one request, at each message a person sends
-# (what kind of message is it, and which working role does its reply need?),
+# each call that acts once the gate has decided (how risky is it?); classify.v4, at each message a person sends
+# (what kind of message is it?),
 # but not at a slash command, a wake's turn, a report's turn, or a task's first
-# turn; continue.v1, at a compile that appends although one of CONTINUE's
-# candidate signals fired (append, or recompile, and how?); categorize.v1, at
+# turn; categorize.v1, at
 # the end of an exchange in a private conversation, once ten of your messages
 # came since its last judgment or after 30 minutes' quiet (which of your
 # topics is it about? Jev only proposes: `theseus ontology proposals` lists
@@ -1820,11 +1819,6 @@ min_errors = 10                         # new train errors a version needs befor
 min_holdout = 5                         # labeled holdout judgments it needs too: nothing moves on no held-out evidence
 max_errors = 40                         # the most the writer reads, newest first
 margin = 0.02                           # at the minimum sample, precision and recall each up by this on every deciding question
-# CONTINUE's candidate signals, which every compile computes, judge on or off, and
-# context.compiled carries. One that fires at a compile that appends asks continue.v1.
-# [judge.signals]
-# dormancy_minutes = 360                # a new input more than this long after the node before it
-# tail_band = 0.5                       # the tail passing this share of the window, then each further quarter
 
 # ---------------------------------------------------------------- routing
 # Jev chooses the model (route.v11, theseus-h66v4). While [judge] is on, the route pack asks at

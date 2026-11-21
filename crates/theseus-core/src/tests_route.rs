@@ -40,7 +40,6 @@ fn routing_only(c: &mut Config) {
         .packs
         .insert(crate::judge::gate::SECURITY_PACK.into(), off());
     for p in [
-        crate::judge::compile::CONTINUE_PACK,
         crate::judge::categorize::PACK,
         crate::judge::rerank::RERANK_PACK,
     ] {

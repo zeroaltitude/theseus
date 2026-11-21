@@ -137,7 +137,6 @@ pub mod scrub;
 pub mod secrets;
 pub mod self_card;
 pub mod session;
-pub mod signals;
 pub mod split_turns;
 pub mod standing;
 pub mod standing_ack;
@@ -344,10 +343,6 @@ mod tests_content_race;
 mod tests_context;
 #[cfg(test)]
 mod tests_continuations;
-#[cfg(test)]
-mod tests_continue;
-#[cfg(test)]
-mod tests_continue_slow;
 #[cfg(test)]
 mod tests_data_gate;
 #[cfg(test)]

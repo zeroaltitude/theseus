@@ -71,7 +71,6 @@ impl Rig {
             let packs = table(j, "packs");
             for p in [
                 "classify.v4",
-                "role.v1",
                 "split.v1",
                 "route.v11",
                 "directive.v2",
@@ -155,7 +154,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "loop.v1: live",
             "security.v3: live (owner: decision of 2026-10-04)",
             "classify.v4: off",
-            "role.v1: off",
             "split.v1: off",
             "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
             "directive.v2: off",
@@ -165,7 +163,6 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             "two_things.v1: live",
             "same_kind.v1: live",
             "name_it.v1: live",
-            "continue.v1: shadow",
             "categorize.v1: shadow",
             "rerank.v1: live (owner: decision of 2026-10-04)",
             "recall_cross.v1: live",

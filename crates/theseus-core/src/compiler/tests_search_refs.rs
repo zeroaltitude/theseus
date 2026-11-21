@@ -76,7 +76,6 @@ fn run(blocks: Vec<Value>, tools: Vec<Value>) -> Compiled {
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        signals: None,
         assembled: None,
         situation: &situation::Situation::Continuation,
         kept: None,
