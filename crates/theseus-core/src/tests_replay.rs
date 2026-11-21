@@ -527,6 +527,10 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
         json!({"session": res.session_id, "blob": "gone"}),
     );
     c.store.append(&[call_row(&g, 11)]).unwrap();
+    // `security.v1` is retired from the binary (issue 44): the incumbent stands
+    // in from its file, as a replay of its judgments needs it by name.
+    let v1 = theseus_judge::pack::retired("security.v1").unwrap();
+    c.runner.judge.stand_in("security.v1", (*v1).clone());
     let before = jev.seen().len();
     let out = c
         .judge_replay(
@@ -646,7 +650,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     .await;
     assert!(wired.contains("loop.v1 is wired"), "{wired}");
     let other = refuse(JudgeReplayParams {
-        candidate: Some("security.v1".into()),
+        candidate: Some("route.v10".into()),
         report: Some(report.clone()),
         ..Default::default()
     })
@@ -692,7 +696,15 @@ fn content_judgment_by(
     text: &str,
     recorded: bool,
 ) -> Judgment {
-    let pack = theseus_judge::pack::by_name(pack).unwrap();
+    // `content.v2` and `content.v3` are retired from the binary (issue 44): a
+    // replay finds its incumbent by name, so each stands in from its file.
+    let pack = theseus_judge::pack::by_name(pack)
+        .or_else(|| {
+            let p = theseus_judge::pack::retired(pack)?;
+            c.runner.judge.stand_in(pack, (*p).clone());
+            Some(p)
+        })
+        .unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: text.into(),
         kind: kind.into(),

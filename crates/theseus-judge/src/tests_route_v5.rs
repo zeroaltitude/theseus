@@ -5,7 +5,7 @@
 
 use crate::builders::{prepare, InboundInput, Input, PersonaInput, ThreadNow, TurnInput};
 use crate::client::Question;
-use crate::pack::{by_name, Source};
+use crate::pack::Source;
 use crate::state::NoScrub;
 
 fn input() -> InboundInput {

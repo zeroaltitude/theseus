@@ -50,6 +50,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 
 And one review:
 
+- [retired-judge-questions.md](retired-judge-questions.md): the judge questions, pack versions and modes the trim of issue 44 took out because nothing used them, and what of each stays readable (stored judgments, old settings files).
 - [review-2.md](review-2.md): Review 2 (2026-09-30), a read-only review of the code as built through the Daily
   Driver, in three layers: complexity, speed (the lifecycle budgets and the runtime's threads), and hardening (the
   web UI, the spool, the git tools, the secret broker). Its accepted findings became the roadmap's fix batches and

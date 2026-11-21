@@ -88,6 +88,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
 /// the daemon: a stored judgment of one still decodes, and replays from its
 /// file by `--pack-file`. A config that names one in a
 /// `[judge.packs."<pack>"]` table loads, is warned of, and nothing reads it.
+/// `docs/design/retired-judge-questions.md` says what went and what stays readable.
 pub const RETIRED: &[&str] = &[
     "classify.v2",
     "classify.v3",

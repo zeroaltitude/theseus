@@ -8,7 +8,6 @@ use crate::builders::{
     job, job_input, prepare, InboundInput, Input, JobInput, JobKind, PricePeriod, RestrictedModels,
     RouteFacts, SwitchCost, TASK_MODELS,
 };
-use crate::pack::by_name;
 use crate::state::NoScrub;
 
 fn input() -> InboundInput {

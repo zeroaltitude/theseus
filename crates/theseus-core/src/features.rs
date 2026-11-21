@@ -81,7 +81,7 @@ mod tests {
     const SET: &str = "jev_api_key = \"env:PATH\"";
 
     /// The line in each state: a fresh install with a key, one without,
-    /// `enabled = false`, memory off, routing in shadow, and a key that did
+    /// `enabled = false`, memory off, routing in shadow by its pack, and a key that did
     /// not resolve.
     #[test]
     fn the_line_names_each_feature_in_each_state() {
@@ -100,8 +100,9 @@ mod tests {
         assert_eq!(none.jev, "Jev off (no jev_api_key entry under [secrets])");
         let off = of(&cfg(SET, "[judge]\nenabled = false"), None);
         assert_eq!(off.jev, "Jev off ([judge] enabled = false)");
-        let shadow = of(&cfg(SET, "[routing]\nrung = \"shadow\""), None);
-        assert_eq!(shadow.jev, "Jev on, routing shadow");
+        // `[routing] rung` is retired (issue 44): it shadows nothing now.
+        let retired = of(&cfg(SET, "[routing]\nrung = \"shadow\""), None);
+        assert_eq!(retired.jev, "Jev on, routing live");
         let pack = crate::judge::inbound::ROUTE_PACK;
         let packed = of(
             &cfg(SET, &format!("[judge.packs.\"{pack}\"]\nrung = \"shadow\"")),

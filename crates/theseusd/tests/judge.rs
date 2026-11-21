@@ -354,26 +354,28 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
         "loop.v1: canary 1.0 (owner: forced by the owner)"
     );
     let card = rig
-        .call("pack.promote", json!({"pack": "route.v10", "to": "live"}))
+        .call("pack.promote", json!({"pack": "security.v3", "to": "live"}))
         .unwrap();
     let q = card["question"].as_str().unwrap().to_string();
     let listed = rig.call("confirm.list", Value::Null).unwrap();
     assert!(listed.to_string().contains(&q), "{listed}");
-    // route.v10 is embedded and wired nowhere (route.v11 acts), so health has no line for it:
-    // its rows are the proof.
+    // A security pack's promotion is the owner's card. `security.v3` already
+    // has its adoption row (security.v1, which this used to promote, is retired
+    // from the binary, issue 44), so the card's row is the one more.
     let moved = |rig: &Rig| {
         rig.rows("pack.mode")
             .iter()
-            .filter(|r| r.to_string().contains("route.v10"))
+            .filter(|r| r.to_string().contains("security.v3"))
             .count()
     };
-    assert_eq!(moved(&rig), 0, "no mode yet");
+    let adopted = moved(&rig);
+    assert_eq!(adopted, 1, "its adoption, and no mode from the card yet");
     rig.call(
         "action.confirm",
         json!({"correlation_id": q, "approve": true}),
     )
     .unwrap();
-    assert_eq!(moved(&rig), 1, "the approved card wrote its mode");
+    assert_eq!(moved(&rig), adopted + 1, "the approved card wrote its mode");
     let rows = rig.rows("pack.mode").len();
     assert_eq!(
         rows, 5,

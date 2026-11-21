@@ -346,11 +346,11 @@ async fn the_refusals_send_nothing() {
             "{e}"
         );
     }
-    // The file is written for route.v10, not the wired route.v8.
+    // The file is written for route.v10, not the wired route.v11.
     let e = c
         .judge_replay(
             JudgeReplayParams {
-                candidate: Some("route.v8".into()),
+                candidate: Some("route.v11".into()),
                 ..params()
             },
             "cli",

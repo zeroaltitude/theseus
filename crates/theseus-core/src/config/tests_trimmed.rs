@@ -4,6 +4,13 @@
 
 use super::Config;
 
+/// The least a settings file holds to load: a model key's reference.
+const BASE: &str = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n";
+
+fn parse(text: &str) -> anyhow::Result<(Config, Vec<String>)> {
+    Config::parse(&format!("{BASE}{text}"))
+}
+
 /// The one warning that names the trim's retired keys.
 fn trimmed(warnings: &[String]) -> Vec<&String> {
     warnings
@@ -24,7 +31,7 @@ fn an_old_settings_file_with_the_judges_retired_keys_loads() {
                 rung = \"off\"\n\
                 [judge.packs.\"role.v1\"]\n\
                 sample = 0.5\n";
-    let (cfg, warnings) = Config::parse(text).unwrap();
+    let (cfg, warnings) = parse(text).unwrap();
     let lines = trimmed(&warnings);
     assert_eq!(lines.len(), 1, "{warnings:?}");
     for key in [
@@ -46,14 +53,14 @@ fn an_old_settings_file_with_the_judges_retired_keys_loads() {
 fn the_template_sets_no_retired_key() {
     let (_, warnings) = Config::parse(Config::EXAMPLE_TOML).unwrap();
     assert!(trimmed(&warnings).is_empty(), "{warnings:?}");
-    let (_, warnings) = Config::parse("").unwrap();
+    let (_, warnings) = parse("").unwrap();
     assert!(trimmed(&warnings).is_empty(), "{warnings:?}");
 }
 
 /// A pack no build ever had is still refused by name.
 #[test]
 fn an_unknown_pack_is_still_refused() {
-    let e = Config::parse("[judge.packs.\"nonesuch.v1\"]\nrung = \"off\"\n").unwrap_err();
+    let e = parse("[judge.packs.\"nonesuch.v1\"]\nrung = \"off\"\n").unwrap_err();
     assert!(
         format!("{e:#}").contains("is no pack this build has"),
         "{e:#}"
@@ -67,7 +74,7 @@ fn an_unknown_pack_is_still_refused() {
 fn an_old_settings_file_with_the_retired_modes_loads() {
     use crate::config::PackMode;
     let text = "[routing]\nrung = \"shadow\"\n\n[memory]\nsmall_talk_bar = true\n";
-    let (cfg, warnings) = Config::parse(text).unwrap();
+    let (cfg, warnings) = parse(text).unwrap();
     let lines = trimmed(&warnings);
     assert_eq!(lines.len(), 1, "{warnings:?}");
     for key in ["routing.rung", "memory.small_talk_bar"] {
@@ -78,7 +85,7 @@ fn an_old_settings_file_with_the_retired_modes_loads() {
         PackMode::Live,
         "the retired rung lowers nothing"
     );
-    let (cfg, warnings) = Config::parse("[routing]\nrung = \"live\"\n").unwrap();
+    let (cfg, warnings) = parse("[routing]\nrung = \"live\"\n").unwrap();
     assert_eq!(trimmed(&warnings).len(), 1, "{warnings:?}");
     assert_eq!(cfg.routing.trimmed(), ["routing.rung"]);
 }
