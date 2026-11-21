@@ -174,7 +174,7 @@ fn render(lens: &Lens<'_>, ex: &Exchange, nodes: &[Node]) -> String {
             first: at.clone(),
             last: at,
         },
-        handle: handle.clone(),
+        handle,
     };
     let author = |p: &Said| {
         by_id

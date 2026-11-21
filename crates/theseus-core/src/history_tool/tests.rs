@@ -17,12 +17,12 @@ use crate::exchange::{
 };
 use crate::node::{Body, Node, Origin, ResultStatus};
 use crate::places::PlaceClass;
-use crate::session::{SessionKind, SessionRecord};
+use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Handle, PointOfView, Present};
-use theseus_protocol::SessionLink;
+use theseus_protocol::{SessionKind, SessionLink};
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";
