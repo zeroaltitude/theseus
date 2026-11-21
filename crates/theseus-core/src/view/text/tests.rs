@@ -706,7 +706,6 @@ fn node(place: &str, outside: bool) -> FoldNode {
             id: "t20".into(),
         },
         exchanges: 20,
-        title: String::new(),
         his_words: vec!["m1".into(), "m2".into(), "m3".into()],
         his_counted: 3,
         account: "fixed the flaky test; chose to keep the retry".into(),

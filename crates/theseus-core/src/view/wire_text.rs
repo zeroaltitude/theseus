@@ -13,7 +13,7 @@ use super::fold::FoldNode;
 use super::render::{MarkedBlock, Renderer, RequestParts};
 use super::sources_store::author_of;
 use super::text::forms::{self, Said, Voice};
-use super::text::labels::Origin;
+use super::text::labels::{self, Origin};
 use super::text::parts::{self, Seen};
 use super::text::{blocks, page};
 use super::{Anchor, Form, Handle, Label, Piece, PointOfView, Slot, Snapshot, Space};
@@ -26,6 +26,8 @@ use crate::store::Store;
 /// The renderer over `store`, its times said in `zone`.
 pub struct TextRenderer<'a> {
     pub store: &'a Store,
+    /// Where a task's card reads its jobs; none renders no task card.
+    pub kernel: Option<&'a theseus_kernel::Kernel>,
     pub zone: ZoneAt<'a>,
 }
 
@@ -63,9 +65,11 @@ impl TextRenderer<'_> {
     /// A piece's marked blocks: an exchange's parts each labelled by its own provenance
     /// (`parts::exchange_blocks`); a piece of a space not read here, none.
     fn blocks(&self, p: &Piece, form: Form, pov: &PointOfView) -> anyhow::Result<Vec<MarkedBlock>> {
-        let Space::Exchanges { .. } = &p.range.space else {
-            return Ok(Vec::new());
-        };
+        match &p.range.space {
+            Space::Exchanges { .. } => {}
+            Space::Task { task } => return self.task_card(p, task, pov),
+            _ => return Ok(Vec::new()),
+        }
         let place = p.marks.place.as_deref().unwrap_or("an unknown place");
         let here = matches!(&pov.anchor, Anchor::Place(a) if a == place);
         let mut ids = vec![p.range.first.id.as_str()];
@@ -97,6 +101,31 @@ impl TextRenderer<'_> {
             out.extend(parts::exchange_blocks(&said, &author, &seen, self.zone));
         }
         Ok(out)
+    }
+
+    /// A joined task's card, one block of one provenance (`labels::try_block`).
+    fn task_card(
+        &self,
+        p: &Piece,
+        task: &str,
+        pov: &PointOfView,
+    ) -> anyhow::Result<Vec<MarkedBlock>> {
+        let Some(kernel) = self.kernel else {
+            return Ok(Vec::new());
+        };
+        let Some(card) = crate::task_graph::joined::read(self.store, kernel, task, pov.now_ms)?
+        else {
+            return Ok(Vec::new());
+        };
+        let origin = Origin {
+            place: p.marks.place.as_deref().unwrap_or("an unknown place"),
+            at_ms: p.range.last.at_ms,
+            source: None,
+        };
+        let text = card.text();
+        let block = labels::try_block(p, pov, &origin, &text, self.zone)
+            .unwrap_or_else(|_| labels::block(p, pov, &origin, &text, self.zone));
+        Ok(vec![block])
     }
 
     /// The ladder's nodes as fold blocks, oldest first, the person's words read from the store.

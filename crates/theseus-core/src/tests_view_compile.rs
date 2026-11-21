@@ -274,6 +274,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     );
     let renderer = crate::view::wire_text::TextRenderer {
         store: &c.store,
+        kernel: None,
         zone: &crate::recall::stamp::system,
     };
     let parts = crate::view::wire::Parts {
@@ -370,11 +371,11 @@ async fn a_small_view_conversations_requests_are_the_golden() {
 /// process (the gate's own staging, `view_gate::stage_mark`).
 async fn turn_as(core: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_person: bool) {
     use crate::session::SessionRecord;
-    crate::view_gate::stage_mark(&core.runner, sid, input, in_person);
+    let mark = crate::view_gate::stage_mark(&core.runner, sid, input, in_person);
     let rec = (core.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None);
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,

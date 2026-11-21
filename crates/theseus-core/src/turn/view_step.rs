@@ -16,6 +16,7 @@ use crate::ladder::view::StoreLadder;
 use crate::node::{Body, Node};
 use crate::store::{Store, Transcript};
 use crate::stub::{Kind, Stub};
+use crate::task_graph::joined::{judged_task, StoreCards};
 use crate::view::budget::{Budget, Overflow};
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
@@ -102,7 +103,7 @@ impl TurnRunner {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
-        let message = message_of(store, sid, turn)?;
+        let (asked, message) = message_of(store, sid, turn)?;
         let permit = Permit::of(verified);
         let sources = StoreSources {
             store,
@@ -110,6 +111,13 @@ impl TurnRunner {
             recalled: recalled(t),
         };
         let ladder = StoreLadder(store);
+        let cards = StoreCards {
+            store,
+            kernel: &self.kernel,
+            names: &sources,
+            homes: self,
+            judged: asked.and_then(|n| judged_task(store, sid, &n)),
+        };
         let src = Sources {
             gate: &permit,
             exchanges: &sources,
@@ -119,13 +127,14 @@ impl TurnRunner {
             waiting: &sources,
             things: &sources,
             names: &sources,
-            tasks: &sources,
+            tasks: &cards,
             recall: &sources,
             people: &sources,
             message: &message,
         };
         let renderer = TextRenderer {
             store,
+            kernel: Some(&self.kernel),
             zone: &crate::recall::stamp::system,
         };
         let system = [
@@ -236,14 +245,14 @@ fn recalled(t: &Turn<'_>) -> Vec<String> {
     }
 }
 
-/// The person's message this turn answers; empty for a turn no message opened.
-fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<String> {
+/// The person's message this turn answers, by node and text; none and empty for a turn no message opened.
+fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<String>, String)> {
     Ok(store
         .transcript(sid)?
         .iter()
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
         .find_map(|(_, n)| match &n.body {
-            Body::UserMessage { text, .. } => Some(text.clone()),
+            Body::UserMessage { text, .. } => Some((Some(n.id.clone()), text.clone())),
             _ => None,
         })
         .unwrap_or_default())
@@ -326,7 +335,7 @@ fn labelled(
             first: at.clone(),
             last: at.clone(),
         },
-        handle: Handle(at.id.clone()),
+        handle: Handle(at.id),
     };
     let author = |s: &forms::Said| author_of(store, &s.node);
     let marked = parts::mark_parts(&forms::whole(&whole), &author, &seen, zone);
