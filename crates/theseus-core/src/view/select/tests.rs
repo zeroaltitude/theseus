@@ -18,7 +18,7 @@ const H: u64 = 3_600_000;
 const NOW: u64 = 10_000 * H;
 
 /// One exchange of the fake store.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Ex {
     turn: String,
     place: String,
