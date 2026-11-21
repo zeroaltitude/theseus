@@ -27,6 +27,7 @@ mod google;
 mod home_claim;
 mod inspect;
 mod mcp_card;
+mod views;
 pub(crate) use mcp_card::agent_input_key;
 mod question_waits;
 pub(crate) use answer::offer;

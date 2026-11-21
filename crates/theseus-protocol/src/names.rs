@@ -213,6 +213,9 @@ pub mod method {
         /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
         /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
         TURN_INSPECT = "turn.inspect",
+        /// What a turn was shown and why (issue 44; `view::ViewShowParams`): the view record of each view the
+        /// turn built. A read; ids, kinds and counts, text only for the owner at his own terminal.
+        VIEW_SHOW = "view.show",
         /// The books, first cut (theseus-civ0; `books`): each book's count and span, and a book's
         /// episodes newest first, filtered and paged. Reads.
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",

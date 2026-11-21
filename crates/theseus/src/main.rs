@@ -91,6 +91,7 @@ mod thread_import;
 mod undo_cmd;
 mod vault_keep_cmd;
 mod vestige;
+mod view_cmd;
 mod voice_cmd;
 mod watch_cmd;
 mod why;
@@ -287,6 +288,14 @@ enum Cmd {
     Inspect {
         session: Option<String>,
         turn: Option<String>,
+    },
+    /// What a turn was shown and why: `theseus view show TURN [--text]`, from the view record of each
+    /// view the turn built: the point of view, each slot's pieces by id with their kinds, forms, tokens
+    /// and reasons, what was left out and why. `--text` adds each piece's text, at your own terminal.
+    #[command(hide = true)]
+    View {
+        #[command(subcommand)]
+        cmd: view_cmd::ViewCmd,
     },
     /// Where a node went (node.reach): the compilations and loops of its own session whose
     /// context held it, then its copies in other sessions over derived_from (a task's report in
@@ -1511,6 +1520,15 @@ async fn run_or_own(cli: Cli) -> Result<()> {
     }
 }
 
+/// `theseus inspect` and `theseus view`: what one turn carried, and what it was shown.
+async fn turn_reads(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Inspect { session, turn } => inspect_cmd::inspect(c, json, session, turn).await,
+        Cmd::View { cmd } => view_cmd::run(c, json, cmd).await,
+        _ => unreachable!("turn_reads is given inspect and view alone"),
+    }
+}
+
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 async fn run(cli: Cli) -> Result<()> {
     // `theseus status` connects within 100 ms, and `--short` stays silent when it cannot.
@@ -1543,7 +1561,7 @@ async fn run(cli: Cli) -> Result<()> {
         },
         cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
         Cmd::Open { what } => open::open(c, json, what).await,
-        Cmd::Inspect { session, turn } => inspect_cmd::inspect(c, json, session, turn).await,
+        cmd @ (Cmd::Inspect { .. } | Cmd::View { .. }) => turn_reads(c, json, cmd).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,
         cmd @ Cmd::Fork { .. } => fork::cmd(c, json, cmd).await,
         cmd @ Cmd::Rewind { .. } => rewind_cmd::cmd(c, json, cmd).await,
