@@ -66,7 +66,6 @@ impl TurnRunner {
             |ids| crate::recall::links(&self.store, ids),
             true,
         );
-        crate::view_gate::count_sealed(&mut m, sealed.clone());
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
         let mut parts = Parts::of(scene);
@@ -74,7 +73,10 @@ impl TurnRunner {
         let pool = (candidates.as_slice(), links.as_slice(), &ranks);
         self.cross_judged(t, mode, &mut parts, &mut m, pool, &begun.query)
             .await;
+        // The sealed drops are said once the pack is final: Jev's admission
+        // and the rerank's refill write the drops again from the pack.
         if rerank == PackMode::Off {
+            crate::view_gate::count_sealed(&mut m, sealed);
             return m;
         }
         let retention = self.memory.retention_of(&*parts.science, &candidates);
@@ -104,6 +106,7 @@ impl TurnRunner {
         if !live {
             let r = recalled(candidates);
             self.judge.at_recall(&mut t.trace, r);
+            crate::view_gate::count_sealed(&mut m, sealed);
             return m;
         }
         let r = recalled(candidates.clone());
@@ -113,11 +116,9 @@ impl TurnRunner {
             let scene = parts.scene(mode, t.tc.session_id, t.tc.turn_id);
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);
-            // The refill writes the drops again from the pack: the sealed ones
-            // the gate took out before it are said again.
-            crate::view_gate::count_sealed(&mut m, sealed);
         }
         m.rerank = Some(waited.manifest());
+        crate::view_gate::count_sealed(&mut m, sealed);
         m
     }
 }

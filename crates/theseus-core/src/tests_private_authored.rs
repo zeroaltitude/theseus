@@ -153,7 +153,9 @@ async fn say_on_terminal(r: &Rig, sid: &str, input: &str) -> theseus_protocol::T
         .runner
         .resolve_target(&live, None, None, None)
         .unwrap();
-    let sink = crate::bus::EventSink::new(r.core.bus.clone(), sid, None);
+    // The owner typed it in person, as `turn.submit` marks it (issue 44).
+    let mark = crate::view_gate::test_mark(&r.core.runner, sid, true);
+    let sink = crate::bus::EventSink::new(r.core.bus.clone(), sid, None).with_arrival(Some(mark));
     r.core
         .runner
         .run(crate::turn::TurnRequest {
