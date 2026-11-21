@@ -183,20 +183,29 @@ pub fn place_name(runner: &TurnRunner, session: &str) -> Option<String> {
 }
 
 /// The thread `session` serves, read so that nothing unread reads as none:
-/// a session, ancestry or binding that does not decode, a chain too long to
-/// follow, or a thread the board does not hold is an error.
-fn thread_of(store: &Store, board: &Board, session: &str, depth: usize) -> Result<Option<String>> {
+/// a session, ancestry or binding that does not decode, a native session
+/// with no record, a chain too long to follow, a binding to a thread record
+/// that is absent or did not decode, or a thread the board does not hold is
+/// an error.
+pub fn thread_of(
+    store: &Store,
+    board: &Board,
+    session: &str,
+    depth: usize,
+) -> Result<Option<String>> {
     if crate::import::is_imported(session) {
         return Ok(None);
     }
     if board.unread_session(session) {
-        anyhow::bail!("session {session} is bound to a thread whose record does not read");
+        anyhow::bail!(
+            "session {session} is bound to a thread whose record is absent or does not read"
+        );
     }
     let slug = match board.of_session(session) {
         Some(t) => Some(t.slug.clone()),
         None => {
             let Some(rec) = store.get_session::<SessionRecord>(session)? else {
-                return Ok(None);
+                anyhow::bail!("session {session} has no record: its thread cannot be proven");
             };
             let linked = [&rec.superseded_by, &rec.supersedes]
                 .into_iter()
@@ -225,63 +234,144 @@ fn thread_of(store: &Store, board: &Board, session: &str, depth: usize) -> Resul
     }
 }
 
+/// Whether thread `slug`, or one it was merged into, is sealed or a seal is
+/// proposed; one the board does not hold, or a chain too long, is unread.
+fn thread_seal(board: &Board, slug: &str) -> Seal {
+    let mut at = slug.to_string();
+    for _ in 0..DEPTH {
+        let Some(t) = board.get(&at) else {
+            return Seal::Unread;
+        };
+        if t.sealed.is_some() || t.seal_pending.is_some() {
+            return Seal::Held;
+        }
+        match &t.merged_into {
+            Some(next) => at = next.clone(),
+            None => return Seal::Clear,
+        }
+    }
+    Seal::Unread
+}
+
 /// The seal of `session` for a reader in `asker`, whatever `[threads]
 /// enabled` says: `Held` when it serves a sealed thread, or one whose seal
 /// is proposed, and the asker is not that thread; `Unread` when that cannot
 /// be proven either way.
 pub fn seal_of(runner: &TurnRunner, asker: Option<&str>, session: &str) -> Seal {
-    let board = match runner.threads.all(&runner.store) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::warn!(session, error = %format!("{e:#}"),
-                "the threads cannot be read: the session is held out");
-            return Seal::Unread;
-        }
-    };
-    seal_on(&runner.store, &board, asker, session)
-}
-
-fn seal_on(store: &Store, board: &Board, asker: Option<&str>, session: &str) -> Seal {
-    let slug = match thread_of(store, board, session, 0) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(session, error = %format!("{e:#}"),
-                "a session's thread cannot be proven: it is held out");
-            return Seal::Unread;
-        }
-    };
-    let Some(slug) = slug else {
-        return Seal::Clear;
-    };
-    let held = board
-        .get(&slug)
-        .is_some_and(|t| t.sealed.is_some() || t.seal_pending.is_some());
-    let own = asker.and_then(|a| thread_of(store, board, a, 0).ok().flatten()) == Some(slug);
-    match held && !own {
-        true => Seal::Held,
-        false => Seal::Clear,
+    match board(runner, session) {
+        Some(b) => seal_on(&runner.store, &b, asker, session),
+        None => Seal::Unread,
     }
 }
 
-/// The index's hits a reader in `asker` may not draw on for their seal,
-/// taken out before anything ranks them: every hit whose seal is not clear,
-/// but a `Held` one when the recall's thread lens will drop it for `sealed`
-/// itself (`lens`), so its count is said.
-pub fn seal_out(runner: &TurnRunner, asker: Option<&str>, answer: &mut Answer, lens: bool) {
-    let Answer::Hits(r) = answer else {
-        return;
+fn board(runner: &TurnRunner, what: &str) -> Option<std::sync::Arc<Board>> {
+    match runner.threads.all(&runner.store) {
+        Ok(b) => Some(b),
+        Err(e) => {
+            tracing::warn!(what, error = %format!("{e:#}"),
+                "the threads cannot be read: what they may seal is held out");
+            None
+        }
+    }
+}
+
+/// The seal of a slug for a reader in `asker`: its own thread is clear.
+fn seal_for(store: &Store, board: &Board, asker: Option<&str>, slug: &str) -> Seal {
+    let own = asker.and_then(|a| thread_of(store, board, a, 0).ok().flatten());
+    match thread_seal(board, slug) {
+        Seal::Held if own.as_deref() == Some(slug) => Seal::Clear,
+        other => other,
+    }
+}
+
+fn seal_on(store: &Store, board: &Board, asker: Option<&str>, session: &str) -> Seal {
+    match thread_of(store, board, session, 0) {
+        Ok(None) => Seal::Clear,
+        Ok(Some(slug)) => seal_for(store, board, asker, &slug),
+        Err(e) => {
+            tracing::warn!(session, error = %format!("{e:#}"),
+                "a session's thread cannot be proven: it is held out");
+            Seal::Unread
+        }
+    }
+}
+
+/// The seal of one node, for a reader in `asker`: its session's, and, where
+/// a split or a claim moved it into a thread (`moved.of.<node>`), that
+/// thread's too. A `moved.of` record that does not decode, or names a thread
+/// the board does not hold, is `Unread`.
+pub fn node_seal(
+    store: &Store,
+    board: &Board,
+    asker: Option<&str>,
+    session: &str,
+    node: &str,
+) -> Seal {
+    let own = seal_on(store, board, asker, session);
+    if own != Seal::Clear {
+        return own;
+    }
+    match store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)) {
+        Ok(Some(Some(m))) => seal_for(store, board, asker, &m.thread),
+        Ok(_) => Seal::Clear,
+        Err(e) => {
+            tracing::warn!(node, error = %format!("{e:#}"),
+                "where a node was moved cannot be read: it is held out");
+            Seal::Unread
+        }
+    }
+}
+
+/// The nodes of `nodes` a reader in `asker` may read for their seal (by
+/// session and by node, `node_seal`): what a read by id or by session shows.
+pub fn readable_nodes<T>(
+    runner: &TurnRunner,
+    asker: Option<&str>,
+    nodes: Vec<T>,
+    of: impl Fn(&T) -> (&str, &str),
+) -> Vec<T> {
+    let Some(b) = board(runner, "a read of nodes") else {
+        return Vec::new();
     };
-    let board = runner.threads.all(&runner.store);
-    let mut seen: BTreeMap<String, Seal> = BTreeMap::new();
+    nodes
+        .into_iter()
+        .filter(|n| {
+            let (session, node) = of(n);
+            node_seal(&runner.store, &b, asker, session, node) == Seal::Clear
+        })
+        .collect()
+}
+
+/// Take out of the index's hits every one a reader in `asker` may not draw
+/// on for its seal, by session and by node, before anything ranks it,
+/// reranks it, or sends it to a model: whatever `[threads] enabled` says,
+/// and whatever the thread lens would say. The count taken out, to be said
+/// as `sealed` drops.
+pub fn seal_out(runner: &TurnRunner, asker: Option<&str>, answer: &mut Answer) -> u64 {
+    let Answer::Hits(r) = answer else {
+        return 0;
+    };
+    let board = board(runner, "recall's hits");
+    let mut by_session: BTreeMap<String, Seal> = BTreeMap::new();
+    let before = r.hits.len();
     r.hits.retain(|h| {
-        let seal = *seen
+        let Some(b) = &board else {
+            return false;
+        };
+        let session = *by_session
             .entry(h.session_id.clone())
-            .or_insert_with(|| match &board {
-                Ok(b) => seal_on(&runner.store, b, asker, &h.session_id),
-                Err(_) => Seal::Unread,
-            });
-        seal == Seal::Clear || (lens && seal == Seal::Held)
+            .or_insert_with(|| seal_on(&runner.store, b, asker, &h.session_id));
+        session == Seal::Clear
+            && node_seal(&runner.store, b, asker, &h.session_id, &h.node_id) == Seal::Clear
     });
+    (before - r.hits.len()) as u64
+}
+
+/// `seal_out`, its count said in a recall's manifest as `sealed` drops.
+pub fn count_sealed(m: &mut theseus_protocol::memory::RecallManifest, n: u64) {
+    if n > 0 {
+        *m.drops.entry("sealed".into()).or_default() += n;
+    }
 }
 
 /// A whole session's marks, for a reader in `asker`: its place, today's
@@ -296,18 +386,34 @@ pub fn session_marks(runner: &TurnRunner, asker: Option<&str>, session: &str, ve
     }
 }
 
-/// One turn's presence, and where it arrived.
+/// One turn's presence, and where it arrived: made only here, from proof
+/// ([`begin`], [`steered`]), and read whole by the turn's readers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asking {
-    pub turn_id: String,
-    pub present: Present,
+    turn_id: String,
+    present: Present,
     /// The exact arrival place, as the ledger names it.
-    pub place: String,
+    place: String,
 }
 
-/// Each session's presence, as its latest turn computed it: what the tools
-/// of that turn read. Lost at a restart, when a session with none reads as
-/// not the owner alone.
+impl Asking {
+    pub fn turn_id(&self) -> &str {
+        &self.turn_id
+    }
+
+    pub fn present(&self) -> Present {
+        self.present
+    }
+
+    pub fn place(&self) -> &str {
+        &self.place
+    }
+}
+
+/// Each session's presence, as its running or latest turn computed it: what
+/// the tools of that turn read, taken whole when a call starts. Lost at a
+/// restart, when a session with none reads as not the owner alone. Written
+/// only by [`begin`] and [`steered`].
 #[derive(Default)]
 pub struct Presences(Mutex<HashMap<String, Asking>>);
 
@@ -315,7 +421,7 @@ pub struct Presences(Mutex<HashMap<String, Asking>>);
 const PRESENCES_MAX: usize = 4_096;
 
 impl Presences {
-    pub fn set(&self, session: &str, a: Asking) {
+    fn put(&self, session: &str, a: Asking) {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if m.len() >= PRESENCES_MAX && !m.contains_key(session) {
             m.clear();
@@ -323,6 +429,7 @@ impl Presences {
         m.insert(session.to_string(), a);
     }
 
+    /// The presence of `session`'s turn, taken whole.
     pub fn get(&self, session: &str) -> Option<Asking> {
         self.0
             .lock()
@@ -332,20 +439,147 @@ impl Presences {
     }
 }
 
-/// The presence of the turn of `session` that made the call `call_id` (a
-/// `wake.at` or a `task.create`), read from what the ledger wrote of it: that
-/// turn's exchange, its ask, and the ask's owner's mark, at `class` (today's
-/// reading of `session`'s place). None when any of it is not there: a turn
-/// no message opened, or one from before the ledger.
-pub fn set_up(store: &Store, class: &Place, session: &str, call_id: &str) -> Option<Present> {
+/// What a turn's presence is computed from.
+#[derive(Clone, Copy, Debug)]
+pub enum Proof<'a> {
+    /// The mark its opening message's submission carried.
+    Mark(&'a OwnerMark),
+    /// No message opened it: the presence of what set it up, when found.
+    SetUp(Option<Present>),
+}
+
+/// The turn `turn_id` of `session` begins: its presence, computed from
+/// `proof` at today's reading of the place it arrived in (`place`), is held
+/// for its readers. The one way a turn's presence is made.
+pub fn begin(
+    runner: &TurnRunner,
+    session: &str,
+    turn_id: &str,
+    place: String,
+    proof: Proof<'_>,
+) -> Asking {
+    let today = runner.place_of(session);
+    let present = match proof {
+        Proof::Mark(m) => present_of_mark(&today, m),
+        Proof::SetUp(s) => present(&today, Some(&place), Input::SetUp(s), &runner.store),
+    };
+    let a = Asking {
+        turn_id: turn_id.into(),
+        present,
+        place,
+    };
+    runner.presence.put(session, a.clone());
+    a
+}
+
+/// A message absorbed as a steer into the running turn of `session`, its
+/// submission's mark `mark`: the turn's presence narrows to it at once, and
+/// never widens. A steer with no mark is not the owner alone.
+pub fn steered(runner: &TurnRunner, session: &str, mark: Option<&OwnerMark>) {
+    let today = runner.place_of(session);
+    let p = mark.map_or(Present::PrivateChannel, |m| present_of_mark(&today, m));
+    let now = runner.presence.get(session);
+    if let Some(mut a) = now {
+        a.present = a.present.max(p);
+        runner.presence.put(session, a);
+    }
+}
+
+/// The exchange of the turn of `session` that made the call `call_id` (a
+/// `wake.at` or a `task.create`).
+fn set_up_exchange(
+    store: &Store,
+    session: &str,
+    call_id: &str,
+) -> Option<crate::exchange::Exchange> {
     let nodes = store.session_nodes(session).ok()?;
     let turn = nodes.iter().find_map(|(_, n)| match &n.body {
         Body::ToolCall { tool_use_id, .. } if tool_use_id == call_id => n.turn_id.clone(),
         _ => None,
     })?;
-    let ask = crate::exchange::exchange(store, &turn).ok()??.ask?;
-    let mark = crate::exchange::mark(store, &ask).ok()??;
-    Some(present_of_mark(class, &mark))
+    crate::exchange::exchange(store, &turn).ok()?
+}
+
+/// The presence of an exchange at `class`: the narrowest of its messages'
+/// marks, its steers included, so a steer that narrowed it narrows what it
+/// set up. None when its ask has no mark; a steer with none is not alone.
+fn exchange_presence(
+    store: &Store,
+    class: &Place,
+    ex: &crate::exchange::Exchange,
+) -> Option<Present> {
+    let ask = ex.ask.as_deref()?;
+    let ids: Vec<&str> = match ex.messages.is_empty() {
+        true => vec![ask],
+        false => ex.messages.iter().map(String::as_str).collect(),
+    };
+    let mut out = None::<Present>;
+    for id in ids {
+        let p = match crate::exchange::mark(store, id).ok().flatten() {
+            Some(m) => present_of_mark(class, &m),
+            None if id == ask => return None,
+            None => Present::PrivateChannel,
+        };
+        out = Some(out.map_or(p, |o| o.max(p)));
+    }
+    out
+}
+
+/// The presence of the turn of `session` that made the call `call_id` (a
+/// `wake.at` or a `task.create`), read from what the ledger wrote of it: that
+/// turn's exchange, its messages and their owner's marks (`exchange_presence`),
+/// at `class` (today's reading of `session`'s place). None when any of it is
+/// not there: a turn no message opened, or one from before the ledger.
+pub fn set_up(store: &Store, class: &Place, session: &str, call_id: &str) -> Option<Present> {
+    let ex = set_up_exchange(store, session, call_id)?;
+    exchange_presence(store, class, &ex)
+}
+
+/// Whether the report of the task `task` (its session) may be written as the
+/// input of a turn of `delivery`, the session it reports to. Not when the
+/// place it reports to has moved since the task started, nor when the
+/// presence of the turn that started it would be narrower there now than it
+/// was then: its sources may not be shown there. With the ledger off, as
+/// before.
+pub fn report_shown(runner: &TurnRunner, delivery: &str, task: &str) -> bool {
+    if !runner.cfg.context.ledger_on() {
+        return true;
+    }
+    let Ok(Some(rec)) = runner.store.get_session::<SessionRecord>(task) else {
+        return false;
+    };
+    let Some(of) = rec.task else {
+        return true;
+    };
+    let now = runner.outbox.try_target(delivery).ok().flatten();
+    if now != of.target {
+        return false;
+    }
+    let Some(ex) = set_up_exchange(&runner.store, &of.parent_session, &of.by) else {
+        // No proof of what started it: as before, where it has not moved.
+        return true;
+    };
+    let then_class = match ex.private {
+        true => Place::Private,
+        false => Place::Shared(ex.place.clone()),
+    };
+    let today = runner.place_of(delivery);
+    match (
+        exchange_presence(&runner.store, &then_class, &ex),
+        exchange_presence(&runner.store, &today, &ex),
+    ) {
+        (Some(then), Some(now)) => now <= then,
+        (None, None) => today == then_class || today == Place::Private,
+        _ => false,
+    }
+}
+
+/// What a turn is given in place of a report it may not read here.
+pub fn withheld_report(short: &str) -> String {
+    format!(
+        "[task {short} has finished, and its report is waiting where the owner is alone: it may hold \
+         words from a place this conversation may not see, so it is not shown here]"
+    )
 }
 
 /// Of several set-ups, the narrowest; any not recorded is `Unknown`.
@@ -366,8 +600,16 @@ pub struct RecallPlaces {
 }
 
 impl RecallPlaces {
-    /// The places recall reads for a turn of `asker`.
+    /// The places recall reads for a turn of `asker`, its presence as its
+    /// turn holds it now.
     pub fn of(runner: &TurnRunner, asker: Option<&str>) -> Self {
+        let asking = asker.and_then(|a| runner.presence.get(a));
+        Self::of_asking(runner, asker, asking.as_ref())
+    }
+
+    /// The places recall reads for a turn of `asker` whose presence is
+    /// `asking`, taken whole when its reader started.
+    pub fn of_asking(runner: &TurnRunner, asker: Option<&str>, asking: Option<&Asking>) -> Self {
         let Some(asker) = asker else {
             return Self::default();
         };
@@ -384,10 +626,14 @@ impl RecallPlaces {
         if !runner.cfg.context.ledger_on() {
             return Self::default();
         }
-        match runner.presence.get(asker) {
+        Self::narrowed_to(runner, asker, asking)
+    }
+
+    fn narrowed_to(runner: &TurnRunner, asker: &str, asking: Option<&Asking>) -> Self {
+        match asking {
             Some(a) if a.present == Present::OwnerAlone => Self::default(),
             Some(a) => RecallPlaces {
-                own: Some(a.place),
+                own: Some(a.place.clone()),
                 channel: false,
             },
             // No proof: the asker's own place alone, or nothing.
@@ -476,11 +722,11 @@ impl Verified {
     }
 }
 
-/// Stage the mark `turn.submit` would make for `text` in `session`: typed by
+/// The mark `turn.submit` would make for a message to `session`: typed by
 /// the owner in person, or by an agent's process at the terminal.
 #[cfg(test)]
-pub fn stage_mark(runner: &TurnRunner, session: &str, text: &str, in_person: bool) {
-    let mark = OwnerMark {
+pub fn test_mark(runner: &TurnRunner, session: &str, in_person: bool) -> OwnerMark {
+    OwnerMark {
         node: String::new(),
         in_person,
         owner_handle: None,
@@ -504,21 +750,14 @@ pub fn stage_mark(runner: &TurnRunner, session: &str, text: &str, in_person: boo
         ran_session: session.into(),
         author: None,
         at_ms: 0,
-    };
-    runner.exchanges.arrivals.stage(session, text, mark);
+    }
 }
 
 /// Seat the owner alone in `session`, as a turn of his in person would, for
 /// a test that calls a tool past any turn.
 #[cfg(test)]
 pub fn seat_owner(runner: &TurnRunner, session: &str) {
-    let place = place_name(runner, session).unwrap_or_else(|| "local".into());
-    runner.presence.set(
-        session,
-        Asking {
-            turn_id: "turn_test".into(),
-            present: Present::OwnerAlone,
-            place,
-        },
-    );
+    let mark = test_mark(runner, session, true);
+    let place = mark.place.clone();
+    begin(runner, session, "turn_test", place, Proof::Mark(&mark));
 }

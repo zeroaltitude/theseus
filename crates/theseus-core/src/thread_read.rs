@@ -146,8 +146,15 @@ impl Board {
         self.core.get().and_then(Weak::upgrade)
     }
 
-    /// The call, in its own task: refused in a shared place.
-    pub fn run(&self, tc: &crate::toolrun::TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
+    /// The call, in its own task: refused in a shared place. `approved`: the
+    /// owner approved this call (its posture was `approve`), which a sealed
+    /// thread needs at execution too.
+    pub fn run(
+        &self,
+        tc: &crate::toolrun::TurnCtx<'_>,
+        input: &Value,
+        approved: bool,
+    ) -> AsyncMediaRun {
         let fail = |why: &str| -> AsyncMediaRun {
             Box::pin(std::future::ready(Err(ToolFailure::new(why))))
         };
@@ -163,7 +170,7 @@ impl Board {
         };
         let session = tc.session_id.to_string();
         Box::pin(async move {
-            read(core, session, a)
+            read(core, session, a, approved)
                 .await
                 .map(|o| (o, None, None))
                 .map_err(ToolFailure::new)
@@ -179,7 +186,7 @@ pub(crate) async fn call(
     session: &str,
     input: Value,
 ) -> Result<ToolOutput, String> {
-    read(core, session.to_string(), Args::parse(&input)?).await
+    read(core, session.to_string(), Args::parse(&input)?, false).await
 }
 
 /// The gate's step (theseus-f2g0): a `thread.read` of a sealed thread, or of
@@ -200,7 +207,20 @@ pub(crate) fn gate(
     let Ok(a) = Args::parse(input) else {
         return d;
     };
-    let board = core.threads();
+    // A board that cannot be read now cannot prove the thread unsealed: the
+    // call waits for the owner (the gate fails closed).
+    let board = match core.runner.threads.all(&core.store) {
+        Ok(b) => b,
+        Err(e) => return d.at_least(
+            Posture::Approve,
+            &format!(
+                "the threads cannot be read now ({e:#}): the owner decides whether this read runs"
+            ),
+            "thread seal",
+            READ,
+            "read a thread while the threads cannot be read",
+        ),
+    };
     match find(&board, &a.thread) {
         Some(t) if t.sealed.is_some() || t.seal_pending.is_some() => d.at_least(
             Posture::Approve,
@@ -216,7 +236,12 @@ pub(crate) fn gate(
     }
 }
 
-async fn read(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
+async fn read(
+    core: Arc<Core>,
+    session: String,
+    a: Args,
+    approved: bool,
+) -> Result<ToolOutput, String> {
     if !matches!(core.runner.place_of(&session), Place::Private) {
         return Err(SHARED.into());
     }
@@ -229,7 +254,11 @@ async fn read(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, S
     {
         return Err(CHANNEL.into());
     }
-    let board = core.threads();
+    let board = core
+        .runner
+        .threads
+        .all(&core.store)
+        .map_err(|e| format!("the threads cannot be read now ({e:#}): nothing is read"))?;
     let Some(t) = find(&board, &a.thread).cloned() else {
         let names: Vec<&str> = board.all().map(|t| t.slug.as_str()).take(20).collect();
         return Err(format!(
@@ -242,6 +271,14 @@ async fn read(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, S
             }
         ));
     };
+    // Checked again at execution: a thread sealed since the call was planned,
+    // or one whose seal the owner did not approve for this call, is not read.
+    if (t.sealed.is_some() || t.seal_pending.is_some()) && !approved {
+        return Err(format!(
+            "the thread {} is sealed (or a seal is proposed), and this call was not approved by the owner: nothing is read",
+            t.slug
+        ));
+    }
     let mut text = card_text(&t);
     let mut shown = 0usize;
     if let Some(q) = a.query() {

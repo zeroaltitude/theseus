@@ -44,11 +44,10 @@ impl TurnRunner {
         scene.activation = activation;
         // Seals hold on every path, threads on or off, before the rerank
         // or Jev reads a candidate (the gate).
-        let lens = scene.threads.is_some();
-        crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0, lens);
+        let sealed = crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0);
         let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
         if rerank == PackMode::Off && !crossed {
-            return self.memory.manifest(
+            let mut m = self.memory.manifest(
                 &scene,
                 begun,
                 answer,
@@ -56,6 +55,8 @@ impl TurnRunner {
                 |ids| crate::recall::links(&self.store, ids),
                 true,
             );
+            crate::view_gate::count_sealed(&mut m, sealed);
+            return m;
         }
         let (mut m, candidates, links, ranks) = self.memory.manifest_ranked(
             &scene,
@@ -65,6 +66,7 @@ impl TurnRunner {
             |ids| crate::recall::links(&self.store, ids),
             true,
         );
+        crate::view_gate::count_sealed(&mut m, sealed);
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
         let mut parts = Parts::of(scene);

@@ -665,7 +665,6 @@ async fn a_shared_place_keeps_todays_rule() {
 /// an agent's process.
 async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person: bool) {
     use crate::session::SessionRecord;
-    view_gate::stage_mark(&core.runner, sid, input, in_person);
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -673,7 +672,8 @@ async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person:
         .unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None);
+    let mark = view_gate::test_mark(&core.runner, sid, in_person);
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
     core.runner
         .run(crate::turn::TurnRequest {
             prompt: None,
@@ -711,8 +711,8 @@ async fn an_agent_turn_at_the_terminal_looks_up_nothing_from_elsewhere() {
     let agent = session(&r.core, None);
     turn_as(&r.core, &agent, lookup, false).await;
     let a = r.core.runner.presence.get(&agent).expect("its presence");
-    assert_eq!(a.present, Present::PrivateChannel);
-    assert_eq!(a.place, "local");
+    assert_eq!(a.present(), Present::PrivateChannel);
+    assert_eq!(a.place(), "local");
     let got = crate::tests_places::result_of(&r.core, &agent, "m1");
     assert!(!got.contains(HIS), "{got}");
     // Its memory.lookup by id, and its listing, keep to its own place too.
@@ -722,7 +722,7 @@ async fn an_agent_turn_at_the_terminal_looks_up_nothing_from_elsewhere() {
     let owner = session(&r.core, None);
     turn_as(&r.core, &owner, lookup, true).await;
     assert_eq!(
-        r.core.runner.presence.get(&owner).unwrap().present,
+        r.core.runner.presence.get(&owner).unwrap().present(),
         Present::OwnerAlone
     );
     let got = crate::tests_places::result_of(&r.core, &owner, "m1");
@@ -770,7 +770,7 @@ async fn a_set_up_is_read_through_the_call_that_made_it() {
         "tool_use_id": "wk1", "tool": "wake.at", "wire_name": "wake_at", "input": {},
         "assistant_node": "msg_x"}))
     .unwrap();
-    let call = crate::node::Node::tool_call(&desk, Some(&a.turn_id), Some(0), body);
+    let call = crate::node::Node::tool_call(&desk, Some(a.turn_id()), Some(0), body);
     r.core.store.append(&[call.record().unwrap()]).unwrap();
     let class = Place::Private;
     let got = view_gate::set_up(&r.core.store, &class, &desk, "wk1");
@@ -787,7 +787,7 @@ async fn a_set_up_is_read_through_the_call_that_made_it() {
         "tool_use_id": "wk2", "tool": "wake.at", "wire_name": "wake_at", "input": {},
         "assistant_node": "msg_y"}))
     .unwrap();
-    let call = crate::node::Node::tool_call(&mine, Some(&a.turn_id), Some(0), body);
+    let call = crate::node::Node::tool_call(&mine, Some(a.turn_id()), Some(0), body);
     r.core.store.append(&[call.record().unwrap()]).unwrap();
     let got = view_gate::set_up(&r.core.store, &class, &mine, "wk2");
     assert_eq!(got, Some(Present::OwnerAlone));
@@ -814,7 +814,10 @@ fn with_thread(store: &crate::store::Store, slug: &str, seal: &str) -> String {
         "corrupt" => t = json!("not a thread"),
         _ => {}
     }
-    store.put_meta(&format!("thread:{slug}"), &t).unwrap();
+    // "absent": a binding to a thread with no record at all (F7).
+    if seal != "absent" {
+        store.put_meta(&format!("thread:{slug}"), &t).unwrap();
+    }
     store
         .put_meta(&format!("discord.session.thread:{slug}"), &r.session_id)
         .unwrap();
@@ -838,8 +841,19 @@ fn threaded(enabled: bool, seal: &str) -> (Rig, String) {
 /// established seal, a pending one, and a thread whose record does not read.
 #[tokio::test]
 async fn seals_hold_on_every_search_with_threads_off() {
-    for seal in ["sealed", "pending", "corrupt"] {
-        let (r, kelp) = threaded(false, seal);
+    // With the thread lens on too: a held hit is taken out before the lens,
+    // whatever its memo says (F6).
+    for (enabled, seal) in [
+        (false, "sealed"),
+        (false, "pending"),
+        (false, "corrupt"),
+        (false, "absent"),
+        (true, "sealed"),
+        (true, "pending"),
+    ] {
+        let seal = seal.to_string();
+        let seal = seal.as_str();
+        let (r, kelp) = threaded(enabled, seal);
         let open = session(&r.core, None);
         turn(&r.core, &kelp, HIS).await;
         turn(&r.core, &open, "the open harbour note").await;
@@ -873,7 +887,8 @@ async fn seals_hold_on_every_search_with_threads_off() {
         );
         // The thread itself reads its own, unless its record does not read.
         let own = view_gate::seal_of(&r.core.runner, Some(&kelp), &kelp);
-        assert_eq!(own == Seal::Clear, seal != "corrupt", "{seal}: {own:?}");
+        let unread = seal == "corrupt" || seal == "absent";
+        assert_eq!(own == Seal::Clear, !unread, "{seal}: {own:?}");
     }
 }
 
@@ -935,7 +950,7 @@ async fn the_views_permit_reads_the_turns_verified_presence() {
     turn_as(&r.core, &lab, "plain words", true).await;
     let lab_place = format!("discord:channel:{LAB}");
     assert_eq!(
-        r.core.runner.presence.get(&lab).unwrap().present,
+        r.core.runner.presence.get(&lab).unwrap().present(),
         Present::PrivateChannel
     );
     let permit = crate::view::permit::Permit::for_turn(&r.core.runner, &lab);
@@ -954,4 +969,268 @@ async fn the_views_permit_reads_the_turns_verified_presence() {
     let mut at_desk = claimed;
     at_desk.anchor = crate::view::Anchor::Place("local".into());
     assert!(none.admit(&at_desk, piece("local")).is_none());
+}
+
+/// A session with stored nodes and no record of its own cannot be proven
+/// unsealed (F7).
+#[tokio::test]
+async fn a_native_session_with_no_record_is_unread() {
+    let r = rig();
+    let ghost = "ses_ghost_with_nodes";
+    let n = crate::node::Node::user(ghost, None, "cli", HIS);
+    r.core.store.append(&[n.record().unwrap()]).unwrap();
+    assert_eq!(
+        view_gate::seal_of(&r.core.runner, None, ghost),
+        Seal::Unread
+    );
+    assert!(
+        r.core.ladder_hidden(ghost),
+        "one rule: the ladder's is the gate's"
+    );
+}
+
+/// A node a split moved into a sealed thread is held out of a search and of a
+/// read of its own session, by id or by session, whatever `[threads] enabled`
+/// says; a `moved.of` that does not decode, or names a thread the board does
+/// not hold, is held out too (F5).
+#[tokio::test]
+async fn a_node_moved_into_a_sealed_thread_is_held_out_everywhere() {
+    for (enabled, moved) in [
+        (false, "sealed"),
+        (true, "sealed"),
+        (false, "corrupt"),
+        (false, "missing"),
+    ] {
+        let (r, _kelp) = threaded(enabled, "sealed");
+        let home = session(&r.core, None);
+        turn(&r.core, &home, HIS).await;
+        turn(&r.core, &home, "the open harbour note").await;
+        let secret = r
+            .core
+            .store
+            .session_nodes(&home)
+            .unwrap()
+            .into_iter()
+            .find(|(_, n)| crate::recall::text_of(n).contains(HIS))
+            .map(|(_, n)| n.id)
+            .unwrap();
+        let key = crate::moved::moved_of_key(&secret);
+        match moved {
+            "sealed" => r
+                .core
+                .store
+                .put_meta(&key, &json!({"thread": "kelp", "split": "spl_x"})),
+            "corrupt" => r.core.store.put_meta(&key, &json!(17)),
+            _ => r
+                .core
+                .store
+                .put_meta(&key, &json!({"thread": "gone", "split": "spl_x"})),
+        }
+        .unwrap();
+        r.core
+            .runner
+            .memory
+            .set_ask(index_over(&r.core, vec![home.clone()]));
+        let desk = session(&r.core, None);
+        view_gate::seat_owner(&r.core.runner, &desk);
+        let words = json!({"words": "harbour"});
+        let got = crate::memory_lookup::call(r.core.clone(), &desk, words)
+            .await
+            .unwrap()
+            .text;
+        assert!(!got.contains(HIS), "{moved}: {got}");
+        assert!(got.contains("the open harbour note"), "{moved}: {got}");
+        let read = json!({"session": home});
+        let got = crate::memory_lookup::call(r.core.clone(), &desk, read)
+            .await
+            .unwrap()
+            .text;
+        assert!(!got.contains(HIS), "{moved}: {got}");
+        let p = MemoryLookupParams {
+            id: Some(secret.clone()),
+            ..Default::default()
+        };
+        let by_id = crate::memory_lookup::mcp::get(&r.core, &p).await;
+        assert!(by_id.is_err(), "{moved}: {by_id:?}");
+    }
+}
+
+/// `thread.read` checks the seal again when it runs: a thread sealed after the
+/// call was planned is not read without the owner's approval of the call (F9).
+#[tokio::test]
+async fn thread_read_checks_the_seal_again_at_execution() {
+    let (r, kelp) = threaded(true, "sealed");
+    turn(&r.core, &kelp, HIS).await;
+    let desk = session(&r.core, None);
+    view_gate::seat_owner(&r.core.runner, &desk);
+    let got = crate::thread_read::call(r.core.clone(), &desk, json!({"thread": "kelp"})).await;
+    assert!(
+        got.as_ref().is_err_and(|e| e.contains("not approved")),
+        "{got:?}"
+    );
+}
+
+/// An agent's steer into the owner's running turn at the terminal narrows the
+/// turn at once: memory.lookup after it reads this place only, and what the
+/// turn sets up after it inherits the narrowed presence (F2).
+#[tokio::test]
+async fn an_agents_steer_narrows_the_running_owners_turn() {
+    use crate::exchange::{exchange_record, mark_record, Exchange, Opener};
+    let r = rig();
+    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &dm, HIS).await;
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, vec![dm.clone()]));
+    let desk = session(&r.core, None);
+    let owner = view_gate::test_mark(&r.core.runner, &desk, true);
+    let agent = view_gate::test_mark(&r.core.runner, &desk, false);
+    let place = owner.place.clone();
+    view_gate::begin(
+        &r.core.runner,
+        &desk,
+        "turn_s",
+        place,
+        view_gate::Proof::Mark(&owner),
+    );
+    let words = json!({"words": "harbour gate"});
+    let lookup = |input: serde_json::Value| {
+        let c = r.core.clone();
+        let desk = desk.clone();
+        async move {
+            let places = RecallPlaces::of(&c.runner, Some(&desk));
+            assert_eq!(places.narrowed().is_some(), {
+                c.runner.presence.get(&desk).unwrap().present() != Present::OwnerAlone
+            });
+            crate::memory_lookup::call(c, &desk, input)
+                .await
+                .unwrap()
+                .text
+        }
+    };
+    assert!(
+        lookup(words.clone()).await.contains(HIS),
+        "the owner alone, before the steer"
+    );
+    view_gate::steered(&r.core.runner, &desk, Some(&agent));
+    assert_eq!(
+        r.core.runner.presence.get(&desk).unwrap().present(),
+        Present::PrivateChannel
+    );
+    assert!(
+        !lookup(words.clone()).await.contains(HIS),
+        "narrowed at once"
+    );
+    // An owner's steer after it never widens it again.
+    view_gate::steered(&r.core.runner, &desk, Some(&owner));
+    assert_eq!(
+        r.core.runner.presence.get(&desk).unwrap().present(),
+        Present::PrivateChannel
+    );
+
+    // What the turn set up after the steer inherits the narrowed presence.
+    let mark = |node: &str, m: &crate::exchange::OwnerMark| {
+        let mut m = m.clone();
+        m.node = node.into();
+        mark_record(&m).unwrap()
+    };
+    let ex = Exchange {
+        turn_id: "turn_s".into(),
+        session_id: desk.clone(),
+        place: "local".into(),
+        private: true,
+        opened_by: Opener::Message,
+        person: None,
+        start_ms: 1,
+        end_ms: Some(2),
+        ask: Some("nod_ask".into()),
+        reply: None,
+        messages: vec!["nod_ask".into(), "nod_steer".into()],
+        stop: None,
+        rebuilt: false,
+    };
+    let body: crate::node::Body = serde_json::from_value(json!({"kind": "tool_call",
+        "tool_use_id": "wk9", "tool": "wake.at", "wire_name": "wake_at", "input": {},
+        "assistant_node": "msg_z"}))
+    .unwrap();
+    let call = crate::node::Node::tool_call(&desk, Some("turn_s"), Some(0), body);
+    r.core
+        .store
+        .append(&[
+            exchange_record(&ex).unwrap(),
+            mark("nod_ask", &owner),
+            mark("nod_steer", &agent),
+            call.record().unwrap(),
+        ])
+        .unwrap();
+    let got = view_gate::set_up(&r.core.store, &Place::Private, &desk, "wk9");
+    assert_eq!(got, Some(Present::PrivateChannel));
+}
+
+/// A task started where the owner was alone reports to a parent that was
+/// rebound to a shared channel since: its report's body is not written as that
+/// turn's input; a content-free notice is (F8).
+#[tokio::test]
+async fn a_report_into_a_place_that_narrowed_is_a_notice() {
+    use crate::exchange::{exchange_record, mark_record, Exchange, Opener};
+    let r = rig();
+    let parent = session(&r.core, None);
+    let owner = view_gate::test_mark(&r.core.runner, &parent, true);
+    let mut m = owner.clone();
+    m.node = "nod_ask".into();
+    let ex = Exchange {
+        turn_id: "turn_p".into(),
+        session_id: parent.clone(),
+        place: "local".into(),
+        private: true,
+        opened_by: Opener::Message,
+        person: None,
+        start_ms: 1,
+        end_ms: Some(2),
+        ask: Some("nod_ask".into()),
+        reply: None,
+        messages: vec!["nod_ask".into()],
+        stop: None,
+        rebuilt: false,
+    };
+    let body: crate::node::Body = serde_json::from_value(json!({"kind": "tool_call",
+        "tool_use_id": "tc_task", "tool": "task.create", "wire_name": "task_create",
+        "input": {}, "assistant_node": "msg_t"}))
+    .unwrap();
+    let call = crate::node::Node::tool_call(&parent, Some("turn_p"), Some(0), body);
+    r.core
+        .store
+        .append(&[
+            exchange_record(&ex).unwrap(),
+            mark_record(&m).unwrap(),
+            call.record().unwrap(),
+        ])
+        .unwrap();
+    let mut task =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    task.task = Some(
+        serde_json::from_value(
+            json!({"parent_session": parent, "parent_execution": "exe_p",
+            "by": "tc_task"}),
+        )
+        .unwrap(),
+    );
+    r.core.store.put_session(&task.session_id, &task).unwrap();
+    assert!(view_gate::report_shown(
+        &r.core.runner,
+        &parent,
+        &task.session_id
+    ));
+    r.core
+        .outbox
+        .bind_place(&format!("channel:{PIER}"), &parent)
+        .unwrap();
+    assert!(!view_gate::report_shown(
+        &r.core.runner,
+        &parent,
+        &task.session_id
+    ));
+    let notice = view_gate::withheld_report("a1b2c3");
+    assert!(notice.contains("a1b2c3") && notice.contains("where the owner is alone"));
 }

@@ -104,8 +104,16 @@ pub(crate) async fn search(
     // may drop some of the best hits, and a total that moved with the page's
     // size would break a cursor.
     let k = 100;
-    let (_, items, total) =
-        by_words(core, None, words.to_string(), &a, when.as_ref(), (k, true)).await?;
+    let (_, items, total) = by_words(
+        core,
+        None,
+        words.to_string(),
+        &a,
+        when.as_ref(),
+        (k, true),
+        &crate::view_gate::RecallPlaces::default(),
+    )
+    .await?;
     let cut = MESSAGE_MAX as usize * 4;
     let mut hits = Vec::new();
     let mut used = 0u64;
@@ -193,7 +201,14 @@ async fn nodes_of(core: &Arc<Core>, session: &str) -> Result<Vec<(u64, Node)>, S
     let sid = session.to_string();
     let nodes = tokio::task::spawn_blocking(move || {
         let nodes = c.store.session_nodes(&sid)?;
-        crate::import::shown(&c.store, nodes)
+        let nodes = crate::import::shown(&c.store, nodes)?;
+        // A message moved into a sealed thread is held out (`node_seal`).
+        anyhow::Ok(crate::view_gate::readable_nodes(
+            &c.runner,
+            None,
+            nodes,
+            |(_, n)| (n.session_id.as_str(), n.id.as_str()),
+        ))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -232,6 +247,14 @@ async fn by_id(
         return Err(NOT_FOUND.into());
     }
     let nodes = nodes_of(core, &node.session_id).await?;
+    // The node itself, moved into a sealed thread, answers as not there.
+    let held = crate::view_gate::readable_nodes(&core.runner, None, vec![&node], |n| {
+        (n.session_id.as_str(), n.id.as_str())
+    })
+    .is_empty();
+    if held {
+        return Err(NOT_FOUND.into());
+    }
     let labels = labels(core, &node.session_id).await?;
     let (before, after) = (
         p.before.unwrap_or(AROUND).min(AROUND_MAX) as usize,

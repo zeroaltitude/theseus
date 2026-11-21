@@ -278,8 +278,11 @@ impl Board {
             Err(e) => return fail(&e),
         };
         let session = tc.session_id.to_string();
+        // The turn's presence, taken whole as the call starts: what it reads
+        // is decided by this, whatever happens to the session after.
+        let places = crate::view_gate::RecallPlaces::of(&core.runner, Some(tc.session_id));
         Box::pin(async move {
-            lookup(core, session, a)
+            lookup(core, session, a, places)
                 .await
                 .map(|o| (o, None, None))
                 .map_err(ToolFailure::new)
@@ -295,7 +298,8 @@ pub(crate) async fn call(
     session: &str,
     input: Value,
 ) -> Result<ToolOutput, String> {
-    lookup(core, session.to_string(), Args::parse(&input)?).await
+    let places = crate::view_gate::RecallPlaces::of(&core.runner, Some(session));
+    lookup(core, session.to_string(), Args::parse(&input)?, places).await
 }
 
 /// The page lines of recall's admitted items, as `lookup` renders them:
@@ -331,12 +335,22 @@ struct Item {
     harness: String,
 }
 
-async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
-    page(&core, &session, a).await
+async fn lookup(
+    core: Arc<Core>,
+    session: String,
+    a: Args,
+    places: crate::view_gate::RecallPlaces,
+) -> Result<ToolOutput, String> {
+    page(&core, &session, a, &places).await
 }
 
 /// The answer's page.
-async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, String> {
+async fn page(
+    core: &Arc<Core>,
+    session: &str,
+    a: Args,
+    places: &crate::view_gate::RecallPlaces,
+) -> Result<ToolOutput, String> {
     let (core, session) = (core.clone(), session.to_string());
     if !matches!(core.runner.place_of(&session), Place::Private) {
         return Err(SHARED.into());
@@ -356,12 +370,12 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
         {
             return Err(format!("session {id} {SEALED}"));
         }
-        if !crate::view_gate::RecallPlaces::of(runner, Some(&session)).may_read(runner, id) {
+        if !places.may_read(runner, id) {
             return Err(format!("session {id} {CHANNEL}"));
         }
     }
     if some(&a.session).is_some() && some(&a.words).is_none() {
-        return read::session(&core, &a, when.as_ref(), (offset, limit, budget)).await;
+        return read::session(&core, &session, &a, when.as_ref(), (offset, limit, budget)).await;
     }
     // A search of words asks for one past the page, to know there is more.
     let (head, items, total) = match some(&a.words) {
@@ -374,10 +388,11 @@ async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, St
                 &a,
                 when.as_ref(),
                 (k, false),
+                places,
             )
             .await?
         }
-        None => by_catalog(&core, &session, &a, when.as_ref(), offset, limit).await?,
+        None => by_catalog(&core, &session, places, &a, when.as_ref(), offset, limit).await?,
     };
     let counted = some(&a.words).is_none();
     let items: Vec<Item> = match some(&a.words) {
@@ -512,6 +527,7 @@ fn offset_words() -> String {
 async fn by_catalog(
     core: &Arc<Core>,
     asker: &str,
+    places: &crate::view_gate::RecallPlaces,
     a: &Args,
     when: Option<&When>,
     offset: u64,
@@ -519,17 +535,14 @@ async fn by_catalog(
 ) -> Result<(String, Vec<Item>, u64), String> {
     let own = match when {
         Some(w) if some(&a.book).is_none() && some(&a.topic).is_none() => {
-            read::own_sessions(core, asker, w).await?
+            read::own_sessions(core, asker, places, w).await?
         }
         _ => Vec::new(),
     };
     // A channel bound private, or a turn that is not the owner alone, lists
     // its own place's sessions and no imported episode, which is the owner's
     // history from elsewhere.
-    if crate::view_gate::RecallPlaces::of(&core.runner, Some(asker))
-        .narrowed()
-        .is_some()
-    {
+    if places.narrowed().is_some() {
         let n = own.len() as u64;
         let items: Vec<Item> = own
             .into_iter()
@@ -611,6 +624,7 @@ async fn by_words(
     a: &Args,
     when: Option<&When>,
     (k, private_only): (u64, bool),
+    places: &crate::view_gate::RecallPlaces,
 ) -> Result<(String, Vec<Item>, u64), String> {
     // A book or a topic: its sessions, from the catalog.
     let (sessions, narrowed) = match narrowed_to(core, a).await? {
@@ -649,10 +663,9 @@ async fn by_words(
     let mut answer = begun.answer().await;
     // A channel bound private, or a turn that is not the owner alone, recalls
     // as a place of one (the gate's decision 5).
-    let places = crate::view_gate::RecallPlaces::of(&core.runner, session);
     let threads = core.runner.thread_scene(session, &words, false);
     // Seals hold on every path, threads on or off (the gate).
-    crate::view_gate::seal_out(&core.runner, session, &mut answer.0, threads.is_some());
+    let sealed = crate::view_gate::seal_out(&core.runner, session, &mut answer.0);
     let scene = crate::recall::Scene {
         mode: "lookup",
         session_id: session,
@@ -669,7 +682,7 @@ async fn by_words(
         persona: None,
         category: None,
     };
-    let m = memory.manifest(
+    let mut m = memory.manifest(
         &scene,
         &begun,
         answer,
@@ -677,6 +690,7 @@ async fn by_words(
         |ids| crate::recall::links(&core.store, ids),
         true,
     );
+    crate::view_gate::count_sealed(&mut m, sealed);
     // `words_only`: the vector search was late or failed, and the word
     // sources answered (recall-fallback); their hits are an answer.
     if m.outcome != "ran" && m.outcome != crate::recall::WORDS_ONLY {

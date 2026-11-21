@@ -1,17 +1,39 @@
 //! The gate's seam: only content that passed the permission check reaches a model, and the type says so.
-//! [`Admitted`] can be made only inside `crate::view` (its constructor is `pub(in crate::view)`), so a new
-//! reader cannot skip the check. The gate's logic (the place rule, `owner alone` for every cross-place kind,
+//! [`Admitted`] is made only in this module: by [`admit_checked`], after the gate's rule
+//! (`crate::view_gate::Gate::check`) for the turn's verified point of view, and by the checked
+//! [`Admitted::code`]. Its constructor is private (the contract's amendment of issue 44, step 2), so a
+//! selector or a renderer cannot wrap a piece itself. The gate's logic (the place rule, `owner alone` for every cross-place kind,
 //! the seal and the veil; a missing mark denies) is the gate work's, behind [`Gate`].
 
 use super::{Piece, PointOfView, Space};
+use crate::view_gate::Verified;
+
+/// `piece`, admitted for the turn `verified` when the gate's rule lets it
+/// through for the view's `pov` (which may only narrow the verified one).
+pub(in crate::view) fn admit_checked(
+    verified: &Verified,
+    pov: &PointOfView,
+    piece: Piece,
+) -> Option<Admitted<Piece>> {
+    let rule = super::permit::point_of_view(verified, pov);
+    crate::view_gate::Gate::check(&rule, &super::permit::marks(&piece))
+        .ok()
+        .map(|()| Admitted::new(piece))
+}
 
 /// A value the gate admitted for one point of view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Admitted<T>(T);
 
 impl<T> Admitted<T> {
-    /// Only the gate (under `crate::view`) and this module's tests make one.
-    pub(in crate::view) fn new(value: T) -> Self {
+    /// Only this module makes one.
+    fn new(value: T) -> Self {
+        Self(value)
+    }
+
+    /// A value admitted by a test's own fake gate.
+    #[cfg(test)]
+    pub(in crate::view) fn for_tests(value: T) -> Self {
         Self(value)
     }
 

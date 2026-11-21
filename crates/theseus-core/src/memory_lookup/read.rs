@@ -34,6 +34,7 @@ pub(super) const MESSAGE_MAX: u64 = 1_500;
 /// One session's messages, a page of them: what `session` asks.
 pub(super) async fn session(
     core: &Arc<Core>,
+    asker: &str,
     a: &Args,
     when: Option<&When>,
     (offset, limit, budget): (u64, u64, u64),
@@ -52,6 +53,11 @@ pub(super) async fn session(
     }
     let (source, sensitivity, span, summary) = labels_of(core, &id, &nodes).await?;
     let veiled = veils(sensitivity.as_deref());
+    // A message a split or a claim moved into a sealed thread is held out
+    // (the gate's `node_seal`), whatever the session's own seal.
+    let nodes = crate::view_gate::readable_nodes(&core.runner, Some(asker), nodes, |(_, n)| {
+        (n.session_id.as_str(), n.id.as_str())
+    });
     let (messages, left) = readable(&nodes, when);
     let total = messages.len() as u64;
     let mut text =
@@ -234,6 +240,7 @@ async fn labels_of(
 pub(super) async fn own_sessions(
     core: &Arc<Core>,
     asker: &str,
+    places: &crate::view_gate::RecallPlaces,
     span: &When,
 ) -> Result<Vec<Item>, String> {
     let c = core.clone();
@@ -248,7 +255,6 @@ pub(super) async fn own_sessions(
             && span.to_ms.is_none_or(|t| r.created_at_unix_ms < t)
     });
     let runner = &core.runner;
-    let places = crate::view_gate::RecallPlaces::of(runner, Some(asker));
     all.retain(|r| {
         crate::view_gate::seal_of(runner, Some(asker), &r.session_id)
             == theseus_memory::gate::Seal::Clear
