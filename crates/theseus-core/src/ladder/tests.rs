@@ -141,7 +141,7 @@ async fn a_did_line_reads_the_message_and_the_reply_never_a_tool_result() {
         (d.marks.place.as_deref(), d.marks.audience),
         (Some(PLACE), Audience::Private)
     );
-    let asked = &w.asks.lock().unwrap()[0];
+    let asked = w.asks.lock().unwrap()[0].clone();
     assert!(
         asked.text.contains("Recalibrate gauge 1000"),
         "{}",
@@ -277,7 +277,7 @@ async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
     // The handle opens its exchanges; a node never changes once written.
     let opened = fold::open(&s, &fold::node(&s, &node.id).unwrap().unwrap()).unwrap();
     assert_eq!(opened.len(), N);
-    let asked = w.asks.lock().unwrap();
+    let asked = w.asks.lock().unwrap().clone();
     let fold_ask = asked.iter().find(|a| a.work == Work::Fold).unwrap();
     assert!(!fold_ask.text.contains("SECRET-TOOL-OUTPUT"));
     assert!(
