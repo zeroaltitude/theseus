@@ -22,7 +22,7 @@ pub use elsewhere::{Elsewhere, LATELY_MS, PLACES_ALWAYS};
 pub use here::{Here, FLOOR_EXCHANGES};
 pub use make::UNSUMMARISED;
 pub use past::Past;
-pub use run::{assemble, table, Fixed, Part};
+pub use run::{assemble, assemble_counted, table, Assembled, Fixed, Part};
 
 /// One band of the admission order; each has exactly one selector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
