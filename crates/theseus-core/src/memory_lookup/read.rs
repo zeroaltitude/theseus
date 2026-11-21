@@ -229,7 +229,13 @@ async fn labels_of(
 
 /// The sessions this harness held in `span`, newest first: those with a
 /// turn, whose time from their start to their last activity meets it.
-pub(super) async fn own_sessions(core: &Arc<Core>, span: &When) -> Result<Vec<Item>, String> {
+/// A sealed thread's sessions (or one whose seal is proposed) are left out,
+/// as they are by id, and a channel bound private lists only its own.
+pub(super) async fn own_sessions(
+    core: &Arc<Core>,
+    asker: &str,
+    span: &When,
+) -> Result<Vec<Item>, String> {
     let c = core.clone();
     let mut all: Vec<SessionRecord> = tokio::task::spawn_blocking(move || c.store.live_sessions())
         .await
@@ -240,6 +246,13 @@ pub(super) async fn own_sessions(core: &Arc<Core>, span: &When) -> Result<Vec<It
         r.turns > 0
             && span.from_ms.is_none_or(|f| end >= f)
             && span.to_ms.is_none_or(|t| r.created_at_unix_ms < t)
+    });
+    let runner = &core.runner;
+    let places = crate::view_gate::RecallPlaces::of(runner, Some(asker));
+    all.retain(|r| {
+        crate::view_gate::seal_of(runner, Some(asker), &r.session_id)
+            == theseus_memory::gate::Seal::Clear
+            && places.may_read(runner, &r.session_id)
     });
     all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms.max(r.created_at_unix_ms)));
     Ok(all

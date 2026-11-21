@@ -184,6 +184,11 @@ async fn nodes_of(core: &Arc<Core>, session: &str) -> Result<Vec<(u64, Node)>, S
     if core.runner.place_of(session) != Place::Private {
         return Err(NOT_FOUND.into());
     }
+    // A sealed thread's session (or one whose seal is proposed) answers as
+    // one that is not there: another agent is never its thread.
+    if crate::view_gate::seal_of(&core.runner, None, session) != theseus_memory::gate::Seal::Clear {
+        return Err(NOT_FOUND.into());
+    }
     let c = core.clone();
     let sid = session.to_string();
     let nodes = tokio::task::spawn_blocking(move || {

@@ -15,6 +15,8 @@
 //!   and the pack it would admit (step 32c);
 //! - [`retention`]: the `+retention` arm's science, the fused score weighed
 //!   by the node's retrievability (step 32a's wire-in).
+//! - [`gate`]: the gate's type, `Admitted<T>`, and its rule over a point of
+//!   view and a piece's marks (issue 44, step 2), which the core's gate runs;
 //! - [`consolidate`]: consolidation's clusters of nodes recall admits
 //!   together, a synthesis's citations and checks, and its shadow score
 //!   (step 31b).
@@ -28,6 +30,7 @@ pub mod activation;
 pub mod consolidate;
 pub mod floor;
 pub mod fsrs;
+pub mod gate;
 pub mod recall;
 pub mod rerank;
 pub mod retention;
