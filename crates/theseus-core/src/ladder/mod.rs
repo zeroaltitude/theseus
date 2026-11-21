@@ -25,7 +25,8 @@
 //! fold (`read::fold_step`), and a level that reaches 2[`N`] nodes folds its
 //! oldest [`N`] into one node of the level above. Only what came after the
 //! place's latest `/new` is counted. Every model call is held on the day's
-//! line [`DAY_USD`] and the daemon's day ceiling first (`writer.rs`).
+//! line [`DAY_USD`] (reserved in `ladder.day` before it is made, [`DayPurse`])
+//! and the daemon's day ceiling first (`writer.rs`).
 //!
 //! New META families need no store-format step; no field is added to any
 //! stored record.
@@ -36,6 +37,7 @@ pub mod build;
 pub mod did;
 pub mod fold;
 pub mod read;
+pub mod seal;
 pub mod view;
 pub mod writer;
 
@@ -77,50 +79,223 @@ pub fn marks_of(ex: &crate::exchange::Exchange) -> Marks {
     }
 }
 
-/// `a` grown by `b`: its flags, and an audience no more private than either.
-pub fn union(mut a: Marks, b: &Marks) -> Marks {
+/// How narrow an audience is: an aggregate takes the narrowest of its
+/// sources', and an unknown one, which denies, is narrowest of all.
+fn narrowness(a: crate::view::Audience) -> u8 {
     use crate::view::Audience;
+    match a {
+        Audience::Open => 0,
+        Audience::Shared => 1,
+        Audience::Private => 2,
+        Audience::Unknown => 3,
+    }
+}
+
+/// `a` grown by `b`: its flags, the narrowest audience of the two (private
+/// wins over shared and open; unknown over all), and no place when the two
+/// name different ones (a missing mark, which denies).
+pub fn union(mut a: Marks, b: &Marks) -> Marks {
     a.grow(b);
-    if a.audience != b.audience {
-        a.audience = match (a.audience, b.audience) {
-            (Audience::Unknown, _) | (_, Audience::Unknown) => Audience::Unknown,
-            (Audience::Open, _) | (_, Audience::Open) => Audience::Open,
-            _ => Audience::Shared,
-        };
+    if narrowness(b.audience) > narrowness(a.audience) {
+        a.audience = b.audience;
+    }
+    if a.place != b.place {
+        a.place = None;
     }
     a
 }
 
-/// The day's spend on summaries (`ladder.day`).
+/// Between a key's parts: a place that holds it gets no ladder.
+pub const SEP: char = '\u{1}';
+
+/// Whether `place` may have a ladder: its name cannot break a key's parts.
+pub fn laddered(place: &str) -> bool {
+    !place.is_empty() && !place.contains(SEP)
+}
+
+/// A place's `/new` marks: `ladder.new.<place>`, the latest one.
+pub const NEW_PREFIX: &str = "ladder.new.";
+
+/// The place's latest `/new`, as the view's position: its time and the
+/// turn it came after (a tie at one millisecond is broken by the turn id).
+/// None: no `/new` was ever said there. A failed read is an error, never
+/// none: what came before a reset is not brought back by a bad read.
+pub fn new_mark(
+    store: &crate::store::Store,
+    place: &str,
+) -> anyhow::Result<Option<crate::view::Pos>> {
+    store.get_meta(&format!("{NEW_PREFIX}{place}"))
+}
+
+/// The record of a `/new` in `place` at `at`.
+pub fn new_mark_record(
+    place: &str,
+    at: &crate::view::Pos,
+) -> anyhow::Result<theseus_store::NewRecord> {
+    theseus_store::NewRecord::json(
+        theseus_store::kinds::META,
+        Some(&format!("{NEW_PREFIX}{place}")),
+        at,
+    )
+}
+
+/// The day's spend on summaries (`ladder.day`): what was settled, and the
+/// calls reserved and not yet settled, each at its worst case. A
+/// reservation a crash left is counted as spent until the day ends.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Day {
     /// The local day, `YYYY-MM-DD`.
     pub day: String,
     pub spent_usd: f64,
+    #[serde(default)]
+    pub reserved: Vec<Reserved>,
+}
+
+/// One call's reservation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Reserved {
+    pub id: String,
+    pub usd: f64,
 }
 
 impl Day {
-    /// What is left of [`DAY_USD`] on `today`.
-    pub fn left(&self, today: &str) -> f64 {
-        let spent = if self.day == today {
-            self.spent_usd
-        } else {
-            0.0
-        };
-        (DAY_USD - spent).max(0.0)
+    /// The record as it stands on `today`: a past day's is a fresh one.
+    pub fn on(self, today: &str) -> Day {
+        match self.day == today {
+            true => self,
+            false => Day {
+                day: today.to_string(),
+                ..Day::default()
+            },
+        }
     }
 
-    /// The day after `usd` more was spent on `today`.
-    pub fn spend(&self, today: &str, usd: f64) -> Day {
-        let spent = if self.day == today {
-            self.spent_usd
-        } else {
-            0.0
-        };
-        Day {
-            day: today.to_string(),
-            spent_usd: spent + usd,
+    /// Settled and reserved together.
+    pub fn used(&self) -> f64 {
+        self.spent_usd + self.reserved.iter().map(|r| r.usd).sum::<f64>()
+    }
+
+    /// What is left of [`DAY_USD`] on `today`.
+    pub fn left(&self, today: &str) -> f64 {
+        (DAY_USD - self.clone().on(today).used()).max(0.0)
+    }
+}
+
+/// What a summary call may spend: the day's line, and a run's own allowance.
+pub trait Purse: Send + Sync {
+    /// Reserve `usd`, a call's worst case: an id to settle it by, or why not.
+    fn reserve(&self, usd: f64) -> Result<String, String>;
+    /// Settle reservation `id` at what the call cost (its worst case when it
+    /// failed after it was sent).
+    fn settle(&self, id: &str, cost_usd: f64);
+}
+
+/// The store's purse: each reservation written to `ladder.day` before the
+/// call is made, each settlement after, under one lock. A run's allowance
+/// is the smaller of its own and what is left of the day's line, unless the
+/// run was given leave to pass the line (`over_line`).
+pub struct DayPurse<'a> {
+    pub store: &'a crate::store::Store,
+    run: std::sync::Mutex<RunPurse>,
+    over_line: bool,
+}
+
+#[derive(Default)]
+struct RunPurse {
+    /// What the run may still reserve; none: the day's line alone.
+    left: Option<f64>,
+    spent: f64,
+    out: std::collections::HashMap<String, f64>,
+}
+
+impl<'a> DayPurse<'a> {
+    pub fn new(store: &'a crate::store::Store, run_usd: Option<f64>, over_line: bool) -> Self {
+        DayPurse {
+            store,
+            run: std::sync::Mutex::new(RunPurse {
+                left: run_usd,
+                ..Default::default()
+            }),
+            over_line,
         }
+    }
+
+    /// What this run has spent, failed calls included.
+    pub fn spent(&self) -> f64 {
+        self.run.lock().unwrap_or_else(|e| e.into_inner()).spent
+    }
+
+    /// What this run may still reserve: its own allowance and, unless it may
+    /// pass it, the day's line.
+    pub fn left(&self) -> anyhow::Result<f64> {
+        let run = self.run.lock().unwrap_or_else(|e| e.into_inner()).left;
+        let day = match self.over_line {
+            true => f64::INFINITY,
+            false => self.day()?.1.left(&today()),
+        };
+        Ok(run.map_or(day, |r| r.min(day)).max(0.0))
+    }
+
+    fn day(&self) -> anyhow::Result<(String, Day)> {
+        let today = today();
+        let day: Day =
+            theseus_store::blocking(|| self.store.get_meta(DAY_KEY))?.unwrap_or_default();
+        Ok((today.clone(), day.on(&today)))
+    }
+
+    fn write(&self, day: &Day) -> anyhow::Result<()> {
+        let rec = theseus_store::NewRecord::json(theseus_store::kinds::META, Some(DAY_KEY), day)?;
+        theseus_store::blocking(|| self.store.append(&[rec]))?;
+        Ok(())
+    }
+}
+
+fn today() -> String {
+    crate::judge::spend::local_day(theseus_protocol::now_unix_ms())
+}
+
+impl Purse for DayPurse<'_> {
+    fn reserve(&self, usd: f64) -> Result<String, String> {
+        let left = self
+            .left()
+            .map_err(|e| format!("the day's spend cannot be read: {e:#}"))?;
+        if usd > left {
+            return Err(format!(
+                "the summaries' allowance leaves ${left:.2}, under a call's worst case (${usd:.2})"
+            ));
+        }
+        let (_, mut day) = self.day().map_err(|e| format!("{e:#}"))?;
+        let id = crate::new_id("lres");
+        day.reserved.push(Reserved {
+            id: id.clone(),
+            usd,
+        });
+        self.write(&day)
+            .map_err(|e| format!("the reservation was not written: {e:#}"))?;
+        let mut run = self.run.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(l) = &mut run.left {
+            *l -= usd;
+        }
+        run.out.insert(id.clone(), usd);
+        Ok(id)
+    }
+
+    fn settle(&self, id: &str, cost_usd: f64) {
+        let settled = self.day().and_then(|(_, mut day)| {
+            day.reserved.retain(|r| r.id != id);
+            day.spent_usd += cost_usd;
+            self.write(&day)
+        });
+        if let Err(e) = settled {
+            // The reservation stays, and counts as spent: the safe side.
+            tracing::warn!(error = %format!("{e:#}"), "ladder: a summary call's settlement was not written");
+        }
+        let mut run = self.run.lock().unwrap_or_else(|e| e.into_inner());
+        let held = run.out.remove(id).unwrap_or(0.0);
+        if let Some(l) = &mut run.left {
+            *l += held - cost_usd;
+        }
+        run.spent += cost_usd;
     }
 }
 

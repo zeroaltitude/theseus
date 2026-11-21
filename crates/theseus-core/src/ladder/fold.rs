@@ -13,7 +13,7 @@ use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::did::{self, Read};
 use super::writer::{Ask, Work, Writer, Written};
-use super::{cut, union, Marks};
+use super::{cut, union, Marks, SEP};
 use crate::store::Store;
 
 /// A node: `fold.<place>␁<level>␁<first exchange's ms, 20 digits>`, the view
@@ -23,7 +23,6 @@ pub use crate::view::fold::FOLD_PREFIX;
 pub const HANDLE_PREFIX: &str = "foldh.";
 /// A node's place in its level: `rung.<place>␁<level, 2 digits>␁<u64::MAX - last_ms, 20 digits>␁<id>`.
 pub const RUNG_PREFIX: &str = "rung.";
-const SEP: char = '\u{1}';
 /// A title's characters at most, and an account's.
 pub const TITLE_CHARS: usize = 120;
 pub const ACCOUNT_CHARS: usize = 2_400;
@@ -100,12 +99,34 @@ fn rung_level(place: &str, level: u8) -> String {
     format!("{RUNG_PREFIX}{place}{SEP}{level:02}{SEP}")
 }
 
-/// A node's key.
+/// A range's identity: its place, its level and its exact exchanges.
+pub fn range_key(place: &str, level: u8, first_ms: u64, exchanges: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for t in exchanges {
+        h.update(t.as_bytes());
+        h.update([0u8]);
+    }
+    let range = hex::encode(&h.finalize()[..8]);
+    format!("{FOLD_PREFIX}{place}{SEP}{level}{SEP}{first_ms:020}{SEP}{range}")
+}
+
+/// A node's key: the view contract's (`fold.<place>␁<level>␁<first ms>`),
+/// with its range's digest after it, so two ranges that begin in one
+/// millisecond are two keys and one range is always one.
 pub fn key(n: &FoldNode) -> String {
-    format!(
-        "{FOLD_PREFIX}{}{SEP}{}{SEP}{:020}",
-        n.place, n.level, n.first_ms
-    )
+    range_key(&n.place, n.level, n.first_ms, &n.exchanges)
+}
+
+/// The node already written for `n`'s range, else `n` written with its
+/// indexes, once. Called under [`super::WRITING`].
+pub fn write_once(store: &Store, n: FoldNode) -> anyhow::Result<FoldNode> {
+    if let Some(had) = theseus_store::blocking(|| store.get_meta::<FoldNode>(&key(&n)))? {
+        return Ok(had);
+    }
+    let recs = records(&n)?;
+    theseus_store::blocking(|| store.append(&recs))?;
+    Ok(n)
 }
 
 /// A node's three records: itself, its rung and its handle, the last two
@@ -147,7 +168,13 @@ pub fn newest(
     let mut out = Vec::new();
     for r in keys {
         let key: String = r.decode()?;
-        out.extend(store.get_meta::<FoldNode>(&key)?);
+        // The prefix is not the boundary: a node is this ladder's only when
+        // it says so itself.
+        out.extend(
+            store
+                .get_meta::<FoldNode>(&key)?
+                .filter(|n| n.place == place && n.level == level),
+        );
     }
     Ok(out)
 }
@@ -172,11 +199,15 @@ pub fn material(reads: &[(Read, did::Said)]) -> String {
             .as_deref()
             .map_or("(no message)".into(), |a| cut(a, ASK_CHARS));
         let reply = cut(r.reply.as_deref().unwrap_or(""), REPLY_CHARS);
-        out.push_str(&format!(
-            "Exchange {} ({day}):\nThe person: {ask}\nWhat Theseus did: {}\nIts reply began: {reply}\n\n",
-            i + 1,
+        let body = format!(
+            "The person: {ask}\nWhat Theseus did: {}\nIts reply began: {reply}",
             said.text()
-        ));
+        );
+        let body = match r.marks.outside {
+            true => super::writer::outside(Some("a tool's result this exchange read"), &body),
+            false => body,
+        };
+        out.push_str(&format!("Exchange {} ({day}):\n{body}\n\n", i + 1));
     }
     out
 }
@@ -217,23 +248,27 @@ fn his_lines(reads: &[(Read, did::Said)], flags: &dyn Flags) -> Vec<HisLine> {
 }
 
 /// A first-level node over `reads` (oldest first, all of one place), its
-/// words written by `writer` within `left_usd`: the node, or why there is
-/// none, with what the call cost either way.
+/// words written by `writer`, its call reserved on `purse`: the node, or why
+/// there is none, with what the call cost either way.
 pub async fn first_level(
     reads: &[(Read, did::Said)],
     writer: &dyn Writer,
     flags: &dyn Flags,
-    left_usd: f64,
+    purse: &dyn super::Purse,
 ) -> (Result<FoldNode, String>, Written) {
     let (Some((first, _)), Some((last, _))) = (reads.first(), reads.last()) else {
         return (Err("no exchanges".into()), Written::default());
     };
+    let mut sessions: Vec<String> = reads.iter().map(|(r, _)| r.ex.session_id.clone()).collect();
+    sessions.sort();
+    sessions.dedup();
     let ask = Ask {
         work: Work::Fold,
         text: material(reads),
         sources: reads.len() as u32,
+        sessions,
     };
-    let w = writer.write(ask, left_usd).await;
+    let w = writer.write(ask, purse).await;
     let Some((title, account)) = w.text.as_deref().and_then(parse) else {
         let why = w
             .failed
@@ -298,6 +333,12 @@ pub fn hidden(reads: &[(Read, did::Said)], flags: &dyn Flags) -> FoldNode {
 /// place), built by code from their fields alone.
 pub fn above(children: &[FoldNode]) -> Option<FoldNode> {
     let (first, last) = (children.first()?, children.last()?);
+    if children
+        .iter()
+        .any(|c| c.place != first.place || c.level != first.level)
+    {
+        return None;
+    }
     let kept: Vec<HisLine> = children
         .iter()
         .flat_map(|c| c.his.iter())

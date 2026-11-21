@@ -77,10 +77,12 @@ pub struct ExchangeLadderParams {
     pub place: String,
     /// Count and price what it would do, and write nothing.
     pub dry_run: bool,
-    /// The most this run may spend, in dollars; none: what is left of the
-    /// day's line for summaries.
+    /// The most this run may spend, in dollars: the smaller of it and what is
+    /// left of the day's line for summaries (none: that line alone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cap_usd: Option<f64>,
+    /// Leave to pass the day's line, up to `cap_usd` (which it needs).
+    pub over_day_line: bool,
 }
 
 /// What a ladder build found, would do or did.
@@ -89,8 +91,17 @@ pub struct ExchangeLadderParams {
 pub struct ExchangeLadderResult {
     pub dry_run: bool,
     pub place: String,
-    /// The place's latest `/new`; 0 for a place none moved.
+    /// The place's latest `/new`; 0 for a place that has had none.
     pub since_ms: u64,
+    /// How the place's requests are assembled (`transcript` or `view`): a
+    /// place on the transcript shows nothing a build writes.
+    pub assembly: String,
+    /// The place's name holds a character no ladder key may: nothing done.
+    pub skipped: bool,
+    /// What is left of the day's line, and whether this run would need
+    /// `over_day_line` to finish.
+    pub day_left_usd: f64,
+    pub needs_over_day_line: bool,
     pub exchanges: u64,
     /// Lines there already, and lines it would write (wrote).
     pub lines_had: u64,

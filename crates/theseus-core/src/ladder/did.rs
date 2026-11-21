@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use theseus_store::{blocking, kinds, NewRecord};
 
 use super::writer::{Ask, Work, Writer, WRITER_VERSION};
-use super::{cut, Day, Marks, DAY_KEY};
+use super::{cut, Marks};
 use crate::exchange::{self, Exchange};
 use crate::node::{Body, Node};
 use crate::store::Store;
@@ -143,14 +143,20 @@ pub fn read(store: &Store, turn: &str) -> anyhow::Result<Option<Read>> {
     }))
 }
 
-/// What the writer reads for one exchange.
+/// What the writer reads for one exchange: the message and the reply, inside
+/// the outside-text wrapper when the exchange carries the outside mark (a
+/// reply may quote what a page said).
 pub fn material(r: &Read) -> String {
     let ask = r.ask.as_deref().map_or(
         "(no message: it was opened by a wake, a report or a late result)".into(),
         |a| cut(a, ASK_CHARS),
     );
     let reply = cut(r.reply.as_deref().unwrap_or(""), REPLY_CHARS);
-    format!("The person's message:\n{ask}\n\nTheseus's final reply:\n{reply}")
+    let body = format!("The person's message:\n{ask}\n\nTheseus's final reply:\n{reply}");
+    match r.marks.outside {
+        true => super::writer::outside(Some("a tool's result this exchange read"), &body),
+        false => body,
+    }
 }
 
 /// The line of a writer's answer: its first line, cut by code.
@@ -169,21 +175,34 @@ pub enum Outcome {
     NotEnded,
     /// Its exchange has no final reply.
     NoReply,
-    /// Its source is sealed or veiled.
+    /// Its source is sealed or veiled, or cannot be proven otherwise.
     Hidden,
-    /// No line: why (the day's line, a failed call).
-    Failed(String),
+    /// No line: why (the allowance, a failed call), and what the call cost.
+    Failed {
+        why: String,
+        cost_usd: f64,
+    },
 }
 
-/// Write exchange `turn`'s line with `writer`, within `cap_usd` of the day's
-/// line (or within the day's line alone), unless `hidden` says its session
-/// is sealed or veiled. The line and the day's spend are one frame.
+impl Outcome {
+    /// What the job spent.
+    pub fn cost_usd(&self) -> f64 {
+        match self {
+            Outcome::Written(d) => d.cost_usd,
+            Outcome::Failed { cost_usd, .. } => *cost_usd,
+            _ => 0.0,
+        }
+    }
+}
+
+/// Write exchange `turn`'s line with `writer`, its call reserved on `purse`,
+/// unless `hidden` says its session is not proven unsealed and unveiled.
 pub async fn write(
     store: &Store,
     writer: &dyn Writer,
     turn: &str,
     hidden: &(dyn Fn(&str) -> bool + Sync),
-    cap_usd: Option<f64>,
+    purse: &dyn super::Purse,
 ) -> anyhow::Result<Outcome> {
     let _one = super::WRITING.lock().await;
     let Some(r) = blocking(|| read(store, turn))? else {
@@ -198,47 +217,33 @@ pub async fn write(
     if r.reply.is_none() {
         return Ok(Outcome::NoReply);
     }
-    if hidden(&r.ex.session_id) {
+    if !super::laddered(&r.ex.place) || hidden(&r.ex.session_id) {
         return Ok(Outcome::Hidden);
     }
-    let now = theseus_protocol::now_unix_ms();
-    let today = crate::judge::spend::local_day(now);
-    let day: Day = blocking(|| store.get_meta(DAY_KEY))?.unwrap_or_default();
-    let left = cap_usd.unwrap_or_else(|| day.left(&today));
     let ask = Ask {
         work: Work::Did,
         text: material(&r),
         sources: 1,
+        sessions: vec![r.ex.session_id.clone()],
     };
-    let w = writer.write(ask, left).await;
-    let line = w.text.as_deref().and_then(line_of);
-    let mut frame = Vec::new();
-    if w.cost_usd > 0.0 {
-        frame.push(NewRecord::json(
-            kinds::META,
-            Some(DAY_KEY),
-            &day.spend(&today, w.cost_usd),
-        )?);
-    }
-    let out = match line {
-        Some(line) => {
-            let d = DidLine {
-                turn_id: turn.to_string(),
-                session_id: r.ex.session_id.clone(),
-                line,
-                model: w.model.clone(),
-                writer: WRITER_VERSION,
-                marks: r.marks.clone(),
-                cost_usd: w.cost_usd,
-                at_ms: now,
-            };
-            frame.push(did_record(&d)?);
-            Outcome::Written(d)
-        }
-        None => Outcome::Failed(w.failed.unwrap_or_else(|| "the answer held no line".into())),
+    let w = writer.write(ask, purse).await;
+    let Some(line) = w.text.as_deref().and_then(line_of) else {
+        return Ok(Outcome::Failed {
+            why: w.failed.unwrap_or_else(|| "the answer held no line".into()),
+            cost_usd: w.cost_usd,
+        });
     };
-    if !frame.is_empty() {
-        blocking(|| store.append(&frame))?;
-    }
-    Ok(out)
+    let d = DidLine {
+        turn_id: turn.to_string(),
+        session_id: r.ex.session_id.clone(),
+        line,
+        model: w.model.clone(),
+        writer: WRITER_VERSION,
+        marks: r.marks,
+        cost_usd: w.cost_usd,
+        at_ms: theseus_protocol::now_unix_ms(),
+    };
+    let rec = did_record(&d)?;
+    blocking(|| store.append(&[rec]))?;
+    Ok(Outcome::Written(d))
 }
