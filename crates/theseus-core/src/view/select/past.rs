@@ -3,7 +3,9 @@
 //! the lines that are a correction, made a standing record, or still wait. A line the judge marked a
 //! fragment or a correction is never shown bare: at every age it carries its exchange's `did` line, or it is
 //! cut and counted. Where the owner is alone it reads his timeline across places; otherwise, this place's
-//! words only. A place's own conversation since its `/new` mark is its ladder's, not his past's.
+//! words only. A place's own conversation since its `/new` mark is its ladder's, not his past's; what he
+//! said here before the mark is his past at any age: younger than 48 hours it is in the first band, with the
+//! same line and `did` line (slot F leaves this place out, so it would otherwise be nowhere).
 
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, TimelineRoot};
@@ -91,34 +93,31 @@ impl Scope {
     }
 }
 
-impl Selector for Past<'_> {
-    fn band(&self) -> Band {
-        self.band
-    }
-
-    fn select(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(scope) = Scope::of(pov, &self.src)? else {
-            return Ok(Vec::new());
-        };
-        let (from, to) = ages(self.band);
-        let oldest = to.map(|t| pov.now_ms.saturating_sub(t));
+impl Past<'_> {
+    /// Page `root` newest first from strictly before `start` down to `oldest`, laying each exchange this
+    /// scope and band keep.
+    fn walk(
+        &self,
+        scope: &Scope,
+        snap: &dyn Snapshot,
+        root: &TimelineRoot,
+        start: Cursor,
+        oldest: Option<u64>,
+    ) -> anyhow::Result<Vec<Piece>> {
         let cut = Cut::Past {
             did: self.band == Band::Past7,
         };
-        let mut before = Some(Cursor {
-            at_ms: pov.now_ms.saturating_sub(from),
-            turn_id: String::new(),
-        });
         let mut out = Vec::new();
-        'pages: loop {
+        let mut before = Some(start);
+        loop {
             let page = snap
                 .timeline()
-                .newest(&scope.root, before.as_ref(), PAGE_EXCHANGES)?;
+                .newest(root, before.as_ref(), PAGE_EXCHANGES)?;
             let Some(last) = page.last() else { break };
             before = Some(last.cursor());
             for e in page {
                 if oldest.is_some_and(|o| e.at_ms < o) {
-                    break 'pages;
+                    return Ok(out);
                 }
                 let pos = Pos {
                     at_ms: e.at_ms,
@@ -137,6 +136,35 @@ impl Selector for Past<'_> {
                     }
                 }
             }
+        }
+        Ok(out)
+    }
+}
+
+impl Selector for Past<'_> {
+    fn band(&self) -> Band {
+        self.band
+    }
+
+    fn select(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
+        let Some(scope) = Scope::of(pov, &self.src)? else {
+            return Ok(Vec::new());
+        };
+        let (from, to) = ages(self.band);
+        let oldest = to.map(|t| pov.now_ms.saturating_sub(t));
+        let start = Cursor {
+            at_ms: pov.now_ms.saturating_sub(from),
+            turn_id: String::new(),
+        };
+        let mut out = self.walk(&scope, snap, &scope.root, start, oldest)?;
+        if let (Band::Past7, Some(here), Some(mark)) = (self.band, &scope.here, &scope.mark) {
+            let before = Cursor {
+                at_ms: mark.at_ms,
+                turn_id: mark.id.clone(),
+            };
+            let root = TimelineRoot::Place(here.clone());
+            let lately = Some(pov.now_ms.saturating_sub(LATELY_MS));
+            out.extend(self.walk(&scope, snap, &root, before, lately)?);
         }
         Ok(out)
     }

@@ -4,8 +4,8 @@
 use std::collections::BTreeSet;
 
 use super::super::timeline::ExchangeRef;
-use super::super::{Author, Form, Piece, Pos, Reason, Sizes, SourceRange, Space};
-use super::sources::{ExchangeFacts, Ref};
+use super::super::{Author, Form, Piece, PointOfView, Pos, Reason, Sizes, SourceRange, Space};
+use super::sources::{ExchangeFacts, Ref, Sources};
 use super::Band;
 
 /// The text a line shows where the `did` line was not written; nothing is invented.
@@ -37,17 +37,19 @@ pub fn sizes(f: &ExchangeFacts, cut: Cut) -> Sizes {
     let did = f.did.unwrap_or_else(unsummarised_tokens);
     match cut {
         Cut::Window => Sizes {
-            whole: f.his + f.reply + f.tools,
-            spoken: f.his + f.reply + f.stubs,
-            line: f.his + did,
+            whole: f.his.saturating_add(f.reply).saturating_add(f.tools),
+            spoken: f.his.saturating_add(f.reply).saturating_add(f.stubs),
+            line: f.his.saturating_add(did),
         },
         Cut::Elsewhere => Sizes {
-            whole: f.his + f.reply.min(REPLY_WHOLE),
-            spoken: f.his + f.reply.min(REPLY_WHOLE),
-            line: f.his + did,
+            whole: f.his.saturating_add(f.reply.min(REPLY_WHOLE)),
+            spoken: f.his.saturating_add(f.reply.min(REPLY_WHOLE)),
+            line: f.his.saturating_add(did),
         },
         Cut::Past { did: with } => {
-            let line = f.his + if with || f.kind.never_bare() { did } else { 0 };
+            let line = f
+                .his
+                .saturating_add(if with || f.kind.never_bare() { did } else { 0 });
             Sizes {
                 whole: line,
                 spoken: line,
@@ -70,15 +72,7 @@ pub fn exchange(
         at_ms: e.at_ms,
         id: e.turn_id.clone(),
     };
-    let mut marks = f.marks.clone();
-    // A retrieved word of his is never by itself a present instruction: only the current message may
-    // authorise, and it is laid by code (band `Now`).
-    if let Author::His { .. } = marks.author {
-        marks.author = Author::His {
-            may_authorise: false,
-        };
-    }
-    Piece {
+    retrieved(Piece {
         range: SourceRange {
             space: Space::Exchanges {
                 place: f.place.clone(),
@@ -90,16 +84,16 @@ pub fn exchange(
         slot: band.row().slot,
         reasons: BTreeSet::from([reason]),
         form,
-        marks,
+        marks: f.marks.clone(),
         sizes: sizes(f, cut),
         handle: f.handle.clone(),
         unit: None,
-    }
+    })
 }
 
 /// A piece of a stored thing that is not an exchange.
 pub fn of_ref(r: Ref, band: Band, reason: Reason) -> Piece {
-    Piece {
+    retrieved(Piece {
         range: r.range,
         band,
         slot: band.row().slot,
@@ -109,5 +103,24 @@ pub fn of_ref(r: Ref, band: Band, reason: Reason) -> Piece {
         sizes: r.sizes,
         handle: r.handle,
         unit: r.unit,
+    })
+}
+
+/// THE one place a retrieved piece loses its authority: whatever made it (an exchange, a fact, a card, a
+/// fold node), a word of his read back from the store is never by itself a present instruction. Only the
+/// current message, laid by code (band `Now`), may authorise. Every constructor here and
+/// [`super::assemble`] (for any selector's piece) pass through it.
+pub(in crate::view) fn retrieved(mut piece: Piece) -> Piece {
+    if let Author::His { .. } = piece.marks.author {
+        piece.marks.author = Author::His {
+            may_authorise: false,
+        };
     }
+    piece
+}
+
+/// Whether the gate admits a stored candidate: a finite choice is made over admitted candidates only. A
+/// stored reference that claims code's own space is never admitted.
+pub fn admits(src: &Sources<'_>, pov: &PointOfView, piece: &Piece) -> bool {
+    !matches!(piece.range.space, Space::Code { .. }) && src.gate.admit(pov, piece.clone()).is_some()
 }

@@ -7,6 +7,7 @@
 //! estimate (trim item 13); the gate and the budgeter decide.
 
 use super::super::fold::{FoldNode, Ladder};
+use super::super::gate::Gate;
 use super::super::{AtHand, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange};
 
 /// The judge's existing answer about a message of his (design §5.3); `Unknown` where none was given.
@@ -69,7 +70,9 @@ pub trait Folds {
 pub trait Places {
     /// The place's newest `/new` mark: nothing of the place before it is in its window, ladder or play.
     fn new_mark(&self, place: &str) -> anyhow::Result<Option<Pos>>;
-    /// Every place the person has spoken in, any order.
+    /// Every place the person has spoken in, any order. (The selectors no longer read it: his newest
+    /// exchange per place is found by paging his own timeline, so a place where others posted since he spoke
+    /// is not missed.)
     fn places_of(&self, person: &str) -> anyhow::Result<Vec<String>>;
 }
 
@@ -123,9 +126,13 @@ pub trait People {
     fn about(&self, person: &str) -> anyhow::Result<Vec<Ref>>;
 }
 
-/// Every source a turn's selectors read, and the turn's own text.
+/// Every source a turn's selectors read, the gate, and the turn's own text.
 #[derive(Clone, Copy)]
 pub struct Sources<'a> {
+    /// The turn's gate: every finite choice a selector makes (the floor's newest three, the five places,
+    /// the newest reply per place, the exchanges in play) is made over candidates it has already admitted,
+    /// so a record the gate denies cannot change what is chosen. The same gate as [`super::assemble`]'s.
+    pub gate: &'a dyn Gate,
     pub exchanges: &'a dyn Exchanges,
     pub ladder: &'a dyn Ladder,
     pub folds: &'a dyn Folds,

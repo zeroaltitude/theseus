@@ -2,7 +2,9 @@
 //! bands: the floor (the words of the newest three exchanges), the rest of the window's words, the window's
 //! tool results, and the ladder's nodes. A window exchange is one range: its words are asked for spoken and
 //! its tool results whole, so rule 3 merges them and the cut takes the tool traffic away at the tool
-//! results' place in the order, never the words of the floor.
+//! results' place in the order, never the words of the floor. The newest exchange is asked for whole by the
+//! floor itself: its tool results stay, or the turn is the typed overflow. Which exchanges are the floor is
+//! chosen over those the gate admits, so a denied exchange never pushes a permitted one out of it.
 
 use super::super::fold::{FoldNode, WINDOW_N};
 use super::super::timeline::ExchangeRef;
@@ -56,26 +58,31 @@ impl<'a> Here<'a> {
         Self { band, src }
     }
 
-    fn window(&self, window: &[Window]) -> Vec<Piece> {
-        let floor_from = window.len().saturating_sub(FLOOR_EXCHANGES);
-        window
+    fn window(&self, pov: &PointOfView, window: &[Window]) -> Vec<Piece> {
+        let piece = |w: &Window, band, reason, form| {
+            make::exchange(&w.e, &w.f, band, reason, form, Cut::Window)
+        };
+        let admitted: Vec<&Window> = window
             .iter()
+            .filter(|w| {
+                let p = piece(w, Band::Floor, Reason::Floor, Form::Spoken);
+                make::admits(&self.src, pov, &p)
+            })
+            .collect();
+        let floor_from = admitted.len().saturating_sub(FLOOR_EXCHANGES);
+        let newest = admitted.len().saturating_sub(1);
+        admitted
+            .into_iter()
             .enumerate()
             .filter_map(|(i, w)| {
                 let (reason, form) = match self.band {
+                    Band::Floor if i == newest => (Reason::Floor, Form::Whole),
                     Band::Floor if i >= floor_from => (Reason::Floor, Form::Spoken),
                     Band::WindowWords if i < floor_from => (Reason::Window, Form::Spoken),
                     Band::WindowTools if w.f.tools > 0 => (Reason::Window, Form::Whole),
                     _ => return None,
                 };
-                Some(make::exchange(
-                    &w.e,
-                    &w.f,
-                    self.band,
-                    reason,
-                    form,
-                    Cut::Window,
-                ))
+                Some(piece(w, self.band, reason, form))
             })
             .collect()
     }
@@ -122,7 +129,7 @@ impl Selector for Here<'_> {
         if self.band == Band::Ladder {
             self.ladder(nodes)
         } else {
-            Ok(self.window(&window))
+            Ok(self.window(pov, &window))
         }
     }
 }

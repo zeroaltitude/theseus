@@ -4,12 +4,18 @@
 //! tool traffic at the tool results' place in the order, and is never cut below spoken. Within one band,
 //! every piece steps down a form (oldest first) before any piece steps down again, and only then are pieces
 //! dropped, oldest first.
+//!
+//! What is charged is what will be rendered: each shown piece's form plus [`HEADING_TOKENS`], and
+//! [`RESIDUE_LINE_TOKENS`] for each band that leaves a residue line. Sums are kept wide (`u128`), so no
+//! size, however impossible, wraps to a small one.
 
 use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet};
 
+use super::super::select::Band;
 use super::super::{Form, Pos};
 use super::merge::{fixed_priority, Item};
-use super::Budget;
+use super::{ops, Budget, HEADING_TOKENS, RESIDUE_LINE_TOKENS};
 
 /// What a step does to its item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -30,7 +36,7 @@ struct Step {
     item: usize,
 }
 
-/// Each item's shown form after the cut (`None`: dropped) and why it was dropped.
+/// Each item's shown form after the cut, or why it was dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Fate {
     Shown(Form),
@@ -38,21 +44,37 @@ pub(super) enum Fate {
     UnitCut,
 }
 
+/// The cut's result: each item's fate, and everything charged.
+pub(super) struct Cut {
+    pub fate: Vec<Fate>,
+    pub tokens: u128,
+}
+
 /// Run the cut: start every item at the fullest form asked, then apply steps from the end of the order while
-/// a pool the item is charged to is over.
-pub(super) fn cut(items: &[Item], groups: &[usize], budget: &Budget) -> Vec<Fate> {
+/// a pool the item is charged to is over. Text that is never cut (the frame, the floor) may stand over its
+/// own pool; everything else is held to its pool and to the whole (see [`super::fit`]).
+pub(super) fn cut(
+    items: &[Item],
+    groups: &[usize],
+    members: &BTreeMap<usize, Vec<usize>>,
+    budget: &Budget,
+) -> Cut {
     let mut fate: Vec<Fate> = items.iter().map(|it| Fate::Shown(it.piece.form)).collect();
-    let fixed_group: Vec<bool> = (0..items.len())
-        .map(|i| (0..items.len()).any(|j| groups[j] == groups[i] && items[j].fixed_at().is_some()))
+    let fixed_group: BTreeSet<usize> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| it.fixed_at.is_some())
+        .map(|(i, _)| groups[i])
         .collect();
     let mut steps: Vec<Step> = items
         .iter()
         .enumerate()
-        .flat_map(|(i, it)| steps_of(i, it, fixed_group[i]))
+        .flat_map(|(i, it)| steps_of(i, it, fixed_group.contains(&groups[i])))
         .collect();
     steps.sort();
     let mut pools = Pools::of(items, &fate);
     for s in steps {
+        ops::tick(1);
         let Fate::Shown(form) = fate[s.item] else {
             continue;
         };
@@ -67,14 +89,15 @@ pub(super) fn cut(items: &[Item], groups: &[usize], budget: &Budget) -> Vec<Fate
                     Form::Line
                 };
                 if to < form {
-                    pools.charge(&items[s.item], form, Some(to));
+                    pools.step(&items[s.item], form, to);
                     fate[s.item] = Fate::Shown(to);
                 }
             }
             To::Drop => {
-                for j in (0..items.len()).filter(|&j| groups[j] == groups[s.item]) {
+                for &j in members.get(&groups[s.item]).into_iter().flatten() {
+                    ops::tick(1);
                     if let Fate::Shown(f) = fate[j] {
-                        pools.charge(&items[j], f, None);
+                        pools.drop(&items[j], f);
                         fate[j] = if j == s.item {
                             Fate::OverBudget
                         } else {
@@ -85,7 +108,10 @@ pub(super) fn cut(items: &[Item], groups: &[usize], budget: &Budget) -> Vec<Fate
             }
         }
     }
-    fate
+    Cut {
+        tokens: pools.total(),
+        fate,
+    }
 }
 
 /// The steps of one item. Asks sorted from the first row to the last; at each ask's row the item may step
@@ -100,7 +126,7 @@ fn steps_of(i: usize, it: &Item, fixed_group: bool) -> Vec<Step> {
     let mut out = Vec::new();
     for k in (0..asks.len()).rev() {
         let priority = asks[k].0;
-        if fixed_priority(priority) || it.fixed_at().is_some_and(|p| priority <= p) {
+        if fixed_priority(priority) || it.fixed_at.is_some_and(|p| priority <= p) {
             break;
         }
         let floor = if k == 0 { None } else { Some(cum[k - 1]) };
@@ -126,25 +152,35 @@ fn steps_of(i: usize, it: &Item, fixed_group: bool) -> Vec<Step> {
     out
 }
 
-/// The three sums rule 5 holds: slot G against its allowance, everything else against the ceiling, and
-/// the whole against the one budget.
+/// What an item costs shown at a form: the form's size and its heading.
+fn shown_cost(it: &Item, form: Form) -> u128 {
+    u128::from(it.piece.sizes.at(form)) + u128::from(HEADING_TOKENS)
+}
+
+/// The sums rule 5 holds: slot G against its allowance, everything else against the ceiling, and the whole
+/// against the one budget. A band's residue line is charged to the pool of the first piece it counts.
 struct Pools {
-    here: u64,
-    rest: u64,
+    here: u128,
+    rest: u128,
+    residue: BTreeSet<Band>,
 }
 
 impl Pools {
     fn of(items: &[Item], fate: &[Fate]) -> Self {
-        let mut p = Self { here: 0, rest: 0 };
+        let mut p = Self {
+            here: 0,
+            rest: 0,
+            residue: BTreeSet::new(),
+        };
         for (it, f) in items.iter().zip(fate) {
             if let Fate::Shown(f) = f {
-                *p.pool(it) += it.piece.sizes.at(*f);
+                *p.pool(it) += shown_cost(it, *f);
             }
         }
         p
     }
 
-    fn pool(&mut self, it: &Item) -> &mut u64 {
+    fn pool(&mut self, it: &Item) -> &mut u128 {
         if it.here() {
             &mut self.here
         } else {
@@ -152,32 +188,34 @@ impl Pools {
         }
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> u128 {
         self.here + self.rest
     }
 
     /// Whether cutting this item would bring an over-full pool down.
     fn over(&self, it: &Item, b: &Budget) -> bool {
         let mine = if it.here() {
-            self.here > b.here_allowance
+            self.here > u128::from(b.here_allowance)
         } else {
-            self.rest > b.ceiling
+            self.rest > u128::from(b.ceiling)
         };
-        mine || self.total() > b.total()
+        mine || self.total() > u128::from(b.total())
     }
 
-    fn charge(&mut self, it: &Item, from: Form, to: Option<Form>) {
-        let now = to.map_or(0, |t| it.piece.sizes.at(t));
+    fn step(&mut self, it: &Item, from: Form, to: Form) {
+        let (from, to) = (shown_cost(it, from), shown_cost(it, to));
         let pool = self.pool(it);
-        *pool = pool.saturating_sub(it.piece.sizes.at(from)) + now;
+        *pool = *pool - from + to;
     }
 
-    pub(super) fn tokens(items: &[Item], fate: &[Fate]) -> u64 {
-        Self::of(items, fate).total()
+    fn drop(&mut self, it: &Item, from: Form) {
+        let cost = shown_cost(it, from);
+        let line = if self.residue.insert(it.piece.band) {
+            u128::from(RESIDUE_LINE_TOKENS)
+        } else {
+            0
+        };
+        let pool = self.pool(it);
+        *pool = *pool - cost + line;
     }
-}
-
-/// Everything charged after the cut.
-pub(super) fn charged(items: &[Item], fate: &[Fate]) -> u64 {
-    Pools::tokens(items, fate)
 }

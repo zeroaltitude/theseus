@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::budget::{fit, Budget, Overflow};
+use super::budget::{fit, Budget, Overflow, HEADING_TOKENS};
 use super::fold::fold_due;
 use super::gate::{Admitted, Gate};
 use super::record::{view_record, ViewRecord, VIEW_PREFIX};
@@ -181,7 +181,11 @@ fn a_view_is_built_from_fakes_through_the_shells() {
         ],
         "table order, then newest first; the denied piece is not mentioned"
     );
-    assert_eq!(view.tokens, 400);
+    assert_eq!(
+        view.tokens,
+        4 * (100 + HEADING_TOKENS),
+        "each shown piece is charged its heading"
+    );
     assert_eq!(Label::of(&view.shown[0].piece, &pov), Label::Here);
     assert_eq!(Label::of(&view.shown[3].piece, &pov), Label::Testimony);
     let record = ViewRecord::new("c1", view);
@@ -207,7 +211,7 @@ fn a_floor_that_cannot_fit_is_a_typed_overflow() {
         err,
         Overflow::Floor {
             handle: Handle("x:t5".into()),
-            tokens: 300,
+            tokens: 3 * (100 + HEADING_TOKENS),
             room: 100
         }
     );

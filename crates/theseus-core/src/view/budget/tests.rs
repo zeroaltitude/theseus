@@ -1,4 +1,5 @@
-//! The budgeter's rules, one test each, over hand-made pieces.
+//! The budgeter's rules, one test each, over hand-made pieces. Every shown piece is charged its heading
+//! (`H`) and every band that leaves a residue line its line (`R`).
 
 use std::collections::BTreeSet;
 
@@ -6,6 +7,9 @@ use super::super::gate::Admitted;
 use super::super::select::Band;
 use super::*;
 use crate::view::{Anchor, Audience, Author, Marks, Pos, Present, Reason, Sizes, Space};
+
+const H: u64 = HEADING_TOKENS;
+const R: u64 = RESIDUE_LINE_TOKENS;
 
 fn pov() -> PointOfView {
     PointOfView {
@@ -17,16 +21,26 @@ fn pov() -> PointOfView {
     }
 }
 
-fn piece(band: Band, space: Space, at: u64, form: Form, sizes: (u64, u64, u64)) -> Piece {
-    let pos = Pos {
+fn pos(at: u64) -> Pos {
+    Pos {
         at_ms: at,
         id: format!("t{at}"),
-    };
+    }
+}
+
+fn span(
+    band: Band,
+    space: Space,
+    first: u64,
+    last: u64,
+    form: Form,
+    sizes: (u64, u64, u64),
+) -> Piece {
     Piece {
         range: SourceRange {
             space,
-            first: pos.clone(),
-            last: pos,
+            first: pos(first),
+            last: pos(last),
         },
         band,
         slot: band.row().slot,
@@ -45,9 +59,13 @@ fn piece(band: Band, space: Space, at: u64, form: Form, sizes: (u64, u64, u64)) 
             spoken: sizes.1,
             line: sizes.2,
         },
-        handle: Handle(format!("h:{at}")),
+        handle: Handle(format!("h:{last}")),
         unit: None,
     }
+}
+
+fn piece(band: Band, space: Space, at: u64, form: Form, sizes: (u64, u64, u64)) -> Piece {
+    span(band, space, at, at, form, sizes)
 }
 
 fn here() -> Space {
@@ -60,6 +78,10 @@ fn fact(thing: &str) -> Space {
     Space::Facts {
         thing: thing.into(),
     }
+}
+
+fn code(part: &str) -> Space {
+    Space::Code { part: part.into() }
 }
 
 fn budget(ceiling: u64, here_allowance: u64) -> Budget {
@@ -104,14 +126,57 @@ fn an_exchange_asked_for_twice_is_shown_once_in_slot_g_with_both_reasons() {
         v.residue.is_empty(),
         "a merged piece is shown, so it is not counted"
     );
-    assert_eq!(v.tokens, 40);
+    assert_eq!(
+        v.tokens,
+        40 + H,
+        "identical coverage is charged once, at its largest"
+    );
+}
+
+#[test]
+fn a_partial_overlap_is_charged_at_least_its_union() {
+    let a = span(
+        Band::Named,
+        fact("x"),
+        1,
+        2,
+        Form::Line,
+        (40_000, 40_000, 40_000),
+    );
+    let b = span(
+        Band::Named,
+        fact("x"),
+        2,
+        3,
+        Form::Line,
+        (40_000, 40_000, 40_000),
+    );
+    let v = run(vec![a.clone(), b.clone()], &budget(200_000, 0)).expect("fits");
+    assert_eq!(v.shown.len(), 1);
+    assert_eq!(
+        v.shown[0].piece.sizes.line, 80_000,
+        "the parts summed, never their maximum"
+    );
+    assert_eq!(
+        (
+            v.shown[0].piece.range.first.at_ms,
+            v.shown[0].piece.range.last.at_ms
+        ),
+        (1, 3)
+    );
+    let v = run(vec![a, b], &budget(50_000, 0)).expect("fits");
+    assert!(v.shown.is_empty(), "60,000 of union does not fit 50,000");
 }
 
 #[test]
 fn over_the_ceiling_a_piece_steps_down_a_form_before_it_is_dropped() {
     let a = piece(Band::Recall, fact("a"), 2, Form::Whole, (100, 40, 10));
     let b = piece(Band::Recall, fact("b"), 1, Form::Whole, (100, 40, 10));
-    let v = run(vec![a.clone(), b.clone()], &budget(140, 150_000)).expect("fits");
+    let v = run(
+        vec![a.clone(), b.clone()],
+        &budget(100 + 40 + 2 * H, 150_000),
+    )
+    .expect("fits");
     assert_eq!(
         forms(&v),
         [
@@ -120,7 +185,7 @@ fn over_the_ceiling_a_piece_steps_down_a_form_before_it_is_dropped() {
         ],
         "the oldest steps down first, and only as far as needed"
     );
-    let v = run(vec![a.clone(), b.clone()], &budget(60, 150_000)).expect("fits");
+    let v = run(vec![a.clone(), b.clone()], &budget(60 + 2 * H, 150_000)).expect("fits");
     assert_eq!(
         forms(&v),
         [
@@ -129,7 +194,7 @@ fn over_the_ceiling_a_piece_steps_down_a_form_before_it_is_dropped() {
         ],
         "every piece of a band steps down before any steps again"
     );
-    let v = run(vec![a, b], &budget(15, 150_000)).expect("fits");
+    let v = run(vec![a, b], &budget(10 + H + R, 150_000)).expect("fits");
     assert_eq!(forms(&v), [(Band::Recall, 2, Form::Line)]);
     assert_eq!(v.dropped.len(), 1);
     assert_eq!(
@@ -144,13 +209,14 @@ fn over_the_ceiling_a_piece_steps_down_a_form_before_it_is_dropped() {
             tokens: 100
         }]
     );
+    assert_eq!(v.tokens, 10 + H + R, "the residue line is charged");
 }
 
 #[test]
 fn cuts_come_from_the_end_of_the_admission_order() {
     let words = piece(Band::ElsewhereWords, fact("w"), 1, Form::Line, (0, 0, 30));
     let recall = piece(Band::Recall, fact("r"), 9, Form::Line, (0, 0, 30));
-    let v = run(vec![recall, words], &budget(40, 150_000)).expect("fits");
+    let v = run(vec![recall, words], &budget(30 + H + R, 150_000)).expect("fits");
     assert_eq!(forms(&v), [(Band::ElsewhereWords, 1, Form::Line)]);
 }
 
@@ -158,7 +224,23 @@ fn cuts_come_from_the_end_of_the_admission_order() {
 fn the_floor_is_never_cut_and_tool_results_go_before_the_ladder() {
     let floor = piece(Band::Floor, here(), 9, Form::Spoken, (1_000, 100, 10));
     let tools = piece(Band::WindowTools, here(), 9, Form::Whole, (1_000, 100, 10));
-    let node = piece(
+    let v = run(vec![floor, tools, node()], &budget(60_000, 300 + 2 * H)).expect("fits");
+    assert_eq!(
+        forms(&v),
+        [(Band::Floor, 9, Form::Spoken), (Band::Ladder, 3, Form::Whole)],
+        "the window's tool traffic is cleared at its own row; the floor's words and the ladder stay"
+    );
+    let floor = piece(Band::Floor, here(), 9, Form::Spoken, (1_000, 100, 10));
+    let v = run(vec![floor], &budget(1_000, 0)).expect("the floor fits the provider's window");
+    assert_eq!(
+        forms(&v),
+        [(Band::Floor, 9, Form::Spoken)],
+        "over its own pool, the floor stays"
+    );
+}
+
+fn node() -> Piece {
+    piece(
         Band::Ladder,
         Space::Folds {
             place: "local".into(),
@@ -167,19 +249,42 @@ fn the_floor_is_never_cut_and_tool_results_go_before_the_ladder() {
         3,
         Form::Whole,
         (200, 200, 20),
+    )
+}
+
+#[test]
+fn protected_text_may_exceed_its_own_pool_when_the_total_fits() {
+    let b = budget(60_000, 150_000);
+    let recall = piece(Band::Recall, fact("r"), 9, Form::Line, (0, 0, 30));
+    let frame = piece(
+        Band::Frame,
+        code("system"),
+        1,
+        Form::Whole,
+        (70_000, 70_000, 70_000),
     );
-    let v = run(vec![floor.clone(), tools, node], &budget(60_000, 400)).expect("fits");
+    let floor = piece(Band::Floor, here(), 9, Form::Spoken, (0, 100, 10));
+    let v = run(vec![frame, floor, recall.clone(), node()], &b).expect("the whole fits");
     assert_eq!(
         forms(&v),
-        [(Band::Floor, 9, Form::Spoken), (Band::Ladder, 3, Form::Whole)],
-        "the window's tool traffic is cleared at its own row; the floor's words and the ladder stay"
+        [(Band::Frame, 1, Form::Whole), (Band::Floor, 9, Form::Spoken), (Band::Ladder, 3, Form::Whole)],
+        "the frame stands over the ceiling; recall, not protected, is held to that pool though the whole \
+         has room, and G's own pool is untouched"
     );
-    let v = run(vec![floor], &budget(1_000, 0)).expect("the floor fits the provider's window");
+    let frame = piece(Band::Frame, code("system"), 1, Form::Whole, (100, 100, 100));
+    let floor = piece(Band::Floor, here(), 9, Form::Whole, (160_000, 100, 10));
+    let v = run(vec![frame, floor, recall, node()], &b).expect("the whole fits");
     assert_eq!(
         forms(&v),
-        [(Band::Floor, 9, Form::Spoken)],
-        "over every pool, the floor stays"
+        [
+            (Band::Frame, 1, Form::Whole),
+            (Band::Floor, 9, Form::Whole),
+            (Band::Recall, 9, Form::Line)
+        ],
+        "the floor stands over G's allowance whole; the ladder, not protected, is held to G"
     );
+    assert_eq!(v.tokens, 100 + 160_000 + 30 + 3 * H + R);
+    assert!(v.tokens <= b.total());
 }
 
 #[test]
@@ -191,14 +296,22 @@ fn a_stale_fact_and_its_correction_go_together() {
     let other = piece(Band::Named, fact("z"), 3, Form::Line, (0, 0, 20));
     let v = run(
         vec![stale.clone(), correction.clone(), other.clone()],
-        &budget(45, 0),
+        &budget(20 + H + R, 0),
     )
     .expect("fits");
-    assert_eq!(forms(&v), [(Band::Named, 3, Form::Line)]);
+    assert_eq!(
+        forms(&v),
+        [(Band::Named, 3, Form::Line)],
+        "one unit of two cannot be half shown"
+    );
     let whys: Vec<DropWhy> = v.dropped.iter().map(|d| d.why).collect();
     assert_eq!(whys, [DropWhy::UnitCut, DropWhy::OverBudget]);
-    let v = run(vec![stale, correction, other], &budget(40, 0)).expect("fits");
-    assert_eq!(v.shown.len(), 1, "one unit of two cannot be half shown");
+    let v = run(vec![stale, correction, other], &budget(20 + H + R + 59, 0)).expect("fits");
+    assert_eq!(
+        v.shown.len(),
+        1,
+        "room for one more piece is not room for half a unit"
+    );
 }
 
 #[test]
@@ -214,8 +327,78 @@ fn a_floor_over_the_providers_window_is_the_typed_overflow_and_names_the_newest(
         run(vec![a, b, recall], &b_),
         Err(Overflow::Floor {
             handle: Handle("h:2".into()),
-            tokens: 140,
+            tokens: 2 * (70 + H) + R,
             room: 120
         })
     );
+}
+
+#[test]
+fn a_view_that_fits_still_fits_with_its_residue_line() {
+    let frame = piece(Band::Frame, code("system"), 1, Form::Whole, (100, 100, 100));
+    let recall = piece(Band::Recall, fact("r"), 9, Form::Line, (0, 0, 10));
+    let room = |provider_window| Budget {
+        provider_window,
+        ..budget(60_000, 150_000)
+    };
+    let v = run(vec![frame.clone(), recall.clone()], &room(100 + H + R)).expect("fits");
+    assert_eq!(forms(&v), [(Band::Frame, 1, Form::Whole)]);
+    assert_eq!(v.tokens, 100 + H + R);
+    assert!(
+        run(vec![frame, recall], &room(100 + H + R - 1)).is_err(),
+        "the residue line a cut leaves is counted"
+    );
+}
+
+#[test]
+fn an_impossible_size_is_the_typed_overflow_not_a_wrap() {
+    let a = piece(
+        Band::Frame,
+        code("a"),
+        1,
+        Form::Whole,
+        (u64::MAX, u64::MAX, u64::MAX),
+    );
+    let b = piece(Band::Frame, code("b"), 2, Form::Whole, (1, 1, 1));
+    let b_ = Budget {
+        provider_window: u64::MAX,
+        ..budget(u64::MAX / 4, u64::MAX / 4)
+    };
+    match run(vec![a, b], &b_) {
+        Err(Overflow::Floor { tokens, .. }) => assert_eq!(tokens, u64::MAX),
+        other => panic!("expected the overflow, got {other:?}"),
+    }
+}
+
+/// The inner operations for `n` chained overlapping pieces and `n` separate ones in three units, cut hard.
+fn ops_for(n: u64) -> u64 {
+    let mut pieces = Vec::new();
+    for i in 0..n {
+        pieces.push(span(
+            Band::Named,
+            fact("chain"),
+            i,
+            i + 1,
+            Form::Line,
+            (0, 0, 1),
+        ));
+        let mut p = piece(Band::Recall, fact("s"), 2 * i, Form::Whole, (30, 20, 10));
+        p.unit = Some(format!("u{}", i % 3));
+        pieces.push(p);
+    }
+    ops::take();
+    let v = run(pieces, &budget(n, 0)).expect("fits");
+    assert!(!v.residue.is_empty(), "the cut ran");
+    ops::take()
+}
+
+#[test]
+fn the_budgeter_is_linear_in_its_pieces() {
+    let small = ops_for(500);
+    let large = ops_for(5_000);
+    assert!(
+        large <= 12 * small,
+        "{large} operations at 5,000 against {small} at 500"
+    );
+    assert!(large <= 20 * 10_000, "{large} operations for 10,000 pieces");
 }
