@@ -250,8 +250,14 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     let sid = session_in(c, None, &r.root);
     turn(c, &sid, "evening: the plan").await;
     turn(c, &sid, "evening: the second step").await;
-    let dir = r.root.to_string_lossy().into_owned();
-    let place = crate::exchange::place_of(None, Some(&dir));
+    // The place as the ledger wrote it for these turns.
+    let turn_id = (c.store.session_nodes(&sid).unwrap().into_iter())
+        .find_map(|(_, n)| n.turn_id)
+        .unwrap();
+    let place = crate::exchange::exchange(&c.store, &turn_id)
+        .unwrap()
+        .expect("the turn's exchange")
+        .place;
     let ladder = StoreLadder(&c.store);
     let tonight = ladder
         .read(&place, crate::view::fold::WINDOW_N, None)
