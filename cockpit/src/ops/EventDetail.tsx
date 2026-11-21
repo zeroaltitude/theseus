@@ -4,19 +4,16 @@
 // is `eventVerbPayload`'s (so a sensitive event's content never leaves the page through a verb):
 //   Join the call, Open in Google   a link opened in a new tab; nothing is sent to the daemon
 //   Remind me                       one `wake.create`, its note naming only the calendar and the time when sensitive
-//   Start a prep task               the New task sheet, filled in; a sensitive event's sheet offers US models only
-//   Ask Theseus                     a private chat (`session.open`, `session.profile` holding the pick, then its first
-//                                   message), on a US model when sensitive
+//   Start a prep task               the New task sheet, filled in
+//   Ask Theseus                     a private chat (`session.open`, then its first message), on the session's own model
 // Each goes through `useOpsAct`, so the time machine turns it off.
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Bell, ExternalLink, Lock, MessageCircle, NotebookPen, Video } from 'lucide-react'
-import type { CalendarEvent, CalendarWindow, ProfileListResult, SessionProfileResult } from '@protocol'
-import { useRpc } from '@/lib/rpc'
+import type { CalendarEvent, CalendarWindow, SessionProfileResult } from '@protocol'
 import { when } from '@/lib/format'
 import { toneHex } from '@/lib/taxonomy'
-import { askCalls, eventFacts, eventVerbPayload, PRIVACY_NOTE, profileRefusal, redactEvent, US_ONLY_WORDS, type EventVerb } from './calendar'
-import { profileChoices } from './newtask'
+import { askCalls, eventFacts, eventVerbPayload, PRIVACY_NOTE, profileRefusal, redactEvent, type EventVerb } from './calendar'
 import { NewTask } from './NewTask'
 import { useOpsAct, PAST_WORDS } from './act'
 import { ActBtn } from './ActBtn'
@@ -28,7 +25,6 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
   const nav = useNavigate()
   const say = useOpsUi((s) => s.say)
   const { send, settle, on, past } = useOpsAct()
-  const { data: pl } = useRpc<ProfileListResult>('profile.list', undefined, 0)
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
   const [prep, setPrep] = useState(false)
   const f = eventFacts(ev, cal, redact)
@@ -49,16 +45,15 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
   const ask = async () => {
     const p = pay('ask')
     if (p.kind !== 'ask') return
-    const { pick } = profileChoices(pl?.profiles ?? [], undefined, p.usOnly ? US_ONLY_WORDS : undefined, pl?.live)
-    if (p.usOnly && !pick) { setSaid({ ok: false, text: `${US_ONLY_WORDS}, and no profile of US origin is known` }); return }
-    const calls = askCalls('', p, pick)
+    // No profile is picked: the chat runs on the session's own model, as any chat does.
+    const calls = askCalls('', p, undefined)
     const o = await send<{ session_id: string }>('event_ask', 'session.open', calls[0].params)
     if (!o.ok) { setSaid({ ok: false, text: o.words }); return }
     const sid = o.result.session_id
     // The chosen profile is held on the session before the first turn, so every later turn keeps it; a refusal sends
     // no turn (the chat exists, and the deck opens), and no other profile is tried.
     let refused: string | undefined
-    for (const c of askCalls(sid, p, pick).slice(1)) {
+    for (const c of askCalls(sid, p, undefined).slice(1)) {
       if (refused) break
       if (c.method === 'session.profile') {
         const r = await send<SessionProfileResult>('event_ask', c.method, c.params)
@@ -88,14 +83,13 @@ export function EventDetail({ ev, cal, redact }: { ev: CalendarEvent; cal: Calen
         <ActBtn verb="event_remind" on={on} tone="live" onClick={() => void remind()} title="a reminder ten minutes before it starts"><Bell size={11} /> Remind me</ActBtn>
         <span className="inline-flex items-center gap-1">
           <ActBtn verb="event_prep" on={on} tone="ok" onClick={() => setPrep(true)} title="the New task sheet, filled in"><NotebookPen size={11} /> Start a prep task</ActBtn>
-          {cal.sensitive && <span className="rounded px-1 text-[9.5px] font-semibold uppercase tracking-wider text-wait ring-1 ring-wait/40" title={US_ONLY_WORDS}>US-only</span>}
         </span>
-        <ActBtn verb="event_ask" on={on} tone="think" onClick={() => void ask()} title={cal.sensitive ? `a private chat; ${US_ONLY_WORDS}` : 'a private chat about it'}><MessageCircle size={11} /> Ask Theseus</ActBtn>
+        <ActBtn verb="event_ask" on={on} tone="think" onClick={() => void ask()} title="a private chat about it"><MessageCircle size={11} /> Ask Theseus</ActBtn>
       </div>
       {past && <p className="text-[11px] text-wait">{PAST_WORDS}</p>}
       {said && <div role="status" className={said.ok ? 'text-[11.5px] text-ok' : 'text-[11.5px] text-fault'}>{said.text}</div>}
       {prep && prepSheet.kind === 'sheet' && (
-        <NewTask brief={prepSheet.brief} title={prepSheet.title} usOnly={prepSheet.usOnly} onClose={() => setPrep(false)}
+        <NewTask brief={prepSheet.brief} title={prepSheet.title} onClose={() => setPrep(false)}
           onStarted={(id) => { setPrep(false); setSaid({ ok: true, text: `the prep task ${id.slice(-6)} started` }) }} />
       )}
     </div>
