@@ -72,6 +72,8 @@ pub struct Card {
     pub plan: Option<(usize, usize, u64)>,
     pub jobs: Vec<Job>,
     pub last: Option<Last>,
+    /// The task's session has read text from outside: what it says may carry it.
+    pub outside: bool,
 }
 
 /// `text` cut at `tokens` (est.), on a character's boundary.
@@ -206,25 +208,24 @@ pub fn read(store: &Store, kernel: &Kernel, id: &str, now_ms: u64) -> Result<Opt
             items.iter().map(|t| t.updated_at_ms).max().unwrap_or(0),
         )
     });
-    let last = match &rec.session {
-        Some(s) => {
-            let nodes = store.session_nodes(s)?;
-            crate::task::last_message(nodes.iter().map(|(_, n)| n)).map(|(node, text)| {
-                let at_ms = nodes
-                    .iter()
-                    .find(|(_, n)| n.id == node)
-                    .map_or(0, |(_, n)| n.created_at_ms);
-                let (text, cut) = cut(&text, LAST_TOKENS);
-                Last {
-                    node,
-                    text,
-                    cut,
-                    at_ms,
-                }
-            })
-        }
-        None => None,
+    let nodes = match &rec.session {
+        Some(s) => store.session_nodes(s)?,
+        None => Vec::new(),
     };
+    let outside = nodes.iter().any(|(_, n)| crate::external::is_outside(n));
+    let last = crate::task::last_message(nodes.iter().map(|(_, n)| n)).map(|(node, text)| {
+        let at_ms = nodes
+            .iter()
+            .find(|(_, n)| n.id == node)
+            .map_or(0, |(_, n)| n.created_at_ms);
+        let (text, cut) = cut(&text, LAST_TOKENS);
+        Last {
+            node,
+            text,
+            cut,
+            at_ms,
+        }
+    });
     Ok(Some(Card {
         task: rec.id.clone(),
         title: rec.title.clone(),
@@ -242,6 +243,7 @@ pub fn read(store: &Store, kernel: &Kernel, id: &str, now_ms: u64) -> Result<Opt
             .map(|e| jobs_of(kernel, e))
             .unwrap_or_default(),
         last,
+        outside,
     }))
 }
 
@@ -328,7 +330,10 @@ impl TaskCards for StoreCards<'_> {
                     id: id.clone(),
                 },
             },
-            marks: self.homes.marks(&super::home(&all, rec)),
+            marks: Marks {
+                outside: card.outside,
+                ..self.homes.marks(&super::home(&all, rec))
+            },
             sizes: card.sizes(),
             handle: Handle(format!("{}@v{}", thing_of(&id), card.version)),
             form: Form::Whole,

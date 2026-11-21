@@ -701,7 +701,16 @@ async fn his_narrowing_applies_through_the_tool_and_an_agents_waits() {
             assert_eq!(w.turn, res.turn_id);
         } else {
             assert_eq!(core.confirm_list().unwrap().len(), 1, "the card asks");
-            assert_eq!(now, before, "nothing changed");
+            assert_eq!(
+                (now.version, &now.objective),
+                (1, &before.objective),
+                "nothing changed"
+            );
+            assert_eq!(
+                now.proposal.as_ref().and_then(|p| p.objective.as_deref()),
+                Some(new.as_str()),
+                "the proposal waits on its record"
+            );
             assert!(rows.is_empty());
             let proposed = crate::test_support::ledger_rows_100k(&core, "task.change_proposed");
             assert_eq!(proposed[0].data["words"]["card"], "not_him");
