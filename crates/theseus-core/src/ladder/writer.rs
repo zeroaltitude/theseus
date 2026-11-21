@@ -111,7 +111,7 @@ pub struct ModelWriter(pub Arc<Core>);
 
 impl ModelWriter {
     fn request(&self, model: &str, ask: &Ask) -> ProviderRequest {
-        let scrubber = self.0.runner.judge.scrubber.clone();
+        let scrubber = self.0.tools.scrubber.clone();
         let how = self.0.runner.catalog.forcing(model);
         let text = scrubber.scrub(&ask.text).0;
         ProviderRequest {

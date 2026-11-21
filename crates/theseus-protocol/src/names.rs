@@ -207,6 +207,9 @@ pub mod method {
         /// The exchange ledger (issue 44, step 1; `exchange`): its measuring rows summed, a read; and the
         /// exchanges and touches of older history written from the nodes, with a dry run that only counts.
         EXCHANGE_REPORT = "exchange.report", EXCHANGE_REBUILD = "exchange.rebuild",
+        /// A place's ladder built from its history (issue 44, step 4; `ladder`): its `did` lines and folds,
+        /// with a dry run that counts and prices, and a cap.
+        EXCHANGE_LADDER = "exchange.ladder",
         /// One turn, whole (theseus-x9swu; `inspect::TurnInspectParams`): the cockpit's inspector at
         /// `/session/<id>/turn/<turn>`. A read; thinking and texts to a private place only.
         TURN_INSPECT = "turn.inspect",

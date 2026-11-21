@@ -7,7 +7,8 @@ use anyhow::Result;
 use clap::Subcommand;
 use theseus_client::Conn;
 use theseus_protocol::exchange::{
-    ExchangeRebuildParams, ExchangeRebuildResult, ExchangeReportParams, ExchangeReportResult,
+    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeRebuildResult,
+    ExchangeReportParams, ExchangeReportResult,
 };
 use theseus_protocol::method;
 
@@ -28,6 +29,18 @@ pub enum ExchangesCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Build a place's ladder from its history since its latest /new: a one-line summary of
+    /// each exchange without one, then the fold nodes. `--dry-run` counts and prices it.
+    Ladder {
+        /// The place, as the ledger names it (`discord:channel:<id>`, `local:<dir>`).
+        place: String,
+        /// Count what would be written and its worst case, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The most this run may spend, in dollars (default: what is left of the day's line).
+        #[arg(long)]
+        cap_usd: Option<f64>,
+    },
 }
 
 pub async fn run(conn: &mut Conn, json: bool, cmd: ExchangesCmd) -> Result<()> {
@@ -40,6 +53,18 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ExchangesCmd) -> Result<()> {
             method::EXCHANGE_REBUILD,
             serde_json::to_value(ExchangeRebuildParams { dry_run: *dry_run })?,
         ),
+        ExchangesCmd::Ladder {
+            place,
+            dry_run,
+            cap_usd,
+        } => (
+            method::EXCHANGE_LADDER,
+            serde_json::to_value(ExchangeLadderParams {
+                place: place.clone(),
+                dry_run: *dry_run,
+                cap_usd: *cap_usd,
+            })?,
+        ),
     };
     let v = conn.request(m, p).await?;
     match (json, cmd) {
@@ -49,6 +74,9 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ExchangesCmd) -> Result<()> {
         }
         (false, ExchangesCmd::Rebuild { .. }) => {
             println!("{}", rebuild_lines(&serde_json::from_value(v)?))
+        }
+        (false, ExchangesCmd::Ladder { .. }) => {
+            println!("{}", ladder_lines(&serde_json::from_value(v)?))
         }
     }
     Ok(())
@@ -105,6 +133,23 @@ pub fn rebuild_lines(r: &ExchangeRebuildResult) -> String {
         s.push_str(&format!(
             "; the things they name were not looked for: {why}"
         ));
+    }
+    s
+}
+
+/// A ladder build in one line, and why it stopped when it did.
+pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
+    let (lines, folds) = match r.dry_run {
+        true => ("would write", "would make"),
+        false => ("wrote", "made"),
+    };
+    let mut s = format!(
+        "{}: {} exchanges since its latest /new; {} had a summary, {lines} {}; {folds} {} fold \
+         nodes and {} above them; worst case ${:.2}, spent ${:.2}",
+        r.place, r.exchanges, r.lines_had, r.lines, r.folds, r.above, r.estimated_usd, r.spent_usd
+    );
+    if let Some(why) = &r.stopped {
+        s.push_str(&format!("; stopped: {why}"));
     }
     s
 }

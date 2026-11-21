@@ -61,3 +61,40 @@ pub struct ExchangeRebuildResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub things_skipped: Option<String>,
 }
+
+/// `exchange.ladder` (issue 44, step 4): build a place's ladder from its
+/// history since its latest `/new`: the missing `did` lines, then the folds.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExchangeLadderParams {
+    /// The place, as the ledger names it (`discord:channel:<id>`, `local:<dir>`).
+    pub place: String,
+    /// Count and price what it would do, and write nothing.
+    pub dry_run: bool,
+    /// The most this run may spend, in dollars; none: what is left of the
+    /// day's line for summaries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cap_usd: Option<f64>,
+}
+
+/// What a ladder build found, would do or did.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExchangeLadderResult {
+    pub dry_run: bool,
+    pub place: String,
+    /// The place's latest `/new`; 0 for a place none moved.
+    pub since_ms: u64,
+    pub exchanges: u64,
+    /// Lines there already, and lines it would write (wrote).
+    pub lines_had: u64,
+    pub lines: u64,
+    /// First-level nodes it would make (made), and the nodes above made by code.
+    pub folds: u64,
+    pub above: u64,
+    pub estimated_usd: f64,
+    pub spent_usd: f64,
+    /// Why it stopped before it was done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<String>,
+}
