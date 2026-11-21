@@ -464,6 +464,18 @@ impl Spot {
             Spot::Quay => Err(format!("channel:{QUAY}")),
         }
     }
+
+    /// Whether a turn here draws on a session at `from`: a private place on
+    /// any, a shared one on its own; a channel bound private on its own
+    /// alone (issue 44, the owner's decision 5).
+    fn draws_on(self, from: Spot) -> bool {
+        match (self, self.class(), from.class()) {
+            (Spot::Den, _, _) => matches!(from, Spot::Den),
+            (_, Ok(()), _) => true,
+            (_, Err(a), Err(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 fn spot() -> impl Strategy<Value = Spot> {
@@ -486,7 +498,8 @@ proptest! {
     /// a candidate in a shared place, and nothing from one shared place is one
     /// in another: each such hit is dropped for its place, and every other
     /// survives that filter; a private place draws on every place
-    /// (theseus-1is6). In shadow, and through canary (30b), where the request the
+    /// (theseus-1is6), and a channel bound private on itself alone (issue 44,
+    /// the owner's decision 5). In shadow, and through canary (30b), where the request the
     /// model gets carries no word of a session the place may not draw on.
     #[test]
     fn the_place_rule_holds_over_generated_stores(
@@ -535,13 +548,8 @@ proptest! {
             turn(c, &me, "the notes?").await;
             let m = &recalls(c, &me)[0];
             prop_assert_eq!(m.candidates as usize, spots.len());
-            let here = asker.class();
             for (sid, s) in &spoken {
-                let may = match (&here, s.class()) {
-                    (Ok(()), _) => true,
-                    (Err(a), Err(b)) => *a == b,
-                    _ => false,
-                };
+                let may = asker.draws_on(*s);
                 let by_place = m.dropped.iter().any(|d| &d.session_id == sid && d.reason == "place");
                 prop_assert_eq!(!may, by_place, "{:?} asked of {:?} ({})", asker, s, sid);
                 if !may {
@@ -552,11 +560,7 @@ proptest! {
             // draw on (in shadow, none at all).
             let sent = sent(&r.model).concat();
             for (i, (_, s)) in spoken.iter().enumerate() {
-                let may = match (&here, s.class()) {
-                    (Ok(()), _) => true,
-                    (Err(a), Err(b)) => *a == b,
-                    _ => false,
-                };
+                let may = asker.draws_on(*s);
                 let shown = sent.contains(&format!("note {i}."));
                 prop_assert!(!shown || (canary && may), "{:?} saw {:?}'s note {} (canary {})", asker, s, i, canary);
             }

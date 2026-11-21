@@ -8,6 +8,7 @@
 //! - [`select`]: one [`select::Selector`] per row of the admission table [`select::ADMISSION`]; each returns
 //!   [`Piece`]s, references to ranges of the store, never copied text.
 //! - [`gate`]: only the gate makes an [`gate::Admitted`] piece; nothing else reaches the budgeter.
+//!   [`permit::Permit`] is that gate, by `crate::view_gate`'s rule.
 //! - [`budget`]: the budgeter's nine rules, one function, [`budget::fit`].
 //! - [`fold`]: the fold node and the ladder's read.
 //! - [`record`]: what one turn was shown and why, a record kind of its own.
@@ -25,6 +26,7 @@ pub mod budget;
 pub mod fold;
 pub mod gate;
 pub mod history;
+pub mod permit;
 pub mod record;
 pub mod render;
 pub mod select;

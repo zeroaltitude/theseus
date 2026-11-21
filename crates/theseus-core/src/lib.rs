@@ -181,6 +181,7 @@ pub mod trace;
 pub mod transcripts;
 pub mod turn;
 pub mod view;
+pub mod view_gate;
 pub mod voice;
 pub mod wake;
 pub mod wake_home;
@@ -787,6 +788,8 @@ mod tests_turn_reserve;
 mod tests_turn_retry;
 #[cfg(test)]
 mod tests_unlabel;
+#[cfg(test)]
+mod tests_view_gate;
 #[cfg(test)]
 mod tests_wait_cost;
 #[cfg(test)]
