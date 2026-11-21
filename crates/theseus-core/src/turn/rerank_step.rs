@@ -66,7 +66,7 @@ impl TurnRunner {
             |ids| crate::recall::links(&self.store, ids),
             true,
         );
-        crate::view_gate::count_sealed(&mut m, sealed);
+        crate::view_gate::count_sealed(&mut m, sealed.clone());
         // What the rerank reads of the scene, taken now: the rest of it
         // borrows the turn, which the mark and the span need.
         let mut parts = Parts::of(scene);
@@ -113,6 +113,9 @@ impl TurnRunner {
             let scene = parts.scene(mode, t.tc.session_id, t.tc.turn_id);
             self.memory
                 .refill(&scene, &mut m, candidates, &links, ranks, order);
+            // The refill writes the drops again from the pack: the sealed ones
+            // the gate took out before it are said again.
+            crate::view_gate::count_sealed(&mut m, sealed);
         }
         m.rerank = Some(waited.manifest());
         m

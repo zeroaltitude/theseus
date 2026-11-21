@@ -54,10 +54,16 @@ pub(super) async fn session(
     let (source, sensitivity, span, summary) = labels_of(core, &id, &nodes).await?;
     let veiled = veils(sensitivity.as_deref());
     // A message a split or a claim moved into a sealed thread is held out
-    // (the gate's `node_seal`), whatever the session's own seal.
+    // (the gate's `node_seal`), whatever the session's own seal; and so is
+    // the session's title, which may have been made from it.
+    let all = nodes.len();
     let nodes = crate::view_gate::readable_nodes(&core.runner, Some(asker), nodes, |(_, n)| {
         (n.session_id.as_str(), n.id.as_str())
     });
+    let source = match nodes.len() < all && source.starts_with("this harness") {
+        true => "this harness".to_string(),
+        false => source,
+    };
     let (messages, left) = readable(&nodes, when);
     let total = messages.len() as u64;
     let mut text =

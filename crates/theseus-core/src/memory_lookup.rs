@@ -344,6 +344,38 @@ async fn lookup(
     page(&core, &session, a, &places).await
 }
 
+/// Whether the session `id` may be read by id from `session`: only when the
+/// gate would admit it whole: never a sealed thread's (or one whose seal is
+/// proposed) unless it is the asker's own thread, and from a turn narrowed to
+/// one place (a channel bound private, a turn not the owner alone) only that
+/// place's. A native session with no record and no nodes is not there; one
+/// with nodes and no record cannot be proven unsealed.
+fn by_id_admitted(
+    core: &Arc<Core>,
+    session: &str,
+    id: &str,
+    places: &crate::view_gate::RecallPlaces,
+) -> Result<(), String> {
+    let runner = &core.runner;
+    let unrecorded = !crate::import::is_imported(id)
+        && matches!(
+            core.store.get_session::<crate::session::SessionRecord>(id),
+            Ok(None)
+        );
+    if unrecorded && core.store.session_nodes(id).is_ok_and(|n| n.is_empty()) {
+        return Err(format!(
+            "no session is named {id}: give a session id an earlier answer named (ses_…)"
+        ));
+    }
+    if crate::view_gate::seal_of(runner, Some(session), id) != theseus_memory::gate::Seal::Clear {
+        return Err(format!("session {id} {SEALED}"));
+    }
+    if !places.may_read(runner, id) {
+        return Err(format!("session {id} {CHANNEL}"));
+    }
+    Ok(())
+}
+
 /// The answer's page.
 async fn page(
     core: &Arc<Core>,
@@ -360,31 +392,8 @@ async fn page(
     let limit = a.limit.unwrap_or(PAGE).clamp(1, PAGE_MAX);
     let offset = a.cursor.unwrap_or(0);
     let budget = a.budget_tokens.unwrap_or(BUDGET).clamp(100, BUDGET_MAX);
-    // A session by id is read only when the gate would admit it whole: never
-    // a sealed thread's (or one whose seal is proposed) unless it is the
-    // asker's own thread, and from a channel bound private only its own.
     if let Some(id) = some(&a.session) {
-        let runner = &core.runner;
-        // A native session with no record and no nodes is not there; one
-        // with nodes and no record cannot be proven unsealed (below).
-        let unrecorded = !crate::import::is_imported(id)
-            && matches!(
-                core.store.get_session::<crate::session::SessionRecord>(id),
-                Ok(None)
-            );
-        if unrecorded && core.store.session_nodes(id).is_ok_and(|n| n.is_empty()) {
-            return Err(format!(
-                "no session is named {id}: give a session id an earlier answer named (ses_…)"
-            ));
-        }
-        if crate::view_gate::seal_of(runner, Some(&session), id)
-            != theseus_memory::gate::Seal::Clear
-        {
-            return Err(format!("session {id} {SEALED}"));
-        }
-        if !places.may_read(runner, id) {
-            return Err(format!("session {id} {CHANNEL}"));
-        }
+        by_id_admitted(&core, &session, id, places)?;
     }
     if some(&a.session).is_some() && some(&a.words).is_none() {
         return read::session(&core, &session, &a, when.as_ref(), (offset, limit, budget)).await;
