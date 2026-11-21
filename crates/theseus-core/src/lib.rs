@@ -182,6 +182,7 @@ pub mod tools_defer;
 pub mod trace;
 pub mod transcripts;
 pub mod turn;
+pub mod view;
 pub mod voice;
 pub mod wake;
 pub mod wake_home;
