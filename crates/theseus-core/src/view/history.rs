@@ -60,6 +60,9 @@ pub enum PageEnd {
     More,
     HistoryExhausted,
     AllowanceUsed,
+    /// The walk read its bound of records before its page was full: a limit of the tool, not the end of
+    /// history; it resumes from a token the tool keeps for the turn.
+    ScanLimit,
 }
 
 /// One page, newest first, with a stable cursor.
