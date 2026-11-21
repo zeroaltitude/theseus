@@ -476,9 +476,10 @@ impl Verified {
     }
 }
 
-/// Stage the mark `turn.submit` would make for `text` in `session`: typed by
-/// the owner in person, or by an agent's process at the terminal: the mark
-/// the caller's sink carries to the message's node (`EventSink::with_arrival`).
+/// The mark `turn.submit` would make for a message in `session`: typed by
+/// the owner in person, or by an agent's process at the terminal. It rides
+/// the turn's own submission (`EventSink::with_arrival`), as the ledger's
+/// carries it; `_text` is kept so callers read as before.
 #[cfg(test)]
 pub fn stage_mark(runner: &TurnRunner, session: &str, _text: &str, in_person: bool) -> OwnerMark {
     OwnerMark {

@@ -26,10 +26,11 @@
 //! - **A joined task's card** (`joined.rs`, issue 44): what a conversation
 //!   where the owner is alone is shown of the one task his message
 //!   addresses, from records only.
-//! - **His own words** (`words.rs`, issue 44): a change to the owner's task
-//!   that only narrows or pauses, in his marked message of the current
-//!   exchange, applies without a card; the words behind each change are kept
-//!   by reference.
+//! - **His own words** (`words.rs`, issue 44): the rule under which a change
+//!   to the owner's task that only narrows, in his marked message of the
+//!   current exchange, would apply without a card. It needs an independent
+//!   judgment no pack gives yet, so every such change keeps its card today;
+//!   the words behind each change are kept by reference.
 
 pub mod joined;
 pub mod lease;
@@ -186,11 +187,8 @@ pub fn all(store: &Store) -> Result<Vec<TaskRecord>> {
 /// A task's state as it reads now: a closed record's own, or for a task
 /// with a session, its execution's running state (the default 39a takes:
 /// derived when read, never written at each transition).
-///
-/// A pause the owner asked (`suspended` on the record, issue 44) reads as
-/// written: nothing else writes that state to a task session's record.
 pub fn state_now(rec: &TaskRecord, exec: Option<&Execution>) -> TaskState {
-    if rec.state.is_closed() || rec.session.is_none() || rec.state == TaskState::Suspended {
+    if rec.state.is_closed() || rec.session.is_none() {
         return rec.state;
     }
     let Some(e) = exec else { return rec.state };
