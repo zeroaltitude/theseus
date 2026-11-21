@@ -58,10 +58,13 @@ pub struct ExchangeRebuildResult {
     pub kept: u64,
     pub exchanges: u64,
     pub touches: u64,
-    /// Of the new exchanges, those whose place, and whose person, a stored
-    /// record proved; the rest say `unknown` and name no person.
+    /// Of the new exchanges, those whose place, and whose person, the owner's
+    /// mark of their message proved; the rest say `unknown` and name no person.
     pub place_proven: u64,
     pub person_proven: u64,
+    /// Touches keyed off their exchange's start (an older build's reply
+    /// touches), moved to it so that one exchange holds one touch of a root.
+    pub repaired: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]

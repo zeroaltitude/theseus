@@ -31,8 +31,6 @@ impl TurnRunner {
         let Body::UserMessage { text, attachments } = &node.body else {
             return;
         };
-        // Its mark and its exchange (issue 44), with the judge off too.
-        self.exchange_heard(t, node, text, steered);
         // The owner's own message, for the card's observer (theseus-6f8t0):
         // marked with the judge off too.
         if self.standing.expected.take_owner(t.tc.session_id, text) {

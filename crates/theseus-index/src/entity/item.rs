@@ -38,6 +38,10 @@ static HASH: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// A URL, to its first whitespace: nothing inside one is an item.
+static URL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b[a-z][a-z0-9+.-]*://\S*").unwrap());
+
 /// The number as written, without leading zeros.
 fn number(s: &str) -> String {
     s.parse::<u64>()
@@ -46,6 +50,9 @@ fn number(s: &str) -> String {
 
 /// Every numbered item in `text`, as `item:` terms, sorted and deduplicated.
 pub fn items(text: &str) -> BTreeSet<String> {
+    // Every URL blanked first, byte for byte, so no pattern reads inside one.
+    let blank = URL.replace_all(text, |c: &regex::Captures| " ".repeat(c[0].len()));
+    let text = blank.as_ref();
     let mut out = BTreeSet::new();
     let mut spans = Vec::new();
     for c in KIND_NUMBER.captures_iter(text) {
@@ -92,6 +99,10 @@ mod tests {
     fn a_bare_hash_is_an_unscoped_item_and_a_repository_qualifies_it() {
         assert_eq!(got("fixed in #33"), ["item:33"]);
         assert_eq!(got("(Octo/Lantern#33)"), ["item:octo/lantern#33"]);
+        assert_eq!(
+            got("https://example.org/x then octo/repo#5"),
+            ["item:octo/repo#5"]
+        );
     }
 
     #[test]
@@ -99,6 +110,9 @@ mod tests {
         for text in [
             "C#3 and F#4",
             "https://example.org/page#12",
+            "https://example.org/:#33",
+            "https://example.org/(octo/repo#33)",
+            "see <https://example.org/a#4>",
             "<#123456> is a channel",
             "#1234567 is an id",
             "issue 1234567",

@@ -9,6 +9,7 @@ use theseus_protocol::index::{IndexNeighboursParams, IndexNeighboursResult};
 
 use crate::exchange::{self, Root};
 use crate::memory_pass::{IndexFuture, PassIndex};
+use crate::names::card::{Admits, Source};
 use crate::tender::TenderMiss;
 use crate::tests_onto::{bound, rig, rig_with, Rig};
 
@@ -191,22 +192,23 @@ async fn a_numbered_item_is_touched_scoped_by_the_places_project_or_unscoped() {
         }
     };
     let turn = said(sid).await;
-    let touched = |term: &str| -> Vec<String> {
-        exchange::newest(&r.core.store, Root::Thing(term), 5)
+    assert_eq!(
+        touched_in(&r, "item:project:prj_lantern#issue-33").await,
+        vec![turn]
+    );
+    assert!(
+        exchange::newest(&r.core.store, Root::Thing("item:issue-33"), 5)
             .unwrap()
-            .into_iter()
-            .map(|t| t.exchange)
-            .collect()
-    };
-    assert_eq!(touched("item:project:prj_lantern#issue-33"), vec![turn]);
-    assert!(touched("item:issue-33").is_empty(), "scoped, not bare");
+            .is_empty(),
+        "scoped, not bare"
+    );
 
     let other =
         crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     r.core.store.put_session(&other.session_id, &other).unwrap();
     let turn = said(other.session_id.clone()).await;
     assert_eq!(
-        touched("item:issue-33"),
+        touched_in(&r, "item:issue-33").await,
         vec![turn],
         "an unscoped candidate"
     );
@@ -222,6 +224,18 @@ impl crate::names::card::Admits for Admit {
 
     fn exchange(&self, _: &crate::exchange::Exchange) -> bool {
         self.0
+    }
+
+    fn thing(&self, _: Source<'_>) -> bool {
+        true
+    }
+
+    fn task(&self, _: &theseus_protocol::tasks::TaskRecord) -> bool {
+        true
+    }
+
+    fn guidance(&self, _: &Guidance) -> bool {
+        true
     }
 }
 
@@ -296,6 +310,10 @@ impl crate::names::card::Admits for Hides {
     fn exchange(&self, _: &crate::exchange::Exchange) -> bool {
         true
     }
+
+    fn thing(&self, _: Source<'_>) -> bool {
+        true
+    }
 }
 
 fn fact(id: &str, text: &str, ends: Option<&str>) -> theseus_protocol::StandingRecord {
@@ -358,4 +376,313 @@ async fn a_line_of_works_card_holds_its_current_facts_as_its_gate_admits_them() 
         "{:#?}",
         card.lines
     );
+}
+
+/// A gate that refuses everything.
+struct Deny;
+
+impl Admits for Deny {
+    fn fact(&self, _: &theseus_protocol::StandingRecord) -> bool {
+        false
+    }
+
+    fn exchange(&self, _: &crate::exchange::Exchange) -> bool {
+        false
+    }
+}
+
+/// A channel's gate: the topic `topic:ledger-private`, the tasks of the
+/// private session `private`, its guidance and its exchanges are not its.
+struct Channel {
+    private: String,
+}
+
+impl Admits for Channel {
+    fn fact(&self, _: &theseus_protocol::StandingRecord) -> bool {
+        true
+    }
+
+    fn exchange(&self, e: &crate::exchange::Exchange) -> bool {
+        e.session_id != self.private
+    }
+
+    fn thing(&self, s: Source<'_>) -> bool {
+        !matches!(s, Source::Topic(c) if c.id.as_str() == "topic:ledger-private")
+    }
+
+    fn task(&self, t: &theseus_protocol::tasks::TaskRecord) -> bool {
+        t.session.as_deref() != Some(self.private.as_str())
+    }
+
+    fn guidance(&self, g: &Guidance) -> bool {
+        g.category.as_str() != "topic:ledger-private"
+    }
+}
+
+fn put_task(r: &Rig, id: &str, title: &str, session: &str) {
+    let task = theseus_protocol::tasks::TaskRecord {
+        id: id.into(),
+        title: title.into(),
+        session: Some(session.into()),
+        ..Default::default()
+    };
+    r.core
+        .store
+        .append(&[
+            theseus_store::NewRecord::json(theseus_store::kinds::TASK, Some(id), &task).unwrap(),
+        ])
+        .unwrap();
+}
+
+/// KEY (the review's P1): a gate that refuses everything gets no name and
+/// no card, not even a title.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gate_that_refuses_everything_gets_no_name_and_no_card() {
+    let r = rig(FakeJev::start().unwrap());
+    ledger_category(&r);
+    let table = crate::names::table::build_for(&r.core, &Deny).unwrap();
+    assert!(table.is_empty());
+    assert!(table.find("the ledger, topic:ledger").is_empty());
+    let whole = crate::names::table::build(&r.core).unwrap();
+    assert!(
+        crate::names::card::card(&r.core, &whole, "topic:ledger", &Deny)
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// KEY (the review's P1): a private topic asked about from a channel is no
+/// name, no candidate and no card, and leaves the visible topic it shares a
+/// name with unique; that topic's card shows none of the private session's
+/// tasks, nor the private topic's guidance or id.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_topic_asked_from_a_channel_leaks_nothing() {
+    let r = rig(FakeJev::start().unwrap());
+    let private = bound(&r.core);
+    operator_writes(
+        &r,
+        vec![
+            Record::Category(Category::new(id("topic:ledger"), "Ledger", "ada")),
+            Record::Category(Category::new(id("topic:vault"), "Vault", "ada")),
+            // The same name under another parent: the ontology's own rule.
+            Record::Category(Category {
+                parent: Some(id("topic:vault")),
+                ..Category::new(id("topic:ledger-private"), "Ledger", "ada")
+            }),
+            Record::Guidance(Guidance::new(
+                id("topic:ledger-private"),
+                "Secret ways.",
+                1,
+                "ada",
+            )),
+            Record::Members(MemberList {
+                session: private.clone(),
+                kind: "topic".into(),
+                members: vec![
+                    Membership::operator(id("topic:ledger"), 1_000),
+                    Membership::operator(id("topic:ledger-private"), 1_000),
+                ],
+            }),
+        ],
+    );
+    put_task(&r, "tsk_secret", "Settle the hidden account", &private);
+    let gate = Channel { private };
+    let table = crate::names::table::build_for(&r.core, &gate).unwrap();
+    let found = table.find("the ledger");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        (found[0].how, found[0].things.as_slice()),
+        (
+            crate::names::table::How::Unique,
+            &["topic:ledger".to_string()][..]
+        )
+    );
+    let asked = table.find("topic:ledger-private");
+    assert!(
+        asked
+            .iter()
+            .flat_map(|f| &f.things)
+            .all(|t| t != "topic:ledger-private"),
+        "{asked:?}"
+    );
+    let whole = crate::names::table::build(&r.core).unwrap();
+    let card = |thing: &str| crate::names::card::card(&r.core, &whole, thing, &gate).unwrap();
+    assert!(card("topic:ledger-private").is_none(), "no card at all");
+    let shown = card("topic:ledger").expect("the visible topic's card");
+    let text = format!("{} {:?} {:?}", shown.title, shown.lines, shown.tasks);
+    for leak in [
+        "tsk_secret",
+        "hidden account",
+        "Secret ways",
+        "ledger-private",
+    ] {
+        assert!(!text.contains(leak), "{leak} leaked: {text}");
+    }
+}
+
+/// Writes exchange `n` of `session` at `place`, touching `thing`.
+fn put_exchange(r: &Rig, n: u64, session: &str, place: &str, thing: &str) {
+    let ex = crate::exchange::Exchange {
+        turn_id: format!("turn_{n:03}"),
+        session_id: session.into(),
+        place: place.into(),
+        private: true,
+        opened_by: crate::exchange::Opener::Message,
+        person: Some("owner".into()),
+        start_ms: 1_000 + n,
+        end_ms: Some(2_000 + n),
+        ask: None,
+        reply: None,
+        messages: Vec::new(),
+        stop: None,
+        rebuilt: false,
+    };
+    let records = vec![
+        exchange::exchange_record(&ex).unwrap(),
+        exchange::touch(Root::Thing(thing), &ex.turn_id, session, ex.start_ms).unwrap(),
+    ];
+    r.core.store.append(&records).unwrap();
+}
+
+/// The review's P2: thirty newer exchanges the gate refuses crowd out none
+/// of the three older ones it admits; the card is the same with the
+/// refused ones deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refused_exchanges_crowd_out_none_the_gate_admits() {
+    let gate = Channel {
+        private: "ses_private".into(),
+    };
+    let mut cards = Vec::new();
+    for with_refused in [true, false] {
+        let r = rig(FakeJev::start().unwrap());
+        ledger_category(&r);
+        for n in 0..3 {
+            put_exchange(&r, n, "ses_open", "discord:channel:7", "topic:ledger");
+        }
+        if with_refused {
+            for n in 10..40 {
+                put_exchange(&r, n, "ses_private", "discord:dm:42", "topic:ledger");
+            }
+        }
+        let table = crate::names::table::build(&r.core).unwrap();
+        let c = crate::names::card::card(&r.core, &table, "topic:ledger", &gate)
+            .unwrap()
+            .unwrap();
+        cards.push((c.lines, c.exchanges));
+    }
+    assert_eq!(cards[0].1, ["turn_002", "turn_001", "turn_000"]);
+    assert_eq!(cards[0], cards[1]);
+}
+
+fn kiln(r: &Rig) {
+    r.core
+        .thread_new(
+            &theseus_protocol::threads::ThreadNewParams {
+                slug: "kiln-fire".into(),
+                title: Some("Kiln Fire".into()),
+                ..Default::default()
+            },
+            crate::approval::Answerer {
+                label: "the CLI".into(),
+                surface: crate::approval::Surface::Cli,
+                discord: None,
+                agent: None,
+            },
+        )
+        .unwrap();
+}
+
+/// The review's P2: a correction the gate refuses ends nothing the card
+/// shows: the card is the one the store would give without it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_correction_ends_no_fact_the_card_shows() {
+    let mut cards = Vec::new();
+    for with_correction in [true, false] {
+        let r = rig(FakeJev::start().unwrap());
+        kiln(&r);
+        let mut facts = vec![fact("std_a", "The kiln runs at night.", None)];
+        if with_correction {
+            facts.push(fact("std_hidden", "The kiln runs at dawn.", Some("std_a")));
+        }
+        r.core
+            .runner
+            .standing
+            .write(&r.core.store, |_| Ok(facts), |_, _| Ok(vec![]))
+            .unwrap();
+        let table = crate::names::table::build(&r.core).unwrap();
+        let c = crate::names::card::card(&r.core, &table, "thread:kiln-fire", &Hides("std_hidden"))
+            .unwrap()
+            .unwrap();
+        cards.push((c.lines, c.facts));
+    }
+    assert_eq!(cards[0].1, ["std_a"]);
+    assert_eq!(cards[0], cards[1]);
+}
+
+/// An index whose entities are ready at once and whose items are late, or
+/// never come.
+struct LateItems {
+    never: bool,
+}
+
+impl PassIndex for LateItems {
+    fn neighbours(&self, _: IndexNeighboursParams) -> IndexFuture<IndexNeighboursResult> {
+        Box::pin(async { Err(TenderMiss::Down("a test's index".into())) })
+    }
+
+    fn entities(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        let out = texts
+            .iter()
+            .map(|_| vec!["file:lantern.rs".to_string()])
+            .collect();
+        Box::pin(async move { Ok(out) })
+    }
+
+    fn items(&self, texts: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        let never = self.never;
+        Box::pin(async move {
+            if never {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            Ok(vec![vec!["item:issue-33".to_string()]; texts.len()])
+        })
+    }
+
+    fn mode(&self) -> IndexFuture<String> {
+        Box::pin(async { Ok("bm25_only".into()) })
+    }
+}
+
+/// The review's P2: items that are late, or never come, cost the message's
+/// other things nothing: they are touched at the turn's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_or_stuck_items_cost_the_things_named_beside_them_nothing() {
+    for never in [false, true] {
+        let r = rig(FakeJev::start().unwrap());
+        r.core.runner.pass.set_index(Arc::new(LateItems { never }));
+        let sid = bound(&r.core);
+        let turn =
+            crate::tests_route::turn(&r.core, Some(&sid), "see lantern.rs and issue 33", None)
+                .await
+                .turn_id;
+        assert_eq!(
+            touched_in(&r, "file:lantern.rs").await,
+            vec![turn],
+            "never = {never}"
+        );
+    }
+}
+
+/// The touches of `term`, once one is in, within five seconds: a naming
+/// writes its touches on a writer's next frame.
+async fn touched_in(r: &Rig, term: &str) -> Vec<String> {
+    for _ in 0..50 {
+        let got = exchange::newest(&r.core.store, Root::Thing(term), 5).unwrap();
+        if !got.is_empty() {
+            return got.into_iter().map(|t| t.exchange).collect();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Vec::new()
 }
