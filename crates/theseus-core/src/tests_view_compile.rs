@@ -265,7 +265,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
     };
     let pov = crate::view::PointOfView::compute(
         &crate::view::Arrival {
-            anchor: crate::view::Anchor::Place(place.clone()),
+            anchor: crate::view::Anchor::Place(place),
             person: None,
             owner_marked: false,
             audience: crate::view::Audience::Private,
