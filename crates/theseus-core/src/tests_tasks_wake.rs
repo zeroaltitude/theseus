@@ -333,7 +333,9 @@ const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminde
 // self card's sentence naming it, 150 more tokens in the families a person's turn loads.
 const DM_PERSON_TOKENS: u64 = 10235;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7800;
+// And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
+// token more at the terminal, where the tool itself is deferred.
+const CLI_PERSON_TOKENS: u64 = 7801;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
