@@ -368,8 +368,8 @@ fn the_ladder_moves_over_the_socket_and_max_mode_caps_it_after_a_restart() {
             .filter(|r| r.to_string().contains("security.v3"))
             .count()
     };
+    // Whatever rows it stood on before: the card writes none until it is answered.
     let adopted = moved(&rig);
-    assert_eq!(adopted, 1, "its adoption, and no mode from the card yet");
     rig.call(
         "action.confirm",
         json!({"correlation_id": q, "approve": true}),

@@ -1105,7 +1105,7 @@ impl TurnRunner {
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
         if !self.tools_behind(t) {
-            return self.keep_first(t, session, compiled, spec, i);
+            return Self::keep_first(t, session, compiled, spec, i);
         }
         let (force, strip, overflow) = again;
         self.drop_first(t, &compiled);
@@ -1116,7 +1116,6 @@ impl TurnRunner {
     /// The first compile is the one the call uses: persist it, and record
     /// its rows, as the compile step would have.
     fn keep_first(
-        &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         mut compiled: Compiled,

@@ -328,7 +328,6 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use theseus_judge::pack::by_name;
     use theseus_judge::{prepare, Input, NoScrub};
 
     /// A content state read back from its blob and built again is the stored
