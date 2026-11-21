@@ -72,11 +72,29 @@ fn minted(plans: &[Plan], judgment: &str, kind: &str) -> Option<CategoryId> {
         })
 }
 
+/// Where a judgment's touches go: its exchange's turn, session and start;
+/// or, when the sink writes beside a turn whose exchange is not in the store
+/// yet, the judgment's turn and session at its message's time. None for a
+/// judgment that names no turn, or whose message is not in the store.
+fn landing(store: &Store, j: &Judgment) -> Option<(String, String, u64)> {
+    let s = |k: &str| j.context[k].as_str().filter(|v| !v.is_empty());
+    let turn = s("turn")?;
+    match exchange::exchange(store, turn) {
+        Ok(Some(ex)) => return Some((ex.turn_id, ex.session_id, ex.start_ms)),
+        Ok(None) => {}
+        Err(e) => {
+            tracing::warn!(turn, error = %format!("{e:#}"), "names: an exchange was not read");
+            return None;
+        }
+    }
+    let (_, node) = store.get_node(s("node")?).ok().flatten()?;
+    Some((turn.into(), s("session")?.into(), node.created_at_ms))
+}
+
 /// The touches the judgments of `batch` come to: for each one the ontology
-/// may act on whose message has an exchange, a touch from every category it
-/// [`chosen`] to that exchange. None while the ledger is off (no exchange is
-/// written then), for a task's turn (it has none), or for a judgment whose
-/// exchange is not in the store.
+/// may act on, a touch from every category it [`chosen`] to its message's
+/// exchange ([`landing`]). The caller holds them back while the ledger is
+/// off; a task's turn is never judged by `onto.v1`.
 pub fn touches(
     store: &Store,
     o: &Ontology,
@@ -85,25 +103,16 @@ pub fn touches(
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for j in batch {
-        let Some(turn) = j.context["turn"].as_str().filter(|t| !t.is_empty()) else {
+        let ids = chosen(j, o, act, plans);
+        if ids.is_empty() {
+            continue;
+        }
+        let Some((turn, session, at)) = landing(store, j) else {
             continue;
         };
-        let ex = match exchange::exchange(store, turn) {
-            Ok(Some(ex)) => ex,
-            Ok(None) => continue,
-            Err(e) => {
-                tracing::warn!(turn, error = %format!("{e:#}"), "names: an exchange was not read");
-                continue;
-            }
-        };
-        for id in chosen(j, o, act, plans) {
-            if seen.insert((ex.turn_id.clone(), id.clone())) {
-                out.extend(touch(
-                    Root::Thing(id.as_str()),
-                    &ex.turn_id,
-                    &ex.session_id,
-                    ex.start_ms,
-                ));
+        for id in ids {
+            if seen.insert((turn.clone(), id.clone())) {
+                out.extend(touch(Root::Thing(id.as_str()), &turn, &session, at));
             }
         }
     }

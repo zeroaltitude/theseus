@@ -284,3 +284,78 @@ async fn a_named_topics_card_holds_its_guidance_and_the_exchanges_its_gate_admit
             .is_none()
     );
 }
+
+/// A gate that refuses one standing record.
+struct Hides(&'static str);
+
+impl crate::names::card::Admits for Hides {
+    fn fact(&self, r: &theseus_protocol::StandingRecord) -> bool {
+        r.id != self.0
+    }
+
+    fn exchange(&self, _: &crate::exchange::Exchange) -> bool {
+        true
+    }
+}
+
+fn fact(id: &str, text: &str, ends: Option<&str>) -> theseus_protocol::StandingRecord {
+    theseus_protocol::StandingRecord {
+        id: id.into(),
+        kind: theseus_protocol::StandingKind::Fact,
+        text: text.into(),
+        scope: theseus_protocol::StandingScope::Place("thread:kiln-fire".into()),
+        since_ms: 1_000,
+        until_ms: None,
+        source: "cli".into(),
+        ends: ends.map(str::to_string),
+    }
+}
+
+/// A line of work is found by its title, and its card's facts are its
+/// place's standing records as they stand now: a replaced one is dropped,
+/// and one the caller's gate refuses is never read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_of_works_card_holds_its_current_facts_as_its_gate_admits_them() {
+    let r = rig(FakeJev::start().unwrap());
+    let who = crate::approval::Answerer {
+        label: "the CLI".into(),
+        surface: crate::approval::Surface::Cli,
+        discord: None,
+        agent: None,
+    };
+    r.core
+        .thread_new(
+            &theseus_protocol::threads::ThreadNewParams {
+                slug: "kiln-fire".into(),
+                title: Some("Kiln Fire".into()),
+                ..Default::default()
+            },
+            who,
+        )
+        .unwrap();
+    let facts = vec![
+        fact("std_a", "The kiln runs at night.", None),
+        fact("std_b", "The kiln runs at dawn.", Some("std_a")),
+        fact("std_hidden", "Not for this view.", None),
+    ];
+    r.core
+        .runner
+        .standing
+        .write(&r.core.store, |_| Ok(facts), |_, _| Ok(vec![]))
+        .unwrap();
+    let table = crate::names::table::build(&r.core).unwrap();
+    let found = table.find("back to the kiln fire");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].things, ["thread:kiln-fire"]);
+    let card = crate::names::card::card(&r.core, &table, "thread:kiln-fire", &Hides("std_hidden"))
+        .unwrap()
+        .expect("a card");
+    assert_eq!(card.title, "Line of work: Kiln Fire (thread:kiln-fire)");
+    assert_eq!(card.facts, ["std_b"]);
+    assert!(
+        card.lines
+            .contains(&"Fact: The kiln runs at dawn.".to_string()),
+        "{:#?}",
+        card.lines
+    );
+}

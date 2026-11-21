@@ -18,8 +18,9 @@ kind is a type of the index's extractor, so the id is the term.
 - A category minted at the act band touches the exchange that minted it.
 - `project` is not a category and touches nothing here.
 - The same judgments the filing acts on, and no others: answered by the model the pack pins, in a mode that
-  acts. Nothing while `[context] ledger` is off, nothing for a task's turn (it has no exchange), and nothing
-  when the exchange is not in the store.
+  acts. Nothing while `[context] ledger` is off, and a task's turn is never judged by `onto.v1`. When the
+  judgment's frame is written before the exchange's (the sink writing beside a running turn), the touch takes
+  the judgment's turn and session at the message's own time.
 - No judge call is added; the request is byte-identical.
 
 The read is `names::topics::timeline(store, id, n)`: one bounded read of the touch index, newest first.
