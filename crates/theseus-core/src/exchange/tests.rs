@@ -132,6 +132,17 @@ fn a_roots_touches_read_newest_first_and_stop_at_n() {
         .map(|t| t.exchange)
         .collect();
     assert_eq!(got, ["turn_5", "turn_4", "turn_3"]);
+    let page = |before, n| -> Vec<String> {
+        newest_before(&store, Root::Place("a"), before, n)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.exchange)
+            .collect()
+    };
+    assert_eq!(page(3_000, 9), ["turn_2", "turn_1"], "strictly older");
+    assert_eq!(page(4_500, 1), ["turn_4"]);
+    assert!(page(1_000, 9).is_empty() && page(0, 9).is_empty());
+    assert_eq!(page(u64::MAX, 2), ["turn_5", "turn_4"]);
     assert_eq!(newest(&store, Root::Place("ab"), 9).unwrap().len(), 1);
 }
 
@@ -414,7 +425,7 @@ async fn the_ledgers_cost_to_a_turn_is_small() {
     };
     let t0 = std::time::Instant::now();
     for _ in 0..100 {
-        ledger::sent(&request, &nodes, &view, (&Default::default(), 0, 0));
+        ledger::sent(&request, &nodes, &view, (&Default::default(), 0, 0, 0));
     }
     let sent_us = t0.elapsed().as_micros() / 100;
     let (on, off) = (wal_bytes(true).await, wal_bytes(false).await);

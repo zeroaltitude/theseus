@@ -247,7 +247,6 @@ ledger_kinds! {
     OwnerProofWindowUsed = "owner.proof.window_used",
     PlacePublished = "place.published",
     PlaceViewed = "place.viewed",
-    PlacesBound = "places.bound",
     PlaceWarned = "place.warned",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",

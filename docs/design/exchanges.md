@@ -12,7 +12,6 @@ with the ledger off. The code is `crates/theseus-core/src/exchange.rs` and `turn
 | An exchange | `exchange.<turn>` | its opening half once the input is written, its end in the turn's last frame (the same key again) | what opened it, the place, private or not, the person, its start and end, the ask and the final reply and every message of the person's in it, by node id |
 | A touch | `touch.<root>␁<u64::MAX - ms>␁<turn>` | with the exchange | that exchange touched the root (`place:`, `person:`, `thing:<type>:<value>`) |
 | The measuring row | ledger `context.turn` | the turn's last frame, private places only | ids, kinds and counts (below) |
-| The places bound | ledger `places.bound` | each binding start, riding the next frame | how many DMs, private channels and shared channels are bound |
 
 Nothing here is a field on an existing record, so no store-format step is needed. No `derived_from` edge is
 written: the keys carry the node and turn ids, and `retract` walks edges to node ids only.
@@ -22,7 +21,8 @@ and the web UI, by the directory the session works in. **A person** is `owner` w
 or an owner handle on a transport), a chat author by id otherwise, and none for a process that is no person.
 
 **The newest `n` of a root** is one read: the time is inverted in the key, so they are the first `n` keys under
-the root's prefix (`Store::first_with_prefix`, which stops its walk at `n`).
+the root's prefix (`Store::first_with_prefix`, which stops its walk at `n`). `newest_before(root, ms, n)` pages
+back: the walk starts at the key that `ms` sorts to (`Store::first_with_prefix_from`).
 
 **Things** are the index's own extractor's terms (paths, files, Beads ids, commits, hosts, crates, mentions), asked
 of the tender off the turn's path: the message's when it is heard, collected at the turn's end if they are in by
@@ -39,11 +39,13 @@ turn's cache reads and writes; the things in the message and in the reply before
 `fragment`, `mentions_other_conversation`, `wants_fresh_look`, `addressed_task` and `kind` as recorded for the
 message by then; the gap since the place's previous exchange; whether another session of the place was mid-turn;
 whether this message answered, within ten minutes, a turn no person opened; how the peer was classed.
-`theseus exchanges report` sums the rows.
+`theseus ledger exchanges` sums the rows, with the places bound now by kind (DMs, channels bound private, those
+of them people besides the owner can view, shared channels), read from the place rule as health is: a row at the
+binding's start would be a frame of its own there.
 
 ## The rebuild
 
-`theseus exchanges rebuild [--dry-run]` writes the exchanges and touches of turns that have none, from their
+`theseus ledger rebuild-exchanges [--dry-run]` writes the exchanges and touches of turns that have none, from their
 nodes, and keeps every exchange written as it happened. A place is filled only from the binding's record of a
 place's session, a `/new`'s link to the place it moved, or a thread's shown place; a person only in a direct
 conversation with an owner. Everything else says `unknown`. No mark is ever made backwards.

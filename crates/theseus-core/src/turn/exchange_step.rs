@@ -203,7 +203,12 @@ impl TurnRunner {
             &compiled.request,
             nodes,
             &view,
-            (&cleared, files, compiled.est_tokens),
+            (
+                &cleared,
+                files,
+                compiled.est_tokens,
+                compiled.estimate.census.json,
+            ),
         );
         t.exchange.seen = Some(Seen {
             compilation: compiled.compilation.id.clone(),

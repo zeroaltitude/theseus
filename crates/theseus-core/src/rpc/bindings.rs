@@ -45,10 +45,6 @@ impl Core {
         // A ceiling's family that names no tool here offers nothing (step
         // 38a): the binding's start says so, in health too, with the rest of
         // what it finds (`place_warnings`, theseus-ext.11).
-        // What it binds, by kind, once a start (issue 44): counts, no names.
-        let kinds = crate::exchange::ledger::bound_kinds(&places);
-        let row = serde_json::to_value(kinds).unwrap_or_default();
-        self.binding_ledger(LedgerKind::PlacesBound, None, row);
         self.runner.place_rule.bind(places);
     }
 

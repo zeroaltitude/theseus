@@ -103,12 +103,13 @@ impl View<'_> {
 /// words and recall's notes read from the nodes the view holds (a turn's
 /// pending recall among them). `cleared` are the results the compile
 /// cleared, by node id; `files` the project files' bytes; `total` the
-/// compiler's estimate.
+/// compiler's estimate; `json` its census's JSON bytes, of which what the
+/// messages do not hold is the tools' schemas (no second walk of them).
 pub fn sent(
     request: &ProviderRequest,
     nodes: &[(u64, crate::stub::Stub)],
     view: &View<'_>,
-    (cleared, files, total): (&HashSet<&str>, u64, u64),
+    (cleared, files, total, json): (&HashSet<&str>, u64, u64, u64),
 ) -> Sent {
     let ids: HashSet<&str> = view.includes.iter().map(String::as_str).collect();
     let (mut words, mut recall, mut cleared_calls) = (0, 0, HashSet::new());
@@ -156,7 +157,7 @@ pub fn sent(
     let system: u64 = request.system.iter().map(|b| str_len(&b["text"])).sum();
     s.header = tok(system.saturating_sub(files));
     s.files = tok(files);
-    s.tools = tok(json_len(&request.tools));
+    s.tools = tok(json.saturating_sub(calls + whole + gone));
     (s.replies, s.calls) = (tok(replies), tok(calls));
     (s.results_whole, s.results_cleared) = (tok(whole), tok(gone));
     (s.words, s.recall) = (tok(words), recall);
@@ -522,39 +523,25 @@ pub fn report(store: &Store, p: &ExchangeReportParams) -> anyhow::Result<Exchang
             _ => break,
         }
     }
-    r.places_bound = places_bound(store)?;
     Ok(r)
 }
 
-/// The newest `places.bound` row's counts.
-fn places_bound(store: &Store) -> anyhow::Result<BTreeMap<String, u64>> {
-    let page = Page {
-        kind: kinds::LEDGER,
-        tags: vec![ledger_kind(LedgerKind::PlacesBound.as_str())],
-        limit: 1,
-        ..Page::default()
-    };
-    let rows = store
-        .inner()
-        .page(&page)?
-        .map(|p| p.records)
-        .unwrap_or_default();
-    Ok(rows
-        .last()
-        .and_then(|r| r.decode::<LedgerRow>().ok())
-        .and_then(|lr| serde_json::from_value(lr.data).ok())
-        .unwrap_or_default())
-}
-
-/// `places`, counted by kind: a DM, a channel bound private (by its own word
-/// or its trusted guild's), a shared channel.
-pub fn bound_kinds(places: &[crate::places::BoundPlace]) -> BTreeMap<String, u64> {
+/// The places bound now, by kind, as health lists them: the local surfaces,
+/// DMs, channels bound private (and of those, any whom people besides the
+/// owner can view), and shared channels. Counts, never a channel's name.
+pub fn bound_now(health: &theseus_protocol::PlacesHealth) -> BTreeMap<String, u64> {
     let mut out = BTreeMap::new();
-    for p in places {
-        let kind = match (p.guild.is_some(), p.private) {
-            (false, _) => "dm",
-            (true, true) => "channel_private",
-            (true, false) => "channel_shared",
+    for p in &health.places {
+        let kind = match (p.place.as_str(), p.class) {
+            (t, _) if t.starts_with("discord:dm:") => "dm",
+            (t, crate::places::PlaceClass::Private) if t.starts_with("discord:") => {
+                match p.others.as_ref().is_some_and(|o| !o.is_empty()) {
+                    true => "channel_private_seen_by_others",
+                    false => "channel_private",
+                }
+            }
+            (t, _) if t.starts_with("discord:") => "channel_shared",
+            _ => "local",
         };
         *out.entry(kind.to_string()).or_insert(0) += 1;
     }
