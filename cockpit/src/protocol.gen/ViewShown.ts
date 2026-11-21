@@ -16,4 +16,8 @@ assembly: string, pov: ViewPov,
 /**
  * Each slot that holds a piece, in the slots' order (A to I).
  */
-slots: Array<ViewSlot>, dropped: Array<ViewDrop>, residue: Array<ViewResidue>, totals: ViewTotals, };
+slots: Array<ViewSlot>, dropped: Array<ViewDrop>, residue: Array<ViewResidue>, totals: ViewTotals, 
+/**
+ * For a reader who is not the owner alone: one fixed sentence, whatever was left out.
+ */
+restricted?: string, };

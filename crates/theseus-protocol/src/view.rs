@@ -1,7 +1,10 @@
 //! `view.show` (issue 44): what a turn was shown and why, from the view record the context assembler
-//! writes for each view it builds. Ids, kinds, forms, tokens, reasons and counts by default; a piece's text
-//! only when asked for (`text`) and only for the owner at his own terminal. Enumerated values travel as their
-//! names, so this crate carries none of the core's types.
+//! writes for each view it builds. The owner's inspection, whole or not at all: only the owner in person may
+//! ask. Ids, kinds, forms, tokens and reasons by default; a piece's text (`text`) and the view's counts
+//! (`tally`) when asked for. A piece whose source may not be read today is not listed, and nothing counts
+//! it. Enumerated values travel as their names, so this crate carries none of the core's types.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,9 +14,11 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct ViewShowParams {
     pub turn_id: String,
-    /// Each piece's text as well: the owner's own terminal only; refused anywhere else.
+    /// Each piece's text as well: the owner's own terminal only.
     pub text: bool,
-    /// The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): text is refused then.
+    /// Each view's counts by slot, by reason and by why a piece was dropped.
+    pub tally: bool,
+    /// The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): refused then.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub from_job: Option<String>,
@@ -26,7 +31,9 @@ pub struct ViewShowParams {
 pub struct ViewShowResult {
     pub turn_id: String,
     pub views: Vec<ViewShown>,
-    /// Why some of it is not here, when it is not: text not asked for, or pieces of other places.
+    /// Each view's counts, when asked for (`tally`), in the order of `views`.
+    pub tallies: Vec<ViewTally>,
+    /// Why some of it is not here: text not asked for.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub withheld: Option<String>,
@@ -46,6 +53,10 @@ pub struct ViewShown {
     pub dropped: Vec<ViewDrop>,
     pub residue: Vec<ViewResidue>,
     pub totals: ViewTotals,
+    /// For a reader who is not the owner alone: one fixed sentence, whatever was left out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub restricted: Option<String>,
 }
 
 /// The point of view the view was built from.
@@ -127,7 +138,7 @@ pub struct ViewResidue {
     pub tokens: u64,
 }
 
-/// A view's totals.
+/// A view's totals: of what is shown.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
@@ -136,8 +147,30 @@ pub struct ViewTotals {
     pub dropped: u64,
     pub tokens: u64,
     pub dropped_tokens: u64,
-    /// Pieces of other places, counted and not listed (a reader in company).
-    pub held_out: u64,
+}
+
+/// How many pieces, and how many tokens.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ViewCount {
+    pub pieces: u64,
+    pub tokens: u64,
+}
+
+/// One view's counts, by name: slots, reasons, and why pieces were dropped (`merged`, `over_budget`,
+/// `unit_cut`) and the reasons of those dropped. A piece with two reasons counts under each.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ViewTally {
+    pub compilation: String,
+    pub present: String,
+    pub slots: BTreeMap<String, ViewCount>,
+    pub reasons: BTreeMap<String, ViewCount>,
+    pub dropped: BTreeMap<String, ViewCount>,
+    pub dropped_reasons: BTreeMap<String, ViewCount>,
+    pub tokens: u64,
 }
 
 /// A shown view in plain lines, for the CLI and the model's look: the point of view, each slot and its
@@ -209,9 +242,34 @@ pub fn lines(v: &ViewShown) -> String {
         "  total: {} shown, {} tokens; {} dropped, {} tokens",
         t.shown, t.tokens, t.dropped, t.dropped_tokens
     );
-    if t.held_out > 0 {
-        let _ = write!(out, "; {} of other places, not listed here", t.held_out);
-    }
     out.push('\n');
+    if let Some(r) = &v.restricted {
+        let _ = writeln!(out, "  ({r})");
+    }
+    out
+}
+
+/// A view's counts in plain lines.
+pub fn tally_lines(t: &ViewTally) -> String {
+    use std::fmt::Write;
+    let mut out = format!(
+        "counts of view {} (present {}, {} tokens)\n",
+        t.compilation, t.present, t.tokens
+    );
+    for (title, m) in [
+        ("slots", &t.slots),
+        ("reasons", &t.reasons),
+        ("dropped", &t.dropped),
+        ("dropped, by reason", &t.dropped_reasons),
+    ] {
+        if m.is_empty() {
+            continue;
+        }
+        let parts: Vec<String> = m
+            .iter()
+            .map(|(k, c)| format!("{k} {} ({} tokens)", c.pieces, c.tokens))
+            .collect();
+        let _ = writeln!(out, "  {title}: {}", parts.join(", "));
+    }
     out
 }

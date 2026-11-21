@@ -5,10 +5,14 @@
  */
 export type ViewShowParams = { turn_id: string, 
 /**
- * Each piece's text as well: the owner's own terminal only; refused anywhere else.
+ * Each piece's text as well: the owner's own terminal only.
  */
 text: boolean, 
 /**
- * The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): text is refused then.
+ * Each view's counts by slot, by reason and by why a piece was dropped.
+ */
+tally: boolean, 
+/**
+ * The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): refused then.
  */
 from_job?: string, };

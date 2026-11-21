@@ -1,79 +1,90 @@
-//! `look.theseus` asked for `view` (issue 44): Theseus reads its own view record for this turn: what it was
-//! given, slot by slot, what was left out, and why; by id, kind, form, tokens and reason, never text (a piece
-//! opens by its handle, through the history tool). Who is present is the gate's own reading of the turn
-//! ([`crate::view_gate::present`]), taken from the turn's place, where its input arrived and that input's
-//! owner's mark; no argument of the call can claim it. The owner alone is shown every piece; anyone else
-//! present, only the pieces of this view's own place, the rest counted; presence that cannot be read is
-//! shown nothing.
+//! `look.theseus` asked for `view` (issue 44): Theseus reads what its own turn was given at its newest
+//! compile, slot by slot, and what was left out and why; by id, kind, form, tokens and reason, never text (a
+//! piece opens by its handle, through the history tool).
+//!
+//! - **Who is present** is the gate's own reading of this turn (`view_gate::Verified`, the presence the turn
+//!   computed from its input's owner's mark), for this turn alone: a presence kept for another turn of the
+//!   session, or none, is unknown, and unknown is shown nothing. No argument of the call can claim it, and no
+//!   node of the session is read to find it.
+//! - **Every piece is checked again today** through the gate (`view::record::source`), with the turn's point
+//!   of view narrowed by the record's: a piece this turn may not read now is not listed, and nothing counts it.
+//! - **One view, bounded**: the turn's newest, at most [`PIECES`] pieces listed; past that it says how many
+//!   pieces it may read were not listed.
 
-use theseus_memory::gate::{Present, Veil};
+use theseus_memory::gate::Present;
 
-use crate::node::Body;
-use crate::view::record::{self, show::Reader, ViewRecord};
-use crate::view::Anchor;
-use crate::view_gate::{self, Input};
+use crate::view::permit::point_of_view;
+use crate::view::record::show::Reader;
+use crate::view::record::source::GateSource;
+use crate::view::record::{self, ViewRecord};
+use crate::view_gate::Verified;
 use crate::Core;
+
+/// The most pieces (shown and dropped) the look lists.
+pub const PIECES: usize = 60;
 
 /// What the look says when the turn has no view.
 const NONE: &str =
     "this turn has no view record: its context was compiled as a transcript (`[context] \
      assembly`), or its view is not written yet";
 
-/// The id of the message that opened `turn` in `session`: the first person's message of the turn.
-fn opener(core: &Core, session: &str, turn: &str) -> Option<String> {
-    let nodes = core.store.session_nodes(session).ok()?;
-    nodes
-        .into_iter()
-        .map(|(_, n)| n)
-        .find(|n| n.turn_id.as_deref() == Some(turn) && matches!(n.body, Body::UserMessage { .. }))
-        .map(|n| n.id)
-}
+/// What it says when who is present is not known.
+const UNKNOWN: &str = "who is present in this turn cannot be read, so its view is not shown";
 
-/// Who is present for this turn, by the gate's rule; the place as the gate reads it.
-fn presence(core: &Core, session: &str, turn: &str) -> Present {
-    let place = view_gate::session_marks(&core.runner, Some(session), session, Veil::Clear).class;
-    let target = core.runner.outbox.try_target(session).ok().flatten();
-    let node = opener(core, session, turn);
-    let input = match &node {
-        Some(n) => Input::Message(n),
-        None => Input::SetUp(None),
-    };
-    view_gate::present(&place, target.as_deref(), input, &core.store)
-}
-
-/// The look's words: this turn's views, as the present may read them.
-pub(super) fn words(core: &Core, session: &str, turn: &str) -> String {
-    let present = presence(core, session, turn);
-    if present == Present::Unknown {
-        return "who is present in this turn cannot be read, so its view is not shown\n".into();
+/// The look's words: this turn's newest view, as the present may read it.
+pub(crate) fn words(core: &Core, session: &str, turn: &str) -> String {
+    let this_turn = core
+        .runner
+        .presence
+        .get(session)
+        .is_some_and(|a| a.turn_id == turn);
+    let verified = Verified::of_session(&core.runner, session);
+    if !this_turn || verified.pov().present == Present::Unknown {
+        return format!("{UNKNOWN}\n");
     }
-    match record::of_turn(&core.store, turn) {
-        Ok(views) => shown(present, &views),
+    match record::newest(&core.store, turn) {
+        Ok(Some(v)) => shown(core, session, &verified, &v),
+        Ok(None) => format!("{NONE}\n"),
         Err(e) => format!("this turn's view cannot be read: {e:#}\n"),
     }
 }
 
-/// `views` as `present` may read them: every piece for the owner alone; for anyone else, each view's own
-/// place's pieces, the rest counted. `Unknown` is never passed here.
-fn shown(present: Present, views: &[ViewRecord]) -> String {
-    if views.is_empty() {
-        return format!("{NONE}\n");
+/// `v` as the turn may read it today.
+fn shown(core: &Core, session: &str, verified: &Verified, v: &ViewRecord) -> String {
+    let pov = point_of_view(verified, &v.pov);
+    let restricted = pov.present != Present::OwnerAlone;
+    let source = GateSource {
+        runner: &core.runner,
+        pov,
+        asker: Some(session),
+    };
+    let reader = Reader {
+        source: &source,
+        text: None,
+        restricted,
+    };
+    bounded(reader.show(v))
+}
+
+/// At most [`PIECES`] pieces listed; the rest of what may be read is counted.
+fn bounded(mut v: theseus_protocol::view::ViewShown) -> String {
+    let mut room = PIECES;
+    let mut over = 0usize;
+    for s in &mut v.slots {
+        let keep = s.pieces.len().min(room);
+        over += s.pieces.len() - keep;
+        s.pieces.truncate(keep);
+        room -= keep;
     }
-    let alone = present == Present::OwnerAlone;
-    let mut out = String::new();
-    for v in views {
-        let here = match &v.pov.anchor {
-            Anchor::Place(p) => p.as_str(),
-            Anchor::Task(_) => "",
-        };
-        let reader = Reader {
-            place: (!alone).then_some(here),
-            text: None,
-        };
-        out.push_str(&theseus_protocol::view::lines(&reader.show(v)));
-    }
-    if !alone {
-        out.push_str("(not the owner alone here: only this place's pieces are listed)\n");
+    v.slots.retain(|s| !s.pieces.is_empty());
+    let keep = v.dropped.len().min(room);
+    over += v.dropped.len() - keep;
+    v.dropped.truncate(keep);
+    let mut out = theseus_protocol::view::lines(&v);
+    if over > 0 {
+        out.push_str(&format!(
+            "  ({over} more pieces you may read are not listed: the look lists {PIECES})\n"
+        ));
     }
     out
 }

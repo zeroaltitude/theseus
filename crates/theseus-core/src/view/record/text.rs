@@ -1,4 +1,6 @@
-//! A piece's text, read back from the store for the owner at his own terminal (`theseus view show --text`).
+//! A piece's text, read back from the store for the owner at his own terminal (`theseus view show --text`),
+//! only for a piece whose source was checked today (`show::Reader`). It is the source's text now (the ask and
+//! the final reply of the range's first and last exchanges), not a replay of the bytes the model was sent.
 //! An exchange's text is its ask and its final reply, through the exchange record (`exchange.<turn>`, the
 //! ledger's) and their nodes. A space whose text this build does not read yet (a fold node, a fact, a card,
 //! a task, code's own text) gives none: the reader says so rather than guess.
@@ -7,6 +9,7 @@ use serde::Deserialize;
 
 use super::super::{Piece, Space};
 use super::show::PieceText;
+use crate::exchange::EXCHANGE_PREFIX;
 use crate::node::Body;
 use crate::store::Store;
 
@@ -42,7 +45,10 @@ impl StoreText<'_> {
 
     /// One exchange's ask and reply.
     fn exchange(&self, turn: &str) -> Option<String> {
-        let ends: Ends = self.0.get_meta(&format!("exchange.{turn}")).ok()??;
+        let ends: Ends = self
+            .0
+            .get_meta(&format!("{EXCHANGE_PREFIX}{turn}"))
+            .ok()??;
         let ask = ends.ask.as_deref().and_then(|n| self.node_text(n));
         let reply = ends.reply.as_deref().and_then(|n| self.node_text(n));
         match (ask, reply) {
