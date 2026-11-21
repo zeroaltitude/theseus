@@ -4,13 +4,13 @@
 //! the gate's `super::permit::Permit`, the renderer `super::wire_text::TextRenderer` and the ladder
 //! `crate::ladder::view::StoreLadder`).
 
-use super::budget::{fit, Budget, Overflow, View};
+use super::budget::{Budget, Overflow, View};
 use super::fold::{Ladder, LadderRead, WINDOW_N};
-use super::gate::{Admitted, Gate};
+use super::gate::Gate;
 use super::render::{Renderer, RequestParts};
 use super::select::Selector;
 use super::timeline::{Cursor, ExchangeRef, Timeline, TimelineRoot};
-use super::{Anchor, AtHand, PointOfView, Snapshot, Space};
+use super::{Anchor, AtHand, PointOfView, Pos, Snapshot};
 use crate::exchange::{self, Root};
 use crate::store::Store;
 
@@ -66,10 +66,13 @@ impl Snapshot for StoreSnapshot<'_> {
 
 /// What a view is assembled with.
 pub struct Parts<'a> {
-    pub selectors: &'a [&'a dyn Selector],
+    /// One per row of the admission table (`super::select::table`).
+    pub selectors: &'a [Box<dyn Selector + 'a>],
     pub gate: &'a dyn Gate,
     pub renderer: &'a dyn Renderer,
     pub ladder: &'a dyn Ladder,
+    /// The place's newest `/new` mark: nothing before it is in its window or ladder.
+    pub since: Option<Pos>,
 }
 
 /// A turn's view, assembled once: what the budgeter kept, its parts in wire order, and the ladder's read.
@@ -102,20 +105,11 @@ pub fn assemble(
     parts: &Parts<'_>,
     budget: &Budget,
 ) -> Result<Assembled, NotAssembled> {
-    let mut admitted = Vec::new();
-    for s in parts.selectors {
-        for piece in s.select(pov, snap)? {
-            // What code laid has nothing to permit; everything else passes the gate.
-            admitted.extend(match piece.range.space {
-                Space::Code { .. } => Admitted::code(piece),
-                _ => parts.gate.admit(pov, piece),
-            });
-        }
-    }
-    let view = fit(pov, admitted, budget).map_err(NotAssembled::Overflow)?;
+    let view = super::select::assemble(pov, snap, parts.selectors, parts.gate, budget)?
+        .map_err(NotAssembled::Overflow)?;
     let rendered = parts.renderer.render(&view, snap)?;
     let ladder = match &pov.anchor {
-        Anchor::Place(place) => parts.ladder.read(place, WINDOW_N, None)?,
+        Anchor::Place(place) => parts.ladder.read(place, WINDOW_N, parts.since.as_ref())?,
         Anchor::Task(_) => LadderRead {
             nodes: Vec::new(),
             window: Vec::new(),

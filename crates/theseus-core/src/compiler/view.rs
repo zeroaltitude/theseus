@@ -26,6 +26,8 @@ use crate::stub::Stub;
 pub const STRATEGY: &str = "view";
 /// The compilation's `trigger`: every turn in a view place builds its own.
 pub const TRIGGER: &str = "view_turn";
+/// The reason a window result renders as a receipt because the budgeter kept its exchange spoken.
+const SPOKEN: &str = "spoken";
 /// The provider's most cache breakpoints in one request.
 const MAX_BREAKPOINTS: usize = 4;
 /// Tool output in the window that sets off a clearing pass, in tokens of results not yet cleared (design
@@ -44,6 +46,8 @@ pub struct Frozen {
     pub front: Vec<Node>,
     /// The window's nodes, oldest first, from every session that ran its exchanges.
     pub window: Vec<(u64, Stub)>,
+    /// The results of the window's exchanges the budgeter kept spoken: they render as receipts.
+    pub spoken: Vec<String>,
     /// The block beside the new message (waiting, in play, elsewhere lately, called).
     pub beside: Option<Node>,
     /// The memory page, at the end of the system part; empty for none.
@@ -91,7 +95,7 @@ pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
     let laid = laid(input.nodes, frozen);
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
     let made = |c: &Compilation| {
-        let split = split(c, &laid);
+        let split = split(c, &laid, &frozen.spoken);
         let rendered = render(spec, input.catalog, &split, &laid.0, &input);
         let counted = counted_part(&laid.0, &split, &rendered.request);
         let est = estimate(&rendered.request, rates, counted);
@@ -250,15 +254,32 @@ fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
 
 /// The compilation the laid nodes are split under: `c`, its prefix the first `as_of` of them, its thinking
 /// stripped (earlier turns' thinking is not carried).
-fn split(c: &Compilation, (nodes, as_of): &(Vec<(u64, Stub)>, u64)) -> Compilation {
+fn split(
+    c: &Compilation,
+    (nodes, as_of): &(Vec<(u64, Stub)>, u64),
+    spoken: &[String],
+) -> Compilation {
     let includes = nodes
         .iter()
         .take(*as_of as usize)
         .map(|(_, n)| n.id.clone())
         .collect();
+    // An exchange kept spoken shows its results as receipts, in this render only.
+    let mut budget = c.budget.clone();
+    if !spoken.is_empty() {
+        let b = budget.get_or_insert_with(Default::default);
+        b.dropped.extend(spoken.iter().map(|id| BudgetDrop {
+            node_id: Some(id.clone()),
+            range: None,
+            reason: SPOKEN.into(),
+            tokens: 0,
+            tier: clearing::TIER.into(),
+        }));
+    }
     Compilation {
         as_of: *as_of,
         includes,
+        budget,
         recall_id: None,
         inherits: None,
         manifest: Manifest {

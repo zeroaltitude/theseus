@@ -281,6 +281,7 @@ async fn eleven_hours_later_the_window_is_unchanged() {
         gate: &crate::view::permit::Permit,
         renderer: &renderer,
         ladder: &ladder,
+        since: None,
     };
     let budget = crate::view::budget::Budget::new(200_000, 8_000);
     let morning = crate::view::wire::assemble(&pov, &snap, &parts, &budget).unwrap();
