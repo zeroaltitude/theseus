@@ -1,55 +1,33 @@
-//! `theseus exchanges report` and `theseus exchanges rebuild` (issue 44, step
-//! 1): the exchange ledger's measuring rows summed into counts and shares,
+//! `theseus ledger exchanges` and `theseus ledger rebuild-exchanges` (issue
+//! 44, step 1): the exchange ledger's measuring rows summed into counts and shares,
 //! and the exchanges of older history written from the conversations' nodes
 //! (`--dry-run` counts and writes nothing). Ids, kinds and counts only.
 
 use anyhow::Result;
-use clap::Subcommand;
 use theseus_client::Conn;
 use theseus_protocol::exchange::{
     ExchangeRebuildParams, ExchangeRebuildResult, ExchangeReportParams, ExchangeReportResult,
 };
 use theseus_protocol::method;
 
-#[derive(Subcommand, Debug)]
-pub enum ExchangesCmd {
-    /// The measuring rows of private turns, summed: whether the place's last exchange was in
-    /// view, what the context sent was made of, cold starts, the things named, the judge's
-    /// unread answers, gaps and overlaps, and who typed at the terminal.
-    Report {
-        /// Only the newest N rows.
-        #[arg(short, long)]
-        n: Option<u64>,
-    },
-    /// Write the exchanges of turns from before the ledger, from the nodes. A place and a
-    /// person are filled only where a stored record proves them; the rest say unknown.
-    Rebuild {
-        /// Count what would be written, and write nothing.
-        #[arg(long)]
-        dry_run: bool,
-    },
+/// `theseus ledger exchanges`.
+pub async fn report(conn: &mut Conn, json: bool, n: Option<u64>) -> Result<()> {
+    let p = serde_json::to_value(ExchangeReportParams { limit: n })?;
+    let v = conn.request(method::EXCHANGE_REPORT, p).await?;
+    match json {
+        true => println!("{}", serde_json::to_string(&v)?),
+        false => println!("{}", report_lines(&serde_json::from_value(v)?)),
+    }
+    Ok(())
 }
 
-pub async fn run(conn: &mut Conn, json: bool, cmd: ExchangesCmd) -> Result<()> {
-    let (m, p) = match &cmd {
-        ExchangesCmd::Report { n } => (
-            method::EXCHANGE_REPORT,
-            serde_json::to_value(ExchangeReportParams { limit: *n })?,
-        ),
-        ExchangesCmd::Rebuild { dry_run } => (
-            method::EXCHANGE_REBUILD,
-            serde_json::to_value(ExchangeRebuildParams { dry_run: *dry_run })?,
-        ),
-    };
-    let v = conn.request(m, p).await?;
-    match (json, cmd) {
-        (true, _) => println!("{}", serde_json::to_string(&v)?),
-        (false, ExchangesCmd::Report { .. }) => {
-            println!("{}", report_lines(&serde_json::from_value(v)?))
-        }
-        (false, ExchangesCmd::Rebuild { .. }) => {
-            println!("{}", rebuild_lines(&serde_json::from_value(v)?))
-        }
+/// `theseus ledger rebuild-exchanges`.
+pub async fn rebuild(conn: &mut Conn, json: bool, dry_run: bool) -> Result<()> {
+    let p = serde_json::to_value(ExchangeRebuildParams { dry_run })?;
+    let v = conn.request(method::EXCHANGE_REBUILD, p).await?;
+    match json {
+        true => println!("{}", serde_json::to_string(&v)?),
+        false => println!("{}", rebuild_lines(&serde_json::from_value(v)?)),
     }
     Ok(())
 }

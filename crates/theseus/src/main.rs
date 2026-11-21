@@ -252,13 +252,6 @@ enum Cmd {
         #[arg(long)]
         short: bool,
     },
-    /// The exchange ledger: `report` sums its rows of private turns (ids, kinds and counts),
-    /// `rebuild` writes the exchanges of older turns from their nodes (`--dry-run` only counts).
-    #[command(hide = true)]
-    Exchanges {
-        #[command(subcommand)]
-        cmd: exchanges_cmd::ExchangesCmd,
-    },
     /// What the next request holds, counted part by part down to each tool: the system's blocks
     /// and sections, every tool's description, schema and total with its use (calls planned in the
     /// last 30 days across every session, and the last one's date), the messages, and the total
@@ -1484,14 +1477,6 @@ async fn plans_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     }
 }
 
-/// `theseus census` and `theseus exchanges`: what a request holds, and what the turns sent.
-async fn counts_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
-    match cmd {
-        Cmd::Exchanges { cmd } => exchanges_cmd::run(c, json, cmd).await,
-        cmd => census::cmd(c, json, cmd).await,
-    }
-}
-
 /// `theseus undo` and `theseus config`: what the owner holds back, and what they changed.
 async fn owner_cmd(c: &mut Conn, json: bool, cmd: Cmd) -> Result<()> {
     match cmd {
@@ -1556,7 +1541,7 @@ async fn run(cli: Cli) -> Result<()> {
             true => why::context(c, json, turn).await,
             false => why::why(c, json, session, turn).await,
         },
-        cmd @ (Cmd::Census { .. } | Cmd::Exchanges { .. }) => counts_cmd(c, json, cmd).await,
+        cmd @ Cmd::Census { .. } => census::cmd(c, json, cmd).await,
         Cmd::Open { what } => open::open(c, json, what).await,
         Cmd::Inspect { session, turn } => inspect_cmd::inspect(c, json, session, turn).await,
         Cmd::Reach { node, generations } => cmd::reach(c, json, node, generations).await,

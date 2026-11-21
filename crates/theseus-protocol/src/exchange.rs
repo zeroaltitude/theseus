@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 
 /// `exchange.report`: the newest `limit` rows (default all).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeReportParams {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub limit: Option<u64>,
 }
 
@@ -21,6 +23,7 @@ pub struct ExchangeReportParams {
 /// `kind`; …); `tokens` is each part of the sent context, added up over the
 /// rows, est. at the catalog's bytes a token.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeReportResult {
     pub rows: u64,
@@ -29,12 +32,13 @@ pub struct ExchangeReportResult {
     pub to_ms: Option<u64>,
     pub counts: BTreeMap<String, BTreeMap<String, u64>>,
     pub tokens: BTreeMap<String, u64>,
-    /// The newest `places.bound` row: the places bound, by kind.
+    /// The places bound now, by kind (`dm`, `channel_private`, …): counts.
     pub places_bound: BTreeMap<String, u64>,
 }
 
 /// `exchange.rebuild`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeRebuildParams {
     /// Count what it would write, and write nothing.
@@ -43,6 +47,7 @@ pub struct ExchangeRebuildParams {
 
 /// What a rebuild found and wrote.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeRebuildResult {
     pub dry_run: bool,
@@ -59,5 +64,6 @@ pub struct ExchangeRebuildResult {
     pub person_proven: u64,
     /// Why the things named in them were not looked for, if they were not.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub things_skipped: Option<String>,
 }
