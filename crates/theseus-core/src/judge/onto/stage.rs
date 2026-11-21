@@ -46,6 +46,11 @@ impl Pending<'_> {
         self.staged.frame()
     }
 
+    /// The plans the frame's filing came to.
+    pub fn plans(&self) -> &[Plan] {
+        &self.plans
+    }
+
     /// The frame was written: hold the snapshot, say each write, and send
     /// the cards.
     pub fn written(self) {
@@ -126,7 +131,7 @@ fn title_of(core: &Core, session: &str) -> Option<String> {
 
 /// Whether a judgment of the batch is one the ontology may act on: `onto.v1`'s,
 /// answered by the model its pack pins, in a mode that acts.
-fn acts(j: &Judgment) -> bool {
+pub(crate) fn acts(j: &Judgment) -> bool {
     j.pack == ONTO_PACK && j.actionable() && j.mode != Mode::Shadow
 }
 

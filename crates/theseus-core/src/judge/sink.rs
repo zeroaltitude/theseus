@@ -353,6 +353,10 @@ impl JudgeService {
         let filing = core
             .as_deref()
             .and_then(|c| super::onto::stage::stage_into(c, batch, &mut records));
+        // And the topics it chose touch the message's exchange (issue 44).
+        if let Some(c) = core.as_deref() {
+            records.extend(crate::names::topics::of_batch(c, batch, filing.as_ref()));
+        }
         let marks = self.unwritten_marks(batch);
         for (key, mark) in &marks {
             records.extend(NewRecord::json(theseus_store::kinds::META, Some(key), mark).ok());

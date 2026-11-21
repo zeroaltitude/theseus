@@ -150,7 +150,7 @@ impl Plan {
 }
 
 /// A Choice answer of the judgment: the option and its confidence.
-fn choice(j: &Judgment, question: &str) -> Option<(String, f64)> {
+pub(crate) fn choice(j: &Judgment, question: &str) -> Option<(String, f64)> {
     match &j.answer(question)?.answer {
         Answer::Choice {
             choice, confidence, ..
@@ -160,7 +160,7 @@ fn choice(j: &Judgment, question: &str) -> Option<(String, f64)> {
 }
 
 /// The strings of a JSON array.
-fn strings(v: &Value) -> Vec<String> {
+pub(crate) fn strings(v: &Value) -> Vec<String> {
     v.as_array()
         .map(|v| {
             v.iter()
@@ -171,7 +171,7 @@ fn strings(v: &Value) -> Vec<String> {
 }
 
 /// The entry of `options` an option id `<prefix><n>` names (n from 1).
-fn nth<'a>(options: &'a [String], id: &str, prefix: char) -> Option<&'a String> {
+pub(crate) fn nth<'a>(options: &'a [String], id: &str, prefix: char) -> Option<&'a String> {
     let n: usize = id.strip_prefix(prefix)?.parse().ok()?;
     options.get(n.checked_sub(1)?)
 }

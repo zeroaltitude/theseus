@@ -32,7 +32,7 @@ pub(crate) struct Rig {
     _dir: tempfile::TempDir,
 }
 
-fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mut Config)) -> Rig {
+pub(crate) fn rig_with(jev: FakeJev, namer: Vec<Scripted>, more: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg: Config = judge_config(dir.path(), Some(&jev));
     inbound_only(&mut cfg);
