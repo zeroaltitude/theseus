@@ -71,6 +71,7 @@ pub struct ExchangeRebuildResult {
 /// `exchange.ladder` (issue 44, step 4): build a place's ladder from its
 /// history since its latest `/new`: the missing `did` lines, then the folds.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeLadderParams {
     /// The place, as the ledger names it (`discord:channel:<id>`, `local:<dir>`).
@@ -80,6 +81,7 @@ pub struct ExchangeLadderParams {
     /// The most this run may spend, in dollars: the smaller of it and what is
     /// left of the day's line for summaries (none: that line alone).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub cap_usd: Option<f64>,
     /// Leave to pass the day's line, up to `cap_usd` (which it needs).
     pub over_day_line: bool,
@@ -87,6 +89,7 @@ pub struct ExchangeLadderParams {
 
 /// What a ladder build found, would do or did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
 pub struct ExchangeLadderResult {
     pub dry_run: bool,
@@ -113,5 +116,6 @@ pub struct ExchangeLadderResult {
     pub spent_usd: f64,
     /// Why it stopped before it was done.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub stopped: Option<String>,
 }
