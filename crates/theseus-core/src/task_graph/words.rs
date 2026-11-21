@@ -304,23 +304,49 @@ pub fn decide(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kind
 }
 
 /// [`Evidence`] for a turn's call: the store's records, the gate's `present`.
-pub struct Turn<'t, 'a>(pub &'t TurnCtx<'a>);
+pub struct Records<'a> {
+    pub store: &'a crate::store::Store,
+    pub outbox: &'a crate::outbox::Outbox,
+    pub session: &'a str,
+    pub turn: &'a str,
+    /// The class of the place the turn's words go to.
+    pub class: crate::places::PlaceClass,
+    pub task: bool,
+    /// Outside text read since his last message, or the turn flagged steered.
+    pub outside: bool,
+}
 
-impl Evidence for Turn<'_, '_> {
+impl<'a> Records<'a> {
+    /// The evidence of the call `tc` runs.
+    pub fn of(tc: &'a TurnCtx<'a>) -> Self {
+        let (outside, steered) = crate::config_change::outside_text(tc);
+        Self {
+            store: tc.store,
+            outbox: tc.outbox,
+            session: tc.session_id,
+            turn: tc.turn_id,
+            class: tc.class,
+            task: tc.task.is_some(),
+            outside: outside || steered,
+        }
+    }
+}
+
+impl Evidence for Records<'_> {
     fn session(&self) -> &str {
-        self.0.session_id
+        self.session
     }
 
     fn is_task(&self) -> bool {
-        self.0.task.is_some()
+        self.task
     }
 
     fn mark(&self, node: &str) -> Result<Option<OwnerMark>> {
-        crate::exchange::mark(self.0.store, node)
+        crate::exchange::mark(self.store, node)
     }
 
     fn exchange(&self) -> Result<Option<Exchange>> {
-        crate::exchange::exchange(self.0.store, self.0.turn_id)
+        crate::exchange::exchange(self.store, self.turn)
     }
 
     fn present(&self, mark: &OwnerMark) -> Present {
@@ -328,10 +354,10 @@ impl Evidence for Turn<'_, '_> {
         use theseus_memory::recall::Place;
         // Where the message arrived, before any thread routing: its own
         // session's target (none: the terminal or the web page).
-        let Ok(target) = self.0.outbox.try_target(&mark.arrived_session) else {
+        let Ok(target) = self.outbox.try_target(&mark.arrived_session) else {
             return Present::Unknown;
         };
-        let place = match self.0.class {
+        let place = match self.class {
             crate::places::PlaceClass::Private => Place::Private,
             crate::places::PlaceClass::Shared => {
                 target.clone().map_or(Place::Unknown, Place::Shared)
@@ -341,13 +367,13 @@ impl Evidence for Turn<'_, '_> {
             &place,
             target.as_deref(),
             Input::Message(&mark.node),
-            self.0.store,
+            self.store,
         )
     }
 
     fn text(&self, node: &str) -> Result<Option<String>> {
-        Ok(match self.0.store.get_node(node)? {
-            Some((_, n)) if n.session_id == self.0.session_id => match n.body {
+        Ok(match self.store.get_node(node)? {
+            Some((_, n)) if n.session_id == self.session => match n.body {
                 crate::node::Body::UserMessage { text, .. } => Some(text),
                 _ => None,
             },
@@ -356,12 +382,11 @@ impl Evidence for Turn<'_, '_> {
     }
 
     fn outside(&self) -> bool {
-        let (outside, steered) = crate::config_change::outside_text(self.0);
-        outside || steered
+        self.outside
     }
 
     fn words(&self, task: &str, version: u64) -> Result<Option<Words>> {
-        words(self.0.store, task, version)
+        words(self.store, task, version)
     }
 }
 

@@ -480,3 +480,112 @@ async fn a_change_naming_words_that_are_not_his_waits_on_its_card() {
     assert!(rows(c, "task.change_accepted").is_empty());
     assert!(words(&c.store, TASK, 2).unwrap().is_none());
 }
+
+/// One request on a connection that `client` names (as the exchange's tests
+/// send one).
+async fn call(
+    core: &std::sync::Arc<crate::rpc::Core>,
+    client: crate::approval::Client,
+    input: &str,
+    session: Option<&str>,
+) -> theseus_protocol::TurnSubmitResult {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (a, b) = tokio::io::duplex(1 << 20);
+    let (sr, sw) = tokio::io::split(b);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(a);
+    let params = serde_json::json!({"session_id": session, "input": input});
+    let req = theseus_protocol::Request::new(theseus_protocol::Id::Num(1), "turn.submit", params);
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    cw.write_all(line.as_bytes()).await.unwrap();
+    let mut lines = tokio::io::BufReader::new(cr).lines();
+    let r = loop {
+        let l = lines.next_line().await.unwrap().unwrap();
+        if let theseus_protocol::Message::Response(r) = serde_json::from_str(&l).unwrap() {
+            break r;
+        }
+    };
+    cw.shutdown().await.unwrap();
+    drop(lines);
+    let _ = srv.await;
+    assert!(r.error.is_none(), "{:?}", r.error);
+    serde_json::from_value(r.result.unwrap()).unwrap()
+}
+
+/// What a call of `res`'s turn reads, at the terminal.
+fn records<'a>(
+    core: &'a crate::rpc::Core,
+    res: &'a theseus_protocol::TurnSubmitResult,
+) -> Records<'a> {
+    Records {
+        store: &core.store,
+        outbox: &core.outbox,
+        session: &res.session_id,
+        turn: &res.turn_id,
+        class: crate::places::PlaceClass::Private,
+        task: false,
+        outside: false,
+    }
+}
+
+/// The turn's own message.
+fn asked(core: &crate::rpc::Core, res: &theseus_protocol::TurnSubmitResult) -> String {
+    core.store
+        .session_nodes(&res.session_id)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|(_, n)| {
+            n.turn_id.as_deref() == Some(res.turn_id.as_str())
+                && matches!(n.body, crate::node::Body::UserMessage { .. })
+        })
+        .map(|(_, n)| n.id)
+        .unwrap()
+}
+
+/// The records real turns write, read as a call reads them: his own turn at
+/// the terminal narrows the task; an agent's process at the terminal, and his
+/// message of an earlier exchange, do not.
+#[tokio::test]
+async fn the_records_of_real_turns_decide_as_the_rule_says() {
+    use crate::approval::{Client, Surface};
+    use crate::peer_proc::Behind;
+    use crate::provider::{FakeProvider, Scripted};
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let script = (0..4)
+        .map(|i| Scripted::text(&format!("reply {i}")))
+        .collect();
+    let fake = std::sync::Arc::new(FakeProvider::scripted(script));
+    let core = crate::rpc::Core::build(crate::rpc::Parts::for_tests(cfg, fake, store)).unwrap();
+    let rec = task();
+    let owner = || Client::new("sock#1", Surface::Cli).behind(Behind::Owner);
+
+    let first = call(&core, owner(), "make it staging only", None).await;
+    let node = asked(&core, &first);
+    let new = format!("{OBJECTIVE}; make it staging only");
+    let ev = records(&core, &first);
+    assert_eq!(
+        decide(&ev, &rec, &narrowing(&node, &new)),
+        Ok(Kind::Narrows)
+    );
+
+    // His message of the turn before is not of this exchange.
+    let second = call(&core, owner(), "ok", Some(&first.session_id)).await;
+    let ev = records(&core, &second);
+    assert_eq!(
+        decide(&ev, &rec, &narrowing(&node, &new)),
+        Err(Why::NotCurrent)
+    );
+
+    // An agent's process at the terminal.
+    let agent = Client::new("sock#9", Surface::Cli).behind(Behind::Agent("claude".into()));
+    let theirs = call(&core, agent, "make it staging only", None).await;
+    let node = asked(&core, &theirs);
+    let ev = records(&core, &theirs);
+    assert_eq!(decide(&ev, &rec, &narrowing(&node, &new)), Err(Why::NotHim));
+    assert_eq!(decide(&ev, &rec, &pause(&node)), Err(Why::NotHim));
+}

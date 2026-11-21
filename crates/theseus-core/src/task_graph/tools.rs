@@ -136,9 +136,12 @@ impl UpdateIn {
 pub fn by_words(tc: &TurnCtx<'_>, input: &Value) -> Result<super::words::Kind, super::words::Why> {
     use super::words::Why;
     let i = update_in(input).map_err(|_| Why::NoWords)?;
+    if i.said.is_none() || i.kind.is_none() {
+        return Err(Why::NoWords);
+    }
     let all = super::all(tc.store).map_err(|_| Why::NotOneTask)?;
     let rec = super::resolve(&all, &i.id).map_err(|_| Why::NotOneTask)?;
-    super::words::decide(&super::words::Turn(tc), rec, &i.ask())
+    super::words::decide(&super::words::Records::of(tc), rec, &i.ask())
 }
 
 #[derive(Debug, Deserialize)]
@@ -844,7 +847,7 @@ fn his_words(
     if layer1.is_none() || approved {
         return Ok(None);
     }
-    super::words::decide(&super::words::Turn(tc), rec, &i.ask())
+    super::words::decide(&super::words::Records::of(tc), rec, &i.ask())
         .map(Some)
         .map_err(|_| {
             format!(
