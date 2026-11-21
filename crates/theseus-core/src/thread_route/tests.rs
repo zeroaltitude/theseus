@@ -447,12 +447,14 @@ const OFF: Rules = Rules {
     new_entities: 0,
     ask_every_thread: false,
     guess_unsure: false,
+    home_follow: 0.0,
 };
 const ON: Rules = Rules {
     sticky_alone_asks: true,
     new_entities: 0,
     ask_every_thread: true,
     guess_unsure: false,
+    home_follow: 0.0,
 };
 
 /// `decide` under today's rules, before theseus-eqp1v.
@@ -1539,4 +1541,84 @@ fn a_guess_into_a_large_thread_goes_home_and_nothing_else_is_moved() {
         spare_large(&at_home, Some(900_000)).is_none(),
         "a guess of home has nothing to spare"
     );
+}
+
+// ---- a follow-up of the place's own reply (issue 43)
+
+/// The fault: the place's own conversation answered, and a follow-up four
+/// minutes after the question (two after the reply) names nothing. It has the
+/// credit a thread's follow-up has, by the same functions; naming a thread's
+/// entity or title, a correction, a thread's last exchange, or a reply older
+/// than the half-life leaves it none.
+#[test]
+fn a_follow_up_of_homes_reply_has_a_threads_credit() {
+    let all = [pr_round(), security_fix()];
+    let t = refs(&all);
+    let half = 600_000;
+    let home = Last {
+        slug: None,
+        at_ms: 0,
+        replied_ms: Some(120_000),
+    };
+    let at = |text: &str, last: &Last, now: u64| {
+        home_follow(
+            &pre_route(text, &t, Some(last), now, half),
+            Some(last),
+            now,
+            half,
+        )
+    };
+    let credit = at("can you say more about the second point", &home, 240_000);
+    let want = 1.0 - (1.0 - sticky(240_000, half)) * (1.0 - chain(120_000, half));
+    assert!((credit - want).abs() < 1e-9 && credit > 0.6, "{credit}");
+    assert_eq!(at("and what about #412", &home, 240_000), 0.0, "an entity");
+    assert_eq!(
+        at("and the security fix too", &home, 240_000),
+        0.0,
+        "a title"
+    );
+    assert_eq!(
+        at("say more", &home, 120_000 + half + 1),
+        0.0,
+        "past the window"
+    );
+    let thread = Last {
+        slug: Some("pr-round".into()),
+        ..home.clone()
+    };
+    assert_eq!(at("say more", &thread, 240_000), 0.0, "a thread's own");
+    let mut learned = pre_route("say more", &t, Some(&home), 240_000, half);
+    learned[1].learned = true;
+    assert_eq!(home_follow(&learned, Some(&home), 240_000, half), 0.0);
+}
+
+/// With the credit standing, Jev's middling pick of another thread (the
+/// fault's 0.66), or of a new one, runs the follow-up at home, movable; a
+/// pick at the act bar still takes it; with no credit the pick stands as it
+/// did.
+#[test]
+fn homes_credit_keeps_a_follow_up_from_a_middling_pick() {
+    let all = [pr_round(), security_fix()];
+    let t = refs(&all);
+    let pre = pre_with(&[("pr-round", 0.0), ("security-fix", 0.0)]);
+    let pick = |p: f64| Jev {
+        pick: Pick::Thread("security-fix".into()),
+        p,
+    };
+    let kept = Rules {
+        home_follow: 0.67,
+        ..ON
+    };
+    let d = decide(&t, &pre, Some(&pick(0.66)), Voice::Jev, None, kept);
+    assert_eq!(tags(&d), (RouteHow::Home, None, true), "{d:?}");
+    let new = Jev {
+        pick: Pick::New,
+        p: 0.7,
+    };
+    let d = decide(&t, &pre, Some(&new), Voice::Jev, None, kept);
+    assert_eq!(tags(&d), (RouteHow::Home, None, true), "{d:?}");
+    let d = decide(&t, &pre, Some(&pick(0.95)), Voice::Jev, None, kept);
+    assert_eq!(tags(&d), (RouteHow::Quiet, Some("security-fix"), false));
+    let d = decide(&t, &pre, Some(&pick(0.66)), Voice::Jev, None, ON);
+    assert_eq!(tags(&d), (RouteHow::Visible, Some("security-fix"), true));
 }

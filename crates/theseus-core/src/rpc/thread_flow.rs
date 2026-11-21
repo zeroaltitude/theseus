@@ -40,9 +40,9 @@ use crate::judge::inbound::{
 use crate::session::SessionRecord;
 use crate::thread_flow::{Answered, Handoff, Pending, Routed};
 use crate::thread_route::{
-    address, decide, decide_single, decisive, lone_offer, new_entities, pre_route, propose,
-    question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick, Pre,
-    Rules, Voice,
+    address, decide, decide_single, decisive, home_follow, lone_offer, new_entities, pre_route,
+    propose, question, top_entities, Address, Addressing, AskChoice, Choice, Decision, Jev, Pick,
+    Pre, Rules, Voice,
 };
 
 /// How many characters of the waiting message a question shows.
@@ -121,6 +121,7 @@ fn fresh_row(home: &str) -> RoutedRow {
         movable: false,
         above: None,
         spared: None,
+        follow: None,
     }
 }
 
@@ -404,6 +405,8 @@ impl Core {
             self.learned_thread(&p.input, &mut pre);
         }
         row.above = self.keep_apart_by_dir(p, session, live, &mut pre);
+        let follow = home_follow(&pre, state.last(home).as_ref(), now, half);
+        row.follow = (follow > 0.0).then_some(follow);
         row.pre = pre
             .iter()
             .map(|x| (x.slug.clone(), x.score, x.hits.clone()))
@@ -440,7 +443,7 @@ impl Core {
             }
         } else {
             match self
-                .decide_with_jev(p, conn, at, (live, &pre), row, (early, judgment))
+                .decide_with_jev(p, conn, at, (live, &pre, follow), row, (early, judgment))
                 .await
             {
                 Decision::Route(tag) => tag,
@@ -543,7 +546,7 @@ impl Core {
             Option<&str>,
             &str,
         ),
-        (live, pre): (&[&ThreadInfo], &[Pre]),
+        (live, pre, home_follow): (&[&ThreadInfo], &[Pre], f64),
         row: &mut RoutedRow,
         (early_out, judgment): (&mut Option<Early>, &mut Judged),
     ) -> Decision {
@@ -627,6 +630,7 @@ impl Core {
             new_entities: new_entities(&p.input, live),
             ask_every_thread: self.cfg.threads.ask_every_thread,
             guess_unsure: self.cfg.threads.unsure == crate::config::Unsure::Guess,
+            home_follow,
         };
         decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
     }

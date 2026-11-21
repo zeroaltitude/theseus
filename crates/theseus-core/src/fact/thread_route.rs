@@ -53,6 +53,9 @@ pub struct RoutedRow {
     /// (`thread_route::spare_large`), with that context in tokens: the turn
     /// ran at home instead.
     pub spared: Option<(String, u64)>,
+    /// The place's own conversation's follow-up credit, when it stood
+    /// (`thread_route::home_follow`, issue 43).
+    pub follow: Option<f64>,
 }
 
 /// `thread.routed`: an unaddressed message found its thread.
@@ -72,6 +75,9 @@ impl Fact for ThreadRouted<'_> {
         });
         if let Some((thread, tokens)) = &r.spared {
             row["spared"] = json!({"thread": thread, "context_tokens": tokens});
+        }
+        if let Some(credit) = r.follow {
+            row["home_follow"] = json!(credit);
         }
         row
     }

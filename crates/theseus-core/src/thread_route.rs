@@ -434,6 +434,29 @@ pub fn chain(gap_ms: u64, half_life_ms: u64) -> f64 {
     CHAIN * 0.5f64.powf(gap_ms as f64 / (half_life_ms.max(4) / 4) as f64)
 }
 
+/// The place's own conversation's follow-up credit (issue 43): what a
+/// thread's stickiness and reply chain give its follow-up, by the same two
+/// functions, when the place's last exchange ran at home, its reply ended
+/// within one half-life, and the message names nothing a thread holds (no
+/// entity, no title: `pre`'s hits, after the directory rule) and met no
+/// learned correction. Zero otherwise.
+pub fn home_follow(pre: &[Pre], last: Option<&Last>, now_ms: u64, half_life_ms: u64) -> f64 {
+    let Some(l) = last.filter(|l| l.slug.is_none()) else {
+        return 0.0;
+    };
+    let replied = l.replied_ms.map(|r| now_ms.saturating_sub(r));
+    let Some(gap) = replied.filter(|g| *g <= half_life_ms) else {
+        return 0.0;
+    };
+    if pre.iter().any(|p| !p.hits.is_empty() || p.learned) {
+        return 0.0;
+    }
+    noisy_or(&[
+        sticky(now_ms.saturating_sub(l.at_ms), half_life_ms),
+        chain(gap, half_life_ms),
+    ])
+}
+
 /// One thread's pre-router score and what it stands on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pre {
@@ -779,7 +802,7 @@ pub enum Choice {
 }
 
 /// What the decision reads beside the scores (theseus-eqp1v).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Rules {
     /// `[threads] sticky_alone_asks`: a thread that stands on stickiness and
     /// the reply chain alone (no entity named, no learned correction) cannot
@@ -794,6 +817,9 @@ pub struct Rules {
     /// `[threads] unsure = "guess"` (theseus-ttlze): an ask or a new-thread
     /// offer becomes a [`RouteHow::Guess`] placement ([`guessed`]).
     pub guess_unsure: bool,
+    /// The place's own conversation's follow-up credit ([`home_follow`]):
+    /// above zero, no other choice below the act bar takes the message.
+    pub home_follow: f64,
 }
 
 /// The most threads an ask lists by name; past it, [`LISTED_PAST`] and `other`.
@@ -847,6 +873,15 @@ fn hold_sticky(ranked: &mut [(Choice, f64)], pre: &[Pre], jev: &Jev) -> bool {
         ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
     }
     held
+}
+
+/// A follow-up of the place's own reply stays at home (issue 43): with its
+/// credit standing, a thread or a new one that is not at the act bar does not
+/// take it. It runs at home, movable, so the reply offers the move.
+fn keep_home(threads: &[&ThreadInfo], ranked: &[(Choice, f64)], credit: f64) -> Option<Decision> {
+    let (top, score) = ranked.first()?;
+    (credit > 0.0 && *top != Choice::Home && *score < ACT)
+        .then(|| Decision::Route(tag(threads, &Choice::Home, RouteHow::Home, credit, true)))
 }
 
 /// Every choice's fused score, best first.
@@ -1195,6 +1230,9 @@ fn decide_table(
         (true, Voice::Jev, Some(j)) => hold_sticky(&mut ranked, pre, j),
         _ => false,
     };
+    if let Some(home) = keep_home(threads, &ranked, rules.home_follow) {
+        return home;
+    }
     let top = ranked[0].clone();
     let second = ranked
         .iter()
