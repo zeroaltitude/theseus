@@ -44,6 +44,14 @@ pub(super) struct Held {
     seen: Option<Seen>,
 }
 
+impl Held {
+    /// The mark of the message that opened the turn, when one was written
+    /// (the gate reads it, `turn::gate_step`).
+    pub(super) fn mark(&self) -> Option<&OwnerMark> {
+        self.mark.as_ref()
+    }
+}
+
 fn defer(t: &Turn<'_>, rec: Option<theseus_store::NewRecord>) {
     if let Some(r) = rec {
         if let Err(e) = t.tc.store.defer(r) {

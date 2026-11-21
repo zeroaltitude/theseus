@@ -1208,7 +1208,7 @@ impl ToolRuntime {
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
             crate::task_graph::tools::authority_for(
-                tc.store,
+                tc,
                 tool.name(),
                 &call.input,
                 p,

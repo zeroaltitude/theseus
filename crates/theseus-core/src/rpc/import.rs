@@ -51,6 +51,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || name.starts_with("import.")
         || name.starts_with("books.")
         || super::exchanges::OWN.contains(&name)
+        || super::views::OWN.contains(&name)
         || name.starts_with("google.")
         || name == method::CALENDAR_WINDOW
         || super::vault_keep::OWN.contains(&name)
@@ -171,8 +172,8 @@ impl Core {
         if name == method::FORECAST_CALIBRATION {
             return super::server::reply(self.forecast_calibration().await?);
         }
-        if name == method::TURN_INSPECT {
-            return self.rpc_inspect(params, conn).await;
+        if name == method::TURN_INSPECT || super::views::OWN.contains(&name) {
+            return self.rpc_turn_reads(name, params, conn).await;
         }
         if super::voice_pick::OWN.contains(&name) {
             return self.rpc_voice_pick(name, params, conn).await;

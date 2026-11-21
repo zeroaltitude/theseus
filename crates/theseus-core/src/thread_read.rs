@@ -40,8 +40,9 @@ const HITS: usize = 6;
 const DEADLINE: Duration = Duration::from_secs(2);
 
 /// Why a channel bound private opens no thread.
-pub const CHANNEL: &str = "thread.read opens another thread, and a channel bound private draws on \
-     its own conversation alone: anyone who joins it later reads what was said in it";
+pub const CHANNEL: &str = "thread.read opens another thread, and only the owner alone (at the \
+     terminal, the web page or a DM, typing in person) draws on another place: a channel bound \
+     private, or an agent's process, draws on its own conversation alone";
 
 /// Why a shared place gets nothing.
 pub const SHARED: &str = "thread.read opens another thread, and threads are the owner's alone: \
@@ -219,10 +220,11 @@ async fn read(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, S
     if !matches!(core.runner.place_of(&session), Place::Private) {
         return Err(SHARED.into());
     }
-    // A channel bound private draws on its own conversation alone (the
-    // gate's decision 5), and a thread is another place.
+    // A channel bound private, or a turn that is not the owner alone, draws
+    // on its own conversation alone (the gate's decision 5), and a thread is
+    // another place.
     if crate::view_gate::RecallPlaces::of(&core.runner, Some(&session))
-        .channel()
+        .narrowed()
         .is_some()
     {
         return Err(CHANNEL.into());

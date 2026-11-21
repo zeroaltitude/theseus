@@ -81,6 +81,11 @@ impl Change {
                     .and_then(Value::as_str)
                     .unwrap_or("objective")
             ),
+            "change_accepted" if self.detail.get("words").is_some() => format!(
+                "the operator's own message changed task {} ({})",
+                t.id,
+                self.detail["words"]["kind"].as_str().unwrap_or("a change")
+            ),
             "change_accepted" => format!("the operator accepted the change to task {}", t.id),
             "change_declined" => format!(
                 "the operator declined the change to task {}; it stays as it was",

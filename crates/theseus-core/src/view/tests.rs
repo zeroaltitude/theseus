@@ -262,7 +262,7 @@ fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
         Admitted::code(stored.clone()).is_none(),
         "a stored piece needs the gate"
     );
-    let clock = Piece {
+    let relabelled = Piece {
         range: SourceRange {
             space: Space::Code {
                 part: "clock".into(),
@@ -270,6 +270,17 @@ fn an_unmarked_input_is_not_the_owner_alone_and_folds_are_by_count() {
             ..stored.range.clone()
         },
         ..stored
+    };
+    assert!(
+        Admitted::code(relabelled.clone()).is_none(),
+        "a stored piece relabelled as code still needs the gate"
+    );
+    let clock = Piece {
+        marks: Marks {
+            place: None,
+            ..relabelled.marks.clone()
+        },
+        ..relabelled
     };
     assert!(
         Admitted::code(clock).is_some(),

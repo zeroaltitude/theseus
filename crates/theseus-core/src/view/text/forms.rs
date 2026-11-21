@@ -16,7 +16,7 @@ use crate::node::{Body, Node};
 use crate::view::render::Role;
 use crate::view::{Form, Handle};
 
-use super::labels;
+use super::{labels, literal};
 
 /// Who one part of a shown exchange is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,14 +146,16 @@ pub fn spoken(nodes: &[Node]) -> Vec<Said> {
         .collect()
 }
 
-/// A call and its result as one line, from the call and the result's size, never its text:
-/// `[fs_read src/lib.rs: 18,233 characters]`, `[proc_run cargo test: error, 41,002 characters]`,
-/// `[http_fetch https://example.org: 3,000 characters of outside text]`, `[fs_read a.rs: no result]`.
+/// A call and its result as one line, from the call and the result's size, never its text; what the call
+/// names is a quoted literal ([`literal::literal`]) and the tool's name a plain name or one:
+/// `[fs_read "src/lib.rs", lines 1-400: 18,233 characters]`, `[proc_run "cargo test": error, 41,002
+/// characters]`, `[http_fetch "https://example.org": 3,000 characters of outside text]`,
+/// `[fs_read "a.rs": no result]`.
 pub fn stub(name: &str, input: &Value, result: Option<&Node>) -> String {
-    let what = labels::one_line(&call_line(input), 160);
-    let what = match what.is_empty() {
-        true => name.to_string(),
-        false => format!("{name} {what}"),
+    let name = literal::name(name);
+    let what = match call_line(input) {
+        None => name,
+        Some(what) => format!("{name} {what}"),
     };
     let back = match result.map(|r| &r.body) {
         Some(Body::ToolResult {
@@ -177,8 +179,9 @@ pub fn stub(name: &str, input: &Value, result: Option<&Node>) -> String {
 }
 
 /// What a call was asked, read from its input's typed fields in order (a path and its lines, a program's
-/// argv or steps, a URL, a query), else its input cut short.
-fn call_line(input: &Value) -> String {
+/// argv or steps, a URL, a query), else its input cut short; each as a quoted literal. A line range that
+/// does not add up is said to be invalid, never computed past `u64`.
+fn call_line(input: &Value) -> Option<String> {
     let s = |k: &str| input.get(k).and_then(Value::as_str);
     let argv = |v: &Value| {
         v.as_array().map(|a| {
@@ -189,30 +192,33 @@ fn call_line(input: &Value) -> String {
         })
     };
     if let Some(p) = s("path") {
-        return match (
-            input.get("offset").and_then(Value::as_u64),
-            input.get("limit").and_then(Value::as_u64),
-        ) {
-            (Some(o), Some(l)) => format!("{p}, lines {o}-{}", o + l.saturating_sub(1)),
+        let p = literal::literal(p, 160);
+        let n = |k: &str| input.get(k).and_then(Value::as_u64);
+        return Some(match (n("offset"), n("limit")) {
+            (Some(o), Some(l)) => match l.checked_sub(1).and_then(|l| o.checked_add(l)) {
+                Some(end) => format!("{p}, lines {o}-{end}"),
+                None => format!("{p}, an invalid line range ({o}, {l} lines)"),
+            },
             (Some(o), None) => format!("{p}, from line {o}"),
-            _ => p.to_string(),
-        };
+            _ => p,
+        });
     }
-    if let Some(a) = input.get("argv").and_then(argv) {
-        return a;
-    }
-    if let Some(steps) = input.get("steps").and_then(Value::as_array) {
-        return steps
-            .iter()
+    let line = match (input.get("argv").and_then(argv), input.get("steps")) {
+        (Some(a), _) => a,
+        (None, Some(steps)) => steps
+            .as_array()
+            .into_iter()
+            .flatten()
             .filter_map(|st| argv(&st["argv"]))
             .collect::<Vec<_>>()
-            .join(" && ");
-    }
-    match s("url").or_else(|| s("query")) {
-        Some(v) => v.to_string(),
-        None if input.is_null() => String::new(),
-        None => input.to_string(),
-    }
+            .join(" && "),
+        (None, None) => match s("url").or_else(|| s("query")) {
+            Some(v) => v.to_string(),
+            None if input.is_null() => return None,
+            None => input.to_string(),
+        },
+    };
+    Some(literal::literal(&line, 160))
 }
 
 /// A tool result's text as the model reads it wherever it is rendered, the window's real turns included: its
@@ -260,20 +266,21 @@ pub fn render(form: Form, nodes: &[Node], did: Option<&str>, handle: &Handle) ->
 /// Parts as one text: each on its own line after who it is (`person:`, `Theseus:`, `call:`, `result:`); a
 /// result from outside wrapped ([`labels::wrap_outside`]); a mark as it is.
 pub fn text(parts: &[Said]) -> String {
-    parts
-        .iter()
-        .map(|p| match p.voice {
-            Voice::Person => format!("person: {}", p.text),
-            Voice::Theseus => format!("Theseus: {}", p.text),
-            Voice::Call => format!("call: {}", p.text),
-            Voice::Result => match &p.outside {
-                Some(src) => format!("result: {}", labels::wrap_outside(Some(src), &p.text)),
-                None => format!("result: {}", p.text),
-            },
-            Voice::Mark => p.text.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    parts.iter().map(said_text).collect::<Vec<_>>().join("\n")
+}
+
+/// One part as [`text`] shows it.
+pub fn said_text(p: &Said) -> String {
+    match p.voice {
+        Voice::Person => format!("person: {}", p.text),
+        Voice::Theseus => format!("Theseus: {}", p.text),
+        Voice::Call => format!("call: {}", p.text),
+        Voice::Result => match &p.outside {
+            Some(src) => format!("result: {}", labels::wrap_outside(Some(src), &p.text)),
+            None => format!("result: {}", p.text),
+        },
+        Voice::Mark => p.text.clone(),
+    }
 }
 
 /// The units a cut takes or leaves whole: a message of the person's, or a reply with the calls it made and
@@ -306,55 +313,124 @@ fn units(parts: &[Said]) -> Vec<Vec<usize>> {
     units
 }
 
-/// `parts` within about `max` tokens: the person's words and the last reply are always kept; the other units
-/// are kept in order while they fit, and each run of cut ones is one mark where it was:
+/// Why [`try_fit`] could not keep an exchange within its maximum: the words it must keep (the person's, and
+/// the last reply), with their framing and cut marks, are `needed` tokens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Overflow {
+    pub handle: Handle,
+    pub needed: u64,
+    pub max: u64,
+}
+
+/// `parts` within `max` tokens of their rendered text ([`text`]: prefixes, wrappers and cut marks all
+/// charged). The person's words and the last reply are always kept, whole; the other units are kept in order
+/// while the whole still fits, and each run of cut ones is one mark where it was:
 /// `[cut here: 3 parts, about 9,000 tokens; open <handle> for the whole exchange]`. A call and its result are
-/// one unit, so a cut never parts them.
-pub fn fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Vec<Said> {
+/// one unit, so a cut never parts them. When what must be kept cannot fit, an [`Overflow`] says how much it
+/// needs: the person's words are never cut to fit.
+pub fn try_fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Result<Vec<Said>, Overflow> {
     let units = units(&parts);
-    let size = |u: &Vec<usize>| -> u64 { u.iter().map(|&i| super::tokens(&parts[i].text)).sum() };
+    let bytes: Vec<u64> = parts.iter().map(|p| said_text(p).len() as u64).collect();
     let last_reply = units
         .iter()
         .rposition(|u| parts[u[0]].voice == Voice::Theseus);
-    let kept_always = |k: usize| parts[units[k][0]].voice == Voice::Person || Some(k) == last_reply;
-    let mut room = max.saturating_sub(
-        (0..units.len())
-            .filter(|&k| kept_always(k))
-            .map(|k| size(&units[k]))
-            .sum(),
-    );
+    let mut keep: Vec<bool> = units
+        .iter()
+        .enumerate()
+        .map(|(k, u)| parts[u[0]].voice == Voice::Person || Some(k) == last_reply)
+        .collect();
+    let size = |keep: &[bool]| tokens_of(runs(&units, keep, &bytes, handle).1);
+    let needed = size(&keep);
+    if needed > max {
+        return Err(Overflow {
+            handle: handle.clone(),
+            needed,
+            max,
+        });
+    }
+    let optional: Vec<usize> = (0..keep.len()).filter(|&k| !keep[k]).collect();
+    for k in optional {
+        keep[k] = true;
+        keep[k] = size(&keep) <= max;
+    }
+    let (runs, _) = runs(&units, &keep, &bytes, handle);
+    Ok(runs
+        .into_iter()
+        .flat_map(|r| match r {
+            Run::Kept(k) => units[k].iter().map(|&i| parts[i].clone()).collect(),
+            Run::Cut(m) => vec![m],
+        })
+        .collect())
+}
+
+/// [`try_fit`], for a caller that takes parts whatever happens: over its maximum, one mark that says so
+/// instead (`[too long to show here: about 12,000 tokens, over the 3,000 allowed; open <handle> for the whole
+/// exchange]`), never the words silently over.
+pub fn fit(parts: Vec<Said>, max: u64, handle: &Handle) -> Vec<Said> {
+    try_fit(parts, max, handle).unwrap_or_else(|o| {
+        vec![mark_text(format!(
+            "[too long to show here: about {} tokens, over the {} allowed; open {} for the whole exchange]",
+            crate::narrative::thousands(o.needed),
+            crate::narrative::thousands(o.max),
+            o.handle.0
+        ))]
+    })
+}
+
+/// The tokens of a text of `bytes` bytes, as [`super::tokens`] counts them.
+fn tokens_of(bytes: u64) -> u64 {
+    (bytes as f64 / crate::catalog::TokenRates::CLAUDE.text).ceil() as u64
+}
+
+/// A kept unit, or the mark for a run of cut ones.
+enum Run {
+    Kept(usize),
+    Cut(Said),
+}
+
+/// The units as kept or cut, a mark for each run of cut ones, and the bytes of their [`text`] (each part's,
+/// each mark's, and the newline between parts).
+fn runs(units: &[Vec<usize>], keep: &[bool], bytes: &[u64], handle: &Handle) -> (Vec<Run>, u64) {
     let mut out = Vec::new();
+    let (mut total, mut lines) = (0u64, 0u64);
     let mut cut: (usize, u64) = (0, 0);
+    let flush = |cut: &mut (usize, u64), out: &mut Vec<Run>, total: &mut u64, lines: &mut u64| {
+        if cut.0 > 0 {
+            let m = mark(*cut, handle);
+            *total += m.text.len() as u64;
+            *lines += 1;
+            out.push(Run::Cut(m));
+            *cut = (0, 0);
+        }
+    };
     for (k, u) in units.iter().enumerate() {
-        let keep = kept_always(k) || size(u) <= room;
-        if !keep {
-            cut = (cut.0 + u.len(), cut.1 + size(u));
+        let unit_bytes: u64 = u.iter().map(|&i| bytes[i]).sum();
+        if !keep[k] {
+            cut = (cut.0 + u.len(), cut.1 + tokens_of(unit_bytes));
             continue;
         }
-        if !kept_always(k) {
-            room -= size(u);
-        }
-        if cut.0 > 0 {
-            out.push(mark(cut, handle));
-            cut = (0, 0);
-        }
-        out.extend(u.iter().map(|&i| parts[i].clone()));
+        flush(&mut cut, &mut out, &mut total, &mut lines);
+        total += unit_bytes;
+        lines += u.len() as u64;
+        out.push(Run::Kept(k));
     }
-    if cut.0 > 0 {
-        out.push(mark(cut, handle));
-    }
-    out
+    flush(&mut cut, &mut out, &mut total, &mut lines);
+    (out, total + lines.saturating_sub(1))
 }
 
 fn mark((n, tokens): (usize, u64), handle: &Handle) -> Said {
     let parts = crate::narrative::count(n as u64, "part", "parts");
+    mark_text(format!(
+        "[cut here: {parts}, about {} tokens; open {} for the whole exchange]",
+        crate::narrative::thousands(tokens),
+        handle.0
+    ))
+}
+
+fn mark_text(text: String) -> Said {
     Said {
         voice: Voice::Mark,
-        text: format!(
-            "[cut here: {parts}, about {} tokens; open {} for the whole exchange]",
-            crate::narrative::thousands(tokens),
-            handle.0
-        ),
+        text,
         node: String::new(),
         call: None,
         outside: None,
@@ -368,7 +444,7 @@ pub fn ends(part: &Said, head: u64, tail: u64, handle: &Handle) -> Said {
     let per = crate::catalog::TokenRates::CLAUDE.text;
     let (h, t) = ((head as f64 * per) as usize, (tail as f64 * per) as usize);
     let s = &part.text;
-    if part.voice == Voice::Person || s.len() <= h + t {
+    if part.voice == Voice::Person || s.len() <= h.saturating_add(t) {
         return part.clone();
     }
     let a = floor_char(s, h);
