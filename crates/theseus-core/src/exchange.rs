@@ -341,6 +341,8 @@ pub struct Pending {
     pub session: String,
     pub at_ms: u64,
     pub rx: tokio::sync::oneshot::Receiver<Vec<String>>,
+    /// Its numbered items, named apart (`names::items`).
+    pub items: Option<tokio::sync::oneshot::Receiver<Vec<String>>>,
 }
 
 /// What the turns share of their exchanges: the arrivals staged for the

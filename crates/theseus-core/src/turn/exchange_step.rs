@@ -32,6 +32,10 @@ pub(super) struct Held {
     mark: Option<OwnerMark>,
     /// The index naming the things in the message.
     things: Option<oneshot::Receiver<Vec<String>>>,
+    /// Its numbered items, named apart (`names::items`), and their scope:
+    /// the project of the session the message arrived at.
+    items: Option<oneshot::Receiver<Vec<String>>>,
+    scope: Option<String>,
     /// The things of the reply before it, when they were named in time.
     reply_things: Option<BTreeMap<String, u64>>,
     seen: Option<Seen>,
@@ -60,13 +64,47 @@ impl TurnRunner {
         self.cfg.context.ledger_on() && t.tc.task.is_none()
     }
 
-    /// The index's things in `text`, named off the turn's path, with its
-    /// numbered items scoped by `scope` (`names::items`): none with no
+    /// The index's things in `text`, named off the turn's path: none with no
     /// index, or outside a runtime.
-    fn things_of(
+    fn things_of(&self, text: &str) -> Option<oneshot::Receiver<Vec<String>>> {
+        self.named(text, |index, text| index.entities(text))
+    }
+
+    /// `text`'s numbered items scoped by `scope`, named apart from its things
+    /// so a slow tender costs them nothing, and given up after
+    /// `names::items::WAIT`.
+    fn items_of(
         &self,
         text: &str,
         scope: Option<String>,
+    ) -> Option<oneshot::Receiver<Vec<String>>> {
+        self.named(text, move |index, text| {
+            let asked = index.items(text);
+            Box::pin(async move {
+                match tokio::time::timeout(crate::names::items::WAIT, asked).await {
+                    Ok(Ok(items)) => Ok::<_, crate::tender::TenderMiss>(
+                        items
+                            .into_iter()
+                            .map(|i| crate::names::items::scoped(i, scope.as_deref()))
+                            .collect(),
+                    ),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Ok(Vec::new()),
+                }
+            })
+        })
+    }
+
+    /// One extraction of the index over `text`, off the turn's path.
+    fn named(
+        &self,
+        text: &str,
+        ask: impl FnOnce(
+                std::sync::Arc<dyn crate::memory_pass::PassIndex>,
+                Vec<String>,
+            ) -> crate::memory_pass::IndexFuture<Vec<Vec<String>>>
+            + Send
+            + 'static,
     ) -> Option<oneshot::Receiver<Vec<String>>> {
         let index = self.pass.index()?;
         let rt = tokio::runtime::Handle::try_current().ok()?;
@@ -77,13 +115,8 @@ impl TurnRunner {
         let text = text[..cut].to_string();
         let (tx, rx) = oneshot::channel();
         rt.spawn(async move {
-            if let Ok(mut e) = index.entities(vec![text.clone()]).await {
-                let mut things = e.pop().unwrap_or_default();
-                if let Ok(mut i) = index.items(vec![text]).await {
-                    let items = i.pop().unwrap_or_default();
-                    things.extend(crate::names::items::scoped(items, scope.as_deref()));
-                }
-                let _ = tx.send(things);
+            if let Ok(mut e) = ask(index, vec![text]).await {
+                let _ = tx.send(e.pop().unwrap_or_default());
             }
         });
         Some(rx)
@@ -115,8 +148,11 @@ impl TurnRunner {
         }
         t.exchange.ask = Some((node.id.clone(), text.chars().count() as u64));
         t.exchange.mark = mark;
-        let scope = crate::names::items::scope_of(t.tc.store, t.tc.session_id);
-        t.exchange.things = self.things_of(text, scope);
+        let scope =
+            crate::names::items::scope_for(t.tc.store, t.exchange.mark.as_ref(), t.tc.session_id);
+        t.exchange.things = self.things_of(text);
+        t.exchange.items = self.items_of(text, scope.clone());
+        t.exchange.scope = scope;
     }
 
     /// The exchange's opening half, once the turn's input is written: what
@@ -175,6 +211,14 @@ impl TurnRunner {
                 }
                 t.exchange.reply_things = Some(ledger::by_kind(&terms));
             }
+            for term in p
+                .items
+                .and_then(|mut rx| rx.try_recv().ok())
+                .iter()
+                .flatten()
+            {
+                defer(t, touch(Root::Thing(term), &p.turn, &p.session, p.at_ms));
+            }
         }
         t.exchange.ex = Some(ex);
     }
@@ -232,11 +276,19 @@ impl TurnRunner {
         ex.reply = t.said.last().map(|(_, id)| id.clone());
         ex.stop = Some(result.stop_reason.clone());
         defer(t, exchange_record(&ex).ok());
-        let things = t
+        let mut things = t
             .exchange
             .things
             .take()
             .and_then(|mut rx| rx.try_recv().ok());
+        let items = t
+            .exchange
+            .items
+            .take()
+            .and_then(|mut rx| rx.try_recv().ok());
+        if let Some(items) = items {
+            things.get_or_insert_with(Vec::new).extend(items);
+        }
         for term in things.iter().flatten() {
             defer(
                 t,
@@ -260,8 +312,8 @@ impl TurnRunner {
             );
             t.record(&row);
         }
-        let scope = crate::names::items::scope_of(t.tc.store, &ex.session_id);
-        if let Some(rx) = self.things_of(&result.output, scope) {
+        let items = self.items_of(&result.output, t.exchange.scope.take());
+        if let Some(rx) = self.things_of(&result.output) {
             self.exchanges.put_reply(
                 &ex.place,
                 Pending {
@@ -269,6 +321,7 @@ impl TurnRunner {
                     session: ex.session_id,
                     at_ms: ex.end_ms.unwrap_or(ex.start_ms),
                     rx,
+                    items,
                 },
             );
         }

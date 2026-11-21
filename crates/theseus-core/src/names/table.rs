@@ -16,6 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::card::{Admits, Source};
+
 /// The words of an alias, at most: a longer title is matched by its key or
 /// by a shorter alias, never whole.
 pub const ALIAS_WORDS: usize = 8;
@@ -230,13 +232,37 @@ impl Table {
     }
 }
 
-/// The table of what the stores hold now: the thread records (their board),
-/// the tasks, and the ontology's categories of the kinds `onto.v1` files
-/// under, a project apart (a project is a task).
+/// Admits every record: the table of everything the stores hold, for a
+/// caller whose point of view sees all of it. Any other caller builds its
+/// table with [`build_for`] and its own gate.
+pub struct Whole;
+
+impl Admits for Whole {
+    fn fact(&self, _: &theseus_protocol::StandingRecord) -> bool {
+        true
+    }
+    fn exchange(&self, _: &crate::exchange::Exchange) -> bool {
+        true
+    }
+    fn thing(&self, _: Source<'_>) -> bool {
+        true
+    }
+}
+
+/// [`build_for`] with [`Whole`]: every thing the stores hold.
 pub fn build(core: &crate::rpc::Core) -> anyhow::Result<Table> {
+    build_for(core, &Whole)
+}
+
+/// The table of what the stores hold now and `gate` admits: the thread
+/// records (their board), the tasks, and the ontology's categories of the
+/// kinds `onto.v1` files under, a project apart (a project is a task). A
+/// thing the gate refuses is left out before any alias is resolved, so it is
+/// no match, no candidate, and makes no alias it shares ambiguous.
+pub fn build_for(core: &crate::rpc::Core, gate: &dyn Admits) -> anyhow::Result<Table> {
     let mut t = Table::default();
     let board = core.runner.threads.all(&core.store)?;
-    for th in board.all() {
+    for th in board.all().filter(|th| gate.thing(Source::Line(*th))) {
         let live =
             th.state == theseus_protocol::threads::ThreadState::Active && th.merged_into.is_none();
         t.add(
@@ -250,7 +276,8 @@ pub fn build(core: &crate::rpc::Core) -> anyhow::Result<Table> {
             None,
         );
     }
-    for task in crate::task_graph::all_shown(&core.store, &core.kernel)? {
+    let tasks = crate::task_graph::all_shown(&core.store, &core.kernel)?;
+    for task in tasks.iter().filter(|t| gate.thing(Source::Task(*t))) {
         t.add(
             Entry {
                 thing: format!("task:{}", task.id),
@@ -264,7 +291,10 @@ pub fn build(core: &crate::rpc::Core) -> anyhow::Result<Table> {
     }
     let o = core.runner.ontology.snapshot(&core.store)?;
     let filed = |k: &str| k != "project" && theseus_judge::builders::ONTO_KINDS.contains(&k);
-    for c in o.categories().filter(|c| filed(c.kind())) {
+    for c in o
+        .categories()
+        .filter(|c| filed(c.kind()) && gate.thing(Source::Topic(*c)))
+    {
         t.add(
             Entry {
                 thing: c.id.to_string(),

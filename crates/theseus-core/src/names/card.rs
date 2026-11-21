@@ -16,10 +16,15 @@
 //!   touch index, each with the words that opened it, cut by code.
 //!
 //! A cut says what it left out: past [`FACTS`] facts or [`TASKS`] tasks the
-//! last line counts the rest.
+//! last line counts the rest, of what the gate admitted only.
+//!
+//! The caller's gate ([`Admits`]) is asked first of the thing's own record (a
+//! refused thing has no card at all), then of every task, guidance, standing
+//! record and exchange before it is read.
 
-use theseus_ontology::{CategoryId, Ontology};
+use theseus_ontology::{Category, CategoryId, Guidance, Ontology};
 use theseus_protocol::tasks::TaskRecord;
+use theseus_protocol::threads::ThreadInfo;
 use theseus_protocol::{StandingRecord, StandingScope};
 
 use super::table::{Entry, Kind, Table};
@@ -31,17 +36,61 @@ pub const LINES: usize = 12;
 pub const FACTS: usize = 5;
 pub const TASKS: usize = 2;
 pub const EXCHANGES: usize = 3;
-/// The exchanges read to find [`EXCHANGES`] the caller admits, at most.
-const READ: usize = 24;
+/// A page of a thing's timeline, read until [`EXCHANGES`] are admitted.
+const PAGE: usize = 24;
 /// A line's text, at most, in characters.
 const LINE_CHARS: usize = 200;
 const ASK_CHARS: usize = 120;
 
 /// What the caller's point of view admits, asked of every record the card
-/// would read.
+/// or the name table would read, before it is read. A record it is not
+/// asked about is never shown; the methods a gate does not give deny.
 pub trait Admits {
     fn fact(&self, r: &StandingRecord) -> bool;
     fn exchange(&self, e: &Exchange) -> bool;
+    /// The thing itself, by the record that holds it: refused, the thing has
+    /// no card and is no name (a sealed thread's exception is the gate's).
+    fn thing(&self, _s: Source<'_>) -> bool {
+        false
+    }
+    /// An open task shown on a card.
+    fn task(&self, _t: &TaskRecord) -> bool {
+        false
+    }
+    /// The owner's guidance for a category.
+    fn guidance(&self, _g: &Guidance) -> bool {
+        false
+    }
+}
+
+/// The record a thing of the table is held by.
+#[derive(Debug, Clone, Copy)]
+pub enum Source<'a> {
+    Line(&'a ThreadInfo),
+    Task(&'a TaskRecord),
+    Topic(&'a Category),
+}
+
+/// The record that holds `entry` now, if any.
+fn source_of<'a>(
+    entry: &Entry,
+    tasks: &'a [TaskRecord],
+    o: &'a Ontology,
+    threads: &'a crate::threads::Board,
+) -> Option<Source<'a>> {
+    let thing = entry.thing.as_str();
+    match entry.kind {
+        Kind::Line => threads
+            .get(thing.strip_prefix("thread:")?)
+            .map(Source::Line),
+        Kind::Task => {
+            let id = thing.strip_prefix("task:")?;
+            tasks.iter().find(|t| t.id == id).map(Source::Task)
+        }
+        Kind::Topic => o
+            .category(&CategoryId::parse(thing).ok()?)
+            .map(Source::Topic),
+    }
 }
 
 /// One card.
@@ -166,30 +215,55 @@ pub fn compose(src: Sources<'_>) -> Card {
 }
 
 /// The newest exchanges of `thing` that `gate` admits, newest first, with
-/// their opening words.
+/// their opening words: its timeline paged back until [`EXCHANGES`] are
+/// admitted or it ends, so what the gate refuses never crowds out what it
+/// admits.
 fn said(store: &crate::store::Store, thing: &str, gate: &dyn Admits) -> anyhow::Result<Vec<Said>> {
+    use theseus_store::Store as _;
+    let prefix = format!(
+        "{}{}\u{1}",
+        exchange::TOUCH_PREFIX,
+        Root::Thing(thing).key()
+    );
+    let mut from = prefix.clone();
     let mut out = Vec::new();
-    for t in exchange::newest(store, Root::Thing(thing), READ)? {
-        let Some(ex) = exchange::exchange(store, &t.exchange)? else {
-            continue;
-        };
-        if !gate.exchange(&ex) {
-            continue;
+    loop {
+        let page = store.inner().first_with_prefix_from(
+            theseus_store::kinds::META,
+            &prefix,
+            &from,
+            PAGE,
+        )?;
+        for r in &page {
+            let t: exchange::Touch = r.decode()?;
+            let Some(ex) = exchange::exchange(store, &t.exchange)? else {
+                continue;
+            };
+            if !gate.exchange(&ex) {
+                continue;
+            }
+            let ask = match &ex.ask {
+                Some(id) => store.get_node(id)?.map(|(_, n)| crate::recall::text_of(&n)),
+                None => None,
+            };
+            out.push(Said { exchange: ex, ask });
+            if out.len() == EXCHANGES {
+                return Ok(out);
+            }
         }
-        let ask = match &ex.ask {
-            Some(id) => store.get_node(id)?.map(|(_, n)| crate::recall::text_of(&n)),
-            None => None,
-        };
-        out.push(Said { exchange: ex, ask });
-        if out.len() == EXCHANGES {
-            break;
+        // The next page starts just past this one's last key.
+        match page.last().and_then(|r| r.key.as_deref()) {
+            Some(last) if page.len() == PAGE => from = format!("{last}\u{0}"),
+            _ => return Ok(out),
         }
     }
-    Ok(out)
 }
 
 /// The card of `thing` (a key of `table`), as the stores hold it now and as
-/// `gate` admits it; none for a thing the table does not hold.
+/// `gate` admits it; none for a thing the table does not hold, or whose own
+/// record the gate refuses. Every part is admitted before it is read: its
+/// open tasks, its guidance, its facts (what is current is decided inside
+/// the admitted history), and its exchanges.
 pub fn card(
     core: &crate::rpc::Core,
     table: &Table,
@@ -199,20 +273,32 @@ pub fn card(
     let Some(entry) = table.get(thing) else {
         return Ok(None);
     };
-    let now = theseus_protocol::now_unix_ms();
-    let all = core.runner.standing.all(&core.store)?;
-    let live = crate::standing::live(&all, None, now);
     let tasks = crate::task_graph::all_shown(&core.store, &core.kernel)?;
     let o = core.runner.ontology.snapshot(&core.store)?;
     let threads = core.runner.threads.all(&core.store)?;
-    let (about, scope, mine) = what(entry, &tasks, &o, &threads);
+    // The thing itself first: refused, there is no card, not even a title.
+    match source_of(entry, &tasks, &o, &threads) {
+        Some(src) if gate.thing(src) => {}
+        _ => return Ok(None),
+    }
+    let (about, scope, mut mine) = what(entry, &tasks, &o, &threads);
+    mine.retain(|t| gate.task(t));
     let guidance = CategoryId::parse(thing)
         .ok()
         .filter(|_| entry.kind == Kind::Topic)
-        .and_then(|id| o.guidance(&id).map(|g| g.text.clone()));
+        .and_then(|id| {
+            o.guidance(&id)
+                .filter(|g| gate.guidance(g))
+                .map(|g| g.text.clone())
+        });
+    // What is current is decided inside the history the gate admits: a
+    // record it refuses ends nothing the card shows.
+    let all = core.runner.standing.all(&core.store)?;
+    let admitted: Vec<StandingRecord> = all.iter().filter(|r| gate.fact(r)).cloned().collect();
+    let live = crate::standing::live(&admitted, None, theseus_protocol::now_unix_ms());
     let facts = live
         .into_iter()
-        .filter(|r| scope.contains(&r.scope) && gate.fact(r))
+        .filter(|r| scope.contains(&r.scope))
         .collect();
     Ok(Some(compose(Sources {
         entry,
