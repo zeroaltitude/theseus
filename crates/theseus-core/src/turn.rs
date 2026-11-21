@@ -131,6 +131,7 @@ mod surface_step;
 mod target;
 pub(crate) mod tier;
 mod title_step;
+mod view_step;
 
 pub use request::TurnRequest;
 #[cfg(test)]
@@ -479,6 +480,8 @@ struct Turn<'a> {
     keeping: compile_step::Keeping,
     /// The standing blocks the turn's spec and tail carry, and its surface.
     standing: standing_step::Held,
+    /// In a place set to `view`, the view its first call assembled (issue 44, `view_step`).
+    view: Option<crate::compiler::view::Frozen>,
 }
 
 /// The class of a turn that faulted (R1): an error the turn did not report
@@ -623,6 +626,7 @@ impl<'a> Turn<'a> {
             fill: fill_step::Fill::default(),
             keeping: compile_step::Keeping::default(),
             standing: standing_step::Held::default(),
+            view: None,
         }
     }
 

@@ -37,6 +37,21 @@ pub(super) struct Held {
     seen: Option<Seen>,
 }
 
+impl Held {
+    /// The exchange's place, once it is open (`turn::view_step`).
+    pub(super) fn place(&self) -> Option<&str> {
+        self.ex.as_ref().map(|e| e.place.as_str())
+    }
+
+    /// The person of the message that opened it, and whether it carried a mark.
+    pub(super) fn person(&self) -> (Option<String>, bool) {
+        (
+            self.mark.as_ref().and_then(|m| m.person()),
+            self.mark.is_some(),
+        )
+    }
+}
+
 fn defer(t: &Turn<'_>, rec: Option<theseus_store::NewRecord>) {
     if let Some(r) = rec {
         if let Err(e) = t.tc.store.defer(r) {

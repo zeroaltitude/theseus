@@ -1,0 +1,246 @@
+//! The strategy `view` (issue 44, `[context] assembly = "view"`; design §5.1 "The order on the wire" and
+//! "Frozen within a turn"): a turn's request built from its view instead of its session's transcript.
+//!
+//! On the wire: the system part as the transcript's, with the memory page after the session's block; then,
+//! as harness blocks heading the first user message, the fixed blocks (who and where, his older words) and
+//! the ladder's nodes; then the window, the place's newest exchanges as REAL turns, read from the store
+//! across the sessions that ran them and rendered by the compiler's own renderer (calls paired with their
+//! results; their thinking not carried); then this turn: one block beside the new message, the message, and
+//! the turn's own calls. The window's end carries a cache mark, so the front is read from the cache on the
+//! next turn; what moves every turn comes after it.
+//!
+//! Frozen within a turn: the turn's first call builds a [`Frozen`] once (`turn::view_step`) and every later
+//! call renders the same front, window and beside block, so each request of the turn begins with the bytes
+//! of the one before (the thinking binding, `docs/design/thinking-binding.md`). The next turn builds afresh.
+//! Nothing of the view is written into the session: the beside block lives in the turn alone.
+
+use std::collections::HashSet;
+
+use serde_json::Value;
+
+use super::*;
+use crate::stub::Stub;
+
+/// The compilation's `strategy`.
+pub const STRATEGY: &str = "view";
+/// The compilation's `trigger`: every turn in a view place builds its own.
+pub const TRIGGER: &str = "view_turn";
+/// The provider's most cache breakpoints in one request.
+const MAX_BREAKPOINTS: usize = 4;
+
+/// What a turn in a view place sends besides its own nodes, frozen at its first call.
+#[derive(Debug, Clone, Default)]
+pub struct Frozen {
+    pub turn_id: String,
+    /// The compilation its first call made; the turn's later calls append to it.
+    pub compilation_id: Option<String>,
+    /// The fixed blocks and the ladder's nodes, each one harness node, in wire order.
+    pub front: Vec<Node>,
+    /// The window's nodes, oldest first, from every session that ran its exchanges.
+    pub window: Vec<(u64, Stub)>,
+    /// The block beside the new message (waiting, in play, elsewhere lately, called).
+    pub beside: Option<Node>,
+    /// The memory page, at the end of the system part; empty for none.
+    pub memory_page: String,
+}
+
+impl Frozen {
+    /// The marked blocks' text as a harness node of this turn.
+    pub fn block(session_id: &str, turn_id: &str, heading: &str, text: &str) -> Node {
+        let body = match heading.is_empty() {
+            true => text.to_string(),
+            false => format!("{heading}\n\n{text}"),
+        };
+        Node::user(session_id, Some(turn_id), "harness", &body)
+    }
+}
+
+/// The spec with the memory page after the session's block.
+fn with_page(spec: &RequestSpec, page: &str) -> Option<RequestSpec> {
+    (!page.is_empty()).then(|| {
+        let mut s = spec.clone();
+        s.session_text = match s.session_text.is_empty() {
+            true => page.to_string(),
+            false => format!("{}\n\n{page}", s.session_text),
+        };
+        s
+    })
+}
+
+/// Compile one call of a turn in a view place: the turn's first call makes the compilation (the window's
+/// node ids its `includes`), a later call of the same turn appends to it. `input.nodes` is the session's
+/// transcript; the turn's own nodes are read from it by turn id.
+pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
+    let page = with_page(input.spec, &frozen.memory_page);
+    let spec = page.as_ref().unwrap_or(input.spec);
+    let entry = input.catalog.get(&spec.model);
+    let window = input.window_override.or(entry.map(|e| e.context_window));
+    let current = input
+        .current
+        .filter(|c| frozen.compilation_id.as_deref() == Some(c.id.as_str()));
+    let new_compilation = current.is_none();
+    let mut compilation = current.cloned().unwrap_or_else(|| Compilation {
+        id: crate::new_id("cmp"),
+        schema: COMPILATION_SCHEMA,
+        session_id: input.session_id.into(),
+        created_at_ms: theseus_protocol::now_unix_ms(),
+        trigger: TRIGGER.into(),
+        strategy: STRATEGY.into(),
+        as_of: input.last_position,
+        includes: frozen.window.iter().map(|(_, n)| n.id.clone()).collect(),
+        derived_from: input.current.map(|c| c.id.clone()),
+        manifest: manifest_for(spec, input.catalog, window, true),
+        budget: None,
+        recall_id: None,
+        situation: None,
+        inherits: None,
+    });
+    let laid = laid(input.nodes, frozen);
+    let split = split(&compilation, &laid);
+    let rendered = render(spec, input.catalog, &split, &laid.0, &input);
+    let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
+    let counted = counted_part(&laid.0, &split, &rendered.request);
+    let mut est = estimate(&rendered.request, rates, counted);
+    let Rendered {
+        request,
+        prefix_nodes,
+        tail_nodes,
+        repairs,
+        ..
+    } = rendered;
+    est.bytes = request.json_bytes();
+    let limit = window.map(|w| request_budget(w, spec));
+    let budget = budget_report(limit, &est, None::<BudgetDrop>);
+    let trigger = new_compilation.then(|| TRIGGER.to_string());
+    let situation = situation::settle(
+        input.situation,
+        input.current.is_none(),
+        new_compilation,
+        trigger.as_deref(),
+    );
+    if new_compilation {
+        compilation.budget = Some(budget.clone());
+        compilation.situation = Some(situation.clone());
+    }
+    Compiled {
+        budget,
+        messages: request.messages.len(),
+        digest: request.digest(),
+        request,
+        compilation,
+        new_compilation,
+        trigger,
+        prefix_nodes,
+        tail_nodes,
+        est_tokens: est.tokens,
+        estimate: est,
+        repairs,
+        cache: cache_layout(spec, input.catalog),
+        withheld: spec
+            .context_files
+            .iter()
+            .filter(|f| f.withheld.is_some())
+            .count() as u64,
+        signals: Default::default(),
+        situation,
+        cleared: None,
+        card: None,
+        prefix: None,
+    }
+}
+
+/// The nodes as the request lays them, renumbered so the compiler's split reads the front and the window as
+/// the prefix and the beside block and the turn's own nodes as the tail; and where the prefix ends.
+fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
+    let turn = frozen.turn_id.as_str();
+    let front = frozen.front.iter().map(|n| Stub::from(n.clone()));
+    let window = frozen.window.iter().map(|(_, n)| n.clone());
+    let prefix: Vec<Stub> = front.chain(window).collect();
+    let own = nodes
+        .iter()
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+        .map(|(_, n)| n.clone());
+    let tail = frozen.beside.iter().cloned().map(Stub::from).chain(own);
+    let as_of = prefix.len() as u64;
+    let all = prefix.into_iter().chain(tail).enumerate();
+    (all.map(|(i, n)| (i as u64 + 1, n)).collect(), as_of)
+}
+
+/// The compilation the laid nodes are split under: `c`, its prefix the first `as_of` of them, its thinking
+/// stripped (earlier turns' thinking is not carried).
+fn split(c: &Compilation, (nodes, as_of): &(Vec<(u64, Stub)>, u64)) -> Compilation {
+    let includes = nodes
+        .iter()
+        .take(*as_of as usize)
+        .map(|(_, n)| n.id.clone())
+        .collect();
+    Compilation {
+        as_of: *as_of,
+        includes,
+        recall_id: None,
+        inherits: None,
+        manifest: Manifest {
+            strip_thinking: true,
+            ..c.manifest.clone()
+        },
+        ..c.clone()
+    }
+}
+
+/// Render the laid nodes under their split, with the cache mark at the window's end and no more breakpoints
+/// than the provider takes.
+fn render(
+    spec: &RequestSpec,
+    catalog: &Catalog,
+    split: &Compilation,
+    nodes: &[(u64, Stub)],
+    input: &CompileInput<'_>,
+) -> Rendered {
+    let media = (input.blobs, input.hidden, None, input.sources);
+    let mut rendered = render_kept(spec, catalog, split, nodes, media, None);
+    let first_tail = nodes
+        .iter()
+        .find(|(p, _)| *p > split.as_of)
+        .and_then(|(_, n)| match &n.body {
+            Body::UserMessage { text, .. } => Some(text.clone()),
+            _ => None,
+        });
+    mark_front(&mut rendered, first_tail.as_deref(), spec);
+    rendered
+}
+
+/// The cache mark where the fixed front ends: on the last block before the tail's first. The conversation's
+/// automatic mark stays at the end; a system layer's mark gives way when the request would carry more
+/// breakpoints than the provider takes.
+fn mark_front(rendered: &mut Rendered, first_tail: Option<&str>, spec: &RequestSpec) {
+    let req = &mut rendered.request;
+    if req.cache_control.is_none() || rendered.prefix_nodes == 0 {
+        return;
+    }
+    let Some(at) = rendered.tail_from.checked_sub(1) else {
+        return;
+    };
+    let marker = spec.conversation_ttl.min(spec.cache_ttl).marker();
+    let Some(blocks) = req.messages[at]["content"].as_array_mut() else {
+        return;
+    };
+    let is_first = |b: &Value| first_tail.is_some_and(|t| b["text"].as_str() == Some(t));
+    let end = blocks.iter().position(is_first).unwrap_or(blocks.len());
+    let Some(b) = end.checked_sub(1).and_then(|i| blocks.get_mut(i)) else {
+        return;
+    };
+    b["cache_control"] = marker;
+    // The window's mark and the conversation's: the system keeps what is left, its first layer first.
+    let room = MAX_BREAKPOINTS.saturating_sub(2);
+    let marked: Vec<usize> = (req.system.iter().enumerate())
+        .filter(|(_, b)| b.get("cache_control").is_some())
+        .map(|(i, _)| i)
+        .collect();
+    let over = marked.len().saturating_sub(room);
+    let drop: HashSet<usize> = marked.iter().skip(1).take(over).copied().collect();
+    for i in drop {
+        if let Some(o) = req.system[i].as_object_mut() {
+            o.remove("cache_control");
+        }
+    }
+}

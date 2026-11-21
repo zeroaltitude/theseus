@@ -29,6 +29,7 @@ pub mod record;
 pub mod render;
 pub mod select;
 pub mod timeline;
+pub mod wire;
 
 #[cfg(test)]
 mod tests;

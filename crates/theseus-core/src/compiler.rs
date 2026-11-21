@@ -68,6 +68,7 @@ mod tests_search_refs;
 pub use clearing::Pass;
 pub mod situation;
 pub mod thinner;
+pub mod view;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 pub mod kept;
 mod readable;
