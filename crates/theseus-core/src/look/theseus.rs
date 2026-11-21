@@ -313,7 +313,7 @@ pub(super) fn schema() -> Value {
         "properties": {
             "what": {
                 "type": "array",
-                "description": "Which parts: profiles, providers, health, build, ontology, view (what this turn was given, what was left out, and why). Omit for all but ontology and view.",
+                "description": "Which parts: profiles, providers, health, build, ontology, view (this turn's context). Omit for all but ontology, view.",
                 "items": {"type": "string", "enum": ASKABLE}
             }
         },

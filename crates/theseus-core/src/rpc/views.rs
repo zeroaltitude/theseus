@@ -25,10 +25,15 @@ const NO_TEXT: &str =
 /// Why `--text` is refused on `conn`, or none for the owner's own shell.
 fn text_refused(conn: &Conn<'_>, from_job: Option<&str>) -> Option<String> {
     let who = conn.answerer(None, None);
-    match (who.surface, from_job, &who.agent) {
-        (Surface::Cli, None, None) => None,
-        (Surface::Cli, Some(_), _) => Some("this shell is a Theseus job's".into()),
-        (Surface::Cli, None, Some(agent)) => {
+    refused_for(who.surface, from_job.is_some(), who.agent.as_deref())
+}
+
+/// [`text_refused`], on the facts: the CLI with no job's marker and no agent's process behind it.
+fn refused_for(surface: Surface, job: bool, agent: Option<&str>) -> Option<String> {
+    match (surface, job, agent) {
+        (Surface::Cli, false, None) => None,
+        (Surface::Cli, true, _) => Some("this shell is a Theseus job's".into()),
+        (Surface::Cli, false, Some(agent)) => {
             Some(format!("it came from an agent's process ({agent})"))
         }
         (other, _, _) => Some(format!("it came through {}", other.name())),
@@ -88,5 +93,28 @@ impl Core {
             views: views.iter().map(|v| reader.show(v)).collect(),
             withheld: (!p.text).then(|| NO_TEXT.into()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_is_for_the_owners_own_shell_alone() {
+        assert_eq!(refused_for(Surface::Cli, false, None), None);
+        for (surface, job, agent) in [
+            (Surface::Cli, true, None),
+            (Surface::Cli, false, Some("claude")),
+            (Surface::Web, false, None),
+            (Surface::Discord, false, None),
+            (Surface::Mcp, false, None),
+            (Surface::Unnamed, false, None),
+        ] {
+            assert!(
+                refused_for(surface, job, agent).is_some(),
+                "{surface:?} {job} {agent:?}"
+            );
+        }
     }
 }

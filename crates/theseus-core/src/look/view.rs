@@ -6,7 +6,7 @@
 //! present, only the pieces of this view's own place, the rest counted; presence that cannot be read is
 //! shown nothing.
 
-use theseus_memory::gate::Present;
+use theseus_memory::gate::{Present, Veil};
 
 use crate::node::Body;
 use crate::view::record::{self, show::Reader, ViewRecord};
@@ -29,9 +29,9 @@ fn opener(core: &Core, session: &str, turn: &str) -> Option<String> {
         .map(|n| n.id)
 }
 
-/// Who is present for this turn, by the gate's rule.
+/// Who is present for this turn, by the gate's rule; the place as the gate reads it.
 fn presence(core: &Core, session: &str, turn: &str) -> Present {
-    let place = core.runner.place_of(session);
+    let place = view_gate::session_marks(&core.runner, Some(session), session, Veil::Clear).class;
     let target = core.runner.outbox.try_target(session).ok().flatten();
     let node = opener(core, session, turn);
     let input = match &node {
