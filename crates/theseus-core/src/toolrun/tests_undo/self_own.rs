@@ -866,6 +866,7 @@ async fn a_reviewer_removes_the_checkout_it_made_in_its_scratch() {
         diff: String::new(),
         report: "a report".into(),
         evidence: "the evidence".into(),
+        proof: String::new(),
         target,
         built_ms: 0,
         scratch: scratch(&r.target).display().to_string(),

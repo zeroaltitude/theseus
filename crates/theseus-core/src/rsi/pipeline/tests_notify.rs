@@ -435,6 +435,7 @@ async fn a_conflicted_head_is_in_no_queue_and_no_join_is_due() {
             asked: "claude-fable-5-2".into(),
             verdict: "accept".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec![],
             cost_usd: 0.5,
         });
@@ -471,6 +472,7 @@ async fn a_head_with_only_a_legacy_accept_waits_to_be_reviewed_again() {
         asked: asked.into(),
         verdict: "accept".into(),
         planted_revert: "failed".into(),
+        proof_check: None,
         reasons: vec![],
         cost_usd: 0.5,
     };

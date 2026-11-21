@@ -732,6 +732,42 @@ fn a_builders_tests_build_in_its_folder_and_a_second_run_reuses_the_build() {
     assert!(!r.tree.dir.join("target").exists(), "none in the tree");
 }
 
+/// The lint a self builder is told to run before it proposes (`rsi::backlog::brief`, rule 4) works
+/// where it builds: clippy is in the pinned toolchain, runs offline into the item's folder, and a
+/// warning fails it, as in the gate.
+#[test]
+fn a_builders_lint_runs_in_its_folder_and_a_warning_fails_it() {
+    if refused_as_root() {
+        return;
+    }
+    let r = Rig::builder();
+    tiny_crate(&r);
+    let f = r.folder();
+    let lint = |id: &str| {
+        let script = format!(
+            "cargo clippy -p tiny --all-targets -- -D warnings > {}/{id}.log 2>&1",
+            f.display()
+        );
+        let d = r.run_as_builder(id, &["sh", "-c", &script]);
+        (
+            d["exit_code"].clone(),
+            r.read(&format!("state/self/builder/t/{id}.log")),
+        )
+    };
+    let (code, said) = lint("clean");
+    assert_eq!(code, 0, "{said}");
+    std::fs::write(
+        r.tree.dir.join("src/lib.rs"),
+        "pub fn add(a: u32, b: u32) -> u32 { a + b }\n\
+         pub fn flag(a: bool) -> bool { if a == true { true } else { false } }\n\
+         #[cfg(test)]\nmod tests;\n",
+    )
+    .unwrap();
+    let (code, said) = lint("warned");
+    assert_ne!(code, 0, "{said}");
+    assert!(said.contains("bool_comparison"), "{said}");
+}
+
 /// What persists is the folder and nothing else: a builder's writes to its tree (a workspace
 /// root, an overlay), HOME and `/tmp` are gone when the command ends, and its build tree for the
 /// gate is not writable from its view at all.

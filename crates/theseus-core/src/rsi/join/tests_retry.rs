@@ -327,6 +327,7 @@ async fn a_head_on_main_with_no_retry_is_not_closed_by_the_loop() {
             asked: "claude-fable-5-2".into(),
             verdict: "accept".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec!["the stand-in accepts".into()],
             cost_usd: 0.5,
         });

@@ -25,9 +25,16 @@ pub struct SelfReviewVerdict {
     pub asked: String,
     /// `accept`, `reject`, or `refused` (no independent review could run).
     pub verdict: String,
-    /// The planted revert's result: `failed` (proved), `passed` (unproved),
-    /// `no-tests`, `base-red`, or `not-run`.
+    /// The planted revert's result: `failed` (a test failed without the fix: proved),
+    /// `build-broke` (only the build failed without it: proved by a test that no longer compiles,
+    /// which the reviewer is told to check), `passed` (unproved), `no-tests`, `base-red`,
+    /// `not-found`, `unbuilt`, or `not-run`.
     pub planted_revert: String,
+    /// How the reviewer checked a `build-broke` proof: `reading` (it named a test and assertion
+    /// from the diff, which is all a reviewer can do for now), or `running` (it broke the fix's
+    /// behaviour in a copy and saw a test fail, which is recorded only once a reviewer can do that
+    /// in the sandbox). Absent for any other proof, and for a reply that said neither.
+    pub proof_check: Option<String>,
     pub reasons: Vec<String>,
     pub cost_usd: f64,
 }
@@ -36,7 +43,7 @@ impl Fact for SelfReviewVerdict {
     const KIND: Option<LedgerKind> = Some(LedgerKind::SelfReviewVerdict);
 
     fn row(&self) -> Value {
-        json!({"item": self.item, "branch": self.branch, "head": self.head,
+        let mut row = json!({"item": self.item, "branch": self.branch, "head": self.head,
                "reviewer": self.reviewer, "model": self.model, "asked": self.asked,
                "verdict": self.verdict,
                "planted_revert": self.planted_revert, "reasons": self.reasons,
@@ -44,7 +51,11 @@ impl Fact for SelfReviewVerdict {
                    self.verdict, self.reviewer),
                "why": self.reasons.first(),
                "numbers": {"cost_usd": self.cost_usd, "reasons": self.reasons.len()},
-               "undo": null})
+               "undo": null});
+        if let Some(how) = &self.proof_check {
+            row["proof_check"] = json!(how);
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

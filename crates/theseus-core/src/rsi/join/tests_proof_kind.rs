@@ -1,0 +1,495 @@
+//! How a change was proved reaches the review that follows: a failing test as a sentence, a
+//! build that only broke as a paragraph that asks the reviewer to check it by reading (the
+//! experiment waits for the sandbox), and how the reviewer says it did that (`proof_check`). Also the proof step's stop that
+//! repeats, held for the owner. Through the whole join over the throwaway repository, with
+//! stand-ins for the test runs and the reviewer.
+
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
+use theseus_protocol::rsi::SelfMode;
+
+use super::planted::{Outcome, Ran, Tests};
+use super::review::{self, Ask, Fut, Review, Reviewer};
+use super::tests::{rig, Rig, PROVED, SONNET};
+use super::Seams;
+use crate::rsi::tree::{Place, Tree};
+use crate::Core;
+
+/// Says what each run of the tests comes to, in turn.
+struct Runs(Mutex<VecDeque<Ran>>);
+
+impl Tests for Runs {
+    fn run(&self, _p: &Place, _t: &Tree, _tests: &[String]) -> anyhow::Result<(Ran, String)> {
+        let ran = self.0.lock().unwrap().pop_front().unwrap();
+        Ok((ran, "tail".into()))
+    }
+}
+
+/// Answers `accept` with `reasons`, and keeps every ask it was given.
+struct Keeps(Mutex<Vec<Ask>>, bool, Vec<String>);
+
+impl Keeps {
+    fn saying(accept: bool, reasons: &[&str]) -> Arc<Self> {
+        let reasons = reasons.iter().map(|r| r.to_string()).collect();
+        Arc::new(Keeps(Mutex::default(), accept, reasons))
+    }
+}
+
+impl Reviewer for Keeps {
+    fn review<'a>(&'a self, _core: &'a Arc<Core>, ask: &'a Ask) -> Fut<'a> {
+        self.0.lock().unwrap().push(ask.clone());
+        let (profile, model) = (ask.target.profile.clone(), ask.target.model.clone());
+        let (accept, reasons) = (self.1, self.2.clone());
+        Box::pin(async move {
+            Ok(Review {
+                accept,
+                reasons,
+                cost_usd: 0.0,
+                session: None,
+                profile,
+                model,
+            })
+        })
+    }
+}
+
+/// A proved branch through one join pass with the two runs `runs`: the pass, the asks the reviewer
+/// had, and the verdict rows.
+async fn joined(runs: &[Ran]) -> (super::Pass, Vec<Ask>, Vec<serde_json::Value>) {
+    joined_saying(runs, true, &["the stand-in accepts"]).await
+}
+
+/// [`joined`], with the reviewer's answer.
+async fn joined_saying(
+    runs: &[Ran],
+    accept: bool,
+    reasons: &[&str],
+) -> (super::Pass, Vec<Ask>, Vec<serde_json::Value>) {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let keeps = Keeps::saying(accept, reasons);
+    let seams = Seams {
+        reviewer: keeps.clone(),
+        tests: Arc::new(Runs(Mutex::new(runs.iter().copied().collect()))),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let asks = keeps.0.lock().unwrap().clone();
+    (pass, asks, r.rows("self.review.verdict"))
+}
+
+/// A test that failed without the fix: the reviewer is told so in one plain sentence, with the
+/// test names, and the record says `failed`.
+#[tokio::test]
+async fn a_failing_test_reaches_the_reviewer_as_one_sentence() {
+    let (pass, asks, rows) = joined(&[Ran::Passed, Ran::Failed]).await;
+    assert_eq!(pass.reviewed.len(), 1, "{pass:?}");
+    assert_eq!(rows[0]["planted_revert"], "failed");
+    assert_eq!(asks.len(), 1);
+    let said = review::prompt(&asks[0]);
+    assert_eq!(
+        asks[0].proof,
+        "How it was proved: with the fix undone, at least one of its new or changed tests failed \
+         (tests/fix.sh).\n\n"
+    );
+    assert!(said.contains(&asks[0].proof), "{said}");
+    assert!(!said.contains("no longer compile"), "{said}");
+    for not in ["CHANGED:", "CHECKED BY READING", "experiment"] {
+        assert!(!said.contains(not), "{not}: {said}");
+    }
+    assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
+}
+
+/// What a reviewer says when it checked by reading: its test and its assertion.
+const READ_IT: &[&str] = &[
+    "CHECKED BY READING: the_fix_holds, whose assert_eq of the return value would fail if f were wrong",
+    "it names the new function and checks what it returns",
+];
+
+/// What a reviewer would say if it had run the experiment.
+const RAN_IT: &[&str] = &[
+    "CHANGED: made `f` return 1 in the scratch copy",
+    "FAILED: the_fix_holds, on its assert_eq of the return value",
+];
+
+/// A build that only broke: the record says `build-broke`, and the reviewer's ask has the
+/// paragraph the daemon uses today: an experiment would be stronger but is not available, so it
+/// must not build or run the change's code, and must name a test and an assertion by reading.
+#[tokio::test]
+async fn a_broken_build_reaches_the_reviewer_as_a_paragraph_that_says_to_read_and_not_to_build() {
+    let (pass, asks, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, READ_IT).await;
+    assert_eq!(pass.reviewed.len(), 1, "{pass:?}");
+    assert_eq!(rows[0]["planted_revert"], "build-broke");
+    assert_eq!(rows[0]["verdict"], "accept");
+    assert_eq!(asks.len(), 1);
+    let said = review::prompt(&asks[0]);
+    for want in [
+        "the tests no longer compile (tests/fix.sh)",
+        "a test mentions the fix and not that it checks what the fix does",
+        "would be the stronger check, but it is not available yet, because a reviewer cannot build \
+         inside the sandbox",
+        "you must NOT build or run this change's code in order to check this proof",
+        "at least one new or changed test whose assertion would fail if the fix's behaviour were \
+         wrong",
+        "name that test and that assertion in a line that begins `CHECKED BY READING:`, as one of \
+         the reason lines after your `VERDICT:` line",
+        "If there is none, reject, and say so.",
+        "An accept without that line does not count",
+    ] {
+        assert!(said.contains(want), "{want}: {said}");
+    }
+    // The review's own general instructions name the scratch and its checkout; the proof block does not.
+    let proof = &asks[0].proof;
+    for not in [
+        "CHANGED:",
+        "FAILED:",
+        "sandbox: true",
+        "check it by an experiment",
+        "scratch checkout",
+        &format!("{}/tree", asks[0].scratch),
+    ] {
+        assert!(!proof.contains(not), "{not}: {proof}");
+    }
+}
+
+/// The experiment's text, which the daemon does not use yet: every command of it runs with the
+/// sandbox on and never outside it, and it stays in the scratch the ask names.
+#[test]
+fn the_experiments_text_runs_every_command_with_the_sandbox_on() {
+    let o = Outcome::BuildBroke {
+        tests: vec!["t".into()],
+    };
+    let text = o.proof_note("/s", true).unwrap();
+    for want in [
+        "the tests no longer compile (t)",
+        "check it by an experiment, not only by reading",
+        "/s/tree",
+        "keep the fix's new names so that everything still compiles",
+        "make the fix's behaviour wrong by the smallest change that does it",
+        "Make the change with a command",
+        "Run every command of the experiment with the sandbox on (`sandbox: true`), and never \
+         outside it",
+        "see at least one of them FAIL on its assertion",
+        "The experiment is not the branch",
+        "nothing is committed, pushed or written anywhere else",
+        "`CHANGED:` what you changed",
+        "`FAILED:` which test failed and on which assertion",
+        "its tests do not check what the fix does",
+        "`CHECKED BY READING ONLY:`",
+        "as one of the reason lines after your `VERDICT:` line",
+        "as reason lines after your `VERDICT:` line",
+        "does not count",
+    ] {
+        assert!(text.contains(want), "{want}: {text}");
+    }
+    let today = o.proof_note("/s", false).unwrap();
+    assert!(
+        !today.contains("sandbox: true") && !today.contains("/s/tree"),
+        "{today}"
+    );
+    // What the daemon says is today's text (the switch is off), whichever a test gives.
+    assert_eq!(o.ask_text("/s"), today + "\n\n");
+}
+
+/// A reply that names its test and assertion in a `CHECKED BY READING:` line is recorded as
+/// `reading` and its accept stands; the earlier spelling `CHECKED BY READING ONLY:` is read too.
+#[tokio::test]
+async fn a_reply_that_checked_by_reading_is_recorded_as_reading() {
+    let (pass, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, READ_IT).await;
+    assert_eq!(pass.reviewed[0].1, "accept");
+    assert_eq!(rows[0]["proof_check"], "reading", "{:?}", rows[0]);
+    let earlier = [
+        "CHECKED BY READING ONLY: no way to break it",
+        "the_fix_holds asserts it",
+    ];
+    let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, &earlier).await;
+    assert_eq!(
+        (&rows[0]["verdict"], &rows[0]["proof_check"]),
+        (&"accept".into(), &"reading".into())
+    );
+}
+
+/// While a reviewer cannot run the experiment, `running` is never recorded: an accept that gives
+/// the experiment's lines and no reading line is a reject.
+#[tokio::test]
+async fn running_is_never_recorded_while_the_experiment_is_off() {
+    let (pass, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, RAN_IT).await;
+    assert_eq!(pass.reviewed[0].1, "reject");
+    assert_eq!(rows[0]["verdict"], "reject");
+    assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
+    let first = rows[0]["reasons"][0].as_str().unwrap();
+    assert!(first.contains("no `CHECKED BY READING:` line"), "{first}");
+}
+
+/// An accept of a build-broke proof that says nothing of how is not an accept: a reject that says
+/// why, with the reply's own reasons after it, and no `proof_check`.
+#[tokio::test]
+async fn a_build_broke_accept_that_says_how_it_checked_nothing_is_a_reject() {
+    let (pass, _, rows) =
+        joined_saying(&[Ran::Passed, Ran::BuildFailed], true, &["it looks fine"]).await;
+    assert_eq!(pass.reviewed[0].1, "reject");
+    assert_eq!(rows[0]["verdict"], "reject");
+    assert_eq!(rows[0]["planted_revert"], "build-broke");
+    assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
+    let first = rows[0]["reasons"][0].as_str().unwrap();
+    assert!(
+        first.starts_with("the review did not say how it checked the proof"),
+        "{first}"
+    );
+    assert_eq!(rows[0]["reasons"][1], "it looks fine");
+}
+
+/// A reject that says how it checked records it too; an accept of a proof that was a failing test
+/// needs no such words and records none.
+#[tokio::test]
+async fn only_a_build_broke_proof_needs_and_records_how_it_was_checked() {
+    let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::BuildFailed], false, READ_IT).await;
+    assert_eq!(
+        (&rows[0]["verdict"], &rows[0]["proof_check"]),
+        (&"reject".into(), &"reading".into())
+    );
+    let (_, _, rows) = joined_saying(&[Ran::Passed, Ran::Failed], true, &["it looks fine"]).await;
+    assert_eq!(rows[0]["verdict"], "accept");
+    assert!(rows[0].get("proof_check").is_none(), "{:?}", rows[0]);
+}
+
+/// A real reply, as a reviewer writes it, through the verdict line's reading and then the proof's.
+fn judged(reply: &str, experiment: bool) -> (&'static str, Option<&'static str>) {
+    let (accept, reasons) = review::verdict_of(reply);
+    let built = Outcome::BuildBroke { tests: vec![] };
+    let (v, _, c) = super::proof_check::judge_with(&built, accept, reasons, experiment);
+    (v, c)
+}
+
+/// The marker is read the way a reviewer writes it: in backticks as the prompt prints it, after a
+/// list number, a bullet or a quote mark, in emphasis with the colon inside or outside it, in any
+/// case. Each is `reading` and the accept stands.
+#[test]
+fn the_marker_is_read_the_way_a_reviewer_writes_it() {
+    for line in [
+        "CHECKED BY READING: t asserts the return value",
+        "`CHECKED BY READING:` t asserts the return value",
+        "`CHECKED BY READING: t asserts the return value`",
+        "1. CHECKED BY READING: t asserts the return value",
+        "2) CHECKED BY READING: t asserts the return value",
+        "> CHECKED BY READING: t asserts the return value",
+        "**CHECKED BY READING**: t asserts the return value",
+        "**CHECKED BY READING:** t asserts the return value",
+        "- **CHECKED BY READING**: t asserts the return value",
+        "* `Checked by reading:` t asserts the return value",
+        "   checked by reading: t asserts the return value",
+        "- 1. > `**CHECKED BY READING ONLY:**` t asserts the return value",
+        "CHECKED BY READING:",
+    ] {
+        let reply = format!("It reads right.\nVERDICT: accept\n- the fix is small\n{line}\n");
+        assert_eq!(judged(&reply, false), ("accept", Some("reading")), "{line}");
+    }
+    // The experiment's lines too, when it is on.
+    let ran = "VERDICT: accept\n1. **CHANGED:** made f return 1\n> `FAILED:` t, on its assert_eq\n";
+    assert_eq!(judged(ran, true), ("accept", Some("running")));
+    assert_eq!(judged(ran, false), ("reject", None));
+}
+
+/// What is still not an accept: no marker at all, a marker that is not at the start of a line, and a
+/// marker above the verdict line (only the lines after it are the reasons, and the text says so).
+#[test]
+fn a_reply_that_does_not_say_how_it_checked_is_still_a_reject() {
+    for reply in [
+        "VERDICT: accept\n- it looks fine\n",
+        "VERDICT: accept\n- I did CHECKED BY READING: it, and it looks fine\n",
+        "CHECKED BY READING: t asserts the return value\nVERDICT: accept\n- it looks fine\n",
+        "VERDICT: accept\n",
+    ] {
+        assert_eq!(judged(reply, false), ("reject", None), "{reply}");
+    }
+}
+
+/// The markers, and the switch: the experiment's lines count as `running` only when it is on, in a
+/// case and with a space as the verdict line is read; reading wins when both are said.
+#[test]
+fn the_markers_are_read_by_the_switch() {
+    use super::proof_check::{how, judge_with};
+    let r = |l: &[&str]| l.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let built = Outcome::BuildBroke { tests: vec![] };
+    assert_eq!(
+        how(&r(&["  checked by reading: x"]), false),
+        Some("reading")
+    );
+    assert_eq!(
+        how(&r(&["checked by reading only: x"]), false),
+        Some("reading")
+    );
+    assert_eq!(how(&r(&["changed: x", "failed: y"]), false), None);
+    assert_eq!(how(&r(&["changed: x", "failed: y"]), true), Some("running"));
+    assert_eq!(how(&r(&["changed: x"]), true), None);
+    assert_eq!(
+        how(
+            &r(&["changed: x", "failed: y", "checked by reading: z"]),
+            true
+        ),
+        Some("reading")
+    );
+    // The true branch, exercised though the daemon never uses it yet.
+    let (v, _, c) = judge_with(&built, true, r(&["CHANGED: a", "FAILED: b"]), true);
+    assert_eq!((v, c), ("accept", Some("running")));
+    let (v, why, c) = judge_with(&built, true, r(&["fine"]), true);
+    assert_eq!((v, c), ("reject", None));
+    assert!(why[0].contains("neither the experiment's"), "{why:?}");
+}
+
+/// An end that is neither a failing test nor a failing build proves nothing and rejects nothing:
+/// the step stops (and is tried again), no verdict is written and no reviewer is paid.
+#[tokio::test]
+async fn any_other_end_stops_and_neither_proves_nor_rejects() {
+    let (pass, asks, rows) = joined(&[Ran::Passed, Ran::Other(Some(106))]).await;
+    assert_eq!(pass.stopped.len(), 1, "{pass:?}");
+    assert_eq!(pass.stopped[0].1, "planted");
+    assert!(pass.reviewed.is_empty(), "{pass:?}");
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(asks.is_empty());
+}
+
+/// The paragraph is not part of the claim, so the cut of a long diff never reaches it; and a
+/// change proved some other way is told nothing.
+#[tokio::test]
+async fn the_proof_is_told_after_the_diff_whatever_its_length() {
+    let (_, asks, _) = joined_saying(&[Ran::Passed, Ran::BuildFailed], true, READ_IT).await;
+    let mut ask = asks[0].clone();
+    ask.diff = "+x\n".repeat(review::DIFF_CHARS);
+    let said = review::prompt(&ask);
+    let (cut, at, who) = (
+        said.find("[the diff is cut here")
+            .expect("the diff was cut"),
+        said.find("How it was proved").unwrap(),
+        said.find("You are the independent reviewer").unwrap(),
+    );
+    assert!(cut < at && at < who, "{cut} {at} {who}");
+    ask.proof = String::new();
+    assert!(!review::prompt(&ask).contains("How it was proved"));
+    for o in [Outcome::NoTests, Outcome::Passed { tests: vec![] }] {
+        assert_eq!(o.proof_note("/s", false), None);
+    }
+}
+
+/// The runs of `passes` passes of a head whose run with the fix undone ends in an exit that says
+/// nothing (106, an incomplete run): the tests on the head, then with the fix undone.
+fn runs_that_stop(passes: usize) -> Arc<Runs> {
+    let runs = (0..passes).flat_map(|_| [Ran::Passed, Ran::Other(Some(106))]);
+    Arc::new(Runs(Mutex::new(runs.collect())))
+}
+
+/// The heads held by the proof step's stops.
+fn held_stops(r: &Rig) -> usize {
+    let stops = r.rows("self.join.stopped");
+    stops
+        .iter()
+        .filter(|d| d["numbers"]["held"] == true)
+        .count()
+}
+
+/// KEY: the same head stopping the same way three times in a row is held for the owner with one
+/// card in plain words (what stopped, how many times, the exit), as a review that keeps failing is;
+/// and no pass after it runs the tests again.
+#[tokio::test]
+async fn a_proof_step_that_stops_the_same_way_three_times_holds_the_head() {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let runs = runs_that_stop(10);
+    let seams = Seams {
+        reviewer: Keeps::saying(true, &["x"]),
+        tests: runs.clone(),
+        ..r.seams()
+    };
+    for pass in 1..=2 {
+        let p = r.core.self_join_pass(&seams).await.unwrap();
+        assert_eq!(p.stopped.len(), 1, "pass {pass}: {p:?}");
+        assert!(r.posts().is_empty(), "no card before the third");
+        assert_eq!(held_stops(&r), 0, "pass {pass}");
+    }
+    let third = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(third.stopped.len(), 1, "{third:?}");
+    let cards = r.posts();
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    for want in [
+        "could not be checked",
+        "the same way 3 times",
+        "with the fix undone exited with code 106",
+        "`theseus self retry",
+    ] {
+        assert!(cards[0].contains(want), "{want}: {}", cards[0]);
+    }
+    assert_eq!(held_stops(&r), 1);
+    let last = r.rows("self.join.stopped").pop().unwrap();
+    assert_eq!(last["numbers"]["class"], "second-run-exit-106");
+    assert_eq!(last["numbers"]["repeats"], 3);
+    assert!(
+        last["why"]
+            .as_str()
+            .unwrap()
+            .contains("could not answer the same way 3 times"),
+        "{last}"
+    );
+    // Nothing runs the tests again, however many passes follow.
+    let left = runs.0.lock().unwrap().len();
+    for _ in 0..3 {
+        let again = r.core.self_join_pass(&seams).await.unwrap();
+        assert!(
+            again.stopped.is_empty() && again.reviewed.is_empty(),
+            "{again:?}"
+        );
+    }
+    assert_eq!((runs.0.lock().unwrap().len(), r.posts().len()), (left, 1));
+}
+
+/// A different head starts the count again: the second head is held on its own third stop, with
+/// its own card, and not before.
+#[tokio::test]
+async fn another_head_starts_the_count_again() {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    r.seed("mend-the-mast", PROVED, SONNET);
+    let seams = Seams {
+        reviewer: Keeps::saying(true, &["x"]),
+        tests: runs_that_stop(10),
+        ..r.seams()
+    };
+    for _ in 1..=3 {
+        r.core.self_join_pass(&seams).await.unwrap();
+    }
+    assert_eq!((held_stops(&r), r.posts().len()), (1, 1));
+    // The fourth pass is the other head's first stop: not held, no card.
+    let fourth = r.core.self_join_pass(&seams).await.unwrap();
+    assert_eq!(fourth.stopped.len(), 1, "{fourth:?}");
+    assert_eq!((held_stops(&r), r.posts().len()), (1, 1));
+    for _ in 5..=6 {
+        r.core.self_join_pass(&seams).await.unwrap();
+    }
+    assert_eq!((held_stops(&r), r.posts().len()), (2, 2));
+}
+
+/// A stop that is no exit of the tests (git could not start, say) clears by itself: it is tried
+/// again every pass, as it always was, and never held.
+struct Breaks;
+
+impl Tests for Breaks {
+    fn run(&self, _p: &Place, _t: &Tree, _tests: &[String]) -> anyhow::Result<(Ran, String)> {
+        anyhow::bail!("git could not start")
+    }
+}
+
+#[tokio::test]
+async fn a_stop_that_is_no_exit_of_the_tests_is_never_held() {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    let seams = Seams {
+        reviewer: Keeps::saying(true, &["x"]),
+        tests: Arc::new(Breaks),
+        ..r.seams()
+    };
+    for pass in 1..=5 {
+        let p = r.core.self_join_pass(&seams).await.unwrap();
+        assert_eq!(p.stopped.len(), 1, "pass {pass}: {p:?}");
+    }
+    assert_eq!((held_stops(&r), r.posts().len()), (0, 0));
+}

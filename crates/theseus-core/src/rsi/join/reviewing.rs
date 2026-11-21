@@ -134,6 +134,7 @@ impl Run<'_> {
             asked: who.model.clone(),
             verdict,
             planted,
+            checked: None,
             reasons,
             cost_usd,
         };
@@ -165,7 +166,10 @@ impl Run<'_> {
             blocking(move || Ok(scratch::close(&p, &own)))
         };
         let ask = match self.ask(&remote, target, &own.dir).await {
-            Ok(a) => a,
+            Ok(a) => Ask {
+                proof: planted.ask_text(&a.scratch),
+                ..a
+            },
             Err(e) => {
                 let _ = closed(own).await;
                 return Err(e);
@@ -215,10 +219,11 @@ impl Run<'_> {
             })?;
             return Ok(Some("refused".into()));
         }
-        let v = if r.accept { "accept" } else { "reject" };
+        let (v, reasons, checked) = super::proof_check::judge(&planted, r.accept, r.reasons);
         self.verdict(Said {
             verdict: v,
-            reasons: r.reasons,
+            reasons,
+            checked,
             ..ran
         })?;
         Ok(Some(v.into()))
@@ -276,7 +281,7 @@ impl Run<'_> {
             Ok(o) => Some(o),
             Err(e) => {
                 let why = format!("the planted revert could not run: {e:#}");
-                self.stop("planted", &why, Value::Null);
+                self.stopped_planted(&why, planted::Undecided::of(&e));
                 None
             }
         }
@@ -315,6 +320,7 @@ impl Run<'_> {
             diff,
             report,
             evidence,
+            proof: String::new(),
             target,
             built_ms: self.b.at_ms,
             scratch: scratch.display().to_string(),
@@ -357,6 +363,7 @@ impl Run<'_> {
             asked: v.asked,
             verdict: v.verdict.into(),
             planted_revert: v.planted.into(),
+            proof_check: v.checked.map(Into::into),
             reasons: v.reasons,
             cost_usd: v.cost_usd,
         };

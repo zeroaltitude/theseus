@@ -16,7 +16,7 @@ use theseus_protocol::tasks::{TaskRecord, TaskState};
 use theseus_protocol::SessionKind;
 
 use super::install::{self, Installer};
-use super::planted::Tests;
+use super::planted::{Ran, Tests};
 use super::review::{Ask, Fut, Review, Reviewer};
 use super::{lock, Seams};
 use crate::approval::Answerer;
@@ -124,7 +124,7 @@ impl Reviewer for Stand {
 struct Scripts;
 
 impl Tests for Scripts {
-    fn run(&self, _p: &Place, t: &Tree, tests: &[String]) -> anyhow::Result<(bool, String)> {
+    fn run(&self, _p: &Place, t: &Tree, tests: &[String]) -> anyhow::Result<(Ran, String)> {
         let mut ok = true;
         for name in tests {
             let s = Command::new("bash")
@@ -133,7 +133,8 @@ impl Tests for Scripts {
                 .status()?;
             ok &= s.success();
         }
-        Ok((ok, format!("ran {}", tests.join(" "))))
+        let ran = if ok { Ran::Passed } else { Ran::Failed };
+        Ok((ran, format!("ran {}", tests.join(" "))))
     }
 }
 
@@ -1358,6 +1359,7 @@ fn legacy_row(r: &Rig, branch: &str, head: &str, verdict: &str) {
             asked: String::new(),
             verdict: verdict.into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec!["from before".into()],
             cost_usd: 0.25,
         });
@@ -1453,6 +1455,7 @@ async fn an_accept_that_says_what_was_asked_is_trusted() {
             asked: "claude-fable-5-2".into(),
             verdict: "accept".into(),
             planted_revert: "failed".into(),
+            proof_check: None,
             reasons: vec![],
             cost_usd: 0.25,
         });
