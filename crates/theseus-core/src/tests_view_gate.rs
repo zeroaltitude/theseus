@@ -1234,3 +1234,108 @@ async fn a_report_into_a_place_that_narrowed_is_a_notice() {
     let notice = view_gate::withheld_report("a1b2c3");
     assert!(notice.contains("a1b2c3") && notice.contains("where the owner is alone"));
 }
+
+/// An earlier `Recall` node's sources are admitted again under the current
+/// turn's presence: a note admitted when the owner was alone does not ride
+/// into an agent's turn at the terminal, nor into a channel bound private
+/// (item 8d).
+#[tokio::test]
+async fn an_earlier_recall_is_admitted_again_under_the_current_turn() {
+    let r = rig();
+    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
+    turn(&r.core, &dm, HIS).await;
+    let (_, source) = r.core.store.session_nodes(&dm).unwrap().remove(0);
+    let sources = || {
+        let mut s = crate::recall::render::Sources::new();
+        s.insert(source.id.clone(), std::sync::Arc::new(source.clone()));
+        s
+    };
+    let desk = session(&r.core, None);
+    let owner = view_gate::test_mark(&r.core.runner, &desk, true);
+    let agent = view_gate::test_mark(&r.core.runner, &desk, false);
+    let begin = |m: &crate::exchange::OwnerMark| {
+        let place = m.place.clone();
+        view_gate::begin(
+            &r.core.runner,
+            &desk,
+            "turn_r",
+            place,
+            view_gate::Proof::Mark(m),
+        );
+    };
+    begin(&owner);
+    let mut s = sources();
+    view_gate::readmit_sources(&r.core.runner, &desk, &mut s);
+    assert_eq!(s.len(), 1, "the owner alone keeps it");
+    begin(&agent);
+    let mut s = sources();
+    view_gate::readmit_sources(&r.core.runner, &desk, &mut s);
+    assert!(s.is_empty(), "an agent's turn does not carry it");
+    let lab = session(&r.core, Some(&format!("channel:{LAB}")));
+    let mark = view_gate::test_mark(&r.core.runner, &lab, true);
+    let place = mark.place.clone();
+    view_gate::begin(
+        &r.core.runner,
+        &lab,
+        "turn_l",
+        place,
+        view_gate::Proof::Mark(&mark),
+    );
+    let mut s = sources();
+    view_gate::readmit_sources(&r.core.runner, &lab, &mut s);
+    assert!(s.is_empty(), "a channel bound private does not carry it");
+}
+
+/// A place digest names other threads only where the owner is alone, and an
+/// agent's turn in a thread counts none of them (item 8c).
+#[tokio::test]
+async fn a_place_digest_names_other_threads_only_for_the_owner_alone() {
+    let r = rig();
+    for slug in ["kelp", "tide"] {
+        r.core
+            .thread_new(
+                &ThreadNewParams {
+                    slug: slug.into(),
+                    title: Some(slug.into()),
+                    ..Default::default()
+                },
+                cli(),
+            )
+            .unwrap();
+    }
+    let kelp = r.core.thread_session("kelp", cli()).unwrap().session_id;
+    let board = r.core.runner.threads.all(&r.core.store).unwrap();
+    let live = || board.live(crate::places::PlaceClass::Private);
+    let slugs = |v: Vec<&theseus_protocol::threads::ThreadInfo>| {
+        let mut s: Vec<String> = v.into_iter().map(|t| t.slug.clone()).collect();
+        s.sort();
+        s
+    };
+    for (in_person, want) in [(true, vec!["kelp", "tide"]), (false, vec!["kelp"])] {
+        let mark = view_gate::test_mark(&r.core.runner, &kelp, in_person);
+        let place = mark.place.clone();
+        view_gate::begin(
+            &r.core.runner,
+            &kelp,
+            "turn_d",
+            place,
+            view_gate::Proof::Mark(&mark),
+        );
+        let got = slugs(view_gate::digest_threads(
+            &r.core.runner,
+            &kelp,
+            "kelp",
+            live(),
+        ));
+        assert_eq!(got, want, "in person: {in_person}");
+    }
+    // A session with no computed presence names none but its own.
+    let quiet = r.core.thread_session("tide", cli()).unwrap().session_id;
+    let got = slugs(view_gate::digest_threads(
+        &r.core.runner,
+        &quiet,
+        "tide",
+        live(),
+    ));
+    assert_eq!(got, ["tide"]);
+}

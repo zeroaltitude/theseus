@@ -786,12 +786,15 @@ impl TurnRunner {
         let recalls = nodes
             .iter()
             .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let sources = match recalls.clone().next() {
+        let mut sources = match recalls.clone().next() {
             Some(_) => self
                 .memory
                 .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
             None => Sources::new(),
         };
+        // Each earlier note is admitted again under this turn's presence and
+        // the seals as they are now (the gate).
+        crate::view_gate::readmit_sources(self, t.tc.session_id, &mut sources);
         (nodes, sources)
     }
 

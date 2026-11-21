@@ -211,15 +211,17 @@ pub(crate) fn gate(
     // call waits for the owner (the gate fails closed).
     let board = match core.runner.threads.all(&core.store) {
         Ok(b) => b,
-        Err(e) => return d.at_least(
-            Posture::Approve,
-            &format!(
+        Err(e) => {
+            return d.at_least(
+                Posture::Approve,
+                &format!(
                 "the threads cannot be read now ({e:#}): the owner decides whether this read runs"
             ),
-            "thread seal",
-            READ,
-            "read a thread while the threads cannot be read",
-        ),
+                "thread seal",
+                READ,
+                "read a thread while the threads cannot be read",
+            )
+        }
     };
     match find(&board, &a.thread) {
         Some(t) if t.sealed.is_some() || t.seal_pending.is_some() => d.at_least(

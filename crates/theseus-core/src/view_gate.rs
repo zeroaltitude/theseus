@@ -582,6 +582,53 @@ pub fn withheld_report(short: &str) -> String {
     )
 }
 
+/// The sources of earlier `Recall` nodes a turn of `asker` may still be
+/// shown, under its presence and the seals as they are now: a note admitted
+/// when the owner was alone does not ride into an agent's turn, nor one
+/// whose thread was sealed since. A source taken out renders as one that
+/// could not be read, with no text.
+pub fn readmit_sources(
+    runner: &TurnRunner,
+    asker: &str,
+    sources: &mut crate::recall::render::Sources,
+) {
+    if sources.is_empty() {
+        return;
+    }
+    let places = RecallPlaces::of(runner, Some(asker));
+    let here = places.asker(runner.place_of(asker));
+    let board = board(runner, "earlier recalls");
+    sources.retain(|_, n| {
+        let Some(b) = &board else {
+            return false;
+        };
+        here.may_draw_on(&places.of_session(runner, &n.session_id))
+            && node_seal(&runner.store, b, Some(asker), &n.session_id, &n.id) == Seal::Clear
+    });
+}
+
+/// The threads of a place digest a turn of `session` may be shown: only
+/// where the owner is alone does it name other threads (they are other
+/// places); otherwise its own thread `here` alone. With the ledger off, as
+/// before.
+pub fn digest_threads<'b>(
+    runner: &TurnRunner,
+    session: &str,
+    here: &str,
+    live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
+) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
+    if !runner.cfg.context.ledger_on() {
+        return live;
+    }
+    let alone = runner
+        .presence
+        .get(session)
+        .is_some_and(|a| a.present == Present::OwnerAlone);
+    live.into_iter()
+        .filter(|t| alone || t.slug == here)
+        .collect()
+}
+
 /// Of several set-ups, the narrowest; any not recorded is `Unknown`.
 pub fn narrowest(all: impl IntoIterator<Item = Option<Present>>) -> Option<Present> {
     all.into_iter().map(|p| p.unwrap_or(Present::Unknown)).max()
