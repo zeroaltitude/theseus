@@ -65,6 +65,8 @@ pub(crate) mod tests_ring;
 mod tests_ring_sums;
 #[cfg(test)]
 mod tests_search_refs;
+#[cfg(test)]
+mod tests_view;
 pub use clearing::Pass;
 pub mod situation;
 pub mod thinner;
