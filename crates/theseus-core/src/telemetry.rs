@@ -51,6 +51,8 @@ mod tests_tools;
 #[cfg(test)]
 mod tests_voice;
 #[cfg(test)]
+mod tests_warm;
+#[cfg(test)]
 mod tests_wire;
 
 use std::sync::Arc;
