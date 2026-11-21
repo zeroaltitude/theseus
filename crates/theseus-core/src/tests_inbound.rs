@@ -1,10 +1,10 @@
-//! The inbound point (M5 25a; design §3, "25a"): `classify.v4` and
-//! `role.v1` about each message a person sends, in shadow, against the fake
-//! Jev. One request per message, two rows that share its state's blob with
-//! the cost split by question count, each judgment marked on the turn's
-//! trace; none for a slash command, a task's first turn, a wake's turn, or
-//! a report's turn; and nothing a turn sends or returns changes when Jev is
-//! down, slow, rate-limited, or malformed.
+//! The inbound point (M5 25a; design §3, "25a"): `classify.v4` about each
+//! message a person sends, against the fake Jev. One request per message,
+//! its row keyed by its own id and marked on the turn's trace; none for a
+//! slash command, a task's first turn, a wake's turn, or a report's turn;
+//! and nothing a turn sends or returns changes when Jev is down, slow,
+//! rate-limited, or malformed. (`role.v1` rode the same request in shadow
+//! until it was retired, issue 44.)
 
 use std::time::{Duration, Instant};
 
@@ -17,7 +17,7 @@ use crate::ledger::LedgerRow;
 use crate::store::Store;
 use crate::tests_judge::{board, kinds, off, rig_on, texts, turn};
 
-/// A scope's rows (`judge:classify`, `judge:role`), decoded.
+/// A scope's rows (`judge:classify`), decoded.
 fn scoped(store: &Store, scope: &str) -> Vec<(Record, LedgerRow)> {
     store
         .scope_after(scope, 0)
@@ -30,21 +30,18 @@ fn scoped(store: &Store, scope: &str) -> Vec<(Record, LedgerRow)> {
         .collect()
 }
 
-/// Wait (on the runtime's timer) until each inbound pack has `n` rows.
-async fn until_inbound(store: &Store, n: usize) -> (Vec<LedgerRow>, Vec<LedgerRow>) {
+/// Wait (on the runtime's timer) until the inbound pack has `n` rows.
+async fn until_inbound(store: &Store, n: usize) -> Vec<LedgerRow> {
     let t0 = Instant::now();
     loop {
         let c = scoped(store, "judge:classify");
-        let r = scoped(store, "judge:role");
-        if c.len() >= n && r.len() >= n {
-            let rows = |v: Vec<(Record, LedgerRow)>| v.into_iter().map(|(_, r)| r).collect();
-            return (rows(c), rows(r));
+        if c.len() >= n {
+            return c.into_iter().map(|(_, r)| r).collect();
         }
         assert!(
             t0.elapsed() < Duration::from_secs(20),
-            "{} and {} of {n} inbound judgments recorded",
-            c.len(),
-            r.len()
+            "{} of {n} inbound judgments recorded",
+            c.len()
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -63,10 +60,9 @@ fn marks(trace: &Option<Span>) -> Vec<Value> {
         .collect()
 }
 
-/// `loop.v1`, the gate's packs (step 24), `continue.v1` (25b),
-/// `categorize.v1` (28b) and `rerank.v1` (32c) off, so the inbound point's
-/// call is the only one; and `route.v1` (25e) off, so these are 25a's two
-/// packs alone (`tests_route` asks all three).
+/// `loop.v1`, the gate's packs (step 24), `categorize.v1` (28b) and `rerank.v1` (32c) off, so the inbound point's
+/// call is the only one; and `route.v1` (25e) off, so this is 25a's pack
+/// alone (`tests_route` asks the route pack too).
 pub(crate) fn inbound_only(c: &mut crate::Config) {
     // Recall (on by default) brings its own judgments (theseus-is8t).
     c.memory.mode = crate::config::MemoryMode::Off;
@@ -77,9 +73,6 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
     c.judge
         .packs
         .insert(crate::judge::gate::SECURITY_PACK.into(), off());
-    c.judge
-        .packs
-        .insert(crate::judge::compile::CONTINUE_PACK.into(), off());
     c.judge
         .packs
         .insert(crate::judge::categorize::PACK.into(), off());
@@ -111,11 +104,10 @@ pub(crate) fn inbound_only(c: &mut crate::Config) {
 /// Health's lines once the turn's judged point has read the ladder: the
 /// three packs the owner put live stand as his adoption, under the
 /// config's ceiling (26a).
-const INBOUND_ALONE: [&str; 27] = [
+const INBOUND_ALONE: [&str; 24] = [
     "loop.v1: off",
     "security.v3: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "classify.v4: live",
-    "role.v1: shadow",
     "split.v1: shadow",
     "route.v11: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-11-14))",
     "directive.v2: live",
@@ -124,14 +116,12 @@ const INBOUND_ALONE: [&str; 27] = [
     "two_things.v1: live",
     "same_kind.v1: live",
     "name_it.v1: live",
-    "continue.v1: off",
     "categorize.v1: off",
     "rerank.v1: off (the config's ceiling; on the ladder: live (owner: decision of 2026-10-04))",
     "recall_cross.v1: live",
     "families.v1: live",
     "memory.v1: shadow",
     "attribution.v1: shadow",
-    "citation.v1: shadow",
     "compare.v1: shadow",
     "heard.v1: live",
     "people.v1: off",
@@ -154,13 +144,12 @@ fn choice_of(d: &Value, q: &str) -> Value {
         .clone()
 }
 
-/// A person's message is judged by both packs in one request: the fake
-/// counts one call, the two rows (scoped `judge:classify` and `judge:role`,
-/// each keyed by its own id) share the state's blob and the call, and the
-/// call's cost is split by question count. The turn's trace marks each
+/// A person's message is judged in one request: the fake counts one call,
+/// and its row (scoped `judge:classify`, keyed by its own id) carries the
+/// state's blob and the whole call's cost. The turn's trace marks the
 /// judgment with the id its row carries.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
+async fn a_persons_message_is_judged_in_one_request() {
     let jev = FakeJev::start().unwrap();
     jev.script(
         "kind",
@@ -169,70 +158,43 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
             confidence: 0.93,
         },
     );
-    jev.script(
-        "role",
-        Jev::Choice {
-            option: "coder".into(),
-            confidence: 0.91,
-        },
-    );
     let r = rig_on(texts(1), Some(&jev), inbound_only);
     let res = turn(&r.core, None, "Write a function that adds two numbers.").await;
-    let (classify, role) = until_inbound(&r.core.store, 1).await;
-    assert_eq!((classify.len(), role.len()), (1, 1));
+    let classify = until_inbound(&r.core.store, 1).await;
+    assert_eq!(classify.len(), 1);
     assert_eq!(jev.connections(), 1, "one request for the message");
     let seen = jev.seen();
     assert_eq!(seen.len(), 1);
     let q = &seen[0].body["questions"];
     let ids: Vec<&String> = q.as_object().unwrap().keys().collect();
     assert!(ids.iter().any(|i| *i == "classify.v4/kind"), "{ids:?}");
-    // role.v1's options are the twelve seed roles and its no-match option.
-    let roles = q["role.v1/role"]["criteria"].as_object().unwrap();
-    assert_eq!(roles.len(), 13, "{roles:?}");
-    assert!(roles.contains_key("coder") && roles.contains_key("other"));
+    assert!(
+        ids.iter().all(|i| i.starts_with("classify.v4/")),
+        "classify.v4 alone: {ids:?}"
+    );
     // No live tasks: `addressed_task` is not asked.
     assert!(!ids.iter().any(|i| i.ends_with("/addressed_task")));
-    let (c, ro) = (&classify[0].data, &role[0].data);
-    // classify.v4 acts at its bars (the thread question, theseus-rha2); role.v1
-    // is recorded only.
-    for (row, pack, mode) in [
-        (&classify[0], "classify.v4", "live"),
-        (&role[0], "role.v1", "shadow"),
-    ] {
-        assert_eq!(row.kind, "judge.call");
-        assert_eq!(row.data["pack"], pack);
-        assert_eq!(row.data["mode"], mode);
-        assert_eq!(row.data["point"], "inbound");
-        assert_eq!(row.data["outcome"]["outcome"], "answered", "{}", row.data);
-        assert_eq!(row.session_id.as_deref(), Some(res.session_id.as_str()));
-        assert_eq!(row.turn_id.as_deref(), Some(res.turn_id.as_str()));
-    }
-    assert_ne!(c["id"], ro["id"], "each judgment its own id");
+    let row = &classify[0];
+    let c = &row.data;
+    // classify.v4 acts at its bars (the thread question, theseus-rha2).
+    assert_eq!(row.kind, "judge.call");
+    assert_eq!(c["pack"], "classify.v4");
+    assert_eq!(c["mode"], "live");
+    assert_eq!(c["point"], "inbound");
+    assert_eq!(c["outcome"]["outcome"], "answered", "{c}");
+    assert_eq!(row.session_id.as_deref(), Some(res.session_id.as_str()));
+    assert_eq!(row.turn_id.as_deref(), Some(res.turn_id.as_str()));
     assert_eq!(choice_of(c, "kind"), "new_ask");
-    assert_eq!(choice_of(ro, "role"), "coder");
-    // One blob, one call.
+    // One blob, one call, one pack.
     let digest = c["state"]["sha256"].as_str().unwrap();
-    assert_eq!(ro["state"]["sha256"].as_str(), Some(digest));
     assert_eq!(c["context"]["blob"].as_str(), Some(digest));
-    assert_eq!(ro["context"]["blob"].as_str(), Some(digest));
-    assert_eq!(c["call"]["id"], ro["call"]["id"]);
-    // `split.v1` is asked beside the route pack (theseus-h66v4.6), which this rig has off, so the
-    // call is the two packs': seven questions.
-    assert_eq!(c["call"]["packs"], 2);
-    let (qc, qr) = (
-        c["questions"].as_u64().unwrap() as usize,
-        ro["questions"].as_u64().unwrap() as usize,
-    );
-    assert_eq!((qc, qr), (6, 1));
-    assert_eq!(c["call"]["questions"].as_u64(), Some((qc + qr) as u64));
-    // The call's cost, split by question count.
-    let (cc, cr) = (
-        c["cost_micros"].as_u64().unwrap(),
-        ro["cost_micros"].as_u64().unwrap(),
-    );
-    assert!(cc > cr && cr > 0, "{cc} {cr}");
-    let shares = theseus_judge::batch::shares(cc + cr, &[qc, qr]);
-    assert_eq!(shares, [cc, cr]);
+    assert_eq!(c["call"]["packs"], 1);
+    let qc = c["questions"].as_u64().unwrap();
+    assert_eq!(qc, 6);
+    assert_eq!(c["call"]["questions"].as_u64(), Some(qc));
+    // The call's whole cost is its one judgment's.
+    let cc = c["cost_micros"].as_u64().unwrap();
+    assert!(cc > 0, "{cc}");
     // The state: the message, from a private place's operator, no role yet.
     let state = std::fs::read_to_string(r.core.store.blobs().path(digest)).unwrap();
     let state: Value = serde_json::from_str(&state).unwrap();
@@ -240,26 +202,21 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!(state["author"], "operator");
     assert_eq!(state["place_kind"], "cli (private)");
     assert_eq!(state["current_role"], "none");
-    // Each judgment marked on the turn's trace with its row's id.
+    // The judgment marked on the turn's trace with its row's id.
     let marked = marks(&res.trace);
-    assert_eq!(marked.len(), 2, "{marked:?}");
-    for ((m, d), mode) in marked.iter().zip([c, ro]).zip(["live", "shadow"]) {
-        assert_eq!(m["pack"], d["pack"]);
-        assert_eq!(m["judgment"], d["id"]);
-        assert_eq!(
-            (m["point"].as_str(), m["mode"].as_str()),
-            (Some("inbound"), Some(mode))
-        );
-    }
+    assert_eq!(marked.len(), 1, "{marked:?}");
+    assert_eq!(marked[0]["pack"], c["pack"]);
+    assert_eq!(marked[0]["judgment"], c["id"]);
+    assert_eq!(
+        (marked[0]["point"].as_str(), marked[0]["mode"].as_str()),
+        (Some("inbound"), Some("live"))
+    );
     // One call, from the judge's budget.
     tokio::time::sleep(Duration::from_millis(100)).await;
     let h = r.core.health().judge.unwrap();
     assert_eq!(h.packs, INBOUND_ALONE);
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
-    assert_eq!(
-        h.spend_today_usd,
-        theseus_judge::price::micros_to_usd(cc + cr)
-    );
+    assert_eq!(h.spend_today_usd, theseus_judge::price::micros_to_usd(cc));
 }
 
 /// The second message's state reads the conversation so far: the previous
@@ -276,7 +233,7 @@ async fn the_next_messages_state_reads_the_previous_message_and_the_reply() {
         "and the integration tests too",
     )
     .await;
-    let (classify, _) = until_inbound(&r.core.store, 2).await;
+    let classify = until_inbound(&r.core.store, 2).await;
     let digest = classify[1].data["state"]["sha256"].as_str().unwrap();
     let state = std::fs::read_to_string(r.core.store.blobs().path(digest)).unwrap();
     let state: Value = serde_json::from_str(&state).unwrap();
@@ -329,10 +286,10 @@ async fn a_slash_command_is_not_judged() {
     let slash = turn(&r.core, None, "/status").await;
     assert!(marks(&slash.trace).is_empty());
     let next = turn(&r.core, Some(&slash.session_id), "What changed today?").await;
-    let (classify, role) = until_inbound(&r.core.store, 1).await;
+    let classify = until_inbound(&r.core.store, 1).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(jev.connections(), 1);
-    assert_eq!((classify.len(), role.len()), (1, 1));
+    assert_eq!(classify.len(), 1);
     assert_eq!(classify[0].turn_id.as_deref(), Some(next.turn_id.as_str()));
 }
 
@@ -372,12 +329,7 @@ async fn a_tasks_first_turn_a_wakes_turn_and_a_reports_turn_are_not_judged() {
     // The sink's window, and then some.
     tokio::time::sleep(Duration::from_millis(2_500)).await;
     let classify = scoped(&l.core.store, "judge:classify");
-    let role = scoped(&l.core.store, "judge:role");
-    assert_eq!(
-        (classify.len(), role.len()),
-        (1, 1),
-        "the parent's message alone"
-    );
+    assert_eq!(classify.len(), 1, "the parent's message alone");
     assert_eq!(classify[0].1.session_id.as_deref(), Some(parent.as_str()));
     assert_eq!(jev.connections(), 1);
     l.stop().await;
@@ -404,8 +356,8 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(res.loops, 1);
     assert_eq!(
         marks(&res.trace).len(),
-        7,
-        "judged: the inbound point's six marks (classify, role and route.v10's four packs, 25e), and loop.v1's at the turn's end (23b)"
+        6,
+        "judged: the inbound point's five marks (classify and route.v11's four packs, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");
@@ -413,7 +365,7 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     until_inbound(&r.core.store, 2).await;
 }
 
-/// What each fake mode leaves on both judgments: its error class, and the
+/// What each fake mode leaves on the judgment: its error class, and the
 /// turn's request and result as they are with the judge off. A turn waits
 /// on none of it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -468,11 +420,10 @@ async fn a_failing_jev_is_recorded_by_its_class_and_changes_no_turn() {
         );
         let req = serde_json::to_value(&r.fake.requests()[0]).unwrap();
         assert_eq!(req, base_req, "{mode:?}: the turn's request");
-        let (classify, role) = until_inbound(&r.core.store, 1).await;
-        for d in [&classify[0].data, &role[0].data] {
-            assert_eq!(d["outcome"]["outcome"], "failed", "{mode:?}: {d}");
-            assert_eq!(d["outcome"]["class"], class, "{mode:?}: {d}");
-        }
+        let classify = until_inbound(&r.core.store, 1).await;
+        let d = &classify[0].data;
+        assert_eq!(d["outcome"]["outcome"], "failed", "{mode:?}: {d}");
+        assert_eq!(d["outcome"]["class"], class, "{mode:?}: {d}");
         assert_eq!(jev.connections(), 1, "{mode:?}: one call");
         // The call is booked by `judge_loop`'s own task as it ends, so a row can be seen before
         // the books say so: wait for them, as long as the judgment itself got.

@@ -2,10 +2,11 @@
 //! said (issue 43), through the core: the fault played with a stand-in Jev on
 //! the threadbench's clock. The place's own conversation answers; a follow-up
 //! four minutes later that names nothing, which Jev puts in another thread at
-//! 0.66, runs at home; sent to that thread anyway, its turn is given the
-//! exchange in one marked block after the cache mark, and can read further
-//! back with `memory_lookup`; a sealed thread's words are never carried; and
-//! a thread's turn that follows its own thread's exchange is given nothing.
+//! 0.66, runs at home (nothing reads Jev's pick to place it); addressed to that
+//! thread, its turn is given the exchange in one marked block after the cache
+//! mark, and can read further back with `memory_lookup`; a sealed thread's
+//! words are never carried; and a thread's turn that follows its own thread's
+//! exchange is given nothing.
 
 use theseus_protocol::threads::ThreadSealParams;
 
@@ -52,8 +53,8 @@ fn block_of(q: &crate::provider::ProviderRequest) -> Option<(String, bool)> {
     Some((blocks[at]["text"].as_str()?.to_string(), marked))
 }
 
-/// The fault: both messages run in the place's own session, and the second's
-/// row says the credit that kept it.
+/// The fault: both messages run in the place's own session, whatever Jev's
+/// `thread` answer says, and neither is given a block.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_follow_up_of_the_places_own_reply_stays_there() {
     let jev = FakeJev::start().unwrap();
@@ -76,25 +77,22 @@ async fn a_follow_up_of_the_places_own_reply_stays_there() {
     let t = tag(&b);
     assert_eq!(
         (t.how, t.slug.as_deref(), t.movable),
-        (RouteHow::Home, None, true)
+        (RouteHow::Home, None, false)
     );
     assert_eq!(
         texts_of(c, &dm),
         [ASKED, "can you say more about the second point"]
     );
     let routed = rows(c, "thread.routed");
-    let credit = routed[1].data["home_follow"].as_f64().unwrap();
-    assert!(
-        credit > 0.5 && (t.confidence - credit).abs() < 1e-9,
-        "{credit}"
-    );
+    assert_eq!(routed[1].data["to"], "home");
+    assert!(routed[1].data.get("tail").is_none());
     assert!(
         block_of(&r.fake.requests().pop().unwrap()).is_none(),
         "home holds it already"
     );
 }
 
-/// Sent to the other thread anyway (Jev sure of it), the turn there is given
+/// Addressed to the other thread, the turn there is given
 /// the place's exchange after the cache mark, named as the place's own
 /// conversation; the thread's record holds none of it; and the turn reads
 /// further back with `memory_lookup`. Its thread's next turn, which follows
@@ -115,11 +113,10 @@ async fn a_turn_sent_elsewhere_is_given_what_was_just_said_and_can_look_back() {
             &[("m1", "memory_lookup", json!({"session": dm}))],
         ),
     );
-    thread_answer(&jev, "security-fix", 0.95);
     let b = at(
         c,
         &dm,
-        "can you say more about the second point",
+        "#security-fix can you say more about the second point",
         BASE + 4 * MIN,
     )
     .await;
@@ -166,7 +163,13 @@ async fn a_turn_sent_elsewhere_is_given_what_was_just_said_and_can_look_back() {
         "not written to the thread"
     );
     let n = r.fake.requests().len();
-    at(c, &dm, "and the vault key too", BASE + 5 * MIN).await;
+    at(
+        c,
+        &dm,
+        "#security-fix and the vault key too",
+        BASE + 5 * MIN,
+    )
+    .await;
     let after = &r.fake.requests()[n..];
     assert!(
         after.iter().all(|q| block_of(q).is_none()),

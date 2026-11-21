@@ -208,12 +208,6 @@ const TASKS_OPEN: Instrument = Instrument {
     kind: Kind::IntLast,
 };
 
-const RETENTION_NODES: Instrument = Instrument {
-    name: "theseus.memory.retention.nodes",
-    description: "Nodes with an FSRS-6 retention in memory's projection (M6 32a)",
-    unit: "",
-    kind: Kind::IntLast,
-};
 const ACTIVATE: Instrument = Instrument {
     name: "theseus.recall.activate_ms",
     description: "Spreading activation's refresh and spread in a recall (M6 32b), by outcome",
@@ -393,7 +387,6 @@ const INSTRUMENTS: [&Instrument; 51] = [
     &LANE_WAIT,
     &TASK_CHANGES,
     &TASKS_OPEN,
-    &RETENTION_NODES,
     &ACTIVATE,
     &ACTIVATED,
     &RECALL_INDEX,
@@ -871,11 +864,6 @@ impl Metrics {
 
     /// The durability tender (AWS step 15): what it shipped, or the lag it
     /// closed as it caught up.
-    /// The retention projection's size (M6 32a).
-    pub(super) fn retention(&mut self, nodes: u64) {
-        self.point(&RETENTION_NODES, Vec::new()).int = nodes;
-    }
-
     pub(super) fn durability(&mut self, m: crate::aws::durable::Measure) {
         use crate::aws::durable::Measure;
         match m {

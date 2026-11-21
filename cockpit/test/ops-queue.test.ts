@@ -17,7 +17,6 @@ function full() {
     records: [record('tsk_x', { session: 'ses_t2', proposal: { abandon: true, by: 'ses_t2', card: 'act_px', base_version: 1, at_ms: NOW - 90 * MIN } }),
       record('tsk_y', { proposal: { objective: 'x', by: 'ses_t1', card: 'act_ch', base_version: 1, at_ms: NOW - 3 * MIN } })],
     groups: b.groups,
-    asks: [{ ask: { ask_id: 'ask_1', session_id: 'ses_home', question: 'Is this about the quay or the tides?', options: [], message: 'the north wall', expires_ms: NOW + 5 * MIN }, heard_ms: NOW - MIN }],
     titleOf,
   })
 }
@@ -32,7 +31,6 @@ test('every kind of item, the longest waiting first', () => {
     ['q:act_c1', 'approval'], // twenty minutes
     ['q:act_b1', 'budget'],
     ['q:act_ch', 'change'], // the confirm, once: its record's proposal is the same card
-    ['a:ask_1', 'ask'],
   ])
   const by = new Map(q.map((i) => [i.key, i]))
   assert.equal(by.get('q:act_c1')!.owner, 'task Map the quay walls')
@@ -179,7 +177,6 @@ test('each answer is one protocol call, the one every surface makes; an item tha
   assert.equal(answerOf(convFailed, { verb: 'retry' }), null, 'only a task is retried')
   assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal' })?.params, { slug: 'tide-tables', reason: 'it read a private chart' })
   assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal_dismiss' }), { method: 'thread.seal_dismiss', params: { slug: 'tide-tables' } })
-  assert.deepEqual(answerOf(by.get('ask')!, { verb: 'thread_answer', key: '2' }), { method: 'thread.answer', params: { ask_id: 'ask_1', choice: '2' } })
 })
 
 test('the present is told, not guessed: past false with no views reads no executions', () => {

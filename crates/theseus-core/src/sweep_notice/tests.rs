@@ -24,16 +24,16 @@ fn the_stages_are_quiet_near_and_stopped_and_a_cap_of_zero_is_off() {
     assert_eq!(NEAR_PERCENT, 80);
 }
 
-/// Every sweep of the owner's seven is listed once, and every one has a site
+/// Every sweep of the owner's six is listed once, and every one has a site
 /// that asks for the notice: the stop of a sweep is never silent. The count
 /// of sweeps walked is asserted, so an empty list cannot pass.
 #[test]
 fn every_sweep_that_can_stop_for_the_day_says_so_first() {
-    assert_eq!(SWEEPS.len(), 7, "D7, D8, D9, D10, D16, D17 and D18");
+    assert_eq!(SWEEPS.len(), 6, "D7, D8, D9, D10, D16 and D18");
     let mut rows: Vec<&str> = SWEEPS.iter().map(|s| s.row).collect();
     rows.sort();
     rows.dedup();
-    assert_eq!(rows.len(), 7, "each sweep has its own row");
+    assert_eq!(rows.len(), 6, "each sweep has its own row");
     let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     let mut dirs = vec![src];

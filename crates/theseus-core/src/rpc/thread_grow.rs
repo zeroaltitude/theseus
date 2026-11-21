@@ -68,7 +68,7 @@ impl Core {
             session: session.session_id.clone(),
             dir: self.tools.cwd_for(session.dir.as_deref()),
             from: self.store.last_position(),
-            named: paths_only(crate::threads_import::extract::working_set([text])),
+            named: paths_only(crate::thread_grow::extract::working_set([text])),
         })
     }
 

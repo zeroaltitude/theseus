@@ -34,13 +34,11 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         mode: &str,
         arm: MemoryArm,
-        activation: Option<theseus_protocol::memory::RecallActivation>,
         begun: &Begun,
         answer: (Answer, Duration),
     ) -> RecallManifest {
         let rerank = self.judge.rerank_mode(t.tc.session_id);
-        let mut scene = self.scene(t, mode, arm, &begun.said);
-        scene.activation = activation;
+        let scene = self.scene(t, mode, arm, &begun.said);
         let crossed = self.cfg.threads.cross_recall_judge && scene.threads.is_some();
         if rerank == PackMode::Off && !crossed {
             return self.memory.manifest(
@@ -70,7 +68,6 @@ impl TurnRunner {
         if rerank == PackMode::Off {
             return m;
         }
-        let retention = self.memory.retention_of(&*parts.science, &candidates);
         let lens = parts.lens(&candidates);
         let live = rerank == PackMode::Live;
         let recalled = |candidates| Recalled {
@@ -85,7 +82,6 @@ impl TurnRunner {
             links: links.clone(),
             params: self.memory.params_of(&m, parts.max_items),
             science: parts.science.clone(),
-            retention: retention.clone(),
             threads: lens.clone(),
             admitted: m
                 .admitted

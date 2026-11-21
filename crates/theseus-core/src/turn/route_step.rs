@@ -47,7 +47,7 @@ use theseus_protocol::route::TurnRoute;
 
 use super::*;
 use crate::config::PackMode;
-use crate::correction::{By, RoutedTurn, Steer, Steering};
+use crate::correction::{RoutedTurn, Steer, Steering};
 use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
 use crate::places::PlaceClass;
 use crate::routing::effort::{self, EffortDecision};
@@ -91,8 +91,6 @@ pub(super) struct RouteState {
     /// Where the owner's correction, or the layer, steers the turn ahead of
     /// the verdict (theseus-q31l).
     pub(super) steer: Option<Steering>,
-    /// The message's content words, for a correction to find it by.
-    pub(super) words: Vec<String>,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -111,8 +109,7 @@ pub(super) struct RouteState {
     /// two or more personas could answer; and the persona once decided.
     pub(super) engage: Option<super::persona_engage::Engage>,
     pub(super) persona: Option<crate::engage::Engaged>,
-    /// A persona correction or the layer's entry placing the persona ahead of
-    /// Jev's pick (theseus-c1uz).
+    /// A persona correction placing the persona ahead of Jev's pick (theseus-c1uz).
     pub(super) persona_steer: Option<Steering>,
     /// The turn is a task's first, and the verdict on its brief picks the
     /// task's base (theseus-ypnxt.7, `brief_step`).
@@ -776,7 +773,7 @@ impl TurnRunner {
         let fixed = self.fixed_prefix_tokens(&t.target.model, compiled);
         let context = compiled.est_tokens.saturating_sub(fixed);
         match (steering, verdict, reason) {
-            (Some(s), _, _) => Some(self.decide_steer(t, session, s, context)),
+            (Some(s), _, _) => Some(self.decide_steer(t, session, s)),
             (None, Some(v), None) => Some(self.decide_route(t, session, v, (context, fixed))),
             _ => None,
         }
@@ -1023,7 +1020,7 @@ impl TurnRunner {
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
         if !self.tools_behind(t) {
-            return self.keep_first(t, session, compiled, spec, i);
+            return Self::keep_first(t, session, compiled, spec, i);
         }
         let (force, strip, overflow) = again;
         self.drop_first(t, &compiled);
@@ -1034,7 +1031,6 @@ impl TurnRunner {
     /// The first compile is the one the call uses: persist it, and record
     /// its rows, as the compile step would have.
     fn keep_first(
-        &self,
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         mut compiled: Compiled,
@@ -1048,7 +1044,7 @@ impl TurnRunner {
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
         }
         if let Some(d) = t.route.deferred.take() {
-            self.compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
+            Self::compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
         }
         // Its compile carries the recall's drops (theseus-3urn).
         t.recall.drops.clear();

@@ -33,7 +33,7 @@ fn ids(q: &Question) -> Vec<String> {
 /// line and entities.
 #[test]
 fn classify_v2_offers_each_live_thread_beside_new_and_home() {
-    let p = by_name("classify.v2").unwrap();
+    let p = crate::pack::retired("classify.v2").unwrap();
     let mut i = input();
     i.live_threads = vec![
         thread("pr-round", "pr round"),
@@ -63,7 +63,7 @@ fn classify_v2_offers_each_live_thread_beside_new_and_home() {
 /// No threads: the question is not asked, and the state has no `live_threads`.
 #[test]
 fn classify_v2_without_threads_asks_no_thread_question() {
-    let v2 = by_name("classify.v2").unwrap();
+    let v2 = crate::pack::retired("classify.v2").unwrap();
     let i = input();
     assert!(i.live_threads.is_empty());
     let b = prepare(&v2, &Input::Inbound(i), &NoScrub).unwrap();
@@ -89,7 +89,7 @@ fn an_input_stored_before_threads_still_decodes() {
 /// The question offers at most fifty threads, and says how many it left out.
 #[test]
 fn the_thread_question_offers_fifty_at_most() {
-    let p = by_name("classify.v2").unwrap();
+    let p = crate::pack::retired("classify.v2").unwrap();
     let mut i = input();
     i.live_threads = (0..80)
         .map(|n| thread(&format!("t{n}"), &format!("t {n}")))
@@ -110,8 +110,8 @@ fn the_thread_question_offers_fifty_at_most() {
 #[test]
 fn classify_v3_is_classify_v2_and_an_offer_question() {
     let (v2, v3) = (
-        by_name("classify.v2").unwrap(),
-        by_name("classify.v3").unwrap(),
+        crate::pack::retired("classify.v2").unwrap(),
+        crate::pack::retired("classify.v3").unwrap(),
     );
     assert_eq!((v3.id.as_str(), v3.version), ("classify", 3));
     assert_eq!(v2.rollback, v3.rollback);
@@ -157,7 +157,7 @@ fn classify_v3_is_classify_v2_and_an_offer_question() {
 #[test]
 fn classify_v4_is_classify_v3_with_a_scope_question() {
     let (v3, v4) = (
-        by_name("classify.v3").unwrap(),
+        crate::pack::retired("classify.v3").unwrap(),
         by_name("classify.v4").unwrap(),
     );
     assert_eq!((v4.id.as_str(), v4.version), ("classify", 4));

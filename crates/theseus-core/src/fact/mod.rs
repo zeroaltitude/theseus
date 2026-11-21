@@ -112,7 +112,6 @@ pub mod task_pause;
 pub mod task_start;
 pub mod term;
 pub mod thread;
-pub mod thread_import;
 pub mod thread_route;
 pub mod thread_seal;
 pub mod tool;
@@ -314,7 +313,6 @@ facts![
     compaction::Cleared<'static>,
     recall::RecallShadow<'static>,
     recall::RecallRan<'static>,
-    recall::RecallWithheld<'static>,
     resident::PeakNamed<'static>,
     recall::ArmAssigned<'static>,
     recall::Labeled<'static>,
@@ -641,16 +639,12 @@ facts![
     thread::ThreadDone<'static>,
     thread::ThreadReopened<'static>,
     thread::ThreadOpened<'static>,
-    thread_import::ThreadImported<'static>,
     thread_seal::ThreadSealed<'static>,
     thread_seal::ThreadUnsealed<'static>,
     thread_seal::ThreadSealProposed<'static>,
     thread_seal::ThreadSealDismissed<'static>,
     thread_route::ThreadRouted<'static>,
-    thread_route::ThreadAsked<'static>,
-    thread_route::ThreadAnswered<'static>,
     thread_route::ThreadMoved<'static>,
-    thread_route::MisrouteHeld<'static>,
     tools_defer::ToolsUsed<'static>,
     tools_defer::ToolsSearched<'static>,
     tools_defer::ToolsMissed<'static>,
@@ -658,7 +652,6 @@ facts![
     thread::ThreadUnmerged<'static>,
     thread::ThreadSplit<'static>,
     thread::ThreadUnsplit<'static>,
-    thread::ThreadClaimed<'static>,
     thread::ThreadUnclaimed<'static>,
     thread::ThreadLinked<'static>,
     thread::ThreadUnlinked<'static>,

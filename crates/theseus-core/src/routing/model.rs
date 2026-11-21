@@ -62,8 +62,9 @@ use crate::config::RoutingConfig;
 /// the decision is to stay, and [`decide`] takes it before any lookup.
 pub const PARENT: &str = "parent";
 
-/// The `model` question's options, and the catalog model each names. A model
-/// nowhere best is not here: it is reachable only as the operator's pin.
+/// The `model` question's options, and the catalog model each names: the one
+/// table, which the catalog's switch price (`catalog::switch`) weighs too. A
+/// model nowhere best is not here: it is reachable only as the operator's pin.
 /// [`PARENT`] is not here either, for the opposite reason: it names no model.
 pub const OPTIONS: [(&str, &str); 5] = [
     ("haiku", "claude-haiku-5-5"),

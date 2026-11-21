@@ -36,28 +36,12 @@ pub struct Adopted {
 
 /// The packs live before the ladder, the owner's decisions of 2026-10-04, and
 /// the route versions that went live at once in place of the one before: each
-/// the owner's word, its rollback rules guarding it (`route.v5` in place of
-/// `route.v4`, theseus-c1uz; `route.v6` in place of `route.v5`,
-/// theseus-a1wvq.2; `route.v7` in place of `route.v6`, theseus-a1wvq; `route.v8` in place of `route.v7`, theseus-f9qa8). The earlier route versions (`route.v1` to `route.v4`) were
-/// adopted the same way; their rows are in the store, and the build no longer
-/// embeds them.
+/// the owner's word, its rollback rules guarding it. The earlier route versions
+/// (`route.v1` to `route.v8`) were adopted the same way; their rows are in the
+/// store, and the build no longer embeds them (`route.v5` to `route.v8` were
+/// retired in issue 44). `route.v10` stays embedded: the route family's
+/// labelled cases are written for it.
 pub const ADOPTED: &[Adopted] = &[
-    Adopted {
-        pack: "route.v5",
-        why: WHY_ROUTE_V5,
-    },
-    Adopted {
-        pack: "route.v6",
-        why: WHY_ROUTE_V6,
-    },
-    Adopted {
-        pack: "route.v7",
-        why: WHY_ROUTE_V7,
-    },
-    Adopted {
-        pack: "route.v8",
-        why: WHY_ROUTE_V8,
-    },
     Adopted {
         pack: "route.v10",
         why: WHY_ROUTE_V10,
@@ -75,26 +59,6 @@ pub const ADOPTED: &[Adopted] = &[
         why: WHY,
     },
 ];
-
-/// `route.v5`'s adoption row's reason: it is route.v4 word for word with two
-/// questions that decide nothing for its promotion, `persona` and `seal`
-/// (theseus-c1uz); the owner's word of 2026-10-09 that Jev engages the persona.
-pub const WHY_ROUTE_V5: &str = "decision of 2026-10-13";
-
-/// `route.v6`'s adoption row's reason: route.v5 word for word and the `data`
-/// question, which decides nothing for its promotion and acts from the day the
-/// pack does (theseus-a1wvq.2).
-pub const WHY_ROUTE_V6: &str = "the owner's decision of 2026-10-17";
-
-/// `route.v7`'s adoption row's reason: route.v6 word for word but the `data`
-/// question's wording, which decides nothing for its promotion (theseus-a1wvq,
-/// v1 patch1).
-pub const WHY_ROUTE_V7: &str = "the owner's decision of 2026-10-19";
-
-/// `route.v8`'s adoption row's reason: route.v7 word for word but the `data`
-/// question's `open` and `unclear` options, which decides nothing for its
-/// promotion (theseus-f9qa8, v1 patch2).
-pub const WHY_ROUTE_V8: &str = "the owner's decision of 2026-10-23";
 
 /// `route.v10`'s adoption row's reason: Jev chooses the model and its effort
 /// (theseus-h66v4).

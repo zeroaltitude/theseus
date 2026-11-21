@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(ok(None, json!("noise")), Ok(json!("noise")));
         assert!(ok(None, json!("progressing")).is_err());
         // A role's options come from the state: any id goes.
-        let role = theseus_judge::pack::by_name("role.v1").unwrap();
+        let role = theseus_judge::pack::retired("role.v1").unwrap();
         assert_eq!(
             check(&role, Some("role"), &json!("reviewer")),
             Ok(json!("reviewer"))

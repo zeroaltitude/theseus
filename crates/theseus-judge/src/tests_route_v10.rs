@@ -106,7 +106,7 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
     }
     // Its own pack, apart from route.v8's, and the three rollback rules the design names.
     assert_ne!(
-        by_name("route.v8").unwrap().name(),
+        crate::pack::retired("route.v8").unwrap().name(),
         p.name(),
         "route.v10 is not route.v8"
     );
@@ -261,7 +261,7 @@ fn the_stalled_checkpoint_pair_carries_its_cause_and_differs_only_there() {
 
 #[test]
 fn persona_seal_and_personal_are_the_earlier_packs_word_for_word() {
-    let (v10, v8) = (pack(), by_name("route.v8").unwrap());
+    let (v10, v8) = (pack(), crate::pack::retired("route.v8").unwrap());
     for q in ["persona", "seal", "personal"] {
         assert_eq!(
             serde_json::to_value(v10.question(q).unwrap()).unwrap(),

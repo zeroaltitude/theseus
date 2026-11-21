@@ -315,10 +315,6 @@ pub fn headed(kind: &str, text: &str) -> String {
             "Morning note",
             "what happened in the last day, told once each morning",
         ),
-        "consolidation" => (
-            "Something the night's consolidation noticed",
-            "from the nightly pass over your memory",
-        ),
         _ => ("A note from Theseus", "said on its own initiative"),
     };
     crate::owner_note::note(crate::owner_note::Kind::Fyi, title, trigger, text)

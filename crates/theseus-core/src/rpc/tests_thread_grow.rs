@@ -43,8 +43,6 @@ pub(super) fn rig(
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.remove("fs.write");
     cfg.judge.enabled = false;
-    // The router's ask tests predate `unsure = "guess"` (theseus-ttlze).
-    cfg.threads.unsure = crate::config::Unsure::Ask;
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script(&root)));
@@ -193,15 +191,9 @@ async fn a_threads_turn_grows_its_working_set() {
     assert_eq!(rows[0].data["who"], "harness");
     assert_eq!(rows[0].turn_id.as_deref(), Some(res.turn_id.as_str()));
     let t: ThreadInfo = c.threads().get("pr-round").unwrap().clone();
-    let pre = crate::thread_route::pre_route(
-        "comment-2.md under tarnlib/reviews",
-        &[&t],
-        None,
-        theseus_protocol::now_unix_ms(),
-        600_000,
-    );
-    assert!(!pre[0].hits.is_empty(), "an entity hit: {pre:?}");
-    assert!(pre[0].entity > 0.0);
+    let hits =
+        crate::thread_route::entity_hits("comment-2.md under tarnlib/reviews", &t.working_set);
+    assert!(!hits.is_empty(), "an entity hit: {hits:?}");
     eprintln!("a turn that grew its thread took {took:?}, the growth included");
     submit(c, Some("pr-round"), None, "and PRR-4142 again").await;
     assert_eq!(edits(c).len(), 1, "an unchanged set writes no row");

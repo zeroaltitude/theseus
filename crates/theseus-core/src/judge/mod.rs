@@ -31,9 +31,7 @@
 
 pub mod allow_said;
 pub mod categorize;
-pub mod citation;
 pub mod compare;
-pub mod compile;
 pub mod content;
 pub mod cross;
 pub mod delay;
@@ -91,7 +89,6 @@ use crate::scrub::Scrubber;
 use crate::secrets::SecretBoard;
 use crate::store::Store;
 
-pub use compile::AtCompile;
 pub use loop_end::LoopEnd;
 pub use mark::Dispatch;
 use spend::{Class, Reserve, ShadowBudget};
@@ -111,7 +108,6 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (LOOP_PACK, PackMode::Live),
     (gate::SECURITY_PACK, PackMode::Live),
     (inbound::CLASSIFY_PACK, PackMode::Live),
-    (inbound::ROLE_PACK, PackMode::Shadow),
     (inbound::SPLIT_PACK, PackMode::Shadow),
     (inbound::ROUTE_PACK, PackMode::Live),
     (inbound::DIRECTIVE_PACK, PackMode::Live),
@@ -120,14 +116,12 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (onto::judged::SPLIT_PACK, PackMode::Live),
     (onto::judged::KIND_PACK, PackMode::Live),
     (onto::judged::NAME_PACK, PackMode::Live),
-    (compile::CONTINUE_PACK, PackMode::Shadow),
     (categorize::PACK, PackMode::Shadow),
     (rerank::RERANK_PACK, PackMode::Live),
     (cross::CROSS_PACK, PackMode::Live),
     (families::FAMILIES_PACK, PackMode::Live),
     (memory::MEMORY_PACK, PackMode::Shadow),
     (memory::ATTRIBUTION_PACK, PackMode::Shadow),
-    (citation::CITATION_PACK, PackMode::Shadow),
     (compare::COMPARE_PACK, PackMode::Shadow),
     (heard::PACK, PackMode::Live),
     (people::PACK, PackMode::Live),
@@ -724,7 +718,7 @@ impl JudgeService {
     /// Reserve `need` from the shadow budget, writing what the reservation
     /// asks for (a new block, a crash's booked rest, the day's pause) first,
     /// at once: a gate's judgment, whose notice never waits for its turn's
-    /// end, and consolidation's citation check (theseus-xkbs). A judgment
+    /// end (theseus-xkbs). A judgment
     /// no turn waits on reserves between turns instead ([`reserve_between`]).
     /// False: paused at the limit, or the frame was not written.
     fn reserve(&self, today: &str, need: theseus_judge::price::Micros, class: Class) -> bool {

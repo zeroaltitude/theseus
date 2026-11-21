@@ -130,8 +130,7 @@ build.
     with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
     and the Graph lens (`ops/GraphLens.tsx`, below).
   - **It reads, it does not poll**: the one `work.watch`, `task.list`, `confirm.list` and `session.list` on their
-    pushes, the ledger's one copy for today's spend, and the router's `thread.asked` while it is open
-    (`ops/asks.ts`; no read lists them). `test/ops-page.test.ts` fails a timer or a refetch interval.
+    pushes, and the ledger's one copy for today's spend. `test/ops-page.test.ts` fails a timer or a refetch interval.
   - **Every act goes through `enabled`** (`ops/keys.ts`): `useOpsAct` (`ops/act.ts`) and `ActBtn` refuse an act under
     the time machine, where every lens shows the folded past with Actions' banner. No `useAct`, `Btn` or bare `call`
     in `src/ops/`, which the page test holds.
@@ -325,8 +324,7 @@ build.
   headers and timeline link to it (`Inspect`); `?turn=<turn>` on the session still scrolls to the turn.
 - The route footer (theseus-q31l): `src/components/RouteFooter.tsx`, under the composer after a turn it sent,
   `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
-  `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over
-  `route.corrections`). Their words are `src/lib/routefooter.ts` (`test/routefooter.test.ts`). A model the operator named
+  `route.correct`. Its words are `src/lib/routefooter.ts` (`test/routefooter.test.ts`). A model the operator named
   says `pinned` in the route footer and in the transcript's turn chip, with the mode worded as Jev's read (`Jev: quick`), and
   never `routed:` (`pinned · sonnet` when Jev read nothing) (theseus-h66v4.3). `pinFooter` and `modeWords` in `src/lib/route.ts` are the **one place the cockpit decides it**, the
   mirror of Rust's `TurnRoute::pin_footer` (the route's `reason`, never the model): a new surface calls them, and a

@@ -527,6 +527,10 @@ async fn a_state_is_rebuilt_when_the_builder_changed_and_left_out_when_it_cant_b
         json!({"session": res.session_id, "blob": "gone"}),
     );
     c.store.append(&[call_row(&g, 11)]).unwrap();
+    // `security.v1` is retired from the binary (issue 44): the incumbent stands
+    // in from its file, as a replay of its judgments needs it by name.
+    let v1 = theseus_judge::pack::retired("security.v1").unwrap();
+    c.runner.judge.stand_in("security.v1", (*v1).clone());
     let before = jev.seen().len();
     let out = c
         .judge_replay(
@@ -646,7 +650,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     .await;
     assert!(wired.contains("loop.v1 is wired"), "{wired}");
     let other = refuse(JudgeReplayParams {
-        candidate: Some("security.v1".into()),
+        candidate: Some("route.v10".into()),
         report: Some(report.clone()),
         ..Default::default()
     })
@@ -674,7 +678,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     );
 }
 
-const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/content.v3.toml");
+const CONTENT_V3: &str = include_str!("../../theseus-judge/packs/retired/content.v3.toml");
 
 /// A stored `content.v3` judgment of one item, the way the daemon writes it:
 /// the state's blob staged and named in the context, and, when `recorded`,
@@ -692,7 +696,15 @@ fn content_judgment_by(
     text: &str,
     recorded: bool,
 ) -> Judgment {
-    let pack = theseus_judge::pack::by_name(pack).unwrap();
+    // `content.v2` and `content.v3` are retired from the binary (issue 44): a
+    // replay finds its incumbent by name, so each stands in from its file.
+    let pack = theseus_judge::pack::by_name(pack)
+        .or_else(|| {
+            let p = theseus_judge::pack::retired(pack)?;
+            c.runner.judge.stand_in(pack, (*p).clone());
+            Some(p)
+        })
+        .unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: text.into(),
         kind: kind.into(),
@@ -953,7 +965,7 @@ async fn a_v3_judgment_is_replayed_with_its_fields_as_judged() {
     let c = &r.core;
     let mut j = content_judgment(c, "jdg_v3", "tool_result", "A page about herons.", true);
     // The stored state, with the fields as they stood when it was judged.
-    let pack = theseus_judge::pack::by_name("content.v3").unwrap();
+    let pack = theseus_judge::pack::retired("content.v3").unwrap();
     let input = Input::Content(theseus_judge::builders::ContentInput {
         text: "A page about herons.".into(),
         kind: "tool_result".into(),

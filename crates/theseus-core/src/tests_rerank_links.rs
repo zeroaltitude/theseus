@@ -12,10 +12,24 @@ use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use crate::config::MemoryMode;
 use crate::graph::EdgeKind;
 use crate::rpc::Core;
-use crate::tests_activation::edge;
 use crate::tests_rerank::{
     index_of, keys_of, recalls, rig, sent, session, turn, until_reranked, Rig,
 };
+
+/// An edge from `from` to `to`, as the memory pass writes one.
+fn edge(
+    store: &crate::store::Store,
+    kind: EdgeKind,
+    from: &crate::node::Node,
+    to: &crate::node::Node,
+    via: &str,
+) {
+    store
+        .append(&[crate::graph::Edge::new(kind, &from.id, &to.id, via)
+            .record()
+            .unwrap()])
+        .unwrap();
+}
 
 const OLD: &str = "the grey heron nests by the old weir";
 const NEW: &str = "correction: the grey heron now nests by the new mill";

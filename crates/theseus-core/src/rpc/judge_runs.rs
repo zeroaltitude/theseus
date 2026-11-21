@@ -4,9 +4,7 @@
 //! place; the CLI refuses each inside a job), and runs on a thread of its
 //! own at low priority (`learning::tender::on_low_thread`). The runs
 //! themselves are `learning::replay`, `learning::audit`, and
-//! `learning::backfill`. Consolidation (M6 31b, `memory.consolidate`) is
-//! routed with them: it spends money and sends sessions' text to a profile,
-//! so it is the owner's run too (`consolidate::run`).
+//! `learning::backfill`.
 
 use serde_json::{json, Value};
 use theseus_protocol::error_code;
@@ -16,11 +14,10 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The runs' methods, which `server.rs` routes to [`Core::rpc_judge_run`].
-pub(super) const RUNS: [&str; 7] = [
+pub(super) const RUNS: [&str; 6] = [
     theseus_protocol::method::JUDGE_REPLAY,
     theseus_protocol::method::JUDGE_AUDIT,
     theseus_protocol::method::JUDGE_BACKFILL,
-    theseus_protocol::method::MEMORY_CONSOLIDATE,
     theseus_protocol::method::JUDGE_LEARN,
     theseus_protocol::method::TURN_REPLAY,
     theseus_protocol::method::ROUTE_REPORT,
@@ -65,12 +62,6 @@ impl Core {
                 .judge_audit(parse(params)?, who)
                 .await
                 .map(serde_json::to_value),
-            theseus_protocol::method::MEMORY_CONSOLIDATE => {
-                let params = if params.is_null() { json!({}) } else { params };
-                self.memory_consolidate(parse(params)?, who)
-                    .await
-                    .map(serde_json::to_value)
-            }
             theseus_protocol::method::TURN_REPLAY => self
                 .turn_replay(parse(params)?, who)
                 .await

@@ -969,11 +969,11 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
-        // A message that names no thread finds its own, in a place with threads
+        // A message that names a thread runs there, in a place with threads
         // (theseus-rha2); nothing else changes for a place without.
         let place_home = session.session_id.clone();
         let routing = match route {
-            true => self.route_to_thread(&mut p, conn, &mut session).await?,
+            true => self.route_to_thread(&mut p, conn, &mut session)?,
             false => None,
         };
         // A directory it names moves the session there: the turn's session
@@ -981,8 +981,6 @@ impl Core {
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
         // The turn's time, when the client gave one (theseus-yct32).
         crate::turn::clock_step::set_deadline(&session.session_id, conn.arrived, p.deadline_secs);
-        // The owner's words, read as a correction for the turn (theseus-q31l).
-        self.expect_correction(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
         // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
         // **Nothing is read out of its WORDS here.** What is staged is who

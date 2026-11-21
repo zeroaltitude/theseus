@@ -58,10 +58,9 @@ const MESSAGES_MAX: usize = 20;
 const TASKS_HERE_MAX: usize = 10;
 const TASKS_ELSEWHERE_MAX: usize = 15;
 const TASKS_READ_MAX: usize = 60;
-/// The most conversations running, cards, and thread questions listed.
+/// The most conversations running, and cards, listed.
 const RUNNING_MAX: usize = 12;
 const CARDS_MAX: usize = 10;
-const THREAD_ASKS_MAX: usize = 10;
 /// The most questions listed, from this place and from the rest.
 const WAITING_HERE_MAX: usize = 10;
 const WAITING_ELSEWHERE_MAX: usize = 15;

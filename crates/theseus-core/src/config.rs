@@ -72,7 +72,7 @@ pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use standing::StandingConfig;
-pub use threads::{PersonaEngage, ThreadsConfig, Unsure};
+pub use threads::{PersonaEngage, ThreadsConfig};
 pub use watches::WatchesConfig;
 pub mod defer;
 mod sparse;
@@ -84,7 +84,7 @@ pub use aws::{
 };
 pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use google_calendars::{primary_spec, CalendarEntry, CalendarSpec, CalendarTable};
-pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig, UNDO_PACK};
+pub use judge::{JudgeConfig, JudgePackConfig, PackMode, UNDO_PACK};
 pub use limits::{
     default_fan_in_chars, default_fan_out_max_wait_secs, default_fan_out_wait_secs,
     default_helper_floor_usd, default_helper_max_output_tokens, default_job_wait_beat_secs,
@@ -96,7 +96,7 @@ pub use web::{WebToolsConfig, WEB_TIMEOUT_MAX_SECS};
 pub use lookup::{find_config, Lookup, DEFAULT_CONFIG, NO_CONFIG, SYSTEM_CONFIG};
 pub use lsp::{LspConfig, LspServerConfig};
 pub use memory::{MemoryConfig, MemoryMode};
-pub use routing::{RoutingConfig, RoutingMode};
+pub use routing::RoutingConfig;
 pub use sparse::{sparse_note, SPARSE_HEADER};
 pub mod mcp;
 pub mod mcp_server;
@@ -1641,6 +1641,47 @@ impl Config {
                 }
             ));
         }
+        // The research arms and the canary mode (the owner, 2026-11-21).
+        let memory = cfg.memory.retired();
+        if !memory.is_empty() {
+            warnings.push(format!(
+                "{} retired (recall's research arms and the canary mode never ran live): read as \
+                 `arm = \"baseline\"` and `mode = \"live\"`, and ignored; remove {}",
+                memory.join(", "),
+                match memory.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
+        // What the trim of unused judge questions and modes retired (issue 44):
+        // nothing reads any of it now.
+        let mut trimmed = cfg.judge.retired();
+        trimmed.extend(cfg.routing.trimmed());
+        trimmed.extend(cfg.memory.trimmed());
+        if !trimmed.is_empty() {
+            warnings.push(format!(
+                "{} retired (nothing reads it any more): read and ignored, remove {}",
+                trimmed.join(", "),
+                match trimmed.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
+        // Routing by a guess and the thread importer (the owner, 2026-11-21).
+        let threads = cfg.threads.retired();
+        if !threads.is_empty() {
+            warnings.push(format!(
+                "{} retired (a message goes to a thread by its address only, and the thread \
+                 importer is gone): read and ignored, remove {}",
+                threads.join(", "),
+                match threads.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
         if cfg.server.drafts_dir.is_some() {
             warnings.push(
                 "[server] drafts_dir is retired: the China-origin draft is gone, so the key \
@@ -2039,6 +2080,7 @@ impl Config {
         })?;
         let m = &cfg.model;
         let doc: toml::Table = text.parse()?;
+        cfg.memory.note_retired(&doc);
         let mut profiles = inherit::profiles(&doc)?;
         profiles
             .entry("default".into())
@@ -2391,3 +2433,5 @@ mod tests_option_profiles;
 mod tests_persona;
 #[cfg(test)]
 mod tests_sensitivity;
+#[cfg(test)]
+mod tests_trimmed;

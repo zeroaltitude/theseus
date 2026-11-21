@@ -17,7 +17,6 @@ use crate::recall::{self, Asker, Candidate, Pack, Params};
 use crate::science::{
     Demotion, Fresh, GateDecision, Heat, MemoryScience, Neighbour, RankCtx, ScienceId, Scored,
 };
-use crate::{AccessEvent, Adjacency, Retention};
 
 /// How many of the fused order Jev re-sorts (§2.7).
 pub const TOP: usize = 20;
@@ -52,7 +51,7 @@ pub fn eligible(
                 score: c.fused,
             })
             .collect(),
-        &asker.rank_ctx(&kept),
+        &asker.rank_ctx(),
     );
     let mut by_key: BTreeMap<String, Candidate> = kept.into_iter().map(|c| (c.key(), c)).collect();
     order.iter().filter_map(|s| by_key.remove(&s.key)).collect()
@@ -108,27 +107,6 @@ impl MemoryScience for Reranked<'_> {
 
     fn prefers_newer(&self) -> bool {
         self.inner.prefers_newer()
-    }
-
-    fn reads_retention(&self) -> bool {
-        self.inner.reads_retention()
-    }
-
-    fn synthesis(&self, node_id: &str) -> crate::science::SynthesisAdmit {
-        self.inner.synthesis(node_id)
-    }
-
-    fn schedule(&self, prior: Option<&Retention>, ev: &AccessEvent) -> Option<Retention> {
-        self.inner.schedule(prior, ev)
-    }
-
-    fn activate(
-        &self,
-        g: &dyn Adjacency<String>,
-        seeds: &[(String, f32)],
-        budget: usize,
-    ) -> Vec<(String, f32)> {
-        self.inner.activate(g, seeds, budget)
     }
 
     fn decay_sweep(&self, now_ms: u64, view: &[Heat]) -> Vec<Demotion> {
@@ -256,7 +234,7 @@ mod tests {
             labeled: &BTreeSet::new(),
             links: &[],
             now_ms: 0,
-            retention: &BTreeMap::new(),
+
             threads: None,
         };
         let mut second = cand("n1", Place::Private, 0.85);
@@ -325,7 +303,7 @@ mod tests {
         ) {
             let science = Baseline { min_score: 0.01, ..Baseline::default() };
             let none = BTreeSet::new();
-            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0, retention: &BTreeMap::new(), threads: None };
+            let asker = Asker { session_id: "ses_here", place: &here, in_context: &none, labeled: &none, links: &[], now_ms: 0, threads: None };
             let cands: Vec<Candidate> = places
                 .iter()
                 .enumerate()

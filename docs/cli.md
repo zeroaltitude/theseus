@@ -204,7 +204,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`memory index`**: how far the index tender has read the store, and a search over what was said, run and read.
   `theseus memory index search "port 7433"`; `memory index status`, `memory index rebuild`.
 - **`memory`**: recall: `memory search QUERY` runs recall's pipeline writing nothing; `memory recalled SESSION` shows what
-  each turn would have recalled; `memory label`, `memory consolidate`. `theseus memory recalled SESSION`.
+  each turn would have recalled; `memory label`. `theseus memory recalled SESSION`.
 - **`ontology`**: the kinds of context, the categories with their guidance, and sessions' memberships; people.
   `theseus ontology categories`.
 - **`import`**: bring past history in as imported sessions (closed and private): OpenClaw, Claude Code, Codex.

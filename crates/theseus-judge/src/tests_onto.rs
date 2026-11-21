@@ -76,7 +76,9 @@ fn the_pack_loads_with_the_designs_bands_and_the_shared_state() {
     assert_eq!(p.jev_model, "jev-1.13.0");
     assert_eq!(
         p.state_cap_tokens,
-        by_name("classify.v3").unwrap().state_cap_tokens
+        crate::pack::retired("classify.v3")
+            .unwrap()
+            .state_cap_tokens
     );
     for q in &p.questions {
         assert_eq!(
@@ -113,7 +115,7 @@ fn the_state_with_ontology_is_todays_plus_its_fields() {
     let mut plain = input();
     plain.message = "ok, then do that".into();
     let today = prepare(
-        &by_name("classify.v3").unwrap(),
+        &crate::pack::retired("classify.v3").unwrap(),
         &Input::Inbound(plain),
         &NoScrub,
     )

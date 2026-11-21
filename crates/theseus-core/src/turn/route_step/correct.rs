@@ -1,18 +1,11 @@
 //! The owner's correction at the turn (theseus-q31l; `crate::correction`).
 //!
-//! - **Words**, read by `turn.submit` and taken here, at the inbound point,
-//!   once the message's node is written (its id is the provenance): only in
-//!   a private place, and never in a task's turn. The label and the
-//!   `route.corrected` row ride the turn's next frame, so a correction adds
-//!   no frame of its own; the turn itself runs where the owner said.
 //! - **A reaction, a press, the CLI** (`route.correct`): written in their own
 //!   frame by the core, and the session's next turn runs where they said.
-//! - **The layer**: any other message routing acts on is looked up, in
-//!   memory, among the corrected ones; a close one runs where the owner said.
+//!   Nothing here reads the message's words.
 
 use anyhow::Context as _;
 use serde_json::json;
-use theseus_protocol::PlaceClass;
 use theseus_store::NewRecord;
 
 use super::*;
@@ -27,7 +20,6 @@ pub struct Correcting {
     pub label: Option<serde_json::Value>,
     pub last: RoutedTurn,
     pub resolved: Resolved,
-    pub rerun: bool,
     pub who: String,
     pub via: String,
     pub provenance: String,
@@ -36,37 +28,16 @@ pub struct Correcting {
 
 impl Correcting {
     /// Where it steers the session's next turn, or this one.
-    pub fn steering(&self, by: By) -> Option<Steering> {
+    pub fn steering(&self) -> Option<Steering> {
         Some(Steering {
             steer: self.resolved.steer.clone()?,
             follows: self.label_id.clone().unwrap_or_else(|| self.id.clone()),
-            by,
-        })
-    }
-
-    /// Its entry in the layer, when it steers and its message had words.
-    pub fn entry(&self) -> Option<correction::Entry> {
-        let steer = self.resolved.steer.clone()?;
-        (!self.last.words.is_empty()).then(|| correction::Entry {
-            id: self.id.clone(),
-            label: self.label_id.clone(),
-            pack: self.last.pack.clone(),
-            session: self.last.session.clone(),
-            turn: self.last.turn.clone(),
-            words: self.last.words.clone(),
-            steer,
-            at_ms: self.at_ms,
         })
     }
 
     fn note(&self) -> String {
-        let again = if self.rerun {
-            ", and answer it again there"
-        } else {
-            ""
-        };
         format!(
-            "the owner's correction {}: it should have run on {}{again} ({} {})",
+            "the owner's correction {}: it should have run on {} ({} {})",
             self.id, self.resolved.to, self.via, self.provenance
         )
     }
@@ -102,11 +73,9 @@ impl Correcting {
             profile: self.resolved.profile.as_deref(),
             steer: correction::steer_json(self.resolved.steer.as_ref()),
             label: self.label_id.as_deref(),
-            rerun: self.rerun,
             who: &self.who,
             via: &self.via,
             provenance: &self.provenance,
-            words: &self.last.words,
             at_ms: self.at_ms,
         }
     }
@@ -180,16 +149,6 @@ impl Correcting {
     }
 }
 
-/// The words of a place only the owner writes in label as the owner: the
-/// CLI and the web UI (no place) and a DM with an owner (a DM's class is
-/// private only for an owner's). A guild channel bound private is not one:
-/// anyone it lets in writes there, and a label is the owner's act, as
-/// `judge.label`'s place rule asks of its answerer (`owner_in_private`); a
-/// reaction there is judged by its reactor.
-fn owners(class: PlaceClass, place: Option<&str>) -> bool {
-    crate::capture::owner_alone(class, place)
-}
-
 impl TurnRunner {
     /// A correction of `last` to `to`, resolved against the profiles now,
     /// with its label checked against the judgment's pack. Nothing written.
@@ -197,7 +156,6 @@ impl TurnRunner {
         &self,
         last: RoutedTurn,
         to: &To,
-        rerun: bool,
         who: String,
         via: &str,
         provenance: String,
@@ -223,7 +181,6 @@ impl TurnRunner {
             label,
             last,
             resolved,
-            rerun,
             who,
             via: via.to_string(),
             provenance,
@@ -231,12 +188,9 @@ impl TurnRunner {
         })
     }
 
-    /// A correction written: its entry into the layer, and its label to the
-    /// ladder's count of the day's labels, off the turn's path.
+    /// A correction written: its label to the ladder's count of the day's
+    /// labels, off the turn's path.
     pub fn corrected(&self, c: &Correcting) {
-        if let Some(e) = c.entry() {
-            self.judge.corrections.add(e, &self.cfg.routing.corrections);
-        }
         let Some(label) = c.label.clone() else {
             return;
         };
@@ -247,56 +201,23 @@ impl TurnRunner {
         }
     }
 
-    /// The inbound point's part: the owner's words, read by `turn.submit`,
-    /// taken and acted on in a place only the owner writes in (`owners`);
-    /// else, for a turn that asked the route pack (`asked`), a correction
-    /// waiting for this session's next turn; else, while routing acts, the
-    /// layer's entry closest to the message.
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::turn) fn correction_point(
-        &self,
-        t: &mut Turn<'_>,
-        node_id: &str,
-        text: &str,
-        author: &str,
-        place: Option<&str>,
-        route: PackMode,
-        asked: bool,
-    ) {
+    /// The inbound point's part: a correction waiting for this session's
+    /// next turn (`route.correct`) steers it. A persona's steer needs no
+    /// route verdict to apply; a profile's waits for a turn that asked the
+    /// route pack (`asked`).
+    pub(in crate::turn) fn correction_point(&self, t: &mut Turn<'_>, asked: bool) {
         let sid = t.tc.session_id;
-        let cfg = &self.cfg.routing.corrections;
         let corrections = &self.judge.corrections;
-        t.route.words = correction::layer::words(text);
-        let said = corrections.take_said(sid, text);
-        let owners = owners(t.tc.class, place) && t.tc.task.is_none();
-        // The layer holds the owner's corrections: it steers a turn of the
-        // owner's private places and never a shared place's (theseus-c2rv).
-        let steers = t.tc.class == PlaceClass::Private;
-        if let Some(said) = said.filter(|_| owners && cfg.enabled) {
-            if self.correct_in_words(t, &said, node_id, author) {
-                return;
-            }
-            return self.layer_point(t, route, asked && steers);
-        }
-        // A persona's steer needs no route verdict to apply.
         if let Some(s) = corrections.take_pending_if(sid, |s| matches!(s.steer, Steer::Persona(_)))
         {
             Self::set_steer(t, s);
         }
         if !asked {
-            if steers {
-                self.persona_layer_point(t);
-            }
             return;
         }
         if let Some(s) = corrections.take_pending(sid) {
             Self::set_steer(t, s);
-            return;
         }
-        if steers {
-            self.persona_layer_point(t);
-        }
-        self.layer_point(t, route, asked && steers)
     }
 
     /// A steer, to where it acts: a persona's to the persona decision, any
@@ -308,92 +229,6 @@ impl TurnRunner {
         }
     }
 
-    /// The layer's persona entry closest to the message: a close message is
-    /// answered by the persona the owner corrected a like one to.
-    fn persona_layer_point(&self, t: &mut Turn<'_>) {
-        if t.route.persona_steer.is_some() || !t.target.engages {
-            return;
-        }
-        let cfg = &self.cfg.routing.corrections;
-        if let Some((e, _)) =
-            self.judge
-                .corrections
-                .nearest_persona(&t.route.words, ROUTE_PACK, cfg)
-        {
-            t.route.persona_steer = Some(Steering {
-                steer: e.steer,
-                follows: e.label.unwrap_or(e.id),
-                by: By::Layer,
-            });
-        }
-    }
-
-    /// The owner's words, acted on: the label and the row ride the turn's
-    /// next frame, and the turn runs where the owner said. False when there
-    /// is no routed turn to correct, or the correction does not resolve: the
-    /// words are a message.
-    fn correct_in_words(
-        &self,
-        t: &mut Turn<'_>,
-        said: &correction::Said,
-        node_id: &str,
-        author: &str,
-    ) -> bool {
-        let sid = t.tc.session_id;
-        let Some(last) = self.judge.corrections.last_of(sid) else {
-            tracing::debug!(session_id = %sid, "a correction with no routed turn to correct: a message");
-            return false;
-        };
-        let who = author.to_string();
-        let c = match self.correcting(last, &said.to, said.rerun, who, "message", node_id.into()) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), "the owner's correction did not resolve: a message");
-                return false;
-            }
-        };
-        Self::defer_rows(t, &c);
-        c.announce(&t.tc.rec());
-        self.corrected(&c);
-        t.route.correcting = true;
-        if let Some(s) = c.steering(By::Owner) {
-            Self::set_steer(t, s);
-        }
-        true
-    }
-
-    /// A correction's rows, into the turn's next frame.
-    fn defer_rows(t: &Turn<'_>, c: &Correcting) {
-        let written = c
-            .records()
-            .and_then(|rows| rows.into_iter().try_for_each(|r| t.tc.store.defer(r)));
-        if let Err(e) = written {
-            tracing::warn!(error = %format!("{e:#}"), "a correction's rows were not written");
-        }
-    }
-
-    /// The layer's entry closest to the message, while routing acts.
-    fn layer_point(&self, t: &mut Turn<'_>, route: PackMode, asked: bool) {
-        if !asked || route < PackMode::Canary {
-            return;
-        }
-        let cfg = &self.cfg.routing.corrections;
-        if let Some((e, _)) = self
-            .judge
-            .corrections
-            .nearest(&t.route.words, ROUTE_PACK, cfg)
-        {
-            Self::set_steer(
-                t,
-                Steering {
-                    steer: e.steer,
-                    follows: e.label.unwrap_or(e.id),
-                    by: By::Layer,
-                },
-            );
-        }
-    }
-
     /// Where a steered turn runs: a profile by `routing::steer_to`, a mode
     /// as a verdict of that mode at full confidence would place it.
     pub(super) fn decide_steer(
@@ -401,11 +236,9 @@ impl TurnRunner {
         t: &Turn<'_>,
         session: &SessionRecord,
         s: &Steering,
-        context: u64,
     ) -> Decision {
         let profiles = self.route_profiles();
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
-        let at_once = s.by == By::Owner;
         let v = Verdict {
             mode: "correction".into(),
             confidence: 1.0,
@@ -422,15 +255,13 @@ impl TurnRunner {
         let a = routing::Ask {
             verdict: &v,
             base: &t.target.profile,
-            context_tokens: if at_once { 0 } else { context },
+            context_tokens: 0,
             hold: hold.as_ref(),
             images: t.route.images,
         };
         match &s.steer {
-            Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, at_once),
-            // A thread's entry steers a message to a thread, before a turn
-            // exists (the router reads it), never a turn's profile.
-            Steer::Thread(_) | Steer::Persona(_) => {
+            Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, true),
+            Steer::Persona(_) => {
                 let mut d = routing::decide(&self.cfg.routing, &profiles, &a);
                 if d.reason == Reason::Verdict {
                     d.reason = Reason::Correction;
@@ -462,7 +293,6 @@ impl TurnRunner {
             mode: own.map(|v| v.mode.clone()).filter(|m| !m.is_empty()),
             from: t.target.profile.clone(),
             profile: decision.map_or_else(|| t.target.profile.clone(), |d| d.profile.clone()),
-            words: std::mem::take(&mut t.route.words),
             persona_asked: own.is_some_and(|v| v.persona.is_some()),
         });
     }

@@ -149,18 +149,6 @@ site!(
 );
 
 site!(
-    threads,
-    Site {
-        set: |c, p| c.threads.import_profile = Some(p.into()),
-        unset: |c| c.threads.import_profile = None,
-        call: |r| async { r.core.import_model(3).await.unwrap().model }.boxed(),
-        pin: ("opus", "claude-opus-5-5"),
-        pick: ("fable", "claude-fable-5-2"),
-        says: "3 episodes",
-    }
-);
-
-site!(
     ontology,
     Site {
         set: |c, p| c.ontology.name_profile = Some(p.into()),
@@ -230,68 +218,6 @@ async fn the_card_observation_asks_about_lines_not_clusters() {
     let state = jev.seen()[0].body["state"].to_string();
     assert!(state.contains("11 lines"), "{state}");
     assert!(!state.contains("clusters"), "{state}");
-}
-
-// Row 7: consolidation's syntheses. The plan decides at its own point (a
-// named profile, or none when Jev will be asked), and the cluster's call
-// settles it.
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn consolidation_is_pinned_when_synth_profile_is_set() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "fable", 0.95);
-    let r = rig_job(&jev, |c| c.memory.synth_profile = Some("opus".into()));
-    assert!(!r.core.synth_asks_jev(), "a set key never asks");
-    let t = r.core.synth_target(&[], "opus").await.unwrap();
-    assert_eq!(t.model, "claude-opus-5-5");
-    assert_eq!(jev.connections(), 0);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn consolidation_asks_jev_when_synth_profile_is_unset() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "fable", 0.95);
-    let r = rig_job(&jev, |_| {});
-    assert!(r.core.synth_asks_jev());
-    let t = r.core.synth_target(&[], "").await.unwrap();
-    assert_eq!(t.model, "claude-fable-5-2");
-    assert_eq!(jev.connections(), 1);
-    let state = jev.seen()[0].body["state"].to_string();
-    assert!(state.contains("synthesis"), "{state}");
-    assert!(
-        state.contains("\"allowed\""),
-        "no floor for a synthesis: {state}"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn consolidation_never_waits_on_a_slow_jev_past_the_bound() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "fable", 0.95);
-    jev.set_mode(FakeMode::Held);
-    let r = rig_job(&jev, |c| c.judge.total_secs = 30);
-    let t0 = Instant::now();
-    let t = r.core.synth_target(&[], "").await.unwrap();
-    assert_eq!(t.model, SONNET, "live");
-    assert_eq!(jev.seen().len(), 1, "Jev was asked, and held its answer");
-    assert!(
-        t0.elapsed() < Duration::from_millis(2_500),
-        "{:?}",
-        t0.elapsed()
-    );
-    jev.release();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn consolidation_may_run_on_flash() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "deepseek_flash", 0.97);
-    let r = rig_job(&jev, |_| {});
-    let t = r.core.synth_target(&[], "").await.unwrap();
-    assert_eq!(t.model, "deepseek-flash", "Flash is picked and runs");
-    assert!(jev.seen()[0].body["state"]
-        .to_string()
-        .contains("\"allowed\""));
 }
 
 // Row 8: the self-improvement builder. No key pins it: Jev chooses from the

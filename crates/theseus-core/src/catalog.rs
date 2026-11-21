@@ -74,7 +74,7 @@ mod mythos;
 mod peak;
 pub use peak::price_period_at;
 mod switch;
-pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
+pub use switch::{switch_cost, Switch};
 
 pub const BUILTIN_VERSION: &str = "2026-11-18.1";
 

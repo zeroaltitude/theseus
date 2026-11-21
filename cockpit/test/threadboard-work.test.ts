@@ -2,7 +2,7 @@
 // attached tasks, a plan's n of m, and under a counter's filter only the kept cards with their ancestors as context.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { ConfirmRequest, ThreadAsk, WorkView } from '../src/protocol.gen/index.ts'
+import type { ConfirmRequest, WorkView } from '../src/protocol.gen/index.ts'
 import { allCounters, boardRows, contextOf, shown, type OpsRow } from '../src/ops/board.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { OWNER_CALLS, type OwnerCalls } from '../src/ops/state.ts'
@@ -40,8 +40,8 @@ function fixture() {
   const confirms: ConfirmRequest[] = [
     confirm('act_c1', { session_id: 'ses_ak' }), confirm('act_c2', { session_id: 'ses_ak', tool: 'fs.delete' }), confirm('act_c3', { session_id: 'ses_ak', tool: 'fs.move' }),
   ]
-  const loose = { ask_id: 'ask_1', session_id: 'ses_elsewhere', question: 'Which harbour?', options: [], message: 'survey it', expires_ms: NOW + HOUR } as unknown as ThreadAsk
-  const queue = queueOf({ confirms, views, records, asks: [{ ask: loose, heard_ms: NOW - 5 * MIN }] })
+  const loose = confirm('act_c9', { session_id: 'ses_elsewhere', execution_id: 'exe_elsewhere', requested_at_ms: NOW - 5 * MIN })
+  const queue = queueOf({ confirms: [...confirms, loose], views, records })
   const groups = [group('harbour-survey'), group('tide-tables')]
   const rows = boardRows({ views, tasks: [], sessions: [], records, queue, now: NOW, past: false })
   return { rows, groups }
@@ -67,7 +67,7 @@ test('the shape: a thread lists its plans and steps with their tasks on the same
   assert.ok(!idsOf(w[1]).includes('tsk_plan'), 'the other thread does not list it')
   const home = w[2]
   assert.ok(idsOf(home).includes('wak_h'), 'a wake in no thread is Home’s')
-  assert.ok(idsOf(home).includes('a:ask_1'), 'so is the loose ask')
+  assert.ok(idsOf(home).includes('q:act_c9'), 'so is the loose ask')
   // The task that carries a record is one line: the task is on the card, never beside it.
   const cable = lineOf(w, 'ses_tk')
   assert.equal(cable.row.recordId, 'tsk_tk')
@@ -100,7 +100,7 @@ test('Q1: a card with three asks is one line with one needs mark; the loose ask 
   const w = threadWork(rows, groups)
   assert.equal(w.flatMap((t) => t.lines).filter((l) => l.row.id === 'ses_ak').length, 1)
   assert.equal(lineOf(w, 'ses_ak').needs, 1)
-  assert.equal(lineOf(w, 'a:ask_1').needs, 1)
+  assert.equal(lineOf(w, 'q:act_c9').needs, 1)
   assert.equal(w[0].needs, 1, 'the thread’s mark counts the card once')
   // The setting decides: asked per ask, the same card would be three.
   const per: OwnerCalls = { ...OWNER_CALLS, needsPerCard: false }

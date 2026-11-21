@@ -104,7 +104,6 @@ fn mythos_5_2_is_priced_as_published() {
 #[test]
 fn the_router_cannot_choose_mythos_5_2() {
     assert!(OPTIONS.iter().all(|(_, model)| *model != ID));
-    assert!(SWITCH_CANDIDATES.iter().all(|(_, model)| *model != ID));
 }
 
 /// The template's commented profile that pins it: uncommented, it loads

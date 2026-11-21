@@ -61,7 +61,6 @@ mod kept;
 mod late;
 pub mod login_env;
 mod mcp_floor;
-pub mod misroute;
 mod not_started;
 pub(crate) mod note;
 mod operands;
@@ -233,8 +232,6 @@ impl ResumeOutcome {
 }
 
 pub struct ToolRuntime {
-    /// The misroute guard: a turn placed in a thread on a guess (theseus-rha2).
-    pub misroute: misroute::Guards,
     /// The catalog each place is offered, kept (`catalogs`).
     pub catalogs: catalogs::Catalogs,
     pub registry: Registry,
@@ -499,7 +496,6 @@ impl ToolRuntime {
     pub fn disabled() -> Self {
         let tmp = std::env::temp_dir();
         Self {
-            misroute: Default::default(),
             catalogs: Default::default(),
             chat_acts: Default::default(),
             registry: Registry::new(),
@@ -2097,7 +2093,6 @@ pub fn build_runtime(
     let config_change = crate::config_change::Where::new(cfg.config_file.clone(), state.clone());
     let root_install = crate::rsi::join::root_install::Board::new(state.clone());
     Ok(ToolRuntime {
-        misroute: Default::default(),
         catalogs: Default::default(),
         registry,
         policy: ToolPolicy {

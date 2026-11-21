@@ -1327,7 +1327,9 @@ pub(crate) mod tests {
     }
 
     fn prepared(pack: &str) -> (Arc<Pack>, Prepared) {
-        let p = by_name(pack).unwrap();
+        let p = by_name(pack)
+            .or_else(|| crate::pack::retired(pack))
+            .unwrap();
         prepared_from(&p, &fixture(&builder_name(p.builder)))
     }
 
@@ -1446,7 +1448,8 @@ pub(crate) mod tests {
     fn data_names_reach_the_state_only_when_given() {
         let (_, plain) = prepared("route.v6");
         assert!(plain.state.value().get("data_names").is_none());
-        let (_, named) = prepared_from(&by_name("route.v6").unwrap(), &names_fixture());
+        let (_, named) =
+            prepared_from(&crate::pack::retired("route.v6").unwrap(), &names_fixture());
         let v = named.state.value();
         assert_eq!(v["data_names"]["open"], serde_json::json!(["Widgetco"]));
         assert_eq!(v["data_names"]["private"], serde_json::json!(["Acme"]));
@@ -1461,7 +1464,7 @@ pub(crate) mod tests {
         assert_eq!(c.state.sha256, r.state.sha256);
         // classify.v3 and the route packs ride the same request, as does
         // directive.v1 and v2 (theseus-slvl.5): the same state, byte for byte.
-        let cp = crate::pack::by_name("classify.v2").unwrap();
+        let cp = crate::pack::retired("classify.v2").unwrap();
         let (_, c3) = prepared("classify.v3");
         assert_eq!(c.state.json, c3.state.json, "classify.v3");
         for route in [
@@ -1536,7 +1539,7 @@ pub(crate) mod tests {
             .all(|a| a.id != "addressed_task"));
         // role.v1 without a roles table asks nothing.
         input.roles.clear();
-        let role = by_name("role.v1").unwrap();
+        let role = crate::pack::retired("role.v1").unwrap();
         let bare = prepare(&role, &Input::Inbound(input), &NoScrub).unwrap();
         assert!(role.ask(&bare.dynamic).is_empty());
         // categorize.v1: one still_member Noul per membership, naming its
@@ -1625,7 +1628,7 @@ pub(crate) mod tests {
         let mut sec: SecurityInput = serde_json::from_str(&fixture("security")).unwrap();
         sec.argv = (0..70).map(|i| format!("arg{i}")).collect();
         sec.argv[0] = "rm".into();
-        let p = by_name("security.v1").unwrap();
+        let p = crate::pack::retired("security.v1").unwrap();
         let s = prepare(&p, &Input::Security(sec), &NoScrub).unwrap().state;
         let argv = s.value()["argv"].as_array().unwrap().clone();
         assert_eq!(argv[0], "rm");
@@ -1821,7 +1824,9 @@ pub(crate) mod tests {
             ),
         ];
         for (pack, input) in inputs {
-            let p = by_name(pack).unwrap();
+            let p = by_name(pack)
+                .or_else(|| crate::pack::retired(pack))
+                .unwrap();
             let started = thread_cpu();
             let prepared = prepare(&p, &input, &NoScrub).unwrap();
             let took = thread_cpu() - started;

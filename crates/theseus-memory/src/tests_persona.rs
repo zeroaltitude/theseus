@@ -3,7 +3,7 @@
 //! bounded multiplier, and never otherwise: a clearly better note of another
 //! source still wins, and the boost admits nothing the filters dropped.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::recall::{recall, Asker, Candidate, Pack, Params, Place, Reason};
 use crate::science::Baseline;
@@ -50,7 +50,7 @@ fn run(persona: Option<PersonaBoost>, cands: Vec<Candidate>) -> Pack {
         labeled: &none,
         links: &[],
         now_ms: 0,
-        retention: &BTreeMap::new(),
+
         threads: None,
     };
     let p = Params {

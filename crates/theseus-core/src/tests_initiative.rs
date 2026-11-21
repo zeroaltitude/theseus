@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use theseus_protocol::initiative::{InitiativeRateParams, InitiativeWeekParams};
-use theseus_protocol::memory::{MemoryConsolidateResult, SynthesisReport};
 use theseus_protocol::standing::StandingAddParams;
 use theseus_protocol::{Initiative, SessionKind, StandingKind, StandingScope};
 
@@ -229,16 +228,17 @@ fn system(req: &ProviderRequest) -> String {
         .join("\n")
 }
 
-fn finding(text: &str) -> MemoryConsolidateResult {
-    MemoryConsolidateResult {
-        clusters: vec![SynthesisReport {
-            cluster: "c1".into(),
-            outcome: "supported".into(),
-            text: Some(text.into()),
-            ..Default::default()
-        }],
-        ..Default::default()
-    }
+/// A note the daemon says first, on the path every such note takes: the
+/// persona speaks it (or its template stands in), and it is posted.
+async fn say_a_note(core: &Arc<Core>) {
+    let facts = crate::initiative::speak::Facts {
+        kind: "morning",
+        brief: "One thing happened since yesterday: tide tables are kept in the harbour file.",
+        line: crate::initiative::lines::Line::Morning,
+        n: 1,
+    };
+    let spoken = core.initiative_speak(&facts).await;
+    core.initiative_post("morning", &spoken).unwrap();
 }
 
 /// A reply that promises a follow-up in a turn that set a wake keeps its word;
@@ -340,11 +340,11 @@ async fn a_tasks_request_carries_its_parents_persona() {
     );
 }
 
-/// A consolidation finding is written by a short call whose system holds the
-/// persona's file and the owner's standing orders, posted to the owner's DM
-/// with its row, only when the level lets an observation through.
+/// A note said first is written by a short call whose system holds the
+/// persona's file and the owner's standing orders, and posted to the owner's
+/// DM with its row.
 #[tokio::test]
-async fn a_consolidation_finding_carries_the_persona_and_the_standing_block() {
+async fn a_note_said_first_carries_the_persona_and_the_standing_block() {
     let chatty = rig(Initiative::Chatty, |_| {});
     chatty
         .core
@@ -358,10 +358,8 @@ async fn a_consolidation_finding_carries_the_persona_and_the_standing_block() {
             "the CLI",
         )
         .unwrap();
-    chatty
-        .core
-        .say_consolidation(&finding("Tide tables are kept in the harbour file."));
-    until("a consolidation row", || {
+    say_a_note(&chatty.core).await;
+    until("a note's row", || {
         !rows(&chatty.core, "initiative.spoke").is_empty()
     })
     .await;
@@ -378,7 +376,7 @@ async fn a_consolidation_finding_carries_the_persona_and_the_standing_block() {
     assert!(sys.contains("Never use a table"), "{sys}");
     assert!(req.tools.is_empty(), "no tools, no history: one short call");
     let spoke = rows(&chatty.core, "initiative.spoke");
-    assert_eq!(spoke[0]["kind"], "consolidation");
+    assert_eq!(spoke[0]["kind"], "morning");
     assert_eq!(
         spoke[0]["text"],
         "Two builds finished overnight and nothing needs you."
@@ -394,15 +392,6 @@ async fn a_consolidation_finding_carries_the_persona_and_the_standing_block() {
         .collect();
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0]["id"], spoke[0]["id"]);
-
-    // At `normal` an observation is not said at all.
-    let normal = rig(Initiative::Normal, |_| {});
-    normal
-        .core
-        .say_consolidation(&finding("Tide tables are kept in the harbour file."));
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(rows(&normal.core, "initiative.spoke").is_empty());
-    assert!(normal.model.requests.lock().unwrap().is_empty());
 }
 
 /// Past the day's line, or with the model off, a note is its template, which
@@ -411,8 +400,7 @@ async fn a_consolidation_finding_carries_the_persona_and_the_standing_block() {
 async fn past_the_days_line_a_note_is_its_template_in_the_personas_name() {
     for day_usd in [0.0, 0.000_001] {
         let r = rig(Initiative::Chatty, |c| c.initiative.day_usd = day_usd);
-        r.core
-            .say_consolidation(&finding("Tide tables are kept in the harbour file."));
+        say_a_note(&r.core).await;
         until("a template row", || {
             !rows(&r.core, "initiative.spoke").is_empty()
         })
@@ -420,7 +408,7 @@ async fn past_the_days_line_a_note_is_its_template_in_the_personas_name() {
         let spoke = rows(&r.core, "initiative.spoke");
         assert_eq!(
             spoke[0]["text"],
-            "🌊 Ondine: tonight's memory pass wrote one new note from what we talked about."
+            "🌊 Ondine: one thing happened since yesterday. Nothing needs you."
         );
         assert!(
             r.model.requests.lock().unwrap().is_empty(),
@@ -436,9 +424,9 @@ async fn past_the_days_line_a_note_is_its_template_in_the_personas_name() {
 async fn the_day_cap_counts_what_the_voiced_notes_spent() {
     let r = rig(Initiative::Chatty, |c| c.initiative.day_usd = 0.05);
     let facts = crate::initiative::speak::Facts {
-        kind: "consolidation",
-        brief: "Tonight's memory pass wrote notes.",
-        line: crate::initiative::lines::Line::Consolidation,
+        kind: "morning",
+        brief: "Two things happened since yesterday.",
+        line: crate::initiative::lines::Line::Morning,
         n: 2,
     };
     let first = r.core.initiative_speak(&facts).await;
@@ -454,7 +442,7 @@ async fn the_day_cap_counts_what_the_voiced_notes_spent() {
         stop_reason: None,
         output_tokens: None,
     };
-    r.core.initiative_post("consolidation", &earlier).unwrap();
+    r.core.initiative_post("morning", &earlier).unwrap();
     let spent = r.core.initiative_spent_today();
     assert!(
         spent >= theseus_judge::price::usd_to_micros(0.049),
@@ -642,8 +630,7 @@ async fn the_morning_note_waits_for_the_pacers_window() {
 #[tokio::test]
 async fn a_verdict_is_recorded_and_counted_and_the_last_one_stands() {
     let r = rig(Initiative::Chatty, |_| {});
-    r.core
-        .say_consolidation(&finding("Tide tables are kept in the harbour file."));
+    say_a_note(&r.core).await;
     until("a note", || !rows(&r.core, "initiative.spoke").is_empty()).await;
     let id = rows(&r.core, "initiative.spoke")[0]["id"]
         .as_str()

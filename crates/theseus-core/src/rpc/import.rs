@@ -87,7 +87,7 @@ pub(super) fn prefixed(name: &str) -> bool {
 impl Core {
     /// The ladder's methods (`pack.*`), the import's (`import.*`), the
     /// books' (`books.*`), and the owner's corrections of routing
-    /// (`route.correct`, `route.corrections`), and self-improvement's
+    /// (`route.correct`), and self-improvement's
     /// (`self.*`, theseus-pw1q), from one arm of `dispatch`, which stays within
     /// clippy's length that way.
     pub(super) async fn rpc_prefixed(
@@ -109,7 +109,7 @@ impl Core {
             return self.rpc_google(name, params, conn).await;
         }
         if super::route_correct::ROUTE.contains(&name) {
-            return self.rpc_route(name, params, conn);
+            return self.rpc_route(params, conn);
         }
         if super::people::ROUTE.contains(&name) || super::ontology_kinds::ROUTE.contains(&name) {
             return self.rpc_ontology(name, params, conn);
@@ -134,9 +134,6 @@ impl Core {
         }
         if name.starts_with("card.") {
             return self.rpc_card(name, params, conn).await;
-        }
-        if name == method::THREAD_IMPORT {
-            return self.rpc_thread_import(params, conn).await;
         }
         if name == method::THREAD_MOVE {
             return super::server::reply(self.thread_move_message(parse(params)?, conn).await?);

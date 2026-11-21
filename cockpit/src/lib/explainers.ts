@@ -511,10 +511,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'See how far each of Jev’s checks is trusted (watching only, or acting), and move it up or back.',
     'One row per check (e.g. loop.v1 decides when to nudge an unfinished turn; classify.v4 sorts each message). Its badge says its level: shadow = Jev answers but nothing acts on it; live = Theseus acts on the answer. The rules under it are its safety limits (e.g. how many labels a day). Promote moves it one level up; Roll back moves it down at once.',
     'A check only starts steering Theseus once it has proved itself in shadow. If one starts making bad calls, roll it back immediately; its earlier level is restored.'),
-  'judgment.corrections': e(
-    'Show your corrections of how messages are routed to a model.',
-    'One row per correction: the message it was made on and the profile you steered it to.',
-    'Corrections steer similar messages next time. Remove one that is no longer right.'),
   'judgment.versions': e(
     'Show the versions the learning loop wrote for each check.',
     'One lineage per check; pick any two versions to see what differs. Buttons promote or reject one.',

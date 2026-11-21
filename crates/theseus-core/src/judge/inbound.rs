@@ -23,9 +23,11 @@
 //!   and the id its row will carry), spawns the point, and goes on. The
 //!   state's build (the session's nodes, its live tasks), its blob, the
 //!   reservation, the call, and the record are the spawned task's.
-//! - **The roles.** Until 26c brings the versioned table, the state carries
-//!   the spec's twelve seed rows (§3.4, [`SEED_ROLES`]) and no current role,
-//!   so `role.v1` (asked only when there are roles) asks in shadow now.
+//! - **The roles.** The state carries the spec's twelve seed rows (§3.4,
+//!   [`SEED_ROLES`]) and no current role. `role.v1`, their one reader, never
+//!   graduated from shadow and is retired; the rows stay because the live
+//!   packs share this state byte for byte, and dropping them would change
+//!   every request they send.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -57,8 +59,6 @@ pub const THREAD_QUESTION: &str = "thread";
 pub const SCOPE_QUESTION: &str = "scope";
 /// The question of `classify.v3` that finds work to offer as a task.
 pub const OFFER_QUESTION: &str = "offer_task";
-/// ROLE_GUESS (§2.4), at `inbound`, batched with `classify.v3`.
-pub const ROLE_PACK: &str = "role.v1";
 /// ROUTE (25e), at `inbound`, in a request of its own beside the batch:
 /// live.
 /// The acting route pack: `route.v11` (theseus-h66v4), where Jev chooses the model
@@ -103,9 +103,8 @@ fn family_of(packs: &[(Arc<Pack>, String, PackMode)]) -> bool {
 }
 
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 6] = [
+pub const PACKS: [&str; 5] = [
     CLASSIFY_PACK,
-    ROLE_PACK,
     ROUTE_PACK,
     DIRECTIVE_PACK,
     ONTO_PACK,
@@ -635,28 +634,6 @@ impl JudgeService {
         }
     }
 
-    /// The owner said a message was routed to the wrong thread: a "wrong
-    /// thread" label on `classify.v2`'s count of the day, which its rollback
-    /// rule reads. Landed off the turn's path: `land` writes a frame.
-    pub fn wrong_thread(&self) {
-        let Ok(rt) = tokio::runtime::Handle::try_current() else {
-            return;
-        };
-        let me = self.me.clone();
-        rt.spawn_blocking(move || {
-            if let Some(svc) = me.upgrade() {
-                let day = svc.today();
-                svc.land(
-                    CLASSIFY_PACK,
-                    theseus_judge::learn::CanaryEvent::Label {
-                        day,
-                        label: "wrong thread".into(),
-                    },
-                );
-            }
-        });
-    }
-
     /// Whether Jev's breaker is open now: a live verdict would not come, so
     /// the turn does not wait for one.
     pub fn breaker_open(&self) -> bool {
@@ -796,18 +773,14 @@ impl JudgeService {
         // is live when ANY ask in it is (`Class::of_asks`), so a shadow ask
         // that shares a request with a live one spends as live and is not
         // stopped at `SHADOW_STOP_PERCENT`. At the wired modes (`WIRED`) that
-        // is `role.v1` and the non-route `split.v1` (both shadow) riding the
-        // `rest` request with `classify` and `directive` (live): `plan`
-        // batches packs of one state, model and assets, and all four ask on
-        // the `inbound` state. Taking a class per request would change
-        // nothing here, since `rest` is live either way; only splitting a
-        // request's reservation by ask would, and that changes who pays: the
-        // owner's call. Not traced to micro-dollars (that needs a built
-        // state): by question count, the shadow share of `rest` is role's 1
-        // and split's 1 of classify's 9, directive's 2 and those 2, so about
-        // 2 of 13 questions (15%). With the route family on, `split.v1` rides
-        // the route lane (live, with route, effort and work) instead, and
-        // `rest` carries `role` alone beside `classify` and `directive`.
+        // is the non-route `split.v1` (shadow) riding the `rest` request with
+        // `classify` and `directive` (live): `plan` batches packs of one
+        // state, model and assets, and all three ask on the `inbound` state.
+        // Taking a class per request would change nothing here, since `rest`
+        // is live either way; only splitting a request's reservation by ask
+        // would, and that changes who pays: the owner's call. With the route
+        // family on, `split.v1` rides the route lane (live, with route,
+        // effort and work) instead.
         let class = spend::Class::of_asks(route.iter().chain(&alone).chain(&rest).copied());
         let need = reserve(route) + reserve(alone) + reserve(rest);
         let beside = self.reserve_beside(today, need, class)?;
@@ -1498,7 +1471,7 @@ mod tests {
         assert_eq!(ids.len(), 12);
         assert!(
             !ids.contains(&"other"),
-            "role.v1's no-match option is its own"
+            "a role is never the no-match option's id"
         );
     }
 }

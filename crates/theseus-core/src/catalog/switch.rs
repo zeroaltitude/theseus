@@ -49,18 +49,10 @@
 use theseus_judge::builders::{PricePeriod, RestrictedModels, SwitchCost};
 
 use super::Catalog;
-
-/// The models a switch is weighed against: route.v10's `model` options and the
-/// catalog model each names. `routing::model::OPTIONS` is the same list, and a
-/// test here holds the two together — an option this rule cannot see is one Jev
-/// is never told is cheaper.
-pub const CANDIDATES: [(&str, &str); 5] = [
-    ("haiku", "claude-haiku-5-5"),
-    ("sonnet", "claude-sonnet-5-5"),
-    ("opus", "claude-opus-5-5"),
-    ("fable", "claude-fable-5-2"),
-    ("deepseek_flash", "deepseek-flash"),
-];
+// The models a switch is weighed against: the route pack's `model` options and
+// the catalog model each names, the one table routing resolves a pick by, so
+// no option is one Jev is never told is cheaper.
+use crate::routing::model::OPTIONS as CANDIDATES;
 
 /// `about_the_same` is within this share of the stay cost, either way.
 const BAND: f64 = 0.20;

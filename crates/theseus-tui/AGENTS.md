@@ -147,12 +147,9 @@ new lines, the dock again, in synchronized-output mode 2026).
   (jobs that went to the background run on) and the transcript says what was verified. `chat/queue.rs`: a message
   typed while a turn runs waits in the dock, ↑ pulls it back, Ctrl-Enter stops and sends; it goes when the turn ends
   (steer-queued will deliver it into the turn: only `release_queue` changes). Tests: `chat/tests_ask.rs`.
-- chat-thread (theseus-wapgp, theseus-0rfjx): `chat/thread_ask.rs`. The router's question (`thread.asked`) holds the turn in
-  the daemon for `[threads] ask_wait_secs` (900 s) and the lane behind it; the chat says it as `theseus ask` does and a
-  typed key (`1`, `2`, `n`, `h`, or a label) answers it with `thread.answer` on the same connection (an expired or
-  other-session question is no question; anything else typed is a message). A turn the router placed in a thread prints
-  `→ thread <title>` and `theseus chat <session>` to go there (from `TurnSubmitResult.thread`, at the turn's end). Tests:
-  `chat/tests_thread_ask.rs`.
+- chat-thread (theseus-wapgp, theseus-0rfjx): `chat/thread_placed.rs`. A turn placed in a thread (by its address: the
+  router asks nothing since 2026-11-21) prints `→ thread <title>` and `theseus chat <session>` to go there (from
+  `TurnSubmitResult.thread`, at the turn's end). Tests: `chat/tests_thread_placed.rs`.
   A connection hears only the sessions it watches, and the answer to a placed turn's question (`confirm.resolved`) and the
   continuation turn that goes on after it are published to the placed session's watchers: so adopting a placed session also
   sends `session.watch` for it (and again at each reconnect), and a question of that session which this chat's turn raised

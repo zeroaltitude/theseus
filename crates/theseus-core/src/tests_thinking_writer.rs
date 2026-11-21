@@ -110,7 +110,6 @@ fn run(spec: &RequestSpec) -> Compiled {
         strip: None,
         overflowed: None,
         sources: &Default::default(),
-        signals: None,
         assembled: None,
         situation: &crate::compiler::situation::Situation::ConversationStart,
         kept: None,
