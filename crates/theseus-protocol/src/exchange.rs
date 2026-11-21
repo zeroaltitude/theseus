@@ -1,0 +1,63 @@
+//! The exchange ledger (issue 44, step 1): `exchange.report` sums the
+//! measuring rows (`context.turn`, one per turn in a private place) into
+//! counts and shares; `exchange.rebuild` writes the exchanges and touches of
+//! history from before them, from the nodes, with a dry run that only counts.
+//! Both carry ids, kinds and counts, never a message's text.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+/// `exchange.report`: the newest `limit` rows (default all).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExchangeReportParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+}
+
+/// The rows, summed. `counts` is a group's values and how many rows had
+/// each (`prev`: `transcript`, `place_tail`, `missed`, `none`; `peer`;
+/// `kind`; …); `tokens` is each part of the sent context, added up over the
+/// rows, est. at the catalog's bytes a token.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExchangeReportResult {
+    pub rows: u64,
+    /// The first and last row's time.
+    pub from_ms: Option<u64>,
+    pub to_ms: Option<u64>,
+    pub counts: BTreeMap<String, BTreeMap<String, u64>>,
+    pub tokens: BTreeMap<String, u64>,
+    /// The newest `places.bound` row: the places bound, by kind.
+    pub places_bound: BTreeMap<String, u64>,
+}
+
+/// `exchange.rebuild`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExchangeRebuildParams {
+    /// Count what it would write, and write nothing.
+    pub dry_run: bool,
+}
+
+/// What a rebuild found and wrote.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExchangeRebuildResult {
+    pub dry_run: bool,
+    pub sessions: u64,
+    /// Turns found in the nodes, and of them those that already had an
+    /// exchange (written as they happened; kept as they are).
+    pub turns: u64,
+    pub kept: u64,
+    pub exchanges: u64,
+    pub touches: u64,
+    /// Of the new exchanges, those whose place, and whose person, a stored
+    /// record proved; the rest say `unknown` and name no person.
+    pub place_proven: u64,
+    pub person_proven: u64,
+    /// Why the things named in them were not looked for, if they were not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub things_skipped: Option<String>,
+}

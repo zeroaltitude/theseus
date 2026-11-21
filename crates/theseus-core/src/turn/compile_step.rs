@@ -248,7 +248,7 @@ impl TurnRunner {
             (tasks, project),
         );
         summary.cache.stubbed = stubbed;
-        summary.walk_tokens = self.walk_tokens(spec, &compiled);
+        self.summary_done(t, &mut summary, (&nodes, &compiled, spec), cold);
         // While routing decides, the rows wait for the compile the call uses
         // (`route_step`, theseus-d13v): one `context.compiled` and one
         // `loop.started` a loop, each naming a stored compilation.
@@ -258,6 +258,19 @@ impl TurnRunner {
         }
         self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
         Ok(Ok(compiled))
+    }
+
+    /// The summary's walk tokens, and what the turn's first call is sent, for
+    /// its exchange's row (issue 44).
+    fn summary_done(
+        &self,
+        t: &mut Turn<'_>,
+        summary: &mut ContextCompiled,
+        (nodes, compiled, spec): (&crate::store::Transcript, &Compiled, &RequestSpec),
+        cold: Option<bool>,
+    ) {
+        summary.walk_tokens = self.walk_tokens(spec, compiled);
+        Self::exchange_sent(t, (nodes, compiled, spec), cold, summary);
     }
 
     /// The view of the nodes the kept render is held under (theseus-0l3g): a

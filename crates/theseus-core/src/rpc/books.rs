@@ -47,6 +47,10 @@ impl Core {
                 let core = self.clone();
                 serde_json::to_value(blocking(move || books::page(&core.store, &q)).await?)
             }
+            // The exchange ledger's two (issue 44), routed with these reads.
+            other if super::exchanges::OWN.contains(&other) => {
+                return self.rpc_exchanges(other, params, conn).await
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,

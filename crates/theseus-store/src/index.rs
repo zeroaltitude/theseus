@@ -836,6 +836,17 @@ impl RedbIndex {
     /// (key, latest position) of every key of `kind` that starts with
     /// `prefix`, in key order.
     pub fn keys_with_prefix(&self, kind: RecordKind, prefix: &str) -> Result<Vec<(String, u64)>> {
+        self.first_keys_with_prefix(kind, prefix, usize::MAX)
+    }
+
+    /// The first `limit` of `keys_with_prefix`, in key order: the walk stops
+    /// there, so a reader of the newest few of a long run pays for those alone.
+    pub fn first_keys_with_prefix(
+        &self,
+        kind: RecordKind,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, u64)>> {
         let txn = self.db.begin_read()?;
         let t = txn.open_table(BYKEY)?;
         let lo = bykey(kind, prefix);
@@ -844,7 +855,7 @@ impl RedbIndex {
             let (k, v) = row?;
             let kb = k.value();
             count_rows(1);
-            if !kb.starts_with(&lo) {
+            if !kb.starts_with(&lo) || out.len() >= limit {
                 break;
             }
             out.push((String::from_utf8_lossy(&kb[2..]).into_owned(), v.value()));

@@ -89,6 +89,7 @@ pub mod end_note_step;
 mod end_step;
 // For `env_tail::HEAD`, the block's opener, which `task_graph::view::is_head` reads.
 pub(crate) mod env_tail;
+mod exchange_step;
 mod fallback_step;
 mod families_step;
 mod fill_step;
@@ -246,6 +247,8 @@ pub struct TurnRunner {
     /// where it was, so a thinking block's prefix stays the one it was
     /// written in (`sent_tail`).
     pub tails: sent_tail::SentTails,
+    /// The turns' shared part of their exchanges (issue 44).
+    pub exchanges: crate::exchange::Board,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's
@@ -468,6 +471,8 @@ struct Turn<'a> {
     nudge: nudge_step::Nudge,
     /// The one end note, and the drop of the turn's files at its end (theseus-53ujg.1).
     end_note: end_note_step::Held,
+    /// Its exchange, until its end writes it (issue 44).
+    exchange: exchange_step::Held,
     /// The last compile's size and window (theseus-wy6v.2).
     fill: fill_step::Fill,
     /// The new compilations' system blocks on their way to the blobs (theseus-nsp9l.4).
@@ -614,6 +619,7 @@ impl<'a> Turn<'a> {
             again: Default::default(),
             nudge: nudge_step::Nudge::default(),
             end_note: end_note_step::Held::of(execution_id),
+            exchange: exchange_step::Held::default(),
             fill: fill_step::Fill::default(),
             keeping: compile_step::Keeping::default(),
             standing: standing_step::Held::default(),
@@ -1775,6 +1781,7 @@ impl TurnRunner {
         (t.tc.class, t.tc.ceiling) = (here.class, here.ceiling);
 
         // 2. The new input, with its files in the same node and frame.
+        let prompted = prompt.is_some();
         if let Some(p) = prompt {
             if let Err(e) = self.admit_alone(t) {
                 return Ok(Next::Fail(Self::not_admitted(t, &author, e)?));
@@ -1824,6 +1831,7 @@ impl TurnRunner {
             self.brief_point(t);
             self.content_brief(t);
         }
+        self.exchange_open(t, prompted);
 
         // 3. The loops, while the model has something new to read.
         let mut run_model = Self::has_news(t, input.is_some() || caught_up > 0)?;

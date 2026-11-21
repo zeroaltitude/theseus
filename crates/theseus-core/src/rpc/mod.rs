@@ -37,6 +37,7 @@ mod config_history;
 mod config_whole;
 mod disk_watch;
 mod driver;
+mod exchanges;
 mod exec_list;
 mod explain;
 mod fork;
@@ -1002,6 +1003,7 @@ impl Core {
             effort_refusals: Default::default(),
             verdicts: Default::default(),
             yes_facts: Default::default(),
+            exchanges: Default::default(),
             tails: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
