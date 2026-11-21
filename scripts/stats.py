@@ -18,10 +18,12 @@ Python 3, standard library only.
 import argparse
 import bisect
 import functools
+import io
 import os
 import re
 import subprocess
 import sys
+import tokenize
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 KINDS = {".rs": "rs", ".ts": "js", ".tsx": "js", ".js": "js", ".mjs": "js", ".cjs": "js", ".c": "js", ".h": "js",
@@ -32,10 +34,14 @@ BLOCK, NEWLINE = re.compile(r"/\*|\*/|\n"), re.compile(r"\n")
 CHAR = re.compile(r"'(?:\\[^\n]+?|[^\\\n])'")  # a Rust char literal; a lifetime (`'a`) does not match
 CFG_TEST = re.compile(r"#\[cfg\(test\)\]")
 MOD_OPEN = re.compile(r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+TEST_NAME = re.compile(r"(tests?|fixtures|benches)$|tests?_|.*_tests?$")
+PY_DOC = re.compile(r"[rRuUbBfF]*(\"\"\"|\'\'\')")
+PY_LEAD = {tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT}
+PY_SKIP = {tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER}
 SIZES = ("### What each crate builds", "### Executables that are installed and run")
 RULE = """\
-- **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: files under a `tests/` or `test/` directory, files named `tests…`, `test_…` or `*.test.*`, and Rust's `#[cfg(test)] mod … { … }` blocks.
-- **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; `#` lines in Python and shell, and Python's `\"\"\"` strings that begin a line. A marker inside a string literal is not a comment.
+- **Code**: a line that is not blank and not only comment (code with a comment after it is code). **Test code**: a file in a directory, or with a name (before its first dot), that is `test`, `tests`, `fixtures`, `benches`, `test_…`, `tests_…`, `…_test` or `…_tests`; files named `*.test.*`; and Rust's `#[cfg(test)] mod … { … }` blocks.
+- **Comments**: `//`, `///`, `//!` and `/* … */` (nested, in Rust) in Rust, TypeScript, JavaScript, C and CSS; in Python, comment tokens and triple-quoted strings that begin a statement (read with Python's own tokenizer); in shell, a `#` that begins a word outside quotes. A marker inside a string literal is not a comment.
 - **Not counted**: blank lines, and files that are not code (Markdown, TOML, JSON, data). `vendor/` is third-party and kept out of the total.
 """
 
@@ -48,7 +54,7 @@ def string_end(close, raw):
 def scan(text, kind):
     """Per line of TEXT: (its code, with comments removed and string bodies blanked; whether it held comment)."""
     if kind in ("py", "sh"):
-        return scan_hash(text, kind == "py")
+        return scan_py(text) if kind == "py" else scan_sh(text)
     lines, cur, com, i, mode, depth, end, oneline = [], [], False, 0, "code", 0, None, False
     while True:
         rx = {"code": CODE[kind], "block": BLOCK, "line": NEWLINE}.get(mode, end)
@@ -91,22 +97,47 @@ def scan(text, kind):
     return lines
 
 
-def scan_hash(text, py):
-    """The `#` languages, line by line: a line that starts with `#` is comment; in Python, a triple-quoted string
-    that begins a line is comment to its close, and any other one is code (a `#` in it is not a comment)."""
-    lines, open_q = [], None  # open_q: (the open triple quote, whether it is a docstring)
+def scan_py(text):
+    """Python, by its own tokenizer: a comment token, or a triple-quoted string that begins a statement, is comment;
+    any other token is code, and code wins on a line holding both. A file that does not tokenize falls back to its
+    `#` lines as comment and the rest as code."""
+    n = text.count("\n") + 1
+    code, com, prev = [False] * n, [False] * n, tokenize.NEWLINE
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            span = range(tok.start[0] - 1, min(tok.end[0], n))
+            if tok.type == tokenize.COMMENT:
+                com[tok.start[0] - 1] = True
+            elif tok.type == tokenize.STRING and prev in PY_LEAD and PY_DOC.match(tok.string):
+                com[span.start:span.stop] = [True] * len(span)
+            elif tok.type not in PY_SKIP:
+                code[span.start:span.stop] = [True] * len(span)
+            prev = prev if tok.type in (tokenize.COMMENT, tokenize.NL) else tok.type
+    except (tokenize.TokenError, SyntaxError):
+        return [("", True) if t.strip().startswith("#") else (t, False) for t in text.split("\n")]
+    return [("x" if c else "", m) for c, m in zip(code, com)]
+
+
+def scan_sh(text):
+    """Shell, character by character: a `#` that begins a word outside quotes is comment to the line's end, and a
+    quote still open at a line's end stays open on the next (its lines are code)."""
+    lines, q = [], None
     for line in text.split("\n"):
-        s = line.strip()
-        if open_q:
-            lines.append(("" if open_q[1] else s, open_q[1]))
-            open_q = None if open_q[0] in line else open_q
-            continue
-        q = next((d for d in ('"""', "'''") if d in line), None) if py else None
-        doc = bool(q) and s.startswith(q)
-        if q and line.count(q) % 2:
-            open_q = (q, doc)
-        comment = s.startswith("#") or doc
-        lines.append(("" if comment else s, comment))
+        code, com, prev, i = False, False, " ", 0
+        while i < len(line):
+            ch = line[i]
+            if q:
+                q = None if ch == q else q
+                i += 1 if q == '"' and ch == "\\" else 0
+            elif ch == "#" and prev in " \t;|&()":
+                com = True
+                break
+            elif ch == "\\":
+                i += 1
+            elif ch in "'\"":
+                q = ch
+            code, prev, i = code or not ch.isspace(), ch, i + 1
+        lines.append(("x" if code else "", com))
     return lines
 
 
@@ -129,9 +160,9 @@ def test_lines(codes):
 
 
 def is_test_file(path):
-    parts = path.split("/")
-    name = parts[-1]
-    return bool({"tests", "test"} & set(parts[:-1])) or name.startswith(("tests", "test_")) or ".test." in name
+    """Test code by its path: any directory, or the file's name before its first dot, named as TEST_NAME says."""
+    *dirs, name = path.split("/")
+    return any(TEST_NAME.match(p) for p in [*dirs, name.split(".")[0]]) or ".test." in name
 
 
 def count(text, kind, test_file):

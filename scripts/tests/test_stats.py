@@ -46,21 +46,33 @@ mod tests {
 fn after() {}
 ''',
     "crates/demo/src/main.rs": "fn main() {}\n",  # code 1
+    # The two real layouts a basename-prefix rule missed, and the production sibling that must stay code:
+    # a file in a `tests_*` module directory (test 1), a `*_tests` file (test 1), and `digest.rs` (code 1).
+    "crates/demo/src/tests_m3/admission.rs": "fn a() {}\n",
+    "crates/demo/src/digest_tests.rs": "fn d() {}\n",
+    "crates/demo/src/digest.rs": "fn p() {}\n",
     "crates/demo/tests/it.rs": "// integration\n#[test]\nfn it() {}\n",  # test 2, comment 1
     "crates/demo/Cargo.toml": '[package]\nname = "demo"\n',
     # comments 4 (the shebang, the docstring's two lines, `# a comment`), code 3; blank 1.
     "scripts/tool.py": '#!/usr/bin/env python3\n"""A docstring\nover two lines."""\nX = "# not a comment"\n'
                        "# a comment\n\ndef f():\n    return X\n",
+    # code 7, comment 3: a triple quote inside a string and inside a comment open nothing; a docstring with code
+    # after it on its line (on its one line, and on its closing line) is code there, and comment above it; a
+    # triple-quoted string that does not begin a statement is code on both its lines.
+    "scripts/edge.py": "s = '\"\"\"'\n# comment\nx = 1\n# a \"\"\" in a comment\ny = 2\n"
+                       '"""doc"""; z = 3\n"""doc\nend"""; w = 4\nv = """not\na docstring"""\n',
+    # code 4, comment 1: the `#` line inside a quote opened on the line above is code; `$#` in quotes is code.
+    "scripts/edge.sh": "s='first\n# literal\nlast'\n# a comment\necho \"$#\" # n\n",
     "cockpit/src/a.ts": "/* block */\nconst t = `multi\n// in a template\n`;\n",  # code 3, comment 1
     "cockpit/test/a.test.ts": "const s = '//x'; // c\n",  # test 1
     "vendor/x/lib.rs": "fn v() {}\n",  # shown, and kept out of the total
     "README.md": "# not code\n",
 }
 EXPECT = {
-    "crates/demo": ["10", "7", "5"],
-    "scripts/": ["3", "0", "4"],
+    "crates/demo": ["11", "9", "5"],
+    "scripts/": ["14", "0", "8"],
     "cockpit/": ["3", "1", "1"],
-    "**Total**": ["**16**", "**8**", "**10**"],
+    "**Total**": ["**28**", "**10**", "**14**"],
     "vendor/ (third-party, not in the total)": ["1", "0", "0"],
 }
 GIT_ENV = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
