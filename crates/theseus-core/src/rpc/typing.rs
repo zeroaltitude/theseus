@@ -100,31 +100,13 @@ impl Core {
         let Some(provider) = self.runner.providers.get(&name).cloned() else {
             return "no provider";
         };
-        // The warm-up is the floor's too (theseus-fpwqg): it is made for this
-        // session and for the model its next turn would call, so the
-        // chokepoint refuses it wherever it would refuse that call. A notice
-        // that names no session reaches the floor naming none, and a
-        // restricted model is refused for want of one, as a request is.
-        let opening = match session {
-            Some(s) => crate::data_gate::for_session(s, || provider.warm(&model)),
-            None => provider.warm(&model),
-        };
-        let (outcome, took) = match opening.await {
+        let (outcome, took) = match provider.warm(&model).await {
             Ok(w) if w.already => ("warm".to_string(), w.took),
             Ok(w) => ("opened".to_string(), w.took),
             Err(why) => (format!("failed: {why}"), std::time::Duration::ZERO),
         };
-        let tag = if let Some(why) = outcome.strip_prefix("failed: ") {
-            // The data gate's refusal reaches here only as a string
-            // (`WarmFuture` is `Result<Warmed, String>`), so it is known by
-            // its words. They are the floor's own constant, so a reworded
-            // refusal cannot leave this match behind; `telemetry::tests_warm`
-            // drives a real refusal against that same constant.
-            if why.contains(crate::data_gate::RESTRICTED_ORIGIN) {
-                "refused"
-            } else {
-                "failed"
-            }
+        let tag = if outcome.starts_with("failed: ") {
+            "failed"
         } else {
             outcome.as_str()
         };

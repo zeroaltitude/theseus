@@ -645,7 +645,7 @@ enum Cmd {
     /// A session's content labels: what entered it (a tool result, a page, a pasted file) and was
     /// judged to carry. `injection` tells you something tried to steer the assistant, and stops its
     /// calls that act only under `[content_based_security] injection = "refuse"`; `secret`, `confidential` and
-    /// `personal` keep it off a China-origin model. `theseus content SESSION` lists them;
+    /// `personal` mark what it holds. `theseus content SESSION` lists them;
     /// `theseus content remove SESSION FLAG` (or `--all`) removes one, which is yours alone to do.
     /// SESSION is its id, or at least its last four characters.
     #[command(hide = true, subcommand_precedence_over_arg = true)]

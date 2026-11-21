@@ -14,21 +14,15 @@
 //!   (`route_cases::check`), so the pack's measured accuracy described a
 //!   daemon that routed to Sonnet here and no such daemon existed. Honouring
 //!   `sonnet` instead was built and measured and **moved twelve tests**, among
-//!   them `tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`
-//!   and `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`
-//!   (a session the data rule has *cleared* for a restricted model, pulled off
-//!   it by an answer Jev was not sure about). Changing the declaration, not the
-//!   act, is what the owner chose: all twelve stand.
+//!   them `tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`.
+//!   Changing the declaration, not the act, is what the owner chose.
 //!   `tests_model::the_declared_default_is_what_the_live_path_runs` holds the
 //!   two together — a planted default of a real model routes there, so the
 //!   value is read and not merely agreed with.
 //! - **Which profile** runs a pick: one configured to run the option's catalog
 //!   model ([`OPTIONS`]), the profile named for the option first. Jev reaches a
 //!   model by its id, never by a profile's name.
-//! - **The floor** (the data rule, never loosened): a pick whose profile the
-//!   session's labels keep off, or that is of restricted origin for an ask that
-//!   is not cleared, runs the turn's own profile, `data_gate`, whatever Jev said.
-//!   A pick with no usable profile (no profile for the model, its provider or
+//! - **The floor**: a pick with no usable profile (no profile for the model, its provider or
 //!   key not ready, a model that cannot read the turn's images) is `fallback`.
 //! - **The cache hold** (design §1.4 step 7, the one hysteresis, money's and
 //!   not a cap): a pick that differs from the session's model, with the session
@@ -112,12 +106,8 @@ pub fn profile_for<'p>(option: &str, profiles: &'p Profiles) -> Option<&'p str> 
         .map(|(name, _)| name.as_str())
 }
 
-/// Why a pick's profile cannot run the turn, if it cannot: the data rule's
-/// voice (`DataGate`) before any other.
+/// Why a pick's profile cannot run the turn, if it cannot.
 fn refusal(p: &Profile, a: &Ask<'_>) -> Option<Reason> {
-    if (p.restricted && !a.cleared) || p.unusable == Some("data_gate") {
-        return Some(Reason::DataGate);
-    }
     (p.unusable.is_some() || p.short_cost.is_none() || (a.images && !p.vision))
         .then_some(Reason::Fallback)
 }

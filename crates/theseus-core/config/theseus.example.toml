@@ -178,8 +178,7 @@ model = "glm-5.3"
 max_loops = 40
 
 # DeepSeek, a China-origin model: Jev's `deepseek_flash` option runs on the profile that names
-# its model, for a session whose labels allow a China-origin model (`[content_based_security]`
-# below). Add its key first (the deepseek_api_key under the secrets table), then un-comment this
+# its model. Add its key first (the deepseek_api_key under the secrets table), then un-comment this
 # block. It thinks without being asked and takes three effort levels: low, high and max.
 # [profiles.dsflash]
 # provider = "deepseek"
@@ -315,21 +314,20 @@ kind = "anthropic_messages"             # the only wire protocol today
 # stream_idle_secs = 60
 # total_secs = 600                      # a call before its stream begins; a live stream may run to 3x this
 
-# DeepSeek's Anthropic-compatible endpoint, a China-origin provider: Jev may pick its model where the
-# session's labels allow one (the data rule). Put its key in the vault and name the item under [secrets]
+# DeepSeek's Anthropic-compatible endpoint, a China-origin provider: Jev may pick its model. Put its key in the vault and name the item under [secrets]
 # (deepseek_api_key). Where the key cannot be read, a pick on this provider runs the live model instead.
 [providers.deepseek]
 api_base = "https://api.deepseek.com/anthropic"
 api_key_secret = "deepseek_api_key"
 kind = "anthropic_messages"
-origin = "cn"                           # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
+origin = "cn"                           # where this host's models come from, as the model menu shows it
 
 # Moonshot AI's Kimi, on its Anthropic-compatible endpoint. Add its key to the secrets table before un-commenting.
 # [providers.moonshot]
 # api_base = "https://api.moonshot.ai/anthropic"
 # api_key_secret = "moonshot_api_key"
 # kind = "anthropic_messages"
-# origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
+# origin = "cn"                         # where this host's models come from, as the model menu shows it
 
 # OpenAI, on its Responses API: the second wire protocol (theseus-bq73s). Add its key to the secrets table
 # (the commented openai_api_key below), un-comment these, then add a [catalog.<model>] row for the model you
@@ -677,8 +675,7 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 # Google result raises a `confidential` label on its session (a result of a
 # sensitive calendar raises `personal`) at the moment it is written, with no
 # model call: the label is the one in `[content_based_security]` below, shown to
-# you with its Remove button, and it keeps a model of restricted origin off the
-# session until you remove it. Mail, shared files and invited events are also
+# you with its Remove button, until you remove it. Mail, shared files and invited events are also
 # marked as outside text, which holds nothing. Every send, delete, share,
 # permission change and invitation asks you, at every posture. With no
 # account, no Google tool exists, and nothing Google runs. `theseus google
@@ -1807,9 +1804,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 # each message you send which model it needs and the effort its reply needs, from one
 # table of the models on offer (price, origin, thinking, what each is for and not for), and the
 # turn runs on the configured profile that runs the model Jev picked: its provider's key settled,
-# its model priced, and able to read the turn's images; else the session's own. A pick the data rule
-# keeps off (a session whose labels allow no China-origin model, below) runs the [model] default with
-# reason data_gate. A pick moves the session: at once under cold_switch_tokens of the session's own
+# its model priced, and able to read the turn's images; else the session's own. A pick moves the session: at once under cold_switch_tokens of the session's own
 # context, above it only when two messages in a row agree (a switch leaves the cache cold). The
 # session's own context is the compile's estimate less the universal prefix -- the tool definitions
 # and the header block, which every session carries the same before a word is said. Every turn compiles the
@@ -1847,8 +1842,8 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # that mark your employer's work. An item that holds one (a message you send, a tool result, a
 # file read, a page fetched) raises a `confidential` label on its session at the moment it
 # enters, with the word as the label's source and no model call. That is all it does: the label
-# is the one in `[content_based_security]` below, shown to you with its Remove button, read by
-# `cn_models` like any other, and gone when you remove it. Nothing refuses a request for a name,
+# is the one in `[content_based_security]` below, shown to you with its Remove button, and gone
+# when you remove it. Nothing refuses a request for a name,
 # so removing the label is the whole of your say. Jev's content pack is told the list too, as its
 # private names. Matching is case-insensitive and on
 # whole words, a name of several words as a run of them: `examplecorp` matches "ExampleCorp's
@@ -1876,8 +1871,8 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # name is an error that says where each key went): every item that enters a session — each
 # message you send, each tool result, each page fetched and each file read — is classified once
 # by Jev, and what it finds becomes a label on the session that survives compaction and restart.
-# `secret`, `confidential` and `personal` disqualify a model of restricted origin for that
-# session; `injection` means something tried to steer the assistant, and by default you are told
+# `secret`, `confidential` and `personal` mark what the session holds (no model is kept off a
+# session for them: `cn_models` and `wait_ms` are retired, read and ignored); `injection` means something tried to steer the assistant, and by default you are told
 # and nothing is refused (`injection = "notify"` below; write `injection = "refuse"` to have its
 # session's calls that act refused until you clear the label with
 # `theseus content remove <session> injection`, or the button on the message).
@@ -1887,26 +1882,13 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # Reading outside text holds nothing any more: `[policy] external_text` and `external_programs` were
 # retired with the external-text hold, and a config that names either fails to load, naming this table.
 # [content_based_security]
-# session_flags = true                  # off: nothing is classified and no label is raised. A model
-#                                       # of restricted origin then has no labels to follow, so
-#                                       # cn_models must say what it does: "follow_flags" with this
-#                                       # off refuses to start. Write "never" to keep those models
-#                                       # off, or "always" to send to them without labels
-# cn_models = "follow_flags"            # a request to a model of restricted origin: "always" sends it
-#                                       # whatever the session carries, "follow_flags" refuses it
-#                                       # when the session's labels disqualify it, "never" refuses
-#                                       # it and routing skips such a profile altogether
+# session_flags = true                  # off: nothing is classified and no label is raised
 # injection = "notify"                  # the default: the label is raised and told, and nothing
 #                                       # is refused. "refuse" freezes the session instead — every
 #                                       # call but a local read of files and code is refused until
 #                                       # you clear the label. The default is notify because an
 #                                       # unsandboxed L0 session is default-trusted: the
 #                                       # classifier warns you, it does not latch the session
-# wait_ms = 4000                        # how long a turn bound for a model of restricted origin
-#                                       # waits for this session's outstanding content asks to
-#                                       # land, so a label its own items earn is read before the
-#                                       # request goes. It goes either way when the wait is up; a
-#                                       # Claude turn never waits. 0 never waits
 # max_pieces = 20                       # a long item is split at 6,000 characters a piece; this
 #                                       # bounds how many are read. 20 fits the largest item that
 #                                       # can exist (a 100,000-character file read) whole. Past the

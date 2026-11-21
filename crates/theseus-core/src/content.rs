@@ -2,22 +2,21 @@
 //! classified once, by itself, and what the classifier finds becomes a durable
 //! label on the session. This module is the whole rule, and it is pure: no
 //! store, no judge, no I/O. The ask is `judge/content.rs`; the effects are read
-//! at the provider chokepoint (`data_gate.rs`), at the turn's floor
-//! (`turn/data_step.rs`) and in the tool gate (`policy/modes.rs`'s
-//! `refusal_at`).
+//! in the tool gate (`policy/modes.rs`'s `refusal_at`) and by who may see what
+//! by place (`ContentFlags::mark`).
 //!
 //! It replaces the open view, which proved per request that every node a
 //! request carried belonged to an unbroken run of content judged open. That
 //! proof could not be discharged: the route pack's `data` question reached the
-//! act band on 2 to 15% of answers, with no labels ever accrued, so a model of
-//! restricted origin was refused nearly everything.
+//! act band on 2 to 15% of answers, with no labels ever accrued.
 //!
-//! - **A flag is raised, never proved.** A session may use a model of
-//!   restricted origin unless something found in it says otherwise.
+//! No label keeps a session off a model: the rule that kept one off a model of
+//! restricted origin was deleted on the owner's word of 2026-11-21 ("more and
+//! more skeptical of any rules about different model providers").
+//!
+//! - **A flag is raised, never proved.**
 //! - **Two bars, on purpose.** [`Flag::Secret`], [`Flag::Confidential`] and
-//!   [`Flag::Personal`] raise at the confirm band: raising one wrongly costs a
-//!   session its cheap model, which is the safe direction, and the direction
-//!   the owner's standing rule points. [`Flag::Injection`] raises only at the
+//!   [`Flag::Personal`] raise at the confirm band. [`Flag::Injection`] raises only at the
 //!   act band: what it costs a session is set by
 //!   `[content_based_security] injection`, and at its strictest the session's
 //!   calls that act are refused until the operator clears the label. Raising
@@ -40,12 +39,6 @@ use theseus_judge::band::Band;
 use theseus_tools::ToolClass;
 
 use crate::node::{Body, Node, Origin};
-
-/// The restricted-origin predicate: which labels keep a session off a model of
-/// restricted origin. It is a keel-held file of its own because it is the one
-/// place that rule is decided; the two `disqualifies_cn` below are its whole
-/// public face and hold no rule of their own.
-mod cn;
 
 /// What a classification can find in one item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -74,7 +67,7 @@ pub enum Flag {
 }
 
 impl Flag {
-    /// Every flag, in the order `disqualifies_cn` reports them.
+    /// Every flag, in the order a session's labels are kept.
     pub const ALL: [Flag; 4] = [
         Flag::Injection,
         Flag::Secret,
@@ -116,12 +109,6 @@ impl Flag {
                 matches!(band, Band::Act | Band::Confirm)
             }
         }
-    }
-
-    /// Whether this flag keeps the session off a model of restricted origin.
-    /// The rule itself is [`cn::disqualifies`], keel-held in `content/cn.rs`.
-    pub fn disqualifies_cn(self) -> bool {
-        cn::disqualifies(self)
     }
 
     /// What the operator is told when it is raised, in one line.
@@ -223,8 +210,7 @@ impl ItemKind {
     /// from parent to child, and a report travels back.
     ///
     /// The other three questions are asked of every kind, the owner's own
-    /// messages included: he can paste a key or a confidential document, and he
-    /// wants that to disqualify a model of restricted origin.
+    /// messages included: he can paste a key or a confidential document.
     pub fn asks_injection(self) -> bool {
         theseus_judge::builders::asks_injection(self.as_str())
     }
@@ -295,9 +281,8 @@ pub mod deterministic {
     pub const LOOK_SOURCE: &str = "look.work: words of another conversation that holds this";
 
     /// A flag another conversation holds, taken on by the session `look.work` gave its marked words to
-    /// (`flag` is one that keeps a model of restricted origin off): as if this session had read the
-    /// marked text itself, so the data gate's own rule refuses such a model a later turn, with no
-    /// judgment to wait for. `node` is the turn that was given them.
+    /// (`secret`, `confidential` or `personal`): as if this session had read the marked text itself.
+    /// `node` is the turn that was given them.
     pub fn from_look(flag: Flag, node: &str, at_ms: u64) -> Label {
         label(flag, node, ItemKind::ToolResult, LOOK_SOURCE.into(), at_ms)
     }
@@ -346,8 +331,7 @@ pub struct Removed {
 /// nodes a failed ask left behind. Nothing reads either now, serde ignores
 /// them, and the next write drops them: a session that held a mark is **not**
 /// treated as partly judged, because nothing asks whether a session is
-/// judged. What it carries is its labels, and a turn bound for a model of
-/// restricted origin goes on those.
+/// judged. What it carries is its labels.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ContentFlags {
     /// At most one label per flag: a second raise of a flag already present
@@ -367,14 +351,6 @@ impl ContentFlags {
 
     pub fn label(&self, f: Flag) -> Option<&Label> {
         self.labels.iter().find(|l| l.flag == f)
-    }
-
-    /// The flag that keeps this session off a model of restricted origin, if
-    /// one does: in `Flag::ALL`'s order, so the word is stable. The rule
-    /// itself is [`cn::first`], keel-held in `content/cn.rs`; the provider
-    /// chokepoint's whole decision is this answer.
-    pub fn disqualifies_cn(&self) -> Option<Flag> {
-        cn::first(self)
     }
 
     /// The session holds [`Flag::Injection`]. Whether that refuses anything is
@@ -401,14 +377,14 @@ impl ContentFlags {
 
     /// What the wire shows of the session's data (`session.info`, the work
     /// board, a task's home): `sensitive` when it carries `personal` (which
-    /// never goes to a shared place), `private` when it carries any other label
-    /// that keeps a model of restricted origin off, else `open`.
+    /// never goes to a shared place), `private` when it carries `secret` or
+    /// `confidential`, else `open`: `injection` alone leaves it open.
     pub fn mark(&self) -> theseus_protocol::ops::DataMark {
         use theseus_protocol::ops::DataMark;
         let has = |f: fn(Flag) -> bool| self.labels.iter().any(|l| f(l.flag));
         if has(|f| f == Flag::Personal) {
             DataMark::Sensitive
-        } else if has(Flag::disqualifies_cn) {
+        } else if has(|f| matches!(f, Flag::Secret | Flag::Confidential)) {
             DataMark::Private
         } else {
             DataMark::Open
@@ -660,8 +636,7 @@ pub enum Hand {
 /// The authors whose user-role nodes are the harness talking to the model in
 /// **its own words** (theseus-sh1n3): a line Theseus composes out of its own
 /// state, with nothing in it that entered the session from outside. They are
-/// not items — neither judged nor counted against a model of restricted
-/// origin.
+/// not items: never judged.
 ///
 /// The list is written out rather than inferred from a `harness:` prefix,
 /// because not every node the harness writes is in its own words:
@@ -676,7 +651,7 @@ pub enum Hand {
 /// **The bar for adding an author here:** read its write site, and satisfy
 /// yourself that every branch of the text it writes is a constant or is
 /// composed from the harness's own numbers alone. A wrong entry is not a
-/// wedge, it is a hole — unjudged outside text reaching a China-origin model.
+/// wedge, it is a hole — outside text that is never judged.
 ///
 /// Each entry is the write site's own constant rather than a copy of it, so a
 /// rename fails to compile instead of silently ending the exemption.
@@ -852,9 +827,7 @@ pub fn pieces(text: &str, cap: usize) -> Vec<(u32, u32, String)> {
 /// sensitive_names` source reads the whole item before it is split
 /// (`JudgeService::raise_names`), so a name past the bound still raises its
 /// label, and a job's granted secrets are withheld by the wrapper's pipe
-/// (`redact.rs`) before a node exists. Marking long items unjudged instead
-/// would take a session off China-origin models for good the first time it read
-/// a large file, which serves nobody.
+/// (`redact.rs`) before a node exists.
 ///
 /// The row records `truncated`, so this is visible rather than silent.
 pub fn split(text: &str, cap: usize, max: usize) -> (Vec<(u32, u32, String)>, bool) {
@@ -915,7 +888,7 @@ mod tests {
     }
 
     /// The two bars are the design's asymmetry, and they are asserted here so
-    /// no later edit can quietly level them: the three cn-disqualifying flags
+    /// no later edit can quietly level them: secret, confidential and personal
     /// raise at the confirm band, injection only at act.
     #[test]
     fn the_two_bars_are_what_the_design_says() {
@@ -924,36 +897,36 @@ mod tests {
             assert_eq!(f.bar(), Band::Confirm, "{}", f.as_str());
             assert!(f.raised_by(Band::Confirm), "{}", f.as_str());
             assert!(f.raised_by(Band::Act), "{}", f.as_str());
-            assert!(f.disqualifies_cn(), "{}", f.as_str());
         }
         assert!(!Flag::Injection.raised_by(Band::Confirm), "act alone");
         assert!(Flag::Injection.raised_by(Band::Act));
         for f in Flag::ALL {
             assert!(!f.raised_by(Band::Escalate), "{}", f.as_str());
         }
-        assert!(!Flag::Injection.disqualifies_cn(), "it freezes, not cn");
         for f in Flag::ALL {
             assert_eq!(Flag::parse(f.as_str()), Some(f));
         }
         assert_eq!(Flag::parse("open"), None, "no open-view word parses");
     }
 
-    /// The cn word is the first disqualifying flag in `Flag::ALL`'s order, and
-    /// injection alone disqualifies nothing; the freeze is injection alone.
+    /// The freeze is injection alone, and the mark is what the labels make it:
+    /// `injection` alone leaves a session open, `secret` or `confidential`
+    /// make it private, `personal` sensitive.
     #[test]
     fn what_each_flag_does() {
+        use theseus_protocol::ops::DataMark;
         let mut f = ContentFlags::default();
-        assert_eq!(f.disqualifies_cn(), None);
+        assert_eq!(f.mark(), DataMark::Open);
         assert!(!f.frozen());
         assert!(f.raise(label(Flag::Injection)));
-        assert_eq!(f.disqualifies_cn(), None, "injection is not a cn word");
+        assert_eq!(f.mark(), DataMark::Open, "injection alone is open");
         assert!(f.frozen());
-        assert!(f.raise(label(Flag::Personal)));
-        assert_eq!(f.disqualifies_cn(), Some(Flag::Personal));
         assert!(f.raise(label(Flag::Secret)));
-        assert_eq!(f.disqualifies_cn(), Some(Flag::Secret), "secret first");
+        assert_eq!(f.mark(), DataMark::Private);
         assert!(f.raise(label(Flag::Confidential)));
-        assert_eq!(f.disqualifies_cn(), Some(Flag::Secret));
+        assert_eq!(f.mark(), DataMark::Private);
+        assert!(f.raise(label(Flag::Personal)));
+        assert_eq!(f.mark(), DataMark::Sensitive, "personal is sensitive");
     }
 
     /// A second raise of a flag already on the session keeps the first label,
@@ -1024,7 +997,7 @@ mod tests {
         });
         let f: ContentFlags = serde_json::from_value(old).expect("the old layout reads");
         assert_eq!(f, ContentFlags::default());
-        assert_eq!(f.disqualifies_cn(), None, "a stale proof allows nothing");
+        assert!(f.labels.is_empty(), "a stale proof raises nothing");
         assert!(!f.frozen());
     }
 
@@ -1043,7 +1016,7 @@ mod tests {
         });
         let f: ContentFlags = serde_json::from_value(old).expect("the old layout reads");
         assert_eq!(f.labels.len(), 1, "its label reads");
-        assert_eq!(f.disqualifies_cn(), Some(Flag::Secret));
+        assert!(f.has(Flag::Secret));
         let written = serde_json::to_value(&f).unwrap();
         assert!(written.get("judged_through").is_none(), "{written}");
         assert!(written.get("unjudged").is_none(), "{written}");
@@ -1052,11 +1025,7 @@ mod tests {
             serde_json::from_value(serde_json::json!({"judged_through": "n9", "unjudged": ["n8"]}))
                 .unwrap();
         assert_eq!(only, ContentFlags::default());
-        assert_eq!(
-            only.disqualifies_cn(),
-            None,
-            "nothing is judged-through to read"
-        );
+        assert!(only.labels.is_empty(), "nothing is judged-through to read");
     }
 
     /// The freeze refuses every class but a read, says the one remedy, and is
@@ -1351,8 +1320,7 @@ mod tests {
     }
 
     /// Everything that entered the session from outside is an item: it is
-    /// judged, and until it is, it keeps the session off a model of
-    /// restricted origin (theseus-sh1n3). One function decides
+    /// judged (theseus-sh1n3). One function decides
     /// ([`item_text`]); this is the written record of what it decides and
     /// why, so a kind added later is decided rather than inherited.
     #[test]

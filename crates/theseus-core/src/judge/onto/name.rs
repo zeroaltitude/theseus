@@ -175,7 +175,6 @@ impl Core {
             name: "ontology",
             pin: self.cfg.ontology.name_profile.as_deref(),
             job: theseus_judge::builders::JobKind::OntologyName { kind: kind.into() },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         let (target, _) = self
             .runner
@@ -205,8 +204,6 @@ impl Core {
             return Err(format!("{kind} was named for this session today"));
         }
         let (target, provider) = self.onto_model(kind).await?;
-        // What the session said is sent: its labels hold the call.
-        let provider = crate::data_gate::bound(provider, session);
         let scrubber = self.runner.judge.scrubber.clone();
         let how = self.runner.catalog.forcing(&target.model);
         let request = request(&target.model, how, kind, said, &|t| scrubber.scrub(t).0);

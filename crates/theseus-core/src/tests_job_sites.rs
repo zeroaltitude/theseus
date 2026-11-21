@@ -10,8 +10,8 @@
 //!   the job runs on the model it names;
 //! - **slow**: Jev holds its answer, and the job runs on `live` at about
 //!   `max_wait_ms`, not when Jev answers;
-//! - **the data rule**: the owner's material is told `not_allowed`, and a pick
-//!   of Flash runs on `live` all the same.
+//! - **no origin rule**: the owner's material is told `allowed`, and a pick of
+//!   Flash runs on Flash (the restricted-origin rule went on 2026-11-21).
 
 use std::time::{Duration, Instant};
 
@@ -63,8 +63,8 @@ async fn asks(s: &Site) {
         s.says
     );
     assert!(
-        state.contains("not_allowed"),
-        "the owner's material: {state}"
+        state.contains("\"allowed\""),
+        "no floor for the owner's material: {state}"
     );
 }
 
@@ -88,10 +88,14 @@ async fn china(s: &Site) {
     let jev = FakeJev::start().unwrap();
     pick(&jev, "deepseek_flash", 0.97);
     let r = rig_job(&jev, s.unset);
-    assert_eq!((s.call)(&r).await, SONNET, "refused Flash, so live");
+    assert_eq!(
+        (s.call)(&r).await,
+        "deepseek-flash",
+        "Flash is picked and runs"
+    );
     assert!(jev.seen()[0].body["state"]
         .to_string()
-        .contains("not_allowed"));
+        .contains("\"allowed\""));
 }
 
 macro_rules! site {
@@ -111,7 +115,7 @@ macro_rules! site {
                 slow(&$site).await;
             }
             #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-            async fn never_sends_the_owners_material_to_a_china_origin_model() {
+            async fn may_send_the_owners_material_to_a_china_origin_model() {
                 china(&$site).await;
             }
         }
@@ -250,16 +254,15 @@ async fn the_self_builder_asks_jev_and_runs_on_its_pick() {
     assert_eq!(jev.connections(), 1);
     let state = jev.seen()[0].body["state"].to_string();
     assert!(
-        state.contains("job") && state.contains("not_allowed"),
+        state.contains("job") && state.contains("\"allowed\""),
         "{state}"
     );
 }
 
-/// A motif drawn from private sessions lists US options only, and a pick of
-/// Flash runs the writer on the session's own profile; a bench-born motif,
-/// which is nobody's material, may be written on Flash.
+/// A motif drawn from private sessions and a bench-born one may both be
+/// written on Flash: no option is kept off by origin (2026-11-21).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_self_builders_options_follow_the_motifs_origin() {
+async fn the_self_builder_may_pick_flash_for_any_motif() {
     let jev = FakeJev::start().unwrap();
     pick(&jev, "deepseek_flash", 0.97);
     let r = rig_job(&jev, |_| {});
@@ -268,10 +271,10 @@ async fn the_self_builders_options_follow_the_motifs_origin() {
         .mint_writer_target(&writer_session(&r), &pending(true))
         .await
         .unwrap();
-    assert_eq!(t.model, SONNET, "private: refused Flash, so live");
+    assert_eq!(t.model, "deepseek-flash", "private: Flash runs");
     assert!(jev.seen()[0].body["state"]
         .to_string()
-        .contains("not_allowed"));
+        .contains("\"allowed\""));
     let t = r
         .core
         .mint_writer_target(&writer_session(&r), &pending(false))

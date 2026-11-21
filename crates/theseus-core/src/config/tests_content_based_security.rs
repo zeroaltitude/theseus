@@ -1,6 +1,5 @@
 //! `[content_based_security]` and `[privacy]`'s two new keys (theseus-gyjyo.2): the surface every later row of the
-//! principles migration reads. What loads, what the old `[content]` says, and the one combination that refuses to
-//! start.
+//! principles migration reads. What loads, and what the old `[content]` says.
 
 use super::Config;
 
@@ -35,47 +34,18 @@ fn the_old_content_table_names_the_new_keys() {
     }
 }
 
-/// With nothing judged `follow_flags` has no labels to read, and the old behaviour (refuse every restricted request)
-/// is the hazard this removes: the config refuses to start, and says what to write instead.
+/// The retired `cn_models` loads with the flags off as well as on, whatever word it holds: the
+/// combination that refused to start (flags off, `follow_flags`) loads too (2026-11-21).
 #[test]
-fn session_flags_off_with_follow_flags_refuses_to_start() {
-    let e = format!(
-        "{:#}",
-        Config::parse(&doc("[content_based_security]\nsession_flags = false")).unwrap_err()
-    );
-    for word in ["session_flags", "follow_flags", "never", "always"] {
-        assert!(e.contains(word), "{word}: {e}");
+fn every_retired_cn_models_loads() {
+    for flags in ["true", "false"] {
+        for cn in ["always", "follow_flags", "never", "sometimes"] {
+            Config::parse(&doc(&format!(
+                "[content_based_security]\nsession_flags = {flags}\ncn_models = \"{cn}\""
+            )))
+            .unwrap_or_else(|e| panic!("{flags} {cn}: {e:#}"));
+        }
     }
-    let e = format!(
-        "{:#}",
-        Config::parse(&doc(
-            "[content_based_security]\nsession_flags = false\ncn_models = \"follow_flags\""
-        ))
-        .unwrap_err()
-    );
-    assert!(e.contains("follow_flags"), "{e}");
-}
-
-/// The way out in each direction loads, and so does every `cn_models` with the flags on.
-#[test]
-fn the_other_combinations_load() {
-    for cn in ["never", "always"] {
-        Config::parse(&doc(&format!(
-            "[content_based_security]\nsession_flags = false\ncn_models = \"{cn}\""
-        )))
-        .unwrap_or_else(|e| panic!("{cn}: {e:#}"));
-    }
-    for cn in ["always", "follow_flags", "never"] {
-        Config::parse(&doc(&format!(
-            "[content_based_security]\nsession_flags = true\ncn_models = \"{cn}\""
-        )))
-        .unwrap_or_else(|e| panic!("{cn}: {e:#}"));
-    }
-    let e = format!(
-        "{:#}",
-        Config::parse(&doc("[content_based_security]\ncn_models = \"sometimes\"")).unwrap_err()
-    );
-    assert!(e.contains("sometimes"), "{e}");
 }
 
 /// An unknown key in the new table is refused rather than ignored.

@@ -129,15 +129,7 @@ impl TurnRunner {
             return Ok(ring);
         };
         let t0 = t.trace.now_us();
-        // A restricted summary profile gets the range only if the session's
-        // labels allow it (theseus-a1wvq.10, `gate.rs`).
-        let route = match self.summary_route(t, (profile.clone(), own)).await {
-            Ok(r) => r,
-            Err(why) => {
-                Self::rang(t, &profile, Fallback::new(why), t0, i);
-                return Ok(ring);
-            }
-        };
+        let route = gate::Route { profile, own };
         let profile = route.profile.clone();
         let attempt = self.summarize(t, &ring, base, route, i).await?;
         let (summary, done) = match attempt {
@@ -195,7 +187,7 @@ impl TurnRunner {
         drops: Vec<BudgetDrop>,
     ) -> anyhow::Result<Compiled> {
         let nodes = t.tc.store.transcript(t.tc.session_id)?;
-        let (nodes, sources) = self.recall_view(t, nodes, &base.spec.profile);
+        let (nodes, sources) = self.recall_view(t, nodes);
         let input = CompileInput {
             nodes: &nodes,
             last_position: self.store.last_position(),
@@ -416,12 +408,8 @@ impl TurnRunner {
             loop_index: Some(i),
             correlation_id: Some(action.correlation_id.clone()),
         };
-        let answered = crate::exits::for_call(call, || {
-            crate::data_gate::for_session(t.tc.session_id, || {
-                provider.stream_message(request, &mut quiet)
-            })
-        })
-        .await;
+        let answered =
+            crate::exits::for_call(call, || provider.stream_message(request, &mut quiet)).await;
         let resp = match answered {
             Ok(r) => r,
             Err(e) => {
@@ -437,7 +425,6 @@ impl TurnRunner {
             resp,
             started,
             started_ms,
-            note: route.note,
         };
         self.settle_summary(t, &p, ring, base.nodes, profile, call, i)
     }
@@ -461,7 +448,6 @@ impl TurnRunner {
             resp,
             started,
             started_ms,
-            note,
         } = call;
         let (range, messages, target, price) = (&p.range, p.messages, &p.target, &p.price);
         let cost_usd = self
@@ -509,10 +495,7 @@ impl TurnRunner {
             } else {
                 "ring"
             },
-            why: match summary.is_none() {
-                true => Some(no_summary.as_str()),
-                false => note.as_deref(),
-            },
+            why: summary.is_none().then_some(no_summary.as_str()),
             profile,
             model: Some(&resp.model),
             messages,
@@ -617,8 +600,6 @@ struct Call {
     resp: crate::provider::ModelResponse,
     started: Instant,
     started_ms: u64,
-    /// Why the data gate moved the call, for its row.
-    note: Option<String>,
 }
 
 /// A summary call, planned.

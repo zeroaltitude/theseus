@@ -67,8 +67,8 @@ pub mod method {
         /// Undo a tightening: the tool goes back to what the config says. It loosens, so it takes the same trusted answer as an approval.
         POLICY_UNTIGHTEN = "policy.untighten",
         /// Remove a content label from a session (theseus-9ymz0, `content::ContentUnlabelParams`): an `injection` label
-        /// stops its calls that act, and a `secret`, `confidential` or `personal` one keeps it off a China-origin model,
-        /// until the operator removes it. It loosens, so it takes the same trusted answer as an approval.
+        /// stops its calls that act (under `injection = "refuse"`), and a `secret`, `confidential` or `personal` one marks
+        /// what the session holds, until the operator removes it. It loosens, so it takes the same trusted answer as an approval.
         CONTENT_UNLABEL = "content.unlabel",
         /// Publish an item into a place's conversation (the place rule, theseus-nbsh): the owner's act, from a private place.
         PLACE_PUBLISH = "place.publish",

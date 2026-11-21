@@ -474,7 +474,6 @@ impl Core {
             name: "card",
             pin: self.cfg.card.profile.as_deref(),
             job,
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         let (target, _) = self
             .runner

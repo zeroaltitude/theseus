@@ -318,8 +318,6 @@ pub struct Core {
     /// The export pipeline, once built after serving, when its headers
     /// secret resolves (`install_telemetry`). Until then nothing is exported.
     telemetry: std::sync::OnceLock<Telemetry>,
-    /// The provider chokepoint's view of the same telemetry (theseus-4h85l).
-    gate_counter: crate::data_gate::Counter,
     telemetry_off: Telemetry,
     /// The narrative (`narrative = true`): live lines and a bounded tail.
     pub narrator: Arc<Narrator>,
@@ -644,7 +642,6 @@ impl Core {
         self.runner.tools.sandbox.export_to(t.clone());
         self.runner.tools.defer.export_to(t.clone());
         let _ = self.runner.keep_warm.telemetry.set(t.clone());
-        let _ = self.gate_counter.set(t.clone());
         let _ = self.telemetry.set(t);
         out
     }
@@ -854,13 +851,9 @@ impl Core {
         );
         let admission = Arc::new(tokio::sync::Notify::new());
         let catalog = Arc::new(Catalog::with_overrides(&cfg.catalog));
-        // The data floor: every provider, behind one check (restricted
-        // origin, the sensitive names).
-        let gate_counter = crate::data_gate::Counter::default();
-        // Every provider sends the vault's values substituted, inside the floor.
+        // Every provider sends the vault's values substituted.
         let exits = crate::exits::Exits::new(secrets.clone(), cfg.privacy.redact_outbound);
         let providers = crate::exits::wrap(providers, &exits, &store);
-        let providers = crate::data_gate::guard(providers, &cfg, &catalog, &store, &gate_counter);
         for (name, p) in cfg.all_profiles() {
             if catalog.get(&p.model).is_none() {
                 tracing::warn!(profile = %name, model = %p.model, "model is not in the catalog: it runs, but cost is unknown and limits are defaults");
@@ -995,7 +988,6 @@ impl Core {
             )
             .told_to(outbox.clone()),
             effort_refusals: Default::default(),
-            verdicts: Default::default(),
             yes_facts: Default::default(),
             tails: Default::default(),
             keep_warm: Default::default(),
@@ -1026,7 +1018,6 @@ impl Core {
             runner.tools.sandbox.export_to(t.clone());
             runner.tools.defer.export_to(t.clone());
             let _ = runner.keep_warm.telemetry.set(t.clone());
-            let _ = gate_counter.set(t.clone());
             let _ = telemetry_cell.set(t);
         }
         // A persisted runtime switch wins over config, if it still names a profile.
@@ -1071,7 +1062,6 @@ impl Core {
             exits,
             startup_log,
             telemetry: telemetry_cell,
-            gate_counter,
             telemetry_off: Telemetry::disabled(),
             narrator,
             started: Instant::now(),
@@ -1178,11 +1168,6 @@ impl Core {
                 }
             });
         }
-        // And a turn bound for a model of restricted origin waits on the judge
-        // for its session's items. Until this is set the handle is `Ready`,
-        // which answers at once, so such a turn would go on its labels without ever
-        // waiting and `[content_based_security] wait_ms` would mean nothing.
-        core.runner.verdicts.set(core.runner.judge.clone());
         // The judge's sink writes between turns, as the pass does.
         core.runner
             .judge

@@ -58,17 +58,9 @@ impl JudgeService {
     }
 
     /// Ask which model `kind` should run on, and wait at most `wait` for the
-    /// answer. `restricted` is what the session's labels allow; private
-    /// material is floored at `not_allowed` by the job builder whatever it
-    /// says. `mode` is the route pack's mode (`[routing]` over the ladder):
+    /// answer. `mode` is the route pack's mode (`[routing]` over the ladder):
     /// nothing is asked below a canary.
-    pub(crate) async fn job_ask(
-        &self,
-        kind: JobKind,
-        restricted: RestrictedModels,
-        mode: PackMode,
-        wait: Duration,
-    ) -> JobAnswer {
+    pub(crate) async fn job_ask(&self, kind: JobKind, mode: PackMode, wait: Duration) -> JobAnswer {
         let Some(pack) = self.route_pack() else {
             return JobAnswer::Unasked;
         };
@@ -84,7 +76,9 @@ impl JudgeService {
         };
         let facts = RouteFacts {
             price_period: price_period_at(theseus_protocol::now_unix_ms()),
-            restricted_models: restricted,
+            // No model is kept off a job for its origin (2026-11-21); the key
+            // stays until a route pack version drops it.
+            restricted_models: RestrictedModels::Allowed,
             last_reply_model: None,
             task_models: Vec::new(),
             // A job has no conversation to estimate (the field is left out of its state).

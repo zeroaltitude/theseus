@@ -10,8 +10,7 @@
 //!   sessions of private places that a person wrote (never a task's, an
 //!   import's or a shared place's); at most [`PER_NIGHT`] a night, most held
 //!   first.
-//! - **The call**: one, through the provider path the background jobs use, so the
-//!   data rule's gate and the China-origin rule apply unchanged. **Its model
+//! - **The call**: one, through the provider path the background jobs use. **Its model
 //!   is route.v10's one named exception (theseus-xdi65), see [`DREAM_MODEL`]:**
 //!   a `[memory] synth_profile` that is set pins it, as it pins every other
 //!   background job (`"session"` takes the profile all the sampled sessions
@@ -131,10 +130,7 @@ pub const MARK: &str = "onto.dream.last";
 ///   (2,048, with thinking on), under `[memory] synth_limit_usd_per_day`,
 ///   reserved at worst case first.
 ///
-/// The data rule is not part of the exception: the call still goes through
-/// the provider chokepoint, and the test `the_dreams_model_is_cleared_for_
-/// private_material` fails if this names a model not of US origin. A set
-/// `synth_profile` still pins, so the operator can move the dream; only the
+/// A set `synth_profile` still pins, so the operator can move the dream; only the
 /// unset key's meaning is this constant, not "ask Jev". The exception is
 /// listed in `crates/theseus-core/AGENTS.md` ("The one site that is not
 /// Jev's") and in the `[memory] synth_profile` template comment.

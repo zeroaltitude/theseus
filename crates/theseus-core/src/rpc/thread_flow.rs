@@ -382,7 +382,6 @@ impl Core {
             kernel: self.kernel.clone(),
             threads: inputs(live),
             in_thread: false,
-            restricted: Default::default(),
             route,
             chosen: None,
             task: false,

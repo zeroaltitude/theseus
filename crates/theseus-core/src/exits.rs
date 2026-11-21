@@ -237,8 +237,7 @@ impl Call {
     }
 }
 
-/// Run `f`, the making of a provider call, for `call`. Read at the call, as
-/// `data_gate::for_session`'s session is.
+/// Run `f`, the making of a provider call, for `call`. Read at the call.
 pub fn for_call<R>(call: Call, f: impl FnOnce() -> R) -> R {
     CALL.sync_scope(call, f)
 }

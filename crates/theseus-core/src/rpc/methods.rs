@@ -1225,11 +1225,13 @@ impl Core {
                 provider: p.provider.clone(),
                 model: p.model.clone(),
                 origin: Some(
-                    crate::data_gate::word(self.cfg.profile_origin(name, &self.catalog)).into(),
+                    crate::catalog::origin_word(self.cfg.profile_origin(name, &self.catalog))
+                        .into(),
                 ),
-                // Cleared for a session that carries a label: not of restricted
-                // origin, which is all a label keeps a session off.
-                cleared: Some(!self.cfg.profile_origin(name, &self.catalog).restricted()),
+                // Every profile is cleared for every session: no label keeps a
+                // session off a model since the restricted-origin rule went
+                // (2026-11-21). The field stays for the clients that read it.
+                cleared: Some(true),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())

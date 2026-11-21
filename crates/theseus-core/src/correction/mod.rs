@@ -312,7 +312,6 @@ mod tests {
                     unusable: None,
                     short_cost: Some(cost),
                     vision: true,
-                    restricted: false,
                 },
             );
         }

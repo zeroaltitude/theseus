@@ -307,14 +307,12 @@ fn owner_message(tc: &TurnCtx<'_>, call_id: &str) -> Result<String, String> {
         })
 }
 
-/// The target `profile` names, or why not, in the layer's own words: it must exist, and the
-/// session's labels must allow it, as for a turn on that profile.
-fn target_of(core: &Core, tc: &TurnCtx<'_>, profile: &str) -> Result<TargetRef, String> {
-    let mark = crate::content_wait::mark_of(&core.store, tc.session_id);
+/// The target `profile` names, or why not, in the layer's own words: it must exist.
+fn target_of(core: &Core, profile: &str) -> Result<TargetRef, String> {
     let gone = (!core.cfg.all_profiles().contains_key(profile))
         .then(|| crate::config::renamed::renamed_profile(profile))
         .flatten();
-    if let Some(why) = gone.or_else(|| core.runner.profile_refusal(mark, profile)) {
+    if let Some(why) = gone.or_else(|| core.runner.profile_refusal(profile)) {
         return Err(why);
     }
     core.tools.profiles.get(profile).cloned().ok_or_else(|| {
@@ -436,7 +434,7 @@ fn open(
     let (profile, work) = input_of(input)?;
     crate::task_lineage::check_depth(tc.kernel, tc.execution_id)?;
     allowed_here(tc)?;
-    let on = target_of(core, tc, &profile)?;
+    let on = target_of(core, &profile)?;
     afford(core, tc, &profile, &on)?;
     let node = owner_message(tc, call_id)?;
     // The task's input is what `task.create` takes, less everything a model may not set here: no

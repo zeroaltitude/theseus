@@ -144,8 +144,6 @@ impl Core {
         let Ok((target, provider)) = self.onto_model("class").await else {
             return Classed::Off;
         };
-        // What the sessions said is sent: their labels hold the call.
-        let provider = crate::data_gate::bound(provider, session);
         let scrubber = self.runner.judge.scrubber.clone();
         let how = self.runner.catalog.forcing(&target.model);
         let request = request(&target.model, how, names, titles, &|t| scrubber.scrub(t).0);

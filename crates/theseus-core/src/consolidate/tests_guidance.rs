@@ -524,16 +524,8 @@ async fn a_pinned_dream_still_writes_at_high_effort() {
     );
 }
 
-/// The exception is not a way round the data rule: the dream reads private
-/// sessions' text, so whatever it names must be a model cleared for private
-/// material (US origin). A change of `DREAM_MODEL` to any other fails here.
+/// The dream's one named model thinks at `high`.
 #[test]
-fn the_dreams_model_is_cleared_for_private_material() {
-    let r = rig(ANSWER, |_| {});
-    let (provider, model) = super::guidance::DREAM_MODEL;
-    assert!(
-        r.core.runner.model_cleared(provider, model),
-        "{provider}/{model} is not cleared for the owner's material"
-    );
+fn the_dreams_effort_is_high() {
     assert_eq!(super::guidance::DREAM_EFFORT, crate::config::Effort::High);
 }

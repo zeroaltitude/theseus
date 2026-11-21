@@ -27,7 +27,6 @@ struct Morning {
     core: Arc<Core>,
     fake: Fake,
     model: Arc<FakeProvider>,
-    zai: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
@@ -78,7 +77,7 @@ async fn rig_as(
     let model = Arc::new(FakeProvider::scripted(script));
     let zai = Arc::new(FakeProvider::scripted(vec![Scripted::text(SAID); 4]));
     let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
-    parts.providers.insert("zai".into(), zai.clone());
+    parts.providers.insert("zai".into(), zai);
     parts.secrets = board(Some(REFRESH_TOKEN));
     let core = Core::build(parts).unwrap();
     core.bind_places(vec![BoundPlace {
@@ -90,7 +89,6 @@ async fn rig_as(
         core,
         fake,
         model,
-        zai,
         _dir: dir,
     }
 }
@@ -278,47 +276,6 @@ async fn a_failed_google_read_is_said_and_never_blocks_the_note() {
     assert!(!brief.contains("calendar unreachable"), "{brief}");
 }
 
-/// The note's model call carries the owner's private text, so a model of
-/// restricted origin is never asked: the load refuses the profile
-/// (theseus-a1wvq.3's data floor), and a core built past that check still
-/// sends the note as its template.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_morning_note_never_uses_a_restricted_model() {
-    let glm = |c: &mut Config| c.initiative.profile = Some("glm53".into());
-    let mut cfg = Config::example();
-    cfg.initiative.profile = Some("glm".into());
-    let e = cfg.validate().unwrap_err().to_string();
-    assert!(e.contains("[initiative] profile"), "{e}");
-    let m = rig_as(true, said(), glm, false).await;
-    let mb = m.fake.mail();
-    mb.thread(
-        "t1",
-        vec![unread("m1", "Dana <dana@example.test>", "Contract")],
-    );
-    assert!(m.core.post_morning_if_due());
-    until("the morning note", 20, || {
-        !rows(&m.core, "initiative.spoke").is_empty()
-    })
-    .await;
-    assert!(
-        m.zai.requests().is_empty(),
-        "nothing went to the restricted provider"
-    );
-    assert!(
-        m.model.requests().is_empty(),
-        "and it did not retry on another profile"
-    );
-    let spoke = rows(&m.core, "initiative.spoke");
-    assert!(
-        spoke[0]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with("🌊 Ondine: "),
-        "{spoke:?}"
-    );
-    assert!(!spoke[0]["text"].as_str().unwrap().contains(SAID));
-}
-
 /// With no `[google]` section nothing here reads or adds anything: the note's
 /// facts are what they were, no Google call is made, and its sentence still
 /// ends as it did.
@@ -464,11 +421,10 @@ mod calendars {
         );
     }
 
-    /// A sensitive calendar in the brief: a model of China origin is never
-    /// asked (the call is made for no session, which the chokepoint refuses to
-    /// one), a US one is, and the note's ledger row holds no text.
+    /// A sensitive calendar in the brief: the model writes the note, and the
+    /// note's ledger row holds no text.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_sensitive_calendar_makes_the_brief_us_only() {
+    async fn a_sensitive_calendars_brief_keeps_its_words_out_of_the_ledger() {
         // The US model is asked, and its words reach the DM and no ledger row.
         let titled = vec![Scripted::text("Board prep at nine, then the Dentist."); 4];
         let (m, _) = rigged(titled, |_| {}).await;
@@ -483,17 +439,6 @@ mod calendars {
         assert!(!serde_json::to_string(&all_rows(&m.core))
             .unwrap()
             .contains("Board prep"));
-        // China origin: refused, the template speaks, and nothing else is tried.
-        let (m, _) = rigged_as(
-            said(),
-            |c| c.initiative.profile = Some("glm53".into()),
-            false,
-        )
-        .await;
-        spoken(&m).await;
-        assert!(m.zai.requests().is_empty() && m.model.requests().is_empty());
-        // The template spoke: its row holds no text either.
-        assert!(rows(&m.core, "initiative.spoke")[0].get("text").is_none());
     }
 
     /// A calendar that cannot be read says so by label and leaves its lines

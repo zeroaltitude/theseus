@@ -160,9 +160,7 @@ impl TurnRunner {
         via: &str,
         provenance: String,
     ) -> anyhow::Result<Correcting> {
-        // Outside a turn: no model of restricted origin; the labels' floor is the turn's.
-        let floor = crate::turn::data_step::Floor { cn_ok: false };
-        let resolved = correction::resolve(to, &last, &self.route_profiles(floor));
+        let resolved = correction::resolve(to, &last, &self.route_profiles());
         let asked = resolved.question != "persona" || last.persona_asked;
         let label = match (&resolved.label, &last.judgment) {
             (Some(words), Some(_)) if asked => {
@@ -239,19 +237,7 @@ impl TurnRunner {
         session: &SessionRecord,
         s: &Steering,
     ) -> Decision {
-        // A profile the data floor keeps the turn off: `data_floor` moves the
-        // turn and its row says `data_gate`, not a fallback (theseus-a1wvq.3).
-        if let Steer::Profile(p) = &s.steer {
-            if self.floor_refuses(t.route.floor(), p).is_some() {
-                return Decision {
-                    profile: p.clone(),
-                    reason: routing::Reason::Correction,
-                    switch: false,
-                    hold: routing::HoldNext::Clear,
-                };
-            }
-        }
-        let profiles = self.route_profiles(t.route.floor());
+        let profiles = self.route_profiles();
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         let v = Verdict {
             mode: "correction".into(),
@@ -272,7 +258,6 @@ impl TurnRunner {
             context_tokens: 0,
             hold: hold.as_ref(),
             images: t.route.images,
-            cleared: t.route.floor().cn_ok,
         };
         match &s.steer {
             Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, true),

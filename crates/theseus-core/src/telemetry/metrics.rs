@@ -126,7 +126,7 @@ const PUSH_LOST: Instrument = Instrument {
 const WARMS: Instrument = Instrument {
     name: "theseus.warm",
     description:
-        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome (warm, opened, failed, or refused by the data gate)",
+        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome (warm, opened or failed)",
     unit: "",
     kind: Kind::IntSum,
 };
@@ -268,13 +268,6 @@ const ROUTE_WAIT: Instrument = Instrument {
     kind: Kind::Histogram,
 };
 
-const ROUTE_DATA_GATE: Instrument = Instrument {
-    name: "theseus.route.data_gate",
-    description: "Turns and calls the data rule kept off a restricted-origin model, by caller and why (theseus-a1wvq.11)",
-    unit: "",
-    kind: Kind::IntSum,
-};
-
 const CANCELS: Instrument = Instrument {
     name: "theseus.cancel",
     description: "Calls a cancel or a stop ended (M4 §2.11), by backend and how they ended, as health counts them",
@@ -363,7 +356,7 @@ const VOICE_RESUMED: Instrument = Instrument {
 };
 
 /// Every instrument, in the order a request lists them.
-const INSTRUMENTS: [&Instrument; 51] = [
+const INSTRUMENTS: [&Instrument; 50] = [
     &TURNS,
     &TOKENS,
     &PROVIDER_ERRORS,
@@ -391,7 +384,6 @@ const INSTRUMENTS: [&Instrument; 51] = [
     &JUDGE_ERRORS,
     &JUDGE_DISAGREEMENTS,
     &ROUTE_WAIT,
-    &ROUTE_DATA_GATE,
     &LANE_WAIT,
     &TASK_CHANGES,
     &TASKS_OPEN,
@@ -847,15 +839,6 @@ impl Metrics {
     pub(super) fn route_wait(&mut self, wait: std::time::Duration, late: bool) {
         let attrs = vec![("theseus.route.late", Attr::B(late))];
         self.record(&ROUTE_WAIT, attrs, wait.as_secs_f64() * 1000.0);
-    }
-
-    /// A turn or call the data rule kept off a restricted-origin model.
-    pub(super) fn data_gate(&mut self, what: &str, why: &str) {
-        let attrs = vec![
-            ("theseus.data_gate.what", Attr::S(what.to_string())),
-            ("theseus.data_gate.why", Attr::S(why.to_string())),
-        ];
-        self.add(&ROUTE_DATA_GATE, attrs, 1);
     }
 
     /// An ordered request's wait in its lane (theseus-klo2's review,

@@ -9,10 +9,9 @@
 //! `content.unjudged` row. An ask that **failed** is asked once more; if that
 //! fails too the row is written and the owner is told once, in the session's
 //! place (once per session for a run of failures; a refusal or an unbuilt judge
-//! is not retried and is told at once), and the session goes on: **an item whose ask failed twice can reach a
-//! model of restricted origin unlabelled, with a notice** (the owner's trade,
-//! theseus-gyjyo.7). Nothing here proves a session judged; the session carries
-//! its labels and a turn goes on those.
+//! is not retried and is told at once), and the session goes on: **an item whose ask failed twice stays
+//! unlabelled, with a notice** (the owner's trade, theseus-gyjyo.7). Nothing here proves a session judged;
+//! the session carries its labels.
 //!
 //! - **Batched.** The results of one loop are queued together and asked in one
 //!   decision point: a session's queue is drained by one task at a time, after a
@@ -26,19 +25,12 @@
 //!   at its bar, and an answer below it is a `content.judged` row and nothing
 //!   more. `injection` is not asked of the operator's own words: the builder
 //!   leaves the question out (`ItemKind::asks_injection`).
-//! - **A turn that must wait** for a verdict (the cn floor, `turn/data_step.rs`)
-//!   waits on a counter, the asks open for its session
-//!   ([`crate::content_wait::Verdicts::outstanding`]), which a landing brings
-//!   down and wakes. The retry happens **inside** the open ask, so the count
-//!   stays up across it. Because a turn may be blocked on it, every content
-//!   call goes out as [`theseus_judge::Urgency::Awaited`] (theseus-oc9n4),
-//!   whether or not a floor is waiting on its session: it may take one of the
-//!   in-flight permits the client keeps back for content, rather than
-//!   queueing behind ordinary judge work. With the permits saturated and a
-//!   content call taking an ordinary one, the floor spent its whole `wait_ms`
-//!   on the queue and the turn fell off its model with the verdict landing
-//!   just after it ended. The client keeps no share back when
-//!   `session_flags` is off, as no content call is then made.
+//! - **No turn waits** for a verdict: the floor that did (a turn bound for a
+//!   model of restricted origin) was deleted on 2026-11-21. Every content call
+//!   still goes out as [`theseus_judge::Urgency::Awaited`] (theseus-oc9n4) and
+//!   may take one of the in-flight permits the client keeps back for content;
+//!   the client keeps no share back when `session_flags` is off, as no content
+//!   call is then made.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,7 +42,6 @@ use theseus_judge::builders::{ContentInput, DataNames, PIECE_CHARS};
 use theseus_judge::{
     Answer, Ask, DecisionPoint, Input, Judge, Judgment, Mode, Outcome, Pack, Urgency,
 };
-use tokio::sync::Notify;
 
 use super::{spend, Beside, JudgeService, ScrubWith};
 use crate::content::{self, ContentFlags, Flag, ItemKind, Label};
@@ -220,12 +211,10 @@ impl ContentItem {
     ///
     /// **What this does not settle.** The other three flags are a different
     /// case and the reasoning above does not cover them: `Secret`,
-    /// `Confidential` and `Personal` raise at `Band::Confirm`, where a wrong
-    /// yes costs a session its cheap model and nothing more -- "the safe
-    /// direction, and the direction the owner's standing rule points". A
-    /// granted repository's instruction file can hold a credential's value or
-    /// an organisation's non-public matter, and today no label can come of
-    /// it, so `ContentFlags::disqualifies_cn` never sees it. Closing that is a
+    /// `Confidential` and `Personal` raise at `Band::Confirm`. A granted
+    /// repository's instruction file can hold a credential's value or an
+    /// organisation's non-public matter, and today no label can come of it.
+    /// Closing that is a
     /// row of its own: it needs an eighth [`ItemKind`] exempt from the
     /// injection question exactly as `task_brief` is, an item built once per
     /// file digest rather than once per compile, and a store-format number
@@ -267,15 +256,12 @@ impl ContentItem {
     }
 }
 
-/// What a session's queue holds and what is still out.
+/// What a session's queue holds.
 #[derive(Default)]
 struct Slot {
     queue: Vec<ContentItem>,
     /// A task is draining this queue.
     running: bool,
-    /// Items queued or being judged, not yet landed.
-    open: usize,
-    notify: Arc<Notify>,
     /// The owner has been told this session's asks are failing, and nothing
     /// has been judged since: a Jev that stays down is told once, not once a
     /// tool call.
@@ -414,9 +400,9 @@ impl JudgeService {
     /// What to do once a label is written and told in the narrative: the core
     /// hands over `Core::tell_label` (the `session.labelled` event and the one
     /// Discord message), set once as it is built.
-    /// Last writer wins, as `content_wait::Handle::set` does: the core stands
-    /// `Core::tell_label` here as it is built, and a test may stand its own in
-    /// its place. A set-once would silently make the test's a no-op.
+    /// Last writer wins: the core stands `Core::tell_label` here as it is
+    /// built, and a test may stand its own in its place. A set-once would
+    /// silently make the test's a no-op.
     pub fn label_told(&self, told: impl Fn(&str, &Label) + Send + Sync + 'static) {
         *self
             .content
@@ -475,7 +461,6 @@ impl JudgeService {
         let spawn = {
             let mut slots = self.content.slots();
             let slot = slots.entry(session.to_string()).or_default();
-            slot.open += items.len();
             slot.queue.extend(items);
             !std::mem::replace(&mut slot.running, true)
         };
@@ -485,36 +470,17 @@ impl JudgeService {
     }
 }
 
-impl crate::content_wait::Verdicts for JudgeService {
-    /// The session's open asks: the items queued or being judged, not yet
-    /// landed (`Slot::open`). This is the counter a turn's wait reads.
-    fn outstanding(&self, session: &str) -> usize {
-        self.content.slots().get(session).map_or(0, |s| s.open)
-    }
-
-    /// The next landing, or none: the wait's own slice bounds a wake-up this
-    /// misses. `notified()` takes its interest on the **first poll**, so a
-    /// landing between this call and that poll is not seen until the next
-    /// slice (`content_wait::SLICE`) at worst, never slept through.
-    fn settled(
-        &self,
-        session: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-        let (notify, pending) = {
-            let mut slots = self.content.slots();
-            let slot = slots.entry(session.to_string()).or_default();
-            (slot.notify.clone(), slot.open > 0)
-        };
-        Box::pin(async move {
-            if !pending {
-                return;
-            }
-            notify.notified().await;
-        })
-    }
-}
-
 impl JudgeService {
+    /// Whether `session` has content asks queued or being judged: what a test
+    /// waits on to see a batch landed.
+    #[cfg(test)]
+    pub(crate) fn content_busy(&self, session: &str) -> bool {
+        self.content
+            .slots()
+            .get(session)
+            .is_some_and(|s| s.running || !s.queue.is_empty())
+    }
+
     /// The paths the calls behind some tool results named, by result node: a
     /// result's `tool_use_id` finds its call in the session's transcript, and
     /// the call's input names the path (`content_scene::call_paths`). A node the
@@ -738,10 +704,6 @@ impl JudgeService {
         if !matches!(written, Ok(Some(_))) {
             return;
         }
-        // Whether the session, as just written, carries a label that keeps a
-        // model of restricted origin off it: the notice says so either way.
-        let kept_off = matches!(&written, Ok(Some(rec))
-            if rec.data.as_deref().and_then(ContentFlags::disqualifies_cn).is_some());
         // What was raised is told after it is written, in the session's own words,
         // and to the operator's surfaces.
         for (at, label) in &fresh {
@@ -750,13 +712,12 @@ impl JudgeService {
         for (_, label) in fresh {
             self.tell_label(session, label);
         }
-        self.tell_unjudged(session, landings, kept_off);
+        self.tell_unjudged(session, landings);
     }
 
     /// A label a verdict raised on `session` also goes on each fork whose
     /// transcript holds the item (theseus-sz6z9): a fork cut while the ask was
-    /// in flight copied labels the verdict had not yet written, and a fork
-    /// treated as unlabelled can reach a model of restricted origin. The label
+    /// in flight copied labels the verdict had not yet written. The label
     /// follows the item, as `fork::data_through` carries it for a fork cut
     /// later; an item whose place is unknown is held by every fork (fewer
     /// labels is never the safe side). A fork the item is not in, or that
@@ -808,9 +769,8 @@ impl JudgeService {
     /// batch: a Jev that stays down is one message in each session, and the next
     /// batch of that session that is judged re-arms it. A refusal (the day's
     /// budget) or an unbuilt judge is not retried and is told at once. A `shadow` outcome is the pack's mode, not a failure, and
-    /// says nothing. `kept_off` is whether the session already carries a label
-    /// that keeps models of restricted origin off it, which the notice says.
-    fn tell_unjudged(&self, session: &str, landings: &[Landing], kept_off: bool) {
+    /// says nothing.
+    fn tell_unjudged(&self, session: &str, landings: &[Landing]) {
         let failed: Vec<&Landing> = landings
             .iter()
             .filter(|l| matches!(l.unjudged, Some("failed" | "unbuilt" | "refused")))
@@ -831,7 +791,7 @@ impl JudgeService {
         if !tell {
             return;
         }
-        let text = unjudged_notice(&failed, kept_off);
+        let text = unjudged_notice(&failed);
         if let Some(told) = self
             .content
             .unjudged_told
@@ -845,11 +805,8 @@ impl JudgeService {
 }
 
 /// The notice a failed ask tells the owner: what was not checked, why, and
-/// what that means for the session: the item raised no label, so it adds no
-/// reason to keep a model of restricted origin off; whether the session is kept
-/// off one is up to the labels it already carries (`kept_off`) and to
-/// `cn_models = "never"`.
-fn unjudged_notice(failed: &[&Landing], kept_off: bool) -> String {
+/// that the item raised no label.
+fn unjudged_notice(failed: &[&Landing]) -> String {
     let n = failed.len();
     let first = failed[0];
     let why = match first.unjudged {
@@ -869,19 +826,9 @@ fn unjudged_notice(failed: &[&Landing], kept_off: bool) -> String {
             first.item.source
         ),
     };
-    let then = match kept_off {
-        true => {
-            "Nothing was labelled for it; this session's other labels still keep China-origin \
-             models off."
-        }
-        false => {
-            "Nothing was labelled, so China-origin models are still allowed for this session, \
-             unless `cn_models = \"never\"` keeps them off."
-        }
-    };
     format!(
         "⚑ **unchecked** — {what} could not be checked for secrets, confidential matter or \
-         injection ({why}). {then}"
+         injection ({why}). Nothing was labelled for it."
     )
 }
 
@@ -1013,38 +960,29 @@ async fn drain(me: Weak<JudgeService>, session: String) {
         let _open = Open {
             me: me.clone(),
             session: session.clone(),
-            n: batch.len(),
         };
         judge_batch(&me, &session, batch).await;
     }
 }
 
-/// A batch's share of the session's open count, brought down when the batch
-/// is done **however it ends**: a task that panics mid-batch must not leave
-/// the count up for good (every cn turn of that session would wait its whole
-/// `wait_ms` for the rest of the daemon's life), nor the queue stuck behind a
-/// `running` that nothing will clear.
+/// A batch in flight, guarded **however it ends**: a task that panics
+/// mid-batch must not leave the session's queue stuck behind a `running` that
+/// nothing will clear.
 struct Open {
     me: Weak<JudgeService>,
     session: String,
-    n: usize,
 }
 
 impl Drop for Open {
     fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
         let Some(svc) = self.me.upgrade() else { return };
-        let notify = {
-            let mut slots = svc.content.slots();
-            let slot = slots.entry(self.session.clone()).or_default();
-            slot.open = slot.open.saturating_sub(self.n);
-            if std::thread::panicking() {
-                slot.open = slot.open.saturating_sub(slot.queue.len());
-                slot.queue.clear();
-                slot.running = false;
-            }
-            slot.notify.clone()
-        };
-        notify.notify_waiters();
+        let mut slots = svc.content.slots();
+        let slot = slots.entry(self.session.clone()).or_default();
+        slot.queue.clear();
+        slot.running = false;
     }
 }
 
@@ -1053,9 +991,7 @@ impl Drop for Open {
 const REASK_PAUSE: Duration = Duration::from_millis(200);
 
 /// One batch: asked in one decision point, then **the items whose ask failed
-/// are asked once more**, then landed. The retry is inside the batch, so the
-/// session's open count (`Slot::open`) stays up across it and a turn waiting
-/// on the session waits for the second answer. An item that fails the second
+/// are asked once more**, then landed. An item that fails the second
 /// time is rowed `failed` and the owner told (`JudgeService::tell_unjudged`);
 /// nothing asks again. A refusal (`refused`, the day's budget) and a state that
 /// could not be built (`unbuilt`) are not asks that failed and are not retried:
@@ -1146,15 +1082,9 @@ async fn ask_once(
             .judge
             .judge(DecisionPoint {
                 asks: asks.iter().map(|(_, a)| a.clone()).collect(),
-                // Every content call goes out so, whether or not a floor is
-                // waiting on this session: the drain judges each item that
-                // enters each session, and nothing here knows a turn is at
-                // its floor. A cn turn may be, though: the floor waits on
-                // the session's open count and then goes on the labels it
-                // has (theseus-oc9n4). So the call may take one of the
-                // permits kept back for content, rather than queueing behind
-                // ordinary judge work, and a call no one waits on may hold
-                // one a waiting floor needs.
+                // Every content call goes out so (theseus-oc9n4): it may take
+                // one of the permits kept back for content, rather than
+                // queueing behind ordinary judge work.
                 urgency: Urgency::awaited(total),
             })
             .await;
@@ -1304,15 +1234,12 @@ async fn land(me: &Weak<JudgeService>, session: &str, landings: Vec<Landing>) {
 mod tests {
     use super::*;
 
-    /// **A batch that panics does not leave the count up** (theseus-gyjyo.7, the
-    /// review of R5a, the counter's one leak). The share a batch holds of the
-    /// session's open count is brought down by a guard that runs however the batch
-    /// ends; when it ends in a panic it also takes the queue behind it off the
-    /// count and clears `running`, so the session's later items are asked about by
-    /// a fresh drain rather than waited on by every cn turn for the rest of the
-    /// daemon's life.
+    /// **A batch that panics does not leave the queue stuck** (theseus-gyjyo.7,
+    /// the review of R5a). The guard a batch holds runs however the batch ends;
+    /// when it ends in a panic it takes the queue behind it and clears
+    /// `running`, so the session's later items are asked about by a fresh drain.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_batch_that_panics_does_not_leave_the_count_up() {
+    async fn a_batch_that_panics_does_not_leave_the_queue_stuck() {
         let jev = theseus_judge::fake::FakeJev::start().unwrap();
         let r = crate::tests_judge::rig_with(crate::tests_judge::texts(1), Some(&jev), |_| {});
         let rec =
@@ -1321,10 +1248,9 @@ mod tests {
         let sid = rec.session_id;
         let svc = r.core.runner.judge.clone();
         {
-            // One batch of one in flight, two items queued behind it, a drain running.
+            // One batch in flight, two items queued behind it, a drain running.
             let mut slots = svc.content.slots();
             let slot = slots.entry(sid.clone()).or_default();
-            slot.open = 3;
             slot.running = true;
             slot.queue = vec![
                 ContentItem::new(
@@ -1343,41 +1269,29 @@ mod tests {
                 ),
             ];
         }
-        assert_eq!(r.core.runner.verdicts.outstanding(&sid), 3);
         let (me, session) = (svc.me.clone(), sid.clone());
         let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _open = Open { me, session, n: 1 };
+            let _open = Open { me, session };
             panic!("the batch died");
         }));
         assert!(died.is_err());
-        assert_eq!(
-            r.core.runner.verdicts.outstanding(&sid),
-            0,
-            "the count came down"
-        );
         let slots = svc.content.slots();
         let slot = slots.get(&sid).unwrap();
         assert!(
             slot.queue.is_empty() && !slot.running,
-            "and the queue is not stuck"
+            "the queue is not stuck"
         );
         drop(slots);
-        // And an ordinary end takes only its own share.
+        // And an ordinary end leaves the queue as it is.
         {
             let mut slots = svc.content.slots();
             let slot = slots.entry(sid.clone()).or_default();
-            slot.open = 3;
             slot.running = true;
         }
         drop(Open {
             me: svc.me.clone(),
             session: sid.clone(),
-            n: 1,
         });
-        assert_eq!(
-            r.core.runner.verdicts.outstanding(&sid),
-            2,
-            "its share only"
-        );
+        assert!(svc.content.slots().get(&sid).unwrap().running, "untouched");
     }
 }

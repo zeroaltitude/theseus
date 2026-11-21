@@ -152,7 +152,7 @@ async fn a_label_is_one_message_with_one_remove_button() {
     assert!(!raise(&r, &sid, &label(Flag::Injection)));
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert_eq!(notes(&r).len(), 1, "one message, once");
-    // A cn-disqualifying flag is its own message, with its own word and no urgency.
+    // A `confidential` flag is its own message, with its own word and no urgency.
     assert!(raise(&r, &sid, &label(Flag::Confidential)));
     r.until("the second note", || notes(&r).len() == 2).await;
     let c = notes(&r).remove(1);
@@ -160,7 +160,7 @@ async fn a_label_is_one_message_with_one_remove_button() {
         .versions
         .last()
         .unwrap()
-        .starts_with("⚑ **confidential** — China-origin models are off for this session"));
+        .starts_with("⚑ **confidential** — "));
 }
 
 /// The owner's press removes the flag as the presser and settles the
@@ -265,7 +265,7 @@ async fn a_failed_content_ask_is_one_unchecked_notice_in_the_dm() {
     let text = notice.versions.last().unwrap();
     assert!(text.starts_with("⚑ **unchecked** — "), "{text}");
     assert!(
-        text.contains("China-origin models are still allowed"),
+        text.contains("Nothing was labelled for it"),
         "it says what that means: {text}"
     );
     assert!(
@@ -294,8 +294,8 @@ async fn a_failed_content_ask_is_one_unchecked_notice_in_the_dm() {
         .expect("the DM has a session");
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert!(
-        rec.data.is_none_or(|d| d.disqualifies_cn().is_none()),
-        "no label: the session stays eligible"
+        rec.data.is_none_or(|d| d.labels.is_empty()),
+        "no label was raised"
     );
 }
 

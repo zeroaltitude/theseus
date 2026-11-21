@@ -58,13 +58,7 @@ impl TurnRunner {
         Option<theseus_protocol::projects::ProjectSliceSummary>,
     ) {
         // A check sees the task it checks by title and state (theseus-w8ys).
-        // The owner's graph and project are not a restricted model's: their titles and objectives are
-        // written by any session in scope, and a label belongs to the session
-        // that raised it (theseus-9ymz0, the review's B1).
-        let shared = !self.restricted_profile(&t.target.profile);
-        let tasks = shared
-            .then(|| crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled))
-            .flatten();
+        let tasks = crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled);
         // The wakes this conversation has pending, in the same last block
         // (theseus-lherl): from the turn's list, never a read of its own.
         // And the routines it made, from memory (theseus-pvm5c).
@@ -75,7 +69,6 @@ impl TurnRunner {
         crate::commitments::attach(
             t.tc.commitments,
             &routines,
-            self.restricted_profile(&t.target.profile),
             self.kernel.now_ms(),
             compiled,
             &|w| crate::watch::run::shown_value(&self.kernel, w),
@@ -90,7 +83,6 @@ impl TurnRunner {
                 &self.store,
                 t.tc.place().class,
                 self.target_of(&session.session_id).as_deref(),
-                !shared,
                 self.kernel.now_ms(),
                 compiled,
             );
@@ -104,7 +96,6 @@ impl TurnRunner {
                 t.tc.turn_id,
                 t.tc.place().class,
                 self.target_of(&session.session_id).as_deref(),
-                !shared,
                 compiled,
             );
         }
@@ -116,15 +107,10 @@ impl TurnRunner {
         Self::fan_out_line(t, compiled);
         // A working turn's deliverable, called as the task spells it (theseus-eb4o4).
         self.deliverable_hint(t, compiled);
-        // The place's other threads, for a turn that asks across them (theseus-98bz.9);
-        // their cards are the owner's material, so a draft has none (theseus-rcb2u).
-        if shared {
-            Self::digest_line(t, compiled);
-        }
+        // The place's other threads, for a turn that asks across them (theseus-98bz.9).
+        Self::digest_line(t, compiled);
         // The project this conversation serves, last of all (theseus-n5ui2).
-        let project = shared
-            .then(|| crate::project::slice::attach(&self.store, &self.kernel, session, compiled))
-            .flatten();
+        let project = crate::project::slice::attach(&self.store, &self.kernel, session, compiled);
         (tasks, project)
     }
 
@@ -148,10 +134,7 @@ impl TurnRunner {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
         };
-        // `recall_carried`, not `recall_view`: this is the turn's own compile,
-        // and what its request carries decides what rides the plan frame
-        // (theseus-fpm2).
-        let (nodes, sources) = self.recall_carried(t, nodes, &spec.profile);
+        let (nodes, sources) = self.recall_view(t, nodes);
         // A big old attachment is a stub at a cold rewrite, and in the warm
         // window after it (theseus-ezeg): decided at the turn's first compile.
         let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
@@ -194,7 +177,6 @@ impl TurnRunner {
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
-        let restricted = self.restricted_profile(&t.target.profile);
         // What a tail says is said to a place, a surface, and where the session and the turn's
         // reply speak: it is put back on a request for the same.
         let key = format!(
@@ -204,9 +186,7 @@ impl TurnRunner {
             self.outbox.speaks_at(sid).ok().flatten(),
             t.answer_at
         );
-        t.tail = self
-            .tails
-            .begin(sid, (t.tc.turn_id, &key), restricted, &mut compiled);
+        t.tail = self.tails.begin(sid, (t.tc.turn_id, &key), &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)

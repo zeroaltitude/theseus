@@ -34,8 +34,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    DataNames, InboundInput, PersonaInput, RestrictedModels, RoleInput, TaskInput, ThreadInput,
-    ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
 };
 use theseus_judge::{Ask, DecisionPoint, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
@@ -309,10 +308,6 @@ pub struct Inbound {
     /// ones' first characters (theseus-p6zgq). Only a turn that has its
     /// node carries them.
     pub attachments: Vec<crate::node::Attachment>,
-    /// Whether the session's labels let a model of restricted origin read the
-    /// turn (`data_step::cn_read`), for route.v10's `restricted_models`
-    /// (theseus-9f72b). Fail-closed where no turn read the labels.
-    pub restricted: RestrictedModels,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -582,14 +577,6 @@ impl JudgeService {
         }
     }
 
-    /// A turn the data rule kept off a restricted-origin model, as
-    /// `theseus.route.data_gate` (theseus-a1wvq.11).
-    pub fn record_data_gate(&self, what: &str, why: &str) {
-        if let Some(t) = self.telemetry.get() {
-            t.record_data_gate(what, why);
-        }
-    }
-
     /// The session holds a late verdict (a test's wait for one to land).
     #[cfg(test)]
     pub fn has_late(&self, session: &str) -> bool {
@@ -817,18 +804,14 @@ impl JudgeService {
             .collect();
         let live_tasks = self.live_tasks(&msg.kernel, &msg.execution_id);
         let mut input = input(&nodes, msg, live_tasks);
-        // The route facts: the clock and the labels' rule are the daemon's,
-        // the models are the session's own record (theseus-9f72b).
+        // The route facts: the clock is the daemon's, the models are the
+        // session's own record (theseus-9f72b).
         let before = nodes
             .iter()
             .position(|n| n.id == msg.node_id)
             .map_or(&nodes[..], |i| &nodes[..i]);
-        let mut facts = super::route_facts::facts_of(
-            before,
-            msg.task,
-            msg.restricted,
-            theseus_protocol::now_unix_ms(),
-        );
+        let mut facts =
+            super::route_facts::facts_of(before, msg.task, theseus_protocol::now_unix_ms());
         // How the last turn ran (theseus-8euum): the session's own ledger rows.
         facts.previous_turn =
             crate::routing::effort::previous::previous_turn(&self.store, &msg.session_id)
@@ -988,9 +971,7 @@ fn unasked_when_pinned(ask: &mut Ask, pinned: bool) {
 /// verdict then carries those alone, with no `mode` word and no `model`
 /// (theseus-7l8lr.2).
 ///
-/// The pack's `data` question is not read: whether a session may use a model
-/// of restricted origin is decided by the labels on it (`crate::content`),
-/// not by a verdict per message.
+/// The pack's `data` question is not read.
 pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing::Verdict> {
     use crate::routing::effort::{EffortAnswer, QUESTION};
     if !j.actionable() {
