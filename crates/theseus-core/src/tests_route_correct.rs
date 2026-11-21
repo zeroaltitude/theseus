@@ -378,3 +378,65 @@ async fn a_correction_asks_jev_nothing_a_plain_turn_does_not() {
         plain - corrected
     );
 }
+
+/// The exam harvester still makes a routing-correction candidate from a typed
+/// correction's ACTUAL stored row, which no longer carries the message's
+/// words: it reads the corrected message back from the row's own session and
+/// turn. A row of the old shape (with `words`) still works, and a row whose
+/// message cannot be read makes none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_typed_correction_makes_one_exam_candidate_and_an_old_row_still_does() {
+    use crate::ledger::LedgerRow;
+    use crate::rsi::exams::{harvest, Family};
+    use theseus_protocol::LedgerKind;
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 3, owned);
+    let one = ask(&r.core, None, PARSER).await;
+    let res = correct(&r.core, &one.session_id, "fable").await;
+    assert!(res.error.is_none(), "{:?}", res.error);
+    let now = theseus_protocol::now_unix_ms();
+    let raws = r.core.exam_raws(0, now + 60_000, now).unwrap();
+    let made: Vec<_> = raws
+        .iter()
+        .filter(|x| x.family == Family::Correction)
+        .collect();
+    assert_eq!(made.len(), 1, "{raws:?}");
+    assert_eq!(made[0].check, "reply has word \"fable\"");
+    assert!(
+        made[0].task.contains("lighthouse log format"),
+        "{:?}",
+        made[0].task
+    );
+    assert!(
+        rows(&r.core, "route.corrected")[0].get("words").is_none(),
+        "the stored row carries no words"
+    );
+    // The old shape: `words`, and no message to read.
+    let mut old = LedgerRow::new(
+        LedgerKind::RouteCorrected,
+        Some("ses_old"),
+        None,
+        json!({"id": "rcx_old", "turn": "turn_old", "session": "ses_old", "ran": "haiku",
+               "to": "fable", "words": ["harbor", "tide", "gauge"]}),
+    );
+    old.at_unix_ms = 5;
+    let raws = harvest::from_rows(&[(1, old)], &|_| false);
+    assert_eq!(raws.len(), 1);
+    assert!(
+        raws[0].task.contains("harbor tide gauge"),
+        "{:?}",
+        raws[0].task
+    );
+    // A new-shape row whose message is gone makes none.
+    let mut gone = LedgerRow::new(
+        LedgerKind::RouteCorrected,
+        Some("ses_gone"),
+        None,
+        json!({"id": "rcx_g", "turn": "turn_g", "session": "ses_gone", "ran": "haiku", "to": "fable"}),
+    );
+    gone.at_unix_ms = 5;
+    let mut rows_gone = vec![(2, gone)];
+    r.core.read_corrected_messages(&mut rows_gone);
+    assert!(harvest::from_rows(&rows_gone, &|_| false).is_empty());
+}
