@@ -121,13 +121,16 @@ pub(super) fn exchange_at(store: &Store, sid: &str, place: &str, at: u64, outsid
         stop: Some("no_tool_calls".into()),
         rebuilt: false,
     };
-    let recs = vec![
+    let mut recs = vec![
         ask.record().unwrap(),
         result.record().unwrap(),
         reply.record().unwrap(),
         exchange::exchange_record(&ex).unwrap(),
-        exchange::touch(Root::Place(place), &turn, sid, at).unwrap(),
     ];
+    // A place whose name would break a key gets no touch from the ledger
+    // (it refuses the root), and so no ladder: the test of that place holds
+    // with the exchange alone.
+    recs.extend(exchange::touch(Root::Place(place), &turn, sid, at));
     store.append(&recs).unwrap();
     turn
 }

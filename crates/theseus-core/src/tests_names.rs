@@ -686,3 +686,61 @@ async fn touched_in(r: &Rig, term: &str) -> Vec<String> {
     }
     Vec::new()
 }
+
+/// An index that never answers: a naming call outstanding for ever.
+struct Stuck;
+
+impl PassIndex for Stuck {
+    fn neighbours(&self, _: IndexNeighboursParams) -> IndexFuture<IndexNeighboursResult> {
+        Box::pin(std::future::pending())
+    }
+
+    fn entities(&self, _: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        Box::pin(std::future::pending())
+    }
+
+    fn items(&self, _: Vec<String>) -> IndexFuture<Vec<Vec<String>>> {
+        Box::pin(std::future::pending())
+    }
+
+    fn mode(&self) -> IndexFuture<String> {
+        Box::pin(async { Ok("bm25_only".into()) })
+    }
+}
+
+/// KEY (the rule of the naming tasks): a core dropped while a naming call
+/// is still outstanding releases its store at once: a second core opens it
+/// straight away, as a restart does. The tasks hold the core weakly and
+/// upgrade it only to write.
+#[tokio::test]
+async fn a_core_dropped_while_a_naming_call_is_outstanding_releases_its_store_at_once() {
+    use crate::provider::{FakeProvider, Scripted};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("w");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut cfg = crate::Config::example();
+    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    let path = dir.path().join("store");
+    {
+        let store = crate::store::Store::open(&path).unwrap();
+        let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("Noted.")]));
+        let core =
+            crate::Core::build(crate::rpc::Parts::for_tests(cfg.clone(), fake, store)).unwrap();
+        core.runner.pass.set_index(Arc::new(Stuck));
+        crate::tests_route::turn(&core, None, "see lantern.rs and issue 33", None).await;
+    }
+    let at = std::time::Instant::now();
+    let reopened = crate::store::Store::open(&path);
+    assert!(
+        reopened.is_ok(),
+        "the store was still held: {:?}",
+        reopened.err()
+    );
+    assert!(
+        at.elapsed() < std::time::Duration::from_millis(1500),
+        "the store was held for {:?}",
+        at.elapsed()
+    );
+}
