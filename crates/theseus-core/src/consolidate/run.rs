@@ -314,21 +314,14 @@ impl Core {
     /// The profile a cluster is planned to be written with, or the word for why
     /// it is skipped. With the key unset and a pack that asks `model`, none is
     /// named: Jev chooses the model when the cluster is written.
-    fn plan_profile(
-        &self,
-        digest: &str,
-        sources: &[Source],
-        report: &mut SynthesisReport,
-    ) -> Result<String, &'static str> {
+    fn plan_profile(&self, digest: &str, sources: &[Source]) -> Result<String, &'static str> {
         if self.synth_asks_jev() {
             return Ok(String::new());
         }
-        let profile = self.synth_profile(sources).map_err(|(why, words)| {
+        self.synth_profile(sources).map_err(|(why, words)| {
             tracing::debug!(cluster = %digest, why = %words, "consolidation: a cluster waits");
             why
-        })?;
-        self.unrestricted(profile, report)
-            .ok_or("restricted_origin")
+        })
     }
 
     /// Whether an unset `synth_profile` asks Jev: the key is unset (route.v10).
@@ -362,40 +355,8 @@ impl Core {
                 sources: sources.len() as u32,
                 owner_material: true,
             },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         self.runner.job_target(&live, site).await.map(|(t, _)| t)
-    }
-
-    /// Restricted consolidation always falls back (theseus-a1wvq.10): one
-    /// request holds many sessions' text, which no pass can cover. A profile
-    /// of restricted origin becomes the `[model]` default, said in the
-    /// report; none when that is restricted too.
-    pub(crate) fn unrestricted(
-        &self,
-        profile: String,
-        report: &mut SynthesisReport,
-    ) -> Option<String> {
-        let restricted = |p: &str| {
-            self.cfg
-                .profile_origin(p, &self.runner.catalog)
-                .restricted()
-        };
-        if !restricted(&profile) {
-            return Some(profile);
-        }
-        self.runner
-            .judge
-            .record_data_gate("consolidation", "restricted_origin");
-        let said =
-            format!("synth_profile `{profile}` is of restricted origin; written with `default`");
-        let why = report
-            .why
-            .take()
-            .map_or(said.clone(), |w| format!("{w}; {said}"));
-        report.why = Some(why);
-        let default = crate::turn::compaction::DEFAULT_PROFILE;
-        (!restricted(default)).then(|| default.to_string())
     }
 
     /// The run's plan, read and computed off the runtime: the recall rows,
@@ -474,7 +435,7 @@ impl Core {
                 }),
                 ..SynthesisReport::default()
             };
-            let profile = match self.plan_profile(&c.digest, &sources, &mut report) {
+            let profile = match self.plan_profile(&c.digest, &sources) {
                 Ok(p) => p,
                 Err(why) => {
                     skip(&mut r, why);

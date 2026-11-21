@@ -53,8 +53,6 @@ pub struct RouteDecided<'a> {
     pub injection: Option<Value>,
     /// Where the profile runs, and its origin (theseus-a1wvq.11).
     pub ran: Ran<'a>,
-    /// The data rule's part: absent on a checkpoint's row.
-    pub data: Option<RouteData<'a>>,
     /// What route.v10 adds (theseus-h66v4): absent while another pack acts, so
     /// the row is byte for byte what it was.
     pub open: Option<RouteOpen>,
@@ -62,8 +60,7 @@ pub struct RouteDecided<'a> {
 
 /// route.v10's part of a `route.decided` row: the acting pack, what Jev picked
 /// and how sure, the block it picked (the pack's own words), and the words
-/// that qualify the reason (`-P fable`,
-/// `restricted_models=not_allowed`, `deepseek: no key`).
+/// that qualify the reason (`-P fable`, `deepseek: no key`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RouteOpen {
     pub pack: String,
@@ -79,15 +76,6 @@ pub struct Ran<'a> {
     pub provider: Option<&'a str>,
     pub model: Option<&'a str>,
     pub origin: &'a str,
-}
-
-/// The data rule on a turn's route row. `gate` is an open word: why the rule
-/// kept the turn off a restricted-origin profile, written only when it did.
-pub struct RouteData<'a> {
-    /// `allowed`, a flag's word, or `never` (`cn_models`): whether the session may
-    /// use a model of restricted origin, as the turn found its labels.
-    pub cn: &'a str,
-    pub gate: Option<&'a str>,
 }
 
 /// What a task checkpoint's `route.decided` row adds to the turn's own.
@@ -119,12 +107,6 @@ impl Fact for RouteDecided<'_> {
         row["provider"] = json!(self.ran.provider);
         row["model"] = json!(self.ran.model);
         row["origin"] = json!(self.ran.origin);
-        if let Some(d) = &self.data {
-            row["cn"] = json!(d.cn);
-            if let Some(g) = d.gate {
-                row["data_gate"] = json!(g);
-            }
-        }
         if let Some(s) = self.effort_sent {
             row["effort_sent"] = json!(s);
         }
@@ -202,11 +184,7 @@ impl Fact for RouteDecided<'_> {
                 self.profile, self.reason
             ),
         };
-        let gate = match self.data.as_ref().and_then(|d| d.gate) {
-            Some(g) => format!(" Kept off a restricted-origin model: {g}."),
-            None => String::new(),
-        };
-        say.line(Model, format!("{line}{effort}{gate}"));
+        say.line(Model, format!("{line}{effort}"));
     }
 }
 
@@ -335,7 +313,6 @@ mod tests {
                 model: None,
                 origin: "unknown",
             },
-            data: None,
             open: None,
         });
         let lines = narrator.tail();

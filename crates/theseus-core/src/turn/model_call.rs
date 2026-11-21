@@ -3,19 +3,16 @@
 
 use super::*;
 
-/// One attempt at the provider call, with the provider's substitution and the data floor reading
-/// the call as it is made (a scope held while the future is built): the repeat the net may make
-/// is made the same way (`binding::repeat_for`).
+/// One attempt at the provider call, with the provider's substitution reading the call as it is
+/// made (a scope held while the future is built): the repeat the net may make is made the same way
+/// (`binding::repeat_for`).
 fn attempt<'a>(
     provider: &'a dyn Provider,
-    sid: &'a str,
     call: crate::exits::Call,
     req: &'a crate::provider::ProviderRequest,
     on_delta: crate::provider::DeltaSink<'a>,
 ) -> crate::provider::ProviderFuture<'a> {
-    crate::exits::for_call(call, || {
-        crate::data_gate::for_session(sid, || provider.stream_message(req, on_delta))
-    })
+    crate::exits::for_call(call, || provider.stream_message(req, on_delta))
 }
 
 impl TurnRunner {
@@ -210,12 +207,12 @@ impl TurnRunner {
             // made: the repeat the net may make is made the same way (`binding::repeat_for`).
             let request = &compiled.request;
             let mut stream = std::pin::pin!(async {
-                let first = attempt(provider, sid, call.clone(), request, &mut on_delta).await;
+                let first = attempt(provider, call.clone(), request, &mut on_delta).await;
                 let Err(e) = first else { return first };
                 let Some(again) = crate::provider::binding::repeat_for(request, &e) else {
                     return Err(e);
                 };
-                let mut resp = attempt(provider, sid, call.clone(), &again, &mut on_delta).await?;
+                let mut resp = attempt(provider, call.clone(), &again, &mut on_delta).await?;
                 resp.prefix_repeated = true;
                 Ok(resp)
             });

@@ -41,12 +41,10 @@
 //! a provider's off-peak hours are the state's `price_period`, not the clock
 //! read again here.
 //!
-//! **The data rule is read, never loosened.** Where the session's labels keep
-//! restricted-origin models off (`restricted_models = not_allowed`), such a
-//! model is no candidate here either: the state would otherwise name a cheaper
-//! model in one breath and forbid it in the next. The floor that actually
-//! refuses the pick is `routing::model`'s and is untouched; this only keeps the
-//! advice from contradicting it.
+//! **`restricted`** is the state's `restricted_models`. The daemon always says
+//! `allowed` since the restricted-origin rule was deleted (2026-11-21); a
+//! replay case recorded before then may say `not_allowed`, and for it a model
+//! of restricted origin is no candidate, as the case was recorded.
 
 use theseus_judge::builders::{PricePeriod, RestrictedModels, SwitchCost};
 
@@ -135,7 +133,11 @@ pub fn switch_cost(
         .filter(|(_, m)| *m != current)
         .filter_map(|(option, m)| {
             let e = catalog.get(m)?;
-            if e.origin.restricted() && restricted == RestrictedModels::NotAllowed {
+            let restricted_origin = matches!(
+                e.origin,
+                super::ModelOrigin::Cn | super::ModelOrigin::Unknown
+            );
+            if restricted_origin && restricted == RestrictedModels::NotAllowed {
                 return None;
             }
             Some((

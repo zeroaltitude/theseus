@@ -51,8 +51,7 @@ pub const NAME: &str = "session";
 impl TurnRunner {
     /// Whether `session` carries `injection` (`SessionRecord::flagged`), as
     /// the store holds it now: read from the record, never a turn's copy of
-    /// it, which a label raised while that turn ran is not in -- the same
-    /// rule, and for the same reason, as `turn/data_step.rs`'s `cn_read`.
+    /// it, which a label raised while that turn ran is not in.
     ///
     /// It reads no mode. What `[content_based_security] injection` decides
     /// is whether the session's calls that act are refused; that something
@@ -60,10 +59,9 @@ impl TurnRunner {
     /// below must not depend on which mode happens to be configured
     /// (S31-1).
     ///
-    /// **It lives here, beside its one caller, and not beside `cn_read`**,
-    /// which is where it was first written: `turn/data_step.rs` is a
-    /// keel-held file, and a convenience that could sit outside a guarded
-    /// file has no business inside one. The guard said so.
+    /// **It lives here, beside its one caller**: it was first written in
+    /// `turn/data_step.rs`, a keel-held file, and a convenience that could sit
+    /// outside a guarded file has no business inside one. The guard said so.
     pub(crate) fn session_flagged(&self, session: &str) -> bool {
         self.store
             .get_session::<SessionRecord>(session)

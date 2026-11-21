@@ -33,7 +33,6 @@ impl TurnRunner {
             t.tc.place().class,
             t.standing.surface,
             t.target.persona.as_deref(),
-            self.restricted_profile(&t.target.profile),
         );
         if let Some(block) = &t.standing.block {
             block.apply(spec);
@@ -43,12 +42,10 @@ impl TurnRunner {
     /// The block of `session_id`'s scope in a place of `class`, from memory:
     /// what its next turn's system carries (the keep-warm read builds that
     /// spec too, theseus-rr15). A surface's records are never in it.
-    /// `restricted`: the request goes to a model of restricted origin.
     pub(crate) fn standing_block(
         &self,
         session_id: &str,
         class: crate::places::PlaceClass,
-        restricted: bool,
     ) -> Option<Block> {
         // The session's persona, as its next turn speaks as (theseus-a8n7).
         let persona = self
@@ -57,21 +54,18 @@ impl TurnRunner {
             .ok()
             .flatten()
             .and_then(|s| self.persona_of(&s));
-        self.standing_blocks(session_id, class, None, persona.as_deref(), restricted)
+        self.standing_blocks(session_id, class, None, persona.as_deref())
             .0
     }
 
     /// The system's block and the tail's (the records of `surface`) of
-    /// `session_id`'s scope in a place of `class`, from memory. For a
-    /// `restricted` target every record kept from a message of another
-    /// session is listed and not shown.
+    /// `session_id`'s scope in a place of `class`, from memory.
     fn standing_blocks(
         &self,
         session_id: &str,
         class: crate::places::PlaceClass,
         surface: Option<&'static str>,
         persona: Option<&str>,
-        restricted: bool,
     ) -> (Option<Block>, Option<Block>) {
         let all = match self.standing.all(&self.store) {
             Ok(a) => a,
@@ -89,32 +83,9 @@ impl TurnRunner {
             persona,
         };
         let now = theseus_protocol::now_unix_ms();
-        let held = if restricted {
-            let live = crate::standing::live(&all, Some(scope), now);
-            let mut held = std::collections::HashSet::new();
-            // A record kept from a message of another session is that
-            // session's content, and its labels are not this one's
-            // (theseus-9ymz0, the review's B1). A node the store cannot read
-            // counts as another's.
-            held.extend(
-                live.iter()
-                    .filter_map(|r| Some((*r, r.source.strip_prefix("capture:")?)))
-                    .filter(|(_, node)| {
-                        self.store
-                            .get_node(node)
-                            .ok()
-                            .flatten()
-                            .is_none_or(|(_, n)| n.session_id != session_id)
-                    })
-                    .map(|(r, _)| r.id.clone()),
-            );
-            held
-        } else {
-            Default::default()
-        };
         (
-            Block::of_held(&all, scope, class, now, &held),
-            Block::here_held(&all, scope, class, now, &held),
+            Block::of(&all, scope, class, now),
+            Block::here(&all, scope, class, now),
         )
     }
 

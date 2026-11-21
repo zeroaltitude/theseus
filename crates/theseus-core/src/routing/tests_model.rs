@@ -7,7 +7,7 @@ use super::*;
 
 const COLD: u64 = 30_000;
 
-fn catalog_profile(provider: &str, model: &str, restricted: bool) -> Profile {
+fn catalog_profile(provider: &str, model: &str) -> Profile {
     let c = crate::catalog::Catalog::builtin();
     let e = c.get(model).expect("in the catalog");
     Profile {
@@ -16,22 +16,20 @@ fn catalog_profile(provider: &str, model: &str, restricted: bool) -> Profile {
         unusable: None,
         short_cost: Some(short_cost(e)),
         vision: e.vision,
-        restricted,
     }
 }
 
-/// The five option models, each under the name the template gives it, and
-/// Flash restricted (China-origin) as its provider's origin makes it.
+/// The five option models, each under the name the template gives it.
 fn five_options() -> Profiles {
     [
-        ("haiku", "anthropic", "claude-haiku-5-5", false),
-        ("sonnet", "anthropic", "claude-sonnet-5-5", false),
-        ("opus", "anthropic", "claude-opus-5-5", false),
-        ("fable", "anthropic", "claude-fable-5-2", false),
-        ("dsflash", "deepseek", "deepseek-flash", true),
+        ("haiku", "anthropic", "claude-haiku-5-5"),
+        ("sonnet", "anthropic", "claude-sonnet-5-5"),
+        ("opus", "anthropic", "claude-opus-5-5"),
+        ("fable", "anthropic", "claude-fable-5-2"),
+        ("dsflash", "deepseek", "deepseek-flash"),
     ]
     .into_iter()
-    .map(|(n, p, m, r)| (n.to_string(), catalog_profile(p, m, r)))
+    .map(|(n, p, m)| (n.to_string(), catalog_profile(p, m)))
     .collect()
 }
 
@@ -110,7 +108,7 @@ fn an_option_names_a_catalog_model_and_the_profile_that_runs_it() {
     let mut two = five_options();
     two.insert(
         "haiku_high".into(),
-        catalog_profile("anthropic", "claude-haiku-5-5", false),
+        catalog_profile("anthropic", "claude-haiku-5-5"),
     );
     assert_eq!(model::profile_for("haiku", &two), Some("haiku"));
     two.get_mut("haiku").unwrap().unusable = Some("key");
@@ -260,40 +258,6 @@ fn a_sure_parent_answer_stays_on_the_turns_own_model() {
         ("opus", Reason::Verdict, false)
     );
     assert_eq!(got.hold, HoldNext::Clear);
-}
-
-#[test]
-fn the_floor_refuses_a_restricted_pick_whatever_jev_said() {
-    let v = open("deepseek_flash");
-    // The daemon's own marking: the floor made the profile unusable.
-    let mut ps = five_options();
-    ps.get_mut("dsflash").unwrap().unusable = Some("data_gate");
-    let a = Ask {
-        cleared: false,
-        ..ask(&v, "sonnet", 1_000)
-    };
-    let got = decide(&cfg(), &ps, &a);
-    assert_eq!(
-        (got.profile.as_str(), got.reason, got.switch),
-        ("sonnet", Reason::DataGate, false)
-    );
-    // Not marked, but restricted and the ask not cleared: the rule is the
-    // routing's own too, never only the daemon's marking.
-    let got = decide(&cfg(), &five_options(), &a);
-    assert_eq!(
-        (got.profile.as_str(), got.reason),
-        ("sonnet", Reason::DataGate)
-    );
-    // Cleared: it runs.
-    let a = Ask {
-        cleared: true,
-        ..ask(&v, "sonnet", 1_000)
-    };
-    let got = decide(&cfg(), &five_options(), &a);
-    assert_eq!(
-        (got.profile.as_str(), got.reason, got.switch),
-        ("dsflash", Reason::Verdict, true)
-    );
 }
 
 #[test]
@@ -495,7 +459,6 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
                 context_tokens: 1_000,
                 hold: None,
                 images: false,
-                cleared: false,
             },
         );
         assert_eq!(
@@ -518,7 +481,6 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
         context_tokens: COLD + 1,
         hold,
         images: false,
-        cleared: false,
     };
     let first = decide(&cfg(), &ps, &ask(None));
     assert_eq!(

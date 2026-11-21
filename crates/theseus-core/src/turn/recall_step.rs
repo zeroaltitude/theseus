@@ -30,12 +30,12 @@
 //!   effort withholds its own pending node the same way
 //!   (`TurnRunner::small_talk_bar`, read here through `carries`), so the
 //!   notes a greeting drew are not in front of the model to be narrated back.
-//!   It is a different gate from the restricted-origin one and never stands in
-//!   for it: `recall_carries` is the profile's rule and strips every `Recall`
-//!   node from the render, while the bar holds back this turn's pending node
-//!   alone and leaves the notes earlier turns already carried where they are,
-//!   so no cached prefix byte moves. The `recall.withheld` row says which
-//!   gate it was in its `why` (`RESTRICTED`, `SMALL_TALK`).
+//!   The bar holds back this turn's pending node alone and leaves the notes
+//!   earlier turns already carried where they are, so no cached prefix byte
+//!   moves. The `recall.withheld` row says so in its `why` (`SMALL_TALK`).
+//!   (A request bound for a model of restricted origin carried no note at
+//!   all, `why` `restricted_origin`, until that rule was deleted on
+//!   2026-11-21: old rows still say it.)
 //!   The withholding writes a `recall.withheld` row (`recall_dropped`,
 //!   scoped with the recall's other rows) carrying the `recall_id` of the
 //!   `recall.ran` row that admitted the notes and how many it admitted, so a
@@ -91,7 +91,7 @@ pub(crate) struct Recalled {
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
     /// Why the last compile withheld the pending node from its request
-    /// ([`RESTRICTED`] or [`SMALL_TALK`], theseus-fpm2): nothing of it rides
+    /// ([`SMALL_TALK`], theseus-fpm2): nothing of it rides
     /// the plan frame. `None` until a compile says otherwise, so a path that
     /// compiles nothing behaves as it did.
     pub withheld: Option<&'static str>,
@@ -110,10 +110,6 @@ impl Recalled {
 /// The position a pending `Recall` node renders at: after every node, as
 /// the plan frame will write it.
 const PENDING: u64 = u64::MAX;
-
-/// A `recall.withheld` row's `why`: the request was bound for a model of
-/// restricted origin (theseus-9ymz0), so it carried no note at all.
-pub(super) const RESTRICTED: &str = "restricted_origin";
 
 /// A `recall.withheld` row's `why`: the small-talk bar fired (theseus-fpm2),
 /// so this turn's own notes were held back.
@@ -485,7 +481,7 @@ impl TurnRunner {
     /// model or in shadow as the session's arm says. Its node's id, when
     /// it admitted something in front of the model.
     pub(super) async fn recall_assembled(&self, t: &mut Turn<'_>) -> Option<String> {
-        if !self.memory.on() || self.restricted_profile(&t.target.profile) {
+        if !self.memory.on() {
             return None;
         }
         t.recall.assembled = true;
@@ -657,29 +653,11 @@ impl TurnRunner {
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
-    /// Whether a request bound for `profile` carries the turn's pending
-    /// `Recall` node. A model of restricted origin gets none (theseus-9ymz0),
-    /// and this is the one place that rule is read: the compile asks it for
-    /// the view it renders, and the turn asks it again, through
-    /// [`Recalled::withheld`], for what rides the plan frame (theseus-fpm2).
-    pub(super) fn recall_carries(&self, profile: &str) -> bool {
-        !self.restricted_profile(profile)
-    }
-
-    /// Why a request bound for `profile` on this turn does not carry the
-    /// turn's pending `Recall` node, when it does not: [`RESTRICTED`] for a
-    /// model of restricted origin (the rule above), else [`SMALL_TALK`] when
-    /// the small-talk bar fires (`TurnRunner::small_talk_bar`, theseus-fpm2).
-    /// `None` when it carries it.
-    ///
-    /// The two gates are separate and are checked in this order, so a
-    /// restricted turn that is also small talk reads as the stricter one: the
-    /// profile's rule strips every `Recall` node from what is rendered, and
-    /// the bar holds back this turn's pending node alone.
-    fn carries(&self, t: &Turn<'_>, profile: &str) -> Option<&'static str> {
-        if !self.recall_carries(profile) {
-            return Some(RESTRICTED);
-        }
+    /// Why a request on this turn does not carry the turn's pending `Recall`
+    /// node, when it does not: [`SMALL_TALK`] when the small-talk bar fires
+    /// (`TurnRunner::small_talk_bar`, theseus-fpm2). `None` when it carries
+    /// it.
+    fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
         self.small_talk_bar(t).then_some(SMALL_TALK)
     }
 
@@ -730,40 +708,24 @@ impl TurnRunner {
     /// whether this request carries the pending node (theseus-fpm2). A later
     /// compile of the same loop, which a route's switch makes, overwrites it,
     /// so the call reads the compile it used. A compaction's nested compile
-    /// renders the same profile's view and leaves the record alone.
+    /// renders the same view and leaves the record alone.
     pub(super) fn recall_carried(
         &self,
         t: &mut Turn<'_>,
         nodes: Transcript,
-        profile: &str,
     ) -> (Transcript, Sources) {
-        t.recall.withheld = self.carries(t, profile);
-        self.recall_view(t, nodes, profile)
+        t.recall.withheld = self.carries(t);
+        self.recall_view(t, nodes)
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node
-    /// after every node, and the sources its recalls render. A request bound
-    /// for a model of restricted origin (`profile`) carries no `Recall` node
-    /// at all: a note is drawn from other sessions, whose labels are not this
-    /// one's, so what it holds is not this session's to send there
-    /// (theseus-9ymz0, the review's B1). The notes stay in the transcript for
-    /// the next request that may carry them.
+    /// after every node, and the sources its recalls render.
     ///
     /// With the small-talk bar firing ([`Self::small_talk_bar`], theseus-fpm2)
-    /// the turn's own pending node is left out and nothing else is: see
-    /// [`Self::carries`] for why the two gates differ there.
-    pub(super) fn recall_view(
-        &self,
-        t: &Turn<'_>,
-        nodes: Transcript,
-        profile: &str,
-    ) -> (Transcript, Sources) {
+    /// the turn's own pending node is left out and nothing else is.
+    pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
         let mut nodes = nodes;
-        let withheld = self.carries(t, profile);
-        if withheld == Some(RESTRICTED) {
-            nodes.retain(|(_, n)| n.kind != crate::stub::Kind::Recall);
-            return (nodes, Sources::new());
-        }
+        let withheld = self.carries(t);
         // The small-talk bar holds back this turn's own pending node and
         // nothing else (theseus-fpm2): a note an earlier turn carried is
         // already in the transcript and in the compilation that cached it, so

@@ -51,8 +51,6 @@ mod tests_tools;
 #[cfg(test)]
 mod tests_voice;
 #[cfg(test)]
-mod tests_warm;
-#[cfg(test)]
 mod tests_wire;
 
 use std::sync::Arc;
@@ -280,17 +278,6 @@ impl Telemetry {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .route_wait(wait, late);
-    }
-
-    /// A turn or call the data rule kept off a restricted-origin model, as
-    /// `theseus.route.data_gate` (theseus-a1wvq.11): `what` is the caller
-    /// (`route`, `compaction`, ...), `why` a flag word (`confidential`), `never` or another open one.
-    pub fn record_data_gate(&self, what: &str, why: &str) {
-        let Some(s) = self.shared() else { return };
-        s.metrics
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .data_gate(what, why);
     }
 
     /// An ordered request's wait in its connection's lane, from its line's

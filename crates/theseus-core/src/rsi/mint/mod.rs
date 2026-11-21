@@ -11,11 +11,10 @@
 //! - [`validate`]: the open replays (fixtures, a dry replay with no model, a
 //!   model A/B replay) and [`validate::ValidateReport`].
 //!
-//! **The data rule** (contract 10): a motif drawn from private ledger
-//! sessions is written and checked only on a model whose origin is not
-//! restricted, failing closed: the mint session refuses a China-origin (or
-//! unknown-origin) profile, decided by the profile's origin and never its
-//! name ([`data_rule`]). A motif born in the bench alone may use any model.
+//! **No data rule by origin** (contract 10 had one): a motif drawn from
+//! private ledger sessions was written and checked only on a model of US
+//! origin, until the owner deleted every rule about a model's origin
+//! (2026-11-21). [`private`] still tells a private motif from a bench-born one.
 //!
 //! - [`deploy`] and [`retire`] (theseus-pw1q.21.8): a pass goes live (a flow
 //!   loaded, an extension self-loaded, a Rust mint through self-pr) and the
@@ -25,8 +24,6 @@
 //! **Off by default.** `[self.mint] mine = false` starts nothing; the start
 //! asks `rsi::gate` first, and so does every deploy and retire.
 
-use crate::catalog::Catalog;
-use crate::config::Config;
 use crate::rsi::mine::Motif;
 
 pub mod brief;
@@ -51,28 +48,4 @@ pub use validate::ValidateReport;
 /// A private motif is one drawn from the ledger's sessions.
 pub fn private(m: &Motif) -> bool {
     !m.bench_born
-}
-
-/// The data rule: `Err(why)` when `profile`'s model may not write or check a
-/// motif, by the profile's **origin** (`Config::profile_origin`). A bench-born
-/// motif may use any model; a private one only a model of US origin
-/// (`ModelOrigin::cleared_for_sensitive`, theseus-xs5ah), and a profile that
-/// does not resolve is unknown, so refused.
-pub fn data_rule(
-    cfg: &Config,
-    catalog: &Catalog,
-    profile: &str,
-    private: bool,
-) -> Result<(), String> {
-    if !private {
-        return Ok(());
-    }
-    let origin = cfg.profile_origin(profile, catalog);
-    if !cfg.profile_cleared_for_sensitive(profile, catalog) {
-        return Err(format!(
-            "the motif is drawn from private sessions and profile {profile:?} is of {origin:?} \
-             origin: a private motif is written only on a model the catalog lists as of US origin"
-        ));
-    }
-    Ok(())
 }

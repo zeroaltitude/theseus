@@ -1,6 +1,6 @@
-//! Kimi (Moonshot AI) as China-origin rows (theseus-rgbtz): the hosts and the
-//! names that read `cn`, the two rows' figures, what a Kimi-shaped usage
-//! costs, and that no path forces a tool on a Kimi model.
+//! Kimi (Moonshot AI) as China-origin rows (theseus-rgbtz): the rows' own
+//! `cn`, the two rows' figures, what a Kimi-shaped usage costs, and that no
+//! path forces a tool on a Kimi model.
 
 use super::*;
 use serde_json::json;
@@ -8,49 +8,30 @@ use theseus_protocol::Usage;
 
 const KIMI: [&str; 2] = ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"];
 
-/// Every Moonshot host, a subdomain of it, and a Kimi name on any host read
-/// `cn`, whatever the provider vouches; a look-alike host is not one.
+/// A Kimi row reads `cn` wherever it is served, as its row says; a Claude id
+/// on Moonshot's host is not guessed at (2026-11-21): unknown, unless the
+/// provider says.
 #[test]
-fn moonshot_hosts_and_kimi_names_are_cn_whatever_is_vouched() {
+fn a_kimi_row_is_cn_wherever_it_is_served() {
     use ModelOrigin::*;
     let c = Catalog::builtin();
     let of = |base: &str, vouched: Option<ModelOrigin>, model: &str| {
-        origin_of(base, vouched, model, c.get(model))
+        origin_of(base, vouched, c.get(model))
     };
-    let sonnet = "claude-sonnet-5-5";
-    for host in ["moonshot.ai", "moonshot.cn", "kimi.ai", "kimi.com"] {
-        for base in [
-            format!("https://{host}/anthropic"),
-            format!("https://api.{host}/anthropic"),
-        ] {
-            assert!(is_cn_endpoint(&base), "{base}");
-            assert_eq!(of(&base, None, sonnet), Cn, "{base}");
-            assert_eq!(of(&base, Some(Us), sonnet), Cn, "{base}");
-            for m in KIMI {
-                assert_eq!(of(&base, Some(Us), m), Cn, "{base} {m}");
-            }
-        }
-    }
-    assert_eq!(of("https://api.moonshot.ai/anthropic", None, KIMI[0]), Cn);
-    assert_eq!(of("https://u:p@API.MOONSHOT.AI.:443/x", None, sonnet), Cn);
-    // The name, on any host (a proxy, an aggregator, self-hosted weights).
-    for m in [
-        KIMI[0],
-        KIMI[1],
-        "moonshotai/Kimi-K3.1-Pro",
-        "acme/kimi-k4",
-        "moonshot-v9",
-    ] {
+    for m in KIMI {
+        assert_eq!(of("https://api.moonshot.ai/anthropic", None, m), Cn, "{m}");
         assert_eq!(of("https://proxy.example.com", Some(Us), m), Cn, "{m}");
         assert_eq!(of("http://localhost:9", None, m), Cn, "{m}");
     }
-    // A look-alike is not a subdomain.
-    assert_eq!(of("https://notmoonshot.ai", None, sonnet), Unknown);
+    let sonnet = "claude-sonnet-5-5";
     assert_eq!(
-        of("https://moonshot.ai.evil.example", None, sonnet),
+        of("https://api.moonshot.ai/anthropic", None, sonnet),
         Unknown
     );
-    assert_eq!(of("https://kimi.com.evil.example", None, sonnet), Unknown);
+    assert_eq!(
+        of("https://api.moonshot.ai/anthropic", Some(Cn), sonnet),
+        Cn
+    );
 }
 
 /// The rows, as the vendor's pages and the live probe say (2026-10-24), and
@@ -85,7 +66,6 @@ fn kimi_rows_are_priced_and_shaped_as_the_vendor_says() {
             "{id}"
         );
         assert_eq!(e.origin, ModelOrigin::Cn, "{id}");
-        assert!(e.origin.restricted() && !e.origin.cleared_for_sensitive());
         assert_eq!(e.bytes_per_token, TokenRates::CLAUDE, "{id}");
         assert!(e.source.contains("Moonshot"), "{id}");
     }

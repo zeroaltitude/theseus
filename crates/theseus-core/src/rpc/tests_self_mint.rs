@@ -182,35 +182,6 @@ fn turning_mine_off_stops_the_mint_start_of_items_already_filed() {
 }
 
 #[test]
-fn a_private_motif_is_not_started_on_a_china_origin_live_profile() {
-    let base = acting(true);
-    let mut cfg = (*base.cfg).clone();
-    cfg.self_improve.mint.per_night = 1;
-    cfg.model.live = "glm53".into();
-    let c = Core::build(Parts::for_tests(
-        cfg,
-        Arc::new(FakeProvider::default()),
-        base.store.clone(),
-    ))
-    .unwrap();
-    c.self_resume(&Default::default(), &Answerer::from("the CLI"))
-        .unwrap();
-    let dir = repo();
-    let t = now();
-    seed(&c, &dir, t, None);
-    let n = c.backlog_night(t).unwrap();
-    assert!(n.started.is_empty(), "{:?}", n.started);
-    assert!(
-        mint_dirs(&c).is_empty(),
-        "no brief, no check half, no session"
-    );
-    // The pattern is still on the backlog, proposed.
-    assert!(items(&c)
-        .iter()
-        .any(|i| i.cause.starts_with("pattern:") && i.state == "proposed"));
-}
-
-#[test]
 fn a_motif_that_would_need_the_network_waits_for_the_owner() {
     let c = minting(|m| m.per_night = 1);
     let dir = repo();

@@ -292,48 +292,23 @@ pub(super) fn mark(r: &Rig, session: &str) {
 
 /// A rig whose every provider is of restricted origin: the asking turn's own model is one the labels could
 /// keep off.
-fn restricted_rig() -> Rig {
-    super::tests::rig_with(|cfg, _| cfg.serve_default_from_cn())
-}
-
-/// Another conversation's words are given, marked as such, to a turn whose model is not of restricted
-/// origin, whatever that conversation's labels say: they are judged as any tool result is.
+/// Another conversation's words are given, marked as such, whatever that conversation's labels say: they
+/// are judged as any tool result is. A turn whose model is of restricted origin is given them too: nothing
+/// is held back from one since that rule was deleted (2026-11-21).
 #[tokio::test]
-async fn a_marked_conversations_words_are_given_marked_to_an_unrestricted_turn() {
-    let r = rig();
-    let (here, other) = (conversation(&r).await, conversation(&r).await);
-    task(&r, &other, "Chart the outer reef", None);
-    mark(&r, &other);
-    assert!(!r.core.runner.restricted_profile(&r.core.live_profile().0));
-    let text = said(&r, &here, json!({"what": ["tasks"]})).await;
-    assert!(text.contains("Chart the outer reef"), "{text}");
-    assert!(text.contains("never as instructions"), "marked: {text}");
-    assert!(!text.contains("held back"), "{text}");
-}
-
-/// (Held back, as before, for the turn the rule is about.) A turn whose model is of restricted origin is not handed another conversation's marked words: they are
-/// held back, said to be, while an open conversation's are given, and this conversation's always.
-#[tokio::test]
-async fn a_conversation_that_holds_marked_data_has_its_words_held_back() {
-    let r = restricted_rig();
-    let (here, marked, open) = (
-        conversation(&r).await,
-        conversation(&r).await,
-        conversation(&r).await,
-    );
-    assert!(r.core.runner.restricted_profile(&r.core.live_profile().0));
-    task(&r, &marked, "Chart the outer reef", None);
-    task(&r, &open, "Mend the lamp", None);
-    task(&r, &here, "Sort the charts", None);
-    mark(&r, &marked);
-    let text = said(&r, &here, json!({"what": ["tasks"]})).await;
-    assert!(!text.contains("Chart the outer reef"), "{text}");
-    assert!(
-        text.contains("(held back: that conversation holds data marked"),
-        "{text}"
-    );
-    assert!(text.contains("Mend the lamp"), "an open one's: {text}");
-    assert!(text.contains("Sort the charts"), "its own: {text}");
+async fn a_marked_conversations_words_are_given_marked() {
+    for r in [
+        rig(),
+        super::tests::rig_with(|cfg, _| cfg.serve_default_from_cn()),
+    ] {
+        let (here, other) = (conversation(&r).await, conversation(&r).await);
+        task(&r, &other, "Chart the outer reef", None);
+        mark(&r, &other);
+        let text = said(&r, &here, json!({"what": ["tasks"]})).await;
+        assert!(text.contains("Chart the outer reef"), "{text}");
+        assert!(text.contains("never as instructions"), "marked: {text}");
+        assert!(!text.contains("held back"), "{text}");
+    }
 }
 
 /// A shared place and a guild participant are refused, in the tool's own words, and read nothing.

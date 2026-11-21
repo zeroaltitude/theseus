@@ -28,7 +28,6 @@ pub use index::IndexConfig;
 pub mod card;
 mod cockpit;
 pub mod content_based_security;
-mod data_floor;
 pub(crate) mod import;
 mod judge;
 mod limits;
@@ -201,8 +200,8 @@ pub struct Config {
     /// `[privacy]`: the one list of sensitive names (theseus-oejh3), `config/privacy.rs`.
     #[serde(default, skip_serializing_if = "privacy::PrivacyConfig::is_default")]
     pub privacy: privacy::PrivacyConfig,
-    /// `[content_based_security]`: what a content flag does, and the switch for models of restricted origin
-    /// (theseus-9ymz0, theseus-gyjyo.2), `config/content_based_security.rs`.
+    /// `[content_based_security]`: what a content flag does (theseus-9ymz0, theseus-gyjyo.2),
+    /// `config/content_based_security.rs`.
     #[serde(
         default,
         skip_serializing_if = "content_based_security::ContentBasedSecurityConfig::is_default"
@@ -1221,9 +1220,8 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub timeouts: Option<crate::provider::Timeouts>,
     /// The operator's word for where this host's models come from, for a
-    /// host Theseus does not know (a company proxy to Anthropic). Without
-    /// it an unknown host is `unknown`, which is restricted; on a China-origin
-    /// host only `cn` is accepted.
+    /// host Theseus does not know (a company proxy to Anthropic): what the
+    /// model menu shows. Without it an unknown host is `unknown`.
     #[serde(default)]
     pub origin: Option<crate::catalog::ModelOrigin>,
 }
@@ -1650,6 +1648,20 @@ impl Config {
                     .into(),
             );
         }
+        // The restricted-origin rule (the owner, 2026-11-21): its two keys are
+        // read and ignored, so a config written before still loads.
+        let cn = cfg.content_based_security.retired();
+        if !cn.is_empty() {
+            warnings.push(format!(
+                "{} retired (no model is kept off a session for its origin any more): read and \
+                 ignored, remove {}",
+                cn.join(", "),
+                match cn.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
         if cfg.policy.earned.is_some() {
             warnings.push(
                 "[policy.earned] is retired: earned autonomy and its weekly card are gone, so the \
@@ -1684,16 +1696,6 @@ impl Config {
                 anyhow::bail!(
                     "providers.{name}.api_key_secret = {:?} has no matching entry under [secrets]",
                     p.api_key_secret
-                );
-            }
-            if p.origin
-                .is_some_and(|o| o != crate::catalog::ModelOrigin::Cn)
-                && crate::catalog::is_cn_endpoint(&p.api_base)
-            {
-                anyhow::bail!(
-                    "providers.{name}.origin: {} is a China-origin endpoint, so its origin can only be \
-                     \"cn\"",
-                    p.api_base
                 );
             }
         }
@@ -1809,8 +1811,6 @@ impl Config {
         self.people.validate()?;
         self.card.validate()?;
         self.ontology.validate()?;
-        self.validate_data_floor()?;
-        self.content_based_security.validate()?;
         self.privacy.validate()?;
         self.import.validate()?;
         self.validate_voice()?;
@@ -1981,17 +1981,6 @@ impl Config {
                     );
                 }
             }
-            if row
-                .origin
-                .is_some_and(|o| o != crate::catalog::ModelOrigin::Cn)
-                && builtin
-                    .get(id)
-                    .is_some_and(|b| b.origin == crate::catalog::ModelOrigin::Cn)
-            {
-                anyhow::bail!(
-                    "catalog.\"{id}\".origin: a China-origin model's origin is not configurable"
-                );
-            }
             if let Err(missing) = row.over(builtin.get(id)) {
                 anyhow::bail!(
                     "catalog.\"{id}\" is not a built-in model, so its table needs {}",
@@ -2096,16 +2085,6 @@ impl Config {
     pub(crate) fn serve_default_from_cn(&mut self) {
         let p = self.resolved.providers.get_mut("anthropic");
         p.expect("the implicit provider").api_base = "https://api.z.ai/api/anthropic".into();
-    }
-
-    /// A test's `[model]` served from a host the operator vouches is of EU
-    /// origin (theseus-xs5ah).
-    #[cfg(test)]
-    pub(crate) fn serve_default_from_eu(&mut self) {
-        let p = self.resolved.providers.get_mut("anthropic");
-        let p = p.expect("the implicit provider");
-        p.api_base = "https://api.example.eu/anthropic".into();
-        p.origin = Some(crate::catalog::ModelOrigin::Eu);
     }
 
     /// A test whose GLM profiles were only a second, cheaper model
@@ -2258,9 +2237,10 @@ impl Config {
         system.chain(own).collect()
     }
 
-    /// A profile's model origin (theseus-a1wvq): its provider's endpoint, its
-    /// model and the catalog's row for it, by [`crate::catalog::origin_of`].
-    /// A profile or provider that does not resolve is `unknown`.
+    /// A profile's model origin as the owner is shown it (theseus-a1wvq): its
+    /// provider's endpoint and word and the catalog's row for its model, by
+    /// [`crate::catalog::origin_of`]. A profile or provider that does not
+    /// resolve is `unknown`.
     pub fn profile_origin(
         &self,
         profile: &str,
@@ -2272,29 +2252,7 @@ impl Config {
         let Some(prov) = self.all_providers().get(&p.provider) else {
             return crate::catalog::ModelOrigin::Unknown;
         };
-        crate::catalog::origin_of(&prov.api_base, prov.origin, &p.model, catalog.get(&p.model))
-    }
-
-    /// Whether a profile may be sent private data (theseus-xs5ah), by
-    /// [`crate::catalog::cleared_for_sensitive`]; a profile or provider that
-    /// does not resolve is not.
-    pub fn profile_cleared_for_sensitive(
-        &self,
-        profile: &str,
-        catalog: &crate::catalog::Catalog,
-    ) -> bool {
-        let Some(p) = self.all_profiles().get(profile) else {
-            return false;
-        };
-        let Some(prov) = self.all_providers().get(&p.provider) else {
-            return false;
-        };
-        crate::catalog::cleared_for_sensitive(
-            &prov.api_base,
-            prov.origin,
-            &p.model,
-            catalog.get(&p.model),
-        )
+        crate::catalog::origin_of(&prov.api_base, prov.origin, catalog.get(&p.model))
     }
 
     /// Every provider by name, with the implicit `anthropic` one synthesized

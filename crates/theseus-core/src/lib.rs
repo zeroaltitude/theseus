@@ -44,7 +44,6 @@ pub mod context_parts;
 pub mod correction;
 pub mod cpu;
 pub mod crash;
-pub mod data_gate;
 pub mod day_ceiling;
 pub mod disk;
 pub mod egress;
@@ -277,8 +276,6 @@ mod tests_audit;
 #[cfg(test)]
 mod tests_backfill;
 #[cfg(test)]
-mod tests_bg_gate;
-#[cfg(test)]
 mod tests_binding;
 #[cfg(test)]
 mod tests_binding_routed;
@@ -323,15 +320,7 @@ mod tests_config;
 #[cfg(test)]
 mod tests_consolidate;
 #[cfg(test)]
-mod tests_content_cut;
-#[cfg(test)]
-mod tests_content_floor;
-#[cfg(test)]
-mod tests_content_floor_wait;
-#[cfg(test)]
 mod tests_content_freeze;
-#[cfg(test)]
-mod tests_content_gate;
 #[cfg(test)]
 mod tests_content_kind;
 #[cfg(test)]
@@ -349,10 +338,6 @@ mod tests_continue;
 #[cfg(test)]
 mod tests_continue_slow;
 #[cfg(test)]
-mod tests_data_gate;
-#[cfg(test)]
-mod tests_data_open;
-#[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
 mod tests_day_notify;
@@ -366,8 +351,6 @@ mod tests_detour;
 mod tests_disk_watch;
 #[cfg(test)]
 mod tests_dispatch;
-#[cfg(test)]
-mod tests_dm_rig;
 #[cfg(test)]
 mod tests_effort_beta;
 #[cfg(test)]
@@ -485,6 +468,8 @@ mod tests_memory_lookup;
 #[cfg(test)]
 mod tests_money;
 #[cfg(test)]
+mod tests_names_label;
+#[cfg(test)]
 mod tests_never;
 #[cfg(test)]
 mod tests_notices;
@@ -552,8 +537,6 @@ mod tests_personas;
 mod tests_places;
 #[cfg(test)]
 mod tests_priced_off_peak;
-#[cfg(test)]
-mod tests_private_authored;
 #[cfg(test)]
 mod tests_private_view;
 #[cfg(test)]

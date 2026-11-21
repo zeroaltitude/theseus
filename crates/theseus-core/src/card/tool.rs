@@ -30,13 +30,6 @@
 //!   kept out of a task by a guard of its own (`turn/compile_step.rs`), and
 //!   the writer by another (`card/observe.rs`). This is that guard, for the
 //!   read.
-//! - **Never to a model of restricted origin.** The same rule the day's
-//!   block keeps (`card/noted.rs`, the turn's `restricted_profile`): these
-//!   are the owner's personal words, unconfirmed and uncurated. The data
-//!   gate cannot stand in for it — it routes a *labelled* session off such a
-//!   model, and these notes raise no label, being never nodes and never
-//!   indexed, so the protection they would need is the one thing they never
-//!   create.
 //! - **His words, not a portrait.** The answer is the kept notes verbatim,
 //!   each with the day it was kept and the conversation it was said in, and
 //!   says plainly that they are unconfirmed and on no card yet. Nothing is
@@ -81,12 +74,6 @@ pub const NOT_ALONE: &str =
 pub const NOT_THIS_SESSION: &str =
     "card.observed reads what the owner said in their own conversation: this is a task's \
      session, so nothing of the card is read here";
-
-/// Why a model of restricted origin gets nothing, as the day's block gives
-/// one nothing either (`card/noted.rs`).
-pub const NOT_THIS_MODEL: &str =
-    "card.observed reads the owner's own unconfirmed words about themselves, which no model \
-     of restricted origin is given: this turn runs on one, so nothing of the card is read here";
 
 /// What the answer says the notes are, before the lines.
 const HEAD: &str = "Kept about the owner since the exchange it was said in, from the owner's own \
@@ -183,17 +170,13 @@ impl Tool for CardObserved {
 }
 
 /// What the turn asking is, as the wall around the notes reads it: where its
-/// words go and which profile it runs on. [`Board::run`] takes both from the
-/// turn's `TurnCtx`; a test builds them, so both reach the same [`refusal`].
+/// words go. [`Board::run`] takes it from the turn's `TurnCtx`; a test builds
+/// it, so both reach the same [`refusal`].
 /// Whether the session is a task's is not here: [`is_task`] reads that from
 /// the session's own record, so no caller can get it wrong.
 #[derive(Clone)]
 pub(crate) struct Asking {
     pub class: crate::places::PlaceClass,
-    /// The profile the turn runs on (`TurnCtx::target`). `None` is a turn
-    /// whose model cannot be named, which is refused as a restricted one is:
-    /// `restricted_profile` already counts a profile that does not resolve.
-    pub profile: Option<String>,
 }
 
 /// Whether `session` is a task's, read from its own record as
@@ -218,13 +201,6 @@ fn refusal(core: &Core, who: &Asking, session: &str) -> Option<&'static str> {
     }
     if is_task(core, session) {
         return Some(NOT_THIS_SESSION);
-    }
-    if who
-        .profile
-        .as_deref()
-        .is_none_or(|p| core.runner.restricted_profile(p))
-    {
-        return Some(NOT_THIS_MODEL);
     }
     if !core.owner_alone_in(session) {
         return Some(NOT_ALONE);
@@ -253,10 +229,7 @@ impl Board {
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
             return fail("card.observed is not ready: the core is not built");
         };
-        let who = Asking {
-            class: tc.class,
-            profile: tc.target.map(|t| t.profile.clone()),
-        };
+        let who = Asking { class: tc.class };
         let a = match Args::parse(input) {
             Ok(a) => a,
             Err(e) => return fail(&e),
@@ -284,13 +257,12 @@ pub(crate) fn call(
     observed(core, who, session.to_string(), Args::parse(&input)?)
 }
 
-/// [`Asking`] for an ordinary turn of the owner's own, on `profile`: what a
-/// test varies one clause of.
+/// [`Asking`] for an ordinary turn of the owner's own: what a test varies one
+/// clause of.
 #[cfg(test)]
-pub(crate) fn owners_turn(profile: &str) -> Asking {
+pub(crate) fn owners_turn() -> Asking {
     Asking {
         class: crate::places::PlaceClass::Private,
-        profile: Some(profile.to_string()),
     }
 }
 

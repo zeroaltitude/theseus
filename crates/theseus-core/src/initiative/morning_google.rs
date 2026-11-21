@@ -12,10 +12,8 @@
 //!   unreachable` or `mail unreachable`; it never blocks the note.
 //! - **The reads are the note's own task's**, never the tick's: `morning_note`
 //!   runs on the runtime after the day is claimed.
-//! - **The brief is private text.** The note's model call is made for no
-//!   session, which the provider floor refuses to a model of restricted origin,
-//!   and the note then goes out as its template (`initiative_speak` never
-//!   retries on another profile).
+//! - **The brief is private text.** A note's row holds none of a sensitive
+//!   calendar's words (`initiative_speak` never retries on another profile).
 
 use std::sync::Arc;
 

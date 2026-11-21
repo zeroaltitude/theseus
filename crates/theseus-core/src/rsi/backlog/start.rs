@@ -276,12 +276,6 @@ impl Core {
                 Choice::NotAllowed(_) => {}
                 Choice::OwnerCard { why } => Self::mint_owner_card(w, &id, why),
                 Choice::Mint(kind) => {
-                    // The data rule: a private motif is written only on a model
-                    // of US origin, failing closed (theseus-xs5ah).
-                    if let Err(why) = self.mint_profile_ok(motif) {
-                        tracing::warn!(item = %id, %why, "self mint: not started");
-                        continue;
-                    }
                     match self.mint_open(w, (&id, rank), motif, kind) {
                         Ok(Some(s)) => {
                             night.started.push(s);

@@ -85,16 +85,17 @@ fn model_of(r: &Rig, profile: &str) -> String {
     r.core.cfg.profile(profile).unwrap().model.clone()
 }
 
+/// A label keeps no profile off a session since the restricted-origin rule
+/// went (2026-11-21): a China-origin profile is held on a labelled session.
 #[tokio::test]
-async fn a_cn_profile_on_a_private_session_is_refused_with_nothing_written() {
+async fn a_cn_profile_on_a_labelled_session_is_set() {
     let r = rig(None, 1, google_on(false));
     let sid = session(&r.core);
     mark(&r.core, &sid);
     let got = hold(&r.core, &sid, Some("glm"));
-    let why = got.refused.expect("refused");
-    assert!(why.contains("restricted origin"), "{why}");
-    assert_eq!((got.profile, got.previous), (None, None));
-    untouched(&r, &sid);
+    assert_eq!(got.refused, None);
+    assert_eq!(got.profile.as_deref(), Some("glm"));
+    assert_eq!(got.note, None, "nothing to caveat");
 }
 
 #[tokio::test]
@@ -114,7 +115,7 @@ async fn an_eu_profile_on_a_labelled_session_is_set_as_a_us_one_is() {
 }
 
 #[tokio::test]
-async fn a_cn_profile_on_an_open_session_is_set_and_the_floor_decides_per_turn() {
+async fn a_cn_profile_on_an_open_session_is_set_with_no_caveat() {
     let r = rig(None, 1, google_on(false));
     let sid = session(&r.core);
     assert_eq!(
@@ -124,8 +125,7 @@ async fn a_cn_profile_on_an_open_session_is_set_and_the_floor_decides_per_turn()
     let got = hold(&r.core, &sid, Some("glm"));
     assert_eq!(got.refused, None);
     assert_eq!(got.profile.as_deref(), Some("glm"));
-    let note = got.note.expect("the answer says so");
-    assert!(note.contains("the floor decides each turn"), "{note}");
+    assert_eq!(got.note, None, "no floor decides each turn any more");
 }
 
 #[tokio::test]
@@ -278,23 +278,6 @@ async fn raw(
     drop(lines);
     let _ = srv.await;
     r
-}
-
-/// A mark taken after the hold, with no judge: the turn's base is the held
-/// profile, the provider's floor refuses it before a byte is sent.
-#[tokio::test]
-async fn a_mark_taken_after_the_hold_still_cannot_reach_the_model() {
-    let r = rig(None, 2, google_on(false));
-    let sid = session(&r.core);
-    hold(&r.core, &sid, Some("glm53"));
-    mark(&r.core, &sid);
-    let res = raw(
-        &r.core,
-        "turn.submit",
-        json!({"session_id": sid, "input": "go on"}),
-    )
-    .await;
-    assert!(r.zai.requests().is_empty(), "nothing went to it: {res:?}");
 }
 
 /// The same with the route on: the floor moves the refused base as it moves

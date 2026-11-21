@@ -1077,10 +1077,10 @@ async fn an_unset_reviewer_profile_asks_jev_and_reviews_on_its_pick() {
     assert_eq!(v["model"], "claude-opus-5-5", "{v}");
     let asks = reviewer_asks(&jev);
     assert_eq!(asks.len(), 1, "one ask");
-    // The state names the builder's model, and the change as the owner's
-    // material: US options only.
+    // The state names the builder's model; no option is kept off by origin
+    // (2026-11-21).
     assert!(asks[0].contains("claude-sonnet-5-5"), "{}", asks[0]);
-    assert!(asks[0].contains("not_allowed"), "{}", asks[0]);
+    assert!(asks[0].contains("\"allowed\""), "{}", asks[0]);
     assert!(asks[0].contains("job"), "{}", asks[0]);
 }
 
@@ -1184,20 +1184,6 @@ async fn a_slow_jev_and_a_live_profile_that_built_the_branch_is_refused_not_hung
     assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
     assert_eq!(reviewer_asks(&jev).len(), 1, "Jev was asked");
     jev.release();
-}
-
-/// The change is the owner's material: a pick of Flash is refused by the data
-/// rule, and the review runs on the live profile.
-#[tokio::test]
-async fn the_reviewer_is_never_a_china_origin_model() {
-    let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    crate::tests_job_ask::pick(&jev, "deepseek_flash", 0.97);
-    let r = rig_jev(&jev, None);
-    r.seed("trim-the-sails", PROVED, "claude-fable-5-2");
-    r.core.self_join_pass(&r.seams()).await.unwrap();
-    let v = &r.rows("self.review.verdict")[0];
-    assert_eq!(v["model"], SONNET, "{v}");
-    assert!(reviewer_asks(&jev)[0].contains("not_allowed"));
 }
 
 // The model that answered (theseus-107, issue 20): the verdict records it, the independence rule is

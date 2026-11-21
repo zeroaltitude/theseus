@@ -279,7 +279,6 @@ impl Core {
             name: "threads",
             pin: self.cfg.threads.import_profile.as_deref(),
             job: theseus_judge::builders::JobKind::Threads { episodes },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         match self.runner.job_target(&live, site).await {
             Ok((t, _)) => Ok(t),

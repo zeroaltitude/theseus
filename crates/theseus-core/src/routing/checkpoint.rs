@@ -359,8 +359,7 @@ mod tests {
         decide(&cfg(), &ps, &ask(&v, current, est, hold))
     }
 
-    /// The step's ask: the task's profile is the base, and the labels are read as not
-    /// clearing a restricted model (`cleared: false`, as the step has always asked).
+    /// The step's ask: the task's profile is the base.
     fn ask<'a>(v: &'a Verdict, current: &'a str, est: u64, hold: Option<&'a Hold>) -> Ask<'a> {
         Ask {
             verdict: v,
@@ -368,7 +367,6 @@ mod tests {
             context_tokens: est,
             hold,
             images: false,
-            cleared: false,
         }
     }
 
@@ -390,7 +388,6 @@ mod tests {
                     unusable: None,
                     short_cost: Some(super::super::short_cost(e)),
                     vision: e.vision,
-                    restricted: false,
                 };
                 ((*name).to_string(), p)
             })

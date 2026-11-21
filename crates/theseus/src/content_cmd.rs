@@ -9,7 +9,7 @@
 //! (`[content_based_security] injection = "notify"`) the operator is told and
 //! nothing stops, and under `injection = "refuse"` the session's calls that act
 //! are refused — and a `secret`, `confidential` or `personal` one
-//! keeps it off a China-origin model, until the operator removes it. A removal
+//! marks it, until the operator removes it. A removal
 //! loosens, so it is the owner's act (`content.unlabel` is in
 //! `client::OPERATORS`: a job's shell is refused before anything is sent, and
 //! the daemon refuses it again).
@@ -37,7 +37,7 @@ pub struct ContentArgs {
 #[derive(Subcommand, Debug)]
 pub enum ContentCmd {
     /// Remove a label from SESSION: `injection` leaves its calls that act refused by nothing,
-    /// and `secret`, `confidential` or `personal` lets it use a China-origin model again.
+    /// and `secret`, `confidential` or `personal` takes that mark off it.
     /// It loosens, so it counts only where an approval would, and never from a job's shell.
     Remove {
         #[arg(value_name = "SESSION")]

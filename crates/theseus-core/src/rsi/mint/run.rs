@@ -5,9 +5,7 @@
 //! instances read from sessions, the replays run in L1 over a copy, the money
 //! reserved on `[self.budget]`, and the one row.
 //!
-//! The writer is a `"self"` session, behind `rsi::gate` and on a model the
-//! data rule allows (`super::data_rule`, checked before the session opens and
-//! again before its turn). It ends its reply with one line,
+//! The writer is a `"self"` session, behind `rsi::gate`. It ends its reply with one line,
 //! `MINT {"name": …, "description": …}`; nothing else of its reply is read.
 //! Nothing is loaded: a pass leaves the frozen spec at
 //! `<state>/self/mint/<name>/<digest>/` and the report for the deploy step.
@@ -111,12 +109,6 @@ impl Core {
         choose(&Needs::of(m), &self.cfg.self_improve.mint.kinds)
     }
 
-    /// Whether the live profile may write for `m`: the data rule.
-    pub(crate) fn mint_profile_ok(&self, m: &Motif) -> Result<(), String> {
-        let (live, _) = self.live_profile();
-        super::data_rule(&self.cfg, &self.catalog, &live, super::private(m))
-    }
-
     /// Split the occurrences, write the check half and the pending record, and
     /// return the writer's brief, made from the build half alone.
     pub(crate) fn mint_prepare(
@@ -182,8 +174,6 @@ impl Core {
         }
         let run = async {
             let pending = self.mint_pending(&placeholder)?;
-            self.mint_profile_ok(&pending.motif)
-                .map_err(|e| anyhow!(e))?;
             let reply = self.mint_writer_turn(&s, &pending).await?;
             // A Rust mint is the writer's `self.propose_change` and the self-join's:
             // its item carries `mint:<id>` and closes at the join, not here.
@@ -284,7 +274,7 @@ impl Core {
         pending: &Pending,
     ) -> Result<crate::turn::Target> {
         use crate::job_model::{How, Site};
-        use theseus_judge::builders::{JobKind, RestrictedModels};
+        use theseus_judge::builders::JobKind;
         let (live, _) = self.live_profile();
         let own = self.runner.target_for_session(session, &live)?;
         let brief =
@@ -295,7 +285,6 @@ impl Core {
             name: "self builder",
             pin: None,
             job: JobKind::SelfBuilder { brief, private },
-            restricted: RestrictedModels::allowed_if(!private),
         };
         let (choice, how) = self.runner.job_choice(&live, site).await;
         if !matches!(how, How::Jev { .. }) {
@@ -472,9 +461,6 @@ impl Core {
         check: &[Occurrence],
     ) -> Result<super::validate::ab::AbReport> {
         let cfg = &self.cfg.self_improve.mint;
-        // The data rule holds for the replays' model as for the writer's.
-        self.mint_profile_ok(&pending.motif)
-            .map_err(|e| anyhow!(e))?;
         let (profile, _) = self.live_profile();
         let arms = CoreArms {
             core: self,

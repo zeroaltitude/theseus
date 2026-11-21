@@ -166,7 +166,7 @@ pub(super) async fn words(
     ask: &Ask,
 ) -> Result<String, String> {
     let session = who.session;
-    let r = reader::Reader::new(core, session, who.restricted);
+    let r = reader::Reader::new(core, session);
     let mut out = String::new();
     for p in &ask.parts {
         let part = match (*p, ask.here) {
@@ -186,10 +186,9 @@ pub(super) async fn words(
         out.push('\n');
     }
     // Another conversation's marked words, given to this one: it takes their flags on, before the result
-    // is written, so no later turn on a model of restricted origin waits on a judgment of them.
+    // is written. With content judging switched off (`[content_based_security] session_flags = false`)
+    // no source raises a label, so none is taken.
     let at = theseus_protocol::now_unix_ms();
-    // With content judging switched off (`[content_based_security] session_flags = false`) no source
-    // raises a label and `cn_models` alone decides what a restricted model is sent, so none is taken.
     let flags = r.taken();
     if !flags.is_empty() && !core.runner.judge.content_is_off() {
         let labels = flags
@@ -220,12 +219,10 @@ pub(super) async fn words(
     Ok(cut(out, ANSWER_CHARS))
 }
 
-/// Who asks: the conversation, the turn, and whether the turn's own model is one the labels could keep
-/// off.
+/// Who asks: the conversation and the turn.
 pub(super) struct Caller<'a> {
     pub session: &'a str,
     pub turn: &'a str,
-    pub restricted: bool,
 }
 
 /// `s` as one line of at most `max` characters: control characters and line breaks gone.

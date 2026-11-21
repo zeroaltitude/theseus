@@ -10,8 +10,7 @@
 //!   sessions of private places that a person wrote (never a task's, an
 //!   import's or a shared place's); at most [`PER_NIGHT`] a night, most held
 //!   first.
-//! - **The call**: one, through the provider path consolidation uses, so the
-//!   data rule's gate and the China-origin rule apply unchanged. **Its model
+//! - **The call**: one, through the provider path consolidation uses. **Its model
 //!   is route.v10's one named exception (theseus-xdi65), see [`DREAM_MODEL`]:**
 //!   a `[memory] synth_profile` that is set pins it, as it pins every other
 //!   background job (`"session"` takes the profile all the sampled sessions

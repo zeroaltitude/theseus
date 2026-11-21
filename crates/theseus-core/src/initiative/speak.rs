@@ -168,7 +168,6 @@ impl Core {
             name: "initiative",
             pin: self.cfg.initiative.profile.as_deref(),
             job: theseus_judge::builders::JobKind::Initiative { kind: kind.into() },
-            restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
         self.runner.job_target(&live, site).await.map(|(t, _)| t)
     }

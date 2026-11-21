@@ -62,21 +62,18 @@ fn each_owner_kind_is_one_paragraph_that_says_its_work() {
     }
 }
 
-/// The owner-material floor: these jobs read the owner's own material, so a
-/// caller's `allowed` is never what Jev is told. Private material never
-/// reaches a China-origin model (the data rule).
+/// The facts go through as the daemon gives them: no job floors
+/// `restricted_models` since the restricted-origin rule was deleted (2026-11-21).
 #[test]
-fn owner_material_lists_us_options_only_whatever_the_facts_say() {
+fn a_jobs_facts_are_the_daemons_own() {
     for (kind, _) in owner_kinds() {
-        let ji = job_input(&JobInput {
-            kind: kind.clone(),
-            facts: facts(RestrictedModels::Allowed),
-        });
-        assert_eq!(
-            ji.route.unwrap().restricted_models,
-            RestrictedModels::NotAllowed,
-            "{kind:?}"
-        );
+        for r in [RestrictedModels::Allowed, RestrictedModels::NotAllowed] {
+            let ji = job_input(&JobInput {
+                kind: kind.clone(),
+                facts: facts(r),
+            });
+            assert_eq!(ji.route.unwrap().restricted_models, r, "{kind:?}");
+        }
     }
 }
 

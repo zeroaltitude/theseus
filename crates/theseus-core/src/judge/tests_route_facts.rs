@@ -50,14 +50,9 @@ fn the_last_reply_model_is_the_newest_assistant_nodes() {
         said("claude-sonnet-5-5", 1),
         asked("three"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.last_reply_model.as_deref(), Some("claude-sonnet-5-5"));
-    let none = facts_of(
-        &nodes[..1],
-        false,
-        RestrictedModels::Allowed,
-        TUE_0200_PHOENIX,
-    );
+    let none = facts_of(&nodes[..1], false, TUE_0200_PHOENIX);
     assert_eq!(none.last_reply_model, None);
 }
 
@@ -69,24 +64,26 @@ fn a_tasks_models_are_every_model_that_wrote_once_in_order() {
         said("deepseek-flash", 1),
         said("claude-sonnet-5-5", 2),
     ];
-    let task = facts_of(&nodes, true, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let task = facts_of(&nodes, true, TUE_0200_PHOENIX);
     assert_eq!(task.task_models, ["claude-sonnet-5-5", "deepseek-flash"]);
-    let chat = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let chat = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert!(chat.task_models.is_empty(), "outside a task: none");
 }
 
+/// No model is kept off a session for its origin (2026-11-21): the key the
+/// live route pack's state still carries always says `allowed`.
 #[test]
-fn the_restricted_rule_passes_through_and_defaults_closed() {
-    for r in [RestrictedModels::Allowed, RestrictedModels::NotAllowed] {
-        assert_eq!(facts_of(&[], false, r, 0).restricted_models, r);
-    }
-    assert_eq!(RestrictedModels::default(), RestrictedModels::NotAllowed);
+fn the_restricted_models_fact_always_allows() {
+    assert_eq!(
+        facts_of(&[], false, 0).restricted_models,
+        RestrictedModels::Allowed
+    );
 }
 
 #[test]
 fn the_price_period_comes_from_the_instant_given() {
     // Tuesday 02:00 Phoenix is peak; ten hours on, 12:00 Phoenix, is not.
-    let at = |ms| facts_of(&[], false, RestrictedModels::Allowed, ms).price_period;
+    let at = |ms| facts_of(&[], false, ms).price_period;
     assert_eq!(at(TUE_0200_PHOENIX), PricePeriod::Peak);
     assert_eq!(at(TUE_0200_PHOENIX + 10 * 3_600_000), PricePeriod::OffPeak);
 }
@@ -174,7 +171,7 @@ fn the_estimate_is_the_last_prompt_the_provider_counted() {
         said_with(700, 130_000, 10_000),
         asked("three"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.est_tokens, Some(700 + 130_000 + 10_000));
 }
 
@@ -182,9 +179,9 @@ fn the_estimate_is_the_last_prompt_the_provider_counted() {
 fn without_a_counted_reply_the_estimate_is_a_quarter_of_the_text() {
     let text = "x".repeat(4_000);
     let nodes = [asked(&text), said("claude-sonnet-5-5", 0), asked(&text)];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.est_tokens, Some(2_000), "8,002 bytes of text, a quarter");
-    let f = facts_of(&[], false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&[], false, TUE_0200_PHOENIX);
     assert_eq!(f.est_tokens, Some(0));
 }
 
@@ -206,7 +203,7 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
         said_on("claude-sonnet-5-5", 200_000),
         asked("thanks"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-sonnet-5-5"));
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
     // The same model on 40K: Haiku's $0.10 input is Sonnet 5.5's $0.10 cache
@@ -216,14 +213,14 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
         said_on("claude-sonnet-5-5", 40_000),
         asked("two"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.switch_cost, Some(SwitchCost::AboutTheSame));
     let nodes = [
         asked("one"),
         said_on("claude-opus-5-5", 40_000),
         asked("two"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToSwitch));
     // A long Haiku session: the cheapest already, stay.
     let nodes = [
@@ -231,7 +228,7 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
         said_on("claude-haiku-5-5", 150_000),
         asked("two"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-haiku-5-5"));
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
     // The newest reply's model is the warm one, not the oldest.
@@ -242,7 +239,7 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
         said_on("claude-sonnet-5-5", 200_000),
         asked("three"),
     ];
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-sonnet-5-5"));
 }
 
@@ -253,36 +250,26 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
 /// cache read leaves two candidates under staying; a warm Sonnet 5.5 reads its
 /// cache at $0.10, which none undercuts, and is held to that at the end.
 #[test]
-fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
+fn the_cheaper_model_is_named_at_the_hours_prices() {
     let nodes = [
         asked("one"),
         said_on("claude-opus-5-5", 200_000),
         asked("thanks"),
     ];
     // Peak: Flash's $0.30 input is dearer than the $0.20 cache read of staying.
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0200_PHOENIX);
     assert_eq!(f.price_period, PricePeriod::Peak);
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
     assert_eq!(f.cheaper_model, None);
     // Off-peak: $0.15, and the state says which model that is. Haiku, whose
     // block names a thank-you, is $0.50 at this length and is not named.
-    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0400_PHOENIX);
+    let f = facts_of(&nodes, false, TUE_0400_PHOENIX);
     assert_eq!(f.price_period, PricePeriod::OffPeak);
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToSwitch));
     assert_eq!(
         f.cheaper_model.as_deref(),
         Some("deepseek_flash (off-peak)")
     );
-    // The same hour with the labels keeping restricted models off names
-    // nothing: the state never recommends what the data rule forbids.
-    let f = facts_of(
-        &nodes,
-        false,
-        RestrictedModels::NotAllowed,
-        TUE_0400_PHOENIX,
-    );
-    assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
-    assert_eq!(f.cheaper_model, None);
     // On a short session Haiku is the cheapest at either hour; at peak it is
     // the only one under staying, and off-peak Flash's $0.15 is under Opus's
     // $0.20 cache read too, so it is named after Haiku (theseus-g0phw).
@@ -295,7 +282,7 @@ fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
         (TUE_0200_PHOENIX, "haiku"),
         (TUE_0400_PHOENIX, "haiku, deepseek_flash (off-peak)"),
     ] {
-        let f = facts_of(&short, false, RestrictedModels::Allowed, at);
+        let f = facts_of(&short, false, at);
         assert_eq!(f.cheaper_model.as_deref(), Some(want), "{at}");
     }
     // The same two sessions on Sonnet 5.5 ($0.10 cache read): nothing is under
@@ -310,7 +297,7 @@ fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
                 said_on("claude-sonnet-5-5", prompt),
                 asked("two"),
             ];
-            let f = facts_of(&sonnet, false, RestrictedModels::Allowed, at);
+            let f = facts_of(&sonnet, false, at);
             assert_eq!(f.switch_cost, Some(word), "{prompt} {at}");
             assert_eq!(f.cheaper_model, None, "{prompt} {at}");
         }
@@ -321,12 +308,7 @@ fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
 /// `current_model`, and the cost reads `about_the_same`.
 #[test]
 fn a_fresh_session_has_no_warm_model_and_a_switch_costs_about_the_same() {
-    let f = facts_of(
-        &[asked("what port is postgres on?")],
-        false,
-        RestrictedModels::Allowed,
-        0,
-    );
+    let f = facts_of(&[asked("what port is postgres on?")], false, 0);
     assert_eq!(f.current_model, None);
     assert_eq!(f.switch_cost, Some(SwitchCost::AboutTheSame));
 }
@@ -345,7 +327,6 @@ fn route_v8_is_handed_no_facts_and_its_state_is_unchanged() {
             asked("two"),
         ],
         false,
-        RestrictedModels::Allowed,
         TUE_0200_PHOENIX,
     );
     assert!(facts.current_model.is_some() && facts.switch_cost.is_some());

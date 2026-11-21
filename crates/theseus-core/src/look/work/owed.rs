@@ -32,7 +32,7 @@ impl Owed {
     }
 }
 
-fn card_line(p: &theseus_protocol::card::CardProposal, r: &Reader<'_>) -> String {
+fn card_line(p: &theseus_protocol::card::CardProposal) -> String {
     let at = match p.posted_ms {
         Some(_) => "the owner's DM",
         None => "the card, not posted yet",
@@ -40,7 +40,7 @@ fn card_line(p: &theseus_protocol::card::CardProposal, r: &Reader<'_>) -> String
     format!(
         "- {} · card proposal · waits in {at} · {}\n",
         crate::task::short(&p.id),
-        r.imported(&p.question, 200)
+        clip(&p.question, 200)
     )
 }
 
@@ -84,7 +84,8 @@ pub(super) fn owed(r: &Reader<'_>, here: bool) -> Result<Owed, ()> {
     out.cards = open
         .iter()
         .take(CARDS_MAX)
-        .map(|p| card_line(p, r))
+        .copied()
+        .map(card_line)
         .collect();
     out.standing = crate::standing_proposals::all(&r.core.store)
         .map_err(|_| ())?

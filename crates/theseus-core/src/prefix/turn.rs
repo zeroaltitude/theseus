@@ -176,11 +176,7 @@ impl TurnRunner {
         }
         let (mut spec, _) = self.request_spec(target, kind, place);
         spec.walk = self.walk(session_id, place.class);
-        if let Some(b) = self.standing_block(
-            session_id,
-            place.class,
-            self.restricted_profile(&target.profile),
-        ) {
+        if let Some(b) = self.standing_block(session_id, place.class) {
             b.apply(&mut spec);
         }
         self.thread_spec(&mut spec, session_id, None);
