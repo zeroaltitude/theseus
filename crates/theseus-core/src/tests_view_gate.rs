@@ -1176,8 +1176,7 @@ async fn a_report_into_a_place_that_narrowed_is_a_notice() {
     use crate::exchange::{exchange_record, mark_record, Exchange, Opener};
     let r = rig();
     let parent = session(&r.core, None);
-    let owner = view_gate::test_mark(&r.core.runner, &parent, true);
-    let mut m = owner.clone();
+    let mut m = view_gate::test_mark(&r.core.runner, &parent, true);
     m.node = "nod_ask".into();
     let ex = Exchange {
         turn_id: "turn_p".into(),

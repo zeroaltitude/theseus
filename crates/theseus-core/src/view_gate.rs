@@ -345,33 +345,56 @@ pub fn readable_nodes<T>(
 /// Take out of the index's hits every one a reader in `asker` may not draw
 /// on for its seal, by session and by node, before anything ranks it,
 /// reranks it, or sends it to a model: whatever `[threads] enabled` says,
-/// and whatever the thread lens would say. The count taken out, to be said
-/// as `sealed` drops.
-pub fn seal_out(runner: &TurnRunner, asker: Option<&str>, answer: &mut Answer) -> u64 {
+/// and whatever the thread lens would say. What was taken out, as `sealed`
+/// drops (ids and scores, never text), for the recall's manifest to say.
+pub fn seal_out(
+    runner: &TurnRunner,
+    asker: Option<&str>,
+    answer: &mut Answer,
+) -> Vec<theseus_protocol::memory::RecallDrop> {
     let Answer::Hits(r) = answer else {
-        return 0;
+        return Vec::new();
     };
     let board = board(runner, "recall's hits");
     let mut by_session: BTreeMap<String, Seal> = BTreeMap::new();
-    let before = r.hits.len();
+    let mut out = Vec::new();
     r.hits.retain(|h| {
-        let Some(b) = &board else {
-            return false;
-        };
-        let session = *by_session
-            .entry(h.session_id.clone())
-            .or_insert_with(|| seal_on(&runner.store, b, asker, &h.session_id));
-        session == Seal::Clear
-            && node_seal(&runner.store, b, asker, &h.session_id, &h.node_id) == Seal::Clear
+        let clear = board.as_ref().is_some_and(|b| {
+            let session = *by_session
+                .entry(h.session_id.clone())
+                .or_insert_with(|| seal_on(&runner.store, b, asker, &h.session_id));
+            session == Seal::Clear
+                && node_seal(&runner.store, b, asker, &h.session_id, &h.node_id) == Seal::Clear
+        });
+        if !clear {
+            out.push(theseus_protocol::memory::RecallDrop {
+                node_id: h.node_id.clone(),
+                chunk: h.chunk,
+                session_id: h.session_id.clone(),
+                reason: "sealed".into(),
+                fused: h.fused,
+                tokens: 0,
+                retention: None,
+                own_top: None,
+                share: None,
+                paid: None,
+            });
+        }
+        clear
     });
-    (before - r.hits.len()) as u64
+    out
 }
 
-/// `seal_out`, its count said in a recall's manifest as `sealed` drops.
-pub fn count_sealed(m: &mut theseus_protocol::memory::RecallManifest, n: u64) {
-    if n > 0 {
-        *m.drops.entry("sealed".into()).or_default() += n;
+/// `seal_out`'s drops, said in a recall's manifest as `sealed`.
+pub fn count_sealed(
+    m: &mut theseus_protocol::memory::RecallManifest,
+    sealed: Vec<theseus_protocol::memory::RecallDrop>,
+) {
+    if sealed.is_empty() {
+        return;
     }
+    *m.drops.entry("sealed".into()).or_default() += sealed.len() as u64;
+    m.dropped.extend(sealed);
 }
 
 /// A whole session's marks, for a reader in `asker`: its place, today's

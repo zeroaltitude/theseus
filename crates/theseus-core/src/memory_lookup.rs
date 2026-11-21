@@ -365,6 +365,18 @@ async fn page(
     // asker's own thread, and from a channel bound private only its own.
     if let Some(id) = some(&a.session) {
         let runner = &core.runner;
+        // A native session with no record and no nodes is not there; one
+        // with nodes and no record cannot be proven unsealed (below).
+        let unrecorded = !crate::import::is_imported(id)
+            && matches!(
+                core.store.get_session::<crate::session::SessionRecord>(id),
+                Ok(None)
+            );
+        if unrecorded && core.store.session_nodes(id).is_ok_and(|n| n.is_empty()) {
+            return Err(format!(
+                "no session is named {id}: give a session id an earlier answer named (ses_…)"
+            ));
+        }
         if crate::view_gate::seal_of(runner, Some(&session), id)
             != theseus_memory::gate::Seal::Clear
         {
