@@ -64,6 +64,11 @@ impl Fork {
         }
     }
 
+    /// Whether this session is a fork that inherits a run.
+    pub fn inherits(&self) -> bool {
+        !self.inherited.is_empty()
+    }
+
     /// The sessions an assembly of this fork reads, with no node an ancestor wrote after its point.
     pub fn sessions(&self) -> crate::view::sources_store::Sessions {
         self.after.sessions()
