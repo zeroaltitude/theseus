@@ -587,8 +587,8 @@ async fn one_result_larger_than_the_window_is_laid_as_its_head_and_the_turn_answ
     every_send_within(&r, 40_000);
 }
 
-/// Two room episodes in one real turn: the window's earlier exchanges make the first call over, and slot G
-/// is lowered; then the turn's own large results pass the limit again, and clearing makes the room. The
+/// Two room episodes in one real turn: the window's large earlier exchanges make the first call over, and
+/// slot G is lowered; then the turn's own large results pass the limit again, and clearing makes the room. The
 /// second pass's clearing is not charged the first pass's reservation: the turn answers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
@@ -624,8 +624,10 @@ async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
         std::fs::write(r.root.join(format!("logs/keeper-{k:03}.txt")), log(k)).unwrap();
     }
     let sid = crate::tests_private_view::session_in(&r.core, None, &r.root);
-    for k in 0..6 {
-        let said = format!("turn {k}: earlier, {}", LINE.repeat(180));
+    // Eight earlier exchanges of about 9,000 tokens each: more than the view's whole, so the window itself
+    // makes the first call over, and slot G is what gives.
+    for k in 0..8 {
+        let said = format!("turn {k}: earlier, {}", LINE.repeat(500));
         crate::tests_places::turn(&r.core, &sid, &said).await;
     }
     let res = crate::tests_places::turn(&r.core, &sid, "turn 99: read every log").await;
