@@ -138,7 +138,7 @@ mod tests {
             last_position: 4,
             spec: &spec,
             catalog: &crate::catalog::Catalog::builtin(),
-            force: None,
+            force: false,
             window_override: None,
             blobs: None,
             hidden: &[],

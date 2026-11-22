@@ -18,7 +18,11 @@ impl TurnRunner {
     /// The place whose view `rec`'s next request is assembled by: a conversation's (a task's census stays the
     /// transcript's).
     pub(crate) fn census_view_place(&self, rec: &SessionRecord) -> Option<String> {
-        if rec.task.is_some() || rec.kind == theseus_protocol::SessionKind::Task {
+        // A test's ledger-off session is the transcript's, as its turns are (`TurnRunner::on_transcript`).
+        if rec.task.is_some()
+            || rec.kind == theseus_protocol::SessionKind::Task
+            || !self.cfg.context.ledger_on()
+        {
             return None;
         }
         place_name(self, &rec.session_id)

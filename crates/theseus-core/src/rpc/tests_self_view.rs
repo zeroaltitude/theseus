@@ -13,7 +13,6 @@ use super::tests_self_backlog::{seed_day, tick};
 use super::{Core, Parts};
 use crate::approval::Answerer;
 use crate::bus::EventSink;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::provider::{
     DeltaSink, FakeProvider, Provider, ProviderFuture, ProviderRequest, Scripted,
 };
@@ -96,7 +95,6 @@ fn config() -> (crate::Config, Store) {
     let repo = crate::rsi::tests_tree::fixture();
     cfg.self_improve.repo = Some(repo.place.repo.display().to_string());
     std::mem::forget(repo);
-    cfg.context.assembly = Some(AssemblySetting::All(Assembly::View));
     (cfg, base.store.clone())
 }
 
@@ -124,7 +122,6 @@ async fn self_turn(c: &Arc<Core>, session: &str, input: &str) {
             target,
             sink,
             author: "self:backlog".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

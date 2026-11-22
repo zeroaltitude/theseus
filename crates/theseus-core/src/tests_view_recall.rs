@@ -1,7 +1,6 @@
 //! Recall on a view turn (issue 44, issue 46): the turn keeps its recall's bookkeeping as a transcript turn
 //! does (the `Recall` node, its rows and edges), and the view never lays the node as well as the items.
 
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::MemoryMode;
 use crate::node::Body;
 use crate::test_support::recall_rows as rows;
@@ -10,9 +9,7 @@ use crate::tests_recall::{admitted, index_of, recalls, rig_with, session, turn, 
 const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook.";
 
 fn view_rig() -> Rig {
-    rig_with(MemoryMode::Live, |c| {
-        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
-    })
+    rig_with(MemoryMode::Live, |_| {})
 }
 
 /// What the rig's model was sent, request by request, as text.

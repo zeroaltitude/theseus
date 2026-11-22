@@ -162,8 +162,8 @@ async fn the_measuring_rows_seen_is_what_the_view_showed() {
 /// is, and no recall. A place left to the transcript still counts the session's own transcript.
 #[tokio::test]
 async fn a_census_of_a_view_place_counts_the_views_request() {
-    let transcript =
-        || rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript)));
+    // The transcript's side is a session with the ledger off, which only a test can set.
+    let transcript = || rig_with(|c| c.context.ledger = Some(false));
     for (as_view, r) in [(true, view_rig()), (false, transcript())] {
         let c = &r.core;
         let other = session_in(c, None, &r.root);
