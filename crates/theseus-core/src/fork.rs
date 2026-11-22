@@ -22,6 +22,8 @@
 //! surfaces (the TUI's `f`, Discord's "Fork from here", the Ship's mark)
 //! call `session.fork` with a node and print the result's `not_restored`.
 
+pub mod window;
+
 use anyhow::Result;
 use serde::Deserialize;
 use theseus_protocol::ForkOrigin;

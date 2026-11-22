@@ -14,7 +14,6 @@ pub(super) mod preview;
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
 use crate::config::assembly::Assembly;
-use crate::ladder::view::StoreLadder;
 use crate::node::{Body, Node};
 use crate::store::{Store, Transcript};
 use crate::stub::{Kind, Stub};
@@ -355,7 +354,7 @@ impl TurnRunner {
             sessions: &read,
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
-        let store_ladder = StoreLadder(store);
+        let store_ladder = crate::fork::window::ForkLadder::of(store, sid);
         let gated = GatedLadder::new(&store_ladder, store, &held, &moved);
         let ladder = OnceLadder::new(&gated);
         let cards = StoreCards {

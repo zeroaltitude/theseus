@@ -147,6 +147,39 @@ prints the calls and the summed reservations, unrounded, against the cap.
 **It sends the conversation's words to a model.** That is the owner's to allow, on his own store. The judge
 reads only `ANTHROPIC_API_KEY` from your environment. `--judge fake` (the tests') calls nothing.
 
+## The end-to-end proof
+
+```bash
+python3 bench/view/proof.py --bin-dir target/debug --out /tmp/proof                 # every case, both modes, 30-turn cost table
+python3 bench/view/proof.py --bin-dir target/debug --out /tmp/proof --assembly view --cases wake,fork --cost-turns 0
+```
+
+`proof.py` reads no store. Each case runs on a scratch daemon of its own (`scratch.py`, with its rules) on an
+EMPTY store, so every word in it is the suite's own, with a stand-in model on 127.0.0.1 that answers by script,
+counts what it is sent and charges nothing. The cases: a message and a follow-up; a steer during a turn; a loop
+of tool calls; a job that ends after its turn (a continuation); a daemon killed in the middle of a turn and
+started again; a wake; a task's report; a task's brief and a second turn; a check; a fork and its first turn; a
+turn of large tool results past the budget (a working window of 40,000 tokens); a provider refusal for size; a
+thread sealed between two calls of one turn; `/new`; a shared place with another person; a settings file that
+names every key the cut retires. Each case asserts what a person needs (an answer arrived, or the turn ended in
+a plain failure) and ends with `case <name>: ok|FAILED <why>`.
+
+Two modes: `view` (`[context] assembly = "view"` in the scratch daemon's settings) and `default` (no setting).
+The table is case x mode: `ok`, `hand-back(<reason> xN)` (the `context.view_fallback` rows), `FAILED` or
+`not driven`, each with the case's compilations by strategy (`context.compiled`). After the cut both columns
+must read `ok [view N]`.
+
+The cost table is one place, 30 short messages, a tool call every seventh: per turn, the stand-in's count of the
+turn's first request (the compiler's rule, `bench/recall/tokens.py`) and the length of its byte-identical prefix
+with the previous turn's first request (tools, system, messages, in that order, cache marks taken out), which
+is what a provider cache could read; then totals and the ratio of the two modes.
+
+**What the proof cannot tell.** The stand-in has no cache and no judgement: a shared prefix is what a cache
+could read, not what one did, and no answer's quality is measured. `/new` is the chat's and a second person is a
+Discord place's, and the kit keeps Discord off, so those two cases say `not driven`. A retired key's warning is
+on the daemon's stderr, which the kit discards: that case shows the daemon starts and answers, not the words.
+`proof.json` in `--out` holds every case's counts.
+
 ## What none of it can tell
 
 - The replay's recorded side is what the request WAS, by whatever strategy built it; its view side is assembled
