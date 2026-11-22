@@ -1521,7 +1521,11 @@ mod tests {
         }
         let (me, session) = (svc.me.clone(), sid.clone());
         let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _open = Open { me, session };
+            let _open = Open {
+                me,
+                session,
+                replies: false,
+            };
             panic!("the batch died");
         }));
         assert!(died.is_err());
@@ -1541,6 +1545,7 @@ mod tests {
         drop(Open {
             me: svc.me.clone(),
             session: sid.clone(),
+            replies: false,
         });
         assert!(svc.content.slots().get(&sid).unwrap().running, "untouched");
     }
