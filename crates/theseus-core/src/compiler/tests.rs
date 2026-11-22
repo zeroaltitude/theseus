@@ -281,7 +281,7 @@ fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
 /// compile is asked to strip.
 #[test]
 fn an_explicit_strip_dominates_a_readable_switch() {
-    let mut said = vec![
+    let mut said = [
         (1, Node::user("s", None, "web", "hi")),
         (
             2,
