@@ -21,6 +21,24 @@ pub(in crate::view) fn admit_checked(
         .map(|()| Admitted::new(piece))
 }
 
+/// `piece`, admitted for the turn `verified` as the turn's OWN history: the gate's rule run with the piece's
+/// place read as the anchor and its audience as private, its seal and veil as they are. Only for an explicit
+/// fork's inherited run where the owner is alone in a private place (`super::permit::Permit::owning`); the
+/// piece keeps its own source place and ids.
+pub(in crate::view) fn admit_own(
+    verified: &Verified,
+    pov: &PointOfView,
+    piece: Piece,
+) -> Option<Admitted<Piece>> {
+    let rule = super::permit::point_of_view(verified, pov);
+    let mut marks = super::permit::marks(&piece);
+    marks.place = Some(rule.anchor.clone());
+    marks.class = theseus_memory::recall::Place::Private;
+    crate::view_gate::Gate::check(&rule, &marks)
+        .ok()
+        .map(|()| Admitted::new(piece))
+}
+
 /// A value the gate admitted for one point of view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Admitted<T>(T);

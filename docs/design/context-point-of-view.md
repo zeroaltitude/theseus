@@ -81,6 +81,16 @@ is sent: never a partial view. No `context.view_fallback` row is written.
   preparation, before every send, the view is checked against the gate again (§5.1, §4).
 - **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
   assembler, without calling a model or writing anything (§5.1).
+- **Forks carry the run they were made from** (`crate::fork::window`). A fork's window holds the exchanges of the
+  run it inherits (each ended at the fork point) beside its place's own, with no count of their own: the window's
+  admission and the budget choose. Where the owner is alone in a private place, that inherited run is the fork's own
+  history for the place rule, whatever its source's place, a shared channel's included (the owner's word on simpler
+  privacy, 2026-11-22). Its source's seal, a seal pending, a source that cannot be read and a message moved into a
+  thread not proven clear still hold each exchange out, and every piece keeps its source's place and ids. Where
+  others are present the run passes the rule as any other place's exchange does, and a line beside the message says
+  the fork's source is not shown. **A fork is a live view of its place with an inherited prefix, not a historical
+  snapshot**: only the inherited run stops at the fork point; the place's own window, his other places and the
+  ladder show what was said since, the source's later words included where they are in reach.
 
 **The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
 tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
