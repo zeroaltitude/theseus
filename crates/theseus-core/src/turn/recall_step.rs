@@ -589,22 +589,13 @@ impl TurnRunner {
             a.arm.as_str(),
             items,
         );
-        let mut rides = Vec::new();
-        let records = node.record().and_then(|r| {
-            rides.push(r);
-            let Body::Recall { items, .. } = &node.body else {
-                return Ok(());
-            };
-            for r in items {
-                let e = Edge::new(EdgeKind::DerivedFrom, &node.id, &r.node_id, VIA_RECALL);
-                rides.push(e.record()?);
+        let rides = match recall_records(&node) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "recall: its node cannot be encoded; no recall this turn");
+                return;
             }
-            Ok(())
-        });
-        if let Err(e) = records {
-            tracing::warn!(error = %format!("{e:#}"), "recall: its node cannot be encoded; no recall this turn");
-            return;
-        }
+        };
         let Body::Recall { items, .. } = &node.body else {
             return;
         };
@@ -662,19 +653,53 @@ impl TurnRunner {
         }));
     }
 
-    /// The turn declined the view after a view call was dispatched: its kept recall is the turn's pending
-    /// recall again, once, so it rides the transcript's request and its record is written with it.
-    pub(super) fn recall_readmitted(t: &mut Turn<'_>) {
+    /// The turn declined the view after a view call was dispatched: its kept recall is admitted again,
+    /// item by item, under the presence and the seals of now (`view_gate::readmit_sources`), and the
+    /// turn's pending recall is rebuilt from the admitted items alone (its node, records, edges and count),
+    /// so an item whose source is held out since leaves nothing: no header, no record, no count. Once.
+    pub(super) fn recall_readmitted(&self, t: &mut Turn<'_>) {
         if t.recall.pending.is_some() {
             return;
         }
-        if let Some(k) = t.recall.kept_for_view.take() {
-            t.recall.pending = Some(k.pending);
-            t.recall.rides = k.rides;
-            t.recall.count = k.count;
-            t.recall.items = k.items;
-            t.recall.recall_id = k.recall_id;
+        let Some(k) = t.recall.kept_for_view.take() else {
+            return;
+        };
+        let Body::Recall {
+            recall_id,
+            arm,
+            items,
+        } = &k.pending.body
+        else {
+            return;
+        };
+        let mut sources = self
+            .memory
+            .read_sources(&self.store, std::iter::once(&k.pending));
+        crate::view_gate::readmit_sources(self, t.tc.session_id, &mut sources);
+        let admitted: Vec<RecalledRef> = (items.iter())
+            .filter(|r| sources.contains_key(&r.node_id))
+            .cloned()
+            .collect();
+        if admitted.is_empty() {
+            return;
         }
+        if admitted.len() == items.len() {
+            (t.recall.pending, t.recall.rides) = (Some(k.pending), k.rides);
+            (t.recall.count, t.recall.items, t.recall.recall_id) = (k.count, k.items, k.recall_id);
+            return;
+        }
+        let node = Node::recall(t.tc.session_id, t.tc.turn_id, recall_id, arm, admitted);
+        let Ok(rides) = recall_records(&node) else {
+            tracing::warn!("recall: its re-admitted node cannot be encoded; no recall this call");
+            return;
+        };
+        if let Body::Recall { items, .. } = &node.body {
+            t.recall.count = items.len() as u32;
+            t.recall.items = items.clone();
+        }
+        t.recall.recall_id = node.id.clone();
+        t.recall.rides = rides;
+        t.recall.pending = Some(node);
     }
 
     /// The compile withheld the pending node, so the turn recalled nothing:
@@ -787,6 +812,18 @@ impl TurnRunner {
             compiled.compilation.budget = Some(compiled.budget.clone());
         }
     }
+}
+
+/// A `Recall` node's records: the node, and a `derived_from` edge to each source it renders.
+fn recall_records(node: &Node) -> anyhow::Result<Vec<NewRecord>> {
+    let mut rides = vec![node.record()?];
+    if let Body::Recall { items, .. } = &node.body {
+        for r in items {
+            let e = Edge::new(EdgeKind::DerivedFrom, &node.id, &r.node_id, VIA_RECALL);
+            rides.push(e.record()?);
+        }
+    }
+    Ok(rides)
 }
 
 /// A recall's row, scoped to the session's recalls, for the turn's next

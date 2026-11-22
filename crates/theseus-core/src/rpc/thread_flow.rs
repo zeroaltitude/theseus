@@ -11,11 +11,17 @@
 //! - **No address, no thread.** A message that names none runs in the place's
 //!   own conversation, always, at once: nothing guesses, waits or asks.
 //! - **An address that cannot be honoured is refused** (issue 44): `/t` with
-//!   a word that names no thread, a word that names a paused or done thread,
-//!   and an addressed thread that does not open end `turn.submit` with one
-//!   plain line and start no turn; the message never runs at home. A sealed
-//!   or unreadable thread is refused as no thread at all (the gate's
-//!   `may_name_thread`).
+//!   a word that names no thread, a word or a reply that names a paused or
+//!   done thread, and an addressed thread that does not open end
+//!   `turn.submit` with one plain line and start no turn. A failed explicit
+//!   address is read before the place and the reply, so it never falls
+//!   through to another thread.
+//! - **A thread this reader may not be told of is no thread** (the gate's
+//!   `may_name_on`, on the same board snapshot the words come from): `/t` to
+//!   it gets the "no thread" line, `#word` and "in the … thread:" run at home
+//!   as words that name nothing do, and a reply to its turn runs at home as a
+//!   reply whose turn is unknown does. An active sealed thread stays
+//!   addressable, as before.
 //! - **Jev is asked once, as before.** With two or more live threads the
 //!   inbound point begins here, before the session is known, and the turn
 //!   takes it over (`Handoff`): `classify`'s request is the one it was, its
@@ -42,8 +48,9 @@ use crate::judge::inbound::{
 use crate::session::SessionRecord;
 use crate::thread_flow::{Handoff, Routed};
 use crate::thread_route::{
-    address, top_entities, typed_word, unresolved, Address, Addressing, Unresolved,
+    address, failed_explicit, top_entities, typed_word, Address, Addressing, Unresolved,
 };
+use crate::threads::Board;
 
 /// What the router decided for a turn, which `turn.submit` keeps.
 pub(super) struct Routing {
@@ -144,8 +151,7 @@ fn routed_thread_of(store: &crate::store::Store, turn: &str) -> Option<Option<St
                 continue;
             };
             if row.turn_id.as_deref() == Some(turn) {
-                let to = row.data["to"].as_str()?;
-                return Some((to != "home").then(|| to.to_string()));
+                return crate::fact::thread_route::routed_dest(&row.data);
             }
         }
         match (got.more, got.first) {
@@ -156,23 +162,69 @@ fn routed_thread_of(store: &crate::store::Store, turn: &str) -> Option<Option<St
     None
 }
 
-/// An address the message gives that cannot be honoured, when none was
-/// found among the live threads: its own words naming no live thread
-/// (`unresolved`), or a reply to a turn of a thread of `nameable` that is no
-/// longer live (paused, done).
-fn unhonoured(
-    p: &TurnSubmitParams,
-    nameable: &[&ThreadInfo],
-    reply_thread: Option<String>,
-) -> Option<Unresolved> {
-    unresolved(&p.input, nameable).or_else(|| {
-        let slug = reply_thread?;
-        let t = nameable.iter().find(|t| t.slug == slug)?;
-        Some(Unresolved {
-            word: t.title.clone(),
-            slug: Some(slug),
-        })
-    })
+/// Where the exchange of turn `turn` in `session` lives now, by the owner
+/// a moving split recorded for each of its nodes (`moved.of.<node>`):
+/// `Ok(None)` where it ran (nothing moved it, or an unsplit put it back),
+/// `Ok(Some(slug))` in the thread a split took all of it to, `Err(())` when
+/// its nodes went different ways or an owner cannot be read.
+fn moved_owner(
+    store: &crate::store::Store,
+    session: &str,
+    turn: &str,
+) -> Result<Option<String>, ()> {
+    let nodes = store.session_nodes(session).map_err(|_| ())?;
+    let mut owner: Option<Option<String>> = None;
+    for (_, n) in nodes
+        .iter()
+        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+    {
+        let key = crate::moved::moved_of_key(&n.id);
+        let this = match store.get_meta::<Option<crate::moved::MovedTo>>(&key) {
+            Ok(Some(Some(m))) => Some(m.thread),
+            Ok(_) => None,
+            Err(_) => return Err(()),
+        };
+        match &owner {
+            None => owner = Some(this),
+            Some(o) if *o == this => {}
+            Some(_) => return Err(()),
+        }
+    }
+    Ok(owner.flatten())
+}
+
+/// The refusal of an address that cannot be honoured (issue 44): one plain
+/// line, as `turn.submit`'s answer, and no turn anywhere. Worded from
+/// `board`, the snapshot the gate decided on: a thread is named, and its
+/// state or why it did not open told, only when `u.slug` is set, which the
+/// caller sets only for a thread the gate lets this reader be told of.
+fn refused(board: &Board, u: &Unresolved, failed: Option<&str>) -> RpcFailure {
+    let told = u.slug.as_deref().and_then(|s| board.get(s));
+    let again = "Send it again then, or without the thread's name to talk here.";
+    let line = match (u.word.as_deref(), told, failed) {
+        (Some(w), Some(t), _) if t.state == ThreadState::Paused => format!(
+            "Not run: the thread \u{201c}{w}\u{201d} is paused: `theseus thread resume {}` \
+             lets it take messages. {again}",
+            t.slug
+        ),
+        (Some(w), Some(t), _) if t.state == ThreadState::Done => format!(
+            "Not run: the thread \u{201c}{w}\u{201d} is done: `theseus thread reopen {}` takes \
+             it up again. {again}",
+            t.slug
+        ),
+        (Some(w), Some(_), Some(e)) => {
+            format!("Not run: the thread \u{201c}{w}\u{201d} could not be opened ({e}). {again}")
+        }
+        (_, _, Some(_)) => "Not run: the thread this message goes to could not be opened. Send \
+                            it again later, or without a thread's name to talk here."
+            .to_string(),
+        (word, _, None) => format!(
+            "Not run: there is no thread \u{201c}{}\u{201d}. Send it again with a thread's \
+             name, or without one to talk here.",
+            word.unwrap_or_default()
+        ),
+    };
+    RpcFailure::new(error_code::REFUSED, line)
 }
 
 /// The place's own conversation: where a message with no address runs.
@@ -208,11 +260,11 @@ impl Core {
         }
         let class = self.runner.class_of(&home);
         let live = board.live(class);
-        let reply_thread = self.reply_thread(p);
+        let reply_thread = self.reply_thread(p, &board)?;
         let nameable = board.nameable(class);
         if live.is_empty() {
             return self
-                .addressed(p, (&home, None), (&[], &nameable), reply_thread)
+                .addressed(p, (&home, None), (&*board, &[], &nameable), reply_thread)
                 .map(|_| None);
         }
         let state = &self.runner.threads.route;
@@ -223,8 +275,10 @@ impl Core {
         let mut row = fresh_row(&home);
         let mut early: Option<Early> = None;
         let at = (home.as_str(), place.as_deref());
-        let addr = self.addressed(p, at, (&live, &nameable), reply_thread)?;
-        let typed = typed_word(&p.input);
+        let addr = self.addressed(p, at, (&*board, &live, &nameable), reply_thread)?;
+        let shown = addr
+            .as_ref()
+            .map(|a| self.refusal_shows(p, a, &board, &home));
         let tag = match addr {
             Some(a) => explicit_tag(&a, &live, p),
             None => {
@@ -234,7 +288,7 @@ impl Core {
                 home_tag(1.0, false)
             }
         };
-        let (tag, run_session) = self.session_for(tag, session, typed)?;
+        let (tag, run_session) = self.session_for(tag, session, (&*board, shown))?;
         self.show_thread_at(&tag, &run_session, place.as_deref());
         let tail = self.place_tail(&home, &run_session.session_id, &live, &mut row);
         state.arrived(&home, tag.slug.as_deref(), now);
@@ -314,16 +368,31 @@ impl Core {
     }
 
     /// What a message in `home` at `place` addresses among the `live`
-    /// threads: a thread in its own words, its place, or the thread of the turn
-    /// it replies to. An address that cannot be honoured among the `nameable`
-    /// (`unhonoured`) is the refusal.
+    /// threads, all read from `board`: a failed explicit address first, so it
+    /// never falls through to the place or the reply; then the place, the
+    /// words, the reply (`address`); then a reply to a thread that is no
+    /// longer live. Of the threads that are not live, only those the gate
+    /// lets this reader be told of are read at all (`told`).
     fn addressed(
         &self,
         p: &TurnSubmitParams,
         (home, place): (&str, Option<&str>),
-        (live, nameable): (&[&ThreadInfo], &[&ThreadInfo]),
+        (board, live, nameable): (&Board, &[&ThreadInfo], &[&ThreadInfo]),
         reply_thread: Option<String>,
     ) -> Result<Option<Address>, RpcFailure> {
+        let told = || -> Vec<&ThreadInfo> {
+            nameable
+                .iter()
+                .copied()
+                .filter(|t| t.state != ThreadState::Active)
+                .filter(|t| crate::view_gate::may_name_on(&self.store, board, home, &t.slug))
+                .collect()
+        };
+        if typed_word(&p.input).is_some() {
+            if let Some(u) = failed_explicit(&p.input, live, &told()) {
+                return Err(refused(board, &u, None));
+            }
+        }
         let addressing = Addressing {
             text: &p.input,
             place,
@@ -332,26 +401,93 @@ impl Core {
         if let Some(a) = address(&addressing, live) {
             return Ok(Some(a));
         }
-        match unhonoured(p, nameable, reply_thread) {
-            Some(u) => Err(self.refuse_address(home, &u, None)),
+        // A reply to a thread no longer live: refused when this reader may
+        // be told of it; else as a reply whose turn is unknown, at home.
+        let Some(slug) = reply_thread else {
+            return Ok(None);
+        };
+        match told().into_iter().find(|t| t.slug == slug) {
+            Some(t) => Err(refused(
+                board,
+                &Unresolved {
+                    word: Some(t.title.clone()),
+                    slug: Some(slug),
+                },
+                None,
+            )),
             None => Ok(None),
         }
     }
 
-    /// The thread of the turn a message replies to: the router's memory of
-    /// this run's turns first, else the turn's `thread.routed` row, the
-    /// durable record a restart keeps (`routed_thread_of`). None: no reply,
-    /// a turn the records place at home, or one no record names (a turn of a
-    /// place without threads, or older than the rows read), which runs at
-    /// home as before.
-    fn reply_thread(&self, p: &TurnSubmitParams) -> Option<String> {
-        let turn = p.in_reply_to.as_deref()?;
-        if let Some(slug) = self.runner.threads.route.thread_of_turn(turn) {
-            return Some(slug);
+    /// What a refusal of address `a` may show if its thread does not open:
+    /// the sender's own word for an explicit address, else the thread's title
+    /// on `board`; the thread named only when the gate lets this reader be
+    /// told of it.
+    fn refusal_shows(
+        &self,
+        p: &TurnSubmitParams,
+        a: &Address,
+        board: &Board,
+        home: &str,
+    ) -> Unresolved {
+        let slug = a.slug();
+        let may = crate::view_gate::may_name_on(&self.store, board, home, slug);
+        let word = match a {
+            Address::Explicit { .. } => typed_word(&p.input),
+            _ => board.get(slug).filter(|_| may).map(|t| t.title.clone()),
+        };
+        Unresolved {
+            word,
+            slug: may.then(|| slug.to_string()),
         }
-        let slug = routed_thread_of(&self.store, turn)??;
-        self.runner.threads.route.turn_ran(turn, &slug);
-        Some(slug)
+    }
+
+    /// The thread of the turn a message replies to: the router's memory of
+    /// this run's turns first (a thread's or home), else the turn's
+    /// `thread.routed` row, the durable record a restart keeps
+    /// (`routed_thread_of`), which is then remembered either way. None: no
+    /// reply, a turn the records place at home, or one no record names (a turn
+    /// of a place without threads, or older than the rows read), which runs at
+    /// home as before. A thread's answer is checked, each time and never from
+    /// memory, against a moving split that took the exchange since
+    /// (`moved_owner`): it goes where its nodes are now, and a reply whose
+    /// nodes went different ways is refused with a line that names nothing.
+    fn reply_thread(
+        &self,
+        p: &TurnSubmitParams,
+        board: &Board,
+    ) -> Result<Option<String>, RpcFailure> {
+        let Some(turn) = p.in_reply_to.as_deref() else {
+            return Ok(None);
+        };
+        let memory = &self.runner.threads.route;
+        let slug = match memory.thread_of_turn(turn) {
+            Some(slug) => slug,
+            None if memory.ran_at_home(turn) => return Ok(None),
+            None => match routed_thread_of(&self.store, turn) {
+                Some(Some(slug)) => {
+                    memory.turn_ran(turn, &slug);
+                    slug
+                }
+                Some(None) => {
+                    memory.home_ran(turn);
+                    return Ok(None);
+                }
+                None => return Ok(None),
+            },
+        };
+        let Some(session) = board.get(&slug).and_then(|t| t.session_id.clone()) else {
+            return Ok(Some(slug));
+        };
+        match moved_owner(&self.store, &session, turn) {
+            Ok(None) => Ok(Some(slug)),
+            Ok(Some(to)) => Ok(Some(to)),
+            Err(()) => Err(RpcFailure::new(
+                error_code::REFUSED,
+                "Not run: the message this replies to was moved, and not all to one place. \
+                 Send it again with a thread's name, or without one to talk here.",
+            )),
+        }
     }
 
     /// A message the router put in a thread: the thread's replies and cards
@@ -389,13 +525,13 @@ impl Core {
 
     /// The session that runs it. A thread its address names that cannot take
     /// it (paused as the message arrived, or not opened) refuses it: the
-    /// message never runs at home in its place. `typed`: the address's word
-    /// as the sender typed it, for the refusal.
+    /// message never runs at home in its place. `shown`: what the refusal may
+    /// show, read from `board` (`Core::refusal_shows`).
     fn session_for(
         &self,
         tag: ThreadTag,
         home: &SessionRecord,
-        typed: Option<String>,
+        (board, shown): (&Board, Option<Unresolved>),
     ) -> Result<(ThreadTag, SessionRecord), RpcFailure> {
         let Some(slug) = tag.slug.clone() else {
             return Ok((tag, home.clone()));
@@ -404,54 +540,13 @@ impl Core {
             Ok(s) => Ok((tag, s)),
             Err(e) => {
                 tracing::warn!(thread = %slug, error = %e.message, "a thread its address names cannot take the message: it is refused");
-                let u = Unresolved {
-                    word: typed.unwrap_or_else(|| tag.title.clone()),
-                    slug: Some(slug),
-                };
-                Err(self.refuse_address(&home.session_id, &u, Some(&e.message)))
+                let u = shown.unwrap_or(Unresolved {
+                    word: None,
+                    slug: None,
+                });
+                Err(refused(board, &u, Some(&e.message)))
             }
         }
-    }
-
-    /// The refusal of an address that cannot be honoured (issue 44): one
-    /// plain line to the sender, as `turn.submit`'s answer, and no turn
-    /// anywhere. Why the thread cannot take it is said only of a thread the
-    /// gate lets this place name (`view_gate::may_name_thread`); a sealed or
-    /// unreadable one reads as no thread at all.
-    fn refuse_address(&self, home: &str, u: &Unresolved, failed: Option<&str>) -> RpcFailure {
-        let word = &u.word;
-        let named = u
-            .slug
-            .as_deref()
-            .filter(|s| crate::view_gate::may_name_thread(&self.runner, home, s))
-            .and_then(|s| self.threads().get(s).cloned());
-        let why = match (named.as_ref().map(|t| t.state), failed) {
-            (Some(ThreadState::Paused), _) => format!(
-                "is paused: `theseus thread resume {}` lets it take messages",
-                u.slug.as_deref().unwrap_or_default()
-            ),
-            (Some(ThreadState::Done), _) => format!(
-                "is done: `theseus thread reopen {}` takes it up again",
-                u.slug.as_deref().unwrap_or_default()
-            ),
-            (Some(ThreadState::Active), Some(e)) => format!("could not be opened ({e})"),
-            _ => {
-                return RpcFailure::new(
-                    error_code::REFUSED,
-                    format!(
-                        "Not run: there is no thread \u{201c}{word}\u{201d}. Send it again with a \
-                         thread's name, or without one to talk here."
-                    ),
-                )
-            }
-        };
-        RpcFailure::new(
-            error_code::REFUSED,
-            format!(
-                "Not run: the thread \u{201c}{word}\u{201d} {why}. Send it again then, or \
-                 without the thread's name to talk here."
-            ),
-        )
     }
 
     /// Whether this message is one the router places at all. A session the
@@ -555,8 +650,9 @@ impl Core {
         let state = &self.runner.threads.route;
         state.clear_handoff(&r.session);
         let Some(res) = res else { return };
-        if let Some(slug) = &r.slug {
-            state.turn_ran(&res.turn_id, slug);
+        match &r.slug {
+            Some(slug) => state.turn_ran(&res.turn_id, slug),
+            None => state.home_ran(&res.turn_id),
         }
         let replied = r
             .bench

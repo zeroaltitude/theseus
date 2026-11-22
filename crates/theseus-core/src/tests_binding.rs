@@ -19,13 +19,13 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-struct Rig {
-    core: Arc<Core>,
-    fake: Arc<FakeProvider>,
+pub(crate) struct Rig {
+    pub(crate) core: Arc<Core>,
+    pub(crate) fake: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(mode: Binding, script: Vec<Scripted>) -> Rig {
+pub(crate) fn rig(mode: Binding, script: Vec<Scripted>) -> Rig {
     rig_with(mode, script, |_| {})
 }
 
@@ -56,7 +56,7 @@ fn rig_with(mode: Binding, script: Vec<Scripted>, tweak: impl FnOnce(&mut Config
 }
 
 /// An answer that thinks, then reads the harbor file.
-fn thinks_then_reads(id: &str) -> Scripted {
+pub(crate) fn thinks_then_reads(id: &str) -> Scripted {
     Scripted::Blocks {
         blocks: vec![
             json!({"type": "thinking", "thinking": format!("read it ({id})")}),
@@ -67,7 +67,7 @@ fn thinks_then_reads(id: &str) -> Scripted {
 }
 
 /// A conversation bound to a place, as a person's private message is.
-fn private_session(core: &Core) -> String {
+pub(crate) fn private_session(core: &Core) -> String {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
     core.outbox.bind_place("dm:7", &rec.session_id).unwrap();

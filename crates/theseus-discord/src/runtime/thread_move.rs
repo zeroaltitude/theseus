@@ -38,7 +38,9 @@ const SENT_READ: usize = 5000;
 /// reply's turn, as before.
 pub(super) async fn sent_turn_of(rpc: &RpcClient, message: u64) -> Option<String> {
     let id = message.to_string();
-    let (mut before, mut read) = (None, 0);
+    // `ledger.tail` gives the next page's cursor (`older`) only to a read
+    // that named `before`: the walk starts at the log's end, named.
+    let (mut before, mut read) = (Some(u64::MAX), 0);
     while read < SENT_READ {
         let page = rpc
             .call::<_, LedgerTailResult>(
@@ -58,6 +60,9 @@ pub(super) async fn sent_turn_of(rpc: &RpcClient, message: u64) -> Option<String
                 return None;
             }
         };
+        if page.rows.is_empty() {
+            return None;
+        }
         read += page.rows.len();
         if let Some(r) = page
             .rows
@@ -244,5 +249,38 @@ mod tests {
         assert_eq!(found, "turn_old");
         assert_eq!(sent_turn_of(&shared.rpc, 4343).await, None, "no turn's key");
         assert_eq!(sent_turn_of(&shared.rpc, 4444).await, None, "no row");
+    }
+
+    /// A message sent long before, past the first page of `ledger.tail`'s
+    /// answer, is still found: the walk pages back (issue 44).
+    #[tokio::test]
+    async fn a_message_past_the_first_page_is_found() {
+        let d = tempfile::tempdir().unwrap();
+        let secrets = theseus_core::secrets::SecretBoard::new([], std::time::Instant::now());
+        let core = crate::runtime::tests::core_with(d.path(), secrets, |_| {});
+        let shared = crate::runtime::shared_for_tests(&core);
+        let out = |id: String, part: String| {
+            core.binding_ledger(
+                LedgerKind::DiscordMessageOut,
+                None,
+                serde_json::json!({"place": "#harbor", "target": "discord:channel:7",
+                                   "message_id": id, "channel": "7", "part": part}),
+            );
+        };
+        out("4242".into(), "turn_long_ago:0".into());
+        for i in 0..1_500u64 {
+            out((10_000 + i).to_string(), format!("turn_n{i}:0"));
+        }
+        let found = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if let Some(t) = sent_turn_of(&shared.rpc, 4242).await {
+                    break t;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("the row past the first page is read back");
+        assert_eq!(found, "turn_long_ago");
     }
 }

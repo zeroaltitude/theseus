@@ -42,7 +42,8 @@ impl Fact for ThreadRouted<'_> {
     fn row(&self) -> Value {
         let r = self.0;
         let mut row = json!({
-            "home": r.home, "to": r.to.as_deref().unwrap_or("home"), "session": r.session,
+            "home": r.home, "to": r.to.as_deref().unwrap_or("home"), "thread": r.to,
+            "session": r.session,
             "how": r.how, "confidence": r.confidence, "movable": r.movable, "early": r.early,
         });
         if let Some((from, tokens)) = &r.tail {
@@ -63,6 +64,28 @@ impl Fact for ThreadRouted<'_> {
             ),
         );
     }
+}
+
+/// Where a `thread.routed` row's message ran: `Some(Some(slug))` in a
+/// thread, `Some(None)` at home, `None` for a row that does not say. A row
+/// written since issue 44's fix says it in `thread` (null at home). An older
+/// row says `to`, whose "home" is either the place's own conversation or a
+/// thread whose slug is `home`: a home turn runs in the place's own session,
+/// so `session` against `home` tells them apart.
+pub fn routed_dest(data: &Value) -> Option<Option<String>> {
+    if let Some(t) = data.get("thread") {
+        return match t {
+            Value::Null => Some(None),
+            Value::String(s) => Some(Some(s.clone())),
+            _ => None,
+        };
+    }
+    let to = data["to"].as_str()?;
+    if to != "home" {
+        return Some(Some(to.to_string()));
+    }
+    let at_home = data["session"].as_str()? == data["home"].as_str()?;
+    Some((!at_home).then(|| "home".to_string()))
 }
 
 /// `thread.moved`: the owner said a message belonged elsewhere.

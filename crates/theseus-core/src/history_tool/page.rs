@@ -95,6 +95,9 @@ pub struct Lens<'a> {
     /// Whether a session's words are held out: true unless it is proven neither sealed nor seal-pending
     /// (`Core::ladder_hidden`), the asking session itself aside.
     pub hidden: &'a (dyn Fn(&str) -> bool + Sync),
+    /// Whether an exchange holds a message or a reply moved into a thread not proven clear for this reader
+    /// (`view_gate::Moved`): it is held whole, before any page, count or cursor is made.
+    pub moved: &'a (dyn Fn(&Exchange) -> bool + Sync),
     /// Whether a session's place is private, by the place rule.
     pub private: &'a (dyn Fn(&str) -> bool + Sync),
     /// Where a bare call begins ([`in_view`]).
@@ -110,13 +113,14 @@ pub struct Walked {
 }
 
 impl Lens<'_> {
-    /// Whether `ex` may be shown here. Nothing for an unknown audience, an unknown place, or a session not
-    /// proven unsealed. This place's own exchanges, a private one only to a private reader. Another place's
+    /// Whether `ex` may be shown here. Nothing for an unknown audience, an unknown place, a session not
+    /// proven unsealed, or a message of it moved into a thread not proven unsealed. This place's own exchanges, a private one only to a private reader. Another place's
     /// only where the owner is alone, and only his own exchanges of a private place.
     pub fn admits(&self, ex: &Exchange) -> bool {
         if matches!(self.present, Present::Unknown)
             || ex.place == exchange::rebuild::UNKNOWN
             || (self.hidden)(&ex.session_id)
+            || (self.moved)(ex)
         {
             return false;
         }
