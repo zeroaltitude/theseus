@@ -24,7 +24,6 @@ use theseus_protocol::own_bench::{ReplayVerdict, TurnReplayParams, TurnReplayRes
 
 use super::rebuild::{Original, Said};
 use super::{parse_effort, BY_OWNER, REPLAY_MAX_TOKENS};
-use crate::compiler::render_request;
 use crate::fact::own_bench::TurnReplayed;
 use crate::node::Body;
 use crate::places::PlaceClass;
@@ -159,24 +158,19 @@ impl Core {
         {
             return Some("its thread is sealed".into());
         }
-        for (_, n) in &original.nodes {
-            let Body::Recall { items, .. } = &n.body else {
-                continue;
-            };
-            for it in items {
-                let imported = self
-                    .store
-                    .get_session::<crate::session::SessionRecord>(&it.session_id)
-                    .ok()
-                    .flatten()
-                    .and_then(|r| r.imported);
-                if let Some(i) = imported {
-                    if crate::memory_lookup::VEILED.contains(&i.labels.sensitivity.as_str()) {
-                        return Some(format!(
-                            "its recall carries a {} source",
-                            i.labels.sensitivity
-                        ));
-                    }
+        for source in self.recalled_from(original) {
+            let imported = self
+                .store
+                .get_session::<crate::session::SessionRecord>(&source)
+                .ok()
+                .flatten()
+                .and_then(|r| r.imported);
+            if let Some(i) = imported {
+                if crate::memory_lookup::VEILED.contains(&i.labels.sensitivity.as_str()) {
+                    return Some(format!(
+                        "its recall carries a {} source",
+                        i.labels.sensitivity
+                    ));
                 }
             }
         }
@@ -184,6 +178,18 @@ impl Core {
             return Some("its request carries an attachment".into());
         }
         None
+    }
+
+    /// The sessions `original`'s recall in front of the model came from: its recall notes' items, and the
+    /// nodes a view laid beside its message (a node that cannot be read names no session).
+    fn recalled_from(&self, original: &Original) -> Vec<String> {
+        let noted = (original.nodes.iter()).flat_map(|(_, n)| match &n.body {
+            Body::Recall { items, .. } => items.iter().map(|it| it.session_id.clone()).collect(),
+            _ => Vec::new(),
+        });
+        let laid = (original.view.iter()).flat_map(|f| &f.recalled);
+        let viewed = laid.filter_map(|id| self.store.get_node(id).ok().flatten());
+        noted.chain(viewed.map(|(_, n)| n.session_id)).collect()
     }
 
     /// One turn's first loop replayed on `p.profile`, judged, and written as
@@ -402,20 +408,17 @@ impl Core {
         spec.effort = effort;
         spec.turn_effort = None;
         spec.max_tokens = target.max_tokens.min(REPLAY_MAX_TOKENS);
-        let request = render_request(
+        let o = original;
+        self.rendered(
             &spec,
-            &self.catalog,
-            &original.compilation,
-            &original.nodes,
             (
-                Some(self.store.blobs()),
-                &original.session.not_shown,
-                None,
-                &original.sources,
+                &o.compilation,
+                &o.nodes,
+                &o.session,
+                &o.sources,
+                o.view.as_ref(),
             ),
         )
-        .request;
-        request
     }
 
     /// `compare.v1` on the two replies, into the result.
