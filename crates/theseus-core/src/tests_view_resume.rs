@@ -507,3 +507,50 @@ async fn a_displaced_sessions_plain_failure_is_posted_where_its_wake_answers() {
     let next = submit(&c, &sid, "and now, the pilot boat?").await.unwrap();
     assert_eq!(next.output, "Back again.");
 }
+
+/// The review's §6, at the level of the request: an owner-opened turn is cut, the owner's words in another
+/// private place of his are recent, and the turn's durable steer has no mark. Resumed after the crash, its
+/// request holds none of that other place's words (the steer narrowed it: the owner is not alone). The
+/// control, with no steer: the owner alone, his other place's words are laid (slot F), so their absence above
+/// is the steer's doing.
+#[tokio::test]
+async fn a_crash_after_a_steer_keeps_another_places_words_out_of_the_resumed_request() {
+    const ELSEWHERE: &str = "elsewhere: the spare key is under the blue heron statue";
+    for steered in [true, false] {
+        let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
+            cut(),
+            Scripted::text("Noted."),
+            Scripted::text("The board shows three ferries."),
+        ]));
+        let (c, sid, turn) = restart_rig(fake.clone(), None, "what is on the harbour board?").await;
+        let other = session_in(&c, None, std::path::Path::new("/srv/elsewhere-ship"));
+        submit(&c, &other, ELSEWHERE).await.unwrap();
+        let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
+        (ex.end_ms, ex.stop) = (None, None);
+        ex.messages = ex.ask.iter().cloned().collect();
+        let mut records = vec![crate::exchange::exchange_record(&ex).unwrap()];
+        if steered {
+            let steer = crate::node::Node::user_with(
+                &sid,
+                Some(&turn),
+                "agent",
+                "also list the gulls",
+                vec![],
+            );
+            records.push(steer.record().unwrap());
+        }
+        c.store.append(&records).unwrap();
+        let before = fake.requests().len();
+        let res = resume(&c, &sid).await.unwrap();
+        assert_eq!(res.output, "The board shows three ferries.");
+        let sent: Vec<String> = (fake.requests()[before..].iter()).map(texts).collect();
+        assert!(!sent.is_empty());
+        let laid = sent
+            .iter()
+            .any(|t| t.contains("spare key is under the blue heron"));
+        assert_eq!(
+            laid, !steered,
+            "steered {steered}: another private place's words are laid only where the owner is alone: {sent:?}"
+        );
+    }
+}

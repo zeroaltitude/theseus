@@ -567,3 +567,112 @@ async fn a_task_with_no_proof_pages_and_opens_its_own_history_in_a_later_turn() 
     let elsewhere = ask(args(json!({"place": "local"}))).await;
     assert!(elsewhere.is_err(), "another place: {elsewhere:?}");
 }
+
+/// The hand-backs review's P1, through the parent's catch-up: a task started in a channel bound private
+/// reports after the SAME channel became shared. Started by a turn no message opened (its creating exchange
+/// has no ask, and the gate's presence was kept for it, `exchange::given`), the relayed report is the
+/// withheld notice and holds none of the report's words; a marked setup's is the same (the control).
+#[tokio::test]
+async fn a_report_into_a_channel_that_became_shared_is_a_notice_whoever_set_it_up() {
+    for kept in [true, false] {
+        report_after_the_channel_turned_shared(kept).await;
+    }
+}
+
+async fn report_after_the_channel_turned_shared(kept: bool) {
+    use crate::exchange::given::{given_record, Given};
+    const BRIEF: &str = "find where the kestrel nests";
+    const FACT: &str = "KESTREL NEST: grid 7Q behind the old mill";
+    let r = view_rig(|_, brief| (brief == BRIEF).then(|| Scripted::text(FACT)));
+    let lab = "discord:channel:88";
+    let bound = |private: bool| crate::places::BoundPlace {
+        target: lab.into(),
+        name: "the lab".into(),
+        private,
+        ..Default::default()
+    };
+    r.core.bind_places(vec![bound(true)]);
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    r.core
+        .outbox
+        .bind_place("channel:88", &rec.session_id)
+        .unwrap();
+    let parent = rec.session_id;
+    assert_eq!(
+        r.core.runner.place_of(&parent),
+        theseus_memory::recall::Place::Private
+    );
+    let arrangement = asked_apart(&r.core, &parent).await;
+    let input = json!({"brief": BRIEF, "arrangement": arrangement, "fidelity_ack": true});
+    crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
+    let task = task_by_brief(&r.core, BRIEF);
+    let t0 = std::time::Instant::now();
+    loop {
+        let state = r.core.kernel.execution(&task.id).unwrap().unwrap().state;
+        let ended = (exchanges(&r.core, &task).iter()).any(|e| e.end_ms.is_some());
+        if ended && !matches!(state, ExecState::Queued | ExecState::Running) {
+            break;
+        }
+        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
+        assert!(
+            !waited,
+            "the task did not end: {}",
+            state_of(&r, &task, BRIEF)
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    if kept {
+        // The creating turn as a turn no message opened (a wake's): no ask, no message; its presence kept.
+        let turn = (r.core.store.session_nodes(&parent).unwrap().into_iter())
+            .find_map(|(_, n)| match &n.body {
+                Body::ToolCall { tool_use_id, .. } if tool_use_id == "t_task" => n.turn_id.clone(),
+                _ => None,
+            })
+            .expect("the turn that started the task");
+        let mut ex = exchange(&r.core.store, &turn).unwrap().unwrap();
+        (ex.ask, ex.opened_by) = (None, Opener::Wake);
+        ex.messages.clear();
+        let given = Given::new(&turn, theseus_memory::gate::Present::PrivateChannel, None);
+        r.core
+            .store
+            .append(&[
+                crate::exchange::exchange_record(&ex).unwrap(),
+                given_record(&given).unwrap(),
+            ])
+            .unwrap();
+    }
+    // The same target, now shared.
+    r.core.bind_places(vec![bound(false)]);
+    assert!(matches!(
+        r.core.runner.place_of(&parent),
+        theseus_memory::recall::Place::Shared(_)
+    ));
+    crate::test_support::turn(&r.core, &parent, "anything new?").await;
+    let relayed: Vec<String> = (r.core.store.session_nodes(&parent).unwrap().into_iter())
+        .filter_map(|(_, n)| match n.body {
+            Body::UserMessage { text, .. } if text.contains("task") && text.contains('[') => {
+                Some(text)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        relayed
+            .iter()
+            .any(|t| t.contains("its report is waiting where the owner is alone")),
+        "the notice is relayed (kept: {kept}): {relayed:?}"
+    );
+    assert!(
+        relayed.iter().all(|t| !t.contains(FACT)),
+        "none of the report's words is relayed (kept: {kept}): {relayed:?}"
+    );
+    let parents: Vec<ProviderRequest> = (r.model.requests.lock().unwrap().iter())
+        .filter(|q| own_brief(q).is_none())
+        .cloned()
+        .collect();
+    assert!(
+        parents.iter().all(|q| !user_text(q).contains(FACT)),
+        "the shared channel's requests hold none of it (kept: {kept})"
+    );
+}
