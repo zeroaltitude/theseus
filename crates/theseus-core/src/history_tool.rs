@@ -340,7 +340,7 @@ pub(crate) async fn answer(
         hidden: &hidden,
         moved: &moved,
         private: &private,
-        in_view: page::in_view(&core.store, session).map_err(|e| format!("{e:#}"))?,
+        in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
     };
     if let Some(h) = &a.open {
