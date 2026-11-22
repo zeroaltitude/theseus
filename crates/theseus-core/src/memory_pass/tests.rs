@@ -325,7 +325,7 @@ fn harness(sid: &str, turn: &str, text: &str) -> Node {
 /// tool call. Through the pass, only the eligible are labeled.
 #[tokio::test(start_paused = true)]
 async fn only_the_eligible_are_labeled_and_a_recall_never_is() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let sid = "ses_heron";
     let u = user(
         sid,
@@ -384,7 +384,7 @@ async fn only_the_eligible_are_labeled_and_a_recall_never_is() {
 /// (DD5), which it may restate. An empty one is not labeled.
 #[tokio::test(start_paused = true)]
 async fn a_summary_is_labeled_with_its_ranges_trust() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let sid = "ses_curlew";
     let u = user(sid, "trn_1", "The curlew survey starts at the east marsh.");
     let mut fetched = result(sid, "trn_1", "Curlew counts: 41 at the east marsh.");
@@ -462,7 +462,7 @@ async fn a_summary_is_labeled_with_its_ranges_trust() {
 /// A node's row: its labels, its entities (from the index), and its trust.
 #[tokio::test(start_paused = true)]
 async fn a_labeled_row_carries_the_tables_labels_and_the_indexs_entities() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let sid = "ses_kestrel";
     let u = user(
         sid,
@@ -483,7 +483,7 @@ async fn a_labeled_row_carries_the_tables_labels_and_the_indexs_entities() {
 
     // No tender to ask: labeled all the same, and the row says why there
     // are no entities.
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     *r.index.down.lock().unwrap() = Some("the index is off: [index] enabled = false".into());
     r.put(&[&u]);
     r.pass(sid, "trn_1").await;
@@ -502,7 +502,7 @@ async fn a_labeled_row_carries_the_tables_labels_and_the_indexs_entities() {
 /// scoped into the older node; each row names the neighbours it saw.
 #[tokio::test(start_paused = true)]
 async fn the_gates_thresholds_make_the_right_edges() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let sid = "ses_larkspur";
     let dup = user(
         sid,
@@ -586,7 +586,7 @@ async fn the_gates_thresholds_make_the_right_edges() {
 /// all (`bm25_only`), or none, is said in the row, with no edge.
 #[tokio::test(start_paused = true)]
 async fn a_node_not_yet_embedded_waits_and_an_index_without_vectors_is_said() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let sid = "ses_wren";
     let soon = user(
         sid,
@@ -623,7 +623,7 @@ async fn a_node_not_yet_embedded_waits_and_an_index_without_vectors_is_said() {
     assert_eq!(r.gated(sid)[&late.id]["decision"], "store");
 
     // No model files: the gate says so, and writes no edge.
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     *r.index.mode.lock().unwrap() = "bm25_only".into();
     let n = user(
         sid,
@@ -639,7 +639,7 @@ async fn a_node_not_yet_embedded_waits_and_an_index_without_vectors_is_said() {
     assert_eq!(r.labeled(sid).len(), 1, "labeled all the same");
 
     // No tender at all: the row says why, and the entities are unavailable.
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     *r.index.down.lock().unwrap() = Some("the index is off: [index] enabled = false".into());
     r.put(&[&n]);
     r.pass(sid, "trn_1").await;
@@ -656,7 +656,7 @@ async fn a_node_not_yet_embedded_waits_and_an_index_without_vectors_is_said() {
 /// never a node's records split between two.
 #[tokio::test(start_paused = true)]
 async fn at_most_one_frame_per_32_nodes_or_2_seconds() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let sid = "ses_plover";
     let few: Vec<Node> = (0..5)
         .map(|i| {
@@ -676,7 +676,7 @@ async fn at_most_one_frame_per_32_nodes_or_2_seconds() {
     assert_eq!(r.frames(), before + 1, "one frame once it ran out");
     assert_eq!(r.labeled(sid).len(), 5);
 
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let many: Vec<Node> = (0..70)
         .map(|i| {
             user(
@@ -959,7 +959,7 @@ fn slow_core(delay_ms: u64) -> (Arc<crate::Core>, tempfile::TempDir) {
     let mut cfg = crate::Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
-    cfg.memory.mode = MemoryMode::Shadow;
+    cfg.memory.mode = MemoryMode::Live;
     let store = Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(crate::provider::FakeProvider {
         delay_ms,

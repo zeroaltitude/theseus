@@ -145,8 +145,6 @@ pub struct Memory {
     labels: RwLock<Option<BTreeSet<String>>>,
     /// The correction notes a retraction left for sessions' next turns (theseus-2ced).
     pub corrections: crate::retract::Notes,
-    /// The sessions whose `memory.arm` row this daemon has seen or written.
-    armed: Mutex<BTreeSet<String>>,
     /// Sources a `Recall` node rendered, by id: they never change.
     sources: Mutex<render::Sources>,
     /// Where the warm-up's outcome is counted, once telemetry is built.
@@ -191,7 +189,6 @@ impl Memory {
             warming: Arc::default(),
             labels: RwLock::new(None),
             corrections: crate::retract::Notes::default(),
-            armed: Mutex::new(BTreeSet::new()),
             sources: Mutex::new(render::Sources::new()),
             telemetry: std::sync::OnceLock::new(),
             syntheses: RwLock::new(None),
@@ -254,41 +251,6 @@ impl Memory {
         r: &crate::node::RecalledRef,
     ) -> Option<Arc<Node>> {
         render::source(store, r, &self.sources)
-    }
-
-    /// Whether `session_id`'s `memory.arm` row is written: known to this
-    /// daemon, or found among the session's recall rows.
-    pub fn arm_recorded(
-        &self,
-        store: &crate::store::Store,
-        session_id: &str,
-    ) -> anyhow::Result<bool> {
-        if self
-            .armed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(session_id)
-        {
-            return Ok(true);
-        }
-        let kind = theseus_protocol::LedgerKind::MemoryArm.as_str();
-        for r in store.scope_after(&crate::fact::recall::scope(session_id), 0)? {
-            if r.kind == theseus_store::kinds::LEDGER
-                && r.decode::<crate::ledger::LedgerRow>()?.kind == kind
-            {
-                self.armed(session_id);
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// `session_id`'s `memory.arm` row is written.
-    pub fn armed(&self, session_id: &str) {
-        self.armed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(session_id.to_string());
     }
 
     /// Whether a turn recalls: `[memory] mode` is not `off`.

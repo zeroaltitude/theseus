@@ -63,7 +63,7 @@ pub(crate) fn pack_mode(cfg: &mut Config, pack: &str, mode: PackMode) {
     );
 }
 
-/// Memory in shadow, admitting one item; the judge on against `jev` when
+/// Memory live, admitting one item; the judge on against `jev` when
 /// given, with every other wired pack off (`loop.v1`, and the gate's,
 /// inbound's, compile's and categorize's points), so every judgment is the
 /// rerank's.
@@ -73,7 +73,7 @@ pub(crate) fn rig(jev: Option<&FakeJev>, tweak: impl FnOnce(&mut Config)) -> Rig
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     cfg.places.owner = Some(vec![format!("discord:{OWNER}")]);
-    cfg.memory.mode = MemoryMode::Shadow;
+    cfg.memory.mode = MemoryMode::Live;
     cfg.memory.recall_max_items = 1;
     if let Some(j) = jev {
         cfg.judge.enabled = true;

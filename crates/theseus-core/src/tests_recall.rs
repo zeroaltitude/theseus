@@ -183,8 +183,8 @@ pub(crate) fn dropped_for<'a>(m: &'a RecallManifest, reason: &str) -> Vec<&'a st
 /// its row says so, scoped to the session, and `memory.recalls` gives each
 /// admitted item's text.
 #[tokio::test]
-async fn a_turn_records_what_recall_would_admit_and_why_it_dropped_the_rest() {
-    let r = rig(MemoryMode::Shadow);
+async fn a_turn_records_what_recall_admits_and_why_it_dropped_the_rest() {
+    let r = rig(MemoryMode::Live);
     let c = &r.core;
     let notes = session(c, None, &["the heron nests by the weir"]);
     let pier = session(
@@ -201,7 +201,7 @@ async fn a_turn_records_what_recall_would_admit_and_why_it_dropped_the_rest() {
     let rows = recalls(c, &here);
     assert_eq!(rows.len(), 2, "one recall a turn");
     let m = &rows[0];
-    assert_eq!((m.mode.as_str(), m.outcome.as_str()), ("shadow", "ran"));
+    assert_eq!((m.mode.as_str(), m.outcome.as_str()), ("live", "ran"));
     assert_eq!(m.place, "private");
     assert!(m.science.starts_with("baseline@"), "{}", m.science);
     let mut got = admitted(m);
@@ -229,7 +229,7 @@ async fn a_turn_records_what_recall_would_admit_and_why_it_dropped_the_rest() {
         .map(|r| r.decode().unwrap())
         .collect();
     let bytes = serde_json::to_string(&raw[0]).unwrap();
-    assert_eq!(raw[0].kind, "recall.shadow");
+    assert_eq!(raw[0].kind, "recall.ran");
     assert!(
         !bytes.contains("weir") && !bytes.contains("heron"),
         "{bytes}"
@@ -242,7 +242,7 @@ async fn a_turn_records_what_recall_would_admit_and_why_it_dropped_the_rest() {
 /// On the paused clock: the bound on the turn's time is its own virtual time.
 #[tokio::test(start_paused = true)]
 async fn a_stalled_index_never_holds_the_turn() {
-    let r = rig_with(MemoryMode::Shadow, |c| c.memory.recall_deadline_ms = 50);
+    let r = rig_with(MemoryMode::Live, |c| c.memory.recall_deadline_ms = 50);
     let c = &r.core;
     let here = session(c, None, &[]);
     // Before the stand-in: the core's own tender, which is not running.
@@ -294,46 +294,6 @@ pub(crate) fn sent(model: &FakeProvider) -> Vec<String> {
     reqs.iter()
         .map(|q| serde_json::to_string(&(&q.system, &q.messages, &q.tools)).unwrap())
         .collect()
-}
-
-/// The same two turns, with memory off and in shadow: shadow admits
-/// something, and the model gets the same bytes; and a plain turn in shadow
-/// stays within the frame budget, its row riding in a frame it writes anyway.
-#[tokio::test]
-async fn shadow_writes_no_frame_and_changes_no_request_byte() {
-    let mut requests = Vec::new();
-    for mode in [MemoryMode::Off, MemoryMode::Shadow] {
-        let r = rig(mode);
-        let c = &r.core;
-        let notes = session(c, None, &["the heron nests by the weir"]);
-        let here = session(c, None, &[]);
-        c.runner.memory.set_ask(index_of(c, vec![notes]));
-        turn(c, &here, "warm up").await;
-        let before = c.store.stats().unwrap().frames_appended;
-        let res = turn(c, &here, "where does the heron nest?").await;
-        let frames = c.store.stats().unwrap().frames_appended - before;
-        assert!(frames <= 4, "{mode:?}: a plain turn wrote {frames} frames");
-        let digests: Vec<String> = c
-            .store
-            .session_nodes(&here)
-            .unwrap()
-            .into_iter()
-            .filter_map(|(_, n)| match n.body {
-                crate::node::Body::AssistantMessage { request_digest, .. } => request_digest,
-                _ => None,
-            })
-            .collect();
-        if mode == MemoryMode::Shadow {
-            let rows = recalls(c, &here);
-            assert_eq!(rows.len(), 2);
-            assert_eq!(rows[1].turn_id.as_deref(), Some(res.turn_id.as_str()));
-            assert_eq!(rows[1].admitted.len(), 1, "shadow would admit the note");
-        }
-        requests.push((sent(&r.model), digests));
-    }
-    assert_eq!(requests[0].0.len(), 2);
-    assert_eq!(requests[0].0, requests[1].0, "shadow changed the request");
-    assert_eq!(requests[0].1, requests[1].1, "the request's digest moved");
 }
 
 /// `memory.search` runs the pipeline for a query, writing nothing: as the

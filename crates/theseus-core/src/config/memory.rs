@@ -2,11 +2,9 @@
 //! (theseus-is8t: the memory is what sets Theseus apart, so a fresh install
 //! has it; it needs no Jev, and with no index it answers nothing and costs
 //! nothing; the place rule keeps a shared place to its own sessions).
-//! `off` turns it off. `shadow` asks
-//! the index on a turn's first loop, filters and packs what it answers, and
-//! records what would have been admitted in a `recall.shadow` row: it writes
-//! no frame, and the model's request is the same byte for byte. `live` (step
-//! 30b) puts recall in front of the model for every session.
+//! `off` turns it off. `live` (step 30b) puts recall in front of the model
+//! for every session. `arm` is `baseline` in production; the memory exam and
+//! the recall bench set it per daemon to compare arms.
 //!
 //! **Retired** (the owner, 2026-11-21): the research arms `+retention`,
 //! `+activation` and `+synthesis`, the `canary` mode and its
@@ -14,7 +12,11 @@
 //! loads: an old arm is read as `baseline`, `canary` as `live` (so every
 //! session, a former control too, gets live recall), and the fraction is
 //! ignored; the start says which of these happened, once
-//! ([`MemoryConfig::retirement`]).
+//! ([`MemoryConfig::retirement`]). **Retired with them** (D8a): the `shadow`
+//! mode, which recalled and recorded and put nothing in front of the model,
+//! and the `experiment` name its `memory.arm` rows carried. `shadow` reads as
+//! `live`, with the same line at the start; old `recall.shadow` and
+//! `memory.arm` rows still read.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -25,12 +27,10 @@ use serde::{Deserialize, Serialize};
 pub enum MemoryMode {
     /// No recall.
     Off,
-    /// Recall runs and is recorded, and nothing reaches the model.
-    Shadow,
-    /// Every session gets `arm` in front of the model. `canary`, retired,
-    /// reads as this.
+    /// Every session gets `arm` in front of the model. `canary` and `shadow`,
+    /// retired, read as this.
     #[default]
-    #[serde(alias = "canary")]
+    #[serde(alias = "canary", alias = "shadow")]
     Live,
 }
 
@@ -38,7 +38,6 @@ impl MemoryMode {
     pub fn as_str(self) -> &'static str {
         match self {
             MemoryMode::Off => "off",
-            MemoryMode::Shadow => "shadow",
             MemoryMode::Live => "live",
         }
     }
@@ -63,6 +62,8 @@ pub enum MemoryArm {
 pub const RETIRED_ARMS: [&str; 3] = ["+retention", "+activation", "+synthesis"];
 /// The retired mode: it reads as `live`.
 pub const RETIRED_MODE: &str = "canary";
+/// The retired shadow mode (D8a): it reads as `live`.
+pub const RETIRED_SHADOW: &str = "shadow";
 
 impl MemoryArm {
     pub fn as_str(self) -> &'static str {
@@ -98,7 +99,8 @@ impl MemoryArm {
 pub struct MemoryConfig {
     #[serde(default)]
     pub mode: MemoryMode,
-    /// The arm live sessions get.
+    /// The arm sessions get: `baseline` in production. The memory exam and
+    /// the recall bench set it per daemon to compare arms.
     #[serde(default)]
     pub arm: MemoryArm,
     /// `canary_fraction`, retired with the `canary` mode: read, warned of
@@ -112,9 +114,9 @@ pub struct MemoryConfig {
     /// The document said `mode = "canary"`, which serde read as `live`.
     #[serde(skip)]
     pub(crate) retired_canary: bool,
-    /// The experiment's name: each `memory.arm` row names it.
-    #[serde(default = "default_experiment")]
-    pub experiment: String,
+    /// The document said `mode = "shadow"`, which serde read as `live`.
+    #[serde(skip)]
+    pub(crate) retired_shadow: bool,
     /// The pack's tokens: an ordinary prompt's (theseus-d9je7, `turn::tier`).
     #[serde(default = "default_budget")]
     pub recall_budget_tokens: u64,
@@ -217,9 +219,6 @@ fn default_vector_tokens() -> u64 {
 fn default_rerank_wait_ms() -> u64 {
     200
 }
-fn default_experiment() -> String {
-    "m6-1".into()
-}
 fn default_assembled_budget() -> u64 {
     4_000
 }
@@ -265,7 +264,7 @@ impl Default for MemoryConfig {
             canary_fraction: None,
             retired_arm: None,
             retired_canary: false,
-            experiment: default_experiment(),
+            retired_shadow: false,
             recall_budget_tokens: default_budget(),
             recall_max_items: default_max_items(),
             deep_recall_tokens: default_deep_tokens(),
@@ -323,6 +322,7 @@ impl MemoryConfig {
             .filter(|a| RETIRED_ARMS.contains(a))
             .map(str::to_string);
         self.retired_canary = said("mode") == Some(RETIRED_MODE);
+        self.retired_shadow = said("mode") == Some(RETIRED_SHADOW);
     }
 
     /// The start's one line about what this section sets that this build
@@ -353,6 +353,12 @@ impl MemoryConfig {
                 ),
             });
         }
+        if self.retired_shadow {
+            said.push(format!(
+                "memory.mode = \"{RETIRED_SHADOW}\" is retired: recall no longer runs without \
+                 reaching the model, and every session now gets live recall on arm = \"{arm}\""
+            ));
+        }
         if self.canary_fraction.is_some() {
             said.push("memory.canary_fraction is retired and ignored".into());
         }
@@ -367,9 +373,6 @@ impl MemoryConfig {
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
-        if self.experiment.trim().is_empty() {
-            bail!("memory.experiment is empty: it names the plan, and seeds each session's arm");
-        }
         for (key, tokens) in [
             ("recall_budget_tokens", self.recall_budget_tokens),
             ("deep_recall_tokens", self.deep_recall_tokens),
@@ -470,11 +473,11 @@ pub struct Assigned {
 
 impl MemoryConfig {
     /// A session's arm under this config: `arm`, live; `None` while memory
-    /// is off or in shadow, which assigns nothing. The same for every
-    /// session since the `canary` mode's share went.
+    /// is off. The same for every session since the `canary` mode's share
+    /// went.
     pub fn assign(&self, _session_id: &str) -> Option<Assigned> {
         match self.mode {
-            MemoryMode::Off | MemoryMode::Shadow => None,
+            MemoryMode::Off => None,
             MemoryMode::Live => Some(Assigned {
                 arm: self.arm,
                 live: self.arm != MemoryArm::None,
@@ -603,7 +606,7 @@ mod tests {
     }
 
     /// Live puts every session on the arm (`none` is not in front of the
-    /// model), and off and shadow assign none.
+    /// model), and off assigns none.
     #[test]
     fn live_puts_every_session_on_the_arm() {
         let mut m = MemoryConfig::default();
@@ -619,10 +622,8 @@ mod tests {
         }
         m.arm = MemoryArm::None;
         assert!(ids.iter().all(|s| !m.assign(s).unwrap().live));
-        for mode in [MemoryMode::Shadow, MemoryMode::Off] {
-            m.mode = mode;
-            assert_eq!(m.assign("ses_heron0001"), None);
-        }
+        m.mode = MemoryMode::Off;
+        assert_eq!(m.assign("ses_heron0001"), None);
     }
 
     /// The start's lines about `[memory]` for `body` appended to the
@@ -690,14 +691,14 @@ mod tests {
         assert!(!said[0].contains("live"), "{}", said[0]);
     }
 
-    /// The fraction alone is ignored, and nothing else changes: shadow on
-    /// `bm25` stays shadow on `bm25`.
+    /// The fraction alone is ignored, and nothing else changes: live on
+    /// `bm25` stays live on `bm25`.
     #[test]
-    fn the_fraction_alone_is_ignored_and_shadow_on_bm25_stays() {
-        let (cfg, said) = loaded("mode = \"shadow\"\narm = \"bm25\"\ncanary_fraction = 0.1");
+    fn the_fraction_alone_is_ignored_and_live_on_bm25_stays() {
+        let (cfg, said) = loaded("mode = \"live\"\narm = \"bm25\"\ncanary_fraction = 0.1");
         assert_eq!(
             (cfg.memory.mode, cfg.memory.arm),
-            (MemoryMode::Shadow, MemoryArm::Bm25)
+            (MemoryMode::Live, MemoryArm::Bm25)
         );
         assert_eq!(
             said,
@@ -706,10 +707,24 @@ mod tests {
               the retired key"
             ]
         );
+    }
+
+    /// The retired `shadow` mode (D8a) loads as live, and the start says so: every session now
+    /// gets live recall on the arm.
+    #[test]
+    fn a_shadow_mode_loads_as_live_and_says_so() {
+        let (cfg, said) = loaded("mode = \"shadow\"");
         assert_eq!(
-            cfg.memory.assign("ses_heron0001"),
-            None,
-            "shadow assigns none"
+            (cfg.memory.mode, cfg.memory.arm),
+            (MemoryMode::Live, MemoryArm::Baseline)
+        );
+        assert_eq!(
+            said,
+            [
+                "memory.mode = \"shadow\" is retired: recall no longer runs without reaching the \
+                 model, and every session now gets live recall on arm = \"baseline\"; set what you \
+                 mean, and remove the retired key"
+            ]
         );
     }
 

@@ -184,11 +184,11 @@ async fn a_live_turn_puts_its_recall_in_front_of_the_model() {
     assert_eq!(frames[0], frames[1], "the recall wrote a frame of its own");
 }
 
-/// A session's arm is sticky and recorded once, as `memory.arm`; a session
-/// on arm `none` runs `none` live: the index is asked nothing, and it gets no
-/// node.
+/// A session on arm `none` (the memory exam's `none` daemon) runs `none` live: the index is asked
+/// nothing, it gets no node and no recall row, and the assignment is the config's every time.
+/// (The `memory.arm` row it once wrote is no longer written, D8a.)
 #[tokio::test]
-async fn the_arm_is_sticky_and_recorded_once() {
+async fn on_arm_none_the_index_is_asked_nothing() {
     let r = rig_with(MemoryMode::Live, |c| c.memory.arm = MemoryArm::None);
     let c = &r.core;
     let a = session(c, None, &[HERON]);
@@ -198,22 +198,15 @@ async fn the_arm_is_sticky_and_recorded_once() {
         let res = turn(c, &b, q).await;
         assert_eq!(res.recalled, 0);
     }
-    let arms = rows(c, &b, "memory.arm");
-    assert_eq!(arms.len(), 1, "one arm row a session");
-    assert_eq!(arms[0].data["arm"], "none");
-    assert_eq!(arms[0].data["live"], false);
-    assert_eq!(arms[0].data["experiment"], "m6-1");
-    let shadow = rows(c, &b, "recall.shadow");
-    assert_eq!(shadow.len(), 0, "arm none recalls nothing");
+    assert!(
+        rows(c, &b, "memory.arm").is_empty(),
+        "no arm row is written"
+    );
     assert!(recall_nodes(c, &b).is_empty());
     assert_eq!(recalls(c, &b).len(), 0);
     // The assignment is the config's, for this session, every time.
     let a1 = c.runner.memory.cfg().assign(&b).unwrap();
     assert_eq!(a1.arm, MemoryArm::None);
-    // A daemon that has not seen the row finds it in the store.
-    let fresh = crate::recall::Memory::new(c.runner.memory.cfg().clone(), None);
-    assert!(fresh.arm_recorded(&c.store, &b).unwrap());
-    assert!(!fresh.arm_recorded(&c.store, &a).unwrap());
 }
 
 /// `wrong` keeps a node out of recall as `labeled_wrong`, from the next turn
@@ -324,27 +317,6 @@ async fn on_the_view_a_long_conversation_still_recalls_past_the_sessions_cap() {
     turn(c, &b, "where does the heron nest?").await;
     let outcomes: Vec<String> = recalls(c, &b).into_iter().map(|m| m.outcome).collect();
     assert_eq!(outcomes, ["ran"; 4], "every turn recalled, none paused");
-}
-
-/// Shadow is unchanged by 30b: its rows, no node, no byte of the request.
-#[tokio::test]
-async fn shadow_still_writes_no_node() {
-    let r = rig(MemoryMode::Shadow);
-    let c = &r.core;
-    let a = session(c, None, &[HERON]);
-    let b = session(c, None, &[]);
-    c.runner.memory.set_ask(index_of(c, vec![a]));
-    let res = turn(c, &b, "Where does the grey heron nest?").await;
-    assert_eq!(res.recalled, 0);
-    assert!(recall_nodes(c, &b).is_empty());
-    assert!(
-        rows(c, &b, "memory.arm").is_empty(),
-        "shadow assigns no arm"
-    );
-    assert_eq!(recalls(c, &b)[0].admitted.len(), 1);
-    assert!(!last_texts(&requests(&r).pop().unwrap())
-        .iter()
-        .any(|t| t.contains("Recalled")));
 }
 
 /// A turn whose request carries its recall writes one `Recall` node and counts

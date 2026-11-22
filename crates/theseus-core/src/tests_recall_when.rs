@@ -95,7 +95,7 @@ fn dated_index(
 /// says the span and counts the drop.
 #[tokio::test]
 async fn a_question_naming_march_recalls_a_march_item_over_a_september_one() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let c = &r.core;
     let march = said_at(c, "we refactored the tide-table parser", MARCH_12);
     let september = said_at(c, "we refactored the tide-table renderer", SEPTEMBER_12);
@@ -130,7 +130,7 @@ async fn a_question_naming_march_recalls_a_march_item_over_a_september_one() {
 /// index for no span.
 #[tokio::test]
 async fn a_question_naming_no_time_recalls_across_all_of_it() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let c = &r.core;
     let march = said_at(c, "we refactored the tide-table parser", MARCH_12);
     let september = said_at(c, "we refactored the tide-table renderer", SEPTEMBER_12);

@@ -30,7 +30,7 @@ fn a_config_with_nothing_in_memory_recalls_live_on_baseline() {
     assert_eq!((a.arm, a.live), (memory::MemoryArm::Baseline, true));
     for (word, mode) in [
         ("off", MemoryMode::Off),
-        ("shadow", MemoryMode::Shadow),
+        ("shadow", MemoryMode::Live),
         ("canary", MemoryMode::Live),
         ("live", MemoryMode::Live),
     ] {

@@ -1127,10 +1127,8 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # on the baseline arm, which needs no Jev. With no index built, a recall
 # answers nothing and costs nothing, and it never holds a turn past
 # recall_deadline_ms. mode = "off" turns it off, and a config that sets mode
-# keeps its value. In shadow, each recall is a
-# recall.shadow row, a span, and a narrative line, and nothing reaches the
-# model: its request is the same byte for byte. See it with
-# `theseus memory recalled <session>` and `theseus memory search "<query>"`.
+# keeps its value. See it with `theseus memory recalled <session>` and
+# `theseus memory search "<query>"`.
 # An older binary refuses a [memory] table: install first, then paste.
 # Live (step 30b) puts recall in front of the model: a note after
 # the turn's new message, testimony with each source's date, a Recall node
@@ -1138,9 +1136,8 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # recall.ran row, and a "🧠 N recalled" footer on Discord. Label a node
 # with `theseus memory label <node> wrong` to keep it out.
 # [memory]
-# mode = "live"                           # live (the default) | shadow | off; the retired "canary" reads as live
-# arm = "baseline"                        # the arm live sessions get: none | bm25 | baseline; the retired +retention, +activation and +synthesis read as baseline
-# experiment = "m6-1"                     # names the plan in each memory.arm row
+# mode = "live"                           # live (the default) | off; the retired "canary" and "shadow" read as live
+# arm = "baseline"                        # baseline; the memory exam sets none | bm25 per daemon to compare; the retired +retention, +activation and +synthesis read as baseline
 # recall_budget_tokens = 3000             # the pack's tokens
 # recall_max_items = 8                    # the pack's items, at most 40; both are an ordinary prompt's (a trivial detour's request carries none)
 # deep_recall_tokens = 8000               # a deep prompt's pack (the route pack's sophisticated, deep_coding, review), in tokens

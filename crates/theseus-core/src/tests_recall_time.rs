@@ -125,7 +125,7 @@ fn order_of(m: &theseus_protocol::memory::RecallManifest) -> Vec<&str> {
 /// mention it; the row names the kind.
 #[tokio::test]
 async fn a_temporal_question_recalls_the_event_above_later_mentions() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let c = &r.core;
     let n = notes(c);
     let here = session(c, None, &[]);
@@ -153,7 +153,7 @@ async fn a_temporal_question_recalls_the_event_above_later_mentions() {
 /// newest first here, and the index is asked the question as written.
 #[tokio::test]
 async fn a_question_that_is_not_about_time_keeps_the_indexs_order() {
-    let r = rig(MemoryMode::Shadow);
+    let r = rig(MemoryMode::Live);
     let c = &r.core;
     let n = notes(c);
     let here = session(c, None, &[]);

@@ -1,8 +1,8 @@
 //! A daemon runs the arm its config names (M6 step 34b; §3.2's 34b row): in
 //! `live` mode, `none` asks the index nothing, `bm25` asks for BM25 and
 //! entities alone, and `baseline` for the fused sources (and the word sources
-//! beside them, theseus-w9qv), and each turn's
-//! `memory.arm` row, `recall.ran` row and `Recall` node name the arm. The
+//! beside them, theseus-w9qv), and each turn's `recall.ran` row and
+//! `Recall` node name the arm (no `memory.arm` row is written since D8a). The
 //! exam runs one daemon per arm (theseus-exam's `arms`), so this is what makes
 //! its arms differ. The index is `tests_recall`'s stand-in, wrapped to keep
 //! every query it is asked.
@@ -73,13 +73,10 @@ async fn live_turn(
 
 #[tokio::test]
 async fn a_daemon_runs_the_arm_its_config_names() {
-    // `none`: today's compiler. Its arm is recorded, and the index is asked
-    // nothing: not even a shadow recall.
+    // `none`: the index is asked nothing.
     let (asked, arms, rows, node) = live_turn(MemoryArm::None).await;
     assert!(asked.is_empty(), "none asks the index nothing: {asked:?}");
-    assert_eq!(arms.len(), 1);
-    assert_eq!(arms[0].data["arm"], "none");
-    assert_eq!(arms[0].data["live"], false);
+    assert!(arms.is_empty(), "no arm row is written");
     assert!(rows.is_empty(), "{rows:?}");
     assert_eq!(node, None);
 
@@ -87,8 +84,7 @@ async fn a_daemon_runs_the_arm_its_config_names() {
     let (asked, arms, rows, node) = live_turn(MemoryArm::Bm25).await;
     assert_eq!(asked.len(), 1, "one recall on the first loop");
     assert_eq!(asked[0].sources, ["bm25", "entity"]);
-    assert_eq!(arms[0].data["arm"], "bm25");
-    assert_eq!(arms[0].data["live"], true);
+    assert!(arms.is_empty());
     assert_eq!(rows, ["live bm25"]);
     assert_eq!(node.as_deref(), Some("bm25"));
 
@@ -98,34 +94,7 @@ async fn a_daemon_runs_the_arm_its_config_names() {
     assert_eq!(asked.len(), 2);
     assert_eq!(asked[0].sources, ["bm25", "entity", "vector"]);
     assert_eq!(asked[1].sources, ["bm25", "entity"]);
-    assert_eq!(arms[0].data["arm"], "baseline");
+    assert!(arms.is_empty());
     assert_eq!(rows, ["live baseline"]);
     assert_eq!(node.as_deref(), Some("baseline"));
-}
-
-/// Shadow asks for `baseline`'s sources whatever `arm` says: its
-/// diagnostics measure the default pipeline.
-#[tokio::test]
-async fn shadow_asks_for_baselines_sources() {
-    let mode = MemoryMode::Shadow;
-    let r = rig_with(mode, |c| c.memory.arm = MemoryArm::Bm25);
-    let c = &r.core;
-    let past = session(c, None, &[KITE]);
-    let now = session(c, None, &[]);
-    let asked = Arc::new(Mutex::new(Vec::new()));
-    let inner = index_of(c, vec![past]);
-    let seen = asked.clone();
-    c.runner
-        .memory
-        .set_ask(Arc::new(move |p: IndexQueryParams| -> AskFuture {
-            seen.lock().unwrap().push(p.sources.clone());
-            inner(p)
-        }));
-    let res = turn(c, &now, "Where does the red kite roost?").await;
-    assert_eq!(res.recalled, 0, "{mode:?}");
-    assert_eq!(
-        *asked.lock().unwrap(),
-        [vec!["bm25", "entity", "vector"], vec!["bm25", "entity"]],
-        "{mode:?}"
-    );
 }

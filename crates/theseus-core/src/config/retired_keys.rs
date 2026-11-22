@@ -34,6 +34,9 @@ const WARM: &str = "nothing is kept warm between turns any more (a long wait ins
                     is)";
 const STUB: &str = "attachments are no longer replaced by stubs: there is no cold rewrite of a \
                     session any more";
+const EXPERIMENT: &str =
+    "the arm-assignment rows that named the experiment are no longer written: every \
+                          session runs the one arm";
 const CAP: &str =
     "recall no longer pauses at a cap on a session's notes: each request lays recall \
                    afresh, within the view's own budget for it";
@@ -50,6 +53,7 @@ const INERT: &str = "nothing read it any more: the link offer, the Discord threa
 pub const RETIRED: &[Retired] = &[
     r("context", "assembly", VIEW),
     r("memory", "session_recall_cap_tokens", CAP),
+    r("memory", "experiment", EXPERIMENT),
     r("context", "kept_mb", KEPT),
     r("context", "ledger", LEDGER),
     r("memory", "summary_profile", SUMMARY),
