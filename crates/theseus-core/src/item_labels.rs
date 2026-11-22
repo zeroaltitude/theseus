@@ -133,8 +133,9 @@ pub fn read(store: &Store, node: &str) -> anyhow::Result<Option<ItemLabels>> {
 
 /// **The one rule both records are written by**: `label`, raised by an item that entered at `entered_ms`, is
 /// kept on the item whatever the session holds (it is what Jev said of it), and goes on the session as
-/// `ContentFlags::raise_after` decides. True when the session took it. The session's removals that already
-/// cover it are copied to the item, so the item reads what the session reads.
+/// `ContentFlags::raise_after` decides, unless the item is one whose labels stay on it alone (a reply:
+/// `ItemKind::on_session`). True when the session took it. A removal on the session covers the item as it
+/// covers the session ([`ItemLabels::removal`]), so the item reads what the session reads.
 pub fn land(
     flags: &mut ContentFlags,
     item: &mut ItemLabels,
@@ -145,7 +146,7 @@ pub fn land(
         item.raised.push(label.clone());
         item.raised.sort_by_key(|l| l.flag);
     }
-    flags.raise_after(label, entered_ms)
+    item.kind.on_session() && flags.raise_after(label, entered_ms)
 }
 
 /// The owner removed `removed.flag` from a session whose label named this item: kept on the item too.

@@ -264,3 +264,33 @@ async fn a_clean_tool_result_reads_asked_clean() {
     );
     assert!(flags(c, &first.session_id).labels.is_empty());
 }
+
+/// A reply the stand-in calls an injection is labelled on its own item, and its session carries nothing: no
+/// label, no `content.labelled` row, so nothing that acts on a session's labels (the freeze, the card) reads
+/// it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reply_flagged_is_labelled_on_the_reply_alone() {
+    let jev = FakeJev::start().unwrap();
+    jev_says_personal(&jev);
+    let yes = Jev::Choice {
+        option: "yes".into(),
+        confidence: 0.97,
+    };
+    jev.script_when("Done: answer", None, "injection", yes);
+    let r = rig(&jev);
+    let c: &Arc<Core> = &r.core;
+    let sid = session(c);
+    crate::test_support::turn(c, &sid, "What is the plan for today?").await;
+    let (_, reply) = message_and_reply(c, &sid);
+    let v = landed(c, &reply).await;
+    assert_eq!(v.state, "labelled", "{v:?}");
+    assert!(v.line().starts_with("injection ("), "{}", v.line());
+    assert!(
+        flags(c, &sid).labels.is_empty(),
+        "the session carries nothing"
+    );
+    assert!(
+        crate::tests_judge::kinds(&c.store, "content.labelled").is_empty(),
+        "no row says a session was labelled"
+    );
+}

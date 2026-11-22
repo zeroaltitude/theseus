@@ -176,8 +176,10 @@ impl Core {
                     &who,
                     theseus_protocol::method::CONTENT_UNLABEL,
                     None,
-                    &|judgment| self.judgment_pack(judgment),
-                    &|node| crate::item_labels::read(&self.store, node).ok().flatten(),
+                    (
+                        &|judgment: &str| self.judgment_pack(judgment),
+                        &|node: &str| crate::item_labels::read(&self.store, node).ok().flatten(),
+                    ),
                 )?
                 else {
                     return Ok(None);
@@ -232,6 +234,9 @@ impl Core {
     }
 }
 
+/// The record of an item, by its node (`item_labels::read`).
+type ItemOf = dyn Fn(&str) -> Option<crate::item_labels::ItemLabels>;
+
 /// The frame that removes `flag` from `rec`: the `content.removed` row, then
 /// the record. None, and nothing to write, when the session does not carry it.
 fn removed(
@@ -241,8 +246,7 @@ fn removed(
     who: &Answerer,
     how: &str,
     correlation_id: Option<&str>,
-    pack_of: &dyn Fn(&str) -> String,
-    item_of: &dyn Fn(&str) -> Option<crate::item_labels::ItemLabels>,
+    (pack_of, item_of): (&dyn Fn(&str) -> String, &ItemOf),
 ) -> Result<Option<(UnlabelResult, Vec<NewRecord>)>> {
     let Some(mut flags) = rec.data.take() else {
         return Ok(None);

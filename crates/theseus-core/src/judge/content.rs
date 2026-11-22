@@ -648,6 +648,8 @@ impl JudgeService {
                 let it = &l.item;
                 keep_ask(&mut items, &self.store, l, now);
                 match l.unjudged {
+                    // A reply's ask is kept on its item alone: no row, no notice (`ItemKind::on_session`).
+                    _ if !it.kind.on_session() => {}
                     Some(why) => rows.push(crate::fact::row(
                         &ContentUnjudged {
                             node: &it.node,
@@ -779,13 +781,14 @@ impl JudgeService {
     /// budget) or an unbuilt judge is not retried and is told at once. A `shadow` outcome is the pack's mode, not a failure, and
     /// says nothing.
     fn tell_unjudged(&self, session: &str, landings: &[Landing]) {
+        // A reply's ask tells no one (`ItemKind::on_session`): its item keeps what became of it.
+        let told = |l: &&Landing| l.item.kind.on_session();
         let failed: Vec<&Landing> = landings
             .iter()
+            .filter(told)
             .filter(|l| matches!(l.unjudged, Some("failed" | "unbuilt" | "refused")))
             .collect();
-        let judged = landings
-            .iter()
-            .any(|l| l.unjudged.is_none() && l.pieces > 0);
+        let judged = (landings.iter().filter(told)).any(|l| l.unjudged.is_none() && l.pieces > 0);
         let tell = {
             let mut slots = self.content.slots();
             let slot = slots.entry(session.to_string()).or_default();

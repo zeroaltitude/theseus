@@ -49,8 +49,8 @@ impl Lcg {
 /// **(d) The item records and the session's flags always agree**, over generated runs of the three things
 /// that write them: an item's flag landing (late or on time), and the owner removing a flag. Both are written
 /// by the same functions the store's writers call (`land`, `ContentFlags::remove` with `removed`), and after
-/// every step: the session holds a flag exactly when some item's record says it stands, and every label the
-/// session holds names an item whose record says so.
+/// every step: the session holds a flag exactly when some INPUT's record says it stands, and every label the
+/// session holds names an item whose record says so. A reply's flags stand on the reply alone.
 #[test]
 fn the_items_and_the_session_always_agree() {
     for seed in 0..400u64 {
@@ -76,12 +76,12 @@ fn the_items_and_the_session_always_agree() {
                     if at == items.len() {
                         let entered = clock - g.next(clock.min(8));
                         let node = format!("n{at}");
-                        items.push(ItemLabels::new(
-                            &node,
-                            ItemKind::ToolResult,
-                            "fs.read",
-                            entered,
-                        ));
+                        // One item in four is a reply, whose labels stay on it.
+                        let kind = match g.next(4) {
+                            0 => ItemKind::Reply,
+                            _ => ItemKind::ToolResult,
+                        };
+                        items.push(ItemLabels::new(&node, kind, "fs.read", entered));
                     }
                     let item = &mut items[at];
                     let entered = item.entered_ms;
@@ -90,7 +90,9 @@ fn the_items_and_the_session_always_agree() {
                 }
             }
             for f in Flag::ALL {
-                let stands = items.iter().any(|i| i.stands(f, &session));
+                let stands = (items.iter())
+                    .filter(|i| i.kind.on_session())
+                    .any(|i| i.stands(f, &session));
                 assert_eq!(session.has(f), stands, "seed {seed}, {f:?}");
             }
             for l in &session.labels {
@@ -205,4 +207,16 @@ fn the_record_is_keyed_by_its_node_and_decodes_sparse() {
         serde_json::from_str(r#"{"node":"n","kind":"tool_result","source":"s","entered_ms":1}"#)
             .unwrap();
     assert!(sparse.asked.is_none() && sparse.raised.is_empty());
+}
+
+/// A reply's label is kept on the reply and never goes on its session: nothing that acts on a session's
+/// labels reads it.
+#[test]
+fn a_replys_label_stays_on_the_reply() {
+    let mut s = ContentFlags::default();
+    let mut i = ItemLabels::new("r1", ItemKind::Reply, "reply", 1);
+    assert!(!land(&mut s, &mut i, label(Flag::Injection, "r1", 2), 1));
+    assert!(s.labels.is_empty(), "the session carries nothing");
+    assert!(i.stands(Flag::Injection, &s));
+    assert_eq!(state(Some(&i), &s), "labelled");
 }
