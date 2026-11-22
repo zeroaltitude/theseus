@@ -1,5 +1,5 @@
 //! The view makes its own room (`room.rs`): its steps and the provider's stated window, and real turns in a
-//! place set to `view` (`AssemblySetting::All(Assembly::View)`) on a small window, with a scripted model that
+//! place (every place is the view) on a small window, with a scripted model that
 //! reads large logs one a loop, each answer thinking first.
 
 use std::sync::Arc;

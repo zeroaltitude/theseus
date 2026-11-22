@@ -169,14 +169,6 @@ impl Rig {
             .unwrap()
     }
 
-    /// The triggers of the session's compilations, oldest first.
-    fn triggers(&self, sid: &str) -> Vec<String> {
-        rows_of(&self.core, "context.recompiled", Some(sid))
-            .iter()
-            .map(|r| r["trigger"].as_str().unwrap().to_string())
-            .collect()
-    }
-
     fn topic(&self, name: &str, guidance: &str) {
         self.core
             .ontology_category_add(
@@ -330,8 +322,8 @@ async fn the_next_turn_carries_a_new_categorys_guidance() {
     assert_eq!(r.compilation(&sid).manifest.memberships.len(), 1);
 }
 
-/// The design's third: an edit of guidance a session carries is one
-/// `system_changed` recompile at its next turn, and the turn after appends.
+/// The design's third: an edit of guidance a session carries is in its next
+/// turn's system, and the turns after carry that system unchanged.
 #[tokio::test]
 async fn a_guidance_edit_in_play_forces_one_system_changed() {
     let r = rig();
@@ -339,6 +331,7 @@ async fn a_guidance_edit_in_play_forces_one_system_changed() {
     let sid = session(&r.core, None);
     r.member(&sid, &["theseus"]);
     turn(&r.core, &sid, "one").await;
+    assert!(system_text(&r.last_request()).contains(RULES));
 
     let edited = "Name the crate, then the module.";
     r.guide("theseus", edited);
@@ -349,14 +342,14 @@ async fn a_guidance_edit_in_play_forces_one_system_changed() {
         "{system}"
     );
     turn(&r.core, &sid, "three").await;
-    assert_eq!(r.triggers(&sid), ["new_session", "system_changed"]);
+    assert_eq!(system_text(&r.last_request()), system, "the turn after carries it as it is");
     let m = r.compilation(&sid).manifest;
     assert_eq!(m.guidance[0].version, 2);
 
     // Guidance the session does not carry changes nothing.
     r.topic("lamps", "Speak of lamps.");
     turn(&r.core, &sid, "four").await;
-    assert_eq!(r.triggers(&sid), ["new_session", "system_changed"]);
+    assert_eq!(system_text(&r.last_request()), system);
 }
 
 /// The design's fourth: a given kind's memberships are the session's place,

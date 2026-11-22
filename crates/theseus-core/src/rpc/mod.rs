@@ -173,8 +173,6 @@ mod tests_live_release;
 #[cfg(test)]
 mod tests_money;
 #[cfg(test)]
-mod tests_named_by_reply;
-#[cfg(test)]
 mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;

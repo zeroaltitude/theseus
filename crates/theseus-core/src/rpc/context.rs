@@ -200,7 +200,13 @@ impl Core {
                 sent.tools =
                     crate::tools_defer::sent_tools(&built.spec, compilation.map(|c| &c.manifest))
                         .into();
-                let now = manifest_for(&sent, &self.catalog, None, false);
+                // Said against the request a turn sends: the view's spec, the memory page in it.
+                let now = manifest_for(
+                    &crate::compiler::view::first_call_spec(&sent),
+                    &self.catalog,
+                    None,
+                    false,
+                );
                 let then = compilation.map(|c| &c.manifest);
                 out.digest_now = now.system_digest.clone();
                 out.digest_then = then.map(|m| m.system_digest.clone());
