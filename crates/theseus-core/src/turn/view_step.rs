@@ -327,7 +327,6 @@ impl TurnRunner {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
-        // Read where a turn has always read it: after the clock and the `/new` mark.
         let (asked, message) = match given {
             Some(text) => (None, text),
             None => message_of(store, sid, turn)?,

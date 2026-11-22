@@ -305,11 +305,6 @@ async fn only_the_owner_in_person_is_answered() {
     assert!(v.restricted.is_none(), "{v:?}");
 }
 
-/// A thread `kelp`, bound to its own session, sealed as `seal` says.
-fn kelp(store: &crate::store::Store, seal: bool) -> String {
-    kelp_as(store, if seal { "sealed" } else { "clear" })
-}
-
 /// A thread `kelp`, bound to its own session: `sealed`, `pending` (a seal proposed) or `clear`.
 fn kelp_as(store: &crate::store::Store, how: &str) -> String {
     let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
@@ -564,8 +559,9 @@ fn move_into_kelp(c: &Core, node: &str) {
         .unwrap();
 }
 
-/// The desk's message moved into a sealed thread: counted nowhere (the preview's own counts ask the
-/// node's seal).
+/// The desk's first message moved into a sealed thread, its second not: the desk is the place's by its
+/// second exchange, and its earlier turns count the second alone (the preview's own counts ask the node's
+/// seal).
 #[tokio::test]
 async fn a_message_moved_into_a_sealed_thread_is_in_no_count() {
     let (r, _thread) = thread_rig(true);
@@ -577,17 +573,17 @@ async fn a_message_moved_into_a_sealed_thread_is_in_no_count() {
         .unwrap()
         .1;
     move_into_kelp(c, &asked.id);
+    turn(c, &desk, "desk: and now?").await;
     let p = preview(&r.core, json!({"place": place(c, &desk)}))
         .await
         .unwrap();
-    assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 0), "{p:?}");
+    assert_eq!(p.session, desk);
+    assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 1), "{p:?}");
 }
 
-/// The same move keeps the moved exchange out of the listing too. The listing is the shared readers'
-/// (`GateSource`, the gated ladder, the window), which ask the node's seal once `p14/reader-seals` is
-/// merged; until then they read the session's seal alone, and this fails.
+/// The same move keeps the moved exchange out of the listing too: the window and the gated ladder ask the
+/// node's seal (`view_gate::Moved`).
 #[tokio::test]
-#[ignore = "passes once p14/reader-seals (the shared readers ask node_seal) is merged"]
 async fn a_message_moved_into_a_sealed_thread_is_not_listed() {
     let (r, _thread) = thread_rig(true);
     let c = &r.core;
