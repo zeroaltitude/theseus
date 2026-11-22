@@ -189,19 +189,29 @@ async fn a_fresh_census_is_the_first_request_a_turn_sends() {
     assert_eq!(sent.tools, ahead.tools, "the tools");
 }
 
-/// A session's next request: its history in the messages, appended to its compilation.
+/// A session's next request, as the view builds it: its exchange in the window, a new chain as every view
+/// turn is, and the parts adding up to the whole.
 #[tokio::test]
-async fn a_sessions_next_request_counts_its_history() {
+async fn a_sessions_next_request_lays_its_exchange_in_the_window() {
     let r = rig(vec![Scripted::text("Aye."), Scripted::text("Aye again.")]);
     let first = turn(&r.core, None, "Where is the harbour?").await;
     let sid = first.session_id;
     let (c, req) = census(&r.core, Some(&sid), None);
     assert_eq!(c.place, "session");
     assert_eq!(c.session_id.as_deref(), Some(sid.as_str()));
-    assert_eq!(c.compile, "append");
+    assert_eq!(c.compile, "recompile", "a view turn begins its chain");
     assert!(c.messages_tokens > 0, "{c:?}");
     assert_eq!(c.parts_sum(), c.total_tokens);
-    assert_eq!(req.messages.len(), 2, "the question and the answer");
+    let sent = serde_json::to_string(&req.messages).unwrap();
+    assert!(
+        sent.contains("Where is the harbour?"),
+        "the question: {sent}"
+    );
+    assert_eq!(
+        sent.matches("Aye.").count(),
+        1,
+        "and the answer, once: {sent}"
+    );
 }
 
 /// Tools are counted in the ledger by what was planned, with the last call's time.

@@ -1,13 +1,13 @@
 //! The work board's lines (theseus-hkx30): a conversation at the top, its tasks, plan steps, jobs, questions and
 //! wakes below it, each with what it needs from you or is doing. `board.rs` draws the board of `theseus tasks
-//! --watch` with these lines for what the task tree does not draw (threads, jobs, the daemon's own work, routines, watches, projects, wakes).
+//! --watch` with these lines for what the task tree does not draw (jobs, the daemon's own work, routines, watches, projects, wakes).
 
 use std::collections::BTreeMap;
 
 use theseus_protocol::notices::Notice;
 use theseus_protocol::work::progress_line::aged_said;
 use theseus_protocol::work::{WorkKind, WorkView};
-use theseus_protocol::{Level, ThreadGroup};
+use theseus_protocol::Level;
 
 /// What a client has applied of a view: its position, then its time. A job's
 /// last line is sampled between frames, so a newer sample has the same
@@ -161,51 +161,6 @@ pub(crate) fn notice_line(n: &Notice) -> String {
         theseus_protocol::notices::Urgency::Quiet => "· ",
     };
     format!("{who} {}", n.line)
-}
-
-/// A thread's change, as `--watch` prints it.
-pub(crate) fn thread_change_line(g: &ThreadGroup) -> String {
-    let lock = if g.sealed { "🔒 " } else { "" };
-    let seal = match &g.seal_pending {
-        Some(why) => format!("  ● seal recommended: {why}"),
-        None => String::new(),
-    };
-    format!(
-        "thread {} {}  {lock}{}{seal}",
-        g.slug,
-        g.state.as_str(),
-        g.title
-    )
-}
-
-/// The threads of a grouped board: `Threads: 2 live, 1 need you`, then a header for each, a
-/// seal recommendation, and its items.
-pub(crate) fn thread_section(
-    g: &theseus_protocol::Grouped,
-    now_ms: u64,
-    width: usize,
-) -> Vec<String> {
-    let mut out = vec![format!(
-        "Threads: {} live, {} need you",
-        g.threads.len(),
-        g.needs_you()
-    )];
-    for t in &g.threads {
-        let mut head = t.header(now_ms, width.saturating_sub(16));
-        match (t.needs_you, t.working) {
-            (0, 0) => {}
-            (0, w) => head.push_str(&format!("  ◐ {w} working")),
-            (n, _) => head.push_str(&format!("  ● {n} need you")),
-        }
-        out.push(head);
-        if let Some(why) = &t.group.seal_pending {
-            out.push(format!("  ● seal recommended: {why}"));
-        }
-        for v in &t.items {
-            out.push(format!("  {}", view_line(v, now_ms)));
-        }
-    }
-    out
 }
 
 /// The snapshot as a tree: each root, needs-you first, with its views

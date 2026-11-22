@@ -50,7 +50,7 @@ impl TurnRunner {
     /// first of those turns' places that reads), else `read`. Never a failure.
     pub(super) fn resumed_place(&self, t: &Turn<'_>, read: Option<String>) -> Option<String> {
         let opened = t.exchange.mark().is_some() || t.exchange.occasion().is_none();
-        if opened || t.tc.task.is_some() || !self.cfg.context.ledger_on() {
+        if opened || t.tc.task.is_some() {
             return read;
         }
         if matches!(self.outbox.speaks_at(t.tc.session_id), Ok(Some(_))) {

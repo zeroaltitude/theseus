@@ -32,7 +32,7 @@ test('every key the page claims is an entry of the Operations page’s table, an
  *  the board's picks, the Timeline's marks, the filters, the dock, the folds, the Ship's links, the palette. A new entry
  *  of `ops/keys.ts` is in neither list until someone decides, and the test below fails until they do. */
 const NOT_HERE = [
-  'left', 'right', 'follow', 'dock_pause', 'lens_graph', 'lens_board', 'lens_timeline', 'lens_threads', 'home', 'search', 'fold_queue', 'fold_inspector', 'fold_dock', 'palette', 'self_changes', 'thread_picker', 'filter_needs', 'filter_working', 'filter_paused', 'filter_done', 'filter_all', 'zoom_day', 'zoom_week', 'redact', 'week_prev', 'week_next', 'mark_next', 'mark_prev', 'mark_snooze', 'mark_pause', 'mark_run', 'mark_cancel', 'mark_open', 'select', 'full_window', 'select_all',
+  'left', 'right', 'follow', 'dock_pause', 'lens_graph', 'lens_board', 'lens_timeline', 'home', 'search', 'fold_queue', 'fold_inspector', 'fold_dock', 'palette', 'self_changes', 'filter_needs', 'filter_working', 'filter_paused', 'filter_done', 'filter_all', 'zoom_day', 'zoom_week', 'redact', 'week_prev', 'week_next', 'mark_next', 'mark_prev', 'mark_snooze', 'mark_pause', 'mark_run', 'mark_cancel', 'mark_open', 'select', 'full_window', 'select_all',
 ]
 
 test('every entry of the Operations page’s table has a verdict here: it works on this page, or it is left out on purpose', () => {

@@ -65,12 +65,10 @@ mod onto_card;
 pub(crate) mod persona_soul;
 mod remind;
 pub(crate) mod sched;
-pub(crate) mod seal;
 pub(crate) use capture_card::{buttons as capture_buttons, card_of as capture_card};
 pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_buttons};
 pub(crate) use onto_card::{buttons as onto_buttons, write_of as onto_write};
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
-pub(crate) use seal::{buttons as seal_buttons, slug_of as seal_slug};
 pub(crate) use source::source_buttons;
 pub(crate) mod default_forum;
 mod extensions;
@@ -83,13 +81,12 @@ mod jev;
 mod live;
 mod live_board;
 mod orders;
+mod place_in;
 pub(crate) mod presence;
 pub(crate) mod reply;
+mod reply_turn;
 mod source;
 pub(crate) mod task_home;
-mod thread;
-mod thread_bind;
-mod thread_move;
 pub(crate) use jev::{
     buttons as jev_buttons, labeled_text as jev_labeled_text, notice_text as jev_notice_text,
 };
@@ -408,7 +405,6 @@ async fn connect(
         place_bits: guilds::PlaceBits::new(bindings),
         replies: Default::default(),
         pings: Default::default(),
-        threads: Default::default(),
         tasks: Default::default(),
         task_threads: Default::default(),
         task_posts: Default::default(),
@@ -445,7 +441,6 @@ async fn start_places(
     }
     tokio::spawn(route(shared.clone(), notes));
     board::hear_every_change(shared);
-    shared.start_threads();
     shared.start_task_forums(bindings);
     tasks::watch_loop(shared);
     // A card whose question closed while the binding was away (a raise at
@@ -581,7 +576,7 @@ async fn event_loop(
             Event::InteractionCreate(i) => {
                 let s = shared.clone();
                 let i = i.0;
-                tokio::spawn(async move { s.interacted(i).await });
+                tokio::spawn(async move { s.on_interaction(i).await });
             }
             // ⬆️ or ⬇️ on a reply: the owner's correction of its routing (theseus-q31l).
             Event::ReactionAdd(r) => drop(tokio::spawn(route::reacted(shared.clone(), r.0))),
@@ -634,8 +629,6 @@ pub(crate) struct Shared {
     pub(crate) replies: route::Replies,
     /// Each place's ping words, and its window's last pings (theseus-l1y1).
     pub(crate) pings: crate::policy::Pings,
-    /// The channels that run threads, and the pointers waiting (theseus-sjzm).
-    pub(crate) threads: thread_bind::State,
     /// The work engine's tasks, as the binding's places show them (theseus-2j2ka).
     pub(crate) tasks: tasks::Tasks,
     /// Each task's thread in a guild channel (theseus-i3do6).
@@ -763,8 +756,6 @@ enum PlaceMsg {
     /// Someone is typing here: the core is told, with this session's id
     /// (theseus-tnky).
     Typing(DiscordOrigin),
-    /// The place runs a thread, or stops (theseus-sjzm).
-    Thread(thread_bind::ThreadMsg),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -917,7 +908,6 @@ impl Shared {
             None,
             None,
         );
-        self.revive_thread_lanes();
         self.revive_task_threads();
         Ok(())
     }
@@ -1203,8 +1193,7 @@ impl Shared {
         if mention_only {
             let mentions: Vec<u64> = m.mentions.iter().map(|u| u.id.get()).collect();
             let roles: Vec<u64> = m.mention_roles.iter().map(|r| r.get()).collect();
-            // A reply to a message this binding posted counts, however it was
-            // sent: a webhook signs a persona's, under another author.
+            // A reply to a message this binding posted counts.
             let said = m.reference.as_ref().and_then(|r| r.message_id);
             let said = said.or(m.referenced_message.as_ref().map(|r| r.id));
             let ours = said.is_some_and(|id| self.replies.turn(id.get()).is_some());
@@ -1240,7 +1229,6 @@ impl Shared {
         } else {
             m.content.clone()
         };
-        let (thread, text) = self.addressed_thread(m, text);
         if text.trim().is_empty() && m.attachments.is_empty() {
             return;
         }
@@ -1265,7 +1253,6 @@ impl Shared {
             message: m.id,
             channel: m.channel_id,
             guild: m.guild_id,
-            thread,
             reply_turn: self.reply_turn_of(m),
             reply_unheld: self.reply_unheld_of(m),
             task: self.reply_task_of(m),
@@ -1288,8 +1275,7 @@ impl Shared {
         }) = found
         else {
             // Not a place of ours: no answer at all, so that a daemon on the
-            // same bot that binds it can give one; but for `/thread bind`
-            // in a Discord thread under one of ours (`interacted`).
+            // same bot that binds it can give one.
             return;
         };
         self.board.update(|s| s.interactions += 1);
@@ -1865,10 +1851,6 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
         if board::routed(&shared, &e) {
             continue;
         }
-        if let CoreEvent::ThreadChanged(c) = &e {
-            guild_thread::heard(&shared, c);
-            continue;
-        }
         if tasks::heard(&shared, &e) {
             continue;
         }
@@ -2073,7 +2055,7 @@ impl Place {
                 self.task_msg(m).await
             }
             PlaceMsg::Rebound(r) => self.rebound(*r),
-            PlaceMsg::Unbind | PlaceMsg::Thread(_) => {}
+            PlaceMsg::Unbind => {}
             PlaceMsg::Typing(origin) => self.typed(origin),
             PlaceMsg::Control { cmd, by, reply } => {
                 let text = self.control(cmd, &by).await;
@@ -2144,7 +2126,7 @@ impl Place {
                 attachments.extend(p.wait().await);
             }
             let reply_turn = match (reply_turn, unheld) {
-                (None, Some(m)) => thread_move::sent_turn_of(&rpc, m).await,
+                (None, Some(m)) => reply_turn::sent_turn_of(&rpc, m).await,
                 (held, _) => held,
             };
             let r = rpc
@@ -2463,7 +2445,6 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
         place_bits: Default::default(),
         replies: Default::default(),
         pings: Default::default(),
-        threads: Default::default(),
         tasks: Default::default(),
         task_threads: Default::default(),
         task_posts: Default::default(),

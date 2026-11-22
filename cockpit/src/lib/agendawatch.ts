@@ -1,6 +1,6 @@
 // What the Agenda page reads (theseus-p17fd): one `work.agenda` for the window shown and one `wake.list`, read again
 // when the window changes or when the push (`work.changed`) says a wake, routine, watch, project or deferred task moved;
-// the work board's views come from the same `work.watch` the Threads views keep (`useThreadBoard`); each routine's last
+// the work board's views come from the page's one `work.watch` (`useWorkBoard`); each routine's last
 // runs are one `routine.runs` read, again only when its view's signature (`runsSignature`) changes. Nothing is polled:
 // a page left alone makes no request (test/agenda.test.ts reads this file for a timer and for a refetch interval).
 import { useEffect, useRef, useState } from 'react'

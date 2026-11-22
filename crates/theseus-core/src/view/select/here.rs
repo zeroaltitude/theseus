@@ -2,9 +2,10 @@
 //! bands: the floor (the words of the newest three exchanges), the rest of the window's words, the window's
 //! tool results, and the ladder's nodes. A window exchange is one range: its words are asked for spoken and
 //! its tool results whole, so rule 3 merges them and the cut takes the tool traffic away at the tool
-//! results' place in the order, never the words of the floor. The newest exchange is asked for whole by the
-//! floor itself: its tool results stay, or the turn is the typed overflow. Which exchanges are the floor is
-//! chosen over those the gate admits, so a denied exchange never pushes a permitted one out of it.
+//! results' place in the order, never the words of the floor. The newest exchange's tool results are the
+//! window's like any other's: laid whole when there is room, as their receipts when there is not. Which
+//! exchanges are the floor is chosen over those the gate admits, so a denied exchange never pushes a
+//! permitted one out of it.
 
 use super::super::fold::{FoldNode, WINDOW_N};
 use super::super::timeline::ExchangeRef;
@@ -70,13 +71,11 @@ impl<'a> Here<'a> {
             })
             .collect();
         let floor_from = admitted.len().saturating_sub(FLOOR_EXCHANGES);
-        let newest = admitted.len().saturating_sub(1);
         admitted
             .into_iter()
             .enumerate()
             .filter_map(|(i, w)| {
                 let (reason, form) = match self.band {
-                    Band::Floor if i == newest => (Reason::Floor, Form::Whole),
                     Band::Floor if i >= floor_from => (Reason::Floor, Form::Spoken),
                     Band::WindowWords if i < floor_from => (Reason::Window, Form::Spoken),
                     Band::WindowTools if w.f.tools > 0 => (Reason::Window, Form::Whole),

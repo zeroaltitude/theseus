@@ -33,7 +33,7 @@ test('every key in the table has a line in the overlay, and the overlay says how
   assert.equal(say('cancel').keys, 'c ×2')
   assert.equal(say('next').keys, 'tab')
   assert.equal(say('prev').keys, '⇧tab')
-  assert.deepEqual([...SEQUENCES].sort(), ['g b', 'g g', 'g h', 'g m', 'g t'])
+  assert.deepEqual([...SEQUENCES].sort(), ['g b', 'g g', 'g m', 'g t'])
 })
 
 test('a key means the most specific thing the focus offers, as in the TUI', () => {
@@ -142,7 +142,7 @@ test('ops-act’s keys: m and M and i and I on a session, p on a task, the dock�
   assert.equal(resolve(' ', on('dock', 'card', 'session'), false)?.verb, 'dock_pause', 'space pauses the dock only while it has focus')
   assert.equal(resolve(' ', on('card', 'session'), false)?.verb, 'select', 'elsewhere space is the selection’s (ops-graph)')
   assert.equal(resolve('\\', on(), false)?.verb, 'fold_dock')
-  for (const k of ['PageUp', 'PageDown', 'End', 'L', 'T']) assert.ok(resolve(k, on(), false), k)
+  for (const k of ['PageUp', 'PageDown', 'End', 'L']) assert.ok(resolve(k, on(), false), k)
   const lines = overlay().flatMap((g) => g.lines)
   assert.equal(lines.find((l) => l.verb === 'palette')!.keys, '⌘K')
   assert.equal(lines.find((l) => l.verb === 'dock_pause')!.keys, '␣')

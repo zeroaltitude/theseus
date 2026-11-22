@@ -374,8 +374,8 @@ fn the_window_lays_the_floor_spoken_the_rest_spoken_and_tool_results_whole() {
     let floor = select(&s, Band::Floor, Present::Shared);
     assert_eq!(
         floor.iter().map(|p| p.form).collect::<Vec<_>>(),
-        [Form::Whole, Form::Spoken, Form::Spoken],
-        "the newest exchange keeps its tool results"
+        [Form::Spoken, Form::Spoken, Form::Spoken],
+        "the floor is the newest exchanges' words; their tool results are the window's"
     );
     assert_eq!(floor[1].sizes.spoken, 10 + 2_000 + 5);
     assert_eq!(
@@ -662,25 +662,27 @@ fn a_unit_with_a_member_the_gate_denies_is_left_out_whole() {
 }
 
 #[test]
-fn the_newest_exchange_keeps_its_tool_results_or_the_turn_overflows() {
+fn the_newest_exchange_keeps_its_words_and_its_tool_results_go_when_there_is_no_room() {
     let mut s = Store::default();
     for i in 0..3 {
         s.ex.push(ex(&format!("t{i}"), "local", 10 - i));
     }
     s.ex[2].tools = 160_000;
-    let a = assembled(&s, &AllowPrivate, "");
-    let v = a.view.expect("the whole fits, G's allowance aside");
-    let newest = v
-        .shown
-        .iter()
-        .find(|x| x.piece.handle.0 == "x:t2")
-        .expect("shown");
-    assert_eq!(newest.form, Form::Whole);
     let (frame, now) = parts();
     let table = table(sources(&s, ""), frame, now);
     let small = Budget::new(100_000, 8_000);
     let r = assemble(&pov(Present::OwnerAlone), &s, &table, &AllowPrivate, &small).expect("reads");
-    assert!(matches!(r, Err(budget::Overflow::Floor { .. })));
+    let v = r.expect("the floor's words fit: no tool result of a previous exchange is mandatory");
+    let newest = v
+        .shown
+        .iter()
+        .find(|x| x.piece.handle.0 == "x:t2")
+        .expect("its words are the floor");
+    assert_eq!(newest.form, Form::Spoken);
+    assert!(
+        !(v.shown.iter()).any(|x| x.piece.handle.0 == "x:t2" && x.form == Form::Whole),
+        "its tool results are not laid whole when there is no room"
+    );
 }
 
 #[test]

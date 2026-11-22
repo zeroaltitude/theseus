@@ -98,22 +98,18 @@ test('the fan-out runs at most four at a time, in order, and one refusal never s
 
 const task: DragItem = { id: 'ses_t2', kind: 'task', title: 'Tabulate the tides', sessionId: 'ses_t2', ended: false, data: 'private', home: 'ses_home', homeTitle: 'Harbour chat' }
 const conv: DropTarget = { kind: 'conversation', sessionId: 'ses_tides', title: 'Tide chat', data: 'private' }
-const lane: DropTarget = { kind: 'lane', slug: 'tide-tables', title: 'Tide tables' }
 const project: DropTarget = { kind: 'project', id: 'tsk_proj', title: 'Harbour wall' }
 
-test('drag: a task onto a conversation or a lane re-homes it (asks, with the budget sentence); onto a project attaches', () => {
+test('drag: a task onto a conversation re-homes it (asks, with the budget sentence); onto a project attaches', () => {
   assert.deepEqual(dropOf(task, conv, false), {
     method: 'task.rehome', params: { task: 'ses_t2', home: 'ses_tides' }, posture: 'ask',
     words: `Its report goes to the conversation “Tide chat” from now on. ${budgetWords('Harbour chat')}`,
   })
   assert.match(budgetWords('Harbour chat'), /^The budget stays charged to Harbour chat\.$/)
-  const l = dropOf(task, lane, false)
-  assert.ok('method' in l && l.params.home === 'thread:tide-tables' && l.posture === 'ask')
   assert.deepEqual(dropOf(task, project, false), { method: 'project.attach', params: { session: 'ses_t2', project: 'tsk_proj' }, posture: 'do', words: 'Attach “Tabulate the tides” to the project “Harbour wall”.' })
   const c: DragItem = { id: 'ses_tides', kind: 'conversation', title: 'Tide chat', sessionId: 'ses_tides', ended: false }
   assert.deepEqual(dropOf(c, project, false), { method: 'project.attach', params: { session: 'ses_tides', project: 'tsk_proj' }, posture: 'do', words: 'Attach “Tide chat” to the project “Harbour wall”.' })
   assert.equal(dropKey(conv), 'conversation:ses_tides')
-  assert.equal(dropKey(lane), 'lane:tide-tables')
   assert.equal(dropKey(project), 'project:tsk_proj')
 })
 
@@ -131,9 +127,7 @@ test('drag: every refusal, with its reason', () => {
   assert.match(refused({ kind: 'step' })!, /step/)
   assert.match(refused({ kind: 'done' })!, /fold/)
   assert.match(refused({ kind: 'conversation', data: undefined })!, /a conversation has no parent/, 'a running conversation onto a home')
-  assert.match(refused({ kind: 'conversation' }, lane)!, /no parent/)
   assert.equal(refused({ data: 'private' }, { ...conv, data: 'open' }), 'a private task cannot report into an open conversation', 'a home weaker in data mark')
-  assert.equal(refused({ data: 'sensitive' }, { ...lane, data: 'private' }), 'a sensitive task cannot report into a private thread')
   assert.equal(refused({ data: 'private' }, { ...conv, data: 'sensitive' }), null, 'a stronger home is fine')
   assert.equal(refused({ data: 'private' }, { ...conv, data: undefined }), null, 'a mark the page cannot tell: the daemon decides')
   assert.match(refused({ home: 'ses_tides' })!, /already reports there/)
@@ -153,7 +147,7 @@ test('switch model over the picked cards: the selection scope holds the picked r
 })
 
 test('the drag hint changes only when its words or place change', () => {
-  const h = { x: 100, y: 100, words: 're-home to Harbour', ok: true, key: 'lane:harbour' }
+  const h = { x: 100, y: 100, words: 're-home to Harbour', ok: true, key: 'conversation:ses_harbour' }
   assert.equal(hintChanged(null, null), false)
   assert.equal(hintChanged(null, h), true)
   assert.equal(hintChanged(h, null), true)
@@ -161,5 +155,5 @@ test('the drag hint changes only when its words or place change', () => {
   assert.equal(hintChanged(h, { ...h, x: 110 }), true, 'a few pixels moves the hint')
   assert.equal(hintChanged(h, { ...h, words: 'refused' }), true)
   assert.equal(hintChanged(h, { ...h, ok: false }), true)
-  assert.equal(hintChanged(h, { ...h, key: 'lane:tides' }), true)
+  assert.equal(hintChanged(h, { ...h, key: 'conversation:ses_tides' }), true)
 })

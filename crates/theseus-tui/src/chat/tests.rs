@@ -1121,3 +1121,45 @@ async fn a_job_cut_at_its_limit_is_not_drawn_as_a_failure() {
     );
     assert!(lines[1].contains("✗ exit 1 · error"), "{lines:?}");
 }
+
+/// A turn that ran no model: held in a shared place.
+#[tokio::test(start_paused = true)]
+async fn a_held_turn_names_no_model_in_the_chat() {
+    let base = script();
+    let sent = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let script: Script = Arc::new(move |m, p| -> Answer {
+        if m != "turn.submit" {
+            return base(m, p);
+        }
+        let n = sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (stop, model) = match n {
+            0 => ("held", "claude-opus-5-5"),
+            _ => ("end_turn", "claude-sonnet-5-5"),
+        };
+        let r = TurnSubmitResult {
+            session_id: SID.into(),
+            turn_id: format!("turn_h{n}"),
+            output: "I don't share that here.".into(),
+            model: model.into(),
+            elapsed_ms: 900,
+            stop_reason: stop.into(),
+            ..Default::default()
+        };
+        Ok(serde_json::to_value(r).unwrap())
+    });
+    let mut r = Rig::with(100, 40, script).await;
+    r.ready().await;
+    r.type_text("what is the owner's address").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("held: no model ran").await;
+    let text = r.text();
+    assert!(!text.contains("Opus"), "{text}");
+    assert!(
+        text.contains("Sonnet 5.5"),
+        "the status line keeps the last model: {text}"
+    );
+    // Every other turn's line is as it was.
+    r.type_text("and the weather").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("900 ms · Sonnet 5.5").await;
+}

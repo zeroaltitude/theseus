@@ -45,20 +45,17 @@ pub struct TasksArgs {
     /// work (the most recent first). Default 20.
     #[arg(long)]
     pub limit: Option<u32>,
-    /// The board as one list of conversations, with no group for a thread.
-    #[arg(long)]
-    pub flat: bool,
     /// The tasks that have ended, newest first, one line each with how each ended and the first
     /// line of its report (`theseus task show ID` has the rest).
-    #[arg(long, conflicts_with_all = ["watch", "graph", "flat"])]
+    #[arg(long, conflicts_with_all = ["watch", "graph"])]
     pub ended: bool,
     /// With --ended or a search: only tasks that ended (or were updated) since then: `30m`, `12h`,
     /// `7d`, `2w`, or a date, `2026-10-15`.
-    #[arg(long, value_name = "WHEN", conflicts_with_all = ["watch", "graph", "flat"])]
+    #[arg(long, value_name = "WHEN", conflicts_with_all = ["watch", "graph"])]
     pub since: Option<String>,
     /// Search every task, open or ended, for these words (all of them, any case) in its title,
     /// its brief or its report's first line.
-    #[arg(value_name = "QUERY", conflicts_with_all = ["watch", "graph", "flat"])]
+    #[arg(value_name = "QUERY", conflicts_with_all = ["watch", "graph"])]
     pub query: Vec<String>,
 }
 
@@ -161,7 +158,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
     if json {
         println!("{}", serde_json::json!({"result": v}));
     } else {
-        print_board(conn, &snap, a.flat).await;
+        print_board(conn, &snap).await;
     }
     if !a.watch {
         let _ = conn
@@ -193,7 +190,7 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
                     "-- events were lost; the board again at position {} --",
                     snap.position
                 );
-                print_board(conn, &snap, a.flat).await;
+                print_board(conn, &snap).await;
             }
             follow.reset(&snap);
             continue;
@@ -204,14 +201,9 @@ pub async fn run(conn: &mut Conn, json: bool, a: TasksArgs) -> Result<()> {
 }
 
 /// The snapshot, drawn at the terminal's width.
-async fn print_board(conn: &mut Conn, snap: &WorkWatchResult, flat: bool) {
+async fn print_board(conn: &mut Conn, snap: &WorkWatchResult) {
     let now = theseus_protocol::now_unix_ms();
-    let mut lines = board::lines(
-        snap,
-        flat,
-        now,
-        theseus_client::render::style::terminal_width(),
-    );
+    let mut lines = board::lines(snap, now, theseus_client::render::style::terminal_width());
     // A board with nothing on it says what ended today, so a finished task is not lost.
     if lines == ["no tasks"] {
         lines = vec![task_history::nothing_open(ended_today(conn, now).await)];

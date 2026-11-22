@@ -64,7 +64,6 @@ fn view(id: &str, kind: WorkKind, title: &str, state: WorkState, level: Level) -
         read: false,
         retry_of: None,
         forecast: None,
-        thread: None,
         data: None,
     }
 }

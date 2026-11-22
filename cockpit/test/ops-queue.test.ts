@@ -16,7 +16,6 @@ function full() {
     views: b.views,
     records: [record('tsk_x', { session: 'ses_t2', proposal: { abandon: true, by: 'ses_t2', card: 'act_px', base_version: 1, at_ms: NOW - 90 * MIN } }),
       record('tsk_y', { proposal: { objective: 'x', by: 'ses_t1', card: 'act_ch', base_version: 1, at_ms: NOW - 3 * MIN } })],
-    groups: b.groups,
     titleOf,
   })
 }
@@ -26,7 +25,6 @@ test('every kind of item, the longest waiting first', () => {
   assert.deepEqual(q.map((i) => [i.key, i.kind]), [
     ['f:exe_t5', 'failure'], // two hours
     ['q:act_px', 'change'], // ninety minutes: a proposal not yet in the list
-    ['s:tide-tables', 'seal'], // fifty minutes
     ['q:act_q1', 'question'], // forty minutes
     ['q:act_c1', 'approval'], // twenty minutes
     ['q:act_b1', 'budget'],
@@ -113,7 +111,6 @@ test('a selection or a deep link finds its item', () => {
   const q = full()
   assert.equal(itemFor(q, 'act_c1')?.key, 'q:act_c1')
   assert.equal(itemFor(q, 'q:act_c1')?.key, 'q:act_c1')
-  assert.equal(itemFor(q, 'tide-tables')?.key, 's:tide-tables')
   assert.equal(itemFor(q, 'exe_t5')?.key, 'f:exe_t5')
   assert.equal(itemFor(q, 'ses_t1')?.kind, 'question', 'a session’s first item, the longest waiting')
   assert.equal(itemFor(q, null), undefined)
@@ -175,8 +172,6 @@ test('each answer is one protocol call, the one every surface makes; an item tha
   assert.deepEqual(answerOf(failure, { verb: 'dismiss' }), { method: 'execution.dismiss', params: { execution_id: 'exe_t5' } })
   const convFailed = queueOf({ confirms: [], views: [view('exe_c', 'conversation', 'failed', {}, 'needs_you')] })[0]
   assert.equal(answerOf(convFailed, { verb: 'retry' }), null, 'only a task is retried')
-  assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal' })?.params, { slug: 'tide-tables', reason: 'it read a private chart' })
-  assert.deepEqual(answerOf(by.get('seal')!, { verb: 'seal_dismiss' }), { method: 'thread.seal_dismiss', params: { slug: 'tide-tables' } })
 })
 
 test('the present is told, not guessed: past false with no views reads no executions', () => {

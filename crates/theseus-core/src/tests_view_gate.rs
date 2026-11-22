@@ -11,15 +11,13 @@ use theseus_memory::gate::Present;
 use theseus_memory::recall::Place;
 
 use crate::places::BoundPlace;
-use crate::tests_memory_lookup::{index_over, script};
-use crate::tests_places::{rig_scripted, session, turn, Rig, LAB, OWNER};
+use crate::tests_memory_lookup::script;
+use crate::tests_places::{rig_scripted, session, Rig, LAB};
 use crate::view_gate::{self, OwnerMarks};
 use crate::Core;
 
 /// A guild channel bound shared.
 const PIER: u64 = 141_421_356_237_309_504;
-/// What the owner said at his terminal; no other place may be shown it.
-const HIS: &str = "the harbour gate code is 0451";
 
 /// The marks of a fake ledger: a node's in-person answer, or a read error.
 struct Fake(BTreeMap<&'static str, Option<bool>>);
@@ -151,29 +149,6 @@ async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person:
         })
         .await
         .unwrap();
-}
-
-/// With `[context] ledger` off the terminal reads places as before, agent or not.
-#[tokio::test]
-async fn with_the_ledger_off_the_terminal_reads_places_as_before() {
-    let r = rig_scripted(|c| c.context.ledger = Some(false), script);
-    bind(&r.core);
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn(&r.core, &dm, HIS).await;
-    r.core
-        .runner
-        .memory
-        .set_ask(index_over(&r.core, vec![dm.clone()]));
-    let agent = session(&r.core, None);
-    turn_as(
-        &r.core,
-        &agent,
-        r#"LOOKUP {"words": "harbour gate"}"#,
-        false,
-    )
-    .await;
-    let got = crate::tests_places::result_of(&r.core, &agent, "m1");
-    assert!(got.contains(HIS), "as before the ledger: {got}");
 }
 
 /// The ledger's F1: an owner's submission that is refused before it runs leaves nothing behind, so an

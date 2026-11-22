@@ -2,7 +2,7 @@
 // `boardRows`, `columnsOf`, `allCounters`, `spendToday`) over what the page has read, and nothing of its own but the
 // lists' order and the conversations at rest. `test/simple-ops-parity.test.ts` runs it and the Ship's pipeline over the
 // same fixtures and holds that every number here is the Ship's. Pure: `npm test` runs it.
-import type { ConfirmRequest, SessionInfo, TaskInfo, TaskRecord, ThreadGroup, WorkView } from '../../protocol.gen/index.ts'
+import type { ConfirmRequest, SessionInfo, TaskInfo, TaskRecord, WorkView } from '../../protocol.gen/index.ts'
 import { allCounters, boardRows, columnsOf, spendToday, unaskedCards, type AllCounters, type BoardColumns, type OpsRow } from '../../ops/board.ts'
 import { queueOf, type QueueItem } from '../../ops/queue.ts'
 import { rowFor } from '../../ops/sections.ts'
@@ -14,7 +14,6 @@ export interface WorkSetInput {
   sessions: readonly SessionInfo[]
   records: readonly TaskRecord[]
   confirms: readonly ConfirmRequest[]
-  groups: readonly ThreadGroup[]
   /** The ledger's rows, for today's spend. */
   history: ReadonlyArray<{ kind: string; at_unix_ms: number; session_id?: string | null; data?: unknown }>
   now: number
@@ -47,7 +46,7 @@ export interface WorkSet {
 
 export function workSetOf(i: WorkSetInput): WorkSet {
   const titleOf = (sid: string) => { const s = i.sessions.find((x) => x.session_id === sid); return s?.title || s?.label || sid.slice(-6) }
-  const queue = queueOf({ confirms: [...i.confirms], views: [...i.views], records: [...i.records], groups: [...i.groups], past: false, titleOf })
+  const queue = queueOf({ confirms: [...i.confirms], views: [...i.views], records: [...i.records], past: false, titleOf })
   const rows = boardRows({ views: [...i.views], tasks: [...i.tasks], sessions: [...i.sessions], records: [...i.records], queue, now: i.now, past: false })
   const cols = columnsOf(rows, i.now)
   const spendUsd = spendToday(i.history, i.now).usd

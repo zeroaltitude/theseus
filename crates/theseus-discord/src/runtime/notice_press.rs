@@ -24,10 +24,6 @@ impl Shared {
             self.card_question_press(i, press, who, discord).await;
         } else if let Some(press) = super::remind::parse(custom_id) {
             self.remind_press(i, press, who).await;
-        } else if let Some(press) = super::seal::parse(custom_id) {
-            self.seal_press(i, press, who, discord).await;
-        } else if let Some(press) = super::seal::link::parse(custom_id) {
-            self.link_press(i, press, who, discord).await;
         } else if let Some(write) = super::onto_card::parse(custom_id) {
             self.onto_press(i, write, who, discord).await;
         } else {

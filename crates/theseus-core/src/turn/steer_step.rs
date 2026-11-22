@@ -125,7 +125,7 @@ impl TurnRunner {
         }
         for (node, author, owner, arrival) in &nodes {
             t.tc.node_written(node);
-            self.exchange_heard(t, node, arrival.as_deref(), true);
+            Self::exchange_heard(t, node, arrival.as_deref(), true);
             self.inbound_point(t, node, author, true);
             let kind = self.message_kind(sid, *owner);
             self.content_message(sid, node, kind, "operator steer");

@@ -3,7 +3,7 @@
 //! its first, written from what those sessions say. The compile
 //! composes a category's guidance into every session that holds it, so a
 //! category written this way changes the next compile of each of its
-//! sessions' system block (a session's next recompile, not a turn in flight).
+//! sessions' system block (a session's next turn, not a turn in flight).
 //!
 //! - **Which**: a category of an interpreted kind that a machine wrote (never
 //!   the operator's or the import's), no guidance yet, held by [`MIN_SESSIONS`]

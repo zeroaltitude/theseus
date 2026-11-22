@@ -3,9 +3,11 @@
 //! no change falls between the snapshot and the events (the position rule
 //! settles the overlap, as `executions.watch`'s does).
 //!
-//! The place rule: a connection that reads no private text must name the
-//! conversations it asks for, and hears about those of a shared place alone;
-//! what it hears passes the scrubber and offers no answer (`push/work/place.rs`).
+//! Every connection may watch every conversation (2026-11-22: no surface is
+//! withheld text). A connection that reads no private text is still `guarded`:
+//! what it hears passes the secrets' scrubber and offers no answer
+//! (`push/work/place.rs`), because a secret is a secret on any surface and an
+//! answer is an act.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -16,7 +18,6 @@ use theseus_protocol::{error_code, method, WorkUnwatchResult, WorkWatchParams, W
 use super::server::{parse, reply, Conn, RpcFailure};
 use super::Core;
 use crate::push::WorkScope;
-use theseus_memory::recall::Place;
 
 /// The roots a snapshot carries besides those that need you or work.
 const DEFAULT_LIMIT: u32 = 200;
@@ -55,8 +56,9 @@ impl Core {
         p: WorkWatchParams,
         conn: Conn<'_>,
     ) -> Result<WorkWatchResult, RpcFailure> {
+        // The secret and the act, not the surface: see the module's note.
         let guarded = !conn.surface.reads_private();
-        let scope = self.work_scope(&p, guarded, conn.surface)?;
+        let scope = self.work_scope(&p, guarded);
         self.push.ensure(self).await?;
         self.bus.watch_work(
             conn.client,
@@ -64,24 +66,13 @@ impl Core {
             scope.clone(),
             p.interactive.unwrap_or(false),
         );
-        // The threads are the owner's: a connection that reads no private
-        // text is told of none. The watch is subscribed already, so the read
-        // of their stats reaches it as an update too.
-        let threads = match guarded {
-            true => Vec::new(),
-            false => {
-                self.install_thread_feed();
-                self.push.set_threads(self, self.thread_groups());
-                self.push.work_threads()
-            }
-        };
         let (position, views, total) =
             self.work_snapshot_marked(p.limit.unwrap_or(DEFAULT_LIMIT) as usize, &scope);
         Ok(WorkWatchResult {
             position,
             views: scope.cut(&views, &self.tools.scrubber),
             total,
-            threads,
+            threads: Vec::new(),
         })
     }
 
@@ -90,78 +81,20 @@ impl Core {
         WorkUnwatchResult { watching: false }
     }
 
-    /// Whether a guarded connection may watch `sid`: a shared place's
-    /// conversation always; and, for the Discord binding, a conversation that
-    /// speaks in a Discord place of any class (theseus-2j2ka). The binding
-    /// shows a place its own session's tasks in that place alone, as it shows
-    /// its cards, so a private DM's board is the owner's own DM; the views it
-    /// hears are still scrubbed and offer no answer (`may_answer` is false:
-    /// an answer is judged when it is pressed). The Reminders Home, which no
-    /// place runs on, is watched too: the binding shows its tasks on the
-    /// owner's DM (theseus-31pgz), with the same scrubbing.
-    fn may_watch(&self, sid: &str, surface: crate::approval::Surface) -> bool {
-        if matches!(self.runner.place_of(sid), Place::Shared(_)) {
-            return true;
-        }
-        surface == crate::approval::Surface::Discord
-            && (self
-                .outbox
-                .try_target(sid)
-                .ok()
-                .flatten()
-                .is_some_and(|t| t.starts_with("discord:"))
-                || self
-                    .store
-                    .get_meta::<String>(crate::wake_home::HOME_SESSION)
-                    .ok()
-                    .flatten()
-                    .as_deref()
-                    == Some(sid))
-    }
-
-    /// What a watch may see. `roots` are conversations (session ids); a
-    /// guarded connection (one that reads no private text) must name them,
-    /// and a root that does not speak in a shared place is left out without
-    /// a word: asking is no way to learn that a private session exists.
-    pub(super) fn work_scope(
-        &self,
-        p: &WorkWatchParams,
-        guarded: bool,
-        surface: crate::approval::Surface,
-    ) -> Result<WorkScope, RpcFailure> {
-        let Some(named) = p.roots.as_ref() else {
-            if guarded {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    format!(
-                        "{} reads no private text: name the conversations (roots) to watch",
-                        surface.name()
-                    ),
-                ));
-            }
-            return Ok(WorkScope::default());
-        };
-        let mut roots: HashSet<String> = HashSet::new();
-        for sid in named {
-            // The daemon's own work, for a surface that reads private text.
-            if sid == theseus_protocol::work_system::ROOT {
-                if !guarded {
-                    roots.insert(sid.clone());
-                }
-                continue;
-            }
-            let Ok(rec) = self.session(sid) else { continue };
-            if guarded && !self.may_watch(sid, surface) {
-                continue;
-            }
-            if let Some(exe) = rec.execution_id {
-                roots.insert(exe);
-            }
-        }
-        Ok(WorkScope {
-            roots: Some(roots),
-            guarded,
-        })
+    /// What a watch may see: the conversations `roots` names (session ids),
+    /// or every one. `guarded` rides the scope for the scrubber and the
+    /// answer, and narrows nothing.
+    pub(super) fn work_scope(&self, p: &WorkWatchParams, guarded: bool) -> WorkScope {
+        let roots = p.roots.as_ref().map(|named| {
+            named
+                .iter()
+                .filter_map(|sid| match sid == theseus_protocol::work_system::ROOT {
+                    true => Some(sid.clone()),
+                    false => self.session(sid).ok().and_then(|rec| rec.execution_id),
+                })
+                .collect::<HashSet<String>>()
+        });
+        WorkScope { roots, guarded }
     }
 }
 
