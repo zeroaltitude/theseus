@@ -22,7 +22,8 @@ fn cases_rig(jev: &FakeJev) -> Rig {
     rig(texts(0), jev, limited)
 }
 
-/// The model run: `route.v10` over its own file, the default candidate.
+/// The model run: `route.v11` over its own file (`route.v10.cases.toml`, re-pointed in issue 46), the
+/// default candidate.
 fn params() -> JudgeReplayParams {
     JudgeReplayParams {
         cases: Some(V10.to_string()),
@@ -77,10 +78,10 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script(&jev, "route.v10", V10, "model", &nothing);
+    script(&jev, "route.v11", V10, "model", &nothing);
     let out: JudgeReplayResult = c.judge_replay(params(), "cli").await.unwrap();
     // No candidate was named: the file's own pack was asked.
-    assert_eq!(out.candidate, "route.v10");
+    assert_eq!(out.candidate, "route.v11");
     assert_eq!(
         (out.set.as_str(), out.judgments, out.called),
         ("cases", 62, 62)
@@ -174,7 +175,7 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     // W26 (CVE triage, `must`) goes to Fable at 0.71; W27 (biology) is under the confirm bar.
-    script(&jev, "route.v10", V10, "model", &|id| match id {
+    script(&jev, "route.v11", V10, "model", &|id| match id {
         "W26" => Some(("fable", 0.71)),
         "W27" => Some(("sonnet", 0.55)),
         _ => None,
@@ -217,7 +218,7 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
 async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
-    script(&jev, "route.v10", V10, "model", &|id| match id {
+    script(&jev, "route.v11", V10, "model", &|id| match id {
         // W18 wants opus: a right opus under the bar runs `parent`, the model the
         // turn is already on, so it is a miss.
         "W18" => Some(("opus", 0.35)),
@@ -255,7 +256,7 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     );
     // The graded answer is the pack's declared default, not a value that merely agrees with it.
     assert_eq!(
-        declared("route.v10", "model").as_deref(),
+        declared("route.v11", "model").as_deref(),
         Some(w18.model.got.as_str())
     );
     assert!(!w18.model.agrees && w18.model.raw_agrees);
@@ -346,7 +347,7 @@ async fn the_refusals_send_nothing() {
             "{e}"
         );
     }
-    // The file is written for route.v10 (and so route.v11), not loop.v1.
+    // The file is written for route.v11 (and so route.v10), not loop.v1.
     let e = c
         .judge_replay(
             JudgeReplayParams {
@@ -358,7 +359,7 @@ async fn the_refusals_send_nothing() {
         .await
         .unwrap_err()
         .to_string();
-    assert!(e.contains("wired") || e.contains("route.v10"), "{e}");
+    assert!(e.contains("wired") || e.contains("route.v11"), "{e}");
     // A broken file is refused with the loader's words.
     let e = c
         .judge_replay(
@@ -397,12 +398,12 @@ async fn an_embedded_pack_is_replayed_by_its_cases_and_counted() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script(&jev, "route.v10", V10, "model", &nothing);
+    script(&jev, "route.v11", V10, "model", &nothing);
     let out = c.judge_replay(params(), "cli").await.unwrap();
     // The positive counts, not only an Ok: a run that graded nothing is no pass.
     assert_eq!(
         (out.candidate.as_str(), out.judgments, out.called),
-        ("route.v10", 62, 62)
+        ("route.v11", 62, 62)
     );
     let cases = out.cases.expect("a cases replay's numbers");
     assert_eq!((cases.cases.len(), cases.answered), (62, 62));
@@ -454,9 +455,9 @@ async fn a_text_that_takes_an_embedded_versions_name_is_refused_with_cases_wired
     let c = &r.core;
     let (_, embedded) = theseus_judge::pack::EMBEDDED
         .iter()
-        .find(|(n, _)| *n == "route.v10")
-        .expect("route.v10 is embedded");
-    let posing = format!("{embedded}\n# an edited text under route.v10's name\n");
+        .find(|(n, _)| *n == "route.v11")
+        .expect("route.v11 is embedded");
+    let posing = format!("{embedded}\n# an edited text under route.v11's name\n");
     let e = c
         .judge_replay(
             JudgeReplayParams {
@@ -469,7 +470,7 @@ async fn a_text_that_takes_an_embedded_versions_name_is_refused_with_cases_wired
         .unwrap_err()
         .to_string();
     assert!(
-        e.contains("route.v10") && e.contains("under another text"),
+        e.contains("route.v11") && e.contains("under another text"),
         "{e}"
     );
     assert!(jev.seen().is_empty(), "a refused run sent a call");
@@ -487,11 +488,11 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script(&jev, "route.v10", V10, "model", &nothing);
+    script(&jev, "route.v11", V10, "model", &nothing);
     let (_, embedded) = theseus_judge::pack::EMBEDDED
         .iter()
-        .find(|(n, _)| *n == "route.v10")
-        .expect("route.v10 is embedded");
+        .find(|(n, _)| *n == "route.v11")
+        .expect("route.v11 is embedded");
     let out = c
         .judge_replay(
             JudgeReplayParams {

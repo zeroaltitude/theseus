@@ -7,9 +7,32 @@ use theseus_protocol::thread_cache::ThreadsHealth;
 use super::{plural, Tag};
 
 /// `threads: kept warm 4h after the owner's last message · 2 held now`, then
-/// the day's numbers. Nothing from a daemon before it, or one with no thread.
+/// the day's numbers, then a line when a thread's binding cannot be read.
+/// Nothing from a daemon before it, or one with no thread.
 pub fn threads_lines(t: Option<&ThreadsHealth>) -> Vec<(Tag, String)> {
     let Some(t) = t else { return Vec::new() };
+    let mut out = window_lines(t);
+    let unread = match t.unread_bindings {
+        0 => None,
+        1 => Some("1 thread's binding to its conversation cannot be read: until it reads".into()),
+        n => Some(format!(
+            "{n} threads' bindings to their conversations cannot be read: until they read"
+        )),
+    };
+    if let Some(u) = unread {
+        out.push((
+            Tag::Warn,
+            format!(
+                "threads: {u} again, recall leaves out every conversation whose thread it \
+                 cannot tell"
+            ),
+        ));
+    }
+    out
+}
+
+/// The window, what is held, and the day's numbers.
+fn window_lines(t: &ThreadsHealth) -> Vec<(Tag, String)> {
     let warm = if t.keep_warm_hours > 0.0 {
         format!(
             "kept warm {}h after the owner's last message",
@@ -87,6 +110,7 @@ mod tests {
                 kept: 1,
                 skipped_today: 2,
             }),
+            unread_bindings: 0,
         };
         let lines = threads_lines(Some(&t));
         assert_eq!(lines[0].0, Tag::Warn);
@@ -104,10 +128,33 @@ mod tests {
         let off = ThreadsHealth {
             keep_warm_hours: 0.0,
             cache: None,
+            unread_bindings: 0,
         };
         assert_eq!(
             threads_lines(Some(&off))[0].1,
             "threads: keep-warm off ([cache] threads_keep_warm_hours = 0)"
         );
+    }
+
+    /// A thread's binding that cannot be read is one warning line, by count,
+    /// naming no thread; none when every binding reads.
+    #[test]
+    fn a_binding_that_cannot_be_read_is_said_by_count() {
+        let t = |n| ThreadsHealth {
+            keep_warm_hours: 4.0,
+            cache: None,
+            unread_bindings: n,
+        };
+        assert_eq!(threads_lines(Some(&t(0))).len(), 1);
+        let one = threads_lines(Some(&t(1)));
+        assert_eq!(one[1].0, Tag::Warn);
+        assert_eq!(
+            one[1].1,
+            "threads: 1 thread's binding to its conversation cannot be read: until it reads again, \
+             recall leaves out every conversation whose thread it cannot tell"
+        );
+        assert!(threads_lines(Some(&t(3)))[1]
+            .1
+            .starts_with("threads: 3 threads' bindings"));
     }
 }

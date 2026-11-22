@@ -650,7 +650,7 @@ async fn a_replay_is_the_owners_and_a_name_means_one_text() {
     .await;
     assert!(wired.contains("loop.v1 is wired"), "{wired}");
     let other = refuse(JudgeReplayParams {
-        candidate: Some("route.v10".into()),
+        candidate: Some("citation.v1".into()),
         report: Some(report.clone()),
         ..Default::default()
     })

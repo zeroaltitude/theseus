@@ -512,10 +512,10 @@ fn plant_route(w: &World, turn: &str, pick: &str) -> String {
     let options = ["haiku", "sonnet", "opus", "fable", "deepseek_flash"];
     let j = judgment(
         "jdg_route_whole",
-        "route.v10",
+        "route.v11",
         vec![choice("model", pick, 0.95, &options)],
         json!({"session": w.sid, "turn": turn}),
-        10,
+        11,
     );
     let mut row = crate::ledger::LedgerRow::new(
         LedgerKind::RouteDecided,
@@ -619,7 +619,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     );
     assert_eq!(
         whole.label.as_deref(),
-        Some("route.v10 model=haiku on jdg_route_whole")
+        Some("route.v11 model=haiku on jdg_route_whole")
     );
     let l = labels(&w);
     assert_eq!(l.len(), 1);
@@ -627,7 +627,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     assert_eq!(l[0].data["question"], "model");
     assert_eq!(l[0].data["label"], "haiku");
     assert_eq!(l[0].data["weight"], crate::learning::REPLAY_WEIGHT);
-    assert_eq!(l[0].data["pack"], "route.v10");
+    assert_eq!(l[0].data["pack"], "route.v11");
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();

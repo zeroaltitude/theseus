@@ -21,7 +21,7 @@ fn means_of(p: &Pack) -> String {
 /// description of v10, equal, once that option's description is v11's.
 #[test]
 fn v11_is_v10_but_for_the_fable_options_words() {
-    let v10 = by_name("route.v10").expect("route.v10 stays embedded");
+    let v10 = crate::pack::retired("route.v10").expect("route.v10 is retired, its file kept");
     let v11 = by_name("route.v11").expect("route.v11 is embedded");
     assert_eq!((v10.version, v11.version), (10, 11));
     let mut planted = (*v10).clone();
@@ -42,7 +42,7 @@ fn v11_is_v10_but_for_the_fable_options_words() {
 /// nothing of 5.1.
 #[test]
 fn v10_still_says_fable_5_1_and_v11_says_5_2_at_its_prices() {
-    let old = means_of(&by_name("route.v10").unwrap());
+    let old = means_of(&crate::pack::retired("route.v10").unwrap());
     assert!(
         old.starts_with("Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out, $0.25 a cache read per million."),
         "{old}"
@@ -62,7 +62,7 @@ fn v10_still_says_fable_5_1_and_v11_says_5_2_at_its_prices() {
 /// cases, no label touched. Another route pack's file is still refused for v11.
 #[test]
 fn v10s_cases_are_read_for_v11_as_they_are_for_v10() {
-    let a = CaseSet::parse(V10, &by_name("route.v10").unwrap()).unwrap();
+    let a = CaseSet::parse(V10, &crate::pack::retired("route.v10").unwrap()).unwrap();
     let b = CaseSet::parse(V10, &by_name("route.v11").unwrap()).unwrap();
     assert_eq!(a.cases.len(), b.cases.len());
     assert!(a.cases.len() >= 62);
@@ -70,7 +70,7 @@ fn v10s_cases_are_read_for_v11_as_they_are_for_v10() {
         a.cases.iter().map(|c| (&c.id, &c.want)).collect::<Vec<_>>(),
         b.cases.iter().map(|c| (&c.id, &c.want)).collect::<Vec<_>>()
     );
-    let v8 = V10.replace("pack = \"route.v10\"", "pack = \"route.v8\"");
+    let v8 = V10.replace("pack = \"route.v11\"", "pack = \"route.v8\"");
     let e = CaseSet::parse(&v8, &by_name("route.v11").unwrap()).unwrap_err();
     assert!(e.contains("written for route.v8, not route.v11"), "{e}");
 }

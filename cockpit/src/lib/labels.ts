@@ -1,7 +1,8 @@
 // A session's content labels (theseus-9ymz0): every item that enters a session is classified, and what is found stays on
 // the session as a label until the owner removes it. `injection` tells the owner that something tried to steer the
 // session, and only `[content_based_security] injection = "refuse"` (not the default since 1.0.6) refuses its writes,
-// programs and sends; `secret`, `confidential` and `personal` keep it off China-origin models. The daemon sends the
+// programs and sends; `secret` and `confidential` mark it private and `personal` sensitive (no label keeps a session off a
+// model since the restricted-origin rule went, 2026-11-21). The daemon sends the
 // labels on `session.list`
 // (`SessionInfo.labels`) and pushes `session.labelled` and `session.unlabelled`; the owner removes one with
 // `content.unlabel`, which is the re-trust of the session. Pure: `npm test` runs it
@@ -27,9 +28,9 @@ export const FLAG_EFFECT: Readonly<Record<string, string>> = {
   injection:
     'tells the operator that something tried to steer the session; the call still runs, and only ' +
     '`[content_based_security] injection = "refuse"` refuses its writes, programs and sends',
-  secret: 'keeps the session off China-origin models',
-  confidential: 'keeps the session off China-origin models',
-  personal: 'keeps the session off China-origin models',
+  secret: 'marks the session private',
+  confidential: 'marks the session private',
+  personal: 'marks the session sensitive, so none of it is published to a shared place',
 }
 
 /** What removing each flag gives up — its own sentence, per flag, because what a label does and what its removal gives up

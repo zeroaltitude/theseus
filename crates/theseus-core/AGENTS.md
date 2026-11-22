@@ -189,14 +189,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`config/context.rs`) lowers the window through `window_override` (`TurnRunner::working_window`). The budget
     and its report are `compiler/budget.rs`. Tests:
     `compiler/tests_ring.rs`, `tests_one_turn.rs`.
-  - **CONTINUE's candidate signals** (M5 25b): `signals.rs`, read inside `compile()` from what it is given (the
-    clock passed in as `CompileInput.signals`, never read there): a dormancy gap, the tail crossing its soft band,
-    a task report or a wake arriving, and a provider cache miss, each against what was written since the model's
-    last answer, so an input's signals fire once, at its turn's first compile. Thresholds are `[judge.signals]`;
-    they are read whether or not the judge is on, and decide nothing: every one that fired rides on
-    `context.compiled` (`signals`). A compile that appended and fired one asks `continue.v1` in shadow
-    (`judge/compile.rs`: the dispatch is a spawn, and the turn's trace gets a zero-length `judge` mark naming the
-    judgment's id, minted at the dispatch). Tests: `tests_continue.rs`.
+  - **CONTINUE's candidate signals are gone** (2026-11-21): `signals.rs`, `continue.v1` in shadow and `[judge.signals]`
+    were deleted; a stored `context.compiled` row's `signals` is still read (`CompileSignal`) and nothing writes it.
   - **The system header** (`TurnRunner::system_blocks`): the persona, the assembly note (`turn::ASSEMBLY`: what the
     harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the
     precedence line (`compiler::situation::PRECEDENCE`, 35a), the tools note, and the profile's text, all static.
@@ -355,10 +349,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `kind <a> <b>` ask, so a chain asked over two nights still clusters, and a kept pick follows its cluster to a new key); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
   pick below the act band or no answer leaves the most shared name (`Hints::named`, `Swept.named_kinds`; a pick is kept in the mark's `named` for as long as its ask is not asked again, so a cluster that mints a later night uses it; a Jev-named kind's description ends with `mint::NAMED_NOTE`, which the morning note and the cockpit read). The night runs
   hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
-  no model; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
-  its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
+  no model; (4) `consolidate/guidance.rs`, run by the nightly tender (`consolidate/tender.rs`; the synthesis writer it
+  ran first is retired): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
-  under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
+  under `[memory] synth_limit_usd_per_day` counting the dream's spend (META `onto.dream.last`, written after each
   call, so a stop keeps what was spent; a pinned `synth_profile` sends the dream's high effort too, `guidance.rs:337`, so a pinned dream costs more per call than it once did and can reach that daily limit), an answer over 400 characters refused, never cut, a session whose first or last
   message cannot be read left out (the category waits only below 5 left), a category that waits says why in `Dreamed.waits` (`Wait`: different profiles, a profile or provider that is missing, a model that thinks unasked, too few readable sessions, no price), which the tender logs, and `[ontology] dream_guidance` off (default
   on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
@@ -445,7 +439,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **The observer** (theseus-6f8t0; `card/observe.rs`, `card/observe/extract.rs`, hooked in `judge/categorize.rs`'s
   `at_exchange_end` beside people.v1's): in a Private session the owner is alone in (`capture::owner_alone`; never a
   task), at `categorize::due` on its own META mark `card.observe.<session>`, one forced-tool call on `[card] profile`
-  (through `google::private::for_session`, so the data gate; scrubbed; `audit_reserve`, `[card] day_usd` and `day_hold`)
+  (scrubbed; `audit_reserve`, `[card] day_usd` and `day_hold`)
   reads the owner's own lines since the mark: only the nodes `turn.submit` noted as the owner's (`capture::expect`'s
   owner mark, in memory, so lost at a restart: earlier lines are then not read). Code keeps an item only if it cites a
   line, is lasting, is not one task's or a paste, and is not a restatement (that counts as said again, as capture's
@@ -458,7 +452,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   animal said inside a question about the disk). Two things reach them, divided by span. **Today's** open notes ride in
   the request's tail as a bounded block (`card/noted.rs`, attached in `turn/compile_step.rs`), which is what makes that
   answer certain rather than a matter of the model electing to look: owner-alone places only, never a task's session,
-  never a model of restricted origin, after the cached prefix so it is no cache write. **Older than today**, or more than
+  after the cached prefix so it is no cache write. **Older than today**, or more than
   the block's eight lines, is read by `card.observed` (`card/tool.rs`, dispatched in `toolrun.rs` by family `card`,
   attached in `rpc/mod.rs`): `when` (today by default, read as `memory.lookup` reads it) and `limit`, open notes newest
   first, each with its local day,
@@ -467,9 +461,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `memory.lookup`'s is. **The tool's wall is the block's, clause for clause** (`card::tool::refusal`, the one point both
   the runtime and the tests go through): the owner alone in the place (`tc.class`, then `Core::owner_alone_in` on the
   session's place), never a task's session (its own record, as `turn/compile_step.rs` reads it — a task's place is its
-  parent's, so the place checks pass one through), and never a model of restricted origin (the turn's profile through
-  `TurnRunner::restricted_profile`; the data gate cannot stand in for it, since it moves a *labelled* session off such a
-  model and these notes raise no label). It is no `places::public_tool`, and it is not registered at
+  parent's, so the place checks pass one through). It is no `places::public_tool`, and it is not registered at
   all with `[card] observe` off. Tests: `card/tool.rs`'s own, `card/tests_pure.rs`'s block test, and the four end-to-end
   ones in `card/observe/tests.rs`.
   **The live pass** (theseus-6f8t0; `card/live.rs`, `rpc/card_stale.rs`): the observer's `card.obs.<id>` notes (META, never a node:
@@ -578,8 +570,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `ini:<id>`) with its row in one frame. Producers:
   the morning note (`initiative/morning.rs`: the driver's tick asks `post_morning_if_due`, one lock and a comparison until the
   day's first ask after `[initiative] morning_hour`; the work is a spawned task, only on a day a task ended, a wake fired, a
-  promise went unkept or notes were proposed, once a day by META `initiative.morning`) and the nightly consolidation's finding
-  (`initiative/consolidation.rs`, `Proactive::Observation`: chatty only). **The level**: `Initiative::lets` (theseus-protocol) is
+  promise went unkept or notes were proposed, once a day by META `initiative.morning`).
+  **The level**: `Initiative::lets` (theseus-protocol) is
   the one table; `Rules::initiative` feeds `notices::policy`, and the daemon's own proactive posts ask the same `lets`.
   **Promises**: `initiative/promise.rs`'s table of looking-ahead phrases; at a turn's end a reply that matches writes `promise.kept`
   when the turn scheduled something (`Pending::scheduled`, bumped by `wake.at`, `watch` and `task.create`) and `promise.unkept`
@@ -1811,9 +1803,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     estimate this tree uses, and the rest is for thinking. A model that thinks whether asked or not still waits (theseus-ohiu8),
     because that allowance is sized for Sonnet's thinking on a small prompt and not for an always-thinking model's; such a model
     is reachable only as the operator's pin. The why of the exception is on those constants: no turn to read, the text lands in
-    every later compile of every session holding the category, three calls a night under `synth_limit_usd_per_day`. The data rule stays: the call
-    goes through the provider chokepoint, and `tests_guidance::the_dreams_model_is_cleared_for_private_material` fails if
-    the constant ever names a model not cleared for private material. Tests: `tests_guidance.rs`
+    every later compile of every session holding the category, three calls a night under `synth_limit_usd_per_day`. Tests: `tests_guidance.rs`
     (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`,
     `the_cap_leaves_the_answer_room_behind_the_thinking`),
     `tests_job_ask.rs` (the rule),
@@ -1920,11 +1910,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
-    **Restricted profiles** (the data rule, never loosened): a pick whose profile the session's labels keep off, or that is of
-    restricted origin (`cn` or `unknown`) for an ask that is not cleared, runs the turn's own profile with `data_gate`
-    (`routing::model::refusal`); a restricted session base, `-P` pin, place profile or `[model]` default is not refused by routing,
-    and the floor moves or fails that turn (theseus-1v7fl). The class lists' `cn_profiles` and their load checks
-    (`config/routing_cn.rs`) went with the class table.
+    **Restricted profiles are gone** (2026-11-21): no label and no origin keeps a pick, a pin or a default off a profile;
+    the old route rows' `data_gate` and `cn` still read.
     **A task's base from its brief** (theseus-ypnxt.7; `turn/brief_step.rs`, `routing/brief.rs`): a task the owner starts
     with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks the route pack alone about its
     brief on its first turn (`JudgeService::at_brief`), waits for it as a message does, and `brief_base` makes Jev's
@@ -2033,83 +2020,52 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`judge/seal.rs`); Jev never seals. Known limits: the prior and the thread's answered-by history are in memory
     (lost at a restart; the prior then falls back to the session's own persona); the router's early inbound call
     (`rpc/thread_flow.rs`) asks the persona question without the thread's context.
-  - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `data_gate.rs`, `turn/data_step.rs`, `pack_names.rs`): `[privacy]
+  - **Sensitive names** (theseus-oejh3; `config/privacy.rs`, `pack_names.rs`): `[privacy]
     sensitive_names` is the one list, matched by `theseus_judge::names::hits` (case-insensitive, whole words, a name of
     several words as a run of them). It is the content pack's `data_names.private` (`PrivacyConfig::data_names`; `[routing.data]`
     is gone, theseus-9ymz0, and the old `private_topics` key is refused), and **an item that holds one raises a removable
     `confidential` label at its entry** (theseus-gyjyo.4: `content::deterministic::from_names`, source `name: <word>`, no model
     call, landed by `JudgeService::land_deterministic`, for every item kind and off with `session_flags`). Nothing refuses a
-    request for a name any more: `data_gate::names_in`, the route floor's `sensitive` leg and the US allowlist's use for names are
-    deleted, and the label follows `cn_models` like any other, so the operator who removes it can send that session to a
-    restricted model (P3). The accepted residual: a name in a context file or standing record, with no item in the session
-    naming it, stops nothing, and a model of EU origin is not refused for a name. At start the embedded packs' text is checked
-    against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase naming pack and count, never a
-    name). `ModelOrigin::cleared_for_sensitive` (theseus-xs5ah, "such data must be routed to us-based models") has one reader
-    now, a private motif's model (`rsi::mint::data_rule`); whether that rule stays is the owner's. Tests:
-    `judge/tests_content.rs`, `tests_content_gate.rs`, `data_gate.rs`'s own.
-    **route.v10** (theseus-h66v4) is the acting route pack; route.v8's `data` question was asked and read by nothing since
-    theseus-9ymz0 (the labels on a session replaced it) and is not in route.v10.
-  - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
-    `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
-    enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
-    found is a durable label on `SessionRecord.data` (`ContentFlags`; store format 52, which reads an older record's open-view
-    state as no labels and nothing judged; format 53, theseus-gyjyo.3, adds `Label.judgment`, the raising judgment's id, so the owner's taps
-    teach the classifier: `unlabel_session` writes a `judge.label` row (source `operator`, the flag's question `no`) in the removal's frame,
-    the cockpit chip's "wrong" and `theseus judge label` write the same row without removing the label, and `learning/system.rs`'s
-    `content` arm labels a label left standing a week, or present when its session retires, `yes` at weight 0.5; format 54, theseus-gyjyo.7, removes the mark
-    a record also carried, how far the session was judged and a worklist of what a failed ask left, which a record from before reads ignored). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
-    a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band and is never asked of the
-    operator's own words. Its effect is `[content_based_security] injection`, **`notify` since 1.0.6** (S17-D8): told, not refused.
-    `refuse` freezes — `refusal_at` then refuses every call but a local read of files and code (`content::local_read`)
-    until the operator clears it. Nothing is proved per request: the session carries a label or it does not.
-    **A failed ask** (`judge/content.rs`, theseus-gyjyo.7): an ask whose call failed is asked **once more** (after `REASK_PAUSE`, 200 ms),
-    **inside the same open ask**, so the session's counter stays up across the retry; if that fails too the item is rowed `content.unjudged`
-    (`why: failed`) and the owner is told once, in the session's place (`JudgeService::unjudged_told` -> `Core::tell_unjudged`, a `notice`
-    post; told once per session for a run of failures, re-armed by the next batch of that session that is judged), and the session goes on. **An item whose ask failed twice
-    can reach a model of restricted origin unlabelled, with a notice** (the owner's answer to review Q2); nothing is kept for a later
-    re-ask, there is no mark and no sweep, and an item no write site offers is never asked about
-    (`tests_content_floor::every_item_a_turn_writes_is_offered_for_judgment` is the guard). A refusal (`refused`) or an unbuilt state
-    (`unbuilt`) is not an ask that failed and is not retried; it is rowed and told at once, in the same one message, so on a day the judge's
-    budget runs out every active session hears it once. The notice says what is true of the session: when it already carries a label that
-    keeps a model of restricted origin off, it says those labels still do (`unjudged_notice`'s `kept_off`). A landing writes at once (no park between turns).
-    **The chokepoint** (`data_gate.rs`, keel): a request to a model of restricted origin is refused (class `data_gate`,
-    nothing sent, one `data_gate.blocked` row with a `why` word) when `[content_based_security] cn_models` is
-    `follow_flags` and the session in `CALLER` (`for_session`) carries a disqualifying label; `always` sends whatever the
-    session carries, and `never` refuses every such request and takes the profile out of routing. One record read, no
-    transcript read, and nothing is proved per request: the session carries a label or it does not. A request for no
-    session, or for one with no readable record, is still refused (`no_session`, `no_record`). The session is read only
-    for a restricted model. `[privacy] sensitive_names` is no longer checked here: a hit raises a removable
-    `confidential` label at the item's entry (`content::deterministic`), and the label is what this reads.
-    **The turn's floor** (`turn/data_step.rs`): `Floor { cn_ok }`, `cn_ok` from `RouteState.cn` (`Cn`: allowed,
-    unchecked, or no with a word), read from the store, not the turn's copy. A turn bound for a restricted profile waits on
-    `TurnRunner::verdicts` for at most `[content_based_security] wait_ms` for this session's **outstanding content asks**
-    to land -- a counter, not a mark on the transcript -- and then decides again either way, going to the `[model]`
-    default with `Reason::DataGate` if a label arrived: it never blocks and never fails for want of a verdict; a Claude turn never waits
-    (`decide_floored` decides as if allowed, and waits only when that names a restricted profile). A later loop on a restricted
-    profile reads the session again before it compiles (`cn_move`), so a label raised since moves it; a compaction's restricted
-    summary profile waits the same way (`compaction/gate.rs`). `data_floor` moves any turn still bound for one, or fails it
-    before any call ("No model cleared for this request's data is usable: …"); the driver parks that class, never retries it.
-    `verdicts` is a `content_wait::Handle`: `Ready` (answers at once) until the judge that lands verdicts stands behind it;
-    `content_wait::judging::Judging` is the tests' judge. The config refuses a restricted profile for the owner-material keys
-    (`[people] extract_profile`, `[card] profile`, `[judge.learn] writer_profile`, `[self]
-    reviewer_profile`, `[initiative] profile`, `[ontology] name_profile`, `[memory] synth_profile`) and a China-origin `[judge]
-    api_base`. Tests: `tests_content_gate.rs`, `tests_content_floor.rs`, `tests_content_freeze.rs`, `tests_data_gate.rs`,
-    `data_gate.rs`, `config/data_floor.rs`.
+    request for a name, and no label keeps a session off a model (the restricted-origin rule is gone, 2026-11-21). At start the
+    embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
+    naming pack and count, never a name). Tests: `judge/tests_content.rs`.
+    **route.v11** is the acting route pack (route.v10 word for word but the `fable` option's words; route.v10 retired in
+    issue 46); route.v8's `data` question was asked and read by nothing since theseus-9ymz0 and is in neither.
+  - **Content flags** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17; `content.rs`, `content_wait.rs`,
+    `config/content_based_security.rs`, `fact/data.rs`): every item that enters a session (an operator's message, a tool
+    result, a brief, a report) is classified once, by itself, and what is found is a durable label on `SessionRecord.data`
+    (`ContentFlags`; store format 52, which reads an older record's open-view state as no labels and nothing judged; format 53,
+    theseus-gyjyo.3, adds `Label.judgment`, the raising judgment's id, so the owner's taps teach the classifier:
+    `unlabel_session` writes a `judge.label` row (source `operator`, the flag's question `no`) in the removal's frame, the
+    cockpit chip's "wrong" and `theseus judge label` write the same row without removing the label, and `learning/system.rs`'s
+    `content` arm labels a label left standing a week, or present when its session retires, `yes` at weight 0.5; format 54,
+    theseus-gyjyo.7, removes the mark a record also carried, which a record from before reads ignored). `ContentFlags::mark`
+    makes a session `sensitive` (`personal`) or `private` (`secret`, `confidential`), which who may see what by place reads;
+    `injection` raises only at the act band and is never asked of the operator's own words. Its effect is
+    `[content_based_security] injection`, **`notify` since 1.0.6** (S17-D8): told, not refused. `refuse` freezes —
+    `refusal_at` then refuses every call but a local read of files and code (`content::local_read`) until the operator
+    clears it. A label is read where it already stands: content is judged asynchronously and nothing waits for a verdict, so
+    an injection label that lands after an acting call refuses the next one
+    (`tests_content_items::an_injection_label_that_lands_after_an_acting_call_refuses_the_next_one_only`).
+    **A failed ask** (`judge/content.rs`, theseus-gyjyo.7): an ask whose call failed is asked **once more** (after `REASK_PAUSE`,
+    200 ms), **inside the same open ask**; if that fails too the item is rowed `content.unjudged` (`why: failed`) and the owner is
+    told once, in the session's place (`JudgeService::unjudged_told` -> `Core::tell_unjudged`, a `notice` post; told once per
+    session for a run of failures, re-armed by the next batch of that session that is judged), and the session goes on. An item no
+    write site offers is never asked about (`tests_content_items::every_item_a_turn_writes_is_offered_for_judgment` is the
+    guard). A refusal (`refused`) or an unbuilt state (`unbuilt`) is not an ask that failed and is not retried; it is rowed and
+    told at once. A landing writes at once (no park between turns).
+    **The restricted-origin rule is gone** (the owner, 2026-11-21): the chokepoint (`data_gate.rs`), the turn's floor and its
+    wait, the owner-material profile checks and the origin guess were deleted. `[content_based_security] cn_models` and
+    `wait_ms` load, are named once at startup and are ignored (`ContentBasedSecurityConfig::retired`). A model's `origin` is
+    data the owner is shown (the model menu, the route row), and no rule reads it. Old `data_gate.blocked` rows and a route
+    row's `cn`/`data_gate` still read.
     **The table is `[content_based_security]`** (theseus-gyjyo.2; it was `[content]`, whose keys are each a hard error naming their
-    new home in `config/renamed.rs`): `session_flags` (was `enabled`), `cn_models` (`always | follow_flags | never`, read by the
-    chokepoint and the route), `injection` (`refuse | notify`), `wait_ms`, `max_pieces` and `context` (handed to the pack
-    verbatim through `content_scene.rs`, cut to 800 characters); `[privacy]` adds `open_source_paths` (read by `content_scene.rs`
-    for the pack's `public`; absolute or `~/`; **not** `[places] public_paths`, which opens trees to a shared place's file tools)
-    and `redact_outbound` (read by `exits.rs`). `[policy] external_text` and `external_programs` are retired keys that fail the
-    load (`config/renamed.rs::RETIRED`); a `[policy.earned]` section loads, is ignored and warned of. `session_flags = false` with
-    `cn_models = "follow_flags"` refuses to start (`ContentBasedSecurityConfig::validate`): with nothing judged there are no labels
-    to follow. Tests: `config/tests_content_based_security.rs`.
-    **The data rule is on the record** (theseus-a1wvq.11; `tests_observability.rs`): the route row (`route.decided`) carries `cn`
-    (`allowed`, `unchecked`, a flag's word, `never`), `data_gate` only when the rule kept the turn off a restricted-origin model,
-    and, always, `provider`, `model` and `origin` of the profile it runs on; `provider.call` carries `origin`. `data_gate` is an
-    open word (a flag's word, `never`, or a later row's own); each one also counts on `theseus.route.data_gate`
-    (`Telemetry::record_data_gate(what, why)`), with the chokepoint (`chokepoint`) and the four background refusals
-    (`compaction`, `consolidation`, `keep_warm`, `replay`).
+    new home in `config/renamed.rs`): `session_flags` (was `enabled`), `injection` (`refuse | notify`), `max_pieces` and
+    `context` (handed to the pack verbatim through `content_scene.rs`, cut to 800 characters); `[privacy]` adds
+    `open_source_paths` (read by `content_scene.rs` for the pack's `public`; absolute or `~/`; **not** `[places] public_paths`,
+    which opens trees to a shared place's file tools) and `redact_outbound` (read by `exits.rs`). `[policy] external_text` and
+    `external_programs` are retired keys that fail the load (`config/renamed.rs::RETIRED`); a `[policy.earned]` section loads, is
+    ignored and warned of. Tests: `config/tests_content_based_security.rs`.
     Forks copy the labels their nodes raised, through the fork point at most, and the source's removals
     (`fork::data_through`); there is no mark to carry (theseus-gyjyo.7). A check still out on the source when the fork
     is taken lands on the source alone, and the fork never gets its label (theseus-sz6z9). `turn.inspect`'s `data` line is `ContentFlags::line`.
@@ -2152,8 +2108,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     beside `"private": true` in the result's meta, and `private::record` adds the META record
     `google.sensitive.<session>` to the same frame; the level follows what the private mark follows (`followed`,
     `inherited`, a task's lineage) and never lowers. The task-local the chokepoint reads carries the level
-    (`scoped`/`within`/`bound` take a bool as private); both floors (the route step and `data_gate`) allow a US-origin
-    model alone for any private level, and `place.publish` refuses a node of a sensitive session to a shared place
+    (`scoped`/`within`/`bound` take a bool as private); `place.publish` refuses a node of a
+    sensitive session to a shared place
     (`sensitive_stays_private`); a shared place is offered no calendar tool. A morning note over a sensitive calendar
     is asked of a US model alone and its `initiative.spoke` row holds no text (`initiative_post_as`). **Idle and
     unreachable** (theseus-b09do): the tender drops a window nobody read for `IDLE` (30 minutes) before it refreshes,
@@ -2169,8 +2125,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`private_session` reads every task above it on a task's turn alone, `google::private::lineage`; theseus-y8k3u); the learning writer and a thread
     import's card are scoped over every session they hold (`over_sessions`). Tests: `tests_private_background.rs`,
     `tests_private_lineage.rs`.
-    Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
-    `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
     **Drafts are gone** (row 6, theseus-kn9or; theseus-a1wvq.13 built them): the China-origin draft in its own git tree, its
     `final` review and `first_pass`, `[server] drafts_dir` and the `DraftReach` view (`draft.rs`, `turn/draft_step.rs`,
     `fact/draft.rs`, `draft_view.rs`) were deleted with the class table that opened them. Flash is a `model` option Jev may
@@ -2279,7 +2233,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   unreadable file or a placeholder. `enabled = false` is off whatever the key, `true` with no entry still refuses to
   load. `features.rs` words health's first line (`HealthResult.features`: memory, Jev with routing live or shadow or
   off and why, the scrub, the daily ceiling), which `theseusd check` prints too. Memory on also means the memory pass
-  after each turn and the nightly consolidation (`synth_limit_usd_per_day`, read only by `+synthesis`). Tests:
+  after each turn and the nightly dream's guidance (`synth_limit_usd_per_day`). Tests:
   `config/tests_fresh.rs`, `tests_fresh_recall.rs`, `features::tests`. A test that counts Jev's calls, frames or
   transcript reads sets `memory.mode = Off` (the judge rigs do), and a daemon test's `safe_note` sets
   `[judge] enabled = false`, so no test daemon turns the judge on from a stand-in key.
@@ -2374,9 +2328,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     position, session, as-of minute; origin, harness, sensitivity; veiled text is never in it). Each read is a
     `memory.read` row (`fact::memory::MemoryRead`: principal, tool, client, a digest of the words, hits). Tests:
     `tests_mcp_memory.rs`; the tools' golden is theseus-mcp's `tests/golden/memory_tools.json`.
-  - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "canary"` (a sticky share,
-    `canary_fraction`, by a hash of session and `experiment`: `MemoryConfig::assign`, recorded once as a `memory.arm`
-    row; the control runs `none` live with `baseline` in shadow) or `"live"`. The read finishes before the first
+  - **In front of the model** (step 30b, theseus-6fn.2): `[memory] mode = "live"` (`canary`, retired, reads as `live`).
+    The read finishes before the first
     loop's compile, under the same deadline (`recall_first`), and what it admits is a `Recall` node
     (`node::Body::Recall`: references, never copies) held in the turn (`Turn.recall`) and rendered by the compile as
     though written (`recall_view`, at the position after every node); the new compilation's prefix leaves it out
@@ -2418,7 +2371,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     range, a recall's budget drops, an overage); the reply's `TurnSubmitResult.recalled` feeds Discord's
     `🧠 N recalled` footer. Tests: `tests_recall_node.rs`, `recall::render::tests`.
   - **The `+rerank` arm in shadow** (step 32c): `judge/rerank.rs`. After the shadow recall's pipeline
-    (`recall_end`: `[memory] mode = "shadow"`, or a canary's control), the recall step's one call,
+    (`recall_end`: `[memory] mode = "shadow"`), the recall step's one call,
     `JudgeService::at_recall`, picks the candidates that passed every filter (`theseus_memory::rerank::eligible`,
     the place rule first, and the operator's labels: only they may reach Jev), marks the turn's trace (`judge`,
     kind `mark`, with the judgment's id), and spawns `rerank.v1` under its own 600 ms deadline (a live-urgency
@@ -2440,69 +2393,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     their own (`learning/items.rs`: the check, the report's per-definition questions), and the owner's memory labels
     write rerank's system labels (`learning/rerank.rs`). Tests: `tests_rerank_live.rs` (one on tokio's paused clock,
     with Jev a channel: `JudgeService::rerank_with`), `tests_rerank_labels.rs`.
-  - **FSRS-6 retention and the `+retention` arm** (step 32a's wire-in, theseus-6fn.11): `recall/retention.rs`. Each
-    memory row is the `AccessEvent` it is (`event_of`, pure: `memory.labeled` a first sight by durability,
-    `memory.used` a use by outcome or, not used, `Shown`, which is no review; `memory.label` by §2.7's table), at
-    its row's time. The `Projection` folds them with `Fsrs6` (`fsrs6-default`) per node from every arm's rows (one
-    projection, §5 question 9), each node's events kept by position, so a row brought twice counts once and one
-    arriving out of order refolds the node: it always equals a rebuild. Built after serving only when read
-    (`Core::warm_retention` under `[memory] arm = "+retention"`, the first `+retention` search, or a turn of the
-    arm), by one walk of the three kinds through the ledger's index (`k:<kind>` tags; waits on tokio's timer while
-    the index's shape is built), on the blocking pool; kept current by `Memory::retention_written`, which the memory
-    pass's frames and `memory.label` call with their positions. The arms' seam is `Memory::science_for(arm)` (a
-    match: an arm that ranks its own way adds its line) and `Scene.science`, which `manifest_ranked`, `refill` and
-    the rerank's `Recalled` (with its `retention`) read; shadow, a canary's control and a search without an arm use
-    `baseline`'s. Under a science that reads retention the manifest's `retention` says the projection's state
-    (`ready`, or why it ranked without), and each admitted and dropped item its `RecallRetention`. `memory.search`
-    takes `arm`; health's `memory` block and the gauge `theseus.memory.retention.nodes` give its size. Tests:
-    `tests_retention.rs`, `recall::retention::tests`.
-  - **The adjacency projection** (step 32b, theseus-6fn.12): `recall/adjacency.rs`, what spreading activation walks,
-    folded from the record and never stored: neighbours by position in a session (a `Recall` node is no one's
-    neighbour), a tool call and its result by `tool_use_id`, the EDGEs by kind and route (`mapped`: `derived_from`'s
-    copying routes, `recall`'s at weight zero by construction, a route it does not know, such as 31b's `synthesis`,
-    spreads nothing and is counted `unmapped`; `supersedes` 1.0 toward the newer node, 0.2 back), and each node's
-    entities from its `memory.labeled` row, expanded at a spread from each entity's list, never stored per pair
-    (`1/ln(1+df)`; an entity in more nodes than `cap` is not expanded: at the defaults, 1,095, past which one such
-    edge cannot carry a seed over the threshold alone). A node the memory pass never labeled has no entities.
-    `Projection::refresh` folds what was written since; the result does not depend on where a fold stopped. Tests:
-    `tests_activation.rs`.
-  - **The `+activation` arm** (step 32b): `recall/activation.rs`. `[memory] arm = "+activation"` (canary or live;
-    shadow and a canary's control run `baseline`) asks the index for `baseline`'s sources, then, before the pipeline,
-    spreads (`Memory::activated`, theseus-memory's `Activated` science, which is `baseline` but for `activate`): the
-    turn's new node at 1.0 (`Begun.new_node`; its projection edges and the query's entities the hits matched, the
-    tender asked nothing more) and the top 10 fused hits over the best one's score. The reached nodes are one more
-    ranked source: a reached hit gains `weight / (60 + rank)` and `sources.activation`, and at most 20 of the
-    strongest the index did not return (none the turn holds, none at or after `as_of`, none the index never indexes)
-    join the candidates read from the store, before every filter (the place rule reads them as any candidate). The
-    spread runs on the blocking pool for what is left of the index's deadline (`deadline`); the projection is built
-    after serving (`Core::warm_activation`), and a turn that finds it unbuilt starts the build and goes on
-    (`building`); a search builds it itself, unpaced (`Adjacent::paces` counts every build's paces), unless the warm
-    build is running: then it answers `building` at once, never queued on the projection's lock behind the warm
-    build's paces (theseus-e21m, theseus-6fn.14; `tests_activation_search.rs`). The seam other arms share: `MemoryArm`, `Memory::science_for(arm)`, the
-    `Scene`'s `science` (read by `manifest_ranked`, `refill` and the rerank's `Recalled`), and `memory.search`'s
-    `arm` (`theseus memory search --arm`). The manifest's `activation` says what it did and its share of what was
-    admitted (each item's rank and score are its `sources.activation`); the `recall` span holds a `recall.activate`
-    span, timed in `theseus.recall.activate_ms` by outcome, with its additions in `theseus.recall.activated`
-    (`telemetry/tests_recall.rs`); health's `memory` block (`Core::memory_health`) names the projection's nodes,
-    edges, entities and bytes. Tests: `tests_activation_arm.rs`.
-  - **Consolidation and the `+synthesis` arm** (step 31b, theseus-6fn.10): `consolidate/`. Off every turn
-    (`memory.consolidate`, routed with the owner's runs in `rpc/judge_runs.rs`, `judge_act(Act::JudgeRun)`; the
-    nightly tender `consolidate/tender.rs` at `[memory] consolidate_hour`, never within 10 minutes of a start;
-    the plan on a `learning` thread at nice 19, the calls and the frames' waits as tasks on the runtime, never a
-    thread blocked on it: a stop mid-wait must not panic it, and the release profile aborts on a panic), the newest `recall.shadow`/`recall.ran` rows (by kind through the
-    store's pages) become clusters (`theseus_memory::consolidate`), each written by `synth_profile` (`session`:
-    the profile every source's session last used; disagreeing sources wait), checked deterministically and by
-    `citation.v1` (`judge/citation.rs`, a point of its own, `WIRED` in shadow) on the answer's entry
-    (`theseus_memory::consolidate::entry`, a leading heading set aside: the node keeps the entry,
-    `synthesis.proposed` the answer whole, `synthesis.checked` the `heading`; a cluster whose one answer was rejected
-    for its form, `rejected` with no `judgment`, is proposed once more on a later run, `FORM_TRIES`), and kept as a `Body::Synthesis`
-    node (store format 18) in the harness session (META `memory.session`, never compiled) with `derived_from`
-    edges (`via = "synthesis"`) and `synthesis.proposed`/`.checked`/`.scored` rows (`fact/synthesis.rs`, scope
-    `memory`; the day's spend reads back from them). A cluster with external text is never synthesized. Each
-    frame goes through the memory pass's writer handshake (`MemoryPass::writing`; `memory_pass/turns.rs` counts
-    its writers). The arms' seam: `Memory::science_for(arm)` and `Scene.science`; every arm but `+synthesis`
-    leaves the harness session out before the index's top k (`Memory::begin`'s `exclude_sessions`), and the
-    pipeline drops a synthesis as `arm` or `unchecked` (`MemoryScience::synthesis`). Tests: `tests_consolidate.rs`.
+  - **The research arms are gone** (the owner, 2026-11-21): `+retention` (FSRS-6), the adjacency projection and
+    `+activation`, and consolidation's nightly writer with `+synthesis` and `memory.consolidate` were deleted with the
+    `canary` mode. `[memory] arm` names `none`, `bm25` or `baseline`; an old arm loads as `baseline` and `canary` as `live`,
+    told once at startup (`MemoryConfig::retirement`). Stored `Body::Synthesis` nodes and `synthesis.*` rows still read;
+    nothing writes them. The dream's guidance (`consolidate/guidance.rs`, run by `consolidate/tender.rs`) stays.
 - **A first keystroke warms what the message will wait for** (theseus-tnky): `warm.rs` and `rpc/typing.rs`. Every
   surface sends `session.typing` (the TUI's input line, `watch --interactive`, Discord's typing event) once per idle
   spell (`theseus_protocol::warm::SPELL_SECS`, 120 s; the client's `Typist` and the core's `Warmth::admit` keep the same
@@ -2513,8 +2408,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   runs). The client's pool keeps an idle connection `provider::POOL_IDLE` (300 s; reqwest's default is 90). Only an
   owner's typing counts on Discord (`Core::typist_refused`: another person in a shared place warms nothing), and the
   MCP surface is refused by its allow-list. Health's `warm` block (`WarmHealth`) says when each was last warmed; the
-  metric is `theseus.warm` by target and outcome (`warm`, `opened`, `failed`, and `refused`, the data gate's
-  refusal, which health still words as `failed: …`). Nothing on a turn's path waits for it. Tests: `warm::tests`,
+  metric is `theseus.warm` by target and outcome (`warm`, `opened`, `failed`; `refused` was the removed
+  restricted-origin refusal). Nothing on a turn's path waits for it. Tests: `warm::tests`,
   `rpc/tests_typing.rs` (a stand-in provider that counts warm-ups apart from requests, a stand-in tender socket,
   a provider whose warm-up never ends), `provider/tests_warm.rs` (a loopback server that counts connections).
 - **Retraction** (theseus-2ced; the killer-features plan's R13): `retract.rs`, `fact.retract { node, why }`
@@ -2977,18 +2872,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   once let go) and its `session.profile_set` row are one frame. A turn's model: its own `profile` (not a pane's `carried`
   one), then the hold (`TurnRunner::sticky_named`, in `turn.submit`; `target_as_ran`, so a continuation, a wake, a task's
   next turn, keep-warm and the census read it too), then the last turn's, the place's and the live one; routing may move a
-  turn that was not pinned, and the floor moves a refused base as it moves any (a judge-less core's private session fails at
-  the provider's floor instead, as before). A turn fixes its model once (`route_to` routes once), so a running task takes it at
+  turn that was not pinned. A turn fixes its model once (`route_to` routes once), so a running task takes it at
   its next turn, never mid-call. `null` puts back the target the session ran on when the hold began (`was`) and answers
-  `previous`, which is the undo. **The refusal** is `TurnRunner::profile_refusal(mark, profile)` (`turn/data_step.rs`): an unconfigured profile is refused, and
-  so is a profile of restricted origin (`cn`, `unknown`) for a session whose labels keep such a model off (the wire mark below is
-  `private` or `sensitive`); a restricted profile on an open session is set with a note (`per_turn_note`: the floor decides per
-  turn). The origin decides, not a US allowlist (theseus-gyjyo.5), and the menu and the route's floor read the same labels
-  (`turn/tests_sticky.rs` pins every mark x origin). Nothing is written when refused. **The data mark** (`DataMark`: `open`,
+  `previous`, which is the undo. **The refusal** is `TurnRunner::profile_refusal(profile)` (`turn/data_step.rs`): an unconfigured profile is refused, and
+  nothing else (no label keeps a session off a model since 2026-11-21). Nothing is written when refused. **The data mark** (`DataMark`: `open`,
   `private`, `sensitive`) is read from the session's labels (`ContentFlags::mark`, through `content_wait::mark_of`): `sensitive`
-  when it carries `personal`, `private` for any other label that keeps a restricted model off, else open. It rides
+  when it carries `personal`, `private` when it carries `secret` or `confidential`, else open. It rides
   `SessionInfo.data` and `WorkView.data` (stamped as a view leaves the board, `Core::stamp_data`; the board reads no store) and
-  `ProfileInfo.origin` names each profile's origin word; `ProfileInfo.cleared` is "not of restricted origin".
+  `ProfileInfo.origin` names each profile's origin word, shown and decided by nothing.
   **`task.rehome { task, home }`** moves where the report is posted (the task record's `target`, the execution's
   `reports_to`, META `task.place.<session>`; the frame that ends the task reads the target again,
   `TaskOf::target_for_now`): `home` is a conversation's session id or `thread:<slug>`; the budget stays carved from the
@@ -3001,10 +2892,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   **`task.reschedule { task, start_at_ms | start_after_ms | start_when }`** moves a sleeping deferred task's due wake
   (`Kernel::edit_task`) and its `task.deferred.<session>` times, parsed by `Core::start_time`, which `task.start` shares;
   `previous` is the undo. Tests: `rpc/tests_session_profile.rs`, `tests_task_rehome.rs`, `tests_task_reschedule.rs`,
-  `tests_wire_mark.rs`, `turn/tests_sticky.rs`, the kernel's `tests_task_edit.rs`. **The floor's table was shared with the cockpit**
-  (theseus-jid7t.6): `cockpit/test/fixtures/profile_floor.json` still encodes the old US-only table and `tests_profile_floor.rs` that held
-  the daemon to it is gone (theseus-gyjyo.5), so the cockpit's `test/ops-floor.test.ts` holds the menu's greying only to the fixture, which
-  is stale; the menu follows `ProfileInfo.cleared`, which now says "not of restricted origin".
+  `tests_wire_mark.rs`, the kernel's `tests_task_edit.rs`. The cockpit's model menu greys a profile only when it is
+  not configured (`cockpit/src/ops/floor.ts`).
 - **Starting a task with no model turn** (theseus-7oq0w): `task.start { brief, title?, home?, budget_usd?, profile?,
   start_at_ms? | start_after_ms? | start_when?, quotes?, report_to? }` (`rpc/task_start.rs`, `theseus_protocol::task_start`),
   the owner's verb for every surface (`theseus task start`, the TUI's `N`; Discord's "New task" and the horizon's deferred start
@@ -3746,12 +3635,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (or a frame now, outside a turn), and a row that must ride in a frame the site builds is `Rec::row`, with the rest
   announced once that frame is written (`Rec::announce`).
 
-- **The data rule.** A model of restricted origin (`cn` or `unknown`) is sent a request only for a session with no
-  cn-disqualifying content label, every item of which was judged; the provider refuses a request to one for any other, and for
-  none; origin is judged by endpoint and family as well as by catalog row; `[privacy] sensitive_names` go only to models of
-  US origin, whatever the labels say; a China-origin model only drafts code, in its own tree, with no programs, and nothing
-  it drafts is applied or reported before a Claude review (`final`). The passages: "Content flags and the restricted-origin
-  floor", "The draft view", "Sensitive names" and "Drafts" under the judge.
+- **The data rule is gone** (the owner, 2026-11-21): no label, origin or name keeps a session off a model. What
+  stays is the labels themselves (who may see what by place reads the mark) and the injection rule; the passage
+  is "Content flags" under the judge.
 
 ## Tests
 

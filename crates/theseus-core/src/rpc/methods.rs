@@ -1239,10 +1239,6 @@ impl Core {
                     crate::catalog::origin_word(self.cfg.profile_origin(name, &self.catalog))
                         .into(),
                 ),
-                // Every profile is cleared for every session: no label keeps a
-                // session off a model since the restricted-origin rule went
-                // (2026-11-21). The field stays for the clients that read it.
-                cleared: Some(true),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())
