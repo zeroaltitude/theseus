@@ -29,6 +29,8 @@ pub struct StoreSources<'a> {
     pub store: &'a Store,
     pub mark: Option<(&'a str, Pos)>,
     pub recalled: Vec<String>,
+    /// The gate's reading of a session's seal for this turn: true holds it out.
+    pub sealed: &'a dyn Fn(&str) -> bool,
 }
 
 /// Who wrote a person's message, by its node's mark: the owner's mark is his; a chat author's proof is
@@ -101,7 +103,9 @@ impl Exchanges for StoreSources<'_> {
                 },
                 author,
                 outside,
-                sealed: false,
+                // The seal is the gate's own reading of the exchange's session, the same place's included.
+                // No reader of today's store marks an exchange veiled.
+                sealed: (self.sealed)(&ex.session_id),
                 veiled: false,
             },
             place: ex.place,

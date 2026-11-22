@@ -28,10 +28,12 @@ use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
 use crate::view::text::parts::{self, Seen};
 use crate::view::text::tokens;
+use crate::view::wire::OnceLadder;
 use crate::view::wire::{assemble, Assembled, NotAssembled, Parts, StoreSnapshot, StoreTimeline};
 use crate::view::wire_text::TextRenderer;
 use crate::view::{Anchor, Form, Handle, Label, PointOfView, Pos, Present, Reasons, Slot, Space};
 use crate::view_gate::Verified;
+use theseus_memory::gate::Seal;
 
 impl TurnRunner {
     /// The turn's place, as the ledger writes it: where its message arrived, else its session's own.
@@ -66,7 +68,17 @@ impl TurnRunner {
         if self.assembly_here(t) != Assembly::View {
             return Box::pin(self.compact(t, compile(input), input, i)).await;
         }
+        // Before every later call of the turn: a source sealed since ends the old chain (`view_reset`).
+        if self.view_revoked(t) {
+            t.view = None;
+            self.view_freeze(t, input.spec)?;
+            self.view_reset(t, input.nodes);
+        }
         self.view_freeze(t, input.spec)?;
+        // A refused image under the turn's thinking, or a forced recompile: the same view, a new chain.
+        if input.strip.is_some() || input.force.is_some() {
+            self.view_reset(t, input.nodes);
+        }
         let (store, turn) = (t.tc.store, t.tc.turn_id);
         let Some(f) = t.view.as_mut() else {
             anyhow::bail!("the turn's view was not assembled");
@@ -83,6 +95,32 @@ impl TurnRunner {
             }
         }
         Ok(compiled)
+    }
+
+    /// Whether a session the frozen view lays has been sealed since it was assembled (the gate's own
+    /// reading, for this turn's session).
+    fn view_revoked(&self, t: &Turn<'_>) -> bool {
+        let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
+            return false;
+        };
+        let sid = t.tc.session_id;
+        (f.sessions.iter()).any(|s| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear)
+    }
+
+    /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
+    /// turn's own answers so far are sent without their thinking, which the change invalidated.
+    fn view_reset(&self, t: &mut Turn<'_>, nodes: &[(u64, Stub)]) {
+        let turn = t.tc.turn_id;
+        let Some(f) = t.view.as_mut() else {
+            return;
+        };
+        f.compilation_id = None;
+        f.stripped.extend(
+            (nodes.iter())
+                .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+                .filter(|(_, n)| n.kind == Kind::AssistantMessage)
+                .map(|(_, n)| n.id.clone()),
+        );
     }
 
     /// The turn's view, assembled on its first call and kept in `t.view` for its later ones (frozen within
@@ -105,12 +143,16 @@ impl TurnRunner {
         let since = crate::ladder::new_mark(store, &place)?;
         let (asked, message) = message_of(store, sid, turn)?;
         let permit = Permit::of(verified);
+        let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
             recalled: recalled(t),
+            sealed: &held,
         };
-        let ladder = StoreLadder(store);
+        // One read of the ladder for the whole assembly: every selector, the text and the window see it.
+        let store_ladder = StoreLadder(store);
+        let ladder = OnceLadder::new(&store_ladder);
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -162,7 +204,7 @@ impl TurnRunner {
                 return Ok(());
             }
         };
-        let (window, spoken) = window_of(store, &a, &pov, turn, renderer.zone)?;
+        let (window, sessions) = window_of(store, &a, &pov, turn, renderer.zone)?;
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
         t.view = Some(Frozen {
@@ -170,7 +212,8 @@ impl TurnRunner {
             compilation_id: None,
             front: front.map(block).collect(),
             window,
-            spoken,
+            stripped: HashSet::new(),
+            sessions,
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view),
@@ -265,8 +308,8 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 
 /// The window as the view shows it: the nodes of each exchange the budgeter kept in slot G, oldest first,
 /// from every session that ran them (this turn's own is its tail; a recall note is the transcript's), each
-/// part labelled by its own provenance (`labelled`); and the results of those kept spoken, which render
-/// as receipts.
+/// part labelled by its own provenance (`labelled`), the results of those kept spoken as their receipts,
+/// made now from the window alone (`compiler::view::receipted`); and every session the view lays.
 fn window_of(
     store: &Store,
     a: &Assembled,
@@ -280,7 +323,7 @@ fn window_of(
         .map(|s| (s.piece.range.first.id.as_str(), s.form))
         .collect();
     let mut read: HashMap<String, Transcript> = HashMap::new();
-    let (mut window, mut spoken) = (Vec::new(), Vec::new());
+    let (mut window, mut spoken) = (Vec::new(), HashSet::new());
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {
             continue;
@@ -296,7 +339,7 @@ fn window_of(
             .collect();
         for (_, n) in &nodes {
             if *form != Form::Whole && n.kind == Kind::ToolResult {
-                spoken.push(n.id.clone());
+                spoken.insert(n.id.clone());
             }
         }
         let at = Pos {
@@ -305,7 +348,19 @@ fn window_of(
         };
         window.extend(labelled(store, nodes, pov, at, zone));
     }
-    Ok((window, spoken))
+    let mut sessions: Vec<String> = (a.view.shown.iter())
+        .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
+        .filter_map(|s| {
+            crate::exchange::exchange(store, &s.piece.range.first.id)
+                .ok()
+                .flatten()
+        })
+        .map(|e| e.session_id)
+        .chain(read.into_keys())
+        .collect();
+    sessions.sort();
+    sessions.dedup();
+    Ok((crate::compiler::view::receipted(window, &spoken), sessions))
 }
 
 /// An exchange's nodes as real turns, each part labelled by its own provenance (`parts::mark_parts`, live):

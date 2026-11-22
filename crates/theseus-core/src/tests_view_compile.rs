@@ -461,3 +461,154 @@ async fn a_view_place_offers_the_history_tool_as_the_transcript_does() {
     );
     assert_eq!(offered[0], offered[1]);
 }
+
+/// The view runs the transcript's spec preparation: with tools deferred (the owner's direct conversation
+/// defers them) a view turn offers the resolved set the transcript's turn does, not the raw catalog.
+#[tokio::test]
+async fn a_view_turn_offers_the_resolved_deferred_tools() {
+    let mut offered = Vec::new();
+    for view in [true, false] {
+        let r = crate::tests_places::rig_deferring(
+            |c| {
+                c.context.assembly = view.then_some(AssemblySetting::All(Assembly::View));
+            },
+            |_| crate::provider::Scripted::text("Hello."),
+        );
+        let sid = session_in(&r.core, None, &r.root);
+        turn(&r.core, &sid, "deferred: which tools?").await;
+        let q = (r.requests().into_iter())
+            .filter(|q| last_user(q).contains("deferred: which tools?"))
+            .last()
+            .unwrap();
+        offered.push(crate::tests_places::offered(&q));
+    }
+    assert_eq!(
+        offered[0], offered[1],
+        "the view offers the transcript's resolved set"
+    );
+}
+
+/// The view runs the transcript's spec preparation: a conversation whose ontology membership carries
+/// guidance has that guidance in its view request's system part.
+#[tokio::test]
+async fn a_view_turn_carries_its_memberships_guidance() {
+    let (r, _) = owners_rig(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    with_person(c, &sid);
+    turn(c, &sid, ASKED).await;
+    let q = r.requests().pop().unwrap();
+    let system = crate::tests_places::system_text(&q);
+    assert!(system.contains("is the owner's accountant"), "{system}");
+}
+
+/// A thread `kelp`, bound to its own session, sealed as `seal` says.
+fn kelp(store: &crate::store::Store, seal: bool) -> String {
+    use crate::session::SessionRecord;
+    let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    store.put_session(&r.session_id, &r).unwrap();
+    let mut t = serde_json::json!({"slug": "kelp", "title": "kelp"});
+    if seal {
+        t["sealed"] = serde_json::json!({"by": "cli", "at_ms": 1, "reason": "embargo"});
+    }
+    store.put_meta("thread:kelp", &t).unwrap();
+    store
+        .put_meta("discord.session.thread:kelp", &r.session_id)
+        .unwrap();
+    r.session_id
+}
+
+/// A sealed thread's exchange in the SAME place is not in the window: the seal is the gate's own reading
+/// of the exchange's session. Unsealed, the same exchange is.
+#[tokio::test]
+async fn a_sealed_threads_exchange_in_the_same_place_is_not_in_the_window() {
+    const KELP: &str = "kelp: the embargoed figure is 7741";
+    for seal in [false, true] {
+        let thread = std::cell::RefCell::new(String::new());
+        let r = crate::tests_places::rig_setup(
+            |c| {
+                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+                c.threads.enabled = true;
+            },
+            |s| *thread.borrow_mut() = kelp(s, seal),
+        );
+        let c = &r.core;
+        let thread = thread.into_inner();
+        turn_as(c, &thread, KELP, true).await;
+        let desk = crate::tests_places::session(c, None);
+        turn_as(c, &desk, "desk: and now?", true).await;
+        let q = asked(&r, "desk: and now?").pop().unwrap();
+        assert_eq!(
+            texts(&q).contains("7741"),
+            !seal,
+            "sealed {seal}: {}",
+            texts(&q)
+        );
+    }
+}
+
+/// A seal applied between two calls of one turn: the turn's next call is a fresh chain without the sealed
+/// exchange.
+#[tokio::test]
+async fn a_seal_between_two_calls_of_a_turn_ends_the_chain() {
+    use std::sync::{Arc, OnceLock};
+    const KELP: &str = "kelp: the embargoed figure is 7741";
+    let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+    let held = core.clone();
+    let thread = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.threads.enabled = true;
+        },
+        |s| *thread.borrow_mut() = kelp(s, false),
+        move |q| {
+            let last = last_user(q);
+            if last.contains("seal it now") && !crate::tests_places::answers_a_call(q) {
+                let c = held.get().expect("the core");
+                seal_kelp(c);
+                return crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("s1", "fs_list", serde_json::json!({"path": "."}))],
+                );
+            }
+            crate::provider::Scripted::text("Done.")
+        },
+    );
+    let _ = core.set(r.core.clone());
+    let c = &r.core;
+    let thread = thread.into_inner();
+    turn_as(c, &thread, KELP, true).await;
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: seal it now", true).await;
+    let calls: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| texts(q).contains("desk: seal it now"))
+        .collect();
+    assert_eq!(calls.len(), 2, "the turn made two calls");
+    assert!(
+        texts(&calls[0]).contains("7741"),
+        "before the seal: {}",
+        texts(&calls[0])
+    );
+    assert!(
+        !texts(&calls[1]).contains("7741"),
+        "after it: {}",
+        texts(&calls[1])
+    );
+}
+
+/// Seal the thread `kelp` through the thread board's own write.
+fn seal_kelp(c: &crate::Core) {
+    c.runner
+        .threads
+        .write(
+            &c.store,
+            |b| {
+                let mut v = serde_json::to_value(b.get("kelp").expect("kelp")).unwrap();
+                v["sealed"] = serde_json::json!({"by": "cli", "at_ms": 2, "reason": "embargo"});
+                Ok(vec![serde_json::from_value(v)?])
+            },
+            |_, _| Ok(vec![]),
+        )
+        .unwrap();
+}
