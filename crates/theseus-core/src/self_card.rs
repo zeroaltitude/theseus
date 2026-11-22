@@ -34,8 +34,8 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
     match (offers(crate::memory_lookup::LOOKUP), history) {
         (true, true) => lines.push(
             "You can look up past conversations: before asking the person what they meant by \
-             something you cannot place, read back through this place's history with \
-             context_history, or look it up by its name with memory_lookup."
+             something you cannot place, read back through this place's history, or another \
+             place's, with context_history, or look it up by its name with memory_lookup."
                 .into(),
         ),
         (true, false) => lines.push(
@@ -46,7 +46,7 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
         ),
         (false, true) => lines.push(
             "Before asking the person what they meant by something you cannot place, read back \
-             through this place's history with context_history."
+             through this place's history, or another place's, with context_history."
                 .into(),
         ),
         (false, false) => {}
