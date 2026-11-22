@@ -2,10 +2,10 @@
 
 Every conversation's request is built by the view. There is nothing to set: the `[context] assembly` setting
 that once chose between the view and the old transcript is retired (a settings file that still names it loads,
-says so once at startup, and `theseus health` lists it among the settings keys ignored). A task's turns are the
-transcript's until tasks take the view.
+says so once at startup, and `theseus health` lists it among the settings keys ignored). A task's turns are
+the view's too, at the task's own place, `task:<task id>`.
 
-## A conversation's turn
+## A turn
 
 `turn::view_step` assembles the turn's view once, on its first call (`crate::view::wire::assemble`: every
 selector from one snapshot, the gate on each piece, the budgeter, the renderer, the ladder's read). The result is

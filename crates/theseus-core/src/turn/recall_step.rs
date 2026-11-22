@@ -616,9 +616,9 @@ impl TurnRunner {
 
     /// Why this turn's request does not carry its pending `Recall` node, when it does not:
     /// [`VIEW`] on a view turn, whose recall reaches the model as a selector's piece beside the
-    /// message (issue 44). `None` when it carries it: a task's turn, the transcript's.
-    pub(super) fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
-        (!self.task_on_transcript(t)).then_some(VIEW)
+    /// message (issue 44). `None` when it carries it: a turn with the ledger off, the transcript's.
+    pub(super) fn carries(&self, _: &Turn<'_>) -> Option<&'static str> {
+        (!self.on_transcript()).then_some(VIEW)
     }
 
     /// The compile withheld the pending node, so the turn recalled nothing:
