@@ -121,7 +121,7 @@ async fn the_beat_off_is_todays_wait() {
     );
     let mut keys: Vec<&String> = meta.as_object().unwrap().keys().collect();
     keys.sort();
-    assert_eq!(keys, ["correlation_id", "job", "state", "warm_reads"]);
+    assert_eq!(keys, ["correlation_id", "job", "state"]);
 }
 
 /// A still-running wait that is not the beat's says the job's last lines and
@@ -148,20 +148,6 @@ async fn a_still_running_wait_says_its_output_and_cpu() {
         "no cgroup in a test, so no CPU words: {text}"
     );
     assert!(meta.get("beat").is_none(), "{meta}");
-}
-
-/// A wait returned at the beat had its keep-warm reads before it.
-#[tokio::test(start_paused = true)]
-async fn the_beat_does_not_starve_the_cache() {
-    let r = rig(script(1500), beat(600));
-    let s = r.session();
-    let turn = r.submit(&s, "search it");
-    r.until_calls(2).await;
-    turn.await.unwrap();
-    assert_eq!(r.warm_reads().len(), 2, "reads at 240 s and 480 s");
-    let (_, _, meta) = r.result(&s.session_id, "t2");
-    assert_eq!(meta["warm_reads"], 2);
-    assert_eq!(meta["beat"], true);
 }
 
 // ---- the status line at each beat (theseus-5d204)

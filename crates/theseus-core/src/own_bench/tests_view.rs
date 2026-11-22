@@ -5,7 +5,7 @@
 use theseus_protocol::own_bench::TurnReplayParams;
 use theseus_protocol::LedgerKind;
 
-use super::rebuild::VIEW_REFUSED;
+use super::rebuild::{LEGACY_REFUSED, VIEW_REFUSED};
 use super::tests::{board, script};
 use crate::compiler::view::kept::Kept;
 use crate::config::MemoryMode;
@@ -34,7 +34,6 @@ async fn a_view_turns_first_request_is_rebuilt_byte_for_byte() {
     let t = turn(&rig.core, &sid, ASK).await.turn_id;
     let got = rig.core.rebuild_first(&sid, &t).expect("rebuildable");
     assert_eq!(got.compilation.strategy, crate::compiler::view::STRATEGY);
-    assert!(got.view.is_some(), "rebuilt from its view");
     let sent = &rig.model.requests()[0];
     assert_eq!(got.digest, sent.digest());
     assert_eq!(&got.request, sent, "the rebuilt request is the one sent");
@@ -239,4 +238,47 @@ async fn a_turn_completes_while_its_blobs_writes_are_held() {
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+/// An answer whose compilation the old transcript builder made is refused in words, before anything of it is
+/// rendered or sent (issue 44, 2026-11-22: no saved request of a builder that no longer exists is sent
+/// again); its compilation still decodes and lists.
+#[tokio::test]
+async fn a_turn_the_transcript_builder_made_is_refused_in_words() {
+    let rig = view_rig();
+    script(&rig, &[ORIGINAL]);
+    let sid = session(&rig.core, None, &[]);
+    let t = turn(&rig.core, &sid, ASK).await.turn_id;
+    let store = &rig.core.store;
+    let mut c = rig
+        .core
+        .rebuild_first(&sid, &t)
+        .expect("rebuildable")
+        .compilation;
+    c.strategy = "transcript".into();
+    let record = theseus_store::NewRecord::json(theseus_store::kinds::COMPILATION, Some(&c.id), &c)
+        .unwrap()
+        .scoped(&c.session_id);
+    store.append(&[record]).unwrap();
+    let sent = rig.model.requests().len();
+    let Err(e) = rig.core.rebuild_first(&sid, &t) else {
+        panic!("a transcript-era turn was rebuilt");
+    };
+    assert_eq!((e.part, e.why.as_str()), ("compilation", LEGACY_REFUSED));
+    assert!(
+        e.to_string()
+            .contains("made by a builder that no longer exists"),
+        "{e}"
+    );
+    assert_eq!(rig.model.requests().len(), sent, "nothing was sent");
+    let old = store
+        .get_compilation(&c.id)
+        .unwrap()
+        .expect("it still decodes");
+    assert_eq!(old.strategy, "transcript");
+    assert!(store
+        .session_compilations(&sid)
+        .unwrap()
+        .iter()
+        .any(|k| k.id == c.id));
 }

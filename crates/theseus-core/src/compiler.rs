@@ -132,8 +132,10 @@ pub struct Compilation {
     /// (`new_session`, `model_changed`, `system_changed`, `tools_changed`, `overflow`, `manual_fresh`,
     /// `manual_transcript`, ...), which nothing makes now.
     pub trigger: String,
-    /// `view` (a view turn's chain); an old store also holds `transcript`, `fresh`, `ring`, `compaction`
-    /// and `cold_resume`, which nothing makes now.
+    /// `view` (a view turn's chain), or `fork` (the record a new fork opens with: its inherited run, by
+    /// reference; the fork's own turns compile views). An old store also holds `transcript` (the old
+    /// builder's, and a fork's record before 2026-11-22), `fresh`, `ring`, `compaction` and `cold_resume`,
+    /// which nothing makes now; they still decode.
     pub strategy: String,
     /// WAL position the selection was made at: later nodes are the tail.
     pub as_of: u64,

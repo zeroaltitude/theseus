@@ -16,6 +16,7 @@ mod aws;
 mod bindings;
 mod books;
 mod budgets;
+mod cache_health;
 mod calendar;
 mod chat_answer;
 mod cites;
@@ -623,7 +624,6 @@ impl Core {
         self.runner.tools.stops.export_to(t.clone());
         self.runner.tools.sandbox.export_to(t.clone());
         self.runner.tools.defer.export_to(t.clone());
-        let _ = self.runner.keep_warm.telemetry.set(t.clone());
         let _ = self.telemetry.set(t);
         out
     }
@@ -974,7 +974,7 @@ impl Core {
             yes_facts: Default::default(),
             exchanges: Default::default(),
             tails: Default::default(),
-            keep_warm: Default::default(),
+            last_request: Default::default(),
             cache_numbers: Default::default(),
             judge,
             // Read at a routed session's first turn, never on the start path.
@@ -999,7 +999,6 @@ impl Core {
             runner.tools.stops.export_to(t.clone());
             runner.tools.sandbox.export_to(t.clone());
             runner.tools.defer.export_to(t.clone());
-            let _ = runner.keep_warm.telemetry.set(t.clone());
             let _ = telemetry_cell.set(t);
         }
         // A persisted runtime switch wins over config, if it still names a profile.

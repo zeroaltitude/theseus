@@ -720,8 +720,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `bench_clock` are retired keys. `/move` and `chat.move_to_thread` move nothing (`chat_move_to_thread` survives only as
   a name the deferral step knows, `turn/defer_step.rs`).
 - **Threads kept warm** (theseus-ytt8, T9; `keep_warm_threads.rs`): removed 2026-11-22. No thread is kept warm
-  between turns: the view builds each turn's request afresh, and the only keep-warm read left runs during a job wait
-  (`keep_warm_wait`). `[threads] keep_warm_hours` and `[cache] threads_keep_warm_hours` are retired keys (a file naming
+  between turns: the view builds each turn's request afresh, and since 2026-11-22 nothing is read again during a
+  wait either. `[threads] keep_warm_hours` and `[cache] threads_keep_warm_hours` are retired keys (a file naming
   them loads with a warning). What stays is the day's numbers (`ThreadCacheStats`, `stats_of` over the day's
   `provider.call` and `keep_warm` rows), on `thread show`/`list` and health's `threads.cache`; the fields of the old
   reads are still sent, as zero, for a cockpit page left open since the upgrade. Tests: `keep_warm_threads::tests`.
@@ -882,14 +882,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `proc_sync_secs`: the job's end, a person's message (steer's signal) and a stop still end it at once, so the cap only
   bounds a wait nothing ends. The result's "Still running after N s" names the real wait, and what was asked when the
   cap cut it; the tool's description gets the cap appended (`jobs_tools::say_wait_cap`). The wait measures with
-  `tokio::time::Instant`, so a paused clock drives it. **A wait that outlasts the cache keeps it warm**
-  (`keep_warm_wait.rs`): a response that asks for a `job_wait` has `TurnRunner::stash_for_wait` keep the request it
-  answers (one clone, only for such a response, only for a request that caches and a prefix of at least `[cache]
-  keep_warm_min_tokens`); the wait sends it again at `MAX_TOKENS` through `keep_warm_send` (the between-turns read's own
-  send: reserved, held on the day ceiling, booked as a `keep_warm` row whose data says `during_wait`) every 4 minutes
-  of a 5-minute entry, or `[cache] keep_warm_every_minutes` of an hour's, beside its other events, so a settle, a message or a
-  stop ends it and a read in flight is dropped unbooked. The stash dies with the turn (`KeepWarm::turn_ended`). Tests:
-  `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with `--nocapture`).
+  `tokio::time::Instant`, so a paused clock drives it. **A wait sends nothing of its own** (issue 44, 2026-11-22: no
+  saved request is sent again): the keep-warm read during a wait, its stash and `[cache] keep_warm_every_minutes`
+  (a retired key) are gone, so a wait that outlasts the provider's cache leaves the next call to write it again. A task
+  wait's room (the fan-in bound) and the sticky effort's last request live in `last_request.rs`. Old `keep_warm` rows
+  still read. Tests: `tests_wait_cost.rs` (paused clock, `Gated` launcher holding the job; the measure prints with
+  `--nocapture`).
   **`task.wait` is the turn's wait on its own tasks** (theseus-z9mze.2; `task_wait.rs`, an async tool run through `run_job_tool`'s
   dispatch, family `task`): it holds the turn until the tasks it names have ended, then writes each ended task's report as
   the relayed harness node `read_reports` writes (`task:<short>`, never a `Kind::ToolResult`, so clearing cannot stub a
@@ -897,10 +895,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   index (at most `INDEX_MAX_CHARS`). Ended by a task's end (`JobWaits::task_settled`, fired by `settled()` and at a session's
   end, with the one-second look as the backstop), a person's message, a stop, or the timeout (`clamp_timeout`: 30 s to `[tools]
   fan_out_max_wait_secs`, and less `max(60 s, 15 %)` of the turn's deadline); a task still running is told in a note and stays
-  on the parent's `reports`. It lends its admission slot after `LEND_AFTER` (helper turns are `Class::Task`), keeps the cache
-  warm as `job_wait` does (`stash_for_wait` also accepts the breakpoint the task view moves into the last block), and bounds the
-  fan-in: `report_chars` each, `[tools] fan_in_chars` and half the room before the clearing line in all (`KeepWarm::room`,
-  recorded by `stash_for_wait`), the rest of a cut report kept in the session's outputs. `task_fan_out` calls `wait_on_tasks`.
+  on the parent's `reports`. It lends its admission slot after `LEND_AFTER` (helper turns are `Class::Task`), sends nothing of
+  its own while it waits (issue 44, 2026-11-22), and bounds the
+  fan-in: `report_chars` each, `[tools] fan_in_chars` and half the room before the clearing line in all (`LastRequest::room`,
+  recorded by `record_wait_room` at the response), the rest of a cut report kept in the session's outputs. `task_fan_out` calls `wait_on_tasks`.
   Tests: `tests_task_wait.rs`. `task_wait` and `task_fan_out` are the family `helpers` (`tools_defer/family.rs`), which no place
   loads and no cue names yet, so they add nothing to the owner's DM task flow's request, and a shared place is not offered them
   (`places::public_tool`).

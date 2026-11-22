@@ -23,6 +23,8 @@ const EVERY: &str = "[model]\n\
                      threads_keep_warm_hours = 4\n\
                      stub_min_tokens = 20000\n\
                      stub_after_turns = 3\n\
+                     keep_warm_every_minutes = 55\n\
+                     keep_warm_minutes = 50\n\
                      [threads]\n\
                      keep_warm_hours = 2\n\
                      working_tokens = 60000\n\
@@ -113,17 +115,27 @@ fn the_template_names_no_retired_key() {
     assert!(cfg.ignored_keys.is_empty());
 }
 
-/// The two keys something still reads are live, not retired: a file that sets them is read, and a value
-/// out of range still fails the load. (`[threads] resume_keep_turns` was the third until the home-size
-/// warning went with the threads, 2026-11-22: it is retired now.)
+/// The key something still reads is live, not retired: a file that sets it is read. (`[threads]
+/// resume_keep_turns` was another until the home-size warning went with the threads, and `[cache]
+/// keep_warm_every_minutes` until the read during a wait went, both 2026-11-22: they are retired now, and a
+/// file that sets the interval, or its older name, still loads with the warning.)
 #[test]
 fn the_keys_something_still_reads_are_live() {
-    let (cfg, _) =
-        parse("[cache]\nkeep_warm_every_minutes = 30\nkeep_warm_min_tokens = 5000\n").unwrap();
+    let (cfg, _) = parse("[cache]\nkeep_warm_min_tokens = 5000\n").unwrap();
     assert!(cfg.ignored_keys.is_empty(), "{:?}", names(&cfg));
-    assert_eq!(cfg.cache.keep_warm_every_minutes, 30.0);
     assert_eq!(cfg.cache.keep_warm_min_tokens, 5000);
-    assert!(parse("[cache]\nkeep_warm_every_minutes = 60\n").is_err());
+    let (cfg, warnings) =
+        parse("[cache]\nkeep_warm_every_minutes = 60\nkeep_warm_minutes = 50\n").unwrap();
+    assert_eq!(
+        names(&cfg),
+        ["cache.keep_warm_every_minutes", "cache.keep_warm_minutes"]
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.starts_with("cache.keep_warm_every_minutes is retired: ")),
+        "{warnings:?}"
+    );
 }
 
 /// An older name of a retired key loads with the retired key's warning; an older name of a live key still
@@ -142,11 +154,8 @@ fn an_old_name_of_a_retired_key_is_retired_with_it() {
             .any(|w| w.starts_with("model.keep_warm_hours is retired: ")),
         "{warnings:?}"
     );
-    let e = parse("[cache]\nkeep_warm_minutes = 50\n").unwrap_err();
-    assert!(
-        format!("{e:#}").contains("keep_warm_every_minutes"),
-        "{e:#}"
-    );
+    let e = parse("[model]\ncache_ttl = \"1h\"\n").unwrap_err();
+    assert!(format!("{e:#}").contains("[cache] ttl"), "{e:#}");
 }
 
 /// A key no build ever had still fails the load, in the sections that held

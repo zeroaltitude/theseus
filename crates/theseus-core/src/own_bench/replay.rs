@@ -317,13 +317,7 @@ impl Core {
         let o = original;
         self.rendered(
             &spec,
-            (
-                &o.compilation,
-                &o.nodes,
-                &o.session,
-                &o.sources,
-                o.view.as_ref(),
-            ),
+            (&o.compilation, &o.nodes, &o.session, &o.sources, &o.view),
         )
     }
 

@@ -332,6 +332,8 @@ async fn a_fork_is_one_frame_of_a_few_hundred_bytes_by_reference() {
     );
     assert_eq!(c.inherits.as_ref().unwrap().through_node, nodes[3].0);
     assert_eq!(c.trigger, "fork");
+    // What it is (issue 44, 2026-11-22): the record of an inherited run, not the old builder's `transcript`.
+    assert_eq!(c.strategy, "fork");
     assert_eq!(c.derived_from, f.derived_from);
     assert!(c.derived_from.is_some());
     assert!(f.bytes > 0 && f.bytes < 4096, "{} bytes", f.bytes);

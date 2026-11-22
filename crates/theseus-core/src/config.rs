@@ -1856,7 +1856,6 @@ impl Config {
         self.notify.validate()?;
         self.project.validate()?;
         self.projects.validate()?;
-        self.cache.validate(self)?;
         self.people.validate()?;
         self.card.validate()?;
         self.ontology.validate()?;

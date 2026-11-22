@@ -35,6 +35,10 @@ use crate::narrative::narrate;
 use crate::node::{Body, Node};
 use crate::session::{SessionRecord, TargetRef};
 
+/// The strategy a fork's first compilation says: the record of its inherited run, by reference, which no
+/// builder renders (`compiler::Compilation::strategy`).
+pub const FORK_STRATEGY: &str = "fork";
+
 /// The most of a compilation's `derived_from` chain read to find the one
 /// that held the fork point: past it the fork derives from none.
 const CHAIN: usize = 512;
@@ -359,7 +363,9 @@ impl Core {
             session_id: session.into(),
             created_at_ms: theseus_protocol::now_unix_ms(),
             trigger: "fork".into(),
-            strategy: "transcript".into(),
+            // What it is: the record a fork opens with, its inherited run by reference. The fork's own
+            // turns compile views. (Before 2026-11-22 this said `transcript`, which old records still say.)
+            strategy: FORK_STRATEGY.into(),
             as_of: self.store.last_position(),
             includes: Vec::new(),
             derived_from: Some(base.id.clone()),

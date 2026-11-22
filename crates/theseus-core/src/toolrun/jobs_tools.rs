@@ -10,8 +10,7 @@
 //!   asked and at most `[tools] job_wait_max_secs` (theseus-7m7w.3), ended
 //!   at once by the job's end, a person's message (`Steer`) and a stop; the
 //!   job's result as a blocking `proc.run` gives it, or that it still runs.
-//!   A wait past the cache's lifetime keeps the turn's cache warm
-//!   (`keep_warm_wait`).
+//!   The wait sends nothing of its own.
 //! - `job.stop`: the job's stop as `/stop` stops one (`Kernel::stop_call`,
 //!   then `terminate_all`: its tree, verified by its cgroup where it has
 //!   one), and its output so far. The gate judges it as a run of the job's
@@ -38,7 +37,6 @@ mod wait_status;
 
 use super::handles::{Handles, KEY};
 use super::{ToolRuntime, TurnCtx};
-use crate::keep_warm::Outcome;
 use crate::narrative;
 use crate::Core;
 
@@ -431,20 +429,14 @@ fn running(core: &Core, session: &str) -> ToolOutput {
 /// `job.wait`: until the job ends or `secs` pass, woken by each settle
 /// (`JobWaits::settled`); the backstop's look (`waits::LOOK`) is the one
 /// the turns' own waits have. `asked` is what the call asked: a longer ask
-/// than `secs` is said in the result. A wait that outlasts its turn's cache
-/// reads it again before it lapses (`keep_warm_wait`), beside the wait's
-/// other events.
+/// than `secs` is said in the result. The wait sends nothing of its own (issue
+/// 44, 2026-11-22: no saved request is sent again).
 async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaResult {
     let rt = &core.tools;
     let until = Instant::now() + Duration::from_secs(secs);
     // A message queued behind this turn ends the wait at once, the job
     // untouched (theseus-qu1lc).
     let steer = rt.job_waits.steers.watch(&f.action.session_id);
-    let warmth = core.runner.keep_warm.warmth(&f.action.session_id);
-    let mut reading: Option<
-        std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send + '_>>,
-    > = None;
-    let mut reads = 0u32;
     // `[tools] job_wait_beat_secs`: a job whose output stands still that long
     // returns the wait with what it saw. 0 watches nothing.
     let beat = Duration::from_secs(core.cfg.tools.job_wait_beat_secs);
@@ -474,14 +466,14 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
                 f.called()
             );
             let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
-                INTERRUPTED_BY: "message", "warm_reads": reads});
+                INTERRUPTED_BY: "message"});
             return Ok((ToolOutput { text, meta }, None, None));
         }
         let left = until.saturating_duration_since(Instant::now());
         let silent = silence.as_ref().filter(|s| !held && s.quiet() >= beat);
         if let (Some(s), false) = (silent, left.is_zero()) {
             let beat_out = theseus_store::blocking(|| {
-                let out = clock.beat(&core, &f, s, asked, reads)?;
+                let out = clock.beat(&core, &f, s, asked)?;
                 wait_status::post(&core, &f, &clock, s);
                 Some(out)
             });
@@ -505,12 +497,9 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
                 text.push('\n');
                 text.push_str(&theseus_store::blocking(|| clock.said(&core, &f, s)));
             }
-            let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running",
-                "warm_reads": reads});
+            let meta = json!({KEY: f.name, "correlation_id": f.corr, "state": "running"});
             return Ok((ToolOutput { text, meta }, None, None));
         }
-        // The next read of the turn's cache, if one falls inside this wait.
-        let due = warmth.as_ref().and_then(|w| w.due_before(until));
         // The look that finds the beat is at the beat, not up to a look later.
         let look = match silence.as_ref().filter(|_| !held) {
             Some(s) => super::waits::LOOK.min(s.until(beat).max(Duration::from_millis(1))),
@@ -520,19 +509,6 @@ async fn wait(core: Arc<Core>, f: Found, secs: u64, asked: u64) -> AsyncMediaRes
             () = &mut settled => {}
             () = steer.raised() => {}
             () = tokio::time::sleep(left.min(look)) => {}
-            () = async { tokio::time::sleep_until(due.unwrap_or(until)).await },
-                if due.is_some() && reading.is_none() => {
-                if let Some(w) = warmth.as_ref().filter(|w| w.claim(Instant::now())) {
-                    reads += 1;
-                    let session = f.action.session_id.clone();
-                    let runner = &core.runner;
-                    reading = Some(Box::pin(async move { w.read(runner, &session).await }));
-                }
-            }
-            out = async { reading.as_mut().unwrap().await }, if reading.is_some() => {
-                reading = None;
-                tracing::debug!(?out, job = %f.name, "job_wait: the turn's cache was read");
-            }
         }
     }
 }
