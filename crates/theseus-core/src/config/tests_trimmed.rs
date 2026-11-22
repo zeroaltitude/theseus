@@ -130,7 +130,10 @@ fn an_old_settings_file_with_the_cuts_retired_keys_loads() {
     let text = "[memory]\nsummary_profile = \"haiku\"\n\n[context]\nkept_mb = 64\n";
     let (_, warnings) = parse(text).unwrap();
     for key in ["summary_profile", "kept_mb"] {
-        assert!(warnings.iter().any(|w| w.contains(key)), "{key}: {warnings:?}");
+        assert!(
+            warnings.iter().any(|w| w.contains(key)),
+            "{key}: {warnings:?}"
+        );
     }
     assert!(parse("[memory]\nsummary_profil = \"off\"\n").is_err());
     assert!(parse("[context]\nkept_mbs = 1\n").is_err());
