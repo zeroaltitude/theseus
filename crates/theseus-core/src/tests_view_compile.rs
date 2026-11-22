@@ -843,7 +843,11 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
         .collect();
-    assert_eq!(asked.len(), 2, "the refused call and one smaller retry, and no retry loop");
+    assert_eq!(
+        asked.len(),
+        2,
+        "the refused call and one smaller retry, and no retry loop"
+    );
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
     assert_eq!(crate::test_support::rows(c, "context.overflow").len(), 2);
 }
