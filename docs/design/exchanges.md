@@ -46,7 +46,8 @@ binding's start would be a frame of its own there.
 
 ## The rebuild
 
-`theseus ledger rebuild-exchanges [--dry-run]` writes the exchanges of turns that have none, from their nodes, and
+`theseus ledger rebuild-exchanges [--dry-run]` writes the exchanges of turns that have none, from their nodes (in
+conversations that are not a task's and not imported, for turns that hold a message of the operator's or a reply), and
 keeps every exchange and mark written as it happened, writing only the touches it lacks (a restart or a late index
 can leave one unwritten). A new exchange's place and person come from its message's own mark alone: a session's
 binding is where it posts now, not proof of where a message arrived or who typed it, so history from before the

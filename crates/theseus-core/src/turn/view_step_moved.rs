@@ -144,6 +144,7 @@ async fn a_fold_built_before_the_move_is_held_whole() {
             held: &clear,
             moved: &held,
             sessions: Default::default(),
+            exchanges: Default::default(),
         };
         gated.read(PLACE, N, None).unwrap().nodes.len()
     };

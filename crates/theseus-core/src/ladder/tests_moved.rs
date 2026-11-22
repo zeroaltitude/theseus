@@ -95,3 +95,18 @@ async fn a_fold_over_a_moved_message_is_made_by_code() {
         "no model read the moved message"
     );
 }
+
+/// The writers' rule asked again at dispatch (P1-2), after the writer's last await: a message moved after
+/// the first check is seen, so the request is never sent.
+#[test]
+fn the_dispatch_check_sees_a_move_made_after_the_first_check() {
+    let (_d, s) = store();
+    let turns = history(&s, 2);
+    assert!(
+        !crate::view_gate::sources_moved(&s, &turns),
+        "nothing moved yet"
+    );
+    move_ask(&s, &turns[1], "kelp");
+    assert!(crate::view_gate::sources_moved(&s, &turns));
+    assert!(!crate::view_gate::sources_moved(&s, &turns[..1]));
+}
