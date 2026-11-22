@@ -56,14 +56,6 @@ enum Target {
     Into { thread: ThreadInfo, session: String },
 }
 
-impl Target {
-    fn slug(&self) -> &str {
-        match self {
-            Target::New(t) | Target::Into { thread: t, .. } => &t.slug,
-        }
-    }
-}
-
 /// A split read and checked.
 struct Planned {
     source: Source,

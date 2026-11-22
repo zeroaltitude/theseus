@@ -64,10 +64,6 @@ pub(super) fn answer(blocks: Vec<Value>) -> Node {
     )
 }
 
-pub(super) fn call(id: &str, path: &str) -> Value {
-    json!({"type": "tool_use", "id": id, "name": "fs_read", "input": {"path": path, "offset": 1, "limit": 400}})
-}
-
 pub(super) fn result(id: &str, content: &str) -> Node {
     Node::tool_result(
         "s",
