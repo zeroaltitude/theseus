@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use proptest::prelude::*;
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, FakeMode, Scripted as Jev};
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
@@ -33,10 +32,7 @@ use crate::{Config, Core};
 /// The owner on Discord, someone else, and three guild channels: one bound
 /// private, two shared.
 const OWNER: u64 = 161_803_398_874_989_484;
-const ALICE: u64 = 333_333_333_333_333_333;
 const DEN: u64 = 271_000_000_000_000_001;
-const PIER: u64 = 271_000_000_000_000_002;
-const QUAY: u64 = 271_000_000_000_000_003;
 
 pub(crate) struct Rig {
     pub core: Arc<Core>,
@@ -605,69 +601,4 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
         counts.push(frames);
     }
     assert_eq!(counts[0], counts[1], "the rerank changed the turn's frames");
-}
-
-/// Where a generated session speaks.
-#[derive(Clone, Copy, Debug)]
-enum Spot {
-    Cli,
-    OwnerDm,
-    AliceDm,
-    Den,
-    Pier,
-    Quay,
-    /// A task of the pier's.
-    PierTask,
-}
-
-impl Spot {
-    fn place(self) -> Option<String> {
-        match self {
-            Spot::Cli | Spot::PierTask => None,
-            Spot::OwnerDm => Some(format!("dm:{OWNER}")),
-            Spot::AliceDm => Some(format!("dm:{ALICE}")),
-            Spot::Den => Some(format!("channel:{DEN}")),
-            Spot::Pier => Some(format!("channel:{PIER}")),
-            Spot::Quay => Some(format!("channel:{QUAY}")),
-        }
-    }
-
-    /// Private, or the shared place it speaks in, written out by hand.
-    fn class(self) -> Result<(), String> {
-        match self {
-            Spot::Cli | Spot::OwnerDm | Spot::Den => Ok(()),
-            Spot::AliceDm => Err(format!("dm:{ALICE}")),
-            Spot::Pier | Spot::PierTask => Err(format!("channel:{PIER}")),
-            Spot::Quay => Err(format!("channel:{QUAY}")),
-        }
-    }
-
-    /// Whether a turn here draws on a session at `from`: a private place on
-    /// any, a shared one on its own; a channel bound private on its own
-    /// alone (issue 44, the owner's decision 5).
-    fn draws_on(self, from: Spot) -> bool {
-        match (self, self.class(), from.class()) {
-            (Spot::Den, _, _) => matches!(from, Spot::Den),
-            (_, Ok(()), _) => true,
-            (_, Err(a), Err(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-fn spot() -> impl Strategy<Value = Spot> {
-    prop_oneof![
-        Just(Spot::Cli),
-        Just(Spot::OwnerDm),
-        Just(Spot::AliceDm),
-        Just(Spot::Den),
-        Just(Spot::Pier),
-        Just(Spot::Quay),
-        Just(Spot::PierTask),
-    ]
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
-
 }

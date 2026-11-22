@@ -423,21 +423,6 @@ async fn every_recalled_item_cut_leaves_the_left_out_line_alone() {
     );
 }
 
-/// Every message saying `what`, in any session, moved into the thread `kelp` as a split records it.
-fn move_into_kelp(c: &crate::Core, what: &str) {
-    for s in (c.store.list_sessions::<crate::session::SessionRecord>()).unwrap() {
-        for (_, n) in c.store.session_nodes(&s.session_id).unwrap() {
-            if matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains(what))
-            {
-                let to = serde_json::json!({"thread": "kelp", "split": "spl_x"});
-                c.store
-                    .put_meta(&crate::moved::moved_of_key(&n.id), &to)
-                    .unwrap();
-            }
-        }
-    }
-}
-
 /// A plain recalled item still names its session in its header: its id and when it was said; and no
 /// title, though its session has one.
 #[tokio::test]

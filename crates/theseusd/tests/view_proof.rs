@@ -28,7 +28,6 @@ const HARBOUR: u64 = 900_000_000_000_000_020;
 const KEY_VAR: &str = "THESEUS_VIEW_PROOF_TEST_KEY";
 
 const BEFORE: &str = "BUOYCODE-BEFORE-NEW-4471";
-const PRIVATE: &str = "OSPREY-PRIVATE-HARBOUR-9902";
 
 struct Rig {
     s: Served,

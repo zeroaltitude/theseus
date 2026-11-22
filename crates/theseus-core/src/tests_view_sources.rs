@@ -163,8 +163,6 @@ fn kelp_rig(seal: bool) -> crate::tests_places::Rig {
     )
 }
 
-const KELP_CARD: &str = "Line of work: kelp";
-
 /// A question for the owner's answer, parked by a turn of session `sid`, as a tool the policy stopped for
 /// approval parks it.
 fn plant(core: &crate::Core, sid: &str) -> String {
