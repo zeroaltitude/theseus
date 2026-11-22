@@ -649,8 +649,8 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'The import can hold many thousands of episodes. Filters, kept in the address, let you share the exact view you are looking at.'),
   'context.episodes': e(
     'List the imported episodes, so you can read what Theseus can recall from the past.',
-    'One row per episode: title, source, when it happened and its topics. Sort by newest, oldest or longest; the veil hides personal and confidential text until you open it; a page at a time. Click a row to open it.',
-    'Recall reads these episodes as testimony. Check here what is in the import, and that private text is veiled.'),
+    'One row per episode: title, source, when it happened and its topics. Sort by newest, oldest or longest; a page at a time. Click a row to open it.',
+    'Recall reads these episodes as testimony. Check here what is in the import.'),
   'context.topics': e(
     'Show the topics the imported episodes fall under.',
     'Each topic with how many episodes it holds, as a tree. Click a topic to filter the list.',
@@ -661,7 +661,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A gap is a period the import did not cover, so recall has nothing from then. The undated chip keeps the oldest episodes findable: click it to list them.'),
   'context.episode': e(
     'Read one imported episode: where it came from, what it says and how it was labelled.',
-    'Its provenance, its summary and its messages, a page at a time. Personal or partner-confidential text is veiled until you open it.',
+    'Its provenance, its summary and its messages, a page at a time.',
     'It is the evidence behind a recall: check that what Theseus remembers is what was said.'),
   'context.standing': e(
     'Show what the owner has told Theseus to hold to, and let them take it back.',

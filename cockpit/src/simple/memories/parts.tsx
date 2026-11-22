@@ -7,10 +7,8 @@ import type { ImportSessionsResult, ImportedEpisode, OntologyListResult, Session
 import { useRpc } from '@/lib/rpc'
 import { short } from '@/lib/format'
 import { Empty, Pill } from '@/components/ui'
-import { namedParams, sensitivityWords, veiled, when } from '@/lib/explorer'
+import { namedParams, sensitivityWords, when } from '@/lib/explorer'
 import { SHOWN, episodeHere, sessionHref } from './find'
-
-const NONE: ReadonlySet<string> = new Set()
 
 /** Every category (the people and the topics) without its memberships: one light read, shared by every tab. */
 export function useCategories() {
@@ -30,16 +28,14 @@ export function LinkRow({ to, current, title, sub, aside }: { to: string; curren
   )
 }
 
-/** An imported episode as a row. A personal or partner-confidential one shows its label and not its words, as the
- *  explorer does: the words wait behind opening it. */
+/** An imported episode as a row: its words and its label, whatever the label says (nothing is veiled, 2026-11-22). */
 export function EpisodeRow({ e, words }: { e: ImportedEpisode; words?: boolean }) {
   const s = sensitivityWords(e.sensitivity)
-  const hidden = veiled(e, true, NONE)
   const place = e.place_name ? `${e.place_kind} · ${e.place_name}` : e.place_kind
   const said = words ? e.summary_text ?? e.title : e.title
   return (
     <LinkRow to={episodeHere(e.session_id)}
-      title={hidden ? <span className="italic text-ink-faint">{s.word} · its words wait until you open it</span> : (said ?? <span className="text-ink-faint">no summary</span>)}
+      title={said ?? <span className="text-ink-faint">no summary</span>}
       sub={`${e.end_ms ? when(e.end_ms).slice(0, 10) : 'undated'} · ${place} · ${e.messages} ${e.messages === 1 ? 'message' : 'messages'}`}
       aside={<Pill tone={s.tone}>{s.word}</Pill>} />
   )

@@ -1,12 +1,12 @@
 // The context explorer's pure parts (`src/lib/explorer.ts`, theseus-7n3e), run by `npm test`: its state in the address
-// and the query it makes, the topic tree from the facets (and the ontology's topics beside them), the veil over
-// sensitive text, a turn's anatomy by block, and the as-of months.
+// and the query it makes, the topic tree from the facets (and the ontology's topics beside them), a turn's anatomy
+// by block, and the as-of months.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   BLOCKS, DATED_FLOOR, PAGE, anatomy, barHeight, rangeOf, scaleOf, timelineView, anatomyNote, hasBytes, ancestors, contextHref, filtersOf, monthBins, monthSpan, monthsSpan, namedParams, ontologyPaths, paramsOf, tabOf, thenWords,
-  shortIds, topicTree, veiled, when,
+  shortIds, topicTree, when,
 } from '../src/lib/explorer.ts'
 
 const facet = (value: string, count: number) => ({ value, count })
@@ -67,16 +67,6 @@ test('an ontology topic is matched to a label by its path of names, and says so 
   assert.deepEqual(rows.map((r) => [r.path, r.ontology, r.members]), [['reef', true, 5], ['reef/survey', true, 3], ['reef/other', false, undefined]])
   // Before the ontology holds a topic (theseus-anh3), every row says it is the labels' alone.
   assert.ok(topicTree([facet('reef', 5)], new Set(), new Map()).every((r) => !r.ontology))
-})
-
-test('the veil covers personal and partner-confidential text until opened, and never a label', () => {
-  const e = (sensitivity: string) => ({ sensitivity, session_id: `ses_ep${sensitivity}` })
-  assert.equal(veiled(e('personal'), true, new Set()), true)
-  assert.equal(veiled(e('partner-confidential'), true, new Set()), true)
-  assert.equal(veiled(e('company-confidential'), true, new Set()), false)
-  assert.equal(veiled(e('public'), true, new Set()), false)
-  assert.equal(veiled(e('personal'), false, new Set()), false, 'the veil off')
-  assert.equal(veiled(e('personal'), true, new Set(['ses_eppersonal'])), false, 'opened')
 })
 
 test('a turn’s anatomy sums each block’s parts in the request’s order and leaves out an empty block', () => {

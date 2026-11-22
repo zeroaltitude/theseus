@@ -6,7 +6,7 @@
 // address, so any view deep-links. The pure parts are lib/explorer.ts.
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router'
-import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Pin, Search, Shapes, Telescope, X } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Database, FileText, Layers, Library, ListTree, MessagesSquare, Pin, Search, Shapes, Telescope, X } from 'lucide-react'
 import type { Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { cn, stamp } from '@/lib/format'
@@ -22,7 +22,7 @@ import { StandingRecords } from '@/components/StandingRecords'
 import { CardProposals } from '@/components/CardProposals'
 import { BOOK_WORDS } from '@/lib/books'
 import {
-  DATED_FLOOR, PAGE, RANGES, SCALES, TABS, ancestors, barHeight, count, filtersOf, monthSpan, namedParams, ontologyPaths, paramsOf, rangeOf, scaleOf, sensitivityWords, tabOf, timelineView, topicTree, veiled, when,
+  DATED_FLOOR, PAGE, RANGES, SCALES, TABS, ancestors, barHeight, count, filtersOf, monthSpan, namedParams, ontologyPaths, paramsOf, rangeOf, scaleOf, sensitivityWords, tabOf, timelineView, topicTree, when,
   type FilterKey, type Tab,
 } from '@/lib/explorer'
 
@@ -126,9 +126,6 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
   const sort = params.get('sort')
   const page = Math.max(1, Number(params.get('page') ?? 1) || 1)
   const episode = params.get('episode')
-  const veilOn = params.get('veil') !== 'off'
-  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())
-  const open = (id: string) => setOpened((s) => new Set([...s, id]))
   // The query's key is its params' value, so a new object each render reads nothing again.
   const query = paramsOf(filters, sort, page)
   const { data, error, isFetching } = useRpc<ImportSessionsResult>('import.sessions', query, 30_000)
@@ -153,10 +150,6 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
               className="rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-dim ring-1 ring-line">
               <option value="newest">newest</option><option value="oldest">oldest</option><option value="longest">longest</option>
             </select>
-            <button type="button" onClick={() => set({ veil: veilOn ? 'off' : null })} title={veilOn ? 'personal and partner-confidential text is veiled on screen until you open it' : 'the veil is off: every text shows'}
-              className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-dim ring-1 ring-line hover:text-ink">
-              {veilOn ? <EyeOff size={11} /> : <Eye size={11} />}{veilOn ? 'veiled' : 'unveiled'}
-            </button>
           </>}>
           {error ? <Empty>the daemon refused the read: {(error as Error).message}</Empty>
             : !data ? <Empty>reading the episodes…</Empty>
@@ -165,7 +158,7 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
               <>
                 {data.withheld && <div className="px-3 pt-2 text-[11.5px] text-wait">{data.withheld}</div>}
                 <ul className={cn('divide-y divide-line/50', isFetching && 'opacity-70')} aria-label="episodes">
-                  {data.episodes.map((e) => <EpisodeRow key={e.session_id} e={e} picked={e.session_id === episode} veil={veiled(e, veilOn, opened)}
+                  {data.episodes.map((e) => <EpisodeRow key={e.session_id} e={e} picked={e.session_id === episode}
                     onOpen={() => set({ episode: e.session_id === episode ? null : e.session_id })} onTopic={(t) => filter('topic', t)} />)}
                   {!data.episodes.length && <li><Empty>no episode meets every filter</Empty></li>}
                 </ul>
@@ -182,7 +175,7 @@ function Episodes({ params, set }: { params: URLSearchParams; set: SetParams }) 
             )}
         </Panel>
       </div>
-      {episode && <EpisodeDetail key={episode} id={episode} listed={picked} veil={(e) => veiled(e, veilOn, opened)} onUnveil={() => open(episode)} close={() => set({ episode: null })} onTopic={(t) => filter('topic', t)} />}
+      {episode && <EpisodeDetail key={episode} id={episode} listed={picked} close={() => set({ episode: null })} onTopic={(t) => filter('topic', t)} />}
     </div>
   )
 }
@@ -342,7 +335,7 @@ function placeWords(e: ImportedEpisode): string {
   return e.place_name ? `${e.place_kind} · ${e.place_name}` : e.place_kind
 }
 
-function EpisodeRow({ e, picked, veil, onOpen, onTopic }: { e: ImportedEpisode; picked: boolean; veil: boolean; onOpen: () => void; onTopic: (t: string) => void }) {
+function EpisodeRow({ e, picked, onOpen, onTopic }: { e: ImportedEpisode; picked: boolean; onOpen: () => void; onTopic: (t: string) => void }) {
   return (
     <li className={cn('px-3 py-2', picked && 'bg-live/[0.06]')}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
@@ -355,8 +348,7 @@ function EpisodeRow({ e, picked, veil, onOpen, onTopic }: { e: ImportedEpisode; 
         <span className="num ml-auto text-ink-faint">{count(e.messages)} msgs</span>
       </div>
       <button type="button" onClick={onOpen} aria-expanded={picked} className="mt-1 block w-full text-left">
-        {veil ? <span className="text-[12px] italic text-ink-faint">{sensitivityWords(e.sensitivity).word} · veiled on screen: open it to read</span>
-          : <span className="line-clamp-2 text-[12.5px] text-ink">{e.summary_text ?? e.title ?? <span className="text-ink-faint">no summary</span>}</span>}
+        <span className="line-clamp-2 text-[12.5px] text-ink">{e.summary_text ?? e.title ?? <span className="text-ink-faint">no summary</span>}</span>
       </button>
       {e.topics.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
@@ -372,12 +364,10 @@ function EpisodeRow({ e, picked, veil, onOpen, onTopic }: { e: ImportedEpisode; 
 const MESSAGES = 100
 
 /** An episode opened: its provenance, its labels, its summary with its cites, and its messages. */
-function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: { id: string; listed?: ImportedEpisode; veil: (e: ImportedEpisode) => boolean; onUnveil: () => void; close: () => void; onTopic: (t: string) => void }) {
+function EpisodeDetail({ id, listed, close, onTopic }: { id: string; listed?: ImportedEpisode; close: () => void; onTopic: (t: string) => void }) {
   // An episode opened from elsewhere (a recalled note's link) may not be on the list's page: its row by its id.
   const { data: own } = useRpc<ImportSessionsResult>('import.sessions', namedParams([id]), 0, { enabled: !listed })
   const e = listed ?? own?.episodes[0]
-  // Veiled until its labels are read, so a sensitive episode's text never shows before its label does.
-  const veil = e ? veilOf(e) : true
   // The parent keys this on the episode, so another starts at its first page.
   const [after, setAfter] = useState<number[]>([0])
   const cursor = after[after.length - 1]
@@ -386,7 +376,7 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
   const summary = nodes.find((n) => n.kind === 'imported_summary')
   const cites = new Set(((summary?.detail as { cites?: string[] } | null)?.cites) ?? [])
   return (
-    <Panel help="context.episode" title={veil ? `${e ? sensitivityWords(e.sensitivity).word : 'an'} episode · veiled` : e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
+    <Panel help="context.episode" title={e?.title ?? 'episode'} icon={<FileText size={13} />} className="min-w-0"
       actions={<button type="button" aria-label="close the episode" onClick={close} className="text-ink-faint hover:text-ink"><X size={13} /></button>}>
       <div className="flex max-h-[calc(100vh-220px)] flex-col gap-3 overflow-auto p-3">
         {e ? (
@@ -410,13 +400,8 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
             </div>
           </>
         ) : <div className="text-[11.5px] text-ink-faint">reading its labels…</div>}
-        <div className="text-[11px] text-ink-faint">An imported session is the owner’s own history: closed and read-only, it takes no turn, and reaches a model only as recall’s testimony, from a private place.</div>
-        {veil ? (
-          <button type="button" onClick={onUnveil} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-3 py-3 text-left text-[12px] text-ink-dim ring-1 ring-inset ring-line hover:text-ink">
-            <EyeOff size={14} /> {sensitivityWords(e?.sensitivity ?? '').word}: its text is veiled on screen. Open it to read it here.
-          </button>
-        ) : (
-          <>
+        <div className="text-[11px] text-ink-faint">An imported session is the owner’s own history: closed and read-only, it takes no turn, and reaches a model only as recall’s testimony.</div>
+        <>
             {summary && (
               <div>
                 <div className="panel-title mb-1">summary <span className="num normal-case tracking-normal text-ink-faint">· {String((summary.detail as { model?: string } | null)?.model ?? '')} · cites {cites.size}</span></div>
@@ -435,8 +420,7 @@ function EpisodeDetail({ id, listed, veil: veilOf, onUnveil, close, onTopic }: {
                 {data?.next != null && <button type="button" onClick={() => setAfter([...after, data.next!])} className="rounded px-2 py-0.5 text-ink-faint ring-1 ring-line hover:text-ink">later messages</button>}
               </div>
             </div>
-          </>
-        )}
+        </>
       </div>
     </Panel>
   )
