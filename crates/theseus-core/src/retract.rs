@@ -448,6 +448,12 @@ impl Core {
         if laid_in.is_empty() && direct.loops > 0 {
             laid_in.push(walk.session_id.as_str());
         }
+        // A session the walk reached by a copy (a recall's, a report's) is sorted by that copy's route
+        // below, which knows more (used, seen); its view's laying of the node itself adds nothing to that.
+        laid_in.retain(|sid| {
+            *sid == walk.session_id.as_str()
+                || !walk.descendants.iter().any(|d| d.session_id == *sid)
+        });
         for sid in laid_in {
             if memory_session.as_deref() == Some(sid) {
                 continue;

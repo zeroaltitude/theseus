@@ -233,6 +233,14 @@ fn by_views(
             }
         }
     }
+    // In the order they were made, as a session's scan lists them.
+    let by_time = |e: &mut ReachExposure| {
+        (e.compilations).sort_by(|a, b| {
+            (a.created_at_ms, &a.compilation_id).cmp(&(b.created_at_ms, &b.compilation_id))
+        });
+    };
+    exposure.iter_mut().for_each(by_time);
+    forks.iter_mut().for_each(|f| by_time(&mut f.exposure));
     Ok((sessions.len(), partial))
 }
 

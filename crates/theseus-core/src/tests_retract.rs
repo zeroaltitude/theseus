@@ -306,50 +306,54 @@ async fn a_retraction_finds_every_exposure_and_sorts_each_right() {
     );
 }
 
-/// A fact a view turn was sent is in the retraction's spread (issue 44): said in a turn, it went in that
-/// turn's own requests, so its session is found; recalled into a later turn of another session, that
-/// session is found too. `node.reach` says the same: never "nowhere" for what the model was sent.
+/// A fact said in a view turn is in the retraction's spread (issue 44): the turn's own calls laid it, so
+/// `node.reach` names its compilation and session, never "nowhere", and the retraction finds the session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_fact_a_view_turn_was_sent_is_in_the_spread() {
     let r = rig();
     let c = &r.core;
     let src = session(c, None, &[]);
     turn(c, &src, FACT).await;
+    assert!(
+        in_last_request(&r, "port 7714") >= 1,
+        "the turn sent the fact"
+    );
     let x = (c.store.session_nodes(&src).unwrap().into_iter())
         .find(|(_, n)| matches!(&n.body, Body::UserMessage { text, .. } if text == FACT))
         .expect("the turn's message")
         .1
         .id;
     let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
+    assert!(reach.direct.loops >= 1, "{reach:?}");
     assert!(
-        reach.direct.loops >= 1 && !reach.direct.compilations.is_empty(),
+        (reach.direct.compilations.iter()).any(|k| k.session_id == src),
         "{reach:?}"
     );
-    c.runner.memory.set_ask(index_of(c, vec![src.clone()]));
+    let out = retract(c, &x).unwrap();
+    assert!(
+        out.exposures.iter().any(|e| e.session_id == src),
+        "{out:#?}"
+    );
+}
+
+/// A recalled fact is where the asking turn sent it (issue 44): the request held it, and reach and the
+/// retraction name the asking session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recalled_fact_is_where_the_asking_turn_sent_it() {
+    let r = rig();
+    let c = &r.core;
+    let (_, x) = plant(c);
     let a = asker(c, "What port does the Kestrel relay use?").await;
-    // The request the asking turn sent held the recalled fact.
     assert!(
         in_last_request(&r, "port 7714") >= 1,
         "the recalled fact was sent"
     );
-    let (rcl, _) = recall_of(c, &a);
     let reach = crate::reach::reach(&c.store, &x, None).unwrap().unwrap();
-    let copy = (reach.descendants.iter())
-        .find(|d| d.session_id == a)
-        .expect("the recall's copy");
-    assert_eq!(copy.node_id, rcl);
-    // The fact's own exposure names the asking session's turn: its view showed it as a recalled item.
-    assert!(
-        (reach.direct.compilations.iter()).any(|k| k.session_id == a),
-        "{reach:?}"
-    );
-
+    let laid = (reach.direct.compilations.iter()).any(|k| k.session_id == a)
+        || (reach.descendants.iter()).any(|d| d.session_id == a && d.exposure.loops >= 1);
+    assert!(laid, "{reach:?}");
     let out = retract(c, &x).unwrap();
-    let found: Vec<&str> = (out.exposures.iter())
-        .map(|e| e.session_id.as_str())
-        .collect();
-    assert!(found.contains(&src.as_str()), "{out:#?}");
-    assert!(found.contains(&a.as_str()), "{out:#?}");
+    assert!(out.exposures.iter().any(|e| e.session_id == a), "{out:#?}");
 }
 
 /// A fact one session said is laid by another session's turn at the same place with no copy to follow

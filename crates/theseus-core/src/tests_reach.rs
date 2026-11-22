@@ -199,6 +199,31 @@ fn ids(e: &ReachExposure) -> Vec<String> {
         .collect()
 }
 
+/// The compilations of `session` whose kept view laid `copy`, read from the records (issue 44): a view of
+/// the copy's own turn (it is in that turn's tail), or one whose shown exchanges hold the copy's turn.
+fn held_by_views(store: &Store, session: &str, copy: &Node) -> Vec<String> {
+    let turn = copy.turn_id.clone().expect("the relay's turn");
+    let own: Vec<String> = (crate::view::record::of_turn(store, &turn)
+        .unwrap()
+        .into_iter())
+    .map(|v| v.compilation)
+    .collect();
+    let shows = |c: &str| {
+        crate::view::record::read(store, c)
+            .unwrap()
+            .is_some_and(|v| {
+                v.shown.iter().any(|s| {
+                    matches!(s.piece.range.space, crate::view::Space::Exchanges { .. })
+                        && s.piece.range.first.id == turn
+                })
+            })
+    };
+    (store.session_compilations(session).unwrap().into_iter())
+        .filter(|c| own.contains(&c.id) || shows(&c.id))
+        .map(|c| c.id)
+        .collect()
+}
+
 /// The prove (§3.2, row 12a). A task's last node is relayed to its parent,
 /// and the parent's next turn compiles it. `node.reach` on the task's node
 /// names both sessions (generations 0 and 1), the exact compilations, and
@@ -280,31 +305,7 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     // The exact compilations, read from the kept view records (issue 44): a
     // view of the copy's own turn (it is in that turn's tail), or one whose
     // shown exchanges hold the copy's turn (a later turn's window).
-    let turn = copy.turn_id.clone().expect("the relay's turn");
-    let own: Vec<String> = (crate::view::record::of_turn(&r.core.store, &turn)
-        .unwrap()
-        .into_iter())
-    .map(|v| v.compilation)
-    .collect();
-    let shows = |c: &str| {
-        crate::view::record::read(&r.core.store, c)
-            .unwrap()
-            .is_some_and(|v| {
-                v.shown.iter().any(|s| {
-                    matches!(s.piece.range.space, crate::view::Space::Exchanges { .. })
-                        && s.piece.range.first.id == turn
-                })
-            })
-    };
-    let holding: Vec<String> = r
-        .core
-        .store
-        .session_compilations(&parent)
-        .unwrap()
-        .into_iter()
-        .filter(|c| own.contains(&c.id) || shows(&c.id))
-        .map(|c| c.id)
-        .collect();
+    let holding = held_by_views(&r.core.store, &parent, &copy);
     assert_eq!(holding.len(), 2, "{holding:?}");
     assert_eq!(ids(&d.exposure), holding);
     assert!(d.exposure.compilations.iter().all(|c| c.strategy == "view"));
