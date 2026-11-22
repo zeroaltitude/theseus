@@ -77,6 +77,10 @@ pub struct Budget {
     pub provider_window: u64,
     /// Room kept for the reply and the turn's own tool calls.
     pub reserve: u64,
+    /// The floor alone (`turn::view_step::room`'s last render before an overage): with the ceiling and slot
+    /// G's allowance at none, every piece that may be cut is; the whole is the window less the reserve.
+    #[serde(default)]
+    pub floor_only: bool,
 }
 
 impl Budget {
@@ -87,14 +91,17 @@ impl Budget {
             here_allowance: HERE_ALLOWANCE,
             provider_window,
             reserve,
+            floor_only: false,
         }
     }
 
     /// Rule 5: the one budget everything is charged to.
     pub fn total(&self) -> u64 {
-        (self.ceiling + self.here_allowance)
-            .min(self.provider_window)
-            .saturating_sub(self.reserve)
+        let pools = match self.floor_only {
+            true => self.provider_window,
+            false => (self.ceiling + self.here_allowance).min(self.provider_window),
+        };
+        pools.saturating_sub(self.reserve)
     }
 }
 

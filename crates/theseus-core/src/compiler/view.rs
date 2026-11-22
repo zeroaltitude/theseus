@@ -15,7 +15,7 @@
 //! Nothing of the view is written into the session: the beside block lives in the turn alone.
 //! `docs/design/view-compile.md` has the whole of it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -97,6 +97,9 @@ pub struct Frozen {
     /// The turn's sizes as its requests are finished and sent (`turn::view_step::room`), carried by every
     /// reassembly.
     pub fit: Fit,
+    /// The turn's own results laid as their head, by node id and characters shown: the last room before an
+    /// overage (`turn::view_step::room`), carried by every reassembly.
+    pub cut: HashMap<String, usize>,
 }
 
 /// A view turn's sizes beyond what its view charges, measured on its requests as they are sent: the room
@@ -105,15 +108,25 @@ pub struct Frozen {
 pub struct Fit {
     /// The last compile's estimate before the request was finished: its upper bound and its tokens.
     pub base: (u64, u64),
-    /// The most a request's finishing (its tails) added to that, upper bound and tokens.
-    pub tail: (u64, u64),
+    /// What finishing (its tails) added to the last request of the current chain, upper bound and tokens.
+    pub tail_on: (u64, u64),
+    /// What finishing added to the newest request that began a chain: a new chain's own cost (the retained
+    /// tails of the chain before are not resent on it).
+    pub tail_new: (u64, u64),
+    /// The newest request sent: how many of the turn's answers came before it, and its finished estimate.
+    pub sent: Option<(usize, u64)>,
+    /// What the provider counted for that request against Theseus's estimate, in thousandths, once its
+    /// answer came: a new chain's estimate is read at it (`turn::view_step::room`).
+    pub ratio: Option<u64>,
+    /// The turn's answers before the call being compiled.
+    pub answered: usize,
     /// What the view's assembly charged, last assembled.
     pub charged: u64,
     /// The request's tokens beyond what the view charged (the turn's own nodes, the tools, the tails).
     pub own: u64,
     /// The estimate of a request the provider refused for its size: every later one is strictly smaller.
     pub under: Option<u64>,
-    /// Tokens more to reserve, from a shortfall the steps did not close (the last, floor-only step).
+    /// Tokens more to reserve, measured by this room pass's last step (not carried to the next pass).
     pub squeeze: u64,
 }
 
@@ -372,6 +385,10 @@ fn laid(
         .map(|(_, n)| match stripped.contains(&n.id) {
             true => unthought(n),
             false => n.clone(),
+        })
+        .map(|n| match frozen.cut.get(&n.id) {
+            Some(shown) => headed(&n, *shown),
+            None => n,
         });
     let tail = frozen.beside.iter().cloned().map(Stub::from).chain(own);
     let as_of = prefix.len() as u64;
@@ -493,6 +510,25 @@ fn effective(s: &RequestSpec, card: Option<&str>, page: &str) -> RequestSpec {
         Some(p) => p,
         None => s,
     }
+}
+
+/// A result of the turn's own laid as its first `shown` characters, with one line saying so.
+fn headed(n: &Stub, shown: usize) -> Stub {
+    let mut node = (**n).clone();
+    if let Body::ToolResult { content, .. } = &mut node.body {
+        let all = content.chars().count();
+        if shown < all {
+            let head: String = content.chars().take(shown).collect();
+            let n = crate::narrative::thousands;
+            *content = format!(
+                "{head}\n[Only the first {} of {} characters of this result are shown, to fit the \
+                 window; read the rest in parts with the same tool.]",
+                n(shown as u64),
+                n(all as u64)
+            );
+        }
+    }
+    Stub::from(node)
 }
 
 /// An answer of the turn's own without its thinking: a reset retired it.

@@ -1224,6 +1224,14 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         );
         for q in &asked[1..] {
             assert!(!texts(q).contains("5519"), "{case}: {}", texts(q));
+            // Nor its header: the sealed thread's title.
+            if !steer {
+                assert!(
+                    !texts(q).contains("kelp"),
+                    "{case}: no header: {}",
+                    texts(q)
+                );
+            }
             // The open source's place is the desk's own, so its exchange is laid in the window as well as
             // recalled: it is kept, though not once.
             assert!(
@@ -1242,6 +1250,77 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
             assert_eq!(ids, [open_id.as_str()], "{case}: the admitted item alone");
             for q in &asked[1..] {
                 assert_eq!(texts(q).matches(OPEN).count(), 1, "{case}: {}", texts(q));
+            }
+        }
+    }
+}
+
+/// Round 2, item 1: a size repair's recompile comes back to the admission check. A recalled source the
+/// first compile laid is sealed (or the presence narrowed by a steer) during the repair compile's
+/// post-assembly await; the request that goes out holds nothing of it. Without the seal or steer, the same
+/// turn lays it (the control).
+#[tokio::test]
+async fn a_size_repair_comes_back_to_the_admission_check() {
+    use std::sync::{Arc, OnceLock};
+    const SECRET: &str = "the kelp vault code is 5519";
+    const ASKS: &str = "what is the vault code now?";
+    for change in ["none", "seal", "steer"] {
+        let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
+        let thread = std::cell::RefCell::new(String::new());
+        let r = crate::tests_places::rig_setup_scripted(
+            |c| {
+                c.memory.mode = crate::config::MemoryMode::Live;
+                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+                c.threads.enabled = true;
+            },
+            |s| *thread.borrow_mut() = kelp(s, false),
+            |q| match last_user(q).contains(ASKS) && !q.tools.is_empty() {
+                true => crate::provider::Scripted::text("Done."),
+                false => crate::provider::Scripted::text("Hello."),
+            },
+        );
+        let _ = core.set(r.core.clone());
+        let c = &r.core;
+        let thread = thread.into_inner();
+        // The held source: a thread's message, or the owner's words in his DM (another place).
+        let source = match change {
+            "steer" => {
+                crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)))
+            }
+            _ => thread,
+        };
+        turn_as(c, &source, SECRET, true).await;
+        (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![source]));
+        let sid = session_in(c, None, &r.root);
+        // The first compile's env tail does nothing but arm the second's: the repair's own await.
+        let (held, desk) = (core.clone(), sid.clone());
+        let act = move || {
+            let c = held.get().unwrap();
+            match change {
+                "seal" => seal_kelp(c),
+                "steer" => crate::view_gate::steered(&c.runner, &desk, None),
+                _ => {}
+            }
+        };
+        let again = sid.clone();
+        crate::turn::view_step::env_tail_hook(
+            &sid,
+            Box::new(move || crate::turn::view_step::env_tail_hook(&again, Box::new(act))),
+        );
+        crate::turn::view_step::force_resize(&sid);
+        turn_as(c, &sid, ASKS, true).await;
+        let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+            .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKS))
+            .collect();
+        assert_eq!(sent.len(), 1, "{change}: one call");
+        let text = texts(&sent[0]);
+        match change {
+            "none" => assert!(text.contains("5519"), "the control lays the source: {text}"),
+            _ => {
+                assert!(!text.contains("5519"), "{change}: {text}");
+                if change == "seal" {
+                    assert!(!text.contains("kelp"), "{change}: no header: {text}");
+                }
             }
         }
     }

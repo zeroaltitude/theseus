@@ -36,6 +36,7 @@ fn the_steps_clear_first_then_lower_slot_g_to_none() {
         keep: Some(keep),
         here,
         held: 8_000,
+        reserve: here.is_some(),
         ..Room::default()
     };
     let now = Room {
@@ -534,4 +535,109 @@ async fn clearing_is_sticky_and_the_prefix_holds_between_clearings() {
 fn short_json(v: &Value) -> String {
     let s = v.to_string();
     s.chars().take(600).collect()
+}
+
+/// The proof suite's `over_budget` shape: one turn of six results of about 28,000 characters each, read one
+/// a loop, past a 40,000-token working window with a 2,000-token reply. The view clears the older results,
+/// reads a new chain at the provider's measured count, and cuts the newest result to its head if it must:
+/// the turn answers, no overage, every request as sent within its limit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn six_large_results_past_a_small_working_window_still_answer() {
+    const CALLS: usize = 6;
+    let script: Vec<Scripted> = (0..CALLS)
+        .map(reads)
+        .chain([Scripted::text(DONE)])
+        .collect();
+    let r = rig_tweaked(CALLS, script, (None, 200_000), |c| {
+        c.context.working_window_tokens = Some(40_000);
+    });
+    let root = r.core.runner.cfg.tools.projects_dir.clone().unwrap();
+    for k in 0..CALLS {
+        let path = std::path::Path::new(&root).join(format!("logs/keeper-{k:03}.txt"));
+        std::fs::write(path, format!("log {k}\n{}{}", LINE.repeat(390), end(k))).unwrap();
+    }
+    let res = turn(&r.core).await.expect("the turn answers");
+    assert_eq!(res.output, DONE, "{res:?}");
+    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
+    assert_eq!(asked(&r).len(), CALLS + 1, "one request a loop");
+    every_send_within(&r, 40_000);
+}
+
+/// One result alone larger than the window: before the overage, it is laid as its head with one line
+/// saying how much is shown and how to read the rest; the turn answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_result_larger_than_the_window_is_laid_as_its_head_and_the_turn_answers() {
+    let script = vec![reads(0), Scripted::text(DONE)];
+    let r = rig_tweaked(1, script, (None, 200_000), |c| {
+        c.context.working_window_tokens = Some(40_000);
+    });
+    let root = r.core.runner.cfg.tools.projects_dir.clone().unwrap();
+    let path = std::path::Path::new(&root).join("logs/keeper-000.txt");
+    std::fs::write(path, format!("log 0\n{}{}", LINE.repeat(1_300), end(0))).unwrap();
+    let res = turn(&r.core).await.expect("the turn answers");
+    assert_eq!(res.output, DONE, "{res:?}");
+    let last = asked(&r).pop().unwrap();
+    let result = result_of(&last, "toolu_000");
+    assert!(result.contains("log 0"), "the head is laid: {result}");
+    assert!(
+        result.contains("[Only the first"),
+        "with its line: {result}"
+    );
+    assert!(!result.contains(end(0).trim()), "not the whole");
+    every_send_within(&r, 40_000);
+}
+
+/// Two room episodes in one real turn: the window's earlier exchanges make the first call over, and slot G
+/// is lowered; then the turn's own large results pass the limit again, and clearing makes the room. The
+/// second pass's clearing is not charged the first pass's reservation: the turn answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
+    const CALLS: usize = 24;
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                crate::catalog::CatalogRow {
+                    context_window: Some(WINDOW),
+                    max_output_tokens: Some(OUTPUT),
+                    ..Default::default()
+                },
+            );
+        },
+        |_| {},
+        |q| match (!q.tools.is_empty()).then(|| turn_and_results(q)).flatten() {
+            Some((99, done)) if done < CALLS => Scripted::tools(
+                &format!("Reading log {done}."),
+                &[(
+                    &format!("toolu_{done:03}"),
+                    "fs_read",
+                    json!({"path": format!("logs/keeper-{done:03}.txt")}),
+                )],
+            ),
+            Some((99, _)) => Scripted::text(DONE),
+            _ => Scripted::text("Noted."),
+        },
+    );
+    std::fs::create_dir_all(r.root.join("logs")).unwrap();
+    for k in 0..CALLS {
+        std::fs::write(r.root.join(format!("logs/keeper-{k:03}.txt")), log(k)).unwrap();
+    }
+    let sid = crate::tests_private_view::session_in(&r.core, None, &r.root);
+    for k in 0..6 {
+        let said = format!("turn {k}: earlier, {}", LINE.repeat(180));
+        crate::tests_places::turn(&r.core, &sid, &said).await;
+    }
+    let res = crate::tests_places::turn(&r.core, &sid, "turn 99: read every log").await;
+    assert_eq!(res.output, DONE, "{res:?}");
+    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
+    let made = rooms(&r.core, &res.turn_id);
+    assert!(
+        made.iter().any(|m| m.here.is_some()),
+        "slot G was lowered: {made:?}"
+    );
+    assert!(
+        made.iter().any(|m| m.cleared > 0),
+        "and results were cleared: {made:?}"
+    );
 }
