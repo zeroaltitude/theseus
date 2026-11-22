@@ -2,18 +2,13 @@
 //! compile, slot by slot, and what was left out and why; by id, kind, form, tokens and reason, never text (a
 //! piece opens by its handle, through the history tool).
 //!
-//! - **Who is present** is the gate's own reading of this turn (`view_gate::Verified`, the presence the turn
-//!   computed from its input's owner's mark), for this turn alone: a presence kept for another turn of the
-//!   session, or none, is unknown, and unknown is shown nothing. No argument of the call can claim it, and no
-//!   node of the session is read to find it.
+//! - **Who is present** decides nothing (anything goes, 2026-11-22): the look reads the turn's view as the
+//!   turn's widest point of view (`view_gate::Verified`).
 //! - **Every piece is checked again today** through the gate (`view::record::source`), with the turn's point
 //!   of view narrowed by the record's: a piece this turn may not read now is not listed, and nothing counts it.
 //! - **One view, bounded**: the turn's newest, at most [`PIECES`] pieces listed; past that it says how many
 //!   pieces it may read were not listed.
 
-use theseus_memory::gate::Present;
-
-use crate::view::permit::point_of_view;
 use crate::view::record::show::Reader;
 use crate::view::record::source::GateSource;
 use crate::view::record::{self, ViewRecord};
@@ -28,20 +23,9 @@ const NONE: &str =
     "this turn has no view record: its context was compiled as a transcript (`[context] \
      assembly`), or its view is not written yet";
 
-/// What it says when who is present is not known.
-const UNKNOWN: &str = "who is present in this turn cannot be read, so its view is not shown";
-
-/// The look's words: this turn's newest view, as the present may read it.
+/// The look's words: this turn's newest view.
 pub(crate) fn words(core: &Core, session: &str, turn: &str) -> String {
-    let this_turn = core
-        .runner
-        .presence
-        .get(session)
-        .is_some_and(|a| a.turn_id() == turn);
     let verified = Verified::of_session(&core.runner, session);
-    if !this_turn || verified.pov().present == Present::Unknown {
-        return format!("{UNKNOWN}\n");
-    }
     match record::newest(&core.store, turn) {
         Ok(Some(v)) => shown(core, session, &verified, &v),
         Ok(None) => format!("{NONE}\n"),
@@ -51,17 +35,15 @@ pub(crate) fn words(core: &Core, session: &str, turn: &str) -> String {
 
 /// `v` as the turn may read it today.
 fn shown(core: &Core, session: &str, verified: &Verified, v: &ViewRecord) -> String {
-    let pov = point_of_view(verified, &v.pov);
-    let restricted = pov.present != Present::OwnerAlone;
     let source = GateSource {
         runner: &core.runner,
-        pov,
+        pov: verified.pov().clone(),
         asker: Some(session),
     };
     let reader = Reader {
         source: &source,
         text: None,
-        restricted,
+        restricted: false,
     };
     bounded(reader.show(v))
 }

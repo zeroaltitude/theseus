@@ -38,8 +38,6 @@ impl TurnRunner {
     /// Attach the date, the git state where the session may have one, and the
     /// sentences of the place the turn was spoken in.
     pub(super) async fn env_tail(&self, t: &Turn<'_>, compiled: &mut Compiled) {
-        #[cfg(test)]
-        super::view_step::at_env_tail(t.tc.session_id);
         if !self.cfg.project.tail_facts() {
             return;
         }

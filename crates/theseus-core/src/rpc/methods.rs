@@ -900,15 +900,14 @@ impl Core {
 
     /// Run one turn for a client, streaming its events to that connection.
     /// What the owner named is their choice, never routed (25e); the pane's
-    /// carried profile is not. `route` says whether a message that names no
-    /// thread finds its own (theseus-rha2); a move runs its message again
-    /// with it off, at the place the owner chose.
+    /// carried profile is not. A message runs in the place it was written:
+    /// a thread it names (`p.thread`, an address in its words) is ignored,
+    /// since threads are gone (2026-11-22).
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     pub(super) async fn turn_submit(
         &self,
-        mut p: TurnSubmitParams,
+        p: TurnSubmitParams,
         conn: Conn<'_>,
-        route: bool,
     ) -> Result<theseus_protocol::TurnSubmitResult, RpcFailure> {
         if p.prompt.is_some() && !(p.input.trim().is_empty() && p.attachments.is_empty()) {
             return Err(RpcFailure::new(
@@ -936,34 +935,16 @@ impl Core {
         // A turn from a holding session's job holds what that one holds, in
         // the session it opens or the one it names (theseus-b5cl).
         let dir = super::session_dir::check(p.dir.as_deref())?;
-        let answer_at = Self::thread_answer_at(&p)?;
-        self.refuse_bench_clock(&p)?;
-        let mut session = match (&p.session_id, &p.thread) {
-            (Some(_), Some(_)) => {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    "a turn names a session or a thread, not both",
-                ))
-            }
-            // The thread's current session, opened on first use (theseus-nhew).
-            (None, Some(slug)) => self.thread_session(
-                slug,
-                conn.answerer(
-                    p.author.clone(),
-                    p.speaking.as_ref().map(|s| s.discord.clone()),
-                ),
-            )?,
-            (Some(id), None) => self.session(id)?,
-            (None, None) => self.open_session(SessionOpenParams {
+        let mut session = match &p.session_id {
+            Some(id) => self.session(id)?,
+            None => self.open_session(SessionOpenParams {
                 opened_from: p.opened_from.clone(),
                 dir: dir.clone(),
                 ..SessionOpenParams::default()
             })?,
         };
-        // A message that names a thread runs there, in a place with threads
-        // (theseus-rha2); nothing else changes for a place without.
         let place_home = session.session_id.clone();
-        // Where it arrived, before routing can send it elsewhere (issue 44).
+        // Where it arrived (issue 44).
         let arrived = crate::exchange::place_of(
             self.outbox
                 .try_target(&place_home)
@@ -972,10 +953,6 @@ impl Core {
                 .as_deref(),
             session.dir.as_deref(),
         );
-        let routing = match route {
-            true => self.route_to_thread(&mut p, conn, &mut session)?,
-            false => None,
-        };
         // A directory it names moves the session there: the turn's session
         // write keeps it (theseus-aab7). Outside the roots, the CLI says so.
         let outside = crate::rpc::session_dir::moved(&self.tools, &mut session, dir);
@@ -991,13 +968,6 @@ impl Core {
         // phrases in this exact spot and acted before the turn ran.
         self.hear_for_chat_acts(&p, conn, &session.session_id);
         let arrival = self.arrival_of(&p, conn, (&place_home, arrived), &session.session_id);
-        // The place's own session, which the move tool looks for the placed
-        // message by: the session this message was routed into may be the
-        // thread it names, and the placed message is not in that.
-        self.tools
-            .chat_acts
-            .heard
-            .stage_home(&session.session_id, &place_home);
         // A one-run daemon's client follows the session's later turns, so
         // its connection hears them from the start (theseus-mqxk).
         if self.outbox.one_shot.follow_ms().is_some() {
@@ -1067,9 +1037,6 @@ impl Core {
         .with_arrival(arrival);
         self.note_agent_input(&session.session_id, sink.agent.as_deref());
         let voice = p.surface.as_deref() == Some("voice");
-        let this_session = session.session_id.clone();
-        // The thread it runs in grows from what it did (theseus-98bz.5).
-        let grow = self.grow_for(routing.as_ref(), &session, &p.input);
         let result = self
             .runner
             .run(TurnRequest {
@@ -1085,30 +1052,13 @@ impl Core {
                 arrived: Some(conn.arrived),
                 reply_to: p.reply_to,
                 prompt,
-                answer_at,
+                answer_at: None,
                 surface: crate::standing::surface_name(conn.surface, voice),
             })
             .await;
-        if let Some(routing) = &routing {
-            self.thread_routed_turn(routing, result.as_ref().ok());
-        }
-        // A move the model asked for in this turn (`chat.move_to_thread`)
-        // runs now that the turn is over, as the matcher it replaced did. It is
-        // taken whatever the turn's end: one that failed carries nothing out,
-        // and the move is not kept for a later turn the owner did not mean it for.
-        if let (Some(m), true) = (
-            self.tools.chat_acts.take_move(&this_session),
-            result.is_ok(),
-        ) {
-            Box::pin(self.carry_out_move(m, conn)).await;
-        }
-        if let (Some(g), Ok(r)) = (&grow, &result) {
-            self.thread_grow(g, &r.turn_id);
-        }
         match result {
             Ok(mut r) => {
                 r.outside_roots = outside;
-                r.thread = routing.map(|r| r.tag);
                 self.telemetry().record_turn(&r);
                 self.telemetry()
                     .record_node_cache(&self.store.node_cache().health());
@@ -1569,16 +1519,33 @@ impl Core {
         p: theseus_protocol::NodeReachParams,
     ) -> Result<theseus_protocol::NodeReachResult, RpcFailure> {
         use crate::reach::Named;
-        if let Some(r) = crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
-            return Ok(r);
-        }
-        let id = match crate::reach::resolve(&self.store, &p.node_id)? {
-            Named::One(id) => id,
-            Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
-            Named::Refused(why) => return Err(RpcFailure::new(error_code::INVALID_PARAMS, why)),
+        let mut r = match crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
+            Some(r) => r,
+            None => {
+                let id = match crate::reach::resolve(&self.store, &p.node_id)? {
+                    Named::One(id) => id,
+                    Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
+                    Named::Refused(why) => {
+                        return Err(RpcFailure::new(error_code::INVALID_PARAMS, why))
+                    }
+                };
+                crate::reach::reach(&self.store, &id, p.max_generations)?.ok_or_else(|| {
+                    RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}"))
+                })?
+            }
         };
-        crate::reach::reach(&self.store, &id, p.max_generations)?
-            .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}")))
+        // What Jev says about the node itself, beside where it went (issue 44).
+        r.labels = Some(self.item_labels(&r.node_id)?);
+        Ok(r)
+    }
+
+    /// What Jev says about `node`, with its exchange's topics (`item_labels::of_node`).
+    pub(crate) fn item_labels(
+        &self,
+        node: &str,
+    ) -> anyhow::Result<theseus_protocol::ItemLabelsView> {
+        let o = self.runner.ontology.snapshot(&self.store).ok();
+        crate::item_labels::of_node(&self.store, o.as_deref(), node)
     }
 
     pub(super) fn action_confirm(

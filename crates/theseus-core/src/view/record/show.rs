@@ -189,6 +189,7 @@ fn piece_ref(p: &Piece) -> ViewPiece {
         tokens: p.tokens(),
         reasons: p.reasons.iter().map(name).collect(),
         label: String::new(),
+        labels: Vec::new(),
         text: None,
     }
 }

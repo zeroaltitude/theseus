@@ -437,6 +437,8 @@ impl TurnRunner {
         self.mark_end(&mut t, &result);
         // Its exchange's end and its measuring row, in the last frame (issue 44).
         self.exchange_close(&mut t, &result);
+        // Its reply, asked the content questions off the path (issue 44).
+        self.content_reply(&t, &result.output);
         let attrs = Self::end_attrs(&t, &result, frames);
         result.trace = Some(t.trace.finish(attrs));
         // The trace is finished: the fact draws no span.

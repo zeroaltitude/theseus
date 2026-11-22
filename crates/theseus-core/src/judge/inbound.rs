@@ -1227,17 +1227,6 @@ async fn hand_thread_answer(
     judgments
 }
 
-/// The route judgment's `seal` verdict, handed on (theseus-c1uz).
-fn seal_of(me: &Weak<JudgeService>, session: &str, judgments: &[theseus_judge::Judgment]) {
-    let found = judgments
-        .iter()
-        .find(|j| j.pack == ROUTE_PACK)
-        .and_then(crate::engage::seal_answer);
-    if let (Some(a), Some(svc)) = (found, me.upgrade()) {
-        svc.seal_verdict(session, &a);
-    }
-}
-
 /// The urgency of `route.v1`'s ask and of the batch beside it.
 fn urgencies(packs: &[(Arc<Pack>, String, PackMode)], total: u64) -> (Urgency, Urgency) {
     let family = family_of(packs);
@@ -1290,7 +1279,6 @@ async fn judge_inbound(
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
     let family = family_of(&packs);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
-    let session = msg.session_id.clone();
     let to_task = charged.then(|| (msg.kernel.clone(), msg.execution_id.clone()));
     let day = today.clone();
     let ready = tokio::task::spawn_blocking(move || svc.prepare_inbound(packs, &msg, &day))
@@ -1357,7 +1345,6 @@ async fn judge_inbound(
     let (mut judgments, rest, alone) = futures_util::future::join3(routed, rest, alone).await;
     judgments.extend(rest);
     judgments.extend(alone);
-    seal_of(&me, &session, &judgments);
     tracing::debug!(
         ms = t0.elapsed().as_millis() as u64,
         "judge: the inbound packs judged"

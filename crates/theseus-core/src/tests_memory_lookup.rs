@@ -1,9 +1,9 @@
 //! `memory.lookup` (theseus-w9qv, fix C) through the whole core: offered in
-//! a private place and never in a shared one, refused there by the gate and
-//! again by the tool itself; a personal or partner-confidential item's text
-//! stays veiled, its labels shown; a month and a range keep to their
-//! episodes, at the daemon's time zone's edges; small pages with a cursor;
-//! and a search of words through recall's pipeline, its items dated.
+//! a private place and never in a shared one, refused there by the gate (the
+//! tool ceiling); a month and a range keep to their episodes, at the daemon's
+//! time zone's edges; small pages with a cursor; and a search of words
+//! through recall's pipeline, its items dated. No label veils a text since
+//! 2026-11-22 (anything goes).
 
 use std::sync::Arc;
 
@@ -135,83 +135,6 @@ async fn a_shared_place_is_never_offered_the_lookup_and_the_gate_refuses_it() {
     for req in &reqs[before..] {
         let all = serde_json::to_string(&req.messages).unwrap();
         assert!(!all.contains(SHOWN) && !all.contains(HIDDEN), "{all}");
-    }
-}
-
-/// Past the gate, the tool checks the asking session's place itself: a
-/// shared place's session gets nothing, whatever it asks.
-#[tokio::test]
-async fn the_tool_refuses_a_shared_session_itself() {
-    let r = rig_scripted(|_| {}, script);
-    import(&r.core, &episodes());
-    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    for input in [
-        json!({"when": "March 2026"}),
-        json!({"words": "parser"}),
-        json!({"book": "casebook"}),
-    ] {
-        let e = call(&r.core, &shared, input).await.unwrap_err();
-        assert!(e.contains("this place is shared"), "{e}");
-    }
-}
-
-/// An imported item whose episode the catalog does not name (its labels
-/// unread) is veiled, not shown as a native one: the veil fails closed.
-#[tokio::test]
-async fn an_imported_item_without_its_labels_stays_veiled() {
-    let r = rig_scripted(|_| {}, script);
-    import(&r.core, &episodes());
-    let stray = crate::import::session_id_of(&format!("ep_{:064x}", 0xdead));
-    let item = theseus_protocol::memory::RecallItem {
-        node_id: "nod_stray".into(),
-        session_id: stray.clone(),
-        kind: "imported".into(),
-        text: Some(format!("Message 9: {HIDDEN}.")),
-        ..Default::default()
-    };
-    let got = crate::memory_lookup::rendered(&r.core, &[item])
-        .await
-        .unwrap();
-    assert!(got.contains(&stray), "{got}");
-    assert!(!got.contains(HIDDEN), "{got}");
-    assert!(got.contains("labels unread · veiled"), "{got}");
-}
-
-/// A personal or a partner-confidential episode's text is veiled, as the
-/// cockpit's Context page veils it: its date, session, source and label
-/// show, its text never does. The others' text shows.
-#[tokio::test]
-async fn veiled_text_stays_veiled() {
-    let r = rig_scripted(|_| {}, script);
-    let ids = import(&r.core, &episodes());
-    let cli = session(&r.core, None);
-    let got = call(&r.core, &cli, json!({"when": "March 2026"}))
-        .await
-        .unwrap();
-    assert!(!got.contains(HIDDEN), "{got}");
-    assert!(got.contains(SHOWN), "{got}");
-    for (id, label) in [(&ids[0], "personal"), (&ids[2], "partner-confidential")] {
-        let line = got
-            .lines()
-            .find(|l| l.contains(id.as_str()))
-            .unwrap_or_else(|| panic!("{got}"));
-        assert!(
-            line.contains(label) && line.contains("imported from claude-cli"),
-            "{line}"
-        );
-    }
-    assert_eq!(
-        got.matches("veiled: its text stays veiled").count(),
-        2,
-        "{got}"
-    );
-    // By book and by topic too.
-    for input in [
-        json!({"book": "casebook"}),
-        json!({"topic": "kelp/notes", "limit": 25}),
-    ] {
-        let got = call(&r.core, &cli, input).await.unwrap();
-        assert!(!got.contains(HIDDEN) && got.contains(SHOWN), "{got}");
     }
 }
 
@@ -377,8 +300,7 @@ pub(crate) fn index_over(core: &Arc<Core>, sessions: Vec<String>) -> Ask {
 }
 
 /// Words go through recall's pipeline: each item dated by its message
-/// (inside its episode's span), kept to a month when one is named, and
-/// veiled as the catalog's are.
+/// (inside its episode's span), and kept to a month when one is named.
 #[tokio::test]
 async fn words_are_recalled_dated_and_veiled() {
     let r = rig_scripted(|_| {}, script);
@@ -400,7 +322,7 @@ async fn words_are_recalled_dated_and_veiled() {
         "{got}"
     );
     assert!(!got.contains(&ids[4]), "September: {got}");
-    assert!(!got.contains(HIDDEN) && got.contains(SHOWN), "{got}");
+    assert!(got.contains(SHOWN), "{got}");
     let day =
         crate::judge::spend::local_day(crate::wake::parse_at("2026-03-10T18:00:00Z").unwrap());
     let line = got.lines().find(|l| l.contains(&ids[1])).unwrap();
@@ -472,8 +394,7 @@ fn conversation(n: usize, sensitivity: &str, says: &str) -> Value {
 
 /// `session` reads one session's messages, oldest first, with its summary
 /// on the first page; outside text and tool calls are left out and counted;
-/// a cursor pages; a veiled session shows its dates and authors, never its
-/// text; an unknown id says so.
+/// a cursor pages; an unknown id says so.
 #[tokio::test]
 async fn a_session_reads_its_messages_in_order_veiled_as_the_rest() {
     let r = rig_scripted(|_| {}, script);
@@ -529,20 +450,11 @@ async fn a_session_reads_its_messages_in_order_veiled_as_the_rest() {
         "{next}"
     );
     assert!(!next.contains("Its summary"), "{next}");
-    // Veiled: the labels and authors show, the text and summary never do.
+    // A personal session: its label shows beside its text (anything goes).
     let got = call(&r.core, &cli, json!({"session": ids[1]}))
         .await
         .unwrap();
-    assert!(!got.contains(HIDDEN), "{got}");
-    assert!(
-        got.contains("· personal") && got.contains("Its summary is veiled."),
-        "{got}"
-    );
-    assert_eq!(
-        got.matches("veiled: its text stays veiled").count(),
-        2,
-        "{got}"
-    );
+    assert!(got.contains("· personal") && got.contains(HIDDEN), "{got}");
     // Within a span: the 12th alone holds the last message.
     let got = call(
         &r.core,
@@ -567,12 +479,6 @@ async fn a_session_reads_its_messages_in_order_veiled_as_the_rest() {
     .await
     .unwrap_err();
     assert!(e.contains("leave out book and topic"), "{e}");
-    // A shared place's session gets nothing of it.
-    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    let e = call(&r.core, &shared, json!({"session": ids[0]}))
-        .await
-        .unwrap_err();
-    assert!(e.contains("this place is shared"), "{e}");
 }
 
 /// The harness's own session reads too: its operator's message and the
