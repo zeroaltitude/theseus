@@ -227,7 +227,7 @@ impl TurnRunner {
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
-        let read = Sessions::default();
+        let read = fork.sessions();
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),

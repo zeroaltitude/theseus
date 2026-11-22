@@ -337,7 +337,8 @@ const DM_PERSON_TOKENS: u64 = 11166;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
-const CLI_PERSON_TOKENS: u64 = 7801;
+// And 7801 until every request was the view's (issue 44): 931 more tokens, as in the DM. A guideline.
+const CLI_PERSON_TOKENS: u64 = 8732;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
