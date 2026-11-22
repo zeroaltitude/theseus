@@ -24,6 +24,15 @@ pub(super) fn anchor_place(pov: &PointOfView) -> Option<&str> {
     }
 }
 
+/// The place slot G reads: the anchor's, whoever is present. An unknown presence is still shown what its own
+/// session said there (`view::permit::Permit::speaking`); the gate holds out everything else.
+fn window_place(pov: &PointOfView) -> Option<&str> {
+    match &pov.anchor {
+        Anchor::Place(p) => Some(p),
+        Anchor::Task(_) => None,
+    }
+}
+
 /// The window's exchanges, oldest first, with their facts; and the ladder's nodes.
 fn read(src: &Sources<'_>, place: &str) -> anyhow::Result<(Vec<Window>, Vec<FoldNode>)> {
     let since = src.places.new_mark(place)?;
@@ -122,7 +131,7 @@ impl Selector for Here<'_> {
     }
 
     fn select(&self, pov: &PointOfView, _: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(place) = anchor_place(pov) else {
+        let Some(place) = window_place(pov) else {
             return Ok(Vec::new());
         };
         let (window, nodes) = read(&self.src, place)?;

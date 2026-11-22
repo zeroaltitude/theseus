@@ -22,7 +22,7 @@ use crate::Core;
 
 /// What every task's brief opens with (`task::brief_text_in`): a request that holds it in a person's words
 /// is a task's.
-const TASK_HEAD: &str = "a background task started by session";
+const TASK_HEAD: &str = "a background task";
 
 /// A message's text blocks (a tool's result is not a text block).
 fn texts(m: &Value) -> Vec<String> {
@@ -418,4 +418,62 @@ async fn a_tasks_request_holds_nothing_of_the_parents_window_it_may_not_see() {
     }
     assert_eq!(strategy(&r.core, &task.session_id), "view");
     none_handed_back(&r.core, &task);
+}
+
+const NOPROOF: &str = "NOPROOF-VIEW: count the herons on the east marsh";
+
+/// A task started by `task.start` (no set-up proof) reads its own history in a later turn: its history
+/// tool's point of view is the one its view is assembled under (its own place), so it pages and opens its
+/// first turn's exchange, and reads no other place.
+#[tokio::test]
+async fn a_task_with_no_proof_pages_and_opens_its_own_history_in_a_later_turn() {
+    use crate::history_tool::{answer, pov_of, Board};
+    use crate::view::history::HistoryArgs;
+    let r = view_rig(|req, brief| {
+        (brief == NOPROOF).then(|| match () {
+            _ if last_text(req).contains("⏰ wake") => Scripted::text("SECOND: herons again."),
+            _ if answers_a_call(req) => Scripted::text("FIRST-HERONS: nine herons so far."),
+            _ => Scripted::tools(
+                "Counting.",
+                &[(
+                    "t_wake",
+                    "wake_at",
+                    json!({"after": "1s", "note": "count again"}),
+                )],
+            ),
+        })
+    });
+    let started = r
+        .core
+        .task_start(
+            &crate::tests_task_brief::params(NOPROOF, None),
+            crate::tests_task_brief::cli(),
+        )
+        .unwrap();
+    let task = task_by_brief(&r.core, NOPROOF);
+    assert_eq!(task.session_id, started.session_id);
+    complete(&r.core, &task).await;
+    let ex = exchanges(&r.core, &task);
+    assert_eq!(ex.len(), 2, "{}", state_of(&r, &task, NOPROOF));
+    let (first, last) = (&ex[0].turn_id, &ex[1].turn_id);
+    let sid = task.session_id.as_str();
+    let pov = pov_of(&r.core, sid, last, None, crate::places::PlaceClass::Private);
+    let place = crate::task_graph::place::of_session(sid);
+    assert_eq!(pov.anchor, crate::view::Anchor::Place(place.clone()));
+    let args = |v: Value| serde_json::from_value::<HistoryArgs>(v).unwrap();
+    let ask = |a: HistoryArgs| {
+        let (core, pov) = (r.core.clone(), pov.clone());
+        let last = last.clone();
+        async move { answer(&core, &Board::default(), (sid, &last), &pov, &a).await }
+    };
+    let opened = ask(args(json!({"open": first}))).await.unwrap();
+    assert!(opened.text.contains("FIRST-HERONS"), "{}", opened.text);
+    let page = ask(args(json!({}))).await.unwrap();
+    assert!(
+        !page.text.contains("cannot be established"),
+        "{}",
+        page.text
+    );
+    let elsewhere = ask(args(json!({"place": "local"}))).await;
+    assert!(elsewhere.is_err(), "another place: {elsewhere:?}");
 }
