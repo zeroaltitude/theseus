@@ -670,11 +670,15 @@ pub fn readmit_sources(
 /// The threads a reader in `asker` may not be shown now for their seal: every
 /// sealed or seal-pending thread but its own, and every one that cannot be
 /// read. A kept tail is sent again only where no thread joined this since it
-/// was made (`turn::sent_tail`). None when the threads cannot be read: then
-/// nothing kept is sent again.
+/// was made (`turn::sent_tail`). None when the threads cannot be read, wholly
+/// or in part (a thread record or a binding that does not read, or the
+/// asker's own thread that cannot be proven): then nothing kept is sent again.
 pub fn held_threads(runner: &TurnRunner, asker: &str) -> Option<BTreeSet<String>> {
     let b = board(runner, "kept tails")?;
-    let own = thread_of(&runner.store, &b, asker, 0).ok().flatten();
+    if b.any_unread() {
+        return None;
+    }
+    let own = thread_of(&runner.store, &b, asker, 0).ok()?;
     let held = b
         .all()
         .filter(|t| held_from(&b, own.as_deref(), &t.slug))
@@ -690,6 +694,19 @@ fn held_from(board: &Board, own: Option<&str>, slug: &str) -> bool {
         Seal::Clear => false,
         Seal::Held => own != Some(slug),
         Seal::Unread => true,
+    }
+}
+
+/// What a kept tail of `session` made or sent now is made under
+/// (`turn::sent_tail`): said at `key`, its turn's presence, the threads held
+/// from it, and the store's moves, each read before the request is compiled.
+pub(crate) fn tail_under(runner: &TurnRunner, session: &str, key: String) -> crate::turn::Under {
+    let moves = runner.store.moves();
+    crate::turn::Under {
+        key,
+        presence: presence_key(runner, session),
+        held: held_threads(runner, session),
+        moves,
     }
 }
 

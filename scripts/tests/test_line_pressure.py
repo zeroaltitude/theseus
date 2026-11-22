@@ -62,7 +62,9 @@ CALIBRATION = [
     # for `dispatch` above, which the same batch grew from 92); the script reads 93 and 97. Both rows are clippy's figures.
     # 93 until issue 44's gate put a kept tail's key and its seals in a helper (`tail_begun`), which took eight counted
     # lines out for one: clippy, run with `too-many-lines-threshold = 85` in a scratch clippy.toml, prints 86.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 86),
+    # 86 until the review's fix decided a kept tail's fate before the compile (`tail_under`, one counted line):
+    # clippy, at the same scratch threshold, prints 87.
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 87),
 ]
 
 
