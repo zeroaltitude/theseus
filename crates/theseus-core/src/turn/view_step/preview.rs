@@ -32,6 +32,9 @@ use crate::view::record::ViewRecord;
 use crate::view::{Label, Pos, Slot, SourceRange, Space};
 use crate::view_gate::{node_seal, place_name, seal_of, session_marks, Gate, Verified};
 
+/// The most of a place's newest touches read to find the sessions that ran exchanges there.
+const PLACE_TOUCHES: usize = 400;
+
 /// The turn id a preview's pieces are made under: no turn has it.
 const PREVIEW_TURN: &str = "preview";
 
@@ -60,41 +63,67 @@ const LIMITS: [&str; 5] = [
 
 impl TurnRunner {
     /// The sessions of `place` the owner's look admits, newest first: a turn's own (no task, not imported)
-    /// whose own records the gate admits for the owner in person there today (its seal, which the look
-    /// does not lift; its place's class), and that either ran an exchange the place's window reads (its
-    /// newest `WINDOW_N`, as a turn's; so adopted history counts with no change here) that the gate admits
-    /// whole (its session, and no message moved into a thread held from the look), or ran none there and
-    /// is the place's by today's reading. A session whose exchanges there are all held is no candidate.
+    /// found by the place's window (its newest `WINDOW_N`, as a turn's; so adopted history counts with no
+    /// change here), by the place's touches (folded history included), or as the place's by today's
+    /// reading; whose own records the gate admits for the owner in person there today (its seal, which the
+    /// look does not lift; its place's class); and that ran an exchange there the gate admits whole, or
+    /// ran none there at all (`ran_admitted`: decided from its own exchanges, never the ladder's coverage).
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
         use crate::view::fold::Ladder;
         let window =
             (StoreLadder(&self.store).read(place, crate::view::fold::WINDOW_N, None)?).window;
+        let root = crate::exchange::Root::Place(place);
+        let touched = crate::exchange::newest_before(&self.store, root, u64::MAX, PLACE_TOUCHES)?;
+        let found: HashSet<String> = (window.into_iter().map(|e| e.session_id))
+            .chain(touched.into_iter().map(|t| t.session_id))
+            .collect();
         let moved = crate::view_gate::Moved::read(self, None);
-        let mut ran = HashSet::new();
-        let mut admitted = HashSet::new();
-        for e in &window {
-            ran.insert(e.session_id.clone());
-            let pov = Verified::of_preview(self, &e.session_id, place);
-            let whole = matches!(crate::exchange::exchange(&self.store, &e.turn_id),
-                Ok(Some(x)) if x.place == place && !moved.holds(&x));
-            if whole && self.session_admitted(pov.pov(), &e.session_id) {
-                admitted.insert(e.session_id.clone());
+        let mut all = Vec::new();
+        for r in self.store.list_sessions::<SessionRecord>()? {
+            let sid = r.session_id.as_str();
+            let here = found.contains(sid) || place_name(self, sid).as_deref() == Some(place);
+            if r.imported.is_some() || r.task.is_some() || !here {
+                continue;
+            }
+            let pov = Verified::of_preview(self, sid, place);
+            if self.session_admitted(pov.pov(), sid) && self.ran_admitted(place, sid, &moved)? {
+                all.push(r);
             }
         }
-        let mut all: Vec<SessionRecord> = (self.store.list_sessions::<SessionRecord>()?)
-            .into_iter()
-            .filter(|r| r.imported.is_none() && r.task.is_none())
-            .filter(|r| match ran.contains(&r.session_id) {
-                true => admitted.contains(&r.session_id),
-                false => place_name(self, &r.session_id).as_deref() == Some(place),
-            })
-            .filter(|r| {
-                let pov = Verified::of_preview(self, &r.session_id, place);
-                self.session_admitted(pov.pov(), &r.session_id)
-            })
-            .collect();
         all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms));
         Ok(all)
+    }
+
+    /// Whether `session` ran an exchange at `place` the gate admits whole (no message moved into a thread
+    /// held from the look), or ran none there at all and is the place's by today's reading: read from the
+    /// session's own exchanges, so a fold's coverage of them changes nothing.
+    fn ran_admitted(
+        &self,
+        place: &str,
+        session: &str,
+        moved: &crate::view_gate::Moved<'_>,
+    ) -> anyhow::Result<bool> {
+        let mut ran = false;
+        let mut seen = HashSet::new();
+        for (_, n) in self.store.transcript(session)?.iter() {
+            let Some(turn) = n.turn_id.as_deref() else {
+                continue;
+            };
+            if n.session_id != session || n.kind != Kind::UserMessage || !seen.insert(turn) {
+                continue;
+            }
+            let Ok(Some(x)) = crate::exchange::exchange(&self.store, turn) else {
+                continue;
+            };
+            if x.place != place || x.session_id != session {
+                continue;
+            }
+            if !moved.holds(&x) {
+                return Ok(true);
+            }
+            ran = true;
+        }
+        Ok(!ran && place_name(self, session).as_deref() == Some(place))
     }
 
     /// Whether the gate admits `session`'s records to the owner's look from `pov` today: no seal (the
@@ -256,8 +285,10 @@ impl TurnRunner {
     fn fold_admitted(&self, pov: &PointOfView, id: &str) -> bool {
         let moved = crate::view_gate::Moved::read(self, None);
         let moved = |e: &crate::exchange::Exchange| moved.holds(e);
-        fold_constituents(&self.store, id, &moved)
-            .is_some_and(|all| all.iter().all(|s| self.session_admitted(pov, s)))
+        fold_constituents(&self.store, id, &moved).is_some_and(|all| {
+            all.iter()
+                .all(|e| self.session_admitted(pov, &e.session_id))
+        })
     }
 
     /// The earlier turns of `place`'s sessions the owner's look admits, counted from the nodes the gate

@@ -415,22 +415,24 @@ async fn a_session_whose_only_exchange_is_held_is_no_candidate() {
         .unwrap()
         .1;
     move_into_kelp(c, &asked.id);
+    let at = place(c, &held);
+    let check = |c: &Core, other: &str, p: &ViewPreviewResult| {
+        assert_eq!(p.session, other);
+        assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 1), "{p:?}");
+        let said = serde_json::to_string(p).unwrap();
+        assert!(!said.contains(&held), "{said}");
+        let ids: Vec<String> = (c.runner.place_sessions(&at).unwrap().into_iter())
+            .map(|r| r.session_id)
+            .collect();
+        assert_eq!(ids, vec![other.to_string()]);
+    };
+    // Its exchange folded away, out of the window: still no candidate, and in no count.
+    let only = turns_of(c, &held).remove(0);
+    fold_over(c, &only);
     let other = crate::tests_places::session(c, None);
     turn(c, &other, "other: and now?").await;
-    let at = place(c, &other);
     let p = preview(&r.core, json!({"place": at})).await.unwrap();
-    assert_eq!(p.session, other);
-    assert_eq!((p.earlier.sessions, p.earlier.turns), (1, 1), "{p:?}");
-    let said = serde_json::to_string(&p).unwrap();
-    assert!(!said.contains(&held), "{said}");
-    let ids: Vec<String> = c
-        .runner
-        .place_sessions(&at)
-        .unwrap()
-        .into_iter()
-        .map(|r| r.session_id)
-        .collect();
-    assert_eq!(ids, vec![other]);
+    check(c, &other, &p);
 }
 
 /// A fold standing for an exchange that holds a message moved into a sealed or seal-pending thread is
@@ -471,37 +473,49 @@ async fn a_fold_over_a_moved_held_message_contributes_nothing() {
     }
 }
 
-/// The floor's overflow names its exchange and size only when the reader's source admits that exchange;
-/// otherwise it says the floor does not fit, with no handle and no size.
+/// The floor's overflow names its exchange and size only while the reader's source admits that exchange:
+/// an existing exchange, named before, whose message is then moved into a sealed or a seal-pending thread
+/// (between assembly and the report), is named no more, with no handle and no size. The check is the shared
+/// final reader's (`view::record::source::GateSource`, node-aware through `view_gate::Moved`).
 #[tokio::test]
-async fn an_overflow_names_its_exchange_only_when_admitted() {
-    let r = view_rig();
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    turn(c, &sid, "first: the tide").await;
-    let mine = turns_of(c, &sid).remove(0);
-    let at = exchange::exchange(&c.store, &mine).unwrap().unwrap().place;
-    let source = GateSource {
-        runner: &c.runner,
-        pov: PointOfView {
-            anchor: at.clone(),
-            place: Place::Private,
-            present: Present::OwnerAlone,
-        },
-        asker: None,
-    };
-    let floor = |id: &str| crate::view::budget::Overflow::Floor {
-        handle: crate::view::Handle(id.into()),
-        tokens: 98_765,
-        room: 1_234,
-    };
-    let named = super::overflow_said(&source, &at, &floor(&mine));
-    assert!(named.contains(&mine) && named.contains("98765"), "{named}");
-    let held = super::overflow_said(&source, &at, &floor("turn_not_admitted"));
-    assert!(
-        !held.contains("turn_not_admitted") && !held.contains("98765") && !held.contains("1234"),
-        "{held}"
-    );
+async fn an_overflow_names_its_exchange_only_while_admitted() {
+    for how in ["sealed", "pending"] {
+        let (r, _thread) = thread_rig_as(how);
+        let c = &r.core;
+        let sid = session_in(c, None, &r.root);
+        turn(c, &sid, "first: the tide").await;
+        let mine = turns_of(c, &sid).remove(0);
+        let at = exchange::exchange(&c.store, &mine).unwrap().unwrap().place;
+        let source = GateSource {
+            runner: &c.runner,
+            pov: PointOfView {
+                anchor: at.clone(),
+                place: Place::Private,
+                present: Present::OwnerAlone,
+            },
+            asker: None,
+        };
+        let floor = crate::view::budget::Overflow::Floor {
+            handle: crate::view::Handle(mine.clone()),
+            tokens: 98_765,
+            room: 1_234,
+        };
+        let named = super::overflow_said(&source, &at, &floor);
+        assert!(
+            named.contains(&mine) && named.contains("98765"),
+            "{how}: {named}"
+        );
+        let asked = (c.store.session_nodes(&sid).unwrap().into_iter())
+            .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+            .unwrap()
+            .1;
+        move_into_kelp(c, &asked.id);
+        let held = super::overflow_said(&source, &at, &floor);
+        assert!(
+            !held.contains(&mine) && !held.contains("98765") && !held.contains("1234"),
+            "{how}: {held}"
+        );
+    }
 }
 
 /// An exchange of `session` at `place`, as the ledger writes it.
