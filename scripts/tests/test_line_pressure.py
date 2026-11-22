@@ -46,7 +46,7 @@ CALIBRATION = [
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
     # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
     ("crates/theseus-core/src/card/run.rs", "card_run", 89),
-    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 92),
+    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 97),
     # 88 until 7fd80132 ("date and git state in the messages' tail"), which added exactly one counted line to
     # this function (`self.env_tail(t, &mut compiled).await;`) and left this row one behind the tree, which is
     # the stale-row case the header describes and not a counting bug: the script reads 88 at 7fd80132^ and 89
@@ -57,7 +57,10 @@ CALIBRATION = [
     # clippy passed on that commit), so the row follows the function by the same rule as above. Re-pinned, not made to
     # read the source: a row that took its number from the function it measures could never disagree with the script,
     # which is what the table is for. clippy's own figure was not re-measured; it cannot be above 100.
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 100),
+    # 100 until issue 44's batch shortened the function: clippy itself,
+    # run on the landed tree with `too-many-lines-threshold = 88` in a scratch clippy.toml, prints 93 for it (and 97
+    # for `dispatch` above, which the same batch grew from 92); the script reads 93 and 97. Both rows are clippy's figures.
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 93),
 ]
 
 
