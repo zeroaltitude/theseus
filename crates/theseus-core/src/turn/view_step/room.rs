@@ -79,6 +79,11 @@ impl TurnRunner {
             f.fit.squeeze += short + short / 4 + SQUEEZE_SLACK;
         }
         let last = t.view.as_ref().map(|f| f.room).unwrap_or_default();
+        let last = Room {
+            here: Some(0),
+            keep: Some(0),
+            ..last
+        };
         self.view_refrozen(t, input.spec, Some(last))?;
         Self::view_reset(t, input.nodes);
         compiled = rendered(t, input)?;
@@ -181,12 +186,13 @@ impl TurnRunner {
 
     /// The view's budget under `room`: slot G's allowance as lowered, the window as the provider stated it.
     /// What slot G gives up goes to the ceiling, so the whole (rule 5) is what it was: only slot G is held
-    /// to less, and the floor keeps its room. A turn that made room also reserves what its requests carry
-    /// beyond the view (`Fit::own`: its own nodes, the tools, the tails) and any shortfall measured since,
-    /// so the cut order takes the optional pieces (recall, reached exchanges, cards) before the floor.
+    /// to less, and the floor keeps its room. Once slot G is lowered (the clearing steps came first, so what
+    /// is measured is already cleared), the room also reserves what the requests carry beyond the view
+    /// (`Fit::own`: the turn's own nodes, the tools, the tails) and any shortfall measured since, so the cut
+    /// order takes the optional pieces (recall, reached exchanges, cards) before the floor.
     fn room_budget(&self, spec: &RequestSpec, room: &Room, fit: &Fit) -> Budget {
         let mut b = self.view_budget(spec);
-        if room.made > 0 {
+        if room.here.is_some() {
             b.reserve += fit.own + fit.squeeze;
         }
         let here = room

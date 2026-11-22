@@ -354,18 +354,36 @@ async fn a_refusal_for_size_is_retried_under_the_providers_number_and_succeeds()
 /// the refused request (the window's oldest exchange, past the floor, goes), and it answers on one retry.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() {
-    let mut script: Vec<Scripted> = (0..4)
-        .map(|k| Scripted::text(&format!("Noted, {k}.")))
-        .collect();
-    script.push(Scripted::Fail(ProviderError::InvalidRequest {
-        status: 400,
-        message: "invalid_request_error: prompt is too long".into(),
-    }));
-    script.push(Scripted::text(DONE));
-    let r = rig_answering(0, script, None, WINDOW);
-    let rec = SessionRecord::new(SessionKind::Conversation, None);
-    r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    let sid = rec.session_id;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let asked_now = AtomicU32::new(0);
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+            c.project.tail_facts = Some(true);
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                crate::catalog::CatalogRow {
+                    context_window: Some(WINDOW),
+                    max_output_tokens: Some(OUTPUT),
+                    ..Default::default()
+                },
+            );
+        },
+        |_| {},
+        move |q| {
+            if q.tools.is_empty() || !crate::tests_places::last_user(q).contains(ASK) {
+                return Scripted::text("Noted.");
+            }
+            match asked_now.fetch_add(1, Ordering::SeqCst) {
+                0 => Scripted::Fail(ProviderError::InvalidRequest {
+                    status: 400,
+                    message: "invalid_request_error: prompt is too long".into(),
+                }),
+                _ => Scripted::text(DONE),
+            }
+        },
+    );
+    let sid = crate::tests_places::session(&r.core, None);
     for k in 0..4 {
         let said = format!("earlier ({k}): {}", LINE.repeat(40));
         turn_in(&r.core, &sid, &said)
@@ -374,13 +392,11 @@ async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() 
     }
     let res = turn_in(&r.core, &sid, ASK).await.expect("the turn answers");
     assert_eq!(res.output, DONE, "{res:?}");
-    let sent = asked(&r);
-    assert_eq!(
-        sent.len(),
-        6,
-        "four turns, the refused call and its one retry"
-    );
-    let (refused, retry) = (&sent[4], &sent[5]);
+    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| !q.tools.is_empty() && crate::tests_places::last_user(q).contains(ASK))
+        .collect();
+    assert_eq!(sent.len(), 2, "the refused call and its one retry");
+    let (refused, retry) = (&sent[0], &sent[1]);
     assert!(
         retry.estimate_tokens() < refused.estimate_tokens(),
         "the retry as sent is smaller"
