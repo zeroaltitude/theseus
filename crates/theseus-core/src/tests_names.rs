@@ -11,7 +11,7 @@ use crate::exchange::{self, Root};
 use crate::memory_pass::{IndexFuture, PassIndex};
 use crate::names::card::{Admits, Source};
 use crate::tender::TenderMiss;
-use crate::tests_onto::{bound, rig, rig_with, Rig};
+use crate::tests_onto::{bound, rig, Rig};
 
 const SAID: &str = "let's plan the Lantern Ledger migration";
 

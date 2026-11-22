@@ -261,7 +261,6 @@ impl TurnRunner {
     /// submission carried (a steer's with it), is written beside it. The one
     /// that opens the turn is its ask; a steer joins the exchange's messages.
     pub(super) fn exchange_heard(
-        &self,
         t: &mut Turn<'_>,
         node: &Node,
         arrival: Option<&OwnerMark>,

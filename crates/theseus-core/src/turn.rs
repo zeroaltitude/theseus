@@ -1824,7 +1824,7 @@ impl TurnRunner {
             t.tc.node_written(&node);
             // Its submission's mark and its exchange (issue 44).
             let arrival = t.tc.sink.arrival.clone();
-            self.exchange_heard(t, &node, arrival.as_deref(), false);
+            Self::exchange_heard(t, &node, arrival.as_deref(), false);
             self.inbound_point(t, &node, &author, false);
             self.content_input(t, &node);
         } else {
