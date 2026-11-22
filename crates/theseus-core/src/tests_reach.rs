@@ -549,7 +549,8 @@ async fn a_reply_that_is_only_calls_is_counted_where_a_window_lays_it() {
                 &[(
                     "t_task",
                     "task_create",
-                    json!({"brief": "CHILD: name a colour", "budget_usd": 1.5}),
+                    json!({"brief": "CHILD: name a colour", "budget_usd": 1.5, "arrangement":
+                       {"pieces": [{"quote": last_user(req), "role": "objective"}]}}),
                 )],
             ),
             false => colours(req),

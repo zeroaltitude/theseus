@@ -569,36 +569,7 @@ impl Views {
             turns: HashMap::new(),
             partial: false,
         };
-        let keep = |k: &str| k.starts_with(VIEW_PREFIX) || k.starts_with(VIEW_TURN_PREFIX);
-        let (mut before, mut read) = (None, 0usize);
-        'walk: loop {
-            let Some((page, more)) =
-                store
-                    .inner()
-                    .newest_keys_where(kinds::META, before, VIEW_PAGE, &keep)?
-            else {
-                // No index of births yet: what views laid it cannot be listed.
-                tracing::warn!("the store keeps no births yet: reach says partial");
-                out.partial = true;
-                break;
-            };
-            for (born, r) in &page {
-                if *born <= from {
-                    break 'walk;
-                }
-                read += 1;
-                if read > MAX_VIEWS {
-                    tracing::warn!(read, "reach read its cap of view records: partial");
-                    out.partial = true;
-                    break 'walk;
-                }
-                out.take(*born, r);
-            }
-            match (more, page.last()) {
-                (true, Some((born, _))) => before = Some(*born),
-                _ => break,
-            }
-        }
+        out.walk(store, from)?;
         for turn in turns {
             out.own_turn(store, turn)?;
         }
@@ -612,6 +583,42 @@ impl Views {
             out.partial = true;
         }
         Ok(out)
+    }
+
+    /// The births of the `view.` and `view_turn.` keys, newest first, back to `from`: one walk, at most
+    /// [`MAX_VIEWS`] keys accepted; a store with no births yet or a walk past the cap is partial.
+    fn walk(&mut self, store: &Store, from: u64) -> Result<()> {
+        let keep = |k: &str| k.starts_with(VIEW_PREFIX) || k.starts_with(VIEW_TURN_PREFIX);
+        let (mut before, mut read) = (None, 0usize);
+        'walk: loop {
+            let Some((page, more)) =
+                store
+                    .inner()
+                    .newest_keys_where(kinds::META, before, VIEW_PAGE, &keep)?
+            else {
+                // No index of births yet: what views laid it cannot be listed.
+                tracing::warn!("the store keeps no births yet: reach says partial");
+                self.partial = true;
+                break;
+            };
+            for (born, r) in &page {
+                if *born <= from {
+                    break 'walk;
+                }
+                read += 1;
+                if read > MAX_VIEWS {
+                    tracing::warn!(read, "reach read its cap of view records: partial");
+                    self.partial = true;
+                    break 'walk;
+                }
+                self.take(*born, r);
+            }
+            match (more, page.last()) {
+                (true, Some((born, _))) => before = Some(*born),
+                _ => break,
+            }
+        }
+        Ok(())
     }
 
     /// Every view of `turn`, from its index entries (newest first), each with the position it was kept at.
