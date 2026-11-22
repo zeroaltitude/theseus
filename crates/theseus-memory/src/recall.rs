@@ -77,7 +77,7 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub const ALL: [Reason; 11] = [
+    pub const ALL: [Reason; 10] = [
         Reason::InContext,
         Reason::Untrusted,
         Reason::LabeledWrong,
