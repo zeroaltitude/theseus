@@ -121,7 +121,7 @@ impl Level {
     }
 
     /// The level a stored record's `persona` names, for a reader that has
-    /// only the record (`withhold_shared`).
+    /// only the record.
     pub fn of_persona(persona: Option<&str>) -> Self {
         match persona {
             Some(name) => Level::Persona(name.to_string()),
@@ -136,8 +136,8 @@ pub struct ContextPath {
     pub path: String,
     /// Which part of the request carries it, and under which header.
     pub level: Level,
-    /// Its entry says `readers = "public"`: a shared place carries it (the
-    /// place rule). Otherwise it is the owner's alone.
+    /// Its entry says `readers = "public"`: recorded in the manifest, and
+    /// nothing is withheld for its absence (every place carries every file).
     pub public: bool,
 }
 
@@ -297,30 +297,6 @@ impl ContextFiles {
         Ok(held)
     }
 }
-
-/// Leave out each file a shared place may not carry (the place rule,
-/// theseus-nbsh): every file whose entry does not say `readers = "public"`.
-/// Its section becomes its header and why, and the manifest records it as
-/// withheld.
-pub fn withhold_shared(files: &mut [ContextFile]) {
-    for f in files {
-        if f.file.public || f.file.withheld.is_some() {
-            continue;
-        }
-        f.section = format!(
-            "{} — withheld: this place is shared, and the file is not marked readers = \"public\"",
-            header(&f.file.path, &Level::of_persona(f.file.persona.as_deref())),
-        );
-        f.file.withheld = Some(SHARED_PLACE.into());
-        f.file.digest = None;
-        f.file.bytes = 0;
-        f.file.cut = false;
-    }
-}
-
-/// Why a shared place's request left a context file out (the manifest's
-/// `withheld`).
-pub const SHARED_PLACE: &str = "not public, in a shared place";
 
 fn reason(e: &std::io::Error) -> String {
     match e.kind() {

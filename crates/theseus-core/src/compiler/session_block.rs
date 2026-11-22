@@ -41,7 +41,6 @@
 //! holds it (`[true, true, true, false]`).
 
 use crate::ceiling::PlaceView;
-use crate::places::PlaceClass;
 use crate::session::SessionRecord;
 use crate::turn::TurnRunner;
 
@@ -70,9 +69,10 @@ impl TurnRunner {
             .is_some_and(|r| r.flagged())
     }
     /// Block 3's text for a session in `dir` (its own, as its client sent
-    /// it; none is `[tools] cwd`) speaking in `place`: its directory. Empty,
-    /// and so no block, without tools, and in a shared place, where nothing
-    /// of the owner's paths goes (the place rule).
+    /// it; none is `[tools] cwd`): its directory. Empty, and so no block,
+    /// without tools. Every place gets it (2026-11-22: a place's class no
+    /// longer withholds context); `_place` stays for its callers until the
+    /// sweep.
     ///
     /// `flagged` is whether the session carries `injection`
     /// (`SessionRecord::flagged`): a granted repository's *changed*
@@ -87,8 +87,8 @@ impl TurnRunner {
     /// the store, and needs nothing of this session: a file that moved under
     /// a labelled session's acting call is held here for a session carrying
     /// nothing at all, which is the case the reader key cannot see.
-    pub fn session_block(&self, dir: Option<&str>, place: PlaceView, flagged: bool) -> String {
-        if place.class == PlaceClass::Shared || !self.tools.enabled() {
+    pub fn session_block(&self, dir: Option<&str>, _place: PlaceView, flagged: bool) -> String {
+        if !self.tools.enabled() {
             return String::new();
         }
         let cwd = self.tools.cwd_for(dir);

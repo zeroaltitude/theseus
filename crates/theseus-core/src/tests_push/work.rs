@@ -161,10 +161,10 @@ async fn interactive_watchers_count_and_uncount() {
     assert_eq!(r.core.bus.work_watchers(), 0);
 }
 
-/// What a connection that reads no private text hears: it must name its
-/// conversations, a private one named is left out without a word, the title it
-/// gets passes the scrubber, and it hears nothing of the others as they
-/// change. The owner's own surface sees the whole board.
+/// What a connection that reads no private text hears: the title it gets
+/// passes the secrets' scrubber, as it hears its roots change. Since
+/// 2026-11-22 it may watch any conversation; the owner's own surface sees
+/// the whole board, the token as typed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_shared_places_watch_sees_no_private_title() {
     use crate::places::BoundPlace;
@@ -188,25 +188,17 @@ async fn a_shared_places_watch_sees_no_private_title() {
     )
     .await;
 
-    // A binding says which conversations it asks for.
     let mut binding = Raw::connect(&r.core, "binding", 1 << 20);
-    let refused = binding.call(1, method::WORK_WATCH, json!({})).await;
-    assert!(
-        refused.error.is_some(),
-        "a surface that reads no private text names its roots"
-    );
     let snap = snapshot(
         binding
             .call(2, method::WORK_WATCH, json!({"roots": [shared, private]}))
             .await,
     );
-    assert_eq!(
-        snap.views.len(),
-        1,
-        "the private root is left out: {:?}",
-        snap.views
-    );
-    let seen = &snap.views[0];
+    let seen = snap
+        .views
+        .iter()
+        .find(|v| v.title.starts_with("deploy with "))
+        .expect("the shared conversation");
     assert_eq!(seen.kind, WorkKind::Conversation);
     assert!(seen.title.starts_with("deploy with "), "{}", seen.title);
     assert!(
@@ -214,8 +206,6 @@ async fn a_shared_places_watch_sees_no_private_title() {
         "the scrubber ran: {}",
         seen.title
     );
-    let every_word = serde_json::to_string(&snap.views).unwrap();
-    assert!(!every_word.contains("private plan"), "{every_word}");
 
     // The owner's surface sees both, and the token as typed.
     let mut cli = connect(&r.core, "cli", Surface::Cli, 1 << 20);
@@ -223,8 +213,6 @@ async fn a_shared_places_watch_sees_no_private_title() {
     assert_eq!(whole.views.len(), 2);
     assert!(whole.views.iter().any(|v| v.title.contains("private plan")));
 
-    // The private conversation changes: the binding hears nothing of it.
-    say(&r.core, &private, "another private thing").await;
     say(&r.core, &shared, "and a public one").await;
     let mut heard: Vec<String> = Vec::new();
     while let Ok(Ok(Some(l))) =
@@ -237,7 +225,6 @@ async fn a_shared_places_watch_sees_no_private_title() {
         heard.contains(notify::WORK_CHANGED),
         "it hears its own root change"
     );
-    assert!(!heard.contains("private"), "{heard}");
     assert!(!heard.contains(&token), "{heard}");
 }
 
@@ -373,12 +360,9 @@ async fn an_import_shows_its_progress_on_work_changed_and_ends() {
     assert!(theirs.views.is_empty(), "{:?}", theirs.views);
 }
 
-/// The Discord binding is the one guarded surface that watches a conversation
-/// of a private place, when the place is a Discord place it speaks in
-/// (theseus-2j2ka): it shows a place its own session's tasks in that place
-/// alone, as it shows its cards. A private session with no Discord place is
-/// still left out, and so is the same room to any other surface. What it hears
-/// is scrubbed and offers no answer.
+/// The Discord binding watches a conversation of a private place it speaks in
+/// (theseus-2j2ka; since 2026-11-22 any surface watches any conversation).
+/// What it hears is scrubbed and offers no answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_discord_binding_watches_the_private_places_it_speaks_in_and_no_other_private_session()
 {
@@ -402,16 +386,10 @@ async fn the_discord_binding_watches_the_private_places_it_speaks_in_and_no_othe
             .call(1, method::WORK_WATCH, json!({"roots": [lab, cli]}))
             .await,
     );
-    assert_eq!(
-        snap.views.len(),
-        1,
-        "only its own place's: {:?}",
-        snap.views
-    );
     assert!(
-        snap.views[0].title.contains("private plan"),
-        "{}",
-        snap.views[0].title
+        snap.views.iter().any(|v| v.title.contains("private plan")),
+        "{:?}",
+        snap.views
     );
     assert!(
         snap.views
@@ -419,12 +397,4 @@ async fn the_discord_binding_watches_the_private_places_it_speaks_in_and_no_othe
             .all(|v| v.question.as_ref().is_none_or(|q| !q.may_answer)),
         "it offers no answer"
     );
-
-    // Any other surface that reads no private text hears nothing of the room.
-    let mut mcp = connect(&r.core, "other", Surface::Unnamed, 1 << 20);
-    let none = snapshot(
-        mcp.call(1, method::WORK_WATCH, json!({"roots": [lab]}))
-            .await,
-    );
-    assert!(none.views.is_empty(), "{:?}", none.views);
 }

@@ -329,11 +329,8 @@ pub fn bound_category(target: &str, name: &str, guild: Option<&str>) -> Option<C
 pub struct Walk {
     pub snapshot: Arc<Ontology>,
     /// The memberships a recompile takes: the given ones from the place, and
-    /// in a private place the interpreted ones the snapshot holds.
+    /// the interpreted ones the snapshot holds, in every place.
     pub current: Vec<Membership>,
-    /// The place's class: a shared place composes its given memberships
-    /// alone.
-    pub class: PlaceClass,
     /// The session's thread and project, which the manifest records and the
     /// composition never reads (`harness_given`).
     pub harness: Vec<MembershipUsed>,
@@ -374,36 +371,31 @@ impl Walk {
         self
     }
 
-    /// The walk for a session in `place`, of `class`, over `snapshot`; none
-    /// while the ontology holds no category, so a store without one renders
-    /// no differently than before it.
+    /// The walk for a session in `place` over `snapshot`; none while the
+    /// ontology holds no category, so a store without one renders no
+    /// differently than before it.
     pub fn of(
         snapshot: Arc<Ontology>,
         session: &str,
         place: Option<&str>,
-        class: PlaceClass,
         now_ms: u64,
     ) -> Option<Walk> {
         snapshot.categories().next()?;
         let mut current = given(place, &snapshot, now_ms);
-        if class == PlaceClass::Private {
-            // A stored person the place gives too is taken once, as given.
-            for m in snapshot.memberships(session) {
-                if !current.iter().any(|g| g.category == m.category) {
-                    current.push(m);
-                }
+        // A stored person the place gives too is taken once, as given.
+        for m in snapshot.memberships(session) {
+            if !current.iter().any(|g| g.category == m.category) {
+                current.push(m);
             }
         }
         Some(Walk {
             snapshot,
             current,
-            class,
             harness: Vec::new(),
         })
     }
 
-    /// Compose `memberships`: the place rule's filter first (a shared place
-    /// takes only the transport's), then the snapshot's composition.
+    /// Compose `memberships`: the snapshot's composition, in every place.
     pub fn compose(&self, memberships: &[Membership]) -> Composition {
         // A recorded thread or project is the walk's own again, never composed.
         let memberships: Vec<Membership> = memberships
@@ -411,17 +403,7 @@ impl Walk {
             .filter(|m| !HARNESS_KINDS.contains(&m.kind()))
             .cloned()
             .collect();
-        let mut c = match self.class {
-            PlaceClass::Private => self.snapshot.compose(&memberships),
-            PlaceClass::Shared => {
-                let given: Vec<Membership> = memberships
-                    .iter()
-                    .filter(|m| m.origin == Origin::Transport)
-                    .cloned()
-                    .collect();
-                self.snapshot.compose(&given)
-            }
-        };
+        let mut c = self.snapshot.compose(&memberships);
         c.memberships.extend(self.harness.iter().cloned());
         c
     }
@@ -464,7 +446,10 @@ impl crate::turn::TurnRunner {
     /// memberships now, from its place and the snapshot; none while the
     /// ontology holds no category, or when the snapshot cannot be built
     /// (warned: the turn compiles without guidance).
-    pub fn walk(&self, session: &str, class: PlaceClass) -> Option<Arc<Walk>> {
+    ///
+    /// `_class` is no longer read (2026-11-22: a place's class withholds no
+    /// membership); it stays for its callers until the sweep.
+    pub fn walk(&self, session: &str, _class: PlaceClass) -> Option<Arc<Walk>> {
         let snapshot = match self.ontology.snapshot(&self.store) {
             Ok(s) => s,
             Err(e) => {
@@ -478,7 +463,6 @@ impl crate::turn::TurnRunner {
             snapshot,
             session,
             place.as_deref(),
-            class,
             theseus_protocol::now_unix_ms(),
         )
         .map(|w| {

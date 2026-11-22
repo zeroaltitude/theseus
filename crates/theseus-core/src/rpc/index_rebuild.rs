@@ -54,10 +54,7 @@ impl Core {
     ) -> Result<Value, RpcFailure> {
         match m {
             method::INDEX_STATUS => reply(self.index.health(crate::tender::STATUS_DEADLINE).await),
-            method::INDEX_QUERY => reply(
-                self.index_query_for(parse(params)?, conn.surface.reads_private())
-                    .await?,
-            ),
+            method::INDEX_QUERY => reply(self.index_query(parse(params)?).await?),
             _ => self.rpc_index_rebuild(conn).await,
         }
     }

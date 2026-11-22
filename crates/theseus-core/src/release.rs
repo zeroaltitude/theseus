@@ -1,27 +1,18 @@
-//! Share this exact message to this place, the owner's own act (issue 44; `docs/design/release-card.md`).
+//! The owner's release of one message to one place (issue 44; `docs/design/release-card.md`), as stored.
 //!
-//! - **The record** (`release.id.<id>`, indexed by `release.to.<place>\u{1f}<node>`): ONE message of the owner's,
-//!   by its node and a digest of its words as he was shown them, released to ONE place, by him, from a surface, at
-//!   a time. An immutable reference: nothing else of its exchange (the reply, another person's steer, a tool's
-//!   stub, anything added later) is released with it. Written only through `exchange.release`, behind
-//!   `places::owner_in_person_of` (his terminal or the web UI, in person; an agent's process, the MCP server and an
-//!   unnamed connection are refused before anything is read).
-//! - **One check** ([`piece`]), at the release and at every read, failing closed: the node is a message whose
-//!   owner's mark says it is his, of a private place's exchange; its session is neither sealed nor seal-pending as
-//!   seen by no one (`Core::ladder_hidden`, with no thread's own exception); and the message was never moved into
-//!   any thread (`moved.of.<node>`, whatever the thread's seal). A read also needs the words to match the digest.
-//! - **Once.** Grants and withdrawals are serialized, so one message is released to one place by one record,
-//!   however many requests race. A withdrawal writes a second record (`release.end.<id>`); nothing is rewritten.
-//!   What was already shown or sent cannot be unsent. An unknown or withdrawn id writes nothing.
-//! - **The reader** is the history tool in the named place alone ([`listed`], [`opened`]): the message's words
-//!   only, labelled [`LABEL`], inside the page's own bounds.
-
-use std::sync::Mutex;
+//! The verb that wrote releases (`exchange.offer`, `exchange.release`, `exchange.releases`, `exchange.withdraw`)
+//! was retired on 2026-11-22: every place now reads everything, so nothing needs to be let through one message at
+//! a time. What stays:
+//! - **The record** (`release.id.<id>`, indexed by `release.to.<place>\u{1f}<node>`, ended by `release.end.<id>`):
+//!   [`Release`] and [`Ended`] still decode, and nothing is rewritten.
+//! - **The reader** the history tool still calls ([`listed`], [`opened`]): a live release's words, labelled
+//!   [`LABEL`], when the message is still the owner's own of a private place and its words match the digest. No
+//!   seal or move is read any more.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use theseus_store::{kinds, NewRecord, Store as _};
+use theseus_store::{kinds, Store as _};
 
 use crate::exchange::{self, OWNER};
 use crate::node::Body;
@@ -35,14 +26,8 @@ const SEP: char = '\u{1f}';
 
 /// What is shown beside a released message, wherever it is rendered.
 pub const LABEL: &str = "released here by the owner from another conversation";
-/// What a withdrawal says.
-pub const UNSENT: &str =
-    "it is no longer readable there; what Theseus was already shown or sent there cannot be unsent";
 /// The released messages one history page lists at most.
 pub const PER_PAGE: usize = 10;
-
-/// Grants and withdrawals, one at a time: a check and its append are never interleaved with another's.
-static WRITES: Mutex<()> = Mutex::new(());
 
 /// One release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,16 +74,7 @@ fn to_key(to: &str, node: &str) -> String {
     format!("{TO_PREFIX}{to}{SEP}{node}")
 }
 
-/// Whether `node` was ever moved into a thread, whatever its seal: any move record at all, even the one an
-/// unsplit or an unclaim leaves when it puts the message back, is moved; so is a record that does not read.
-fn moved(store: &Store, node: &str) -> bool {
-    !matches!(
-        store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)),
-        Ok(None)
-    )
-}
-
-/// The one check, at the release and at every read: the message `node`, if it may be released today.
+/// The one check at every read: the message `node`, if a release of it still reads.
 pub fn piece(core: &Core, node: &str) -> Result<Piece> {
     let (_, n) = core
         .store
@@ -119,11 +95,6 @@ pub fn piece(core: &Core, node: &str) -> Result<Piece> {
         exchange::exchange(&core.store, turn)?.context("the message's exchange cannot be read")?;
     if !ex.private || ex.place == exchange::rebuild::UNKNOWN {
         bail!("only a message of a private place is released");
-    }
-    if core.ladder_hidden(&n.session_id) || moved(&core.store, node) {
-        bail!(
-            "it is in a sealed thread, was moved into a thread, or its seal cannot be proven clear"
-        );
     }
     Ok(Piece {
         node: node.into(),
@@ -193,81 +164,26 @@ pub fn opened(core: &Core, here: &str, id: &str) -> Option<String> {
     readable(core, &r).map(|t| format!("[{LABEL}]\n{t}"))
 }
 
-/// Every release, with its end when withdrawn, newest first.
-pub fn all(store: &Store) -> Result<Vec<(Release, Option<Ended>)>> {
-    let recs = store
-        .inner()
-        .first_with_prefix(kinds::META, ID_PREFIX, 1_000)?;
-    let mut out = Vec::new();
-    for rec in &recs {
-        let r: Release = rec.decode()?;
-        let end = store.get_meta::<Ended>(&format!("{END_PREFIX}{}", r.id))?;
-        out.push((r, end));
-    }
-    out.sort_by_key(|(r, _)| std::cmp::Reverse(r.at_ms));
-    Ok(out)
-}
-
-/// Writes the owner's release of the message `node`, whose words he was shown as `shown` (their digest), to `to`.
-/// The CALLER has proven the owner in person.
-pub fn grant(core: &Core, node: &str, shown: &str, to: &str, surface: &str) -> Result<Release> {
-    let _one = WRITES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let p = piece(core, node).map_err(|e| anyhow::anyhow!("not released: {e:#}"))?;
-    if p.digest != shown {
-        bail!("not released: the message's words are not the words you were shown");
-    }
-    if to.trim().is_empty() || to == p.from {
-        bail!("not released: a message is released to a place other than its own");
-    }
-    if core.store.get_meta::<String>(&to_key(to, node))?.is_some() {
-        bail!(
-            "not released: this message was released to {to} once already; a release is made once"
-        );
-    }
-    let r = Release {
-        id: format!("rel_{}", uuid::Uuid::now_v7().simple()),
-        node: node.into(),
-        digest: p.digest,
-        from: p.from,
-        to: to.into(),
-        surface: surface.into(),
-        at_ms: theseus_protocol::now_unix_ms(),
-    };
-    core.store.append(&[
-        NewRecord::json(kinds::META, Some(&format!("{ID_PREFIX}{}", r.id)), &r)?,
-        NewRecord::json(kinds::META, Some(&to_key(to, node)), &r.id)?,
-    ])?;
-    Ok(r)
-}
-
-/// Writes the owner's withdrawal of release `id`. The CALLER has proven the owner in person.
-pub fn withdraw(store: &Store, id: &str, surface: &str) -> Result<Ended> {
-    let _one = WRITES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let r: Release = store
-        .get_meta(&format!("{ID_PREFIX}{id}"))?
-        .with_context(|| format!("no release {id}"))?;
-    if store
-        .get_meta::<Ended>(&format!("{END_PREFIX}{id}"))?
-        .is_some()
-    {
-        bail!("release {id} was withdrawn already");
-    }
-    let e = Ended {
-        id: r.id,
-        surface: surface.into(),
-        at_ms: theseus_protocol::now_unix_ms(),
-    };
-    store.append(&[NewRecord::json(
-        kinds::META,
-        Some(&format!("{END_PREFIX}{id}")),
-        &e,
-    )?])?;
-    Ok(e)
-}
-
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    /// A release and its end written before the verb was retired still decode.
+    #[test]
+    fn a_stored_release_and_its_end_still_decode() {
+        let r: Release = serde_json::from_value(serde_json::json!({
+            "id": "rel_1", "node": "n1", "digest": "d", "from": "discord:dm:1",
+            "to": "discord:channel:2", "surface": "cli", "at_ms": 5
+        }))
+        .unwrap();
+        assert_eq!(
+            (r.id.as_str(), r.to.as_str(), r.at_ms),
+            ("rel_1", "discord:channel:2", 5)
+        );
+        let e: Ended = serde_json::from_value(serde_json::json!({
+            "id": "rel_1", "surface": "web", "at_ms": 6
+        }))
+        .unwrap();
+        assert_eq!(e.id, "rel_1");
+    }
+}
