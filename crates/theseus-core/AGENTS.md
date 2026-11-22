@@ -676,13 +676,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `import_profile` (read and ignored, `ThreadsConfig::retired`) with it; old `thread.imported` rows still read. The
   rule extractor it brought is `thread_grow/extract.rs`. The session import (`import/`) is unrelated and unchanged.
   **Thread recall and seals** (theseus-f2g0; no store change; owner D12: Jev recommends, the owner seals).
-  `thread_recall.rs` maps a candidate's session to its thread (`Board::of_session`, else the record's supersession
+  Since issue 46 recall reads no thread at all: no lens, no thread mark in a header (an old thread's note is headed by
+  its place, `thread:<slug>`, as any note is), no thread category, no name matcher; `thread_recall.rs` keeps only the
+  session-to-thread memo the seal's crossing report reads. What follows is the history. `thread_recall.rs` mapped a candidate's session to its thread (`Board::of_session`, else the record's supersession
   link naming `thread:<slug>`, else its task parent, kept in `Memory::thread_memo`) and builds the pure
   `theseus_memory::ThreadLens` over a recall's candidates (`Scene.threads`, `TurnRunner::thread_scene`: none while no
   thread exists, so a daemon without threads recalls as before). In a threaded session a candidate of *another*
   thread pays `[threads] cross_recall_penalty` (0.35 of its score, in the pack's rank) and is dropped as `thread`
   unless its fused score is above `cross_recall_bar` (0.75) of the query's best, unless the message names its thread
-  (slug, title, or a working-set entity: `thread_recall::named`). **Streams do not mix** (theseus-wncdv; the
+  (slug, title, or a working-set entity: `thread_recall::named`, gone). **Streams do not mix** (theseus-wncdv; the
   threadbench's threads arms answered about another stream's facts on 4 to 7 of 12 cross-stream questions, one
   session on 0: streams share the shape of their facts, so a question about this thread's port scores another's
   nearly as high, and the place's own conversation, where each stream's first messages ran before its thread
@@ -713,8 +715,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   cannot pass with nothing to guard). Tests: `rpc/tests_cross_judge.rs`. A sealed thread's notes, or one with a seal
   proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
   rerank and the lookups included (`memory.lookup`'s words ask with the seal and no distance). The
-  `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`
-  (`render::thread_mark`). `rpc/thread_seal.rs`: `thread.seal` (+`redirect`: a harness note in each session the
+  `Recall` item of another thread's note began its frozen header `[from thread «title», day, @pos]` (gone with
+  issue 46). `rpc/thread_seal.rs`: `thread.seal` (+`redirect`: a harness note in each session the
   notes had crossed into, found from the `derived_from` edges, via `recall`, of `Recall` nodes), `thread.unseal`,
   `thread.seal_dismiss` ("Not needed": a `thread.seal_dismissed` row, a label for the judge's report, and META
   `thread.seal_dismissed.<slug>` holding the content digest, so one proposal per thread until its card, goal, title or
@@ -783,7 +785,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   2026-11-22.)
   The nodes stay in the store: `session.history` marks them (`detail.moved_to`), and recall indexes them as before: the
   turn's `in_context` leaves them out of the source's, so it may bring them back, and a recalled node's header names the
-  thread it moved to (`moved.of.<node>`, `ThreadScene::other_title_of`). `thread.unsplit {split}` writes a second `Moved`
+  place it was said in (until issue 46 it named the thread it moved to). `thread.unsplit {split}` writes a second `Moved`
   node that `undoes` the first (the source reads the range again in its own place), a quiet `Moved` node in an existing
   target that hides the quoted turns without a note, and `thread.done` on a thread the split opened; a ledger row
   (`thread.unsplit`) records it and nothing is deleted. `thread.split_plan` is the dry run: it plans as a split does,
@@ -1699,8 +1701,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     manifest); `theseus-ontology`'s `tests_manifest.rs` is the golden for a session in six kinds. The harness-given
     `thread` and `project` categories are not read at compile (the slice and the thread's topics already carry them).
     (4) **Recall's category term**: `CategoryScene` (private places only, the held snapshot, `[ontology] recall_boost`
-    0.25, 0 off) reads the stored memberships, the thread (`ThreadScene::of`) and the project of the asker and of each
-    candidate's session, and hands the pure pipeline a `theseus_memory::CategoryBoost` (project and thread weight 1, topic
+    0.25, 0 off) reads the stored memberships and the project of the asker and of each candidate's session (a thread is no
+    category since issue 46), and hands the pure pipeline a `theseus_memory::CategoryBoost` (project weight 1, topic
     0.6, the rest 0.3). Ambient turn recall only: the model's lookups and a shared place have none. Tests:
     `tests_onto.rs`, `tests_category.rs` (memory), `tests_manifest.rs`.
   - **People from text** (theseus-wy7y, `judge/people/`): `people.v1`, live (`WIRED`), at the same exchange end as

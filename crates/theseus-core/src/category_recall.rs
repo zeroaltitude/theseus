@@ -2,13 +2,12 @@
 //! `docs/design/jev-ontology-growth.md`, section 7): a note from a session
 //! that shares a category with the asking session ranks higher, by a
 //! reciprocal-rank term (`theseus_memory::CategoryBoost`) weighted by the
-//! kind: the thread and the project highest, a topic next, the rest low.
+//! kind: the project highest, a topic next, the rest low.
 //!
 //! - **What is shared** is read from memory: the asker's and the candidate's
 //!   stored memberships (`Ontology::memberships`, the held snapshot, never a
-//!   scan), the thread the session belongs to (`ThreadScene::slug_of`, the
-//!   reading that names a note's thread in its heading), and the project its
-//!   record carries.
+//!   scan) and the project its record carries. A thread is no category
+//!   (issue 46): recall ranks by where and by whom a note was said.
 //! - **Nothing is admitted** by it. Every filter runs before the pipeline
 //!   ranks, and the term moves only the rank. It is off when `[ontology]
 //!   recall_boost` is 0, and while the ontology holds no category; it reads
@@ -23,13 +22,12 @@ use theseus_ontology::Ontology;
 
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::thread_recall::ThreadScene;
 use crate::turn::TurnRunner;
 
 /// What a shared category of `kind` is worth, from 0 to 1.
 pub fn weight(kind: &str) -> f64 {
     match kind {
-        "project" | "thread" => 1.0,
+        "project" => 1.0,
         "topic" => 0.6,
         _ => 0.3,
     }
@@ -42,15 +40,13 @@ pub struct CategoryScene {
     session: String,
     snapshot: Arc<Ontology>,
     store: Store,
-    threads: Option<ThreadScene>,
     /// The asker's categories, by key, with their weight.
     mine: BTreeMap<String, f64>,
 }
 
 impl CategoryScene {
     /// The categories `session` holds, by key: its stored memberships (a
-    /// category's id), its thread (`thread:<slug>`) and its project
-    /// (`project:<id>`).
+    /// category's id) and its project (`project:<id>`).
     pub fn keys_of(&self, session: &str) -> BTreeMap<String, f64> {
         let mut keys: BTreeMap<String, f64> = self
             .snapshot
@@ -58,9 +54,6 @@ impl CategoryScene {
             .into_iter()
             .map(|m| (m.category.to_string(), weight(m.category.kind())))
             .collect();
-        if let Some(slug) = self.threads.as_ref().and_then(|t| t.slug_of(session)) {
-            keys.insert(format!("thread:{slug}"), weight("thread"));
-        }
         let project = self
             .store
             .get_session::<SessionRecord>(session)
@@ -109,12 +102,7 @@ impl TurnRunner {
     /// none: the term is off, the ontology holds no category, or the session
     /// holds none. `_private` is read no more (anything goes): the term
     /// reads in every place; the parameter goes with the sweep.
-    pub fn category_scene(
-        &self,
-        session: Option<&str>,
-        _private: bool,
-        threads: Option<&ThreadScene>,
-    ) -> Option<CategoryScene> {
+    pub fn category_scene(&self, session: Option<&str>, _private: bool) -> Option<CategoryScene> {
         let gain = self.cfg.ontology.recall_boost;
         let session = session?;
         if gain <= 0.0 {
@@ -127,7 +115,6 @@ impl TurnRunner {
             session: session.to_string(),
             snapshot,
             store: self.store.clone(),
-            threads: threads.cloned(),
             mine: BTreeMap::new(),
         };
         scene.mine = scene.keys_of(session);

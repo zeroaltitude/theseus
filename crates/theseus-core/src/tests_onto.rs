@@ -790,7 +790,7 @@ async fn the_category_scene_weights_what_two_sessions_share() {
     let scene = r
         .core
         .runner
-        .category_scene(Some(&here), true, None)
+        .category_scene(Some(&here), true)
         .expect("a scene");
     let b = scene.boost(&cands).expect("something is shared");
     assert_eq!(b.gain, 0.25);
@@ -806,7 +806,7 @@ async fn the_category_scene_weights_what_two_sessions_share() {
     let shared = r
         .core
         .runner
-        .category_scene(Some(&here), false, None)
+        .category_scene(Some(&here), false)
         .expect("a scene in a shared place too");
     assert_eq!(shared.boost(&cands).expect("the same").shared, b.shared);
 }
@@ -829,11 +829,7 @@ async fn the_term_is_off_at_zero_and_the_persona_state_names_the_categories() {
         ],
     );
     let _ = r.core.runner.ontology.snapshot(&r.core.store).unwrap();
-    assert!(r
-        .core
-        .runner
-        .category_scene(Some(&sid), true, None)
-        .is_none());
+    assert!(r.core.runner.category_scene(Some(&sid), true).is_none());
     assert_eq!(
         r.core.runner.category_names(&sid, PlaceClass::Private),
         vec!["web".to_string()]

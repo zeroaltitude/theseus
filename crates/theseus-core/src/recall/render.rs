@@ -150,25 +150,6 @@ pub fn header_in(
     )
 }
 
-/// The mark an item from another thread begins its header with
-/// (theseus-f2g0): `[from thread «security fix», 2026-10-08, @4210]`, the
-/// thread's title, the source's day (UTC) and its position. An item of an
-/// unthreaded session, or of the asking thread, has none.
-pub fn thread_mark(title: &str, n: &Node, position: u64) -> String {
-    let title: String = title
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .filter(|c| !matches!(c, '«' | '»'))
-        .take(60)
-        .collect();
-    format!(
-        "[from thread «{title}», {}, @{position}]",
-        utc_day(n.created_at_ms)
-    )
-}
-
 /// The mark an item of the engaged persona's own agent begins its header with
 /// (theseus-a8n7): `[from Wren, 2026-09-14, @4210]`, the persona's name, the
 /// source's day (UTC) and its position. The name is one line, at most 40

@@ -202,8 +202,7 @@ impl TurnRunner {
         // Every turn draws on every place (anything goes); the manifest
         // names the place it asked from.
         let place = self.place_of(t.tc.session_id);
-        let threads = self.thread_scene(Some(t.tc.session_id));
-        let category = self.category_scene(Some(t.tc.session_id), true, threads.as_ref());
+        let category = self.category_scene(Some(t.tc.session_id), true);
         // The prompt's tier sizes the pack (theseus-d9je7); an assembled
         // section keeps its own budget.
         let (budget_tokens, max_items) = match t.recall.assembled {
@@ -375,7 +374,6 @@ impl TurnRunner {
         let mut items = Vec::new();
         let ids: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
         let handles = theseus_protocol::cite::handles_for(&ids);
-        let threads = self.thread_scene(Some(t.tc.session_id));
         let persona = self.persona_scene(t.target.persona.as_deref());
         for (item, handle) in m.admitted.iter().zip(&handles) {
             let probe = RecalledRef {
@@ -393,20 +391,9 @@ impl TurnRunner {
             let excerpt = item.text.as_deref().unwrap_or_default();
             let chunk = render::frozen_range(&text_of(&source), excerpt);
             let place = self.place_name(&item.session_id);
+            // Where and by whom it was said: its place, never a thread (issue 46).
             let mut header = render::item_header(&source, item.position, &place, chunk);
-            // A node a split moved is credited to the thread it moved to (theseus-q9b85).
-            let moved = self.moved_title(&item.node_id, threads.as_ref());
             header = crate::recall::neighbour::with_note(header, item);
-            if let Some(title) = moved.or_else(|| {
-                threads
-                    .as_ref()
-                    .and_then(|th| th.other_title(&item.session_id))
-            }) {
-                header = format!(
-                    "{} {header}",
-                    render::thread_mark(&title, &source, item.position)
-                );
-            }
             header = crate::recall::current::with_mark(header, item);
             if let Some(p) = persona.as_ref().filter(|p| p.is_own(&item.session_id)) {
                 header = format!(
@@ -450,21 +437,6 @@ impl TurnRunner {
             .unwrap_or_default();
         t.recall.rides = rides;
         t.recall.pending = Some(node);
-    }
-
-    /// The title of the thread a split moved `node_id` to, when it has one
-    /// (theseus-q9b85).
-    fn moved_title(
-        &self,
-        node_id: &str,
-        threads: Option<&crate::thread_recall::ThreadScene>,
-    ) -> Option<String> {
-        self.store
-            .get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node_id))
-            .ok()
-            .flatten()
-            .flatten()
-            .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
     /// [`Self::recall_view`] for the turn's own compile, which also records

@@ -1,5 +1,5 @@
-//! Threads in recall (theseus-f2g0) through the whole core: a note from
-//! another thread names its thread.
+//! Threads in recall (theseus-f2g0) through the whole core: a note from an
+//! old thread's session is headed by where it was said, as any note is.
 //! The distance and the seal are gone (p17: anything goes); the helpers here
 //! still serve the other thread tests.
 
@@ -113,11 +113,12 @@ pub(super) fn scored_with(
     })
 }
 
-/// A recalled note from another thread begins its header with the thread's
-/// title, the day and the position, as a canary turn writes it; a note from
-/// an unthreaded session has no such mark.
+/// A recalled note from an old thread's session is headed by where it was
+/// said, its place (`thread:<slug>`), and carries no thread mark of its own
+/// (issue 46): recall heads an item by place, session and author. A note
+/// from an unthreaded session reads the same way.
 #[tokio::test]
-async fn a_cross_thread_hit_names_its_thread() {
+async fn an_old_threads_hit_is_headed_by_its_place() {
     let r = canary();
     let c = &r.core;
     new_thread(c, "security-fix", "security fix");
@@ -141,14 +142,10 @@ async fn a_cross_thread_hit_names_its_thread() {
         })
         .expect("a Recall node");
     let from_fix = items.iter().find(|i| i.session_id == fix).unwrap();
-    let mark = format!(
-        "[from thread «security fix», {}, @{}]",
-        day_of(c, &from_fix.node_id),
-        from_fix.position
-    );
     assert!(
-        from_fix.header.contains(&mark),
-        "{} / {mark}",
+        from_fix.header.contains(" in thread:security-fix, ")
+            && !from_fix.header.contains("from thread"),
+        "{}",
         from_fix.header
     );
     let from_plain = items.iter().find(|i| i.session_id == plain).unwrap();
@@ -157,10 +154,4 @@ async fn a_cross_thread_hit_names_its_thread() {
         "{}",
         from_plain.header
     );
-}
-
-fn day_of(c: &Core, node: &str) -> String {
-    let (_, n) = c.store.get_node(node).unwrap().unwrap();
-    let (y, m, d) = crate::wake::civil_from_days((n.created_at_ms / 1000 / 86_400) as i64);
-    format!("{y:04}-{m:02}-{d:02}")
 }
