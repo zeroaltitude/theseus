@@ -42,11 +42,6 @@ pub(super) const SIZINGS: u32 = 2;
 const HEADS: usize = 6;
 /// The fewest characters a result cut to its head keeps.
 const HEAD_MIN_CHARS: usize = 1_000;
-/// The margin, in percent, on a new chain's estimate read at the provider's measured count.
-const MEASURED_MARGIN_PERCENT: u64 = 10;
-/// The measured ratio is held between these, in thousandths (a stand-in, or a provider's count of a request
-/// that was mostly cached, says nothing beyond them).
-const RATIO_PERMILLE: (u64, u64) = (500, 2_000);
 /// Tokens added to a measured shortfall when the last step reserves it (the view's count and the request's
 /// estimate are not the same measure).
 const SQUEEZE_SLACK: u64 = 256;
@@ -54,7 +49,8 @@ const SQUEEZE_SLACK: u64 = 256;
 impl TurnRunner {
     /// One call of a view turn compiled from its frozen view, with room made when it is over the budget or
     /// was refused for its size (the module comment's order). The request is measured as it will be sent:
-    /// what finishing it adds (`Fit::tail_on`, or a new chain's own, `Fit::tail_new`) counts, and after a
+    /// what finishing it adds to its chain (`Fit::tail_on`; a new chain's is measured when it is finished,
+    /// `view_size`) counts, and after a
     /// refusal it must be strictly smaller than the refused one, estimate against estimate. A request no
     /// step fits comes back over its budget, and the compile step fails the turn on it: never sent.
     pub(super) fn view_roomed(
@@ -69,9 +65,6 @@ impl TurnRunner {
             if let Some(o) = input.overflowed {
                 f.fit.under = Some(f.fit.under.map_or(o.estimated, |u| u.min(o.estimated)));
             }
-            let answers = answers_in(input.nodes, t.tc.turn_id);
-            f.fit.ratio = measured(&answers, &f.fit).or(f.fit.ratio);
-            f.fit.answered = answers.len();
             f.fit.squeeze = 0;
         }
         let mut compiled = rendered(t, input)?;
@@ -224,11 +217,8 @@ impl TurnRunner {
 /// floor's numbers when the floor did not fit. Its estimate before finishing is kept (`Fit::base`), and what
 /// the request carries beyond the view (`Fit::own`).
 fn rendered(t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
-    let mut compiled = rendered_now(t, input)?;
+    let compiled = rendered_now(t, input)?;
     if let Some(f) = t.view.as_mut() {
-        if f.floor.is_none() {
-            read_at(&mut compiled, f.fit.ratio);
-        }
         let tokens = compiled.estimate.tokens;
         f.fit.base = (compiled.estimate.upper, tokens);
         let tail = tail_of(&compiled, &f.fit);
@@ -237,46 +227,11 @@ fn rendered(t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compile
     Ok(compiled)
 }
 
-/// A new chain's estimate read at the provider's measured count (`Fit::ratio`) with a small margin
-/// ([`MEASURED_MARGIN_PERCENT`]), not the blanket margin on every byte: a new chain has no count of its
-/// own (`compiler::counted_part`). With no measured count in the turn, the estimate is as compiled.
-fn read_at(c: &mut Compiled, ratio: Option<u64>) {
-    let Some(r) = ratio.filter(|_| c.new_compilation && c.estimate.counted == 0) else {
-        return;
-    };
-    let tokens = (u128::from(c.estimate.tokens) * u128::from(r)).div_ceil(1_000) as u64;
-    let upper = tokens + (tokens * MEASURED_MARGIN_PERCENT).div_ceil(100);
-    (c.estimate.tokens, c.est_tokens, c.estimate.upper) = (tokens, tokens, upper);
-    c.budget.used_tokens = tokens;
-    let limit = c.budget.limit_tokens;
-    c.budget.overage =
-        (limit > 0 && upper > limit).then(|| theseus_protocol::memory::BudgetOverage {
-            tokens: upper - limit,
-            why: "the request's estimate, read at the provider's own count, passes the window"
-                .into(),
-        });
-}
-
-/// The provider's count of the turn's newest answered request against its finished estimate
-/// (`Fit::sent`), in thousandths and held to [`RATIO_PERMILLE`]: read from the turn's LAST answer, and only
-/// when that answer is the one to the request `sent` names (`answers`: the turn's, in order).
-fn measured(answers: &[&crate::node::Node], fit: &Fit) -> Option<u64> {
-    let (before, estimate) = fit.sent?;
-    if answers.len() != before + 1 || estimate == 0 {
-        return None;
-    }
-    let crate::node::Body::AssistantMessage { usage, .. } = &answers.last()?.body else {
-        return None;
-    };
-    let counted =
-        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
-    (counted > 0).then(|| (counted * 1_000 / estimate).clamp(RATIO_PERMILLE.0, RATIO_PERMILLE.1))
-}
-
-/// What finishing adds to `c`: its chain's last measure, or a new chain's own.
+/// What finishing adds to `c`: its chain's last measure. A new chain is charged no earlier request's tail:
+/// only what this same call's finish measured when the size check sent it back (`Fit::finish`).
 fn tail_of(c: &Compiled, fit: &Fit) -> (u64, u64) {
     match c.new_compilation {
-        true => fit.tail_new,
+        true => fit.finish,
         false => fit.tail_on,
     }
 }
@@ -322,7 +277,7 @@ fn cut_newest(t: &mut Turn<'_>, nodes: &[(u64, crate::stub::Stub)], c: &Compiled
 }
 
 /// The size check every view call passes before it is sent, on its request as finished (tails and blocks
-/// attached): what finishing added is recorded (`Fit::tail_on`, and `Fit::tail_new` for a new chain), and
+/// attached): what finishing added is recorded (`Fit::tail_on`), and
 /// the request must be within its limit and strictly smaller than one the provider refused. `last`: no
 /// more room may be made, and a request that does not fit is marked over. The budget is read again from
 /// the finished request; the digest stays the compile's (a replay rebuilds the request before its tails,
@@ -341,24 +296,23 @@ pub(super) fn view_size(t: &mut Turn<'_>, compiled: &mut Compiled, last: bool) -
         compiled.estimate.tokens.saturating_sub(f.fit.base.1),
     );
     f.fit.tail_on = tail;
-    if compiled.new_compilation {
-        f.fit.tail_new = tail;
-    }
     let finished = Fit {
         base: (compiled.estimate.upper, compiled.estimate.tokens),
         tail_on: (0, 0),
-        tail_new: (0, 0),
+        finish: (0, 0),
         ..f.fit
     };
     compiled.budget.used_tokens = compiled.estimate.tokens;
     if shortfall(compiled, &finished) == 0 {
-        f.fit.sent = Some((f.fit.answered, compiled.estimate.tokens));
+        f.fit.finish = (0, 0);
         return Size::Fits;
     }
     if last || f.floor.is_some() {
+        f.fit.finish = (0, 0);
         over_by(compiled, finished);
         return Size::Over;
     }
+    f.fit.finish = tail;
     Size::Again
 }
 
@@ -370,15 +324,6 @@ pub(super) enum Size {
     Again,
     /// No more room may be made: marked over, the turn fails on its overage.
     Over,
-}
-
-/// The turn's answers among `nodes`, in order.
-fn answers_in<'n>(nodes: &'n [(u64, crate::stub::Stub)], turn: &str) -> Vec<&'n crate::node::Node> {
-    (nodes.iter())
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-        .filter(|(_, n)| n.kind == crate::stub::Kind::AssistantMessage)
-        .map(|(_, n)| &**n)
-        .collect()
 }
 
 /// How far the request, as it will be sent (`Fit::tail` added), is from fitting: over its limit (upper
