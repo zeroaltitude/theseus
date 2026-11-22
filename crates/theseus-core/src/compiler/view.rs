@@ -512,6 +512,12 @@ fn effective(s: &RequestSpec, card: Option<&str>, page: &str) -> RequestSpec {
     }
 }
 
+/// The spec a turn's first call would render from `s` today, the memory page in it: what
+/// `context.explain` digests to say whether a turn's system is unchanged.
+pub(crate) fn first_call_spec(s: &RequestSpec) -> RequestSpec {
+    effective(s, None, crate::view::text::page::memory_page().1)
+}
+
 /// A result of the turn's own laid as its first `shown` characters, with one line saying so.
 fn headed(n: &Stub, shown: usize) -> Stub {
     let mut node = (**n).clone();

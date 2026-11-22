@@ -918,33 +918,6 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
 
 // ------------------------------- 5. the place scope, and what the turn is told
 
-/// A sibling session that answers where `sid` answers, as a task's own asks
-/// do: its parent's place, by `Outbox::show_at`.
-///
-/// ⛔ **`show_at`, not `bind_place`** — and that distinction is the whole
-/// reason this construction was thought unavailable. `bind_place` gives a
-/// place to ONE session and a second bind takes it from the first; `show_at`
-/// says where a session ANSWERS, and any number of sessions may answer at one
-/// place. The matchers' own cases used `show_at`, and the rule they proved
-/// (`chat_acts::run::waiting_here` / `held_here`, moved here whole) is
-/// unchanged, so the construction they used still works.
-fn beside(core: &Arc<Core>, sid: &str) -> String {
-    let rec = SessionRecord::new(SessionKind::Conversation, None);
-    core.store.put_session(&rec.session_id, &rec).unwrap();
-    let here = core
-        .outbox
-        .target(sid)
-        .expect("this session answers somewhere, or there is no place to share");
-    core.outbox.show_at(&rec.session_id, Some(&here)).unwrap();
-    assert_eq!(
-        core.outbox.target(&rec.session_id),
-        core.outbox.target(sid),
-        "the sibling answers where this session answers"
-    );
-    assert_ne!(rec.session_id, sid);
-    rec.session_id
-}
-
 /// A question, as the scope rules and `stage_answer_fact` take them.
 fn a_question(id: &str, tool: &str) -> theseus_protocol::ConfirmRequest {
     theseus_protocol::ConfirmRequest {
@@ -972,95 +945,6 @@ fn facts(r: &Rig) -> Vec<String> {
                 .map(str::to_string)
         })
         .collect()
-}
-
-/// **The POSITIVE half of the place scope.** A sibling session that answers
-/// at this one's place is in scope here — a task's own asks and its own held
-/// calls reach the owner where its parent's do — and a session at a place of
-/// its own is not.
-///
-/// Both halves matter and only the negative one had a successor when the
-/// matchers went: `waiting_here` and `held_here` moved out of
-/// `rpc/answer_in_words.rs` and `rpc/allow_in_words.rs` WHOLE, filter
-/// included, and no case on the branch had two sessions sharing a place, so
-/// `core.outbox.target(&q.session_id) == here` was reached by nothing. A rule
-/// that only ever excludes is indistinguishable from `q.session_id == session`.
-///
-/// The last act here is the whole-core half: the owner speaks in HIS
-/// conversation, the model calls the allow tool, and the call held in the
-/// SIBLING is the one allowed.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_sibling_session_at_this_place_is_in_scope_and_one_elsewhere_is_not() {
-    let jev = jev_says(RESHAPEABLE, 0.95);
-    let r = rig_judged(&jev, |_| {});
-    let here = session(&r.core);
-    let sib_held = beside(&r.core, &here);
-    let sib_ask = beside(&r.core, &here);
-    let elsewhere = thread_session(&r.core, "harbour", None);
-
-    // A call held in one sibling, a question waiting in the other. Neither
-    // is this conversation's.
-    let p = a_held_write(&r, &sib_held).await;
-    r.calls(&[(
-        "owner_ask",
-        json!({"question": "Ship it?", "options": [{"label": "Yes"}, {"label": "No"}]}),
-    )]);
-    say(&r, &sib_ask, "What should we do there?").await;
-    until("the sibling's question waits", || {
-        !r.core.confirm_list().unwrap().is_empty()
-    })
-    .await;
-
-    // In scope HERE, by the place they share — the assertion that had no
-    // successor.
-    let mine = crate::chat_acts::held_here(&r.core, &here).unwrap();
-    assert_eq!(
-        mine.len(),
-        1,
-        "the sibling's hold is in scope here: {mine:?}"
-    );
-    assert_eq!(mine[0].session_id, sib_held, "and it is the sibling's");
-    let asked = crate::chat_acts::waiting_here(&r.core, &here).unwrap();
-    assert_eq!(
-        asked.len(),
-        1,
-        "the sibling's question is in scope here: {asked:?}"
-    );
-    assert_eq!(asked[0].session_id, sib_ask, "and it is the sibling's");
-
-    // And a session at a place of its own sees neither, which is the half
-    // that was already proven and is kept beside the new one.
-    assert!(
-        crate::chat_acts::held_here(&r.core, &elsewhere)
-            .unwrap()
-            .is_empty(),
-        "another place sees nothing held here"
-    );
-    assert!(
-        crate::chat_acts::waiting_here(&r.core, &elsewhere)
-            .unwrap()
-            .is_empty(),
-        "another place sees nothing waiting here"
-    );
-
-    // Whole core: his own conversation, his own message, the model's choice —
-    // and the SIBLING's hold is what the allowance names.
-    r.calls(&[("chat_allow_held_call", json!({}))]);
-    say(&r, &here, HIS_OVERRIDE).await;
-    let allowed = rows(&r, "tool.hold_allowed");
-    assert_eq!(allowed.len(), 1, "one allowance: {allowed:?}");
-    assert_eq!(
-        allowed[0]["hold"],
-        held(&r)[0].id,
-        "the hold allowed is the one held in the sibling: {allowed:?}"
-    );
-    assert_eq!(held(&r)[0].session_id, sib_held, "which is the sibling's");
-    assert_eq!(allowed[0]["route"], "chat.allow_held_call");
-    assert_eq!(
-        std::fs::read_to_string(&p).unwrap(),
-        WAS,
-        "allowing it is not running it"
-    );
 }
 
 /// **`[standing] yes_fact` ON: the block rides exactly this turn's request,
@@ -1200,36 +1084,6 @@ async fn answering_a_question_that_is_no_longer_waiting_refuses_and_answers_noth
     assert!(answers(&r).is_empty(), "nothing was answered: {why}");
 }
 
-// ------------------------------------- the thread acts: seal and move (issue 13)
-
-/// The CLI as the answerer a thread is made by.
-fn cli_answerer() -> crate::approval::Answerer {
-    crate::approval::Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
-
-/// A thread and its session, as a conversation in it runs.
-fn a_thread(r: &Rig, slug: &str, title: &str) -> String {
-    r.core
-        .thread_new(
-            &theseus_protocol::threads::ThreadNewParams {
-                slug: slug.into(),
-                title: Some(title.into()),
-                ..Default::default()
-            },
-            cli_answerer(),
-        )
-        .unwrap();
-    r.core
-        .thread_session(slug, cli_answerer())
-        .unwrap()
-        .session_id
-}
-
 /// The tools the offer step puts in the request of `turn` in `sid`, for a
 /// message of the owner's own.
 fn offered_in(r: &Rig, sid: &str, turn: &str) -> Vec<String> {
@@ -1302,54 +1156,6 @@ async fn the_item_tools_are_offered_in_a_private_place_alone() {
         !items_offered("turn_c", PlaceClass::Private, true),
         "nor is a turn no message of his started"
     );
-}
-
-/// **Seal this thread is a tool the model calls, and the old phrases seal
-/// nothing** (issue 13; the successor of
-/// `the_owners_explicit_verb_seals_the_thread`, which asserted that `/seal` and
-/// "seal this thread" sealed before any turn ran). Offered where the act is
-/// possible: in the session of a thread that is not sealed, and nowhere else.
-/// Called, it seals that thread, as the owner who spoke, and says what had
-/// crossed; a message that merely contains the phrase does nothing.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_seal_tool_seals_the_conversations_thread_and_the_old_phrases_seal_nothing() {
-    let jev = jev_says(REVERSIBLE, 0.95);
-    let r = rig_judged(&jev, |c| c.threads.enabled = true);
-    let scratch = a_thread(&r, "scratch", "scratch pad");
-    let _other = a_thread(&r, "other", "another thread");
-
-    // The old phrases, and a message that only contains one: plain messages.
-    for words in [
-        "/seal",
-        "Seal this thread.",
-        "  seal this thread!  ",
-        "please seal this thread now",
-    ] {
-        say(&r, &scratch, words).await;
-    }
-    let sealed = |slug: &str| r.core.threads().get(slug).unwrap().sealed.is_some();
-    assert!(!sealed("scratch"), "no phrase seals a thread");
-
-    // Offered here, not in a session no thread serves.
-    assert!(offered_in(&r, &scratch, "turn_a").contains(&"chat_seal_thread".to_string()));
-    let plain = session(&r.core);
-    assert!(!offered_in(&r, &plain, "turn_b").contains(&"chat_seal_thread".to_string()));
-
-    // The model chooses to call it.
-    r.calls(&[("chat_seal_thread", json!({"thread": "scratch"}))]);
-    say(&r, &scratch, "seal this thread").await;
-    let out = acted(&r, &scratch, crate::chat_acts::SEAL);
-    let last = out.last().unwrap_or_else(|| panic!("no result: {out:?}"));
-    assert_eq!(last.0, "Ok", "{out:?}");
-    assert!(
-        last.1.starts_with("The owner sealed this thread (scratch)"),
-        "{}",
-        last.1
-    );
-    assert!(sealed("scratch") && !sealed("other"));
-
-    // A sealed thread is not offered the tool again.
-    assert!(!offered_in(&r, &scratch, "turn_c").contains(&"chat_seal_thread".to_string()));
 }
 
 /// **The project's items are tools the model calls, offered only in a

@@ -1,4 +1,8 @@
-//! The router's facts (theseus-rha2): where a message ran, by its address or
+//! The router's facts (theseus-rha2). The router went with threads (2026-11-22):
+//! nothing writes these rows now, and they stay for the kinds' registry and the
+//! narrative of rows a store already holds (threads unit E decides).
+//!
+//! Where a message ran, by its address or
 //! at home (`thread.routed`, in the routed turn's first frame), and a move
 //! (`thread.moved`). The rows hold slugs and ids, never the message's words.
 //! Rows of `thread.asked`, `thread.answered`, `thread.claimed` and

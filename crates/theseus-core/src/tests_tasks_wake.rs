@@ -143,12 +143,13 @@ async fn a_turn_with_no_input_is_offered_the_task_tools() {
 #[tokio::test]
 async fn a_persons_turn_loads_what_it_always_did() {
     let (dm, dm_tokens, req) = table(Some(DM), Some("hello")).await;
+    let (cli, cli_tokens, cli_req) = table(None, Some("hello")).await;
     eprintln!("TABLE dm person: {dm:?} {dm_tokens}");
+    eprintln!("TABLE cli person: {cli:?} {cli_tokens}");
     assert!(hidden(&req, "task_create"));
     assert_eq!(dm, DM_PERSON, "{dm:?}");
     assert_eq!(dm_tokens, DM_PERSON_TOKENS);
-    let (cli, cli_tokens, req) = table(None, Some("hello")).await;
-    eprintln!("TABLE cli person: {cli:?} {cli_tokens}");
+    let req = cli_req;
     assert!(hidden(&req, "task_create"));
     assert_eq!(cli, CLI_PERSON, "{cli:?}");
     assert_eq!(cli_tokens, CLI_PERSON_TOKENS);
@@ -330,11 +331,14 @@ const DM_PERSON: [&str; 6] = ["commands", "files", "history", "memory", "reminde
 // (issue 43): 53 more tokens in the tools note every person's turn carries.
 // And 10085 until the DM loaded `context_history`, the history tool (issue 44): its definition, and the
 // self card's sentence naming it, 150 more tokens in the families a person's turn loads.
-const DM_PERSON_TOKENS: u64 = 10235;
+// And 10235 until every request was the view's (issue 44): 931 more tokens, the memory page and the
+// view's own blocks. The count is a guideline, set to what is true; the families above are the rule.
+const DM_PERSON_TOKENS: u64 = 11166;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
 // And 7800 until the self card's look-before-asking sentence named `context_history` (issue 44): one
 // token more at the terminal, where the tool itself is deferred.
-const CLI_PERSON_TOKENS: u64 = 7801;
+// And 7801 until every request was the view's (issue 44): 931 more tokens, as in the DM. A guideline.
+const CLI_PERSON_TOKENS: u64 = 8732;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what

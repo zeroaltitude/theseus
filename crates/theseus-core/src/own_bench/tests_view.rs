@@ -1,12 +1,11 @@
 //! own-benchmark on a turn the view built (issue 44, `compiler::view::kept`): its first request rebuilt byte
 //! for byte from the blobs its view record names; a front that did not change kept once; a turn from before
-//! views kept anything refused in words; a turn a source of which was sealed since never replayed; and
-//! `turn.replay` on a view turn as on any other.
+//! views kept anything refused in words; and `turn.replay` on a view turn as on any other.
 
 use theseus_protocol::own_bench::TurnReplayParams;
 use theseus_protocol::LedgerKind;
 
-use super::rebuild::{VIEW_HELD, VIEW_REFUSED};
+use super::rebuild::VIEW_REFUSED;
 use super::tests::{board, script};
 use crate::compiler::view::kept::Kept;
 use crate::config::MemoryMode;
@@ -125,49 +124,6 @@ async fn a_view_turn_from_before_views_kept_it_is_refused_in_words() {
             .contains("this turn was built before views kept what a replay needs"),
         "{e}"
     );
-}
-
-/// A view turn whose window laid a thread's exchange is rebuilt while the thread is clear; once the thread
-/// is sealed, the turn is refused in words and `turn.replay` calls no model.
-#[tokio::test]
-async fn a_view_turn_is_not_replayed_once_a_source_it_laid_is_sealed() {
-    use crate::tests_view_compile::{kelp, seal_kelp, turn_as};
-    let thread = std::cell::RefCell::new(String::new());
-    let r = crate::tests_places::rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| *thread.borrow_mut() = kelp(s, false),
-    );
-    let c = &r.core;
-    let thread = thread.into_inner();
-    turn_as(c, &thread, "kelp: the embargoed figure is 7741", true).await;
-    let desk = crate::tests_places::session(c, None);
-    let t = turn_as(c, &desk, "desk: and now?", true).await.turn_id;
-    assert!(
-        kept_of(c, &t).sessions.contains(&thread),
-        "the thread was laid"
-    );
-    c.rebuild_first(&desk, &t).expect("rebuildable while clear");
-    seal_kelp(c);
-    let Err(e) = c.rebuild_first(&desk, &t) else {
-        panic!("a turn that laid a sealed thread was rebuilt");
-    };
-    assert_eq!((e.part, e.why.as_str()), ("view", VIEW_HELD));
-    // A request with tools: the turn's or a replay's (the ladder's own model calls offer none).
-    let calls = || r.requests().iter().filter(|q| !q.tools.is_empty()).count();
-    let sent = calls();
-    let p = TurnReplayParams {
-        session: desk.clone(),
-        turn: t,
-        profile: "haiku".into(),
-        effort: None,
-        scope: None,
-        compare: Some(false),
-    };
-    let refused = c.turn_replay(p, "cli").await;
-    assert!(refused.is_err(), "not replayed");
-    assert_eq!(calls(), sent, "no model was called");
 }
 
 /// `turn.replay` of a view turn sends the original's system, tools and messages to the profile it names,

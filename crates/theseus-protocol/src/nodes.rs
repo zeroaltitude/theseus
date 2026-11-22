@@ -131,7 +131,7 @@ pub struct ReachTotals {
     pub sessions: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeReachResult {
     pub node_id: String,
@@ -147,6 +147,11 @@ pub struct NodeReachResult {
     /// The walk stopped short: a node at `max_generations` has copies of
     /// its own, or the walk reached its cap of copies.
     pub partial: bool,
+    /// What Jev says about the node itself (issue 44): its content answers,
+    /// flags and its exchange's topics. Absent from a walk alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub labels: Option<crate::content::ItemLabelsView>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

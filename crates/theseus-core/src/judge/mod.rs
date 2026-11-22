@@ -51,7 +51,6 @@ pub mod onto;
 pub mod people;
 pub mod rerank;
 pub(crate) mod route_facts;
-pub(crate) mod seal;
 pub mod sink;
 pub mod small_talk;
 pub mod spend;

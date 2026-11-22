@@ -1,68 +1,14 @@
 //! The gate's seam: only content that passed the permission check reaches a model, and the type says so.
-//! [`Admitted`] is made only in this module: by [`admit_checked`], after the gate's rule
-//! (`crate::view_gate::Gate::check`) for the turn's verified point of view, and by the checked
-//! [`Admitted::code`]. Its constructor is private (the contract's amendment of issue 44, step 2), so a
-//! selector or a renderer cannot wrap a piece itself. The gate's logic (the place rule, `owner alone` for every cross-place kind,
-//! the seal and the veil; a missing mark denies) is the gate work's, behind [`Gate`].
+//! [`Admitted`] is made only in this module: by [`admit_checked`], and by the checked [`Admitted::code`].
+//! Its constructor is private (the contract's amendment of issue 44, step 2), so a selector or a renderer
+//! cannot wrap a piece itself. Anything goes (2026-11-22): the check admits every piece that names its
+//! source place; a stored piece still cannot pose as code's own text ([`Admitted::code`]).
 
 use super::{Piece, PointOfView, Space};
-use crate::view_gate::Verified;
 
-/// `piece`, admitted for the turn `verified` when the gate's rule lets it
-/// through for the view's `pov` (which may only narrow the verified one).
-pub(in crate::view) fn admit_checked(
-    verified: &Verified,
-    pov: &PointOfView,
-    piece: Piece,
-) -> Option<Admitted<Piece>> {
-    let rule = super::permit::point_of_view(verified, pov);
-    crate::view_gate::Gate::check(&rule, &super::permit::marks(&piece))
-        .ok()
-        .map(|()| Admitted::new(piece))
-}
-
-/// `piece`, admitted for the turn `verified` as the turn's OWN history: the gate's rule run with the piece's
-/// place read as the anchor and its audience as private, its seal and veil as they are. Only for an explicit
-/// fork's inherited run where the owner is alone in a private place (`super::permit::Permit::owning`); the
-/// piece keeps its own source place and ids.
-pub(in crate::view) fn admit_own(
-    verified: &Verified,
-    pov: &PointOfView,
-    piece: Piece,
-) -> Option<Admitted<Piece>> {
-    let rule = super::permit::point_of_view(verified, pov);
-    let mut marks = super::permit::marks(&piece);
-    marks.place = Some(rule.anchor.clone());
-    marks.class = theseus_memory::recall::Place::Private;
-    crate::view_gate::Gate::check(&rule, &marks)
-        .ok()
-        .map(|()| Admitted::new(piece))
-}
-
-/// `piece`, admitted for the turn `verified` as what its own session said at its anchor
-/// (`super::permit::Permit::speaking`): the gate's rule run with an unknown presence read as not the owner
-/// alone, and the piece's audience as the anchor's own reading, its seal and veil as they are. The caller has
-/// checked that the piece is an exchange of the asking session at the anchor.
-pub(in crate::view) fn admit_spoken(
-    verified: &Verified,
-    pov: &PointOfView,
-    piece: Piece,
-) -> Option<Admitted<Piece>> {
-    use theseus_memory::gate::Present;
-    let mut rule = verified.pov().clone();
-    if rule.present == Present::Unknown {
-        rule.present = Present::PrivateChannel;
-    }
-    // Only ever narrowed by the view's own point of view, as `point_of_view` narrows it.
-    let view = super::permit::point_of_view(verified, pov).present;
-    if view != Present::Unknown {
-        rule.present = rule.present.max(view);
-    }
-    let mut marks = super::permit::marks(&piece);
-    marks.class = rule.place.clone();
-    crate::view_gate::Gate::check(&rule, &marks)
-        .ok()
-        .map(|()| Admitted::new(piece))
+/// `piece`, admitted when it names its source place.
+pub(in crate::view) fn admit_checked(piece: Piece) -> Option<Admitted<Piece>> {
+    piece.marks.place.is_some().then(|| Admitted::new(piece))
 }
 
 /// A value the gate admitted for one point of view.
@@ -107,11 +53,4 @@ impl Admitted<Piece> {
 pub trait Gate {
     /// `None` denies.
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>>;
-
-    /// Whether a point of view whose presence is unknown may still be shown something here: the asking
-    /// session's own exchanges at its anchor (`super::permit::Permit::speaking`). Otherwise an unknown
-    /// presence admits nothing, and its selectors read nothing.
-    fn speaks_unknown(&self) -> bool {
-        false
-    }
 }

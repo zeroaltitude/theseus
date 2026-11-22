@@ -60,6 +60,7 @@ fn what_raised(l: &Label) -> String {
         ItemKind::SearchResult => "a search result",
         ItemKind::TaskBrief => "a task brief",
         ItemKind::TaskReport => "a task report",
+        ItemKind::Reply => "my own reply",
     };
     format!("{what} from `{}`", l.source)
 }
@@ -175,7 +176,10 @@ impl Core {
                     &who,
                     theseus_protocol::method::CONTENT_UNLABEL,
                     None,
-                    &|judgment| self.judgment_pack(judgment),
+                    (
+                        &|judgment: &str| self.judgment_pack(judgment),
+                        &|node: &str| crate::item_labels::read(&self.store, node).ok().flatten(),
+                    ),
                 )?
                 else {
                     return Ok(None);
@@ -230,6 +234,9 @@ impl Core {
     }
 }
 
+/// The record of an item, by its node (`item_labels::read`).
+type ItemOf<'a> = dyn Fn(&str) -> Option<crate::item_labels::ItemLabels> + 'a;
+
 /// The frame that removes `flag` from `rec`: the `content.removed` row, then
 /// the record. None, and nothing to write, when the session does not carry it.
 fn removed(
@@ -239,7 +246,7 @@ fn removed(
     who: &Answerer,
     how: &str,
     correlation_id: Option<&str>,
-    pack_of: &dyn Fn(&str) -> String,
+    (pack_of, item_of): (&dyn Fn(&str) -> String, &ItemOf<'_>),
 ) -> Result<Option<(UnlabelResult, Vec<NewRecord>)>> {
     let Some(mut flags) = rec.data.take() else {
         return Ok(None);
@@ -279,8 +286,25 @@ fn removed(
             &pack_of(&label.judgment),
         )?);
     }
+    // The removal is kept on the item that raised the label too (`item_labels`), in this frame. A label from
+    // before items kept their labels starts its item's record with itself.
+    if let (Some(node), Some(gone)) = (label.node.as_deref(), flags_removed(&rec, flag)) {
+        let mut item = item_of(node).unwrap_or_else(|| {
+            let mut i = crate::item_labels::ItemLabels::new(node, label.kind, &label.source, 0);
+            i.raised.push(label.clone());
+            i
+        });
+        crate::item_labels::removed(&mut item, &gone);
+        frame.push(item.record()?);
+    }
     frame.push(NewRecord::json(kinds::SESSION, Some(session_id), &rec)?);
     Ok(Some((r, frame)))
+}
+
+/// The removal of `flag` the session just recorded: its last.
+fn flags_removed(rec: &SessionRecord, flag: Flag) -> Option<crate::content::Removed> {
+    let flags = rec.data.as_deref()?;
+    flags.removed.iter().rev().find(|r| r.flag == flag).cloned()
 }
 
 /// The `judge.label` row that says the judgment that raised `label` answered

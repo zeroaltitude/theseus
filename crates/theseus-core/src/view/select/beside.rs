@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, TimelineRoot};
-use super::super::{Form, Piece, PointOfView, Pos, Present, Reason};
+use super::super::{Form, Piece, PointOfView, Pos, Reason};
 use super::here::anchor_place;
 use super::make;
 use super::sources::Sources;
@@ -132,18 +132,15 @@ impl Selector for Beside<'_> {
     }
 
     fn select(&self, pov: &PointOfView, snap: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        if pov.present == Present::Unknown {
-            return Ok(Vec::new());
-        }
         let refs = match self.band {
             Band::InPlay => return self.in_play(pov, snap),
             Band::Named => return self.named(),
             // The reach is the model's own history tool in this build: no search before the first word
             // (trim item 3).
             Band::Reached => return Ok(Vec::new()),
-            Band::Waiting => match (&pov.person, pov.present) {
-                (Some(p), Present::OwnerAlone) => (self.src.waiting.waiting(p)?, Reason::Waiting),
-                _ => return Ok(Vec::new()),
+            Band::Waiting => match &pov.person {
+                Some(p) => (self.src.waiting.waiting(p)?, Reason::Waiting),
+                None => return Ok(Vec::new()),
             },
             Band::WhoAndWhere => match &pov.person {
                 Some(p) => (self.src.people.about(p)?, Reason::Fixed),

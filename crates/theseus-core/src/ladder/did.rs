@@ -2,7 +2,7 @@
 //! [`MAX_CHARS`] characters, written once after the exchange ends, from the
 //! person's message and the final reply alone. Tool results are never read
 //! for its words; they are read only for the exchange's marks, which the line
-//! carries. A source the owner sealed or veiled is not summarised.
+//! carries.
 
 use serde::{Deserialize, Serialize};
 use theseus_store::{blocking, kinds, NewRecord};
@@ -226,8 +226,8 @@ pub enum Outcome {
     NotEnded,
     /// Its exchange has no final reply.
     NoReply,
-    /// Its source is sealed or veiled, or cannot be proven otherwise.
-    Hidden,
+    /// Its place has no ladder (`laddered`).
+    NoLadder,
     /// No line: why (the allowance, a failed call), and what the call cost.
     Failed {
         why: String,
@@ -246,13 +246,11 @@ impl Outcome {
     }
 }
 
-/// Write exchange `turn`'s line with `writer`, its call reserved on `purse`,
-/// unless `hidden` says its session is not proven unsealed and unveiled.
+/// Write exchange `turn`'s line with `writer`, its call reserved on `purse`.
 pub async fn write(
     store: &Store,
     writer: &dyn Writer,
     turn: &str,
-    hidden: &(dyn Fn(&str) -> bool + Sync),
     purse: &dyn super::Purse,
 ) -> anyhow::Result<Outcome> {
     let _one = super::WRITING.lock().await;
@@ -268,17 +266,13 @@ pub async fn write(
     if r.reply.is_none() {
         return Ok(Outcome::NoReply);
     }
-    // A message moved into a thread is that thread's: no line is written from its words (`moved_at_all`).
-    let moved = blocking(|| crate::view_gate::moved_at_all(store, &r.ex));
-    if !super::laddered(&r.ex.place) || hidden(&r.ex.session_id) || moved {
-        return Ok(Outcome::Hidden);
+    if !super::laddered(&r.ex.place) {
+        return Ok(Outcome::NoLadder);
     }
     let ask = Ask {
         work: Work::Did,
         text: material(&r),
         sources: 1,
-        sessions: vec![r.ex.session_id.clone()],
-        exchanges: vec![r.ex.turn_id.clone()],
     };
     let w = writer.write(ask, purse).await;
     let Some(line) = w.text.as_deref().and_then(line_of) else {

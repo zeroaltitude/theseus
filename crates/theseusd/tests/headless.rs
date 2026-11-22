@@ -405,8 +405,13 @@ fn proc_run_runs_where_the_host_refuses_clone3_and_a_failed_start_says_why() {
     let results: Vec<String> = model
         .requests()
         .iter()
+        // A request whose last message answers a call (the view lays an earlier exchange's result in its
+        // window too, so a request merely holding one is not the answer to this turn's call).
+        .filter(|r| {
+            (r["messages"].as_array().and_then(|m| m.last()))
+                .is_some_and(|m| m.to_string().contains("tool_result"))
+        })
         .map(|r| r["messages"].to_string())
-        .filter(|m| m.contains("tool_result"))
         .collect();
     assert_eq!(echo.code, 0, "{}\n{}", echo.turn, echo.stderr);
     assert_eq!(echo.turn["tool_calls"], 1, "{}", echo.turn);

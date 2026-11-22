@@ -1,6 +1,6 @@
 //! Recall in shadow through the whole core (M6 step 30a; §3.2's tests): a
 //! turn's recall is recorded with what it would admit and why it dropped the
-//! rest; the place rule holds over generated stores and places; a stalled
+//! rest (every place, since 2026-11-22: anything goes); a stalled
 //! index never holds the turn; and shadow writes no frame and changes no byte
 //! of the model's request. The index is a stand-in (`Memory::set_ask`) that
 //! answers every node of the sessions it is given, so the filters decide.
@@ -8,7 +8,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use proptest::prelude::*;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 use theseus_protocol::memory::{MemoryRecallsParams, MemorySearchParams, RecallManifest};
 use theseus_protocol::SessionKind;
@@ -238,46 +237,6 @@ async fn a_turn_records_what_recall_would_admit_and_why_it_dropped_the_rest() {
     assert_eq!(m.query_chars, "where does the heron nest?".len() as u64);
 }
 
-/// A turn in a shared place draws only on that place's own sessions (its
-/// earlier session, and a task of it): never the CLI's, an owner's DM, a
-/// private channel, or another shared place.
-#[tokio::test]
-async fn a_shared_place_recalls_only_its_own_sessions() {
-    let r = rig(MemoryMode::Shadow);
-    let c = &r.core;
-    let cli = session(c, None, &["the vault code is 4417"]);
-    let dm = session(
-        c,
-        Some(&format!("dm:{OWNER}")),
-        &["my dentist is on tuesday"],
-    );
-    let den = session(c, Some(&format!("channel:{DEN}")), &["the den's plans"]);
-    let quay = session(c, Some(&format!("channel:{QUAY}")), &["the quay's tide"]);
-    let task = session(c, None, &["the pier's task found the tide table"]);
-    let pier = session(c, Some(&format!("channel:{PIER}")), &["the pier's tide"]);
-    c.outbox
-        .task_bound(&task, &format!("discord:channel:{PIER}"));
-    c.runner.memory.set_ask(index_of(
-        c,
-        vec![
-            cli.clone(),
-            dm.clone(),
-            den.clone(),
-            quay.clone(),
-            task.clone(),
-        ],
-    ));
-    turn(c, &pier, "what is the tide?").await;
-    let m = &recalls(c, &pier)[0];
-    assert_eq!(m.place, format!("shared:discord:channel:{PIER}"));
-    assert_eq!(admitted(m), [task.as_str()]);
-    let mut dropped = dropped_for(m, "place");
-    dropped.sort_unstable();
-    let mut want = vec![cli.as_str(), dm.as_str(), den.as_str(), quay.as_str()];
-    want.sort_unstable();
-    assert_eq!(dropped, want);
-}
-
 /// A stalled index never holds the turn: it answers at its call's pace, and
 /// the row says `deadline`. With no tender running, `unavailable`, and why.
 /// On the paused clock: the bound on the turn's time is its own virtual time.
@@ -413,8 +372,6 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
         })
         .await
         .unwrap();
-    assert!(m.admitted.is_empty());
-    assert_eq!(dropped_for(&m, "place"), [notes.as_str()]);
     assert_eq!(dropped_for(&m, "in_context"), [pier.as_str()]);
     assert_eq!(c.store.stats().unwrap().frames_appended, before);
     assert!(c
@@ -427,144 +384,4 @@ async fn memory_search_runs_the_pipeline_and_writes_nothing() {
         })
         .await
         .is_err());
-}
-
-/// Where a generated session speaks.
-#[derive(Clone, Copy, Debug)]
-enum Spot {
-    Cli,
-    OwnerDm,
-    AliceDm,
-    Den,
-    Pier,
-    Quay,
-    /// A task of the pier's.
-    PierTask,
-}
-
-impl Spot {
-    fn place(self) -> Option<String> {
-        match self {
-            Spot::Cli | Spot::PierTask => None,
-            Spot::OwnerDm => Some(format!("dm:{OWNER}")),
-            Spot::AliceDm => Some(format!("dm:{ALICE}")),
-            Spot::Den => Some(format!("channel:{DEN}")),
-            Spot::Pier => Some(format!("channel:{PIER}")),
-            Spot::Quay => Some(format!("channel:{QUAY}")),
-        }
-    }
-
-    /// Private, or the shared place it speaks in: the place rule, written
-    /// out by hand for the test.
-    fn class(self) -> Result<(), String> {
-        match self {
-            Spot::Cli | Spot::OwnerDm | Spot::Den => Ok(()),
-            Spot::AliceDm => Err(format!("dm:{ALICE}")),
-            Spot::Pier | Spot::PierTask => Err(format!("channel:{PIER}")),
-            Spot::Quay => Err(format!("channel:{QUAY}")),
-        }
-    }
-
-    /// Whether a turn here draws on a session at `from`: a private place on
-    /// any, a shared one on its own; a channel bound private on its own
-    /// alone (issue 44, the owner's decision 5).
-    fn draws_on(self, from: Spot) -> bool {
-        match (self, self.class(), from.class()) {
-            (Spot::Den, _, _) => matches!(from, Spot::Den),
-            (_, Ok(()), _) => true,
-            (_, Err(a), Err(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-fn spot() -> impl Strategy<Value = Spot> {
-    prop_oneof![
-        Just(Spot::Cli),
-        Just(Spot::OwnerDm),
-        Just(Spot::AliceDm),
-        Just(Spot::Den),
-        Just(Spot::Pier),
-        Just(Spot::Quay),
-        Just(Spot::PierTask),
-    ]
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig { cases: 24, ..ProptestConfig::default() })]
-
-    /// The place property test (§3.2's 30a, as the place rule makes it): over
-    /// generated stores and places, nothing from a private place's session is
-    /// a candidate in a shared place, and nothing from one shared place is one
-    /// in another: each such hit is dropped for its place, and every other
-    /// survives that filter; a private place draws on every place
-    /// (theseus-1is6), and a channel bound private on itself alone (issue 44,
-    /// the owner's decision 5). In shadow, and through canary (30b), where the request the
-    /// model gets carries no word of a session the place may not draw on.
-    #[test]
-    fn the_place_rule_holds_over_generated_stores(
-        asker in spot(),
-        spots in proptest::collection::vec(spot(), 1..12),
-        canary in proptest::bool::ANY,
-    ) {
-        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-        rt.block_on(async {
-            let r = match canary {
-                true => rig_with(MemoryMode::Live, |_| {}),
-                false => rig(MemoryMode::Shadow),
-            };
-            let c = &r.core;
-            let mut made = Vec::new();
-            for (i, s) in spots.iter().enumerate() {
-                let sid = session(c, None, &[&format!("note {i}.")]);
-                // Only a place's latest session speaks there.
-                if let Some(p) = s.place() {
-                    c.outbox.bind_place(&p, &sid).unwrap();
-                }
-                if matches!(s, Spot::PierTask) {
-                    c.outbox.task_bound(&sid, &format!("discord:channel:{PIER}"));
-                }
-                made.push((sid, *s));
-            }
-            let me = session(c, None, &[]);
-            if let Some(p) = asker.place() {
-                c.outbox.bind_place(&p, &me).unwrap();
-            }
-            if matches!(asker, Spot::PierTask) {
-                c.outbox.task_bound(&me, &format!("discord:channel:{PIER}"));
-            }
-            // A session a later one replaced in its place speaks nowhere now:
-            // the CLI's, as the rule reads it.
-            let spoken: Vec<(String, Spot)> = made
-                .iter()
-                .map(|(sid, s)| {
-                    let current = s.place().is_none_or(|p| {
-                        c.outbox.place_session(&p).unwrap().as_deref() == Some(sid.as_str())
-                    });
-                    (sid.clone(), if current { *s } else { Spot::Cli })
-                })
-                .collect();
-            c.runner.memory.set_ask(index_of(c, made.iter().map(|(s, _)| s.clone()).collect()));
-            turn(c, &me, "the notes?").await;
-            let m = &recalls(c, &me)[0];
-            prop_assert_eq!(m.candidates as usize, spots.len());
-            for (sid, s) in &spoken {
-                let may = asker.draws_on(*s);
-                let by_place = m.dropped.iter().any(|d| &d.session_id == sid && d.reason == "place");
-                prop_assert_eq!(!may, by_place, "{:?} asked of {:?} ({})", asker, s, sid);
-                if !may {
-                    prop_assert!(!m.admitted.iter().any(|a| &a.session_id == sid));
-                }
-            }
-            // What the model got: no note of a session this place may not
-            // draw on (in shadow, none at all).
-            let sent = sent(&r.model).concat();
-            for (i, (_, s)) in spoken.iter().enumerate() {
-                let may = asker.draws_on(*s);
-                let shown = sent.contains(&format!("note {i}."));
-                prop_assert!(!shown || (canary && may), "{:?} saw {:?}'s note {} (canary {})", asker, s, i, canary);
-            }
-            Ok(())
-        })?;
-    }
 }
