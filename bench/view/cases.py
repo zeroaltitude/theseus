@@ -34,7 +34,7 @@ has no entry for is `absent`, never `missed`.
 
 **Building** (`build`): each case in a scratch daemon of its own on an empty
 store (`scratch.py`), one CLI session per symbolic place in a directory of its
-own (`ask --dir`, which makes the place `local:<dir>`), each history line
+own (`session.open`'s `dir`, which makes the place `local:<dir>`), each line
 sent as a turn to a STAND-IN model (bench/recall's `standin.py`, a local
 process that answers "Noted." and charges nothing), the
 exchange each line made read from the measuring row (`context.turn`). Then
@@ -202,10 +202,13 @@ def build_case(case: dict, bin_dir: Path, out: Path) -> dict:
                 cwd = out / "places" / h["place"]
                 cwd.mkdir(parents=True, exist_ok=True)
                 if h["place"] not in sessions:
-                    v = d.json("sessions", "open", "--label", f"case-{h['place']}", cwd=cwd)
+                    # Opened with its directory, which makes its place `local:<dir>` from its first turn on:
+                    # `sessions open` sets none, and `ask --dir` moves a session only after the turn it opens.
+                    v = d.json("rpc", "session.open",
+                               json.dumps({"label": f"case-{h['place']}", "dir": str(cwd.resolve())}))
+                    v = v.get("result", v)
                     sessions[h["place"]] = v.get("session_id") or v["id"]
-                # `--dir` makes the place (`local:<dir>`): a session opened by `sessions open` has no directory.
-                r = d.cli("--json", "ask", "-s", sessions[h["place"]], "--dir", str(cwd), "-", input=h["say"], cwd=cwd)
+                r = d.cli("--json", "ask", "-s", sessions[h["place"]], "-", input=h["say"], cwd=cwd)
                 if r.returncode != 0:
                     raise RuntimeError(f"{case['id']} {h['id']}: ask failed")
                 row = scratch.ledger_rows(d, "context.turn")[-1]["data"]
