@@ -924,3 +924,91 @@ async fn a_declined_view_turn_carries_its_recall() {
         texts(&q)
     );
 }
+
+/// Item 1 of round 2: the view's first call is refused by the provider for its size; the turn declines to
+/// the transcript (`over_budget`, held), whose retry carries the turn's recall, kept since the view's
+/// dispatch: the recalled episode rides the retry and the call after it exactly once each, and its Recall
+/// record is written once. One fallback row, three calls in all.
+#[tokio::test]
+async fn a_view_call_refused_for_size_declines_and_keeps_its_recall() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+    let calls = Arc::new(AtomicU32::new(0));
+    let seen = calls.clone();
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.memory.mode = crate::config::MemoryMode::Live;
+            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+        },
+        |_| {},
+        move |q| {
+            if q.tools.is_empty() {
+                return crate::provider::Scripted::text("aside");
+            }
+            match seen.fetch_add(1, Ordering::SeqCst) {
+                0 => crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
+                    status: 400,
+                    message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
+                        .into(),
+                }),
+                1 => crate::provider::Scripted::tools(
+                    "Looking.",
+                    &[("r1", "fs_list", serde_json::json!({"path": "."}))],
+                ),
+                _ => crate::provider::Scripted::text("Done."),
+            }
+        },
+    );
+    let c = &r.core;
+    let earlier = crate::tests_places::session(c, None);
+    let episode = crate::tests_private_view::EPISODE;
+    let mut n = crate::node::Node::user(&earlier, None, "test", episode);
+    n.created_at_ms = 1_767_787_200_000;
+    c.store.append(&[n.record().unwrap()]).unwrap();
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![earlier]));
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, ASKED).await;
+    let asked: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
+        .collect();
+    assert_eq!(
+        asked.len(),
+        3,
+        "the refused view call, the retry, the call after the result"
+    );
+    for q in &asked[1..] {
+        assert_eq!(
+            texts(q).matches(episode).count(),
+            1,
+            "the recall once: {}",
+            texts(q)
+        );
+    }
+    let notes = (c.store.session_nodes(&sid).unwrap().into_iter())
+        .filter(|(_, n)| matches!(n.body, crate::node::Body::Recall { .. }))
+        .count();
+    assert_eq!(notes, 1, "its Recall record is written once");
+    assert_eq!(fallbacks(c), vec!["over_budget".to_string()]);
+}
+
+/// Item 4 of round 2: a floor too large for the view's budget (one enormous message) declines to the
+/// transcript (`over_budget`) instead of laying a "nothing could be laid out" note in a small view.
+#[tokio::test]
+async fn a_floor_too_large_for_the_view_declines() {
+    let r = view_rig();
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    let huge = "enormous ".repeat(150_000);
+    let _ = submit(c, &sid, &huge).await;
+    assert!(
+        fallbacks(c).contains(&"over_budget".to_string()),
+        "{:?}",
+        fallbacks(c)
+    );
+    for q in r.requests() {
+        assert!(
+            !texts(&q).contains("could be laid out"),
+            "no small view was sent"
+        );
+    }
+}

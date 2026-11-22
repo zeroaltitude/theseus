@@ -76,6 +76,9 @@ impl TurnRunner {
             match self.view_compile(t, input) {
                 Ok(Ok(c)) => return Ok(c),
                 Ok(Err(why)) => Self::view_declined(t, why),
+                Err(e) if e.is::<FloorOverflow>() => {
+                    Self::view_declined(t, Some(Fallback::OverBudget))
+                }
                 Err(e) => {
                     tracing::warn!(error = %format!("{e:#}"), "the view could not be assembled");
                     Self::view_declined(t, Some(Fallback::AssemblyError));
@@ -88,6 +91,8 @@ impl TurnRunner {
         let mut input: CompileInput<'_> = input;
         if t.recall.withheld.is_some() && self.carries(t).is_none() {
             t.recall.withheld = None;
+            // After a view call was dispatched, the recall it withheld comes back once.
+            Self::recall_readmitted(t);
             recarried = self.recall_view(t, input.nodes.to_vec());
             (input.nodes, input.sources) = (&recarried.0, &recarried.1);
         }
@@ -215,7 +220,7 @@ impl TurnRunner {
     }
 
     /// Whether the gate reads the turn's point of view differently from when its view was assembled.
-    fn view_moved(&self, t: &Turn<'_>) -> bool {
+    pub(super) fn view_moved(&self, t: &Turn<'_>) -> bool {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
@@ -225,7 +230,7 @@ impl TurnRunner {
 
     /// Whether a session the frozen view lays has been sealed since it was assembled (the gate's own
     /// reading, for this turn's session).
-    fn view_revoked(&self, t: &Turn<'_>) -> bool {
+    pub(super) fn view_revoked(&self, t: &Turn<'_>) -> bool {
         let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
@@ -318,16 +323,9 @@ impl TurnRunner {
         let a = match assemble(&pov, &snap, &parts, &self.view_budget(spec)) {
             Ok(a) => a,
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
-            Err(NotAssembled::Overflow(o)) => {
-                // Rule 9: the turn is told what did not fit and asked for a narrower question.
-                t.view = Some(Frozen {
-                    turn_id: turn.into(),
-                    beside: Some(Frozen::block(sid, turn, "", &overflow_note(&o))),
-                    memory_page,
-                    ..Frozen::default()
-                });
-                return Ok(());
-            }
+            // Rule 9: a floor too large for the view's budget is the transcript's to handle (its ring and
+            // compaction, or its own words on an overage), not a small view.
+            Err(NotAssembled::Overflow(o)) => return Err(anyhow::Error::new(FloorOverflow(o))),
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
@@ -558,21 +556,21 @@ fn verified_pov(verified: &Verified, person: Option<String>, now_ms: u64) -> Poi
     }
 }
 
-/// Rule 9's words for the turn: the floor's own text cannot fit the model's window.
-fn overflow_note(o: &Overflow) -> String {
-    let Overflow::Floor {
-        handle,
-        tokens,
-        room,
-    } = o;
-    format!(
-        "Nothing of this place's earlier conversation could be laid out for this turn: its newest exchange \
-         alone is about {tokens} tokens, and the model's window has room for {room}. Do not answer as if you \
-         had seen it. Tell the person what did not fit (it opens with {}), and ask for a narrower question, \
-         or read it in parts with the history tool.",
-        handle.0
-    )
+/// The view's floor does not fit its budget (rule 9): the turn declines to the transcript (`over_budget`).
+#[derive(Debug)]
+pub(super) struct FloorOverflow(Overflow);
+
+impl std::fmt::Display for FloorOverflow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Overflow::Floor { tokens, room, .. } = &self.0;
+        write!(
+            f,
+            "the view's floor is {tokens} tokens against {room} of room"
+        )
+    }
 }
+
+impl std::error::Error for FloorOverflow {}
 
 /// The nodes today's recall found for this turn (its pending note, never written in a view place).
 fn recalled(t: &Turn<'_>) -> Vec<String> {
@@ -649,6 +647,21 @@ fn window_of(
         .map(|e| e.session_id)
         .chain(laid)
         .collect();
+    // A joined task card's home session is a dependency too: its seal before a later call revokes the card.
+    let cards: Vec<&str> = (a.view.shown.iter())
+        .filter_map(|s| match &s.piece.range.space {
+            Space::Task { task } => Some(task.as_str()),
+            _ => None,
+        })
+        .collect();
+    if !cards.is_empty() {
+        let all = crate::task_graph::all(store)?;
+        for id in cards {
+            if let Some(rec) = all.iter().find(|r| r.id == id) {
+                sessions.push(crate::task_graph::home(&all, rec));
+            }
+        }
+    }
     sessions.sort();
     sessions.dedup();
     Ok((crate::compiler::view::receipted(window, &spoken), sessions))
