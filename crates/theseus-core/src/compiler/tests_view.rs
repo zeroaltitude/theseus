@@ -384,3 +384,41 @@ fn the_chains_card_is_frozen_and_recorded() {
         "{all}"
     );
 }
+
+/// A provider-discovered overflow (`input.overflowed`) is the view's to decline, not to retry at its own
+/// reading of the window: the turn step holds the decline (`over_budget`) and the transcript's ring uses
+/// the provider's numbers.
+#[test]
+fn a_provider_overflow_is_a_decline() {
+    let f = frozen("t1", &exchange("t0", 10));
+    let nodes: Vec<(u64, crate::stub::Stub)> = vec![];
+    let s = spec();
+    let over = Overflowed {
+        counted: Some(210_000),
+        estimated: 150_000,
+        maximum: Some(200_000),
+        retrying: None,
+    };
+    let mut input = CompileInput {
+        session_id: "s",
+        current: None,
+        nodes: &nodes,
+        last_position: 0,
+        spec: &s,
+        catalog: &Catalog::builtin(),
+        force: None,
+        window_override: None,
+        blobs: None,
+        hidden: &[],
+        strip: None,
+        overflowed: None,
+        sources: &Default::default(),
+        assembled: None,
+        situation: &situation::Situation::Continuation,
+        kept: None,
+    };
+    assert!(!view::provider_overflowed(&input));
+    input.overflowed = Some(&over);
+    assert!(view::provider_overflowed(&input));
+    let _ = f;
+}

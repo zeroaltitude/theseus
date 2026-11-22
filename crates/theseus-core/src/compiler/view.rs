@@ -403,6 +403,13 @@ fn mark_front(rendered: &mut Rendered, first_tail: Option<&str>, spec: &RequestS
     }
 }
 
+/// Whether the provider said a request of this turn passed its window (`input.overflowed`): the view does
+/// not retry at its own reading of the window; the turn declines to the transcript, whose ring uses the
+/// provider's numbers.
+pub fn provider_overflowed(input: &CompileInput<'_>) -> bool {
+    input.overflowed.is_some()
+}
+
 /// The turn's own answers so far, by node id.
 pub fn own_answers<'a>(
     nodes: &'a [(u64, Stub)],

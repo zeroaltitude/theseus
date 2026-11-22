@@ -625,9 +625,11 @@ impl TurnRunner {
 
     /// Why this turn's request does not carry its pending `Recall` node, when it does not:
     /// [`VIEW`] in a place set to `view`, whose recall reaches the model as a selector's piece
-    /// beside the message (issue 44). `None` when it carries it.
-    fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
-        (self.assembly_here(t) == crate::config::assembly::Assembly::View).then_some(VIEW)
+    /// beside the message (issue 44). `None` when it carries it, a view turn that declined to the
+    /// transcript's included (it is the transcript's turn in full).
+    pub(super) fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
+        let view = self.assembly_here(t) == crate::config::assembly::Assembly::View;
+        (view && !Self::view_declined_here(t)).then_some(VIEW)
     }
 
     /// The compile withheld the pending node, so the turn recalled nothing:

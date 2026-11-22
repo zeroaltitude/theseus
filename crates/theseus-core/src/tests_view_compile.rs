@@ -894,3 +894,28 @@ async fn a_fold_over_a_thread_sealed_after_it_was_built_is_dropped() {
     let after = asked(&r, "desk: after the seal").pop().unwrap();
     assert!(!texts(&after).contains("7741"), "{}", texts(&after));
 }
+
+/// A view turn that declines is the transcript's turn in full: its live recall, withheld while the view
+/// was tried, is carried in the same call's request as on any transcript turn. Here the decline is
+/// `unledgered_history` (an earlier turn of the session has no exchange), and the recalled episode, said
+/// in another session and absent from this transcript, is in the provider's request.
+#[tokio::test]
+async fn a_declined_view_turn_carries_its_recall() {
+    let (r, _) = owners_rig(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+    let c = &r.core;
+    let sid = session_in(c, None, &r.root);
+    let earlier = crate::node::Node::user(&sid, Some("turn_old"), "test", "an earlier word");
+    c.store.append(&[earlier.record().unwrap()]).unwrap();
+    turn(c, &sid, ASKED).await;
+    assert!(
+        fallbacks(c).contains(&"unledgered_history".to_string()),
+        "{:?}",
+        fallbacks(c)
+    );
+    let q = r.requests().pop().unwrap();
+    assert!(
+        texts(&q).contains(crate::tests_private_view::EPISODE),
+        "the recalled episode rides the declined turn's request: {}",
+        texts(&q)
+    );
+}
