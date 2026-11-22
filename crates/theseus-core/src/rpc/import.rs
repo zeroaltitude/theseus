@@ -140,7 +140,7 @@ impl Core {
         // Threads are gone (2026-11-22): a message is no longer moved into one.
         if name == method::THREAD_MOVE {
             return Err(RpcFailure::new(
-                error_code::METHOD_NOT_FOUND,
+                error_code::REFUSED,
                 "thread.move is gone: threads were retired, and a message runs where it was written",
             ));
         }

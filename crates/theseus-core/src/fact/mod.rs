@@ -112,6 +112,7 @@ pub mod task_pause;
 pub mod task_start;
 pub mod term;
 pub mod thread;
+pub mod thread_route;
 pub mod thread_seal;
 pub mod tool;
 pub mod tools_defer;
@@ -642,6 +643,8 @@ facts![
     thread_seal::ThreadUnsealed<'static>,
     thread_seal::ThreadSealProposed<'static>,
     thread_seal::ThreadSealDismissed<'static>,
+    thread_route::ThreadRouted<'static>,
+    thread_route::ThreadMoved<'static>,
     tools_defer::ToolsUsed<'static>,
     tools_defer::ToolsSearched<'static>,
     tools_defer::ToolsMissed<'static>,

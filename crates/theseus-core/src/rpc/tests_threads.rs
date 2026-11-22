@@ -6,7 +6,6 @@
 //! that overlap in time; and the daily ceiling that covers all of them.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use theseus_protocol::method;
 use theseus_protocol::threads::{
@@ -233,103 +232,8 @@ pub(super) async fn ask(
     out
 }
 
-fn session_of(resp: &serde_json::Value) -> String {
-    resp["result"]["session_id"]
-        .as_str()
-        .unwrap_or_else(|| panic!("no session in {resp}"))
-        .to_string()
-}
-
 fn rec(core: &Core, id: &str) -> SessionRecord {
     core.store.get_session(id).unwrap().unwrap()
-}
-
-/// A thread's turns run in the session its place names, opened by the first
-/// and reused by the next; the session posts nowhere, as a CLI session's.
-#[tokio::test]
-async fn a_message_to_a_thread_opens_its_session_once_and_the_next_reuses_it() {
-    let c = core();
-    new(&c, "tides");
-    let first = ask(c.clone(), Some("tides"), None, "hello").await;
-    let sid = session_of(&first);
-    assert_eq!(
-        c.outbox.place_session("thread:tides").unwrap(),
-        Some(sid.clone())
-    );
-    assert_eq!(rec(&c, &sid).label.as_deref(), Some("thread:tides"));
-    assert!(
-        c.outbox.target(&sid).is_none(),
-        "a thread's session has no Discord target"
-    );
-    let again = ask(c.clone(), Some("tides"), None, "and again").await;
-    assert_eq!(session_of(&again), sid);
-    assert_eq!(rec(&c, &sid).turns, 2);
-    let board = c.threads();
-    assert_eq!(
-        board.of_session(&sid).map(|t| t.slug.as_str()),
-        Some("tides")
-    );
-    assert_eq!(
-        board.get("tides").unwrap().session_id.as_deref(),
-        Some(sid.as_str())
-    );
-    // Its list shows the session, and today's dollars as a number.
-    let list = c.thread_list(&ThreadListParams::default(), cli()).unwrap();
-    assert_eq!(list.threads.len(), 1);
-    assert_eq!(
-        list.threads[0].thread.session_id.as_deref(),
-        Some(sid.as_str())
-    );
-    assert!(list.threads[0].thread.last_active_ms >= rec(&c, &sid).last_active_ms);
-    // And the cache's lifetime for the profile of its last turn, for warm or cold (theseus-j0yh).
-    assert!(
-        matches!(list.threads[0].cache_ttl_secs, Some(300 | 3600)),
-        "{:?}",
-        list.threads[0].cache_ttl_secs
-    );
-    // A turn names a session or a thread, not both; a missing thread is not found.
-    let both = ask(c.clone(), Some("tides"), Some(&sid), "x").await;
-    assert_eq!(
-        both["error"]["code"],
-        theseus_protocol::error_code::INVALID_PARAMS
-    );
-    let none = ask(c.clone(), Some("nowhere"), None, "x").await;
-    assert_eq!(
-        none["error"]["code"],
-        theseus_protocol::error_code::NOT_FOUND
-    );
-}
-
-/// A paused or finished thread takes no message, and says how to change that.
-#[tokio::test]
-async fn a_paused_or_finished_thread_takes_no_message() {
-    let c = core();
-    new(&c, "tides");
-    c.thread_pause("tides", cli()).unwrap();
-    let r = ask(c.clone(), Some("tides"), None, "hello").await;
-    assert_eq!(r["error"]["code"], theseus_protocol::error_code::REFUSED);
-    assert!(
-        r["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("thread resume"),
-        "{r}"
-    );
-    assert!(c.outbox.place_session("thread:tides").unwrap().is_none());
-    c.thread_resume("tides", cli()).unwrap();
-    assert!(ask(c.clone(), Some("tides"), None, "hello").await["result"].is_object());
-    c.thread_done("tides", cli()).unwrap();
-    let r = ask(c.clone(), Some("tides"), None, "hello").await;
-    assert!(
-        r["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("thread reopen"),
-        "{r}"
-    );
-    // A finished thread is reopened, never resumed.
-    assert!(c.thread_resume("tides", cli()).is_err());
-    assert_eq!(c.threads().get("tides").unwrap().state, ThreadState::Done);
 }
 
 /// A restart reads the board back: the record, and the session its place
@@ -616,40 +520,6 @@ fn a_turn_in_a_thread_reads_the_board_in_memory() {
     let again = restarted(&c);
     let e = again.thread_session("tides", cli()).unwrap_err();
     assert!(e.message.contains("is paused"), "{}", e.message);
-}
-
-/// Two threads' turns overlap in time: each model call takes 3 s on the
-/// paused clock, and both answer within 3 s of each other's start, not 6.
-#[tokio::test(start_paused = true)]
-async fn two_threads_turns_overlap_in_time() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
-    let model = Arc::new(FakeProvider {
-        reply: "slow".into(),
-        delay_ms: 3_000,
-        ..Default::default()
-    });
-    let c = Core::build(Parts::for_tests(crate::Config::example(), model, store)).unwrap();
-    new(&c, "tides");
-    new(&c, "moons");
-    let t0 = tokio::time::Instant::now();
-    let (a, b) = tokio::join!(
-        ask(c.clone(), Some("tides"), None, "hello"),
-        ask(c.clone(), Some("moons"), None, "hello")
-    );
-    let took = t0.elapsed();
-    assert!(
-        a["result"].is_object() && b["result"].is_object(),
-        "{a} {b}"
-    );
-    assert_ne!(session_of(&a), session_of(&b));
-    assert!(took >= Duration::from_secs(3), "{took:?}");
-    assert!(
-        took < Duration::from_millis(5_500),
-        "the turns ran one after the other: {took:?}"
-    );
-    let list = c.thread_list(&ThreadListParams::default(), cli()).unwrap();
-    assert!(list.threads.iter().all(|t| t.thread.session_id.is_some()));
 }
 
 /// The daily ceiling is the daemon's, not a thread's: what one thread spent

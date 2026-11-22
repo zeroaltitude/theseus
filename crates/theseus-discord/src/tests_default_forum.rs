@@ -667,38 +667,6 @@ async fn an_archived_index_card_still_takes_its_final_tag() {
     .await;
 }
 
-/// An activity thread makes no post and no Discord thread: only a task does.
-#[tokio::test]
-async fn an_activity_thread_makes_no_post_and_no_discord_thread() {
-    let r = rig(
-        vec![Scripted::text("hello")],
-        |_| vec![],
-        &bindings(true, ""),
-        |_| {},
-        |_| {},
-    )
-    .await;
-    let forum = forum_up(&r).await;
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "moons".into(),
-                title: Some("Moons".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
-    r.say((ANA, "ana"), None, "thread:moons hello there");
-    until(&r, "the reply", || {
-        r.posted(ANA_DM).iter().any(|m| m.content.contains("hello"))
-    })
-    .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(r.fake.threads().is_empty(), "{:#?}", r.fake.threads());
-    assert!(posts(&r, forum).is_empty());
-}
-
 /// A message in an index card starts nothing and is answered by a line.
 async fn a_message_in_the_card_starts_nothing(r: &Rig, card: u64, link: &str) {
     let before = r.ledger("discord.message.in").len();

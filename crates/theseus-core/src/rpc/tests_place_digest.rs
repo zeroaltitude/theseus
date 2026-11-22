@@ -142,8 +142,10 @@ fn scope(jev: &FakeJev, option: &str) {
     );
 }
 
-/// One `turn.submit` addressed to `thread` (`theseus ask --thread`).
+/// One `turn.submit` to `thread`'s session (a `turn.submit` names no thread any more: threads are
+/// gone, and an address runs where it was written).
 async fn ask(c: &Arc<Core>, thread: &str, input: &str) -> TurnSubmitResult {
+    let session = c.thread_session(thread, cli()).unwrap().session_id;
     let (client, server) = duplex(1 << 20);
     let (sr, sw) = tokio::io::split(server);
     tokio::spawn(
@@ -152,7 +154,7 @@ async fn ask(c: &Arc<Core>, thread: &str, input: &str) -> TurnSubmitResult {
     );
     let (cr, mut cw) = tokio::io::split(client);
     let p = TurnSubmitParams {
-        thread: Some(thread.into()),
+        session_id: Some(session),
         ..serde_json::from_value(serde_json::json!({"input": input})).unwrap()
     };
     let mut line =
