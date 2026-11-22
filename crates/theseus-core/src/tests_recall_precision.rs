@@ -212,7 +212,7 @@ async fn a_same_kind_distractor_is_demoted_under_the_subject_bar() {
     }
 }
 
-/// An admitted note's frozen header names its session (short id and title);
+/// An admitted note's frozen header names its session (its short id, never its title);
 /// rendering the node twice gives one set of bytes, and a second request
 /// begins with the first's.
 #[tokio::test]
@@ -237,11 +237,11 @@ async fn a_recalled_notes_header_names_its_session_and_stays_frozen() {
     let Body::Recall { items, .. } = &note.body else {
         unreachable!()
     };
+    // The session by its id, never by its title (issue 44).
     let short = crate::recall::evidence::short(&a);
     assert!(
-        items[0]
-            .header
-            .contains(&format!("session {short} \"Relay migration\"")),
+        items[0].header.contains(&format!("session {short}"))
+            && !items[0].header.contains("Relay migration"),
         "{}",
         items[0].header
     );

@@ -385,6 +385,41 @@ async fn past_the_sessions_cap_recall_pauses() {
     assert_eq!(recall_nodes(c, &b).len(), 1);
 }
 
+/// A guard for the session's recall cap on the view (issue 44): a long conversation, each of whose turns
+/// recalls past what the cap would hold summed over turns, still recalls on its next turn. Today a view
+/// turn writes no `Recall` node into its session, so the tail the cap sums holds none; if a later change
+/// persists the view's note, this test says whether the cap then pauses a long conversation.
+#[tokio::test]
+async fn on_the_view_a_long_conversation_still_recalls_past_the_sessions_cap() {
+    use crate::config::assembly::{Assembly, AssemblySetting};
+    let r = canary_with(|c| {
+        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+        c.memory.recall_budget_tokens = 30;
+        c.memory.recall_max_items = 1;
+        c.memory.session_recall_cap_tokens = 30;
+    });
+    let c = &r.core;
+    // Each note about 25 tokens: one fits the cap, two do not.
+    let a = session(
+        c,
+        None,
+        &[
+            "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
+            "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
+        ],
+    );
+    let b = session(c, None, &[]);
+    c.runner.memory.set_ask(index_of(c, vec![a]));
+    // The view lays recall beside the message, not as the turn's note: each turn's recall row says
+    // whether it recalled.
+    for ask in ["the heron?", "and the heron again?", "the heron at dawn?"] {
+        turn(c, &b, ask).await;
+    }
+    turn(c, &b, "where does the heron nest?").await;
+    let outcomes: Vec<String> = recalls(c, &b).into_iter().map(|m| m.outcome).collect();
+    assert_eq!(outcomes, ["ran"; 4], "every turn recalled, none paused");
+}
+
 /// Shadow is unchanged by 30b: its rows, no node, no byte of the request.
 #[tokio::test]
 async fn shadow_still_writes_no_node() {

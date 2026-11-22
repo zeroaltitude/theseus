@@ -453,13 +453,7 @@ impl TurnRunner {
             let excerpt = item.text.as_deref().unwrap_or_default();
             let chunk = render::frozen_range(&text_of(&source), excerpt);
             let place = self.place_name(&item.session_id);
-            let session = self
-                .store
-                .get_session::<crate::session::SessionRecord>(&item.session_id)
-                .ok()
-                .flatten();
-            let mut header =
-                render::item_header(&source, item.position, &place, chunk, session.as_ref());
+            let mut header = render::item_header(&source, item.position, &place, chunk);
             // A node a split moved is credited to the thread it moved to (theseus-q9b85).
             let moved = self.moved_title(&item.node_id, threads.as_ref());
             header = crate::recall::neighbour::with_note(header, item);
