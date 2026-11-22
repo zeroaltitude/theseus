@@ -302,6 +302,9 @@ struct Judging {
     session: Mutex<Option<String>>,
     calls: Mutex<Vec<Value>>,
     judged: Mutex<Option<(Operation, bool)>>,
+    /// Latch, for the message's turn, that its requests carry a place digest
+    /// (as the digest step does when it takes one).
+    latch: Mutex<bool>,
 }
 
 impl Judging {
@@ -320,8 +323,11 @@ impl Judging {
             .into_iter()
             .rev()
             .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))?
-            .1
-            .id;
+            .1;
+        if std::mem::take(&mut *self.latch.lock().unwrap()) {
+            assert!(latch(&self.store, node.turn_id.as_deref().unwrap()));
+        }
+        let node = node.id;
         if let Some((operation, acting)) = self.judged.lock().unwrap().take() {
             let kept = Judged {
                 change: JudgedChange {
@@ -429,6 +435,7 @@ fn judging_core_with(
         session: Default::default(),
         calls: Default::default(),
         judged: Default::default(),
+        latch: Default::default(),
     });
     let core =
         crate::rpc::Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
@@ -1194,4 +1201,37 @@ async fn in_a_view_an_outside_piece_from_another_session_keeps_the_card() {
             assert_eq!(now.version, 2, "the control applies");
         }
     }
+}
+
+/// Review 3, item 1: the turn's own latch is the evidence that its requests
+/// carried a place digest or the place's last words, not the thread board as
+/// it stands. A latched turn, with a live pack and an acting `restricts`,
+/// keeps its card as `outside`; the latch is read at the gate and again
+/// under the task's lock (both build `Records::of`). A turn without one is
+/// not carried.
+#[tokio::test]
+async fn a_latched_digest_keeps_the_card() {
+    let (_dir, core, model) = judging_core();
+    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    let first = submit(&core, owner(), "hello", None).await;
+    assert!(
+        !carried_in(&core.store, &first.turn_id),
+        "no latch: not carried"
+    );
+    ladder_row(&core.store, "live");
+    let said = "make it the north side only";
+    let new = format!("{}; {said}", before.objective);
+    model.next(
+        &first.session_id,
+        vec![narrow(&new)],
+        Some((Operation::Restricts, true)),
+    );
+    *model.latch.lock().unwrap() = true;
+    let res = submit(&core, owner(), said, Some(&first.session_id)).await;
+    assert!(carried_in(&core.store, &res.turn_id));
+    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    assert_eq!(now.version, 1, "nothing changed");
+    let rows = proposed(&core);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["card"], "outside");
 }

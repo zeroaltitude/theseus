@@ -752,8 +752,9 @@ step 8, after the card.
   (`words.would`: `apply` or `card`, and why: `shadow`, `no_judgment`, `misjudged`, `outside`, `spent`, …; one
   that names his message but no kind is `no_words`), and every change still keeps its card. Promoting `task_words.v1`
   (`theseus packs promote task_words.v1 --live`, the operator's act, citing a learning report) makes a clean
-  narrowing apply without one. A resume keeps its card in every state: it starts work again, which a misread
-  pause never does.
+  narrowing apply without one. **Only narrowing can act**: a pause still goes to the card (the judge records
+  `pauses`, but the durable cardless pause path is not built), and a resume keeps its card in every state: it
+  starts work again.
 - **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
   no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
   and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and

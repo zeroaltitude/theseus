@@ -292,19 +292,45 @@ pub fn strict_transcript(
     Ok(nodes)
 }
 
-/// The turn's requests carry what its transcript does not show, and whose
-/// source is not proven here: the place digest (a thread's session) or the
-/// place's last words (`thread.routed` with a `tail`). Either counts as
-/// outside; so does a routing row that cannot be read.
-pub fn carried(tc: &TurnCtx<'_>) -> bool {
-    let digest = tc
-        .threads
-        .held()
-        .is_some_and(|b| b.of_session(tc.session_id).is_some());
-    digest || tailed(tc.store, tc.session_id, tc.turn_id)
+/// `task.carried.<turn>`: the turn's requests carry a block its transcript
+/// and its view do not show, whose source is not proven here (the place
+/// digest, the place's last words).
+pub const CARRIED_PREFIX: &str = "task.carried.";
+
+/// Latch, for `turn`, that its requests carry such a block: written at once,
+/// when the turn takes the block, before any request carries it. False when
+/// it could not be written; the caller then attaches nothing, so a block is
+/// never carried without its latch.
+pub fn latch(store: &crate::store::Store, turn: &str) -> bool {
+    let key = format!("{CARRIED_PREFIX}{turn}");
+    let written =
+        NewRecord::json(kinds::META, Some(&key), &true).and_then(|r| store.append(&[r]).map(drop));
+    if let Err(e) = &written {
+        tracing::warn!(turn, error = %format!("{e:#}"), "a carried block's latch was not written; the block is left out");
+    }
+    written.is_ok()
 }
 
-/// The turn's `thread.routed` row gave it the place's last words.
+/// Whether `turn` carried such a block, read from its latch: what the turn
+/// actually attached, not the thread board as it stands now (a thread retired
+/// and opened again mid-turn leaves the board, and the block was attached
+/// all the same). A latch that cannot be read counts as carried.
+pub fn carried_in(store: &crate::store::Store, turn: &str) -> bool {
+    !matches!(
+        store.get_meta::<bool>(&format!("{CARRIED_PREFIX}{turn}")),
+        Ok(None)
+    )
+}
+
+/// [`carried_in`] for the call `tc` runs: read at the gate and again under
+/// the task's lock (both build [`super::words::Records::of`]).
+pub fn carried(tc: &TurnCtx<'_>) -> bool {
+    carried_in(tc.store, tc.turn_id)
+}
+
+/// The turn's `thread.routed` row gave it the place's last words, as the
+/// ledger tells it; an index that cannot answer cannot prove it did not.
+/// The authorization checks read the turn's latch ([`carried_in`]).
 pub fn tailed(store: &crate::store::Store, session: &str, turn: &str) -> bool {
     use theseus_protocol::LedgerKind;
     use theseus_store::pages::ledger_kind_session;
@@ -318,10 +344,9 @@ pub fn tailed(store: &crate::store::Store, session: &str, turn: &str) -> bool {
         limit: 64,
         ..Page::default()
     };
-    let got = match store.inner().page(&page) {
-        Ok(Some(got)) => got,
-        Ok(None) => return false,
-        Err(_) => return true,
+    // An index still being built cannot prove there was no tail.
+    let Ok(Some(got)) = store.inner().page(&page) else {
+        return true;
     };
     got.records
         .iter()
