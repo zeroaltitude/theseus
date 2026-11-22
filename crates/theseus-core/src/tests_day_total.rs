@@ -313,3 +313,56 @@ fn the_starts_read_at_66666_rows() {
         assert_eq!(again.seed, full.seed);
     }
 }
+
+/// The retired thread importer's spend stays today's after an upgrade (issue
+/// 44): a priced `thread.imported` row written earlier today, and a stored
+/// total an older build wrote (the list of kinds before the importer was
+/// retired, with the row in its sum; and the list after, without it). The
+/// full read and the stored total's read both keep the row's cost, and the
+/// total stored again is resumed with it.
+#[test]
+fn the_retired_importers_spend_still_counts_after_an_upgrade() {
+    let now = theseus_protocol::now_unix_ms();
+    let since = now - 3_600_000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let mut rows = cost_rows(4, now);
+    rows.push(row_at(
+        "thread.imported",
+        now,
+        json!({"slug": "tax", "from": "harness", "model": "m", "cost_usd": 0.5}),
+    ));
+    append_in_frames(&store, rows);
+    let full = read_today(&store, since, "today", LIMIT).unwrap().unwrap();
+    assert_eq!(
+        full.seed.spent, 504_000,
+        "the full read keeps the import's cost"
+    );
+    let before_retired = "action.succeeded,action.failed,action.outcome_unknown,\
+        speech.transcribed,speech.synthesized,synthesis.proposed,judge.replay,judge.audit,\
+        judge.backfill,judge.proposal,people.extracted,thread.imported,card.proposed,\
+        card.observed,keep_warm,initiative.spoke,onto.named";
+    let after_retired = before_retired.replace("thread.imported,", "");
+    for (kinds, spent) in [
+        (before_retired.to_string(), 504_000u64),
+        (after_retired, 4_000),
+    ] {
+        let old = json!({
+            "rule": 1, "kinds": kinds, "day": "today", "since_ms": since,
+            "through": store.last_position(), "spent": spent, "warned": 0, "ceilings": [],
+        });
+        store.put_meta(TOTAL_KEY, &old).unwrap();
+        let s = read_today_total(&store, since, "today", LIMIT)
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.seed, full.seed, "the stored total's read, from {kinds}");
+        let again = read_today_total(&store, since, "today", LIMIT)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (again.resumed, again.seed),
+            (true, full.seed.clone()),
+            "{kinds}"
+        );
+    }
+}

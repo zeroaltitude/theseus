@@ -252,6 +252,16 @@ fn thread_seal(board: &Board, slug: &str) -> Seal {
     Seal::Unread
 }
 
+/// Whether a refusal told in `asker` may name thread `slug` and say why it
+/// cannot take the message (paused, done, not opened): only when its seal
+/// is proven clear for that reader. A sealed or seal-pending thread, or one
+/// that cannot be read, is refused as if there were no such thread, so the
+/// refusal does not tell that it exists.
+pub fn may_name_thread(runner: &TurnRunner, asker: &str, slug: &str) -> bool {
+    board(runner, slug)
+        .is_some_and(|b| seal_for(&runner.store, &b, Some(asker), slug) == Seal::Clear)
+}
+
 /// The seal of `session` for a reader in `asker`, whatever `[threads]
 /// enabled` says: `Held` when it serves a sealed thread, or one whose seal
 /// is proposed, and the asker is not that thread; `Unread` when that cannot

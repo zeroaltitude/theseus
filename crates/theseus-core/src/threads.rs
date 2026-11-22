@@ -135,6 +135,16 @@ impl Board {
         live
     }
 
+    /// The threads a message in a place of `class` may name, live or not: every
+    /// one in a private place, none in a shared one, as [`Board::live`]. An
+    /// address naming one that is not live is refused, never run at home.
+    pub fn nameable(&self, class: PlaceClass) -> Vec<&ThreadInfo> {
+        if class != PlaceClass::Private {
+            return Vec::new();
+        }
+        self.threads.values().collect()
+    }
+
     /// The thread a thread now lives in: itself, or, when it was merged away,
     /// the thread it was merged into, followed to the end (theseus-vt9k). What
     /// the distance rule treats as the live thread of a retired one's nodes.
