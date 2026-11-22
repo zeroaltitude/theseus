@@ -173,6 +173,138 @@ pub struct ViewTally {
     pub tokens: u64,
 }
 
+/// `view.preview`: the view a place's next turn would get, assembled now, sent nowhere and kept nowhere.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ViewPreviewParams {
+    /// The place, as the ledger names it (`local:<dir>`, a binding's target).
+    pub place: String,
+    /// The next turn's message; none previews for an empty one (said in the result).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub message: Option<String>,
+    /// Each piece's text as well: the owner's own terminal only.
+    pub text: bool,
+    /// The job's session when the CLI runs inside a Theseus job: that agent's turn, of its own place only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// The view's budget, in tokens.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ViewBudget {
+    pub provider_window: u64,
+    /// Kept for the reply and the turn's own calls.
+    pub reserve: u64,
+    pub ceiling: u64,
+    pub here_allowance: u64,
+}
+
+/// The earlier turns of the place's sessions (those the gate lets this reader count): how many, how many
+/// the ledger holds no exchange for, and how many whose exchange names another place.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ViewEarlier {
+    pub sessions: u64,
+    pub turns: u64,
+    pub no_exchange: u64,
+    pub other_place: u64,
+}
+
+/// What a place's next turn would be shown.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(default)]
+pub struct ViewPreviewResult {
+    pub place: String,
+    /// The session whose next turn it is.
+    pub session: String,
+    /// `owner` (the owner in person, at that place) or `agent` (an agent's turn there: no text).
+    pub reader: String,
+    /// The view, as this reader may see it; none when the floor did not fit (`overflow`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub view: Option<ViewShown>,
+    /// Its counts, of what is listed alone.
+    pub tally: ViewTally,
+    /// Why the turn would be the transcript's instead (`unledgered_history`, ...); none when it takes the view.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub fallback: Option<String>,
+    /// The floor's own text did not fit the model's window (the turn is told so).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub overflow: Option<String>,
+    pub budget: ViewBudget,
+    /// Exchanges the window lays.
+    pub window: u64,
+    /// Fold nodes laid, by level (`1`, `2`, ...).
+    pub folds: BTreeMap<String, u64>,
+    pub earlier: ViewEarlier,
+    /// What the preview did not do as a turn would: no model, no recall, nothing written.
+    pub notes: Vec<String>,
+}
+
+/// A preview in plain lines.
+pub fn preview_lines(r: &ViewPreviewResult) -> String {
+    use std::fmt::Write;
+    let who = match r.reader.as_str() {
+        "agent" => "an agent's turn there (its own place alone; no text)",
+        _ => "the owner in person there",
+    };
+    let mut out = format!(
+        "preview of {}'s next turn, as {who}: session {}\n",
+        r.place, r.session
+    );
+    let _ = writeln!(
+        out,
+        "  falls back to the transcript: {}",
+        r.fallback.as_deref().unwrap_or("no, it takes the view")
+    );
+    if let Some(o) = &r.overflow {
+        let _ = writeln!(out, "  overflow: {o}");
+    }
+    let b = &r.budget;
+    let _ = writeln!(
+        out,
+        "  budget: window {}, reserve {}, ceiling {}, here {}",
+        b.provider_window, b.reserve, b.ceiling, b.here_allowance
+    );
+    if let Some(v) = &r.view {
+        out.push_str(&lines(v));
+    }
+    out.push_str(&tally_lines(&r.tally));
+    let folds: Vec<String> = r
+        .folds
+        .iter()
+        .map(|(l, n)| format!("level {l}: {n}"))
+        .collect();
+    let _ = writeln!(
+        out,
+        "  window: {} exchanges; folds: {}",
+        r.window,
+        match folds.is_empty() {
+            true => "none".into(),
+            false => folds.join(", "),
+        }
+    );
+    let e = &r.earlier;
+    let _ = writeln!(
+        out,
+        "  earlier turns: {} in {} sessions, {} with no exchange, {} with another place",
+        e.turns, e.sessions, e.no_exchange, e.other_place
+    );
+    for n in &r.notes {
+        let _ = writeln!(out, "  ({n})");
+    }
+    out
+}
+
 /// A shown view in plain lines, for the CLI and the model's look: the point of view, each slot and its
 /// pieces, the drops, the residue, the totals.
 pub fn lines(v: &ViewShown) -> String {

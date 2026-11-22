@@ -9,6 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+pub(super) mod preview;
+
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
 use crate::config::assembly::Assembly;
@@ -173,18 +175,7 @@ impl TurnRunner {
         if t.exchange.place() != Some(anchor.as_str()) {
             return Some(Fallback::Route);
         }
-        let mut seen = HashSet::new();
-        let earlier = (nodes.iter().rev())
-            .filter(|(_, n)| n.kind == Kind::UserMessage)
-            .filter_map(|(_, n)| n.turn_id.as_deref())
-            .filter(|id| *id != turn && seen.insert(*id))
-            .take(UNLEDGERED_LOOK);
-        for id in earlier.collect::<Vec<_>>() {
-            if !matches!(crate::exchange::exchange(t.tc.store, id), Ok(Some(_))) {
-                return Some(Fallback::Unledgered);
-            }
-        }
-        None
+        unledgered(t.tc.store, nodes, turn).then_some(Fallback::Unledgered)
     }
 
     /// Whether this turn declined the view: it is the transcript's turn.
@@ -251,18 +242,42 @@ impl TurnRunner {
             return Ok(());
         }
         let (sid, turn, store) = (t.tc.session_id, t.tc.turn_id, t.tc.store);
+        let asked = Asked {
+            store,
+            sid,
+            turn,
+            person: t.exchange.person().0,
+            verified: Verified::of_session(self, sid),
+            recalled: recalled(t),
+            message: message_of(store, sid, turn)?,
+        };
+        t.view = Some(self.view_built(asked, spec)?.frozen);
+        Ok(())
+    }
+
+    /// A view assembled for `asked`: what a turn freezes, and the assembly it was made from (the floor's
+    /// overflow, rule 9, when it could not fit). The one assembler: a turn's and a preview's
+    /// (`view_step::preview`).
+    pub(super) fn view_built(&self, asked: Asked<'_>, spec: &RequestSpec) -> anyhow::Result<Built> {
+        let Asked {
+            store,
+            sid,
+            turn,
+            person,
+            verified,
+            recalled,
+            message: (asked, message),
+        } = asked;
         let snap = StoreSnapshot {
             now_ms: self.kernel.now_ms(),
             timeline: StoreTimeline(store),
             at_hand: None,
         };
-        let verified = Verified::of_session(self, sid);
-        let pov = verified_pov(&verified, t.exchange.person().0, snap.now_ms);
+        let pov = verified_pov(&verified, person, snap.now_ms);
         let Anchor::Place(place) = pov.anchor.clone() else {
             anyhow::bail!("a view turn is anchored to a place");
         };
         let since = crate::ladder::new_mark(store, &place)?;
-        let (asked, message) = message_of(store, sid, turn)?;
         let verified_pov = verified.pov().clone();
         let permit = Permit::of(verified);
         let read = Sessions::default();
@@ -270,7 +285,7 @@ impl TurnRunner {
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
-            recalled: recalled(t),
+            recalled,
             sealed: &held,
             sessions: &read,
         };
@@ -313,13 +328,16 @@ impl TurnRunner {
             Err(NotAssembled::Read(e)) => return Err(e.context("the view's read")),
             Err(NotAssembled::Overflow(o)) => {
                 // Rule 9: the turn is told what did not fit and asked for a narrower question.
-                t.view = Some(Frozen {
+                let frozen = Frozen {
                     turn_id: turn.into(),
                     beside: Some(Frozen::block(sid, turn, "", &overflow_note(&o))),
                     memory_page,
                     ..Frozen::default()
+                };
+                return Ok(Built {
+                    frozen,
+                    assembled: Err(o),
                 });
-                return Ok(());
             }
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
@@ -328,7 +346,7 @@ impl TurnRunner {
         sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
         let front = (a.parts.fixed.iter()).chain(&a.parts.ladder).chain(&folds);
-        t.view = Some(Frozen {
+        let frozen = Frozen {
             turn_id: turn.into(),
             compilation_id: None,
             front: front.map(block).collect(),
@@ -338,11 +356,14 @@ impl TurnRunner {
             verified: Some(verified_pov),
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
-            record: Some(a.view),
+            record: Some(a.view.clone()),
             card: None,
             declined: false,
-        });
-        Ok(())
+        };
+        Ok(Built {
+            frozen,
+            assembled: Ok(a),
+        })
     }
 
     /// The view's one budget: the provider's window, less the reply's room.
@@ -361,6 +382,40 @@ const CALL_HEADROOM: u64 = 4_096;
 
 /// How many of the session's newest earlier turns must have their exchange before a view reads it.
 const UNLEDGERED_LOOK: usize = 40;
+
+/// What one view is assembled for: a turn's (`view_freeze`), or a preview's of a place's next turn.
+pub(super) struct Asked<'a> {
+    pub store: &'a Store,
+    /// The session whose turn it is: the reader a seal of its own thread does not hold out.
+    pub sid: &'a str,
+    pub turn: &'a str,
+    pub person: Option<String>,
+    /// The gate's point of view: the turn's, never the caller's word.
+    pub verified: Verified,
+    /// The nodes today's recall found (none for a preview, which runs no recall).
+    pub recalled: Vec<String>,
+    /// The person's message, by node and text.
+    pub message: (Option<String>, String),
+}
+
+/// A view as assembled: what a turn freezes, and the assembly (or the floor's overflow).
+pub(super) struct Built {
+    pub frozen: Frozen,
+    pub assembled: Result<Assembled, Overflow>,
+}
+
+/// Whether any of the newest [`UNLEDGERED_LOOK`] turns of `nodes` before `turn` has no exchange in the
+/// ledger: a view would drop it silently, so the turn is the transcript's.
+pub(super) fn unledgered(store: &Store, nodes: &[(u64, Stub)], turn: &str) -> bool {
+    let mut seen = HashSet::new();
+    let earlier: Vec<&str> = (nodes.iter().rev())
+        .filter(|(_, n)| n.kind == Kind::UserMessage)
+        .filter_map(|(_, n)| n.turn_id.as_deref())
+        .filter(|id| *id != turn && seen.insert(*id))
+        .take(UNLEDGERED_LOOK)
+        .collect();
+    (earlier.into_iter()).any(|id| !matches!(crate::exchange::exchange(store, id), Ok(Some(_))))
+}
 
 /// Why a turn in a view place is the transcript's: a closed list, said in `context.view_fallback`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

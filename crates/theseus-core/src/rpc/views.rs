@@ -10,7 +10,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use theseus_memory::gate::{PointOfView, Present};
 use theseus_memory::recall::Place;
-use theseus_protocol::view::{ViewCount, ViewShowParams, ViewShowResult, ViewTally};
+use theseus_protocol::view::{
+    ViewCount, ViewPreviewParams, ViewPreviewResult, ViewShowParams, ViewShowResult, ViewTally,
+};
 use theseus_protocol::{error_code, method};
 
 use super::server::{parse, Conn, RpcFailure};
@@ -22,7 +24,7 @@ use crate::view::record::{self, Count, StoreText, Tally, ViewRecord};
 use crate::view::Anchor;
 
 /// The methods `rpc_views` answers.
-pub(super) const OWN: &[&str] = &[method::VIEW_SHOW];
+pub(super) const OWN: &[&str] = &[method::VIEW_SHOW, method::VIEW_PREVIEW];
 
 /// What a reader is told when no text was asked for.
 const NO_TEXT: &str = "a piece's text is shown only when asked for (`--text`)";
@@ -99,6 +101,7 @@ impl Core {
     ) -> Result<Value, RpcFailure> {
         match name {
             method::TURN_INSPECT => self.rpc_inspect(params, conn).await,
+            method::VIEW_PREVIEW => self.rpc_preview(params, conn).await,
             _ => self.rpc_views(params, conn).await,
         }
     }
@@ -124,6 +127,75 @@ impl Core {
         let core = self.clone();
         let r = super::import::blocking(move || core.view_show(&p)).await?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// `view.preview`: the owner in person previews any place; a Theseus job's shell previews what an
+    /// agent's turn of its own place would get, with no text; anyone else is refused in words.
+    async fn rpc_preview(
+        self: Arc<Self>,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        let p: ViewPreviewParams = parse(params)?;
+        let refuse = |why: String| {
+            Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!("not shown: {why}"),
+            ))
+        };
+        if !conn.surface.reads_private() {
+            return refuse(format!("it came through {}", conn.surface.name()));
+        }
+        // An agent's process: its own place alone, never the owner's look.
+        let owner = match p.from_job.as_deref() {
+            Some(job) => {
+                if crate::view_gate::place_name(&self.runner, job).as_deref() != Some(&p.place) {
+                    return refuse("an agent's preview is of its own place alone".into());
+                }
+                false
+            }
+            None => match refused(&self, &conn, None) {
+                Some(why) => return refuse(why),
+                None => true,
+            },
+        };
+        if p.text && (!owner || conn.surface != Surface::Cli) {
+            return refuse("a piece's text is shown at the owner's own terminal alone".into());
+        }
+        let core = self.clone();
+        let r = super::import::blocking(move || core.view_preview(&p, owner)).await?;
+        serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
+    }
+
+    /// The preview of `p.place`'s next turn: its newest session's (an agent's, its job's own).
+    fn view_preview(
+        &self,
+        p: &ViewPreviewParams,
+        owner: bool,
+    ) -> anyhow::Result<ViewPreviewResult> {
+        let rec = match p.from_job.as_deref() {
+            Some(job) => self
+                .store
+                .get_session::<crate::session::SessionRecord>(job)?,
+            None => self.runner.place_sessions(&p.place)?.into_iter().next(),
+        };
+        let Some(rec) = rec else {
+            anyhow::bail!(
+                "no session's turns are at {}: there is nothing to preview",
+                p.place
+            );
+        };
+        let (live, _) = self.live_profile();
+        let spec = self.runner.census_request(Some(&rec), "cli", &live)?.spec;
+        let text = StoreText(&self.store);
+        let preview = crate::turn::Preview {
+            place: &p.place,
+            session: &rec.session_id,
+            owner,
+            message: p.message.as_deref(),
+            text: p.text.then_some(&text as &dyn PieceText),
+        };
+        self.runner.view_preview(&preview, &spec)
     }
 
     /// A turn's views, for the owner in person (checked by the caller).
