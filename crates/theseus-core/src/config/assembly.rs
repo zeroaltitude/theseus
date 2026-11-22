@@ -66,8 +66,8 @@ mod tests {
     }
 
     #[test]
-    fn assembly_defaults_to_the_transcript_and_reads_by_place() {
-        assert_eq!(context("").assembly_for("local"), Assembly::Transcript);
+    fn assembly_defaults_to_the_view_and_reads_by_place() {
+        assert_eq!(context("").assembly_for("local"), Assembly::View);
         assert_eq!(
             context("assembly = \"view\"").assembly_for("local"),
             Assembly::View

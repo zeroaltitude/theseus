@@ -235,7 +235,7 @@ async fn a_place_with_unledgered_history_says_unledgered_history() {
 /// A place set to `transcript` says so, and what a switch to `view` would do: never "takes the view".
 #[tokio::test]
 async fn a_transcript_place_is_not_said_to_take_the_view() {
-    let r = rig_with(|_| {});
+    let r = rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript)));
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     turn(c, &sid, "first: the tide").await;
