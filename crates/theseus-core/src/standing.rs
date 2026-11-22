@@ -151,9 +151,6 @@ pub struct Block {
     /// The session's own part: this session's, this place's and this persona's records.
     pub local: String,
     pub used: Vec<StandingUsed>,
-    /// Whether the block withheld any record and carries the line saying so: never since 2026-11-22
-    /// (anything goes); the check still reads it.
-    pub withheld: bool,
 }
 
 const HEAD: &str = "Standing: what the owner has told you to hold to, in force in every turn of its scope until they revoke it. An order is to be followed; a preference is to be honoured where it can be; a fact is what the owner has told you about themself. Each line names its record.";
@@ -166,8 +163,6 @@ const LOCAL_HEAD: &str = "Standing for this conversation and this place: what th
 /// just received does not answer it ("Noted: in group chats I speak as myself").
 /// Short: it is paid for in every turn of its scope.
 pub const FRAMING: &str = "These are the owner's standing records, carried on every request: they are not new, and are never to be acknowledged, thanked or restated to the owner.";
-pub const WITHHELD: &str =
-    "The owner's preferences and facts are private to them and are not shown in this place.";
 
 impl Block {
     /// The block for `scope` in a place of `class`; none while no record is
@@ -257,12 +252,7 @@ impl Block {
         };
         let text = part(&everywhere, if here { HERE } else { HEAD });
         let local = part(&own, LOCAL_HEAD);
-        Some(Block {
-            text,
-            local,
-            used,
-            withheld: false,
-        })
+        Some(Block { text, local, used })
     }
 
     /// Put the block in the request's tail, after the cached prefix, in the
@@ -351,9 +341,7 @@ fn one_line(text: &str) -> String {
 }
 
 /// The check after the compile (`turn::situation_step`): the system carries
-/// every record the turn's scope holds that it should show, and the line
-/// about the withheld ones when it withholds any. A compile that drops one
-/// is not sent.
+/// every record the turn's scope holds that it should show. A compile that drops one is not sent.
 pub fn missing(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
     let Some(block) = block else { return Ok(()) };
     let system: String = compiled
@@ -381,19 +369,11 @@ pub fn missing(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmit
             );
         }
     }
-    if block.withheld && !system.contains(WITHHELD) {
-        return gone(
-            "standing withheld line missing".into(),
-            "the system lacks the line that says the owner's private records are withheld here"
-                .into(),
-        );
-    }
     Ok(())
 }
 
 /// The check for the tail (`Block::here`): the request's last message carries
-/// every record of the turn's surface it should show, and the withheld line
-/// when it withholds any. A compile that dropped one is not sent.
+/// every record of the turn's surface it should show. A compile that dropped one is not sent.
 pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Unadmitted> {
     let Some(block) = block else { return Ok(()) };
     let tail = compiled
@@ -428,13 +408,6 @@ pub fn missing_here(compiled: &Compiled, block: Option<&Block>) -> Result<(), Un
                 ),
             );
         }
-    }
-    if block.withheld && !tail.contains(WITHHELD) {
-        return gone(
-            "standing withheld line missing".into(),
-            "the request's tail lacks the line that says the owner's private records are withheld here"
-                .into(),
-        );
     }
     Ok(())
 }
@@ -586,11 +559,9 @@ mod tests {
         assert_eq!(live_ids(600), ["std_e"]);
     }
 
-    /// The block lists the live records of a scope by kind, each with its id;
-    /// a shared place's lists the orders' text and names the rest withheld,
-    /// holding none of their text.
+    /// The block lists the live records of a scope by kind, each with its id.
     #[test]
-    fn the_block_lists_by_kind_and_a_shared_place_withholds_the_private_ones() {
+    fn the_block_lists_by_kind() {
         let mut here = rec(
             "std_p",
             StandingKind::Preference,
@@ -634,7 +605,7 @@ mod tests {
             "{}",
             b.text
         );
-        assert!(!b.text.contains("std_x") && !b.withheld);
+        assert!(!b.text.contains("std_x"));
         assert!(b.used.iter().all(|u| u.shown) && b.used.len() == 3);
 
         assert!(Block::of(

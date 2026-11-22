@@ -63,11 +63,6 @@ const PAGE_MAX: usize = 40;
 /// The span a call takes when it names none: what he asked about.
 const TODAY: &str = "today";
 
-/// Why a place that is not the owner's own gets nothing.
-pub const NOT_ALONE: &str =
-    "card.observed reads the owner's card, which is theirs alone: this place is shared, \
-     or others write in it, so nothing of the card is read here";
-
 /// Why a task's session gets nothing, as the day's block gets none either
 /// (`turn/compile_step.rs`): a task's words are its own, not the owner's
 /// conversation, though its place is the one it reports into.
@@ -169,15 +164,11 @@ impl Tool for CardObserved {
     }
 }
 
-/// What the turn asking is, as the wall around the notes reads it: where its
-/// words go. [`Board::run`] takes it from the turn's `TurnCtx`; a test builds
-/// it, so both reach the same [`refusal`].
-/// Whether the session is a task's is not here: [`is_task`] reads that from
-/// the session's own record, so no caller can get it wrong.
+/// The turn asking. Nothing of it decides the read since 2026-11-22 (the card is shown wherever it is
+/// asked for: nothing is withheld by place or presence); whether the session is a task's is read by
+/// [`is_task`] from the session's own record, so no caller can get it wrong.
 #[derive(Clone)]
-pub(crate) struct Asking {
-    pub class: crate::places::PlaceClass,
-}
+pub(crate) struct Asking;
 
 /// Whether `session` is a task's, read from its own record as
 /// `turn/compile_step.rs` reads it for the day's block. A record that does
@@ -192,20 +183,10 @@ fn is_task(core: &Core, session: &str) -> bool {
     }
 }
 
-/// Why this turn reads none of the notes, if it reads none: the whole wall,
-/// in one place, so the runtime and a test cannot drift apart. Each clause
-/// is the one `card/noted.rs` keeps for the day's block.
-fn refusal(core: &Core, who: &Asking, session: &str) -> Option<&'static str> {
-    if who.class != crate::places::PlaceClass::Private {
-        return Some(NOT_ALONE);
-    }
-    if is_task(core, session) {
-        return Some(NOT_THIS_SESSION);
-    }
-    if !core.owner_alone_in(session) {
-        return Some(NOT_ALONE);
-    }
-    None
+/// Why this turn reads none of the notes, if it reads none: a task's session, as the day's block keeps
+/// them out of one (`turn/compile_step.rs`). No place or presence refuses them (2026-11-22).
+fn refusal(core: &Core, _who: &Asking, session: &str) -> Option<&'static str> {
+    is_task(core, session).then_some(NOT_THIS_SESSION)
 }
 
 /// What `card.observed` reads: the core, given once it is built.
@@ -219,9 +200,7 @@ impl Board {
         let _ = self.core.set(Arc::downgrade(core));
     }
 
-    /// The call, in its own task. The whole wall is [`refusal`], read from
-    /// the turn: its place's class and the session's place, its profile's
-    /// origin, and whether it is a task's.
+    /// The call, in its own task. Its one refusal is [`refusal`]: a task's session.
     pub fn run(&self, tc: &crate::toolrun::TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
         let fail = |why: &str| -> AsyncMediaRun {
             Box::pin(std::future::ready(Err(ToolFailure::new(why))))
@@ -229,7 +208,7 @@ impl Board {
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
             return fail("card.observed is not ready: the core is not built");
         };
-        let who = Asking { class: tc.class };
+        let who = Asking;
         let a = match Args::parse(input) {
             Ok(a) => a,
             Err(e) => return fail(&e),
@@ -261,9 +240,7 @@ pub(crate) fn call(
 /// clause of.
 #[cfg(test)]
 pub(crate) fn owners_turn() -> Asking {
-    Asking {
-        class: crate::places::PlaceClass::Private,
-    }
+    Asking
 }
 
 /// A note's kind in a word, as the CLI's listing names it.
@@ -275,7 +252,7 @@ fn kind_word(k: theseus_protocol::ObservationKind) -> String {
 }
 
 /// The read: the open notes of the span, newest first, with the head that
-/// says what they are, behind the whole wall ([`refusal`]).
+/// says what they are, unless [`refusal`] refuses.
 fn observed(core: Arc<Core>, who: &Asking, session: String, a: Args) -> Result<ToolOutput, String> {
     if let Some(why) = refusal(&core, who, &session) {
         return Err(why.to_string());

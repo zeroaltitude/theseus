@@ -884,7 +884,6 @@ fn the_memory_page_names_what_it_must() {
         "receipts",
         "reply not summarised",
         "exactly one thing in view",
-        "In company",
         "a wake or a task",
         "open it before relying on a number, a name",
         "what this turn was shown",
@@ -896,6 +895,7 @@ fn the_memory_page_names_what_it_must() {
         "make the call again",
         "look.theseus",
         "opens any handle",
+        "In company",
     ] {
         assert!(
             !MEMORY_PAGE.contains(never),

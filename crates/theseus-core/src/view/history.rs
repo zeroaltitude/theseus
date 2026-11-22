@@ -1,7 +1,7 @@
 //! The history tool's interface (design §6, rung 3; trim item 5: ONE look-back tool, with a place and a thing
 //! argument). Always offered. Bare, it returns the [`PAGE_EXCHANGES`] exchanges before the oldest one in full
 //! view, one line each; called again with the page's cursor, the ones before those, with no horizon. Every
-//! page passes the gate; in company it reads that place alone. Implemented by the history work.
+//! page passes the gate, which reads every place for every reader (2026-11-22). Implemented by the history work.
 
 use serde::{Deserialize, Serialize};
 

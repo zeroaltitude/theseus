@@ -307,21 +307,6 @@ async fn todays_observation_rides_in_the_next_turns_request() {
         "the day's observation is in no request: {body}"
     );
     assert!(body.contains(crate::card::noted::HEAD), "{body}");
-
-    // And nowhere the owner is not alone: the same day's note is in no
-    // request of a shared channel, nor of a guild channel bound private.
-    for target in [format!("channel:{LAB}"), format!("channel:{PRIVATE_LAB}")] {
-        let other = session(&r.core, Some(&target));
-        let before = r.fake.requests().len();
-        script(&r, crate::provider::Scripted::text("Aye."));
-        says(&r.core, &other, "What is the tide doing?").await;
-        let sent: Vec<crate::provider::ProviderRequest> =
-            r.fake.requests().into_iter().skip(before).collect();
-        assert_eq!(sent.len(), 1, "{target}");
-        let body = serde_json::to_string(&sent[0]).unwrap();
-        assert!(!body.contains(ASIDE_FACT), "{target}: {body}");
-        assert!(!body.contains(crate::card::noted::HEAD), "{target}: {body}");
-    }
 }
 
 // 2. No request in a shared channel, a guild channel bound private, a task,
@@ -896,19 +881,6 @@ async fn a_self_fact_inside_an_off_topic_question_is_learned_and_can_be_named() 
     assert!(out.text.contains(&obs[0].id), "{}", out.text);
     assert_eq!(out.meta["observations"], 1, "{}", out.meta);
     assert_eq!(out.meta["open"], 1, "{}", out.meta);
-
-    // Neither a shared place nor a guild channel bound private gets any of
-    // it: the card is the owner's alone. The bound-private one is the case
-    // the class check passes and the session's place refuses, so it is the
-    // one that holds the second layer rather than the first.
-    for target in [format!("channel:{LAB}"), format!("channel:{PRIVATE_LAB}")] {
-        let theirs = session(&r.core, Some(&target));
-        let asked = crate::card::tool::Asking {
-            class: r.core.runner.class_of(&theirs),
-        };
-        let why = crate::card::tool::call(r.core.clone(), &asked, &theirs, json!({})).unwrap_err();
-        assert_eq!(why, crate::card::tool::NOT_ALONE, "{target}");
-    }
 }
 
 // 14. A task's session reads none of them either, though its place is its
