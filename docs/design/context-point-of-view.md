@@ -323,10 +323,10 @@ count.
   writers (`did` lines and first-level folds) use a stricter rule, checked again after their last await: an
   exchange with any message moved into any thread is folded by code and read by no model, since a summary outlives a
   seal set later.
-- **Not behind the gate yet, on the old path**: kept tails (the earlier tail a transcript turn sends again), the
-  place digest's count of held threads (with the ledger on, a turn that is not the owner alone is shown no other
+- **Not behind the gate yet**: the place digest's count of held threads (with the ledger on, a turn that is not the owner alone is shown no other
   thread; the owner alone, and every reader with the ledger off, is told how many are sealed), session listings, and
-  the text a turn was already sent before a steer narrowed its presence.
+  the text a turn was already sent before a steer narrowed its presence. (Kept tails, the earlier tail a transcript
+  turn sent again, went with the transcript on 2026-11-22.)
 - **Not yet sound on the old path**: a wake set up by a turn with no marked message has presence unknown, which
   the gate admits nothing to, but the old path's recall still reads it as narrowed to its own place. The three cases
   behind "unknown" (set up by a turn with no message, no mark written, a mark that does not read) are not yet told
@@ -421,10 +421,11 @@ should: who and what, then time running forward, with what is nearest in time ne
 **As built**, the order is this one. Parts 2 and 3 head the first user message as harness text; the window is read
 from the store across the sessions that ran it, and its earlier thinking is not carried. The window's end carries a
 cache mark. Each turn's first call is a new compilation (strategy `view`), so nothing of the turn before is held
-to its bytes except the window, which only appends. Nothing of the view is written into the session, and neither
-is a recall note: recall reaches the model as a piece. If a turn declines to the transcript after a view call was
-sent (the provider refused it for size, say), the recall that call held back is kept for the turn, never stored,
-and admitted again item by item under the presence and seals of that moment before it rides the transcript's call. A place set to the view is not kept warm.
+to its bytes except the window, which only appends. Nothing of the view is written into the session but the turn's recall note: since 2026-11-22 every turn writes its
+`Recall` node, with its rows and `derived_from` edges, as turns always did, so the reply's count, its citations,
+`node.reach` and `fact.retract` see what it recalled. Recall reaches the model as a piece in slot H; the node itself
+is kept out of the window and out of the turn's own nodes. No turn is handed to another way of building its request
+(there is none), and nothing is kept warm between turns.
 
 **The budgeter's rules** (one function; these are all of them):
 
@@ -789,8 +790,11 @@ step 8, after the card.
 
 **As built:**
 
-- **A task's own view is not built.** A task's turn has no place and is always assembled as the transcript's.
-  Asking the task itself is not built either.
+- **A task's own view is built** (2026-11-22, `turn/view_step/task.rs`, `task_graph/place.rs`): a task is its own
+  place, `task:<task id>`, and its turns write exchanges there. Its window is its opening (the brief and the
+  arrangement's pieces, which no turn's id carries) and its own earlier exchanges; on its first turn the brief is the
+  message the turn answers, and its card is laid beside the message. It uses a place's table at its own place, not
+  a table of its own. Asking the task itself is not built.
 - **The joined card is built**, from records alone (objective, state, spend, plan step n of m, the jobs in
   flight, the task's last message cut at 300 tokens, each "as of" its time), only where the owner is alone. It is
   called in when the judge's `addressed_task` names exactly one task; a match on the task's name does not call it
@@ -953,7 +957,9 @@ above mine).
 
 **As built (2026-11-21)**, the path was walked in one day and not in this order. There is no `off`/`shadow`/`live`
 setting per step. There are two: `[context] ledger` (default on: the mark, the exchanges, the touches and the row)
-and `[context] assembly` (default `"transcript"`), which reads the view, place by place. Step by step:
+and `[context] assembly` (default `"transcript"`), which reads the view, place by place. (Both were retired on
+2026-11-22: the view builds every request, and the ledger it reads can no longer be switched off; a settings file
+naming either still loads, with a warning.) Step by step:
 
 - **1**: built. Where its row differs from the plan: a script run from his own terminal has a terminal and no agent
   on its chain, so it is classed a person (the row says what the light guard saw, not more); the build has no
@@ -1018,7 +1024,8 @@ the first word it may take up to 1.5 s.
    words are never paraphrased; a find is brought in only when its passage supports it; the floor depends on no
    model. If the search misses its bars, it runs only when the answering model calls it.
 5. **A view is harder to see than a transcript, and for some weeks there are two compilers.** "What did it see,
-   and why?" must have a one-command answer from step 6 on, or this cannot be debugged or trusted.
+   and why?" must have a one-command answer from step 6 on, or this cannot be debugged or trusted. (The two
+   compilers ended on 2026-11-22: the transcript's was removed.)
 6. **Recognition is thin today.** The index knows paths, commits and the like, not "issue 33" or people, and
    topics are filed per session. This design adds numbered items and topics per exchange (§5.4). If few
    of his messages name anything recognisable, slots D and H are mostly empty. That is by design not fatal:

@@ -62,7 +62,7 @@ Humans are `Person` nodes keyed by Discord user id with their own memory namespa
 
 ### 3.2a Sessions: what runs "simultaneously"
 
-The word *session* is used deliberately and narrowly. A **session is a compiler scope**: the thing that decides which roots the context compiler starts from, which audience it compiles for, which budget it spends, and which continuation strategy it uses. It is not a store and not a transcript. There are exactly two kinds:
+The word *session* is used deliberately and narrowly. A **session is a compiler scope**: the thing that decides which roots the context compiler starts from, which audience it compiles for, which budget it spends, and ~~which continuation strategy it uses~~ _(since 2026-11-22 every session's turns are built by the view, from the place the session speaks in)_. It is not a store and not a transcript. There are exactly two kinds:
 
 - A **conversation session**, one per channel: root is the channel's temporal view; audience is the channel's participants; cadence is human (a reply is expected soon).
 - A **task session**, one per task that has been *promoted* to autonomous work: root is the `Task` node, with its evidence, its subtasks, and the conversation that created it as secondary roots; audience is whoever it reports to; cadence is autonomous (no one is waiting on the next token).

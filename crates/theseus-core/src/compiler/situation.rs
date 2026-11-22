@@ -5,9 +5,10 @@
 //!   what it holds (`given`): no compilation yet is a conversation's or a
 //!   task's first compile; a session's first compile in this daemon's run,
 //!   with nothing new brought, is a resume; a detour is its own; else a
-//!   continuation. The compile settles it (`settle`): a compile whose own
-//!   triggers made a new compilation (a model, system or tools change, an
-//!   operator's request, the ring) is a recompile, with its trigger.
+//!   continuation. The compile settles it (`settle`): a compile that made a
+//!   new compilation is a recompile, with its trigger (every view turn's first
+//!   call makes one, `view_turn`; the transcript's other triggers went with it
+//!   on 2026-11-22).
 //! - **What each admits** is the table `admits`, built from what the code
 //!   admitted before it, so no turn that passed fails: the classes of a
 //!   request's pieces, and whether a recall is this turn's (new) or written
