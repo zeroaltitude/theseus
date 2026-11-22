@@ -220,10 +220,6 @@ pub(crate) async fn stream_turn(
         for line in r.harness_lines() {
             eprintln!("{line}");
         }
-        if let Some(slug) = &thread {
-            let title = crate::thread::title_of(conn, slug).await;
-            eprintln!("{}", render::thread::reply_tag(&title));
-        }
         crate::print::footer(&render::status_line(&r));
         ran_in(&r);
     }

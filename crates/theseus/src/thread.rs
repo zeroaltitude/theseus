@@ -94,18 +94,6 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ThreadCmd) -> Result<()> {
     }
 }
 
-/// The title of a thread for a reply's tag, the slug when it cannot be read.
-pub async fn title_of(conn: &mut Conn, slug: &str) -> String {
-    let Ok(p) = serde_json::to_value(name(slug.to_string())) else {
-        return slug.to_string();
-    };
-    conn.request(method::THREAD_SHOW, p)
-        .await
-        .ok()
-        .and_then(|v| serde_json::from_value::<ThreadRow>(v).ok())
-        .map_or_else(|| slug.to_string(), |r| r.thread.title)
-}
-
 /// A thread's name in a list, with its seal: `🔒 tides`, and `🔒? tides` while a seal is proposed.
 fn marked(t: &theseus_protocol::threads::ThreadInfo) -> String {
     match (&t.sealed, &t.seal_pending) {
