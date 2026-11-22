@@ -12,7 +12,9 @@ async fn a_message_a_thread_takes_records_the_place_it_arrived_in() {
     let c = &r.core;
     two_threads(c);
     let dm = home(c, Some(&format!("dm:{OWNER}")));
-    let res = submit(c, &dm, "what is failing in PR 412?").await;
+    // Addressed: a thread takes a message by its address alone (routing by a
+    // guess was deleted).
+    let res = submit(c, &dm, "#pr-round what is failing in PR 412?").await;
     let ran = session_of(c, "pr-round");
     assert_eq!(res.session_id, ran, "the thread took it");
     let node = c
