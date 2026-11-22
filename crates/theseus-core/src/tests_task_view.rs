@@ -242,8 +242,11 @@ async fn a_check_takes_the_view_and_holds_nothing_of_the_checked_tasks_turns() {
         _ => None,
     });
     let parent = parent_session(&r.core);
+    // The message the arrangement quotes, apart from the one that starts the maker: the check's pieces
+    // copy the quoted message, and it should not carry the maker's brief.
+    crate::test_support::turn(&r.core, &parent, ASK).await;
     let made = json!({"brief": MAKER, "arrangement": arranged()});
-    crate::test_support::turn(&r.core, &parent, &create(&made)).await;
+    crate::test_support::turn(&r.core, &parent, &format!("CREATE {made}")).await;
     let maker = task_by_brief(&r.core, MAKER);
     complete(&r.core, &maker).await;
     let short = crate::task::short(&maker.session_id);
