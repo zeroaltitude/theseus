@@ -178,7 +178,7 @@ impl Core {
                     None,
                     (
                         &|judgment: &str| self.judgment_pack(judgment),
-                        &|node: &str| crate::item_labels::read(&self.store, node).ok().flatten(),
+                        &|node: &str| crate::item_labels::read(&self.store, node),
                     ),
                 )?
                 else {
@@ -235,7 +235,7 @@ impl Core {
 }
 
 /// The record of an item, by its node (`item_labels::read`).
-type ItemOf<'a> = dyn Fn(&str) -> Option<crate::item_labels::ItemLabels> + 'a;
+type ItemOf<'a> = dyn Fn(&str) -> Result<Option<crate::item_labels::ItemLabels>> + 'a;
 
 /// The frame that removes `flag` from `rec`: the `content.removed` row, then
 /// the record. None, and nothing to write, when the session does not carry it.
@@ -286,16 +286,25 @@ fn removed(
             &pack_of(&label.judgment),
         )?);
     }
-    // The removal is kept on the item that raised the label too (`item_labels`), in this frame. A label from
-    // before items kept their labels starts its item's record with itself.
+    // The removal is kept on the item that raised the label too (`item_labels`), in this frame, as THIS
+    // session's: a fork or a child holds the same node's label, and its removal speaks for it alone. A label
+    // from before items kept their labels starts its item's record with itself. An item record that cannot
+    // be read is not replaced: the session's removal is written, the item's is not.
     if let (Some(node), Some(gone)) = (label.node.as_deref(), flags_removed(&rec, flag)) {
-        let mut item = item_of(node).unwrap_or_else(|| {
-            let mut i = crate::item_labels::ItemLabels::new(node, label.kind, &label.source, 0);
-            i.raised.push(label.clone());
-            i
-        });
-        crate::item_labels::removed(&mut item, &gone);
-        frame.push(item.record()?);
+        match item_of(node) {
+            Ok(found) => {
+                let mut item = found.unwrap_or_else(|| {
+                    let mut i =
+                        crate::item_labels::ItemLabels::new(node, label.kind, &label.source, 0);
+                    i.raised.push(label.clone());
+                    i
+                });
+                crate::item_labels::removed(&mut item, session_id, &gone);
+                frame.push(item.record()?);
+            }
+            Err(e) => tracing::warn!(node, error = %format!("{e:#}"),
+                "content: an item's labels were not read, so its removal is the session's alone"),
+        }
     }
     frame.push(NewRecord::json(kinds::SESSION, Some(session_id), &rec)?);
     Ok(Some((r, frame)))

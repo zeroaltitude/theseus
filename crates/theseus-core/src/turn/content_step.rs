@@ -60,18 +60,46 @@ impl TurnRunner {
         }
     }
 
-    /// The turn's reply, judged as inputs are (issue 44): its output, kept on its final message node. A
-    /// task's turns are not: their output is the report its parent judges ([`ItemKind::TaskReport`]).
-    pub(super) fn content_reply(&self, t: &Turn<'_>, output: &str) {
-        let Some((_, node)) = t.said.last() else {
-            return;
-        };
-        if t.tc.task.is_some() || output.trim().is_empty() {
+    /// The turn's replies, judged as inputs are (issue 44): **each assistant node the turn said, its own
+    /// text under its own id**, never the turn's joined output. A task's turns are not: their output is the
+    /// report its parent judges ([`ItemKind::TaskReport`]).
+    ///
+    /// Called from `finish` **before the turn's session hold is taken**: `ask_content` lands a configured
+    /// name's label at once (`land_deterministic`, which takes the session's lock), and the thread that holds
+    /// the hold for the turn's last frame must not take it again (the review of round 1). A turn that fails
+    /// before `finish` queues none: its written replies read "not judged then".
+    ///
+    /// **Off unless the owner turns it on** (`[content_based_security] judge_replies`, false by default): a
+    /// reply's ask shares the judge's day and the daemon's ceiling with the inputs', whose judgment feeds the
+    /// injection label, and no allowance of its own can be reserved for it without changing how an input is
+    /// admitted (issue 44, round 3). Off, no reply is offered at all, and each reads "not judged then".
+    ///
+    /// Only the model's words are items: an assistant node no provider call wrote (no `correlation_id`: the
+    /// personal step's fixed held reply) is the harness's own text, and is not asked about.
+    pub(super) fn content_replies(&self, t: &Turn<'_>) {
+        if t.tc.task.is_some() || !self.cfg.content_based_security.judge_replies {
             return;
         }
-        let now = theseus_protocol::now_unix_ms();
-        let item = ContentItem::new(node, ItemKind::Reply, "reply", output, now);
-        self.judge.ask_content(t.tc.session_id, vec![item]);
+        let items: Vec<ContentItem> = (t.said.iter())
+            .filter_map(|(_, id)| {
+                let (_, node) = t.tc.store.get_node(id).ok().flatten()?;
+                let Body::AssistantMessage {
+                    blocks,
+                    correlation_id: Some(_),
+                    ..
+                } = &node.body
+                else {
+                    return None;
+                };
+                let text = crate::provider::text_of(blocks);
+                (!text.trim().is_empty()).then(|| {
+                    ContentItem::new(id, ItemKind::Reply, "reply", &text, node.created_at_ms)
+                })
+            })
+            .collect();
+        if !items.is_empty() {
+            self.judge.ask_content(t.tc.session_id, items);
+        }
     }
 
     /// A task's first turn has no message: its brief is its first item.
