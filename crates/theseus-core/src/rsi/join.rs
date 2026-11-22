@@ -57,6 +57,7 @@
 //! base, and main is pushed there.
 
 mod contains;
+mod dead;
 pub mod dependencies;
 pub(crate) mod fix;
 pub mod git;
@@ -80,6 +81,8 @@ mod tender;
 pub(crate) mod tests;
 #[cfg(test)]
 mod tests_contains;
+#[cfg(test)]
+mod tests_dead;
 #[cfg(test)]
 mod tests_dependencies;
 #[cfg(test)]

@@ -103,6 +103,8 @@ mod tests_parked;
 #[cfg(test)]
 mod tests_pause;
 #[cfg(test)]
+mod tests_restart;
+#[cfg(test)]
 mod tests_stale;
 #[cfg(test)]
 mod tests_trees;

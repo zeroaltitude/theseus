@@ -34,6 +34,8 @@ pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> 
         dir,
         target,
     };
+    // Recorded before the tree exists, so a start's sweep never takes it for a dead daemon's.
+    super::guard::opened_here(&t.dir);
     if t.dir.exists() {
         let _ = tree::close(p, &t);
         let _ = std::fs::remove_dir_all(&t.dir);
