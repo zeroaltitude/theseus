@@ -1,7 +1,8 @@
-//! An old store opens (issue 44, anything goes, 2026-11-22): the records the withholding wrote are no
-//! longer written or honoured, and every one still decodes as it was stored. Here: what the gate gave a
-//! message-less turn (`given.<turn>`) and where a split or a claim moved a node (`moved.of.<node>`). The
-//! others have their own: a release and its end (`release::tests::a_stored_release_and_its_end_still_decode`),
+//! An old store opens (issue 44, anything goes, 2026-11-22): the records the withholding and the threads
+//! wrote are no longer written or honoured, and every one still decodes as it was stored. Here: what the
+//! gate gave a message-less turn (`given.<turn>`), where a split or a claim moved a node (`moved.of.<node>`),
+//! a thread's record with its seal, its pending seal or its merge (`thread:<slug>`), and the `thread.*`
+//! ledger rows. The others have their own: a release and its end (`release::tests::a_stored_release_and_its_end_still_decode`),
 //! a fold node over a sealed source (`ladder::tests::an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands`).
 
 use serde_json::json;
@@ -65,4 +66,59 @@ fn an_old_move_record_still_decodes() {
     assert_eq!((a.thread.as_str(), a.is_claim()), ("kelp", false));
     assert!(read("nd_b").flatten().expect("a claim's").is_claim());
     assert_eq!(read("nd_c"), Some(None), "an undone move reads as null");
+}
+
+/// A thread's record as the threads wrote one: sealed, with a seal proposed, merged into another, done. Each
+/// decodes whole; `thread list` and `thread show` read these records
+/// (`rpc::tests_thread_list::list_and_show_read_the_stored_records`).
+#[test]
+fn an_old_thread_record_with_its_seal_or_its_merge_still_decodes() {
+    use theseus_protocol::threads::{ThreadInfo, ThreadState};
+    let read = |v: serde_json::Value| serde_json::from_value::<ThreadInfo>(v).unwrap();
+    let sealed = read(json!({"slug": "kelp", "title": "Kelp", "topics": ["sea"],
+        "sealed": {"by": "cli", "at_ms": 1, "reason": "embargo"}}));
+    assert_eq!(
+        sealed.sealed.as_ref().map(|s| s.reason.as_str()),
+        Some("embargo")
+    );
+    let pending =
+        read(json!({"slug": "tide", "title": "Tide", "seal_pending": "it names the vault"}));
+    assert_eq!(pending.seal_pending.as_deref(), Some("it names the vault"));
+    let merged = read(
+        json!({"slug": "old", "title": "Old", "state": "done", "merged_into": "kelp",
+        "split_from": "tide", "links": ["tide"]}),
+    );
+    assert_eq!(
+        (
+            merged.state,
+            merged.merged_into.as_deref(),
+            merged.links.len()
+        ),
+        (ThreadState::Done, Some("kelp"), 1)
+    );
+}
+
+/// The `thread.*` ledger rows an older build wrote: each decodes and its kind is still known, so the
+/// ledger's readers narrate it.
+#[test]
+fn an_old_thread_ledger_row_still_decodes() {
+    for kind in [
+        "thread.created",
+        "thread.sealed",
+        "thread.seal_proposed",
+        "thread.merged",
+        "thread.split",
+        "thread.routed",
+        "thread.moved",
+    ] {
+        let text = format!(
+            r#"{{"at_unix_ms":1,"kind":"{kind}","session_id":"ses_a","data":{{"slug":"kelp"}}}}"#
+        );
+        let row: crate::ledger::LedgerRow = serde_json::from_str(&text).unwrap();
+        assert_eq!(row.kind, kind);
+        assert!(
+            theseus_protocol::LedgerKind::parse(&row.kind).is_some(),
+            "{kind} is still a known kind"
+        );
+    }
 }
