@@ -145,6 +145,16 @@ fn rig_answering(
     binding: Option<Binding>,
     window: u64,
 ) -> Rig {
+    rig_tweaked(calls, script, (binding, window), |_| {})
+}
+
+/// [`rig_answering`], with `tweak` applied to its settings last.
+fn rig_tweaked(
+    calls: usize,
+    script: Vec<Scripted>,
+    (binding, window): (Option<Binding>, u64),
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("logs")).unwrap();
@@ -167,6 +177,7 @@ fn rig_answering(
             ..Default::default()
         },
     );
+    tweak(&mut cfg);
     let model = Arc::new(FakeProvider {
         binding,
         ..FakeProvider::scripted(script)
@@ -408,4 +419,146 @@ async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() 
     );
     assert!(!texts(retry).contains("earlier (0)"), "and made room for");
     assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
+}
+
+/// The proof suite's `over_budget` shape as a core test: one turn of six results of about 28,000 characters
+/// each, read one a loop, past a 40,000-token working window with a 2,000-token reply. The view clears the
+/// turn's own older results (and makes what other room it can): the turn answers, no overage, every request
+/// as sent within its limit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn six_large_results_past_a_small_working_window_still_answer() {
+    const CALLS: usize = 6;
+    let script: Vec<Scripted> = (0..CALLS)
+        .map(reads)
+        .chain([Scripted::text(DONE)])
+        .collect();
+    let r = rig_tweaked(CALLS, script, (None, 200_000), |c| {
+        c.context.working_window_tokens = Some(40_000);
+    });
+    // The logs of about 28,000 characters each.
+    let root = r.core.runner.cfg.tools.projects_dir.clone().unwrap();
+    for k in 0..CALLS {
+        let path = std::path::Path::new(&root).join(format!("logs/keeper-{k:03}.txt"));
+        std::fs::write(path, format!("log {k}\n{}{}", LINE.repeat(390), end(k))).unwrap();
+    }
+    let res = turn(&r.core).await.expect("the turn answers");
+    assert_eq!(res.output, DONE, "{res:?}");
+    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
+    assert_eq!(asked(&r).len(), CALLS + 1, "one request a loop");
+    every_send_within(&r, 40_000);
+}
+
+/// The turn (`turn k:`) a request is of, and how many tool results it already holds after that message.
+fn turn_and_results(q: &ProviderRequest) -> Option<(usize, usize)> {
+    let at = (q.messages.iter()).rposition(|m| {
+        m["role"] == "user"
+            && (m["content"].as_array().into_iter().flatten()).any(|b| {
+                b["type"] == "text" && b["text"].as_str().is_some_and(|t| t.contains("turn "))
+            })
+    })?;
+    let text = crate::tests_places::last_user(&ProviderRequest {
+        messages: vec![q.messages[at].clone()],
+        ..q.clone()
+    });
+    let k = text
+        .split("turn ")
+        .last()?
+        .split(':')
+        .next()?
+        .trim()
+        .parse()
+        .ok()?;
+    let results = (q.messages[at + 1..].iter())
+        .filter_map(|m| m["content"].as_array())
+        .flatten()
+        .filter(|b| b["type"] == "tool_result")
+        .count();
+    Some((k, results))
+}
+
+/// A conversation of tool-heavy turns (three results of about 8,000 characters each a turn): between two
+/// clearings, each turn's first request begins with the previous turn's front and window, byte for byte (the
+/// cache's prefix holds), and a clearing pass runs at most once per 40,000 tokens of new results.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clearing_is_sticky_and_the_prefix_holds_between_clearings() {
+    const TURNS: usize = 24;
+    const READS: usize = 3;
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
+        |q| {
+            let Some((k, done)) = (!q.tools.is_empty()).then(|| turn_and_results(q)).flatten()
+            else {
+                return Scripted::text("Noted.");
+            };
+            match done < READS {
+                true => Scripted::tools(
+                    &format!("Reading part {done} of turn {k}."),
+                    &[(
+                        &format!("toolu_{k:02}_{done}"),
+                        "fs_read",
+                        json!({"path": format!("logs/t{k:02}-{done}.txt")}),
+                    )],
+                ),
+                false => Scripted::text(&format!("Turn {k} read.")),
+            }
+        },
+    );
+    std::fs::create_dir_all(r.root.join("logs")).unwrap();
+    for k in 0..TURNS {
+        for n in 0..READS {
+            let name = r.root.join(format!("logs/t{k:02}-{n}.txt"));
+            std::fs::write(name, format!("part {n} of {k}\n{}", LINE.repeat(110))).unwrap();
+        }
+    }
+    let sid = crate::tests_private_view::session_in(&r.core, None, &r.root);
+    let mut firsts: Vec<ProviderRequest> = Vec::new();
+    let mut cleared_at: Vec<usize> = Vec::new();
+    for k in 0..TURNS {
+        let before = crate::test_support::rows(&r.core, "context.cleared").len();
+        crate::tests_places::turn(&r.core, &sid, &format!("turn {k}: read the three parts")).await;
+        if crate::test_support::rows(&r.core, "context.cleared").len() > before {
+            cleared_at.push(k);
+        }
+        let first = (r.requests().into_iter())
+            .find(|q| !q.tools.is_empty() && turn_and_results(q) == Some((k, 0)))
+            .expect("the turn's first request");
+        firsts.push(first);
+    }
+    assert!(!cleared_at.is_empty(), "the conversation cleared");
+    // About 2,000 tokens a result, three a turn: at most one pass per 40,000 tokens of new results.
+    let new_tokens = (TURNS * READS * 2_000) as u64;
+    assert!(
+        cleared_at.len() as u64 <= new_tokens / 40_000 + 1,
+        "clearing ran at turns {cleared_at:?}"
+    );
+    let plain = |q: &ProviderRequest| -> Vec<Value> {
+        q.messages
+            .iter()
+            .map(crate::provider::binding::unmarked)
+            .collect()
+    };
+    for k in 1..TURNS {
+        if cleared_at.contains(&k) {
+            continue;
+        }
+        let (was, now) = (plain(&firsts[k - 1]), plain(&firsts[k]));
+        // The previous turn's front and window: every message but its last (the beside block and the ask).
+        let held = was.len() - 1;
+        let same = (0..held)
+            .take_while(|i| now.get(*i) == Some(&was[*i]))
+            .count();
+        assert_eq!(
+            same, held,
+            "turn {k} (cleared at {cleared_at:?}): message {same} of {held} changed from the turn before:\nwas {}\nnow {}",
+            short_json(&was[same]),
+            now.get(same).map(short_json).unwrap_or_default()
+        );
+    }
+}
+
+/// A message, its first 600 characters.
+fn short_json(v: &Value) -> String {
+    let s = v.to_string();
+    s.chars().take(600).collect()
 }
