@@ -324,8 +324,8 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
         .unwrap();
     assert_eq!(res.output, "The ferry leaves at six.");
     let q = (fake.requests().into_iter())
-        .filter(|q| !q.tools.is_empty())
-        .last()
+        .rev()
+        .find(|q| !q.tools.is_empty())
         .unwrap();
     legal(&q);
     assert!(texts(&q).contains(RESUMES), "{}", texts(&q));
