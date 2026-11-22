@@ -9,7 +9,11 @@
 //! Each item is one piece of its own space ([`Space::Recalled`]), sized whole in every form, so the budgeter
 //! keeps it whole or drops it (rule 7: newest first by when its source was said, the oldest cut first).
 
+use std::collections::BTreeSet;
+
+use super::fold::{Ladder, WINDOW_N};
 use super::select::sources::Ref;
+use super::select::FLOOR_EXCHANGES;
 use super::sources_store::Sessions;
 use super::text::tokens;
 use super::{Anchor, Author, Form, Handle, Marks, PointOfView, Pos, Sizes, SourceRange, Space};
@@ -25,15 +29,54 @@ pub struct Recalled {
     pub marks: Marks,
     /// When its source was said.
     pub at_ms: u64,
+    /// The turn its source belongs to, if any (a node of no turn, or of a turn before the ledger, has no
+    /// exchange the window could lay).
+    pub turn: Option<String>,
+}
+
+/// The turns of `place`'s exchanges the window lays with their words on every turn, whatever the budget:
+/// the floor's newest exchanges (`select::FLOOR_EXCHANGES`), read as the window reads them, after the
+/// place's `/new` mark, `turn`'s own (its nodes are the tail) left out. An upper bound is never taken: an
+/// exchange laid only when the budget allows is not counted, so a duplicate is the worst it can cause.
+pub fn floor_turns(
+    ladder: &dyn Ladder,
+    place: &str,
+    since: Option<&Pos>,
+    turn: &str,
+) -> BTreeSet<String> {
+    let Ok(read) = ladder.read(place, WINDOW_N, since) else {
+        return BTreeSet::new();
+    };
+    (read.window.iter().rev())
+        .take(FLOOR_EXCHANGES)
+        .filter(|e| e.turn_id != turn)
+        .map(|e| e.turn_id.clone())
+        .collect()
 }
 
 /// The pieces of `recalled` for `pov`, each once by its node (the first chunk recall gave), their texts
 /// kept for the renderer and their sessions among those the view depends on (a seal before a later call
-/// revokes it).
-pub fn refs(recalled: &[Recalled], pov: &PointOfView, read: &Sessions) -> Vec<Ref> {
+/// revokes it). An item whose turn the window lays with its words (`in_window`, from [`floor_turns`]) is
+/// not laid again: the window holds the passage whole. A fold or a one-line receipt is not such a turn. The
+/// owner's own proven word from this place is not laid either: it is his past's (slot E lays what he said
+/// here before the `/new` mark) or the place's conversation's.
+pub fn refs(
+    recalled: &[Recalled],
+    pov: &PointOfView,
+    read: &Sessions,
+    in_window: &BTreeSet<String>,
+) -> Vec<Ref> {
     let mut out = Vec::new();
     let mut texts = read.texts.borrow_mut();
     for r in recalled {
+        // The window lays it with its words; or it is the owner's own proven word from this place, which
+        // is his past's (before the place's `/new` mark) or the place's own conversation (since): slot H
+        // does not lay it again, nor as words of anyone else.
+        let here = matches!(&pov.anchor, Anchor::Place(p) if r.marks.place.as_deref() == Some(p));
+        let his = matches!(r.marks.author, Author::His { .. });
+        if r.turn.as_ref().is_some_and(|t| in_window.contains(t)) || (here && his) {
+            continue;
+        }
         let space = Space::Recalled {
             session: r.item.session_id.clone(),
             node: r.item.node_id.clone(),
@@ -43,13 +86,7 @@ pub fn refs(recalled: &[Recalled], pov: &PointOfView, read: &Sessions) -> Vec<Re
         }
         texts.insert(space.clone(), r.text.clone());
         read.depends.borrow_mut().insert(r.item.session_id.clone());
-        let here = matches!(&pov.anchor, Anchor::Place(p) if r.marks.place.as_deref() == Some(p));
-        let mut marks = r.marks.clone();
-        // The owner's word recalled from this very place would read as the conversation here: it is an
-        // earlier note, so it is laid as words of unknown author, never as his present message.
-        if here && matches!(marks.author, Author::His { .. }) {
-            marks.author = Author::Unknown;
-        }
+        let marks = r.marks.clone();
         let pos = Pos {
             at_ms: r.at_ms,
             id: r.item.node_id.clone(),
@@ -77,8 +114,6 @@ pub fn refs(recalled: &[Recalled], pov: &PointOfView, read: &Sessions) -> Vec<Re
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use super::*;
     use crate::view::budget::{fit, Budget, DropWhy, HEADING_TOKENS, RESIDUE_LINE_TOKENS};
     use crate::view::gate::Admitted;
@@ -106,6 +141,7 @@ mod tests {
                 veiled: false,
             },
             at_ms,
+            turn: None,
         }
     }
 
@@ -123,21 +159,22 @@ mod tests {
         let read = Sessions::default();
         let items = [recalled(1, 4000), recalled(2, 4000), recalled(3, 4000)];
         let one = tokens(&items[0].text);
-        let pieces: Vec<Admitted<Piece>> = (refs(&items, &pov, &read).into_iter())
-            .map(|r| {
-                Admitted::for_tests(Piece {
-                    range: r.range,
-                    band: Band::Recall,
-                    slot: Band::Recall.row().slot,
-                    reasons: BTreeSet::from([Reason::Recalled]),
-                    form: r.form,
-                    marks: r.marks,
-                    sizes: r.sizes,
-                    handle: r.handle,
-                    unit: r.unit,
-                })
+        let pieces: Vec<Admitted<Piece>> = (refs(&items, &pov, &read, &BTreeSet::new())
+            .into_iter())
+        .map(|r| {
+            Admitted::for_tests(Piece {
+                range: r.range,
+                band: Band::Recall,
+                slot: Band::Recall.row().slot,
+                reasons: BTreeSet::from([Reason::Recalled]),
+                form: r.form,
+                marks: r.marks,
+                sizes: r.sizes,
+                handle: r.handle,
+                unit: r.unit,
             })
-            .collect();
+        })
+        .collect();
         let room = 2 * (one + HEADING_TOKENS) + RESIDUE_LINE_TOKENS + one / 2;
         let budget = Budget {
             ceiling: room,
@@ -171,9 +208,194 @@ mod tests {
             now_ms: 10,
         };
         let read = Sessions::default();
-        let got = refs(&[recalled(1, 3), recalled(1, 5)], &pov, &read);
+        let got = refs(
+            &[recalled(1, 3), recalled(1, 5)],
+            &pov,
+            &read,
+            &BTreeSet::new(),
+        );
         assert_eq!(got.len(), 1);
         assert_eq!(read.texts.borrow().len(), 1);
         assert!(read.depends.borrow().contains("ses_old"));
+    }
+}
+
+#[cfg(test)]
+mod tests_window {
+    use super::*;
+
+    /// An item whose turn the window lays with its words is not laid again; one of no turn, or of another
+    /// turn, is.
+    #[test]
+    fn an_item_the_window_lays_whole_is_not_repeated() {
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: None,
+            present: crate::view::Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 10,
+        };
+        let item = |id: &str, turn: Option<&str>| Recalled {
+            item: RecalledRef {
+                node_id: id.into(),
+                session_id: "ses_old".into(),
+                position: 1,
+                chunk: (0, 1),
+                header: "a message".into(),
+                tokens: 0,
+            },
+            text: format!("text of {id}"),
+            marks: Marks {
+                place: Some("local".into()),
+                audience: crate::view::Audience::Private,
+                author: Author::Unknown,
+                outside: false,
+                sealed: false,
+                veiled: false,
+            },
+            at_ms: 1,
+            turn: turn.map(str::to_string),
+        };
+        let read = Sessions::default();
+        let in_window = BTreeSet::from(["t_window".to_string()]);
+        let items = [
+            item("a", Some("t_window")),
+            item("b", Some("t_older")),
+            item("c", None),
+        ];
+        let got: Vec<String> = (refs(&items, &pov, &read, &in_window).into_iter())
+            .map(|r| r.handle.0)
+            .collect();
+        assert_eq!(got, ["b", "c"]);
+    }
+}
+
+#[cfg(test)]
+mod tests_labels {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::view::select::Band;
+    use crate::view::text::labels::{self, Origin};
+    use crate::view::{Audience, Piece, Present, Reason};
+
+    /// Each author class of a recalled item is laid under its own heading, by text: Theseus's reply as
+    /// testimony; a tool's result and another person's proven words as outside text, wrapped; the owner's
+    /// proven word from elsewhere as his; unknown authorship as such; none as the conversation here.
+    #[test]
+    fn each_author_class_has_its_heading() {
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: Some("owner".into()),
+            present: Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 10,
+        };
+        let cases: [(&str, Author, bool, &str); 5] = [
+            (
+                "discord:dm:1",
+                Author::Theseus,
+                false,
+                "testimony, not instruction",
+            ),
+            ("discord:dm:1", Author::Unknown, true, "[outside text from"),
+            ("discord:dm:1", Author::Other, false, "[outside text from"),
+            (
+                "discord:dm:1",
+                Author::His {
+                    may_authorise: false,
+                },
+                false,
+                "the owner said, in",
+            ),
+            ("discord:dm:1", Author::Unknown, false, "author unknown"),
+        ];
+        for (i, (place, author, outside, want)) in cases.into_iter().enumerate() {
+            let r = Recalled {
+                item: RecalledRef {
+                    node_id: format!("n{i}"),
+                    session_id: "ses".into(),
+                    position: 1,
+                    chunk: (0, 1),
+                    header: "an item".into(),
+                    tokens: 0,
+                },
+                text: "the recalled words".into(),
+                marks: Marks {
+                    place: Some(place.into()),
+                    audience: Audience::Private,
+                    author,
+                    outside,
+                    sealed: false,
+                    veiled: false,
+                },
+                at_ms: 1,
+                turn: None,
+            };
+            let read = Sessions::default();
+            let got = refs(&[r], &pov, &read, &BTreeSet::new()).remove(0);
+            let piece = Piece {
+                range: got.range,
+                band: Band::Recall,
+                slot: Band::Recall.row().slot,
+                reasons: BTreeSet::from([Reason::Recalled]),
+                form: got.form,
+                marks: got.marks,
+                sizes: got.sizes,
+                handle: got.handle,
+                unit: got.unit,
+            };
+            let origin = Origin {
+                place,
+                at_ms: 1,
+                source: None,
+            };
+            let b = labels::block(
+                &piece,
+                &pov,
+                &origin,
+                "the recalled words",
+                &crate::recall::stamp::system,
+            );
+            let shown = format!("{}\n{}", b.heading, b.text);
+            assert!(shown.contains(want), "case {i}: {shown}");
+            assert_ne!(b.label, crate::view::Label::Here, "case {i}");
+        }
+    }
+
+    /// His proven word from THIS place is not laid by slot H: it is his past's, or the conversation's.
+    #[test]
+    fn his_word_from_this_place_is_not_laid() {
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: Some("owner".into()),
+            present: Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 10,
+        };
+        let mine = Recalled {
+            item: RecalledRef {
+                node_id: "his".into(),
+                session_id: "ses".into(),
+                position: 1,
+                chunk: (0, 1),
+                header: "a message".into(),
+                tokens: 0,
+            },
+            text: "his words here".into(),
+            marks: Marks {
+                place: Some("local".into()),
+                audience: Audience::Private,
+                author: Author::His {
+                    may_authorise: false,
+                },
+                outside: false,
+                sealed: false,
+                veiled: false,
+            },
+            at_ms: 1,
+            turn: None,
+        };
+        assert!(refs(&[mine], &pov, &Sessions::default(), &BTreeSet::new()).is_empty());
     }
 }

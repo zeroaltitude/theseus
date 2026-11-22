@@ -361,7 +361,11 @@ fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memor
         read.contains(BEFORE),
         "the memory tool reads the conversation from before /new: {read}"
     );
-    for q in &after {
+    // The exchange's did-line call quotes the message too; it is a side call, not the turn's request.
+    for q in after
+        .iter()
+        .filter(|q| !opening(q).starts_with("The person's message:"))
+    {
         assert_eq!(
             real_turns(q),
             0,

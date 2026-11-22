@@ -40,6 +40,14 @@ mod tests;
 mod tests_sampler;
 #[cfg(test)]
 mod tests_view;
+#[cfg(test)]
+mod tests_view_carried;
+#[cfg(test)]
+mod tests_view_crossing;
+#[cfg(test)]
+mod tests_view_refused;
+#[cfg(test)]
+mod tests_view_routed;
 
 use theseus_protocol::LedgerKind;
 

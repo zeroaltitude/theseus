@@ -34,6 +34,19 @@ pub const VIEW_HELD: &str =
     "something this turn's view laid has been sealed or moved since, so it is not \
      replayed";
 
+/// Why a view turn is refused when it laid the result of a tool that brings another session's or place's
+/// words into an exchange (`compiler::view::kept::CARRIERS`): the tool, in the reader's words.
+pub fn view_carried(tool: &str) -> String {
+    let by = match tool {
+        crate::view::history::HISTORY_TOOL => "the history tool".to_string(),
+        _ => format!("the {tool} tool"),
+    };
+    format!(
+        "this turn's view carries words read by {by}, whose sources a replay cannot check now, so \
+         it is not replayed"
+    )
+}
+
 /// A reply: what a turn's answer said and asked for (the wire's own type).
 pub use theseus_protocol::own_bench::ReplayReply as Said;
 
@@ -49,6 +62,10 @@ pub struct Original {
     pub sources: Sources,
     /// The view the request was laid from, read back from its blobs; none for a transcript's turn.
     pub view: Option<Frozen>,
+    /// What its view record named it laid from (the sessions, the exchanges, the nodes its recall laid),
+    /// read once with the view (`kept_view`): a crossing reads its sources here, never again from the
+    /// store. None for a transcript's turn.
+    pub laid: Option<crate::compiler::view::kept::Kept>,
     /// The request, and the digest that matched.
     pub request: ProviderRequest,
     pub digest: String,
@@ -177,10 +194,14 @@ impl Core {
                     format!("{cid} was never stored (a detour's compile is not)"),
                 )
             })?;
-        let view = (compilation.strategy == crate::compiler::view::STRATEGY)
-            .then(|| self.kept_view(&compilation, session_id, turn))
-            .transpose()?;
         let nodes: Transcript = transcript[..at].to_vec();
+        let (view, laid) = match compilation.strategy == crate::compiler::view::STRATEGY {
+            true => {
+                let (f, k) = self.kept_view(&compilation, (session_id, turn), &nodes)?;
+                (Some(f), Some(k))
+            }
+            false => (None, None),
+        };
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
             .iter()
@@ -207,6 +228,7 @@ impl Core {
                 nodes,
                 sources,
                 view,
+                laid,
                 request,
                 digest,
                 ask,
@@ -280,13 +302,14 @@ impl Core {
 
     /// The view a view turn's request was laid from, read back from the blobs its record names, once the
     /// gate of now has said none of what it laid is held: a turn from before views kept it is refused in
-    /// words, as is one a source of which was sealed or moved since.
+    /// words, as is one a source of which was sealed or moved since, and one whose window (or own nodes,
+    /// among `nodes`) holds words a tool read from elsewhere, whose sources cannot be checked now.
     fn kept_view(
         &self,
         compilation: &Compilation,
-        session_id: &str,
-        turn: &str,
-    ) -> Result<Frozen, NotRebuildable> {
+        (session_id, turn): (&str, &str),
+        nodes: &Transcript,
+    ) -> Result<(Frozen, crate::compiler::view::kept::Kept), NotRebuildable> {
         let record = crate::view::record::read(&self.store, &compilation.id)
             .map_err(|e| no("view", format!("{e:#}")))?;
         let k = record
@@ -296,8 +319,13 @@ impl Core {
         if crate::turn::view_step::kept::held_now(&self.runner, session_id, laid) {
             return Err(no("view", VIEW_HELD));
         }
-        crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
-            .map_err(|why| no("view", why))
+        let f = crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
+            .map_err(|why| no("view", why))?;
+        let own = (nodes.iter()).filter(|(_, n)| n.turn_id.as_deref() == Some(turn));
+        if let Some(tool) = crate::compiler::view::kept::carried(&f, own.map(|(_, n)| &**n)) {
+            return Err(no("view", view_carried(tool)));
+        }
+        Ok((f, k))
     }
 
     /// The spec the compilation's requests were rendered from: this
