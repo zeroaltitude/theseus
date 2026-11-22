@@ -18,7 +18,6 @@ use super::server::{Conn, RpcFailure};
 use super::{Core, META_LIVE_PROFILE};
 use crate::approval::Refusal;
 use crate::bus::EventSink;
-use crate::compiler::Recompile;
 use crate::ledger::LedgerRow;
 use crate::narrative::narrate;
 use crate::session::SessionRecord;
@@ -1122,7 +1121,6 @@ impl Core {
                     || p.author.clone().unwrap_or_else(|| conn.client.to_string()),
                     |pi| pi.author.clone(),
                 ),
-                recompile: None,
                 attachments: p.attachments,
                 arrived: Some(conn.arrived),
                 reply_to: p.reply_to,
@@ -1497,52 +1495,6 @@ impl Core {
     pub(super) fn session_unwatch(&self, p: theseus_protocol::SessionRef, conn: Conn<'_>) -> Value {
         self.bus.unwatch(&p.session_id, conn.client);
         json!({"watching": Value::Null})
-    }
-
-    pub(super) fn session_recompile(
-        &self,
-        p: theseus_protocol::SessionRecompileParams,
-        conn: Conn<'_>,
-    ) -> Result<Value, RpcFailure> {
-        let strategy = match p.strategy.as_str() {
-            "fresh" => Recompile::Fresh,
-            "transcript" => Recompile::Transcript,
-            other => {
-                return Err(RpcFailure::new(
-                    error_code::INVALID_PARAMS,
-                    format!("strategy {other:?} is not fresh or transcript"),
-                ))
-            }
-        };
-        self.session(&p.session_id)?;
-        self.request_recompile(&p.session_id, strategy, &conn.actor(None))?;
-        Ok(json!({"session_id": p.session_id, "pending": p.strategy}))
-    }
-
-    /// Ask for a recompile on the session's next turn: set under the
-    /// record's lock, with its row in the same frame, so a turn running now
-    /// cannot write it over (theseus-xeo). False when there is no session.
-    pub fn request_recompile(
-        &self,
-        session_id: &str,
-        strategy: Recompile,
-        by: &str,
-    ) -> Result<bool> {
-        let row = LedgerRow::new(
-            LedgerKind::ContextRecompileRequested,
-            Some(session_id),
-            None,
-            json!({"strategy": strategy, "by": by}),
-        );
-        let written = self.store.update_session(session_id, |r| {
-            r.pending_recompile = Some(strategy);
-            Ok(vec![theseus_store::NewRecord::json(
-                theseus_store::kinds::LEDGER,
-                None,
-                &row,
-            )?])
-        })?;
-        Ok(written.is_some())
     }
 
     /// Every model, as the code has it with the config's tables over it,

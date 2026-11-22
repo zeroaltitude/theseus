@@ -39,7 +39,7 @@ async fn said(input: &str, reply: &str) -> (Rig, String) {
     );
     *r.model.reply.lock().unwrap() = Some(reply.into());
     let sid = session(&r.core, None);
-    turn_via(&r.core, &sid, input, None).await;
+    turn_via(&r.core, &sid, input).await;
     (r, sid)
 }
 

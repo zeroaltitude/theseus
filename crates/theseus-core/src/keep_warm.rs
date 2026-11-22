@@ -818,7 +818,7 @@ impl TurnRunner {
             last_position: self.store.last_position(),
             spec: replayed.as_ref().unwrap_or(spec),
             catalog: &self.catalog,
-            force: None,
+            force: false,
             window_override: self.working_window(spec),
             blobs: Some(self.store.blobs()),
             hidden: &rec.not_shown,

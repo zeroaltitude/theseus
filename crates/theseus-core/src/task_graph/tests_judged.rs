@@ -1149,8 +1149,7 @@ async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
 #[tokio::test]
 async fn in_a_view_an_outside_piece_from_another_session_keeps_the_card() {
     for page in [true, false] {
-        let (_dir, core, model) =
-            judging_core_with(|_| {});
+        let (_dir, core, model) = judging_core_with(|_| {});
         let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
         let a = submit(&core, owner(), "hello", None).await;
         if page {

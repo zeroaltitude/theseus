@@ -1973,25 +1973,6 @@ async fn a_session_keeps_its_memory_across_a_restart() {
     assert_eq!(core.store.session_compilations(&sid).unwrap().len(), 1);
 }
 
-#[tokio::test]
-async fn a_fresh_recompile_starts_over_and_is_recorded() {
-    let r = rig(vec![Scripted::text("one"), Scripted::text("two")]);
-    let res = turn(&r.core, None, "first").await;
-    let mut rec: SessionRecord = r.core.store.get_session(&res.session_id).unwrap().unwrap();
-    rec.pending_recompile = Some(crate::compiler::Recompile::Fresh);
-    r.core.store.put_session(&rec.session_id, &rec).unwrap();
-    turn(&r.core, Some(&res.session_id), "second").await;
-    let req = r.fake.requests().pop().unwrap();
-    assert_eq!(req.messages.len(), 1, "fresh: only the new input");
-    let comps = r.core.store.session_compilations(&res.session_id).unwrap();
-    assert_eq!(comps.len(), 2);
-    assert_eq!(comps[1].trigger, "manual_fresh");
-    assert_eq!(comps[1].derived_from.as_deref(), Some(comps[0].id.as_str()));
-    let rec: SessionRecord = r.core.store.get_session(&res.session_id).unwrap().unwrap();
-    assert!(rec.pending_recompile.is_none(), "applied once");
-    let _: Value = serde_json::to_value(&rec).unwrap();
-}
-
 /// A provider whose calls, while `hold` is set, say they have begun and then
 /// wait at a gate: a test's way to act while a turn is inside its call.
 struct Gated {
@@ -2020,61 +2001,9 @@ impl crate::provider::Provider for Gated {
     }
 }
 
-/// theseus-xeo, as filed: a `session.recompile` asked while a turn runs was
-/// lost, because the turn wrote back the record it had read when it began.
-/// Here the request lands while the turn is inside its provider call, between
-/// its read and its write: it survives the turn, and the next turn applies it,
-/// once.
-#[tokio::test]
-async fn a_recompile_asked_during_a_turn_is_kept_for_the_next() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("w");
-    std::fs::create_dir_all(&root).unwrap();
-    let cfg = config(&root.canonicalize().unwrap(), dir.path());
-    let store = Store::open(&dir.path().join("store")).unwrap();
-    let (entered, mut began) = tokio::sync::mpsc::unbounded_channel();
-    let model = Arc::new(Gated {
-        fake: FakeProvider::scripted(vec![
-            Scripted::text("one"),
-            Scripted::text("two"),
-            Scripted::text("three"),
-        ]),
-        hold: false.into(),
-        entered,
-        gate: tokio::sync::Semaphore::new(0),
-    });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
-    let sid = turn(&core, None, "first").await.session_id;
-    model.hold.store(true, std::sync::atomic::Ordering::SeqCst);
-    let running = {
-        let (core, sid) = (core.clone(), sid.clone());
-        tokio::spawn(async move { turn(&core, Some(&sid), "second").await })
-    };
-    began.recv().await.unwrap();
-    assert!(core
-        .request_recompile(&sid, crate::compiler::Recompile::Fresh, "test")
-        .unwrap());
-    model.hold.store(false, std::sync::atomic::Ordering::SeqCst);
-    model.gate.add_permits(1);
-    running.await.unwrap();
-    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
-    assert_eq!(
-        rec.pending_recompile,
-        Some(crate::compiler::Recompile::Fresh),
-        "the turn's end wrote the request over"
-    );
-    assert_eq!(rec.turns, 2, "and the turn's books are there too");
-    turn(&core, Some(&sid), "third").await;
-    let comps = core.store.session_compilations(&sid).unwrap();
-    assert_eq!(comps.last().unwrap().trigger, "manual_fresh");
-    assert_eq!(comps.len(), 2, "applied by the third turn, once");
-    let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
-    assert!(rec.pending_recompile.is_none());
-}
-
-/// One writer at a time per session record (theseus-xeo): a recompile's
-/// write waits while another writer holds the record between its read and
-/// its write, then reads again, so both changes stand.
+/// One writer at a time per session record (theseus-xeo): a second write
+/// waits while another writer holds the record between its read and its
+/// write, then reads again, so both changes stand.
 #[tokio::test]
 async fn a_session_records_writers_never_lose_each_others_change() {
     let r = rig(vec![Scripted::text("one")]);
@@ -2086,8 +2015,13 @@ async fn a_session_records_writers_never_lose_each_others_change() {
     let second = {
         let (core, sid) = (r.core.clone(), sid.clone());
         std::thread::spawn(move || {
-            core.request_recompile(&sid, crate::compiler::Recompile::Transcript, "test")
+            core.store
+                .update_session(&sid, |r| {
+                    r.title = Some("Renamed meanwhile".into());
+                    Ok(vec![])
+                })
                 .unwrap()
+                .is_some()
         })
     };
     let t0 = std::time::Instant::now();
@@ -2110,8 +2044,8 @@ async fn a_session_records_writers_never_lose_each_others_change() {
     let rec: SessionRecord = r.core.store.get_session(&sid).unwrap().unwrap();
     assert_eq!(rec.turns, 2, "the first writer's change");
     assert_eq!(
-        rec.pending_recompile,
-        Some(crate::compiler::Recompile::Transcript),
+        rec.title.as_deref(),
+        Some("Renamed meanwhile"),
         "the second's"
     );
     assert!(waited, "the second writer waited for the first's write");
@@ -2759,7 +2693,6 @@ async fn a_turn_that_faults_with_a_call_unanswered_resumes_it_after_a_restart() 
                 target,
                 sink,
                 author: "test".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
@@ -2999,7 +2932,6 @@ async fn a_failed_turn_narrates_its_class_and_what_the_finished_loops_spent() {
             target,
             sink: EventSink::new(r.core.bus.clone(), &rec.session_id, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -3510,7 +3442,6 @@ async fn failing_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Error
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -3825,7 +3756,6 @@ async fn turn_on(core: &Arc<Core>, target: crate::turn::Target, input: &str) -> 
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -4000,7 +3930,6 @@ async fn a_model_with_no_price_is_not_called() {
             target,
             sink: EventSink::new(r.core.bus.clone(), "x", None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -5050,22 +4979,9 @@ async fn an_image_the_provider_refuses_is_shown_as_its_line_and_the_call_made_ag
     // A later turn does not resend it.
     let later = submit(&r.core, submit_params(Some(&sid), "And now?", vec![])).await;
     assert_eq!(later["output"], "Later.", "{later}");
-    // Nor does a recompile.
-    r.core
-        .store
-        .update_session(&sid, |rec| {
-            rec.pending_recompile = Some(crate::compiler::Recompile::Transcript);
-            Ok(vec![])
-        })
-        .unwrap();
+    // Nor does the turn after it.
     let again = submit(&r.core, submit_params(Some(&sid), "Once more?", vec![])).await;
     assert_eq!(again["output"], "After the recompile.", "{again}");
-    let compiled = ledgered(&r, "context.compiled");
-    assert_eq!(
-        compiled.last().unwrap()["trigger"],
-        "manual_transcript",
-        "{compiled:?}"
-    );
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 4);
     for q in &reqs[1..] {
@@ -5099,7 +5015,6 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
             target,
             sink,
             author: "discord:zeroaltitude".into(),
-            recompile: None,
             attachments: files,
             arrived: None,
             reply_to: None,
@@ -6933,7 +6848,6 @@ mod parallel {
                 target,
                 sink,
                 author: "test".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,
@@ -7911,7 +7825,6 @@ async fn a_failed_turn_posts_its_failure_to_its_place() {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

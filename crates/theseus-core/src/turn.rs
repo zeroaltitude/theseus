@@ -33,9 +33,7 @@ use theseus_store::{frames_written_here, NewRecord};
 use crate::advancer::{Advancer, Decision, LoopOutcome, UntilNoToolCalls};
 use crate::bus::{EventSink, SessionBus};
 use crate::catalog::Catalog;
-use crate::compiler::{
-    compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
-};
+use crate::compiler::{compile, situation, CompileInput, Compiled, Overflowed, RequestSpec};
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
 use crate::content::{footer_labels, ItemKind};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
@@ -495,10 +493,9 @@ struct Turn<'a> {
 /// a failure does.
 pub const FAULT_CLASS: &str = "internal";
 
-/// Where a turn's body left it: to end as it planned, with the recompile it
-/// took and did not apply, or to fail as it reports.
+/// Where a turn's body left it: to end as it planned, or to fail as it reports.
 enum Next {
-    Finish(Option<Recompile>),
+    Finish,
     Fail(Failure),
 }
 
@@ -508,7 +505,6 @@ struct Asked {
     input: Option<String>,
     attachments: Vec<theseus_protocol::Attachment>,
     author: String,
-    recompile: Option<Recompile>,
     prompt: Option<crate::mcp::prompts::PromptInput>,
     /// The session's target, when the turn runs elsewhere than its last
     /// turn did: the input's frame writes it.
@@ -1619,7 +1615,6 @@ impl TurnRunner {
             mut target,
             sink,
             author,
-            recompile,
             attachments,
             reply_to,
             prompt,
@@ -1710,7 +1705,6 @@ impl TurnRunner {
             input,
             attachments,
             author,
-            recompile,
             prompt,
             moved: moved.then_some(runs_on),
         };
@@ -1724,7 +1718,7 @@ impl TurnRunner {
         })
         .await
         {
-            Ok(Next::Finish(force)) => self.finish(t, &mut session, force),
+            Ok(Next::Finish) => self.finish(t, &mut session),
             Ok(Next::Fail(f)) => Err(Self::fail(t, &mut session, f)),
             Err(e) => Err(Self::fault(t, &mut session, e)),
         }
@@ -1772,7 +1766,6 @@ impl TurnRunner {
             input,
             attachments,
             author,
-            recompile,
             prompt,
             moved,
         } = asked;
@@ -1875,22 +1868,8 @@ impl TurnRunner {
             });
             self.persona_file_missing(u);
         }
-        // A recompile the operator asked for is taken from the stored record
-        // under its lock, so one asked while this turn runs stays for the
-        // next turn instead of being written over (theseus-xeo). A turn with
-        // none pending writes nothing for it.
-        let asked = if session.pending_recompile.is_some() {
-            let mut taken = None;
-            t.tc.store.update_session(sid, |r| {
-                taken = r.pending_recompile.take();
-                Ok(vec![])
-            })?;
-            session.pending_recompile = None;
-            taken
-        } else {
-            None
-        };
-        let mut force = recompile.or(asked);
+        // A new chain within the turn, when the provider dropped a block whose prefix changed.
+        let mut force = false;
         // A provider's 400 that names an image hides it, and the call is made
         // again with its line, once a turn (theseus-0s4); `strip` asks the
         // next compilation to drop the thinking the change sat under.
@@ -1959,7 +1938,7 @@ impl TurnRunner {
                     &mut spec,
                     &mut routed_to,
                     routed,
-                    force.take(),
+                    std::mem::take(&mut force),
                     strip.take(),
                     overflow.as_ref().map(|o| &o.hint),
                     i,
@@ -2017,7 +1996,7 @@ impl TurnRunner {
                     // still holds it: the next compile strips the old thinking, so the call
                     // after it is not made twice (`provider::binding::repeat_for`).
                     if called.0.prefix_repeated {
-                        force = Some(crate::compiler::Recompile::Transcript);
+                        force = true;
                     }
                     *called
                 }
@@ -2186,9 +2165,8 @@ impl TurnRunner {
         }
 
         // 4. The caller's: results that settled while this turn ran, the
-        // books, the park. A recompile this turn took and never applied (the
-        // model was not called) goes back for the next.
-        Ok(Next::Finish(force))
+        // books, the park.
+        Ok(Next::Finish)
     }
 }
 

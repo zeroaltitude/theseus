@@ -199,7 +199,6 @@ pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmit
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -79,10 +79,9 @@ test('entities: sessions, tasks, threads, routines, projects and profiles, each 
   assert.match(es.find((e) => e.id === 'ses_t1')!.hint, /sensitive/)
 })
 
-test('session life: recompile for sessions, nudge and retire for conversations, reopen for the retired; retire asks', () => {
+test('session life: nudge and retire for conversations, reopen for the retired; retire asks; nothing recompiles', () => {
   const es = verbEntries([t('a', { kind: 'conversation' }), t('b', { kind: 'conversation', retired: true }), t('c')], cx)
-  assert.equal(by(es, 'recompile:fresh').plans.length, 3)
-  assert.deepEqual(by(es, 'recompile:fresh').plans[0].params, { session_id: 'a', strategy: 'fresh' })
+  assert.ok(!es.some((e) => e.id.startsWith('recompile')))
   assert.deepEqual(by(es, 'nudge:off').plans.map((p) => p.params), [{ session_id: 'a', on: false }, { session_id: 'b', on: false }])
   assert.deepEqual(by(es, 'retire').plans.map((p) => p.key), ['a:retire'])
   assert.match(by(es, 'retire').plans[0].ask!, /Retire 1 conversation/)

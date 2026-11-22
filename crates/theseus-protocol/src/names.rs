@@ -44,7 +44,7 @@ pub mod method {
         CONFIRM_LIST = "confirm.list",
         SESSION_HISTORY = "session.history",
         SESSION_WATCH = "session.watch", SESSION_UNWATCH = "session.unwatch",
-        SESSION_RECOMPILE = "session.recompile", SESSION_NUDGE = "session.nudge", SESSION_MODE = "session.mode",
+        SESSION_NUDGE = "session.nudge", SESSION_MODE = "session.mode",
         SESSION_PROFILE = "session.profile",
         /// A new conversation from any moment of another, by reference (theseus-2qzx, `fork::SessionForkParams`).
         SESSION_FORK = "session.fork",

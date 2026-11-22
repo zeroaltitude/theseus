@@ -217,7 +217,6 @@ impl Reviewer for CheckTurn {
                 target: ask.target.clone(),
                 sink,
                 author: "self:review".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,

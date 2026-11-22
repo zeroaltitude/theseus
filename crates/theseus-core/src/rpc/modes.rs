@@ -26,7 +26,6 @@ use theseus_store::{kinds, Page};
 use super::server::{Conn, RpcFailure};
 use super::sessions::refused;
 use super::{Act, Core};
-use crate::compiler::Recompile;
 use crate::fact::modes::ModeChanged;
 use crate::ledger::LedgerRow;
 use crate::session::SessionRecord;
@@ -120,15 +119,6 @@ impl Core {
             plan: &plan,
             by: &who.label,
         });
-        if mode == SessionMode::Plan {
-            // The mode is set whatever this says: a failure only costs the next
-            // turn a search for the plan tools.
-            if let Err(e) =
-                self.request_recompile(&p.session_id, Recompile::Transcript, "plan mode")
-            {
-                tracing::warn!(error = %format!("{e:#}"), "a recompile for plan mode was not requested");
-            }
-        }
         Ok(result(&p.session_id, mode, &plan, Some(was)))
     }
 

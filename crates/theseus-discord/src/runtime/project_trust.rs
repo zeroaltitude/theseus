@@ -165,7 +165,7 @@ fn said(granted: bool, r: Result<ProjectGrant, crate::rpc_client::CallError>) ->
     match r {
         Ok(g) if granted => format!(
             "🔓 Trusted `{}` ({}): its AGENTS.md and CLAUDE.md join the system block from the \
-             next recompile.",
+             next turn.",
             g.root, g.id
         ),
         Ok(g) => format!(

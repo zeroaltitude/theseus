@@ -270,7 +270,6 @@ async fn a_pending_confirms_card_is_on_every_page() {
             target,
             sink: EventSink::new(core.bus.clone(), &sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -13,12 +13,7 @@ const PREF: &str =
 /// The words every head carries, whole, so a later edit cannot drop them.
 const FRAMING: &str = "These are the owner's standing records, carried on every request: they are not new, and are never to be acknowledged, thanked or restated to the owner.";
 
-pub(super) async fn turn_via(
-    core: &Arc<Core>,
-    sid: &str,
-    input: &str,
-    recompile: Option<crate::compiler::Recompile>,
-) {
+pub(super) async fn turn_via(core: &Arc<Core>, sid: &str, input: &str) {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -36,7 +31,6 @@ pub(super) async fn turn_via(
             target,
             sink,
             author: format!("discord:{OWNER}"),
-            recompile,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -71,15 +65,9 @@ async fn a_surface_preference_is_carried_with_its_framing_across_a_cold_resume()
         PREF,
     );
     let sid = session(&r.core, None);
-    turn_via(&r.core, &sid, "What is on today?", None).await;
+    turn_via(&r.core, &sid, "What is on today?").await;
     let first = r.last_request();
-    turn_via(
-        &r.core,
-        &sid,
-        "And tomorrow?",
-        Some(crate::compiler::Recompile::Transcript),
-    )
-    .await;
+    turn_via(&r.core, &sid, "And tomorrow?").await;
     let resumed = r.last_request();
     let mut seen = 0;
     for req in [&first, &resumed] {

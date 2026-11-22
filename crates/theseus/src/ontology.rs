@@ -290,7 +290,7 @@ async fn row_accept(
         .await?;
     output(json, v, |r: OntologyProposalAcceptAllResult| {
         println!(
-            "{} of {}'s {} accepted, as {to}; each session joins at its next recompile.",
+            "{} of {}'s {} accepted, as {to}; each session joins at its next turn.",
             r.accepted.len(),
             row.name,
             count_proposals(row.judgments.len())
@@ -416,7 +416,7 @@ async fn person(conn: &mut Conn, json: bool, cmd: PersonCmd) -> Result<()> {
 fn answered(r: OntologyProposalAnswered) -> Result<()> {
     match &r.topic {
         Some(t) => println!(
-            "{}: accepted; {} joins {t} (yours, operator), at its next recompile. Label {}.",
+            "{}: accepted; {} joins {t} (yours, operator), at its next turn. Label {}.",
             r.judgment, r.session_id, r.label_id
         ),
         None => println!("{}: rejected. Label {}.", r.judgment, r.label_id),
@@ -451,7 +451,7 @@ async fn guide(conn: &mut Conn, json: bool, category: String, text: Option<Strin
             true => println!("{}: no guidance (version {}).", g.category, g.version),
             false => println!(
                 "{}: guidance version {}, {} bytes, digest {}. A session that carries it \
-                 recompiles at its next turn.",
+                 reads it at its next turn.",
                 g.category,
                 g.version,
                 g.text.len(),
@@ -507,8 +507,7 @@ async fn member(conn: &mut Conn, json: bool, session: String, changes: Vec<Strin
         match r.changed.is_empty() {
             true => println!("Nothing changed."),
             false => println!(
-                "They apply at the session's next recompile: `theseus sessions recompile \
-                 {}` asks for one.",
+                "They apply at {}'s next turn: a changed system text starts a new chain then.",
                 r.session_id
             ),
         }

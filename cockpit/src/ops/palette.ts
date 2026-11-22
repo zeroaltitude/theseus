@@ -74,7 +74,7 @@ export interface Ctx { profiles: readonly ProfileInfo[]; prices: ReadonlyMap<str
 const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`
 
 /** The table's verb each entry is: the palette reads `verbs.ts`, so its methods and postures are the table's. */
-const TABLE_VERB = (id: string): string => (id === 'pause' || id === 'resume' ? 'task_pause' : id === 'mode:auto' ? 'mode_auto' : id.startsWith('mode:') ? 'mode' : id.startsWith('model:') ? 'model_sticky' : id.startsWith('recompile:') ? 'recompile' : id.startsWith('nudge:') ? 'nudge' : id)
+const TABLE_VERB = (id: string): string => (id === 'pause' || id === 'resume' ? 'task_pause' : id === 'mode:auto' ? 'mode_auto' : id.startsWith('mode:') ? 'mode' : id.startsWith('model:') ? 'model_sticky' : id.startsWith('nudge:') ? 'nudge' : id)
 
 function entry(id: string, label: string, takes: Array<{ t: OpsTarget; plan: Plan }>, skipped: Array<{ t: OpsTarget; why: string }>, extra = ''): Entry {
   const why = new Map<string, number>()
@@ -122,12 +122,7 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
     out.push(entry(`mode:${m}`, `Mode: ${m}`, ok.map((t) => ({ t, plan: { verb: 'mode_set', key: `${t.sessionId}:mode`, method: 'session.mode', params: { session_id: t.sessionId, mode: m }, ask: m === 'auto' ? 'Set Auto? It then acts without asking (the floor still asks).' : undefined } })),
       targets.filter((t) => !ok.includes(t)).map((t) => ({ t, why: 'not a conversation' }))))
   }
-  // Session life: recompile (the next turn's context again), the stop-nudge, retire and reopen.
-  const talk = targets.filter((t) => t.sessionId && (t.kind === 'conversation' || t.kind === 'task'))
-  const notTalk = targets.filter((t) => !talk.includes(t)).map((t) => ({ t, why: 'not a session' }))
-  for (const strategy of ['transcript', 'fresh'] as const) {
-    out.push(entry(`recompile:${strategy}`, `Recompile (${strategy})`, talk.map((t) => ({ t, plan: { verb: 'session_life', key: `${t.sessionId}:recompile`, method: 'session.recompile', params: { session_id: t.sessionId, strategy } } })), notTalk))
-  }
+  // Session life: the stop-nudge, retire and reopen.
   const convs = targets.filter((t) => t.kind === 'conversation' && t.sessionId)
   const notConv = targets.filter((t) => !convs.includes(t)).map((t) => ({ t, why: 'not a conversation' }))
   for (const on of [true, false]) {

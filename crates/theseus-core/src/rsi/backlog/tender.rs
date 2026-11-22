@@ -125,7 +125,6 @@ impl Core {
                     target,
                     sink,
                     author: "self:backlog".into(),
-                    recompile: None,
                     attachments: vec![],
                     arrived: None,
                     reply_to: None,

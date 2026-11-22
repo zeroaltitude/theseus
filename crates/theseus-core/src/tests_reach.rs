@@ -13,7 +13,6 @@ use theseus_protocol::{
 use theseus_store::{kinds, Store as _};
 
 use crate::bus::EventSink;
-use crate::compiler::Recompile;
 use crate::graph::{Edge, EdgeKind};
 use crate::node::{Body, Node};
 use crate::provider::{
@@ -109,12 +108,7 @@ fn conversation(core: &Core) -> String {
     rec.session_id
 }
 
-async fn turn(
-    core: &Arc<Core>,
-    sid: &str,
-    input: &str,
-    recompile: Option<Recompile>,
-) -> TurnSubmitResult {
+async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -128,7 +122,6 @@ async fn turn(
             target,
             sink,
             author: "test".into(),
-            recompile,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -213,7 +206,7 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
     let r = rig(colours);
     let manifest = std::fs::read(r.dir.path().join("store/MANIFEST.json")).unwrap();
     let parent = conversation(&r.core);
-    turn(&r.core, &parent, "START the colour task", None).await;
+    turn(&r.core, &parent, "START the colour task").await;
     let task = finished_task(&r.core, &parent).await;
     let tnodes = nodes(&r.core, &task.session_id);
     let (last, text) = crate::task::last_message(tnodes.iter().map(|(_, n)| n)).unwrap();
@@ -221,14 +214,8 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
 
     // The parent's next turn reads the report and recompiles, so its
     // compilation holds the relayed node; the turn after reads it again.
-    turn(
-        &r.core,
-        &parent,
-        "What did it find?",
-        Some(Recompile::Transcript),
-    )
-    .await;
-    turn(&r.core, &parent, "And then?", None).await;
+    turn(&r.core, &parent, "What did it find?").await;
+    turn(&r.core, &parent, "And then?").await;
     let (at, copy) = relayed(&r.core, &parent);
 
     // The edge: in the report's frame, right after the node it writes.
@@ -348,7 +335,7 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
 async fn reach_follows_a_brief_into_its_task() {
     let r = rig(colours);
     let parent = conversation(&r.core);
-    turn(&r.core, &parent, "START the colour task", None).await;
+    turn(&r.core, &parent, "START the colour task").await;
     let task = finished_task(&r.core, &parent).await;
     let pnodes = nodes(&r.core, &parent);
     let (holder, call) = pnodes
@@ -419,8 +406,8 @@ async fn reach_follows_a_brief_into_its_task() {
 async fn a_session_with_no_edges_answers_its_own_exposure_only() {
     let r = rig(|_| Scripted::text("Noted."));
     let sid = conversation(&r.core);
-    turn(&r.core, &sid, "the first message", None).await;
-    turn(&r.core, &sid, "the second message", None).await;
+    turn(&r.core, &sid, "the first message").await;
+    turn(&r.core, &sid, "the second message").await;
     assert_eq!(r.core.store.inner().count_of_kind(kinds::EDGE).unwrap(), 0);
     let all = nodes(&r.core, &sid);
     let first = &all[0].1;
@@ -453,14 +440,14 @@ async fn a_turn_that_reads_a_report_writes_no_extra_frame_for_its_edge() {
     let frames = || r.core.store.stats().unwrap().frames_appended;
     let parent = conversation(&r.core);
     let other = conversation(&r.core);
-    turn(&r.core, &parent, "START the colour task", None).await;
+    turn(&r.core, &parent, "START the colour task").await;
     finished_task(&r.core, &parent).await;
-    turn(&r.core, &other, "warm up", None).await;
+    turn(&r.core, &other, "warm up").await;
     let f0 = frames();
-    turn(&r.core, &other, "a plain turn", None).await;
+    turn(&r.core, &other, "a plain turn").await;
     let plain = frames() - f0;
     let f0 = frames();
-    turn(&r.core, &parent, "a turn that reads the report", None).await;
+    turn(&r.core, &parent, "a turn that reads the report").await;
     let reading = frames() - f0;
     assert_eq!(
         reading,
@@ -514,7 +501,7 @@ async fn call(core: &Arc<Core>, m: &str, params: Value) -> Result<Value, i64> {
 async fn node_reach_answers_over_the_protocol() {
     let r = rig(|_| Scripted::text("Noted."));
     let sid = conversation(&r.core);
-    turn(&r.core, &sid, "a message", None).await;
+    turn(&r.core, &sid, "a message").await;
     let first = nodes(&r.core, &sid)[0].1.id.clone();
     let ok = call(&r.core, method::NODE_REACH, json!({"node_id": first})).await;
     let got: NodeReachResult = serde_json::from_value(ok.unwrap()).unwrap();

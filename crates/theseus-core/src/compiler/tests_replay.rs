@@ -98,7 +98,7 @@ fn compile_with(
         last_position: last,
         spec: &s,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: Some(window),
         blobs: None,
         hidden: &[],

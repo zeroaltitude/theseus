@@ -356,7 +356,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> theseus_protocol::Tur
             target,
             sink,
             author: "cli".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

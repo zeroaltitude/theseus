@@ -98,7 +98,6 @@ async fn say(r: &Rig, input: &str) -> TurnSubmitResult {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

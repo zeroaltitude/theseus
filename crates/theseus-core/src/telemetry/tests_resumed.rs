@@ -70,7 +70,6 @@ async fn turn(core: &Arc<Core>, input: &str) -> TurnSubmitResult {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

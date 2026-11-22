@@ -444,7 +444,7 @@ impl TurnRunner {
         spec: &mut RequestSpec,
         provider: &mut Option<Arc<dyn Provider>>,
         slot: &'a OnceLock<Target>,
-        force: Option<Recompile>,
+        force: bool,
         strip: Option<&'static str>,
         overflow: Option<&Overflowed>,
         i: u32,
@@ -531,7 +531,7 @@ impl TurnRunner {
         spec: &mut RequestSpec,
         provider: &mut Option<Arc<dyn Provider>>,
         slot: &'a OnceLock<Target>,
-        force: Option<Recompile>,
+        force: bool,
         strip: Option<&'static str>,
         overflow: Option<&Overflowed>,
         i: u32,
@@ -1015,7 +1015,7 @@ impl TurnRunner {
         session: &mut SessionRecord,
         spec: &mut RequestSpec,
         compiled: Compiled,
-        again: (Option<Recompile>, Option<&'static str>, Option<&Overflowed>),
+        again: (bool, Option<&'static str>, Option<&Overflowed>),
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
         if !self.tools_behind(t) {

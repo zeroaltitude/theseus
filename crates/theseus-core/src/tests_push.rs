@@ -107,7 +107,6 @@ async fn turn_result(core: &Arc<Core>, session: Option<&str>) -> TurnSubmitResul
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

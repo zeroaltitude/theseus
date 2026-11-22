@@ -162,7 +162,7 @@ impl Session {
         format!("c{}", self.calls)
     }
 
-    fn apply(&mut self, s: &Step) -> Option<Recompile> {
+    fn apply(&mut self, s: &Step) -> bool {
         match s {
             Step::Said(n, new) => {
                 self.turn += usize::from(*new);
@@ -241,9 +241,9 @@ impl Session {
                     self.push(n);
                 }
             }
-            Step::Recompiled => return Some(Recompile::Transcript),
+            Step::Recompiled => return true,
         }
-        None
+        false
     }
 }
 
@@ -251,7 +251,7 @@ fn compile_with_kept(
     nodes: &[(u64, crate::stub::Stub)],
     current: Option<&Compilation>,
     window: u64,
-    force: Option<Recompile>,
+    force: bool,
     kept: Option<&kept::Kept>,
 ) -> Compiled {
     compile_on(&spec(), nodes, current, (window, force), kept)
@@ -261,7 +261,7 @@ fn compile_on(
     spec: &RequestSpec,
     nodes: &[(u64, crate::stub::Stub)],
     current: Option<&Compilation>,
-    (window, force): (u64, Option<Recompile>),
+    (window, force): (u64, bool),
     kept: Option<&kept::Kept>,
 ) -> Compiled {
     compile(CompileInput {
@@ -341,7 +341,7 @@ fn appends_take_up_the_kept_render() {
             .iter()
             .map(|(p, n)| (*p, n.clone().into()))
             .collect();
-        let c = compile_with_kept(&nodes, current.as_ref(), 1_000_000, None, Some(&kept));
+        let c = compile_with_kept(&nodes, current.as_ref(), 1_000_000, false, Some(&kept));
         current = Some(c.compilation);
     }
     let (hits, misses) = kept.counts();
@@ -383,7 +383,7 @@ fn a_timeout_fallback_keeps_the_kept_render() {
                 &spec,
                 &nodes,
                 current.as_ref(),
-                (1_000_000, None),
+                (1_000_000, false),
                 Some(&kept),
             );
             current = Some(c.compilation);

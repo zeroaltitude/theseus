@@ -346,7 +346,6 @@ impl Core {
             // The first watch of any kind seeds the push (theseus-tq04).
             method::SESSION_WATCH => reply(self.session_watch(parse(params)?, conn).await?),
             method::SESSION_UNWATCH => route(params, |p| Ok(self.session_unwatch(p, conn))),
-            method::SESSION_RECOMPILE => route(params, |p| self.session_recompile(p, conn)),
             method::CATALOG_LIST => reply(self.catalog_list()),
             method::COMPILATION_LIST => route(params, |p| self.compilation_list(p)),
             method::NODE_LIST => route(params, |p| self.node_list_on(p, conn.surface)),

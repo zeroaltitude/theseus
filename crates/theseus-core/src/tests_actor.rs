@@ -97,26 +97,3 @@ async fn a_profile_use_names_its_surface_not_its_label() {
         assert_eq!(newest(&core, "profile.changed")["by"], by);
     }
 }
-
-/// `session.recompile`: its `context.recompile_requested` row names the
-/// surface.
-#[tokio::test]
-async fn a_recompile_names_its_surface_not_its_label() {
-    let core = core();
-    let rec = SessionRecord::new(SessionKind::Conversation, None);
-    core.store.put_session(&rec.session_id, &rec).unwrap();
-    for (client, by) in clients() {
-        rpc_as(
-            &core,
-            client,
-            method::SESSION_RECOMPILE,
-            json!({"session_id": rec.session_id, "strategy": "transcript"}),
-        )
-        .await;
-        let row = newest(&core, "context.recompile_requested");
-        assert_eq!(
-            (row["by"].as_str(), row["strategy"].as_str()),
-            (Some(by), Some("transcript"))
-        );
-    }
-}

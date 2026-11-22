@@ -131,7 +131,7 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         session: &mut SessionRecord,
         spec: &RequestSpec,
-        force: Option<Recompile>,
+        force: bool,
         strip: Option<&'static str>,
         overflowed: Option<&Overflowed>,
         i: u32,
@@ -159,7 +159,7 @@ impl TurnRunner {
         let read_before = crate::stub::read(&nodes);
         ph.mark("views");
         // The prefix library's third layer, picked only at a compile point.
-        let point = current.is_none() || force.is_some() || cold_spec.is_some();
+        let point = current.is_none() || force || cold_spec.is_some();
         let (prefix_spec, picked) = self.prefix_pick(t, spec, (current.as_ref(), &nodes), point, i);
         let spec = prefix_spec.as_ref().unwrap_or(spec);
         let assembled = t.recall.assembled_id().map(str::to_string);

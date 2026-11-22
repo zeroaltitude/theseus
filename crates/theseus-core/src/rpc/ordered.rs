@@ -47,13 +47,12 @@ use super::Core;
 /// recompile asked for, the owner's retire and reopen, and a mode's change. A task's cancel
 /// and a wake's name another execution than the caller's session, and
 /// `profile.use` no session at all: they stay unordered.
-pub(super) const ORDERED: [&str; 9] = [
+pub(super) const ORDERED: [&str; 8] = [
     method::TURN_SUBMIT,
     method::ACTION_CONFIRM,
     method::WORK_ANSWER,
     method::EXECUTION_STOP,
     method::EXECUTION_CANCEL,
-    method::SESSION_RECOMPILE,
     method::SESSION_RETIRE,
     method::SESSION_REOPEN,
     method::SESSION_MODE,

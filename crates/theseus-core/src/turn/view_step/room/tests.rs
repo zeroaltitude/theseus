@@ -181,7 +181,6 @@ async fn turn(core: &Arc<Core>) -> anyhow::Result<TurnSubmitResult> {
             target,
             sink: EventSink::new(core.bus.clone(), &sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

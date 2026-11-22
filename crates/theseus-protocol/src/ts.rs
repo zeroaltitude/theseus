@@ -198,7 +198,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         SessionOpenParams, SessionInfo, SessionListResult, TurnSubmitParams, Attachment, sessions::SessionRetireParams, sessions::SessionReopenParams, money::ExecutionReopenParams, money::ExecutionReopenResult, money::ActionSettleParams, money::ActionSettleResult,
         ProfileInfo, ProfileListResult, ProfileUseParams, ProfileChanged, ProfileReleaseResult, ops::PinnedSession, ops::ProfilePinsResult, ops::ProfileUnpinParams, ops::UnpinFailure, ops::ProfileUnpinResult, Span, Usage,
         TurnSubmitResult, LedgerTailParams, LedgerEntry, LedgerTailResult, LedgerWindowParams, LedgerWindowResult, LedgerVerifyParams, LedgerVerifyResult, LedgerBreak, LedgerHead, SessionRef,
-        SessionHistoryParams, NodeInfo, SessionHistoryResult, SessionRecompileParams,
+        SessionHistoryParams, NodeInfo, SessionHistoryResult,
         NodeListParams, NodeListResult, NodeReachParams, ReachCompilation, ReachExposure,
         ReachDescendant, ReachTotals, NodeReachResult, CompilationListParams, CompilationInfo,
         CompilationListResult, CatalogModel, CatalogListResult, ConfirmRequest, plain::PlainWords, BudgetAsk,

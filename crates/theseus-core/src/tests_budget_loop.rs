@@ -54,7 +54,6 @@ async fn the_loop_that_asks_the_budget_question_writes_its_loop_ended_row() {
             target,
             sink: EventSink::new(core.bus.clone(), &sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

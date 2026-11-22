@@ -45,14 +45,6 @@ pub struct NodeInfo {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct SessionRecompileParams {
-    pub session_id: String,
-    /// `fresh` (start over) or `transcript` (keep everything, thinking stripped).
-    pub strategy: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct NodeListParams {
     #[serde(default)]
     pub session_id: Option<String>,

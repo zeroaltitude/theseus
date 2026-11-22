@@ -464,14 +464,14 @@ async fn reads_and_other_sessions_answer_while_an_input_waits() {
         (6, method::SESSION_LIST, json!({})),
         (
             7,
-            method::SESSION_RECOMPILE,
-            json!({"session_id": other, "strategy": "fresh"}),
+            method::SESSION_MODE,
+            json!({"session_id": other, "mode": "ask"}),
         ),
     ])
     .await;
     ok(&wire.answered(5, "health").await);
     ok(&wire.answered(6, "session.list").await);
-    ok(&wire.answered(7, "another session's recompile").await);
+    ok(&wire.answered(7, "another session's mode").await);
     assert_eq!(
         r.inputs(&sid),
         ["warm"],
@@ -484,8 +484,8 @@ async fn reads_and_other_sessions_answer_while_an_input_waits() {
 }
 
 /// Two connections are not ordered against each other: each has its own
-/// lane. A recompile asked on the connection whose input is held waits for
-/// it; the same ask on another connection does not.
+/// lane. A mode set on the connection whose input is held waits for it; the
+/// same change on another connection does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_connections_are_not_ordered_against_each_other() {
     let r = rig(vec![]);
@@ -493,22 +493,22 @@ async fn two_connections_are_not_ordered_against_each_other() {
     let mut two = Wire::open(&r.core, "two");
     let sid = warm_session(&mut one).await;
     let go = hold_frame(&r.core, "hold-frame");
-    let recompile = json!({"session_id": sid, "strategy": "fresh"});
+    let mode = json!({"session_id": sid, "mode": "ask"});
     one.send(&[
         (2, method::TURN_SUBMIT, submit(&sid, "hold-frame")),
-        (3, method::SESSION_RECOMPILE, recompile.clone()),
+        (3, method::SESSION_MODE, mode.clone()),
     ])
     .await;
-    two.send(&[(1, method::SESSION_RECOMPILE, recompile)]).await;
-    ok(&two.answered(1, "the other connection's recompile").await);
+    two.send(&[(1, method::SESSION_MODE, mode)]).await;
+    ok(&two.answered(1, "the other connection's mode").await);
     let early = tokio::time::timeout(Duration::from_millis(300), one.response(3)).await;
     assert!(
         early.is_err(),
-        "the recompile behind the held input ran first: {early:?}"
+        "the mode behind the held input ran first: {early:?}"
     );
     go.send(()).unwrap();
     ok(&one.answered(2, "the held input").await);
-    ok(&one.answered(3, "the recompile behind it").await);
+    ok(&one.answered(3, "the mode behind it").await);
 }
 
 /// The lane itself: a lone request runs at once, a later one on its session
@@ -658,7 +658,7 @@ async fn two_sessions_on_one_connection_keep_their_own_order_and_neither_waits_f
     assert_eq!(r.inputs(&x), ["warm", "hold-model x", "x two"]);
 }
 
-/// A recompile, a retire and a reopen behind an input whose turn waits on a
+/// A mode, a retire and a reopen behind an input whose turn waits on a
 /// held model each answer while the model is still held: the lane frees at
 /// the input's frame, never at its turn's end.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -670,15 +670,15 @@ async fn the_owners_changes_behind_a_running_input_answer_before_its_model() {
         (2, method::TURN_SUBMIT, submit(&sid, "hold-model")),
         (
             3,
-            method::SESSION_RECOMPILE,
-            json!({"session_id": sid, "strategy": "fresh"}),
+            method::SESSION_MODE,
+            json!({"session_id": sid, "mode": "ask"}),
         ),
         (4, method::SESSION_RETIRE, json!({"session_id": sid})),
         (5, method::SESSION_REOPEN, json!({"session_id": sid})),
     ])
     .await;
     // Each answers, as it may (a refusal is an answer); none waits for the model.
-    wire.answered(3, "the recompile").await;
+    wire.answered(3, "the mode").await;
     wire.answered(4, "the retire").await;
     wire.answered(5, "the reopen").await;
     let early = tokio::time::timeout(Duration::from_millis(100), wire.response(2)).await;

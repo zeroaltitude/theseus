@@ -393,7 +393,7 @@ enum Cmd {
     },
     /// The ontology: the kinds of context, the categories (a bound place's channel or person,
     /// and the topics you declare) with their guidance, and sessions' memberships. A session's
-    /// system block carries the guidance of the categories it is in, from its next recompile.
+    /// system block carries the guidance of the categories it is in, from its next turn.
     #[command(hide = true)]
     Ontology {
         #[command(subcommand)]
@@ -979,7 +979,7 @@ enum OntologyCmd {
         text: Option<String>,
     },
     /// A session's memberships; with changes, `+CATEGORY` adds it and `-CATEGORY` takes it out.
-    /// They apply at the session's next recompile (`theseus sessions recompile`).
+    /// They apply at the session's next turn.
     Member {
         session: String,
         #[arg(allow_hyphen_values = true, value_name = "+CATEGORY|-CATEGORY")]
@@ -1326,13 +1326,6 @@ enum SessionsCmd {
         /// Human label shown in listings.
         #[arg(long)]
         label: Option<String>,
-    },
-    /// Ask for a recompile on the session's next turn: `fresh` keeps only the current exchange,
-    /// `transcript` keeps everything with thinking stripped.
-    Recompile {
-        session: String,
-        #[arg(long, default_value = "fresh", value_parser = ["fresh", "transcript"])]
-        strategy: String,
     },
     /// Retire a session by hand: it leaves the cockpit's default (live) view and its place's next
     /// message starts a successor. Nothing is deleted; `reopen` brings it back. The operator's own.

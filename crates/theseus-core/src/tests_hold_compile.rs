@@ -122,7 +122,6 @@ async fn run(core: &Core, sid: &str, input: &str) -> anyhow::Result<TurnSubmitRe
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: Vec::new(),
             arrived: None,
             reply_to: None,

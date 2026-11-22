@@ -71,7 +71,6 @@ async fn the_turns_entry_is_a_box_not_the_turns_future() {
         target,
         sink,
         author: "test".into(),
-        recompile: None,
         attachments: vec![],
         arrived: None,
         reply_to: None,

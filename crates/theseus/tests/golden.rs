@@ -1715,7 +1715,7 @@ fn catalog_says_what_the_configs_tables_change() {
 }
 
 #[test]
-fn sessions_list_open_and_recompile() {
+fn sessions_list_and_open() {
     let list = json!({"sessions": [
         {"session_id": S, "kind": "conversation", "label": null, "title": "Tidy the notes",
          "created_at_unix_ms": 1_759_300_000_000u64, "last_active_ms": 1_759_300_900_000u64,
@@ -1753,21 +1753,6 @@ fn sessions_list_open_and_recompile() {
         &run(
             &["--json", "sessions", "open"],
             vec![step("session.open", opened)],
-        ),
-    );
-    let recompiled = json!({"session_id": S, "strategy": "transcript"});
-    golden(
-        "sessions_recompile",
-        &run(
-            &["sessions", "recompile", S, "--strategy", "transcript"],
-            vec![step("session.recompile", recompiled.clone())],
-        ),
-    );
-    golden(
-        "sessions_recompile_json",
-        &run(
-            &["--json", "sessions", "recompile", S],
-            vec![step("session.recompile", recompiled)],
         ),
     );
 }

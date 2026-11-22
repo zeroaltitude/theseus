@@ -52,7 +52,7 @@ fn run(
         last_position: last,
         spec,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: window,
         blobs: None,
         hidden: &[],

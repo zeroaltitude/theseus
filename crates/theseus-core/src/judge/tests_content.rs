@@ -1816,7 +1816,6 @@ async fn take_a_turn(core: std::sync::Arc<crate::Core>, sid: String) {
             target,
             sink: crate::bus::EventSink::new(core.bus.clone(), &sid, None),
             author: "the CLI".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

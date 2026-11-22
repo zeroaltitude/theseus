@@ -1,7 +1,7 @@
 //! One turn to run (`TurnRequest`), moved out of turn.rs, which is at its
 //! line ceiling.
 
-use super::{EventSink, Recompile, SessionRecord, Target};
+use super::{EventSink, SessionRecord, Target};
 
 /// One turn to run.
 pub struct TurnRequest {
@@ -12,7 +12,6 @@ pub struct TurnRequest {
     pub sink: EventSink,
     /// The client that asked (`web#3`) or `harness` for a continuation.
     pub author: String,
-    pub recompile: Option<Recompile>,
     /// Files that came with the input (theseus-9g2); kept on its node.
     pub attachments: Vec<theseus_protocol::Attachment>,
     /// When the request reached the daemon; `None`: now.

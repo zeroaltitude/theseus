@@ -259,7 +259,6 @@ impl Rig {
                 sink: EventSink::new(self.core.bus.clone(), sid, None)
                     .from_agent(agent.map(str::to_string)),
                 author: "test".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,

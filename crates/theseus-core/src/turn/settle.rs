@@ -335,7 +335,6 @@ impl TurnRunner {
         &self,
         mut t: Turn<'_>,
         session: &mut SessionRecord,
-        unused_recompile: Option<Recompile>,
     ) -> Result<(TurnSubmitResult, TurnEnd, bool, Option<SessionHold>)> {
         let jobs = self.jobs_before(&t);
         let late = match self.take_late(&mut t) {
@@ -354,15 +353,12 @@ impl TurnRunner {
         // happens, so a label this turn raised is on the reply that carries
         // it. No store read of its own; the words are `content::footer_labels`.
         let mut labels = vec![];
-        // Only the turn's own fields: a recompile asked meanwhile stays
+        // Only the turn's own fields: a change written meanwhile stays
         // (theseus-xeo). The record rides in the turn's last frame, where
         // the rows before it here and after it wait too; the span times its
         // making, and the frame's write is `end_turn`'s.
         let hold = match t.tc.store.defer_session(t.tc.session_id, |r| {
             r.take_turns_fields(session);
-            if r.pending_recompile.is_none() {
-                r.pending_recompile = unused_recompile;
-            }
             labels = footer_labels(&self.cfg.cockpit, t.tc.session_id, r.data.as_deref());
         }) {
             Ok(hold) => hold,

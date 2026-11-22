@@ -105,7 +105,6 @@ async fn start_job(r: &Rig) -> (String, String) {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

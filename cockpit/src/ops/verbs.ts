@@ -62,7 +62,6 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'mode', label: 'Set the mode', on: ['session', 'conversation'], methods: ['session.mode'], posture: 'do' },
   { id: 'mode_auto', label: 'Set the mode to Auto', on: ['session', 'conversation'], methods: ['session.mode'], posture: 'ask' },
   { id: 'nudge', label: 'Stop-nudge on or off', on: ['session', 'conversation'], methods: ['session.nudge'], posture: 'do' },
-  { id: 'recompile', label: 'Recompile', on: ['session', 'conversation'], methods: ['session.recompile'], posture: 'do' },
   { id: 'fork', label: 'Fork', on: ['session', 'conversation'], methods: ['session.fork'], posture: 'do' },
   { id: 'retire', label: 'Retire', on: ['session', 'conversation'], methods: ['session.retire'], posture: 'ask' },
   { id: 'reopen', label: 'Reopen', on: ['session', 'conversation'], methods: ['session.reopen'], posture: 'do' },

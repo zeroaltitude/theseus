@@ -307,7 +307,6 @@ async fn without_google_the_morning_note_is_what_it_was() {
             target,
             sink,
             author: format!("discord:{OWNER}"),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

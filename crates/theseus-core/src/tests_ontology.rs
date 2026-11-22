@@ -17,7 +17,7 @@ use theseus_protocol::{
 
 use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
-use crate::compiler::{Compilation, Recompile};
+use crate::compiler::Compilation;
 use crate::context_files::{ContextEntry, ContextFileEntry, ContextReaders};
 use crate::places::BoundPlace;
 use crate::provider::{
@@ -140,7 +140,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
             target,
             sink,
             author: format!("discord:{OWNER}"),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -301,11 +300,10 @@ async fn a_topics_guidance_is_in_the_system_block_under_its_header() {
     );
 }
 
-/// The design's second: a membership set while a session appends waits for
-/// its next recompile, so its system block (and the prompt cache) stays as
-/// it was; `theseus sessions recompile` applies it.
+/// The design's second, under the view: a membership set between turns applies at the session's next turn,
+/// whose system text then carries the category's guidance (a changed system text starts a new chain).
 #[tokio::test]
-async fn a_membership_change_waits_for_the_next_recompile() {
+async fn a_membership_change_applies_at_the_next_turn() {
     let r = rig();
     r.topic("theseus", RULES);
     let sid = session(&r.core, None);
@@ -314,19 +312,7 @@ async fn a_membership_change_waits_for_the_next_recompile() {
 
     r.member(&sid, &["theseus"]);
     turn(&r.core, &sid, "two").await;
-    assert!(
-        !system_text(&r.last_request()).contains(RULES),
-        "the change waits for a recompile"
-    );
-    assert_eq!(r.triggers(&sid), ["new_session"]);
-    assert!(r.compilation(&sid).manifest.memberships.is_empty());
-
-    r.core
-        .request_recompile(&sid, Recompile::Transcript, "the CLI")
-        .unwrap();
-    turn(&r.core, &sid, "three").await;
     assert!(system_text(&r.last_request()).contains(RULES));
-    assert_eq!(r.triggers(&sid), ["new_session", "manual_transcript"]);
     let m = r.compilation(&sid).manifest;
     assert_eq!(m.memberships.len(), 1);
     assert_eq!(m.memberships[0].category.as_str(), "topic:theseus");
@@ -457,9 +443,6 @@ async fn admissions_are_identical_with_and_without_memberships() {
         turn(&r.core, &sid, "one").await;
         let without = admissions(&r, &sid);
         r.member(&sid, &["theseus"]);
-        r.core
-            .request_recompile(&sid, Recompile::Transcript, "the CLI")
-            .unwrap();
         turn(&r.core, &sid, "two").await;
         assert_eq!(admissions(&r, &sid), without, "{place:?}");
         let system = system_text(&r.last_request());

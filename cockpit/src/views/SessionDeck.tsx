@@ -303,33 +303,11 @@ function Header({ s, exec, onBack }: { s: SessionHistory['session']; exec?: Exec
       <div className="ml-auto flex items-center gap-2">
         {s.kind === 'conversation' && <RetireButton sessionId={s.session_id} state={s.state} retired={s.retired} />}
         <PendingNote sessionId={s.session_id} />
-        <Recompile busy={!!busy?.startsWith('Recompile')} onPick={(strategy) => act(`Recompile (${strategy})`, 'session.recompile', { session_id: s.session_id, strategy }).then(() => undefined)} />
         {exec && ['running', 'queued'].includes(exec.state) &&
           <Btn tone="wait" title="Halt the running turn; the session stays" onClick={() => act('Stop', 'execution.stop', { execution_id: exec.execution_id })} busy={busy === 'Stop'}><Pause size={13} /> Stop</Btn>}
         {exec && ['running', 'queued', 'waiting'].includes(exec.state) &&
           <Btn tone="fault" title="End this execution" onClick={() => act('Cancel', 'execution.cancel', { execution_id: exec.execution_id })} busy={busy === 'Cancel'}><OctagonX size={13} /> Cancel</Btn>}
       </div>
-    </div>
-  )
-}
-
-/** session.recompile: the next turn's context is compiled again, from the whole transcript (thinking stripped) or
- *  fresh (starting over). A small menu, since the two do very different things. */
-function Recompile({ onPick, busy }: { onPick: (strategy: 'transcript' | 'fresh') => void; busy: boolean }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <Btn tone="live" title="Compile this session's context again for its next turn" onClick={() => setOpen((v) => !v)} busy={busy}><Layers size={13} /> Recompile</Btn>
-      {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-md border border-line-strong bg-deck p-1 shadow-xl">
-          {([['transcript', 'Keep everything, with the thinking stripped'], ['fresh', 'Start over: the next turn sees only what is new']] as const).map(([k, what]) => (
-            <button key={k} onClick={() => { setOpen(false); onPick(k) }} className="flex w-full flex-col items-start rounded px-2 py-1.5 text-left hover:bg-white/5">
-              <span className="num text-[12px] text-live">{k}</span>
-              <span className="text-[11px] text-ink-faint">{what}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

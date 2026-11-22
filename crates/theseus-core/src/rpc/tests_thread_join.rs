@@ -854,7 +854,6 @@ async fn the_receiving_thread_is_rewritten_at_its_next_recompile_not_before() {
             target,
             sink: crate::bus::EventSink::new(c.bus.clone(), &b, None),
             author: "test".into(),
-            recompile: Some(crate::compiler::Recompile::Transcript),
             attachments: vec![],
             arrived: None,
             reply_to: None,

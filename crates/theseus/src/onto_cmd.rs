@@ -82,7 +82,7 @@ pub async fn undo(conn: &mut Conn, json: bool, write: String) -> Result<()> {
         .await?;
     output(json, v, |r: OntologyUndoResult| {
         println!(
-            "Undone {}: {} put back. They apply at the session's next recompile.",
+            "Undone {}: {} put back. They apply at the session's next turn.",
             r.write,
             match r.keys.len() {
                 1 => "1 record".to_string(),

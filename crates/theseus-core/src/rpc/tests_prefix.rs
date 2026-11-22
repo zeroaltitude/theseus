@@ -73,7 +73,6 @@ async fn say(core: &Arc<Core>, sid: &str, input: &str) {
             target,
             sink: EventSink::new(core.bus.clone(), sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -141,7 +141,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) {
             target,
             sink,
             author: "the CLI".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -923,43 +922,6 @@ async fn a_forks_history_is_the_prefix_then_its_own_turns_and_pages_across_the_j
     let fwd = page(Some(3), Some(from), None);
     assert_eq!(ids(&fwd), want[2..5]);
     assert_eq!(fwd.next, Some(whole.nodes[4].position));
-}
-
-/// A recompile in the fork lists every node it renders by id, the inherited
-/// ones too, and the request reads the same conversation as the append did.
-#[tokio::test]
-async fn a_recompile_in_the_fork_lists_the_inherited_nodes_by_id() {
-    let r = rig();
-    let (s, nodes) = three_turns(&r).await;
-    let f = fork(&r.core, &s, &nodes[3].0);
-    turn(&r.core, &f.session_id, "first in the fork").await;
-    let mut rec: SessionRecord = r.core.store.get_session(&f.session_id).unwrap().unwrap();
-    rec.pending_recompile = Some(crate::compiler::Recompile::Transcript);
-    r.core.store.put_session(&f.session_id, &rec).unwrap();
-    turn(&r.core, &f.session_id, "second in the fork").await;
-
-    let compilations = r.core.store.session_compilations(&f.session_id).unwrap();
-    assert_eq!(compilations.len(), 2, "the fork's first, and the recompile");
-    let (first, again) = (&compilations[0], &compilations[1]);
-    assert!(first.inherits.is_some() && first.includes.is_empty());
-    assert!(again.inherits.is_none(), "a recompile names its nodes");
-    for (id, _) in &nodes[..4] {
-        assert!(
-            again.includes.contains(id),
-            "{id} missing from {:?}",
-            again.includes
-        );
-    }
-    assert!(
-        !again.includes.contains(&nodes[4].0),
-        "the source's later nodes"
-    );
-    let reqs = requests(&r);
-    let text = serde_json::to_string(&plain(reqs.last().unwrap())).unwrap();
-    for want in ["one", "two", "first in the fork", "second in the fork"] {
-        assert!(text.contains(want), "{want} missing: {text}");
-    }
-    assert!(!text.contains("three"), "{text}");
 }
 
 /// The ring works over the inherited prefix and the fork's own nodes: a

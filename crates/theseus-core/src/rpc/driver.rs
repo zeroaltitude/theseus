@@ -834,7 +834,6 @@ impl Core {
                 target,
                 sink,
                 author: "harness".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,

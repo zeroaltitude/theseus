@@ -318,7 +318,6 @@ impl Core {
                 target,
                 sink,
                 author: "self:mint".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,

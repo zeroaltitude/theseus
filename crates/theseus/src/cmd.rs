@@ -19,8 +19,7 @@ use theseus_protocol::{
     method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
     LedgerTailResult, Message, ProfileListResult, ProfileReleaseResult, ProfileUseParams,
     SessionHistoryParams, SessionHistoryResult, SessionListParams, SessionListResult,
-    SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
-    TurnSubmitResult,
+    SessionOpenParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
 };
 
 use crate::pages::PageArgs;
@@ -1052,21 +1051,6 @@ pub async fn sessions(
                     "{}",
                     v.get("session_id").and_then(Value::as_str).unwrap_or("")
                 );
-                Ok(())
-            })
-        }
-        SessionsCmd::Recompile { session, strategy } => {
-            let v = conn
-                .request(
-                    method::SESSION_RECOMPILE,
-                    SessionRecompileParams {
-                        session_id: session.clone(),
-                        strategy: strategy.clone(),
-                    },
-                )
-                .await?;
-            output(json, v, |_: Value| {
-                println!("{session}: the next turn recompiles ({strategy})");
                 Ok(())
             })
         }

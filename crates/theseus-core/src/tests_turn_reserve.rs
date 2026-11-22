@@ -63,7 +63,6 @@ async fn first_turn(model: Scripted) -> (Arc<Core>, Arc<FakeProvider>, String, t
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -247,7 +247,6 @@ mod tests {
         method::CONFIRM_LIST,
         method::SESSION_WATCH,
         method::SESSION_UNWATCH,
-        method::SESSION_RECOMPILE,
         method::SESSION_NUDGE,
         method::SESSION_MODE,
         method::SESSION_PROFILE,

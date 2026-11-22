@@ -184,16 +184,6 @@ pub struct Compilation {
     pub inherits: Option<theseus_protocol::Inherits>,
 }
 
-/// An operator's request to recompile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Recompile {
-    /// Keep the whole transcript as the prefix (thinking stripped).
-    Transcript,
-    /// Start over: the model sees nothing before this point.
-    Fresh,
-}
-
 /// How requests are built, fixed for the life of a compilation.
 #[derive(Debug, Clone)]
 pub struct RequestSpec {
@@ -266,7 +256,9 @@ pub struct CompileInput<'a> {
     pub last_position: u64,
     pub spec: &'a RequestSpec,
     pub catalog: &'a Catalog,
-    pub force: Option<Recompile>,
+    /// A new chain within the turn (the provider dropped a block whose prefix changed): the whole history
+    /// again, the earlier thinking stripped.
+    pub force: bool,
     /// Tests: pretend the model's window is this many tokens.
     pub window_override: Option<u64>,
     /// Where image blocks get their bytes (theseus-9g2); `None` shows every
@@ -655,12 +647,9 @@ fn compile_with(
 
     // 1. Append or recompile?
     let mut decided: Option<(String, &'static str, bool)> = match (input.current, input.force) {
-        // Fresh keeps only the current exchange, so what it keeps was produced
-        // against a longer conversation: its thinking is stripped, as for ring.
-        (_, Some(Recompile::Fresh)) => Some(("manual_fresh".into(), "fresh", true)),
-        (_, Some(Recompile::Transcript)) => Some(("manual_transcript".into(), "transcript", true)),
-        (None, None) => Some(("new_session".into(), "transcript", false)),
-        (Some(c), None) => {
+        (_, true) => Some(("manual_transcript".into(), "transcript", true)),
+        (None, false) => Some(("new_session".into(), "transcript", false)),
+        (Some(c), false) => {
             let m = &c.manifest;
             let mut t: Vec<&str> = Vec::new();
             if m.provider != now_manifest.provider || m.model != now_manifest.model {

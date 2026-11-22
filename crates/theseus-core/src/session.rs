@@ -45,9 +45,6 @@ pub struct SessionRecord {
     /// The first words of the first prompt, for pickers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// An operator asked for a recompile; the next turn applies it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_recompile: Option<crate::compiler::Recompile>,
     /// A task session's origin (DD7): the session and the call that started
     /// it, and where it reports. Written once, when the task opens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -343,7 +340,6 @@ impl SessionRecord {
             cost_usd: 0.0,
             tool_calls: 0,
             title: None,
-            pending_recompile: None,
             task: None,
             failing: None,
             not_shown: Vec::new(),
@@ -365,8 +361,6 @@ impl SessionRecord {
     /// last activity), its target, its compilation, its execution, its run
     /// of failures (theseus-ljr), the images its provider refused (added to,
     /// never taken away: theseus-0s4), and the title its first input gave.
-    /// Never `pending_recompile`, which the operator sets while the turn runs;
-    /// a turn takes that one by itself (`update_session`) when it starts.
     pub fn take_turns_fields(&mut self, turn: &SessionRecord) {
         self.turns = turn.turns;
         self.last_turn_id.clone_from(&turn.last_turn_id);
@@ -481,6 +475,20 @@ pub fn title_from(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session record written while `session.recompile` existed, a recompile still pending in it, reads
+    /// (the field is ignored: under the view a change applies at the next turn) and writes back without it.
+    #[test]
+    fn a_record_with_a_pending_recompile_still_reads() {
+        for pending in ["transcript", "fresh"] {
+            let old = format!(
+                r#"{{"session_id":"ses_00000000000000000000000000000611","kind":"conversation","label":null,"created_at_unix_ms":1790000000611,"turns":4,"last_turn_id":"turn_00000000000000000000000000000614","usage":{{"input_tokens":800,"output_tokens":100,"cache_read_input_tokens":200,"cache_creation_input_tokens":40}},"compilation_id":"cmp_00000000000000000000000000000612","last_active_ms":1790000000619,"cost_usd":0.0071,"tool_calls":0,"title":"Tide tables","pending_recompile":"{pending}"}}"#
+            );
+            let s: SessionRecord = serde_json::from_str(&old).unwrap();
+            assert_eq!((s.turns, s.title.as_deref()), (4, Some("Tide tables")));
+            assert!(!serde_json::to_string(&s).unwrap().contains("recompile"));
+        }
+    }
 
     /// A session record as a build before theseus-ljr wrote it (schema 2:
     /// T1's hold, kol's target), which this build must read with no run of

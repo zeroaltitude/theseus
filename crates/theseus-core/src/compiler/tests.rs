@@ -121,7 +121,7 @@ fn run(
         last_position: last,
         spec,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: None,
         blobs: None,
         hidden: &[],
@@ -494,8 +494,10 @@ fn late_results_render_as_text_and_missing_results_are_repaired() {
     assert_eq!(m.last().unwrap()["content"][0]["is_error"], true);
 }
 
+/// Overflow rings at a user boundary, the thinking stripped (a manual `fresh` start is gone with
+/// `session.recompile`).
 #[test]
-fn fresh_drops_the_past_and_overflow_rings_at_a_user_boundary() {
+fn overflow_rings_at_a_user_boundary() {
     let sp = spec("claude-opus-5", "S");
     let big = "word ".repeat(2_000);
     let mut nodes = Vec::new();
@@ -522,7 +524,7 @@ fn fresh_drops_the_past_and_overflow_rings_at_a_user_boundary() {
         last_position: 12,
         spec: &sp,
         catalog: &catalog,
-        force: Some(Recompile::Fresh),
+        force: false,
         window_override: None,
         blobs: None,
         hidden: &[],
@@ -533,26 +535,7 @@ fn fresh_drops_the_past_and_overflow_rings_at_a_user_boundary() {
         situation: &situation::Situation::Continuation,
         kept: None,
     };
-    let c = compile(input);
-    assert_eq!(c.compilation.strategy, "fresh");
-    assert!(c.compilation.manifest.strip_thinking);
-    assert_eq!(
-        c.request.messages.len(),
-        2,
-        "only the latest exchange survives"
-    );
-    assert!(c.request.messages[0]["content"][0]["text"]
-        .as_str()
-        .unwrap()
-        .starts_with("q5"));
-    assert!(c.request.messages[1]["content"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|b| !is_thinking(b)));
-
     let c = compile(CompileInput {
-        force: None,
         window_override: Some(13_000),
         ..input
     });
@@ -804,7 +787,7 @@ fn a_model_that_does_not_cache_gets_no_breakpoints() {
         last_position: 1,
         spec: &sp,
         catalog: &catalog,
-        force: None,
+        force: false,
         window_override: None,
         blobs: None,
         hidden: &[],
@@ -862,7 +845,7 @@ fn run_over(
         last_position: last,
         spec,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: None,
         blobs: None,
         hidden: &[],
@@ -1138,7 +1121,7 @@ fn run_in(
         last_position: last,
         spec,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: Some(window),
         blobs: None,
         hidden: &[],

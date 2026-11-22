@@ -66,7 +66,6 @@ async fn a_stop_before_an_inputs_turn_is_admitted_stops_that_turn() {
             .resolve_target(&live, None, None, None)
             .unwrap(),
         author: "test".into(),
-        recompile: None,
         attachments: vec![],
         arrived: Some(std::time::Instant::now()),
         reply_to: None,
@@ -157,7 +156,6 @@ fn input_for_a_session_with_an_execution(
             .resolve_target(&live, None, None, None)
             .unwrap(),
         author: "test".into(),
-        recompile: None,
         attachments: vec![],
         arrived: Some(std::time::Instant::now()),
         reply_to: None,

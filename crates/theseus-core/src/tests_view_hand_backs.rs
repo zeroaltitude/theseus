@@ -16,8 +16,7 @@ use crate::tests_places::{
 use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{fallbacks, legal, submit, texts};
 
-fn view(c: &mut crate::Config) {
-}
+fn view(c: &mut crate::Config) {}
 
 /// The `context.compiled` rows of `sid`, oldest first: (turn, strategy).
 fn compiled(c: &crate::Core, sid: &str) -> Vec<(String, String)> {
@@ -54,7 +53,6 @@ async fn unmarked(c: &Arc<crate::Core>, sid: &str, input: &str) -> anyhow::Resul
             target,
             sink,
             author: "cli".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

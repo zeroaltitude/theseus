@@ -118,7 +118,6 @@ async fn parked(core: &Core) -> String {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -86,7 +86,6 @@ async fn turn_on(mut c: Config, script: Vec<Scripted>, cfg: impl FnOnce(&mut Con
             target,
             sink: EventSink::new(core.bus.clone(), &sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -79,7 +79,6 @@ async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<()> {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

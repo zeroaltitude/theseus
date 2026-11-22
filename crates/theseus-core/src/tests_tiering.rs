@@ -59,7 +59,7 @@ async fn decodes_fall_on_a_long_session() {
 use serde_json::{json, Value};
 
 use crate::catalog::{Catalog, CatalogRow};
-use crate::compiler::{render_request, Compilation, Recompile, RequestSpec};
+use crate::compiler::{render_request, Compilation, RequestSpec};
 use crate::provider::Scripted;
 use crate::session::SessionRecord;
 use crate::stub::Stub;
@@ -125,8 +125,8 @@ fn rows(core: &Core, kind: &str) -> Vec<Value> {
         .collect()
 }
 
-/// A turn, with an operator's recompile when `recompile` says.
-async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<Recompile>) {
+/// A turn.
+async fn turn_with(core: &Arc<Core>, sid: &str, input: &str) {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -140,7 +140,6 @@ async fn turn_with(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<R
             target,
             sink,
             author: "test".into(),
-            recompile,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -377,10 +376,10 @@ async fn the_transcript_check_holds_through_a_ring_and_a_recompile() {
     let r = rig_with(MemoryMode::Off, |c| small_window(c, 0, "off"));
     let c = &r.core;
     let sid = session(c, None, &[]);
-    turn_with(c, &sid, "hello", None).await;
-    turn_with(c, &sid, "recompile, please", Some(Recompile::Transcript)).await;
+    turn_with(c, &sid, "hello").await;
+    turn_with(c, &sid, "recompile, please").await;
     for k in 0..12 {
-        turn_with(c, &sid, &words(&format!("turn{k}"), 6_000), None).await;
+        turn_with(c, &sid, &words(&format!("turn{k}"), 6_000)).await;
         if rows(c, "context.compiled")
             .iter()
             .any(|row| row["strategy"] == "ring")
@@ -388,7 +387,7 @@ async fn the_transcript_check_holds_through_a_ring_and_a_recompile() {
             break;
         }
     }
-    turn_with(c, &sid, "after the ring", None).await;
+    turn_with(c, &sid, "after the ring").await;
     let compiled = rows(c, "context.compiled");
     assert!(compiled.iter().any(|r| r["trigger"] == "manual_transcript"));
     assert!(compiled.iter().any(|r| r["strategy"] == "ring"), "it rang");

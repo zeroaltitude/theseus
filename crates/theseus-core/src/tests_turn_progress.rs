@@ -120,7 +120,6 @@ impl Rig {
                 target,
                 sink: EventSink::new(self.core.bus.clone(), &sid, None),
                 author: author.into(),
-                recompile: None,
                 attachments: vec![],
                 arrived,
                 reply_to: None,

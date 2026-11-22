@@ -50,7 +50,6 @@ async fn turn_with_deadline(
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: Vec::new(),
             arrived: Some(arrived),
             reply_to: None,

@@ -31,7 +31,7 @@ impl Fact for ProjectTrust<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let what = if self.granted {
-            "trusted: its AGENTS.md and CLAUDE.md join the system block from the next recompile"
+            "trusted: its AGENTS.md and CLAUDE.md join the system block from the next turn"
         } else {
             "no longer trusted: its instruction files are named, not read"
         };

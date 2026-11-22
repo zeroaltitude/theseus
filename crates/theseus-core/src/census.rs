@@ -284,7 +284,7 @@ impl TurnRunner {
             last_position: self.store.last_position(),
             spec,
             catalog: &self.catalog,
-            force: None,
+            force: false,
             window_override: self.working_window(spec),
             blobs: Some(self.store.blobs()),
             hidden,

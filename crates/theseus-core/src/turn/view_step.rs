@@ -93,8 +93,9 @@ impl TurnRunner {
             Self::view_reset(t, input.nodes);
         }
         self.view_freeze(t, input.spec)?;
-        // A refused image under the turn's thinking, or a forced recompile: the same view, a new chain.
-        if input.strip.is_some() || input.force.is_some() {
+        // A refused image under the turn's thinking, or a block the provider dropped: the same view, a new
+        // chain.
+        if input.strip.is_some() || input.force {
             Self::view_reset(t, input.nodes);
         }
         let store = t.tc.store;

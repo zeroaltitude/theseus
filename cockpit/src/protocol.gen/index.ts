@@ -695,7 +695,6 @@ export type * from './SessionNudgeResult';
 export type * from './SessionOpenParams';
 export type * from './SessionProfileParams';
 export type * from './SessionProfileResult';
-export type * from './SessionRecompileParams';
 export type * from './SessionRef';
 export type * from './SessionReopenParams';
 export type * from './SessionRetireParams';

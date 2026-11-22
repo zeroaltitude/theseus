@@ -106,7 +106,6 @@ pub(crate) async fn turn_in(
             target,
             sink: EventSink::new(core.bus.clone(), sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

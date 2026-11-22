@@ -48,7 +48,6 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>, author: &str) -> 
             target,
             sink,
             author: author.into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

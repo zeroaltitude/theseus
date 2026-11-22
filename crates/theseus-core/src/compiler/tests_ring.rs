@@ -134,7 +134,7 @@ pub(super) fn compile_in(
         last_position: last,
         spec: &spec(),
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: window,
         blobs: None,
         hidden: &[],

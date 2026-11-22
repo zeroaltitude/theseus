@@ -274,7 +274,6 @@ fn png_turn(core: &Arc<crate::Core>, sid: &str) -> crate::turn::TurnRequest {
         target,
         sink: crate::bus::EventSink::new(core.bus.clone(), sid, None),
         author: "test".into(),
-        recompile: None,
         attachments: vec![theseus_protocol::Attachment {
             name: "shot.png".into(),
             media_type: "image/png".into(),

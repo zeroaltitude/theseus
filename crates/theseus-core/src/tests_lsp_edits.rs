@@ -95,7 +95,6 @@ pub(crate) async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmit
             target,
             sink: EventSink::new(core.bus.clone(), sid, None),
             author: "cli".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -160,7 +160,6 @@ fn request(core: &Arc<Core>, session: &SessionRecord, input: &str) -> TurnReques
         target,
         sink,
         author: "test".into(),
-        recompile: None,
         attachments: vec![],
         arrived: None,
         reply_to: None,

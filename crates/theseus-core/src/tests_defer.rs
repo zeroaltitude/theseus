@@ -12,7 +12,6 @@ use theseus_protocol::TurnSubmitResult;
 
 use crate::bus::EventSink;
 use crate::catalog::CatalogRow;
-use crate::compiler::Recompile;
 use crate::provider::{ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::tests_places::{
@@ -90,12 +89,7 @@ fn rig_without_search() -> Rig {
     )
 }
 
-async fn turn_as(
-    core: &Arc<Core>,
-    sid: &str,
-    input: &str,
-    recompile: Option<Recompile>,
-) -> TurnSubmitResult {
+async fn turn_as(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
     let rec = core
         .store
         .get_session::<SessionRecord>(sid)
@@ -113,7 +107,6 @@ async fn turn_as(
             target,
             sink,
             author: "cli".into(),
-            recompile,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -124,7 +117,7 @@ async fn turn_as(
 }
 
 async fn say(core: &Arc<Core>, sid: &str, input: &str) -> TurnSubmitResult {
-    turn_as(core, sid, input, None).await
+    turn_as(core, sid, input).await
 }
 
 fn tool<'a>(req: &'a ProviderRequest, name: &str) -> Option<&'a Value> {
@@ -254,7 +247,7 @@ async fn a_tool_found_by_tools_find_is_callable_in_the_same_turn() {
 }
 
 async fn say_boundary(core: &Arc<Core>, sid: &str) {
-    turn_as(core, sid, "go on", Some(Recompile::Transcript)).await;
+    turn_as(core, sid, "go on").await;
 }
 
 /// Rows of the ledger that make a place kind use a family in most turns.

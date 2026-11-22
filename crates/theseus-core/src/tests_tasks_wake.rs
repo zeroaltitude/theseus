@@ -49,7 +49,6 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> TurnSubmitResu
             target,
             sink,
             author: "cli".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

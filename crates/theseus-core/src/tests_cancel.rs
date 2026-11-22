@@ -122,7 +122,6 @@ async fn a_cancel_aborts_an_async_tools_task_and_verifies_it() {
                     target,
                     sink,
                     author: "test".into(),
-                    recompile: None,
                     attachments: vec![],
                     arrived: None,
                     reply_to: None,

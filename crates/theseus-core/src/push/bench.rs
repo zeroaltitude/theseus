@@ -144,7 +144,6 @@ async fn record(core: &Arc<Core>, frames: usize) -> Result<Vec<Frame>> {
                 target,
                 sink: EventSink::new(core.bus.clone(), sid, None),
                 author: "bench".into(),
-                recompile: None,
                 attachments: vec![],
                 arrived: None,
                 reply_to: None,

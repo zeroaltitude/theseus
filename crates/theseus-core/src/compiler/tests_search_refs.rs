@@ -69,7 +69,7 @@ fn run(blocks: Vec<Value>, tools: Vec<Value>) -> Compiled {
         last_position: 3,
         spec: &sp,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: None,
         blobs: None,
         hidden: &[],

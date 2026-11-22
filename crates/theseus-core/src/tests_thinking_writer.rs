@@ -103,7 +103,7 @@ fn run(spec: &RequestSpec) -> Compiled {
         last_position: 3,
         spec,
         catalog: &Catalog::builtin(),
-        force: None,
+        force: false,
         window_override: None,
         blobs: None,
         hidden: &[],

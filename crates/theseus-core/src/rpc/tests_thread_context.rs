@@ -9,7 +9,6 @@ use theseus_protocol::threads::ThreadNewParams;
 
 use crate::approval::{Answerer, Surface};
 use crate::bus::EventSink;
-use crate::compiler::Recompile;
 use crate::provider::{FakeProvider, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::tests_day_ceiling::{build, turn};
@@ -50,7 +49,7 @@ fn edit_topics(core: &Core, slug: &str, topics: &[&str]) {
     .unwrap();
 }
 
-async fn say(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<Recompile>) {
+async fn say(core: &Arc<Core>, sid: &str, input: &str) {
     let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
@@ -62,7 +61,6 @@ async fn say(core: &Arc<Core>, sid: &str, input: &str, recompile: Option<Recompi
             target,
             sink: EventSink::new(core.bus.clone(), sid, None),
             author: "test".into(),
-            recompile,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -122,8 +120,8 @@ async fn threads_and_sessions_share_the_first_layers_byte_for_byte() {
     let dir = tempfile::tempdir().unwrap();
     let (core, fake) = build(dir.path(), texts(4), |c| files(dir.path(), c));
     let (a, b) = (thread(&core, "tide-gauges"), thread(&core, "moon-tables"));
-    say(&core, &a, "hello from a", None).await;
-    say(&core, &b, "hello from b", None).await;
+    say(&core, &a, "hello from a").await;
+    say(&core, &b, "hello from b").await;
     crate::tests_day_ceiling::bind_dm(&core);
     let (_, plain) = turn(&core, "hello from the DM").await;
     plain.unwrap();
@@ -233,7 +231,7 @@ async fn a_threads_topics_make_its_third_layer_and_threads_that_share_them_share
     edit_topics(&core, "gauges", &["topic:tides"]);
     edit_topics(&core, "buoys", &["topic:tides"]);
     for (sid, text) in [(&a, "a"), (&b, "b"), (&c, "c")] {
-        say(&core, sid, text, None).await;
+        say(&core, sid, text).await;
     }
     let r = fake.requests();
     let third = |q: &ProviderRequest| q.system[2]["text"].as_str().unwrap().to_string();
@@ -266,8 +264,8 @@ async fn a_note_leaves_the_prefix_alone_and_shows_in_the_next_recompile() {
     script.extend(texts(2));
     let (core, fake) = build(dir.path(), script, |c| files(dir.path(), c));
     let a = thread(&core, "gauges");
-    say(&core, &a, "first", None).await;
-    say(&core, &a, "log a finding", None).await;
+    say(&core, &a, "first").await;
+    say(&core, &a, "log a finding").await;
     let r = fake.requests();
     assert_eq!(
         r.len(),
@@ -308,19 +306,13 @@ async fn a_note_leaves_the_prefix_alone_and_shows_in_the_next_recompile() {
     );
     // A turn that does not recompile still renders the snapshot; a recompile
     // takes the card as it stands.
-    say(&core, &a, "and again", None).await;
+    say(&core, &a, "and again").await;
     let r = fake.requests();
     assert!(
         !card(&r[3]).contains("gauge 4 reads high"),
         "an append keeps its snapshot"
     );
-    say(
-        &core,
-        &a,
-        "start over from the record",
-        Some(Recompile::Transcript),
-    )
-    .await;
+    say(&core, &a, "start over from the record").await;
     let r = fake.requests();
     let c = card(&r[4]);
     assert!(c.contains("- gauge 4 reads high after the swap"), "{c}");
@@ -339,7 +331,7 @@ async fn a_note_is_bounded_and_the_card_keeps_the_newest_lines() {
     let (core, _fake) = build(dir.path(), script, |c| files(dir.path(), c));
     let a = thread(&core, "gauges");
     for k in 0..14 {
-        say(&core, &a, &format!("note {k}"), None).await;
+        say(&core, &a, &format!("note {k}")).await;
     }
     let card = core
         .runner
@@ -367,7 +359,7 @@ async fn long_thread(
     ago_ms: u64,
 ) -> usize {
     for k in 0..turns {
-        say(core, sid, &format!("question {k}"), None).await;
+        say(core, sid, &format!("question {k}")).await;
     }
     core.store
         .update_session(sid, |r: &mut SessionRecord| {
@@ -410,8 +402,8 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
     let m = long_thread(&core, &fake, &warm, 6, 1_000).await;
     assert!(n > 0 && m > n);
     let before = fake.requests().len();
-    say(&core, &cold, "back after lunch", None).await;
-    say(&core, &warm, "still here", None).await;
+    say(&core, &cold, "back after lunch").await;
+    say(&core, &warm, "still here").await;
     let r = fake.requests();
     assert_eq!(r.len(), before + 2);
     let rows = |sid| compiled_rows(&core, sid);
@@ -453,7 +445,7 @@ async fn a_cold_resume_keeps_twenty_turns() {
     let cold = thread(&core, "cold");
     long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
     let before = fake.requests().len();
-    say(&core, &cold, "back after lunch", None).await;
+    say(&core, &cold, "back after lunch").await;
     let r = fake.requests();
     assert_eq!(r.len(), before + 1);
     let c = compiled_rows(&core, &cold).last().cloned().unwrap();
@@ -483,7 +475,7 @@ async fn a_cold_resume_works_to_a_share_of_the_window() {
     let cold = thread(&core, "cold");
     long_thread(&core, &fake, &cold, 30, HOUR_PLUS).await;
     let before = fake.requests().len();
-    say(&core, &cold, "back after lunch", None).await;
+    say(&core, &cold, "back after lunch").await;
     let c = compiled_rows(&core, &cold).last().cloned().unwrap();
     assert_eq!(c["trigger"], "cold_resume", "{c}");
     let kept = fake.requests()[before]
@@ -511,7 +503,7 @@ async fn an_unthreaded_session_is_not_resumed_small() {
     let (sid, first) = turn(&core, "question 0").await;
     first.unwrap();
     for k in 1..5 {
-        say(&core, &sid, &format!("question {k}"), None).await;
+        say(&core, &sid, &format!("question {k}")).await;
     }
     core.store
         .update_session(&sid, |r: &mut SessionRecord| {
@@ -519,7 +511,7 @@ async fn an_unthreaded_session_is_not_resumed_small() {
             Ok(vec![])
         })
         .unwrap();
-    say(&core, &sid, "back after lunch", None).await;
+    say(&core, &sid, "back after lunch").await;
     let last = compiled_rows(&core, &sid).last().cloned().unwrap();
     assert_eq!(last["decision"], "append", "{last}");
     assert!(fake.requests().len() >= 6);

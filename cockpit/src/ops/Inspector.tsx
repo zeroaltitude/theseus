@@ -150,7 +150,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
   const runEntry = useRunEntry()
   const [sheet, setSheet] = useState<'rehome' | 'reschedule' | null>(null)
   const f = cardFacts(r, past ?? now)
-  const lifeEntries = verbEntries([targetOf(r)], { profiles: [], prices: new Map() }).filter((e) => ['recompile:transcript', 'recompile:fresh', 'retire', 'reopen'].includes(e.id) && !e.grey)
+  const lifeEntries = verbEntries([targetOf(r)], { profiles: [], prices: new Map() }).filter((e) => ['retire', 'reopen'].includes(e.id) && !e.grey)
   const info = r.task?.info
   const running = isRunning(r.view?.state, r.session?.execution_state)
   // `execution.stop` is a conversation's; a task is stopped by `task.cancel`.

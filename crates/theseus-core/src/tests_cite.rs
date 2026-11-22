@@ -236,7 +236,6 @@ async fn a_cited_discord_message_names_its_id() {
             target,
             sink: EventSink::new(c.bus.clone(), &den, None),
             author: "discord:ada".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: Some("200000000000000002".into()),

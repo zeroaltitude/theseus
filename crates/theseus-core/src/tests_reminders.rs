@@ -412,7 +412,6 @@ async fn the_models_say_only_reminder_for_the_owner_is_a_notice_and_takes_no_tur
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

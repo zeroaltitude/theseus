@@ -679,7 +679,6 @@ async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person:
             target,
             sink,
             author: "cli".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

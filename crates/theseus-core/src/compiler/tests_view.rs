@@ -149,7 +149,7 @@ fn run_with(s: &RequestSpec, f: &Frozen, own: &[Node], current: Option<&Compilat
             last_position: 2000,
             spec: s,
             catalog: &Catalog::builtin(),
-            force: None,
+            force: false,
             window_override: None,
             blobs: None,
             hidden: &[],

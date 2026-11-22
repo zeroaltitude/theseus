@@ -29,7 +29,6 @@ async fn turn_on(
             target,
             sink,
             author: "the CLI".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

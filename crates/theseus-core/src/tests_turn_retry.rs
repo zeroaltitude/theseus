@@ -72,7 +72,6 @@ async fn run(core: &Arc<Core>, sid: &str, input: Option<&str>) -> anyhow::Result
             sink: EventSink::new(core.bus.clone(), sid, None)
                 .with_arrival(input.map(|_| crate::view_gate::test_mark(&core.runner, sid, true))),
             author: input.map_or("harness", |_| "test").into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -131,7 +131,6 @@ async fn try_turn(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<()
             target,
             sink,
             author: format!("discord:{OWNER}"),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
@@ -572,9 +571,6 @@ async fn a_compile_that_drops_a_record_is_refused_naming_it() {
     let sent = r.model.requests.lock().unwrap().len();
 
     crate::standing::DROP_THE_BLOCK.store(true, std::sync::atomic::Ordering::SeqCst);
-    r.core
-        .request_recompile(&sid, crate::compiler::Recompile::Transcript, "the CLI")
-        .unwrap();
     let e = try_turn(&r.core, &sid, "dropped").await;
     crate::standing::DROP_THE_BLOCK.store(false, std::sync::atomic::Ordering::SeqCst);
     let e = format!("{:?}", e.unwrap_err());

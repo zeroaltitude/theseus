@@ -66,7 +66,6 @@ async fn try_continue(r: &Rig, sid: &str) -> anyhow::Result<()> {
             target,
             sink: EventSink::new(r.core.bus.clone(), sid, None),
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,
