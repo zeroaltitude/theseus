@@ -585,7 +585,7 @@ async fn a_bare_history_call_begins_with_an_exchange_whose_tool_result_was_clear
         serde_json::from_value(serde_json::json!({"limit_tokens": 0, "used_tokens": 0})).unwrap()
     });
     budget.dropped.push(theseus_protocol::memory::BudgetDrop {
-        node_id: Some(result.id.clone()),
+        node_id: Some(result.id),
         reason: "cleared".into(),
         tokens: 100,
         tier: "cleared".into(),
