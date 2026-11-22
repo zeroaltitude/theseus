@@ -489,7 +489,14 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         text(&edited[1]).contains(EDIT),
         "{profile}: the edit is not in the block"
     );
-    assert_eq!(edited[1]["cache_control"], five);
+    // The edit's session is a later session at the same place: its first request lays the place's earlier
+    // exchanges, whose cache mark takes the breakpoint the persona block had (issue 44).
+    assert!(
+        edited[1]["cache_control"] == five
+            || (edited[1]["cache_control"].is_null()
+                && bytes(&e["messages"]).contains("cache_control")),
+        "{profile}: the edited persona block's breakpoint, or the window's that took it"
+    );
 
     eprintln!(
         "{profile} ({provider}): model {}; tools {} bytes ({tools} tools); system {} bytes in {} \
