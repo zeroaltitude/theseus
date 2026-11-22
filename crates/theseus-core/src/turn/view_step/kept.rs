@@ -16,7 +16,7 @@ use theseus_memory::gate::Seal;
 /// leaves none.
 pub(in crate::turn) fn record_kept(t: &mut Turn<'_>, compiled: &Compiled) {
     let (turn, store) = (t.tc.turn_id, t.tc.store);
-    let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == turn && !f.declined) else {
+    let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == turn) else {
         return;
     };
     let Some(view) = f.record.as_ref() else {

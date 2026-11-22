@@ -134,7 +134,7 @@ impl TurnRunner {
                 break;
             }
             compiled =
-                match Box::pin(self.compile_step(t, session, spec, None, None, None, i)).await? {
+                match Box::pin(self.compile_step(t, session, spec, false, None, None, i)).await? {
                     Ok(mut c) => {
                         self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
                         c
