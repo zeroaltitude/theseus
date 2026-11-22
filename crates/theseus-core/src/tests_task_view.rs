@@ -245,7 +245,7 @@ async fn a_check_takes_the_view_and_holds_nothing_of_the_checked_tasks_turns() {
     // The message the arrangement quotes, apart from the one that starts the maker: the check's pieces
     // copy the quoted message, and it should not carry the maker's brief.
     crate::test_support::turn(&r.core, &parent, ASK).await;
-    let made = json!({"brief": MAKER, "arrangement": arranged()});
+    let made = json!({"brief": MAKER, "arrangement": arranged(), "fidelity_ack": true});
     crate::test_support::turn(&r.core, &parent, &format!("CREATE {made}")).await;
     let maker = task_by_brief(&r.core, MAKER);
     complete(&r.core, &maker).await;
@@ -289,7 +289,8 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
                     (
                         "t_inner",
                         "task_create",
-                        json!({"brief": INNER, "wake_parent": true}),
+                        json!({"brief": INNER, "wake_parent": true, "arrangement": {"pieces": [
+                            {"quote": "have a subtask count the gulls", "role": "objective"}]}}),
                     ),
                     (
                         "t_late",
@@ -302,8 +303,11 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
         })
     });
     let parent = parent_session(&r.core);
-    let input = json!({"brief": OUTER, "arrangement": arranged()});
-    crate::test_support::turn(&r.core, &parent, &create(&input)).await;
+    // The quoted message apart: the outer task's arrangement copies it, and the subtask's quote must be
+    // found in the outer task's brief alone.
+    crate::test_support::turn(&r.core, &parent, ASK).await;
+    let input = json!({"brief": OUTER, "arrangement": arranged(), "fidelity_ack": true});
+    crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
     let outer = task_by_brief(&r.core, OUTER);
     let t0 = std::time::Instant::now();
     while !(exchanges(&r.core, &outer).iter())
