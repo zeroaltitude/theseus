@@ -118,6 +118,25 @@ pub fn carries_attachment(v: &Value) -> bool {
     }
 }
 
+/// Why a replay to another provider is refused once anything was sealed, moved or withdrawn after the turn
+/// began (`Core::changed_since`).
+pub const CHANGED: &str = "something was sealed, moved or withdrawn after this turn; a replay to another \
+                           provider cannot check what the turn's words carried, so it stays with its own \
+                           provider";
+/// Why, when that cannot be read.
+pub const CHANGED_UNREAD: &str =
+    "whether anything was sealed, moved or withdrawn after this turn cannot be \
+                                  read, so a replay of it stays with its own provider";
+
+/// The ledger's kinds a seal, a move into a thread, or a proposed seal writes.
+const CHANGES: [theseus_protocol::LedgerKind; 5] = [
+    theseus_protocol::LedgerKind::ThreadSealed,
+    theseus_protocol::LedgerKind::ThreadSealProposed,
+    theseus_protocol::LedgerKind::ThreadSplit,
+    theseus_protocol::LedgerKind::ThreadMerged,
+    theseus_protocol::LedgerKind::ThreadMoved,
+];
+
 impl Core {
     /// `turn.replay`: the owner's run, from a private place.
     pub async fn turn_replay(
@@ -164,6 +183,11 @@ impl Core {
         {
             return Some("its thread is sealed".into());
         }
+        match self.changed_since(original.started_ms) {
+            Ok(false) => {}
+            Ok(true) => return Some(CHANGED.into()),
+            Err(_) => return Some(CHANGED_UNREAD.into()),
+        }
         let veiled = |r: Option<crate::session::SessionRecord>| {
             let i = r.and_then(|r| r.imported)?;
             let label = i.labels.sensitivity;
@@ -198,6 +222,36 @@ impl Core {
             return Some("its request carries an attachment".into());
         }
         None
+    }
+
+    /// Whether anything was sealed (or a seal proposed), moved into a thread (a split, a merge, a thread
+    /// moved) or a release withdrawn at or after `since_ms`, anywhere in the store: one page of one row of
+    /// each such kind from the ledger's kind index, and the withdrawals' own records (a withdrawal writes no
+    /// row). Whole-store on purpose: it needs no provenance. Any read that fails is an error, which refuses.
+    fn changed_since(&self, since_ms: u64) -> anyhow::Result<bool> {
+        for kind in CHANGES {
+            let page = theseus_store::Page {
+                kind: theseus_store::kinds::LEDGER,
+                tags: crate::rpc::ledger_tags(Some(kind.as_str()), None),
+                after: Some(0),
+                before: None,
+                since_ms: Some(since_ms),
+                until_ms: None,
+                limit: 1,
+            };
+            let got = (self.store.ledger_page(&page)?)
+                .ok_or_else(|| anyhow::anyhow!("the ledger's index is still being built"))?;
+            // A row whose read is refused is left out of `records` but still has a position: it counts.
+            if !got.records.is_empty() || got.first.is_some() {
+                return Ok(true);
+            }
+        }
+        let releases = crate::release::all(&self.store)?;
+        // `release::all` reads at most this many: past it, a withdrawal could be among those unread.
+        if releases.len() >= crate::release::ALL_READ {
+            anyhow::bail!("more releases than one read holds");
+        }
+        Ok((releases.into_iter()).any(|(_, end)| end.is_some_and(|e| e.at_ms >= since_ms)))
     }
 
     /// The sessions a view turn laid, as its record named them (`Original::laid`): every session of the view
