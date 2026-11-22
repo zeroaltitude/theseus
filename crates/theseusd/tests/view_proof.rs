@@ -126,10 +126,14 @@ impl Rig {
     }
 
     /// Every request whose last user text holds `text` (the turn's own, its later calls included).
+    /// A turn's calls carry its tools. The ladder's `did` line of an exchange is a model call too, with no tools,
+    /// that quotes the message; it runs after the turn ends, so it is here only when it finishes before the
+    /// turn's requests are read, and it is not the turn's.
     fn requests_of(&self, text: &str) -> Vec<Value> {
         self.model
             .requests()
             .into_iter()
+            .filter(|r| r["tools"].as_array().is_some_and(|t| !t.is_empty()))
             .filter(|r| opening(r).contains(text))
             .collect()
     }
