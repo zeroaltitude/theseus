@@ -81,7 +81,8 @@ mod tests {
     use super::*;
 
     /// A message names its session by its id alone: no title, so no words of
-    /// any message (issue 44); and nothing but the node is read.
+    /// any message (issue 44); a long or multi-line subject is cut to one
+    /// line, its quote marks made plain; and nothing but the node is read.
     #[test]
     fn an_evidence_line_names_the_subject_and_the_session() {
         let said = Node::user(
@@ -91,6 +92,29 @@ mod tests {
             "the staging password is hunter2",
         );
         assert_eq!(evidence(&said), "session cd34ef");
+        assert!(!evidence(&said).contains("hunter2"));
+        let other = Node::user("ses_99ff00aa11", None, "cli", "Staging database");
+        assert_eq!(evidence(&other), "session 00aa11");
+        let call = |target: &str| {
+            let mut n = Node::user("ses_ab12cd34ef", None, "cli", "");
+            n.body = Body::ToolCall {
+                tool_use_id: "tu1".into(),
+                tool: "web.search".into(),
+                wire_name: "web_search".into(),
+                input: serde_json::json!({ "query": target }),
+                assistant_node: "msg_a".into(),
+                correlation_id: None,
+                gate: None,
+            };
+            n
+        };
+        let long = evidence(&call(&"harbour\nwall ".repeat(20)));
+        assert!(long.ends_with("…, session cd34ef"), "{long}");
+        assert!(long.chars().count() < 110 && !long.contains('\n'), "{long}");
+        assert_eq!(
+            evidence(&call("the \"prod\" door")),
+            "about web.search the 'prod' door, session cd34ef"
+        );
     }
 
     #[test]
