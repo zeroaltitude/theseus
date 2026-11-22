@@ -350,3 +350,38 @@ fn normal(v: &impl serde::Serialize) -> String {
     }
     out
 }
+
+/// Issue 44 (a change in the owner's words): a turn that carried the digest
+/// latches it for itself as it takes it, and the latch is what the change's
+/// checks read. The thread's session retired and the thread opened again
+/// (the old session gone from the board, as a rebind mid-turn would leave
+/// it), the turn still reads as having carried it. A turn whose scope is
+/// `thread` carried none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_carried_digest_is_latched_for_its_turn_and_outlives_a_rebind() {
+    use crate::task_graph::judged::carried_in;
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 4, true);
+    let c = &r.core;
+    threads(c);
+    scope(&jev, "place");
+    let res = ask(c, "pr-round", "Add an 'also this week' section.").await;
+    assert!(
+        digest_of(&last_request(&r)).is_some(),
+        "the digest was carried"
+    );
+    assert!(carried_in(&c.store, &res.turn_id), "and latched");
+    c.retire_session(&res.session_id, &cli()).unwrap();
+    let again = c.thread_session("pr-round", cli()).unwrap();
+    assert_ne!(again.session_id, res.session_id);
+    let board = c.runner.threads.held().expect("the board");
+    assert!(
+        board.of_session(&res.session_id).is_none(),
+        "the old session left the board"
+    );
+    assert!(carried_in(&c.store, &res.turn_id), "the latch outlives it");
+    scope(&jev, "thread");
+    let plain = ask(c, "quillhn", "One small question about the flag.").await;
+    assert!(digest_of(&last_request(&r)).is_none(), "no digest");
+    assert!(!carried_in(&c.store, &plain.turn_id), "and no latch");
+}
