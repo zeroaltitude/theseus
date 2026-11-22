@@ -1,6 +1,6 @@
 //! The sampler (own-benchmark): a few turns per cell, one rung down the
-//! routing table, judged, under the day's cap; never a shared place's turn,
-//! and never one that would send an attachment to another provider.
+//! routing table, judged, under the day's cap; never a shared place's turn;
+//! and a turn with an attachment replays on another provider like any other.
 
 use std::sync::Arc;
 
@@ -288,11 +288,10 @@ fn png_turn(core: &Arc<crate::Core>, sid: &str) -> crate::turn::TurnRequest {
     }
 }
 
-/// An attachment never goes to a provider other than the original's: the
-/// same turn replays on a profile of its own provider, and is refused on
-/// another's, with nothing sent.
+/// Anything goes (2026-11-22): a turn with an attachment replays on a profile of another provider, the
+/// attachment sent with it, as on one of its own.
 #[tokio::test]
-async fn an_attachment_is_never_sent_to_another_provider() {
+async fn an_attachment_replays_on_another_provider_like_any_other() {
     let (r, zai) = two_providers();
     script(&r, &["It is a screenshot.", "A picture."]);
     let sid = session(&r.core, None, &[]);
@@ -310,22 +309,19 @@ async fn an_attachment_is_never_sent_to_another_provider() {
         compare: Some(false),
         ..Default::default()
     };
-    let err = r.core.turn_replay(p("glm"), "cli").await.unwrap_err();
+    let other = r.core.turn_replay(p("glm"), "cli").await.unwrap();
+    assert_eq!(other.profile, "glm");
+    assert_eq!(other.turn, t);
+    let sent = zai.requests();
+    assert_eq!(sent.len(), 1, "the other provider was sent the replay");
     assert!(
-        err.downcast_ref::<super::replay::Crossing>().is_some(),
-        "{err:#}"
+        serde_json::to_string(&sent[0].messages)
+            .unwrap()
+            .contains("\"image\""),
+        "with its attachment"
     );
-    assert!(format!("{err:#}").contains("attachment"), "{err:#}");
-    assert!(
-        zai.requests().is_empty(),
-        "nothing reached the other provider"
-    );
-    // The same provider is the original's: no bytes go anywhere new.
     let ok = r.core.turn_replay(p("haiku"), "cli").await.unwrap();
     assert_eq!(ok.replay.text, "A picture.");
-    // And the sampler counts the refusal rather than the turn.
-    let out = r.core.replay_sample(now()).await.unwrap();
-    assert_eq!(out.replayed, 0, "{out:?}");
 }
 
 /// A report over nothing says $0.00, never a negative zero.

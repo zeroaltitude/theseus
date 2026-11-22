@@ -40,6 +40,9 @@ pub struct Sessions {
     pub depends: std::cell::RefCell<std::collections::BTreeSet<String>>,
     /// How many times the store was read for a session.
     pub reads: std::cell::Cell<u32>,
+    /// The nodes a fork's ancestors wrote after the point each was forked from it (`fork::window`): no
+    /// exchange's nodes read here hold one.
+    pub after_point: std::cell::RefCell<std::collections::HashSet<String>>,
 }
 
 impl Sessions {
@@ -67,8 +70,9 @@ impl Sessions {
         session: &str,
         turn: &str,
     ) -> anyhow::Result<Vec<(u64, crate::stub::Stub)>> {
+        let after = self.after_point.borrow();
         Ok((self.of(store, session)?.iter())
-            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
+            .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && !after.contains(&n.id))
             .cloned()
             .collect())
     }
@@ -81,11 +85,6 @@ pub struct StoreSources<'a> {
     pub store: &'a Store,
     pub mark: Option<(&'a str, Pos)>,
     pub recalled: Vec<super::sources_recall::Recalled>,
-    /// The gate's reading of a session's seal for this turn: true holds it out.
-    pub sealed: &'a dyn Fn(&str) -> bool,
-    /// The gate's node seal for this turn (`view_gate::Moved`): true when a message or the reply of the
-    /// exchange was moved into a thread not proven clear, which holds the exchange out whole.
-    pub moved: &'a dyn Fn(&exchange::Exchange) -> bool,
     pub sessions: &'a Sessions,
     /// The asking turn: its own exchange, open while it runs, is its tail and never a piece of the view (it
     /// is not laid in the window, so it is not charged to the budget either).
@@ -176,10 +175,8 @@ impl StoreSources<'_> {
                 },
                 author,
                 outside,
-                // The seal is the gate's own reading of the exchange's session, the same place's included, and
-                // of its nodes: one moved into a sealed thread holds the whole exchange.
-                // No reader of today's store marks an exchange veiled.
-                sealed: (self.sealed)(&ex.session_id) || (self.moved)(&ex),
+                // Anything goes (2026-11-22): no seal, move or veil marks an exchange.
+                sealed: false,
                 veiled: false,
             },
             place: ex.place,

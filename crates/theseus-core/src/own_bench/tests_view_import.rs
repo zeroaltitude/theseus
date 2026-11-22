@@ -3,7 +3,7 @@
 //! refused as a turn that kept nothing; a view turn whose recall is native is kept and replays as before; and
 //! a kept turn whose recalled node is erased afterwards is refused.
 
-use super::rebuild::{VIEW_HELD, VIEW_REFUSED};
+use super::rebuild::{VIEW_ERASED, VIEW_REFUSED};
 use crate::tests_places::{turn, Rig};
 use crate::tests_private_view::{index_of, owners_rig, session_in, ASKED, EPISODE};
 
@@ -144,7 +144,7 @@ async fn a_view_turn_with_native_recall_is_kept_and_refused_once_its_recalled_no
     let Err(e) = c.rebuild_first(&sid, &t) else {
         panic!("a turn whose recalled node was erased was rebuilt");
     };
-    assert_eq!((e.part, e.why.as_str()), ("view", VIEW_HELD));
+    assert_eq!((e.part, e.why.as_str()), ("view", VIEW_ERASED));
     assert!(c.turn_replay(replay(&sid, &t, own), "cli").await.is_err());
     assert_eq!(r.requests().len(), sent, "no model was called");
 }

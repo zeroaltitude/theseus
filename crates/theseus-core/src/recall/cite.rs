@@ -61,7 +61,8 @@ impl TurnRunner {
     /// show: one from a private place or imported. A shared place cites its
     /// own history and nothing else of the owner's.
     pub fn citation(&self, item: &RecalledRef, shared: bool) -> Option<Citation> {
-        let (handle, header) = split_header(&item.header)?;
+        let stored = super::evidence::untitled(&item.header, &item.session_id);
+        let (handle, header) = split_header(stored)?;
         if shared && !self.shows_in_shared(&item.session_id) {
             return None;
         }

@@ -1,22 +1,21 @@
 //! A stored piece's source, read again today ([`super::show::Source`]): a view record is a map of what WAS
-//! admitted, and a seal set since, a seal proposed since, or provenance that cannot be read any more keeps a
-//! piece out of every reader. The check is the gate's own: the source session's marks
-//! (`view_gate::session_marks`: its place, today's reading of it, its seal, failing closed) against a point of
-//! view through `view_gate::Gate::check`.
+//! admitted, and provenance that cannot be read any more keeps a piece out of every reader. The check is the
+//! gate's own: the source session's marks (`view_gate::session_marks`: its place and today's reading of it)
+//! against a point of view through `view_gate::Gate::check`. Anything goes (2026-11-22): who is present, a
+//! seal, a move or a veil holds nothing.
 //!
 //! - An exchange range: each exchange's session, through its exchange record (`exchange.<turn>`) for a
 //!   range of one, and through the place's touch index for a longer one, read back at most
 //!   [`RANGE_MAX`] exchanges; a range that does not resolve whole is not shown.
 //! - Code's own text (the frame, the clock): every reader's; it has no source.
-//! - A named thing's card and a waiting record: the owner alone, and every session it was read from (its
-//!   `from`, ids only) readable and clear today; the facts about the person: the owner alone.
-//! - A recalled item: its session's marks through the gate, and its node not moved into a thread held out.
-//! - A fold node, a task: no session this build can prove today, so not shown.
-//! - A piece whose stored marks say sealed or veiled stays out (marks only grow).
+//! - A named thing's card and a waiting record: every session it was read from (its `from`, ids only)
+//!   readable today; the facts about the person: shown.
+//! - A recalled item: its session's marks through the gate.
+//! - A fold node: no session this build can prove today, so not shown.
 
 use std::collections::BTreeSet;
 
-use theseus_memory::gate::{PointOfView, Present, Veil};
+use theseus_memory::gate::{PointOfView, Veil};
 
 use super::super::{AtHand, Marks, Provenance, SourceRange, Space};
 use super::show::Source;
@@ -39,44 +38,31 @@ pub struct GateSource<'a> {
 }
 
 impl GateSource<'_> {
-    /// Whether a card's or a waiting line's provenance holds today: every session it read readable and clear
-    /// for this reader, and every exchange it read readable, its session clear, and none of its messages
-    /// moved since into a thread not proven clear (`view_gate::Moved`, read now).
+    /// Whether `session`'s marks pass the gate for this reader: its place reads, and today's reading of it.
+    fn clear(&self, session: &str) -> bool {
+        let m = view_gate::session_marks(self.runner, self.asker, session, Veil::Clear);
+        crate::view::sources_names::place_reads(m.place.as_deref())
+            && Gate::check(&self.pov, &m).is_ok()
+    }
+
+    /// Whether a card's or a waiting line's provenance holds today: every session it read, and every
+    /// exchange it read, readable.
     fn proven(&self, p: &Provenance) -> bool {
-        let clear = |s: &str| {
-            let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
-            crate::view::sources_names::place_reads(m.place.as_deref())
-                && Gate::check(&self.pov, &m).is_ok()
-        };
-        let moved = view_gate::Moved::read(self.runner, self.asker);
-        p.sessions.iter().all(|s| clear(s))
+        p.sessions.iter().all(|s| self.clear(s))
             && p.exchanges
                 .iter()
                 .all(|id| match exchange::exchange(&self.runner.store, id) {
-                    Ok(Some(e)) => clear(&e.session_id) && !moved.holds(&e),
+                    Ok(Some(e)) => self.clear(&e.session_id),
                     _ => false,
                 })
     }
 
-    /// Whether a recalled item may be shown today: its session's marks pass the gate for this reader, and
-    /// its node reads clear (`view_gate::readable_nodes`: its session's seal, and a thread it was moved into).
-    fn recalled_clear(&self, session: &str, node: &str) -> bool {
-        let m = view_gate::session_marks(self.runner, self.asker, session, Veil::Clear);
-        let node = [(session.to_string(), node.to_string())];
-        crate::view::sources_names::place_reads(m.place.as_deref())
-            && Gate::check(&self.pov, &m).is_ok()
-            && !view_gate::readable_nodes(self.runner, self.asker, node.to_vec(), pair).is_empty()
-    }
-
-    /// The sessions behind an exchange range of `place`; none when they cannot all be proven, or when a
-    /// message or reply of an exchange in it was moved into a thread not proven clear for this reader
-    /// (`view_gate::Moved`: the owner's inspection lifts no seal).
+    /// The sessions behind an exchange range of `place`; none when they cannot all be proven.
     fn sessions(&self, place: &str, range: &SourceRange) -> Option<BTreeSet<String>> {
         let store = &self.runner.store;
-        let moved = view_gate::Moved::read(self.runner, self.asker);
         let one = |turn: &str| -> Option<String> {
             let e = exchange::exchange(store, turn).ok()??;
-            (e.place == place && !moved.holds(&e)).then_some(e.session_id)
+            (e.place == place).then_some(e.session_id)
         };
         let mut out = BTreeSet::from([one(&range.first.id)?, one(&range.last.id)?]);
         if range.first.id == range.last.id {
@@ -89,7 +75,7 @@ impl GateSource<'_> {
             return None;
         }
         for t in page.into_iter().filter(|t| t.at_ms >= range.first.at_ms) {
-            if !matches!(exchange::exchange(store, &t.exchange), Ok(Some(e)) if !moved.holds(&e)) {
+            if !matches!(exchange::exchange(store, &t.exchange), Ok(Some(_))) {
                 return None;
             }
             out.insert(t.session_id);
@@ -98,54 +84,26 @@ impl GateSource<'_> {
     }
 }
 
-/// A node's session and id, as `view_gate::readable_nodes` reads them.
-fn pair(n: &(String, String)) -> (&str, &str) {
-    (&n.0, &n.1)
-}
-
 impl Source for GateSource<'_> {
-    fn may_show(&self, range: &SourceRange, marks: Option<&Marks>) -> bool {
-        if marks.is_some_and(|m| m.sealed || m.veiled) || self.pov.present == Present::Unknown {
-            return false;
-        }
+    fn may_show(&self, range: &SourceRange, _marks: Option<&Marks>) -> bool {
         let place = match &range.space {
-            Space::Code { .. } => return true,
+            Space::Code { .. } | Space::Facts { .. } => return true,
             Space::Exchanges { place } => place,
-            // A named thing's card and what waits: the owner alone, and its provenance proven and clear today;
-            // the facts about the person (the owner's filing): the owner alone.
+            // A named thing's card and what waits: its provenance proven today.
             Space::Card { from, .. } | Space::Waiting { from, .. } => {
-                return self.pov.present == Present::OwnerAlone
-                    && from.as_ref().is_some_and(|p| self.proven(p))
+                return from.as_ref().is_some_and(|p| self.proven(p))
             }
-            Space::Facts { .. } => return self.pov.present == Present::OwnerAlone,
-            // A recalled item: its session's marks pass the gate now, and its node is not moved into a
-            // thread not proven clear for this reader.
-            Space::Recalled { session, node } => return self.recalled_clear(session, node),
+            Space::Recalled { session, .. } => return self.clear(session),
             _ => return false,
         };
         let Some(sessions) = self.sessions(place, range) else {
             return false;
         };
-        sessions.iter().all(|s| {
-            let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
-            Gate::check(&self.pov, &m).is_ok()
-        })
+        sessions.iter().all(|s| self.clear(s))
     }
 
-    /// A line of work: the owner alone, and its thread neither sealed nor seal-pending (unreadable is no). A
-    /// task: the owner alone.
-    fn at_hand(&self, at_hand: &AtHand) -> bool {
-        if self.pov.present != Present::OwnerAlone {
-            return false;
-        }
-        match at_hand {
-            AtHand::Task(_) => true,
-            AtHand::LineOfWork(slug) => match self.runner.threads.all(&self.runner.store) {
-                Ok(board) => board
-                    .get(slug)
-                    .is_none_or(|t| t.sealed.is_none() && t.seal_pending.is_none()),
-                Err(_) => false,
-            },
-        }
+    /// A line of work, a task: shown.
+    fn at_hand(&self, _at_hand: &AtHand) -> bool {
+        true
     }
 }

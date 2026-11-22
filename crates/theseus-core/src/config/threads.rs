@@ -331,9 +331,6 @@ mod tests {
         assert!(!off.threads.enabled && off.threads.max_live == 3);
         let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\nmax_live = 0\n")).is_err());
-        assert_eq!(cfg.threads.resume_keep_turns, 20);
-        let bad = "resume_keep_turns = 0";
-        assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         // The cold resume's sizes are retired (issue 44): any value loads, ignored and named.
         for retired in [
             "working_tokens = 10",
@@ -345,53 +342,6 @@ mod tests {
             assert_eq!(c.ignored_keys.len(), 1, "{retired}");
         }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());
-        assert_eq!(cfg.threads.cross_recall_penalty, 0.35);
-        assert_eq!(cfg.threads.cross_recall_bar, 0.75);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_penalty = 0.35"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_bar = 0.75"));
-        for bad in ["cross_recall_penalty = 1.5", "cross_recall_bar = -0.1"] {
-            let note = format!("{secrets}\n[threads]\n{bad}\n");
-            assert!(crate::Config::parse(&note).is_err(), "{bad}");
-        }
-    }
-
-    /// The streams-do-not-mix keys (theseus-wncdv) are on by default, named in the
-    /// template, and each can be turned off.
-    #[test]
-    fn the_streams_do_not_mix_keys_are_on_by_default_and_each_turns_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.cross_recall_beats_own && cfg.threads.base_distance);
-        assert!(cfg.threads.cross_recall_needs_entity && cfg.threads.own_top_admissible);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_needs_entity = true"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# own_top_admissible = true"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_beats_own = true"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# base_distance = true"));
-        let loose = crate::Config::from_toml(
-            "[threads]\ncross_recall_beats_own = false\nbase_distance = false\n\
-             cross_recall_needs_entity = false\n",
-        )
-        .unwrap();
-        assert!(!loose.threads.cross_recall_beats_own && !loose.threads.base_distance);
-        assert!(!loose.threads.cross_recall_needs_entity);
-    }
-
-    /// Jev's read of the near misses (theseus-98bz.10) is on, three notes a
-    /// request, named in the template; it turns off, and a k outside 1 to 10
-    /// is refused.
-    #[test]
-    fn the_cross_judge_reads_three_and_turns_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.cross_recall_judge);
-        assert_eq!(cfg.threads.cross_recall_judge_k, 3);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_judge = true"));
-        assert!(crate::Config::EXAMPLE_TOML.contains("# cross_recall_judge_k = 3"));
-        let off = crate::Config::from_toml("[threads]\ncross_recall_judge = false\n").unwrap();
-        assert!(!off.threads.cross_recall_judge);
-        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        for k in [0, 11] {
-            let bad = format!("{secrets}\n[threads]\ncross_recall_judge_k = {k}\n");
-            assert!(crate::Config::parse(&bad).is_err(), "{k}");
-        }
     }
 
     /// The place digest (theseus-98bz.9) is on by default, named in the
@@ -487,44 +437,5 @@ mod tests {
         assert!(crate::Config::EXAMPLE_TOML.contains("# link_proposals = true"));
         let off = crate::Config::from_toml("[threads]\nlink_proposals = false\n").unwrap();
         assert!(!off.threads.link_proposals);
-    }
-
-    /// `home_warn_percent` is 50 by default, named in the template, read back, and refused
-    /// outside 1 to 100.
-    #[test]
-    fn the_home_warning_is_a_share_of_the_window() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert_eq!(cfg.threads.home_warn_percent, 50);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# home_warn_percent = 50"));
-        let set = crate::Config::from_toml("[threads]\nhome_warn_percent = 80\n").unwrap();
-        assert_eq!(set.threads.home_warn_percent, 80);
-        let secrets = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n";
-        for bad in [0, 101] {
-            let note = format!("{secrets}\n[threads]\nhome_warn_percent = {bad}\n");
-            let e = crate::Config::parse(&note).unwrap_err().to_string();
-            assert!(e.contains("home_warn_percent"), "{bad}: {e}");
-        }
-    }
-
-    /// A thread's set grows from its turns (theseus-98bz.5) by default, named
-    /// in the template, and the switch turns it off.
-    #[test]
-    fn the_working_set_grows_by_default_and_turns_off() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(cfg.threads.working_set_grows && ThreadsConfig::default().working_set_grows);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# working_set_grows = true"));
-        let off = crate::Config::from_toml("[threads]\nworking_set_grows = false\n").unwrap();
-        assert!(!off.threads.working_set_grows);
-    }
-
-    /// The bench's clock (theseus-98bz.3) is off by default, named in the
-    /// template, and a test turns it on.
-    #[test]
-    fn the_bench_clock_is_off_by_default() {
-        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
-        assert!(!cfg.threads.bench_clock && !ThreadsConfig::default().bench_clock);
-        assert!(crate::Config::EXAMPLE_TOML.contains("# bench_clock = false"));
-        let on = crate::Config::from_toml("[threads]\nbench_clock = true\n").unwrap();
-        assert!(on.threads.bench_clock);
     }
 }

@@ -5,6 +5,13 @@ daemon's process. Read by theseusd.
 
 Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 
+> **Anything goes, since 2026-11-22.** Nothing is withheld from a model request because of who is present,
+> where it is, a seal, a veil or a move, and threads are not containers: no message is sent to a thread's
+> own session, and `thread list` / `thread show` are the only thread commands. Where a paragraph below
+> describes the gate's presence rules, seals, moves, the release card or thread commands as living, it is
+> the record of what was; old records still decode. Authority (whose words a piece is) and the act gates
+> (approvals, a place's tool ceiling, publishing into a shared place) are unchanged.
+
 ## What's here
 
 - `src/runtime.rs`: the gateway loop and the places (a text channel or a DM, each backed by one session), with the

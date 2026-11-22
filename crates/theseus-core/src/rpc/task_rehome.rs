@@ -1,12 +1,13 @@
 //! `task.rehome` (theseus-jid7t.2): a task's report goes to another
-//! conversation or thread from now on.
+//! conversation from now on. A thread (`thread:<slug>`) is refused: threads
+//! were retired on 2026-11-22 (issue 44).
 //!
 //! - **What moves** is where the report is posted: the task's record
 //!   (`TaskOf.target`), its execution's `reports_to`, and the outbox's place
 //!   for it (META `task.place.<session>`), in one frame with the
 //!   `task.rehomed` row. A home with no place of its own (a terminal's
-//!   conversation, a thread no place has shown) leaves the report on the
-//!   board and in its parent's next turn.
+//!   conversation) leaves the report on the board and in its parent's next
+//!   turn.
 //! - **What stays** is the parent: the budget is carved from it, its
 //!   reservation settles there, and its next turn still reads the report
 //!   (`Execution.parent` never changes), as the answer says.
@@ -69,41 +70,27 @@ impl Core {
         })
     }
 
-    /// The conversation or thread `home` names, if a report may go there.
+    /// The conversation `home` names, if a report may go there.
     fn home_for(&self, home: &str) -> anyhow::Result<Home> {
-        let session = match home.strip_prefix("thread:") {
-            Some(slug) => {
-                let board = self.threads();
-                let t = board
-                    .get(slug)
-                    .ok_or_else(|| anyhow::anyhow!("no thread {slug}"))?;
-                anyhow::ensure!(
-                    t.state != theseus_protocol::threads::ThreadState::Done,
-                    "thread {slug} is done"
-                );
-                t.session_id.clone()
-            }
-            None => {
-                let rec = self
-                    .store
-                    .get_session::<SessionRecord>(home)?
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "no home {home}: name a conversation's session id or `thread:<slug>`"
-                        )
-                    })?;
-                anyhow::ensure!(
-                    rec.kind != SessionKind::Task && rec.task.is_none(),
-                    "{home} is itself a task, not a conversation"
-                );
-                anyhow::ensure!(rec.retired.is_none(), "{home} is retired");
-                anyhow::ensure!(
-                    self.runner.class_of(home) != crate::places::PlaceClass::Shared,
-                    "{home} is in a shared place, and a task's report never goes to one from here"
-                );
-                Some(home.to_string())
-            }
-        };
+        // Threads were retired on 2026-11-22 (issue 44): no report goes to one.
+        anyhow::ensure!(
+            !home.starts_with("thread:"),
+            "threads are gone; name a conversation"
+        );
+        let rec = self
+            .store
+            .get_session::<SessionRecord>(home)?
+            .ok_or_else(|| anyhow::anyhow!("no home {home}: name a conversation's session id"))?;
+        anyhow::ensure!(
+            rec.kind != SessionKind::Task && rec.task.is_none(),
+            "{home} is itself a task, not a conversation"
+        );
+        anyhow::ensure!(rec.retired.is_none(), "{home} is retired");
+        anyhow::ensure!(
+            self.runner.class_of(home) != crate::places::PlaceClass::Shared,
+            "{home} is in a shared place, and a task's report never goes to one from here"
+        );
+        let session = Some(home.to_string());
         // A failed read of the home's mark is a refusal, not the top mark: the top
         // would let any task's report in.
         let mark = match session.as_deref() {

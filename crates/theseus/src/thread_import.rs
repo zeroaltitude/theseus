@@ -1,6 +1,8 @@
-//! `theseus thread import --vestige PATH` (theseus-71ib): a Vestige dump (a
-//! file, or the `vestige*.json` files of a directory) imported as notes, once,
-//! through the session import's `import.episodes`.
+//! `theseus import vestige PATH` (theseus-71ib): a Vestige dump (a file, or
+//! the `vestige*.json` files of a directory) imported as notes, once, through
+//! the session import's `import.episodes`. It is a note import, not a thread
+//! import: it lived under `theseus thread import --vestige PATH` until threads
+//! were retired (2026-11-22), and that spelling still runs it, saying it moved.
 //!
 //! The thread importer that shared this command (`--from openclaw`, candidate
 //! threads from the owner's earlier harness, and `--apply`) is gone (the owner,
@@ -29,15 +31,20 @@ pub struct Args {
     pub vestige: Option<PathBuf>,
 }
 
+/// `theseus thread import --vestige PATH`: moved, and still run.
 pub async fn run(conn: &mut Conn, json: bool, a: Args) -> Result<()> {
     let Some(path) = &a.vestige else {
-        bail!("name what to import: `--vestige PATH` for a dump");
+        bail!("name what to import: `theseus import vestige PATH` (this command moved there)");
     };
-    vestige_run(conn, json, path).await
+    eprintln!(
+        "`theseus thread import` moved: `theseus import vestige {}` does this now.",
+        path.display()
+    );
+    vestige(conn, json, path).await
 }
 
 /// Import a Vestige dump (or a directory's), once.
-async fn vestige_run(conn: &mut Conn, json: bool, path: &Path) -> Result<()> {
+pub async fn vestige(conn: &mut Conn, json: bool, path: &Path) -> Result<()> {
     theseus_client::client::refuse_in_a_job(
         method::IMPORT_EPISODES,
         theseus_client::client::job_session().as_deref(),

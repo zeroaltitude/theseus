@@ -1247,36 +1247,6 @@ async fn answering_a_question_that_is_no_longer_waiting_refuses_and_answers_noth
     assert!(answers(&r).is_empty(), "nothing was answered: {why}");
 }
 
-// ------------------------------------- the thread acts: seal and move (issue 13)
-
-/// The CLI as the answerer a thread is made by.
-fn cli_answerer() -> crate::approval::Answerer {
-    crate::approval::Answerer {
-        label: "the CLI".into(),
-        surface: Surface::Cli,
-        discord: None,
-        agent: None,
-    }
-}
-
-/// A thread and its session, as a conversation in it runs.
-fn a_thread(r: &Rig, slug: &str, title: &str) -> String {
-    r.core
-        .thread_new(
-            &theseus_protocol::threads::ThreadNewParams {
-                slug: slug.into(),
-                title: Some(title.into()),
-                ..Default::default()
-            },
-            cli_answerer(),
-        )
-        .unwrap();
-    r.core
-        .thread_session(slug, cli_answerer())
-        .unwrap()
-        .session_id
-}
-
 /// The tools the offer step puts in the request of `turn` in `sid`, for a
 /// message of the owner's own.
 fn offered_in(r: &Rig, sid: &str, turn: &str) -> Vec<String> {
@@ -1349,54 +1319,6 @@ async fn the_item_tools_are_offered_in_a_private_place_alone() {
         !items_offered("turn_c", PlaceClass::Private, true),
         "nor is a turn no message of his started"
     );
-}
-
-/// **Seal this thread is a tool the model calls, and the old phrases seal
-/// nothing** (issue 13; the successor of
-/// `the_owners_explicit_verb_seals_the_thread`, which asserted that `/seal` and
-/// "seal this thread" sealed before any turn ran). Offered where the act is
-/// possible: in the session of a thread that is not sealed, and nowhere else.
-/// Called, it seals that thread, as the owner who spoke, and says what had
-/// crossed; a message that merely contains the phrase does nothing.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_seal_tool_seals_the_conversations_thread_and_the_old_phrases_seal_nothing() {
-    let jev = jev_says(REVERSIBLE, 0.95);
-    let r = rig_judged(&jev, |c| c.threads.enabled = true);
-    let scratch = a_thread(&r, "scratch", "scratch pad");
-    let _other = a_thread(&r, "other", "another thread");
-
-    // The old phrases, and a message that only contains one: plain messages.
-    for words in [
-        "/seal",
-        "Seal this thread.",
-        "  seal this thread!  ",
-        "please seal this thread now",
-    ] {
-        say(&r, &scratch, words).await;
-    }
-    let sealed = |slug: &str| r.core.threads().get(slug).unwrap().sealed.is_some();
-    assert!(!sealed("scratch"), "no phrase seals a thread");
-
-    // Offered here, not in a session no thread serves.
-    assert!(offered_in(&r, &scratch, "turn_a").contains(&"chat_seal_thread".to_string()));
-    let plain = session(&r.core);
-    assert!(!offered_in(&r, &plain, "turn_b").contains(&"chat_seal_thread".to_string()));
-
-    // The model chooses to call it.
-    r.calls(&[("chat_seal_thread", json!({"thread": "scratch"}))]);
-    say(&r, &scratch, "seal this thread").await;
-    let out = acted(&r, &scratch, crate::chat_acts::SEAL);
-    let last = out.last().unwrap_or_else(|| panic!("no result: {out:?}"));
-    assert_eq!(last.0, "Ok", "{out:?}");
-    assert!(
-        last.1.starts_with("The owner sealed this thread (scratch)"),
-        "{}",
-        last.1
-    );
-    assert!(sealed("scratch") && !sealed("other"));
-
-    // A sealed thread is not offered the tool again.
-    assert!(!offered_in(&r, &scratch, "turn_c").contains(&"chat_seal_thread".to_string()));
 }
 
 /// **The project's items are tools the model calls, offered only in a

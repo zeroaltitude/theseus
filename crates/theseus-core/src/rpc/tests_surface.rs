@@ -258,10 +258,12 @@ async fn each_surface_is_told_where_the_person_wrote_from_and_the_header_is_the_
         let given = (surface != Surface::Mcp).then(|| r.session(place));
         let (req, sid) = r.say(surface, via, given.as_deref(), PROMPT).await;
         let at = r.written(&sid);
-        assert_eq!(
-            Rig::said(&req),
-            format!("{tag} · {at}] {PROMPT}"),
-            "{surface:?}"
+        // On the view a recalled note and who is speaking may come before the person's words
+        // (issue 44): the tag heads the words themselves.
+        let said = Rig::said(&req);
+        assert!(
+            said.ends_with(&format!("{tag} · {at}] {PROMPT}")),
+            "{surface:?}: {said}"
         );
         // The shared place's header has its own tools note (the place
         // rule); it is compared with another message of the same place.
@@ -270,7 +272,11 @@ async fn each_surface_is_told_where_the_person_wrote_from_and_the_header_is_the_
         } else {
             let sid2 = r.session(place);
             let (bare, _) = r.say(Surface::Unnamed, None, Some(&sid2), PROMPT).await;
-            assert_eq!(Rig::said(&bare), PROMPT);
+            let bare_said = Rig::said(&bare);
+            assert!(
+                bare_said.ends_with(PROMPT) && !bare_said.ends_with(&format!("] {PROMPT}")),
+                "{bare_said}"
+            );
             assert_eq!(
                 system(&bare),
                 system(&req),
@@ -332,45 +338,4 @@ async fn a_voice_turn_keeps_its_framing_alone_and_an_unnamed_connection_is_untag
         .await;
     let at = r.written(&sid);
     assert_eq!(Rig::said(&req), format!("[Terminal · {at}] {PROMPT}"));
-}
-
-/// The tag is fixed when the node is written: a session that moves to
-/// another place keeps each earlier message's tag, so the cached prefix
-/// holds.
-#[tokio::test]
-async fn an_earlier_messages_tag_stays_when_the_place_moves() {
-    let r = rig();
-    let dm = format!("dm:{OWNER}");
-    let lab = format!("channel:{LAB}");
-    let sid = r.session(Some(&dm));
-    r.say(Surface::Discord, None, Some(&sid), "first").await;
-    r.core.outbox.bind_place(&lab, &sid).unwrap();
-    let (req, _) = r.say(Surface::Discord, None, Some(&sid), "second").await;
-    let texts: Vec<String> = req
-        .messages
-        .iter()
-        .filter(|m| m["role"] == "user")
-        .map(|m| m["content"][0]["text"].as_str().unwrap().to_string())
-        .collect();
-    // Each tag ends with when its message was written (theseus-sro04).
-    let at: Vec<String> = r
-        .core
-        .store
-        .session_nodes(&sid)
-        .unwrap()
-        .into_iter()
-        .filter(|(_, n)| matches!(n.body, Body::UserMessage { .. }))
-        .map(|(_, n)| crate::surface::when(n.created_at_ms))
-        .collect();
-    assert_eq!(
-        texts[0],
-        format!(
-            "[Discord DM · phone or desktop; markdown renders · {}] first",
-            at[0]
-        )
-    );
-    assert_eq!(
-        texts[1],
-        format!("[Discord #lab · shared · {}] second", at[1])
-    );
 }

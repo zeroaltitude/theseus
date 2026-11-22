@@ -46,8 +46,7 @@ const ASK: &str = "Which moorings on the outer wall were checked?";
 
 /// The cache rule: the tier sizes the tail alone. Two turns of one session, ordinary (`work =
 /// conversation`) then deep (`work = coding`), on the same model pick, send the same system and
-/// tools, byte for byte, and the second's first message is the first's; the second compile
-/// appends. The tier did change (3,000 tokens then 8,000, said on the route rows), so the equality
+/// tools, byte for byte, and the second's first message is the first's. The tier did change (3,000 tokens then 8,000, said on the route rows), so the equality
 /// is no accident of nothing moving.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_tier_never_changes_a_cached_prefix_byte() {
@@ -89,16 +88,6 @@ async fn the_tier_never_changes_a_cached_prefix_byte() {
     );
     assert_eq!(a.tools, b.tools, "the tools");
     assert_eq!(a.messages[0], b.messages[0], "the first message");
-    let compiled = crate::tests_judge::kinds(&r.core.store, "context.compiled");
-    let decisions: Vec<&str> = compiled
-        .iter()
-        .map(|c| c.data["decision"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        decisions,
-        ["recompile", "append"],
-        "the second turn appends"
-    );
 }
 
 /// The cli's place, models with no tool search, and every hidden family judged relevant: the

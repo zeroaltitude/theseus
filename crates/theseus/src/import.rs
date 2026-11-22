@@ -102,6 +102,8 @@ pub enum ImportCmd {
         #[arg(long)]
         tag: Option<String>,
     },
+    /// Import a Vestige dump (a file, or the `vestige*.json` files of a directory) as notes, once.
+    Vestige { path: PathBuf },
     /// Erase every session and node of a tag: each tombstoned, and the index told to forget it.
     Erase {
         #[arg(long)]
@@ -149,6 +151,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ImportCmd) -> Result<()> {
     match cmd {
         ImportCmd::Openclaw { files } => openclaw(conn, json, files).await,
         ImportCmd::Sync(a) => crate::import_sync::run(conn, json, a).await,
+        ImportCmd::Vestige { path } => crate::thread_import::vestige(conn, json, &path).await,
         ImportCmd::ClaudeCode { dir, tag } => {
             harness::run::run(conn, json, harness::Source::ClaudeCode, dir, tag).await
         }

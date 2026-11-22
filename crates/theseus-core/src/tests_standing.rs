@@ -199,13 +199,6 @@ impl Rig {
             .unwrap()
     }
 
-    fn triggers(&self, sid: &str) -> Vec<String> {
-        rows_in(&self.core, "context.recompiled", Some(sid))
-            .iter()
-            .map(|r| r["trigger"].as_str().unwrap().to_string())
-            .collect()
-    }
-
     /// The CLI adds a record; its id.
     fn add(&self, kind: StandingKind, scope: StandingScope, text: &str) -> String {
         self.core
@@ -328,7 +321,6 @@ async fn a_revoked_record_is_gone_and_an_unchanged_set_keeps_the_prefix_byte_ide
         serde_json::to_string(&(&second.system, &second.tools)).unwrap(),
         "the prefix is byte-identical with no change to the records"
     );
-    assert_eq!(r.triggers(&sid), ["new_session"]);
 
     r.revoke(&drop);
     turn(&r.core, &sid, "three").await;
@@ -337,7 +329,7 @@ async fn a_revoked_record_is_gone_and_an_unchanged_set_keeps_the_prefix_byte_ide
         system.contains(NO_PUSH) && !system.contains(SHORT),
         "{system}"
     );
-    assert_eq!(r.triggers(&sid), ["new_session", "system_changed"]);
+    assert_ne!(system, system_text(&second), "a revoke changes the system");
     let m = r.compilation(&sid).manifest;
     assert_eq!(
         m.standing.iter().map(|u| u.id.as_str()).collect::<Vec<_>>(),
@@ -381,49 +373,6 @@ async fn a_revoked_record_is_gone_and_an_unchanged_set_keeps_the_prefix_byte_ide
         .collect();
     assert!(states.contains(&(keep.as_str(), "replaced")), "{states:?}");
     assert!(states.contains(&(drop.as_str(), "revoked")), "{states:?}");
-}
-
-/// A shared place gets the orders of its scope with their text, and for the
-/// preferences and facts only the line that says they are withheld: never
-/// their text, in the system and in the manifest's note of what was shown.
-#[tokio::test]
-async fn a_shared_place_shows_orders_and_hides_the_text_of_preferences_and_facts() {
-    let r = rig();
-    let order = r.add(StandingKind::Order, StandingScope::Everywhere, NO_PUSH);
-    let pref = r.add(StandingKind::Preference, StandingScope::Everywhere, SHORT);
-    let fact = r.add(StandingKind::Fact, StandingScope::Everywhere, GARDEN);
-    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
-    turn(&r.core, &shared, "hi").await;
-    let system = system_text(&r.last_request());
-    assert!(
-        system.contains(&format!("- {order}: {NO_PUSH}")),
-        "{system}"
-    );
-    assert!(system.contains(crate::standing::WITHHELD), "{system}");
-    for text in [SHORT, GARDEN, pref.as_str(), fact.as_str()] {
-        assert!(!system.contains(text), "{text} leaked: {system}");
-    }
-    let m = r.compilation(&shared).manifest;
-    let shown: Vec<(&str, bool)> = m
-        .standing
-        .iter()
-        .map(|u| (u.id.as_str(), u.shown))
-        .collect();
-    assert!(shown.contains(&(order.as_str(), true)), "{shown:?}");
-    assert!(
-        shown.contains(&(pref.as_str(), false)) && shown.contains(&(fact.as_str(), false)),
-        "{shown:?}"
-    );
-
-    // The owner's DM carries all three.
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn(&r.core, &dm, "hi").await;
-    let system = system_text(&r.last_request());
-    assert!(
-        system.contains(SHORT) && system.contains(GARDEN),
-        "{system}"
-    );
-    assert!(!system.contains(crate::standing::WITHHELD), "{system}");
 }
 
 /// The list gives a preference's or a fact's text to the owner in a private
