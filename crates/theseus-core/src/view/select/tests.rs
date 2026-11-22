@@ -782,7 +782,7 @@ proptest! {
         ceiling in 0u64..20_000,
         here in 0u64..20_000,
     ) {
-        let budget = Budget { ceiling, here_allowance: here, provider_window: 400_000, reserve: 0 };
+        let budget = Budget { ceiling, here_allowance: here, provider_window: 400_000, reserve: 0, floor_only: false };
         let mut s = Store { ex: base, ..Store::default() };
         s.ex.sort_by(|a, b| a.turn.cmp(&b.turn));
         s.ex.dedup_by(|a, b| a.turn == b.turn);
