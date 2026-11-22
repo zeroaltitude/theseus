@@ -317,7 +317,10 @@ async fn reach_follows_a_report_into_the_parent_and_names_its_compilations() {
         .map(|(_, n)| n.created_at_ms)
         .collect();
     assert_eq!(replies.len(), 2);
-    assert_eq!(d.exposure.last_ms, replies.last().copied());
+    // A call's exposure is when its request was sent (issue 44): the last is
+    // the last call's dispatch, at or before its answer, after the first.
+    assert!(d.exposure.last_ms <= replies.last().copied(), "{d:?}");
+    assert!(d.exposure.last_ms > Some(replies[0]), "{d:?}");
     assert!(d.exposure.first_ms <= Some(replies[0]));
     assert_eq!(
         got.totals,
