@@ -29,6 +29,9 @@ use crate::store::Transcript;
 
 /// Why a turn whose request the view built is refused when its view record keeps nothing of it.
 pub const VIEW_REFUSED: &str = "this turn was built before views kept what a replay needs";
+/// Why a view turn kept with a recalled header of the old shape (its session's title) is refused.
+pub const VIEW_TITLED: &str =
+    "kept before session titles were removed from recalled headers: cannot be replayed";
 /// Why a view turn is refused when the gate holds something it laid now.
 pub const VIEW_HELD: &str =
     "something this turn's view laid has been sealed or moved since, so it is not \
@@ -280,7 +283,8 @@ impl Core {
 
     /// The view a view turn's request was laid from, read back from the blobs its record names, once the
     /// gate of now has said none of what it laid is held: a turn from before views kept it is refused in
-    /// words, as is one a source of which was sealed or moved since.
+    /// words, as is one a source of which was sealed or moved since, and one whose beside block holds a
+    /// recalled header of the old shape, its session's title (`kept::legacy_title`).
     fn kept_view(
         &self,
         compilation: &Compilation,
@@ -297,6 +301,9 @@ impl Core {
         }
         let f = crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
             .map_err(|why| no("view", why))?;
+        if crate::compiler::view::kept::legacy_title(&f) {
+            return Err(no("view", VIEW_TITLED));
+        }
         Ok(f)
     }
 

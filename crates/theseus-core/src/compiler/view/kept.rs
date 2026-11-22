@@ -65,6 +65,25 @@ pub fn kept(f: &Frozen) -> Option<(Kept, Vec<String>)> {
     Some((k, texts))
 }
 
+/// Whether `f`'s beside block holds a recalled item's header of the old shape, `session <short id> "<title>"`
+/// (`recall::evidence` wrote it; a title is a session's first words, and new headers carry none): the short id
+/// is one to six id characters, then a space and a quote. A plain text test: a person's own words of that
+/// shape only refuse a replay.
+pub fn legacy_title(f: &Frozen) -> bool {
+    f.beside.as_ref().is_some_and(|n| titled(&text_of(n)))
+}
+
+/// Whether `text` holds `session <1 to 6 id characters> "`.
+pub fn titled(text: &str) -> bool {
+    const AT: &str = "session ";
+    let id = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    text.match_indices(AT).any(|(i, _)| {
+        let rest = &text[i + AT.len()..];
+        let n = rest.chars().take_while(|c| id(*c)).count();
+        (1..=6).contains(&n) && rest[n..].starts_with(" \"")
+    })
+}
+
 /// The window's nodes in runs of one exchange (one turn id), oldest first.
 fn exchanges(window: &[(u64, crate::stub::Stub)]) -> Vec<Vec<&Node>> {
     let mut out: Vec<Vec<&Node>> = Vec::new();

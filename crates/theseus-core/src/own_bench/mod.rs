@@ -50,6 +50,8 @@ mod tests_view_provider;
 mod tests_view_refused;
 #[cfg(test)]
 mod tests_view_routed;
+#[cfg(test)]
+mod tests_view_titled;
 
 use theseus_protocol::LedgerKind;
 
