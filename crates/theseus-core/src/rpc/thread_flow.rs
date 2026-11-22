@@ -10,6 +10,12 @@
 //!   (a plain turn stays 5 frames and starts no timer).
 //! - **No address, no thread.** A message that names none runs in the place's
 //!   own conversation, always, at once: nothing guesses, waits or asks.
+//! - **An address that cannot be honoured is refused** (issue 44): `/t` with
+//!   a word that names no thread, a word that names a paused or done thread,
+//!   and an addressed thread that does not open end `turn.submit` with one
+//!   plain line and start no turn; the message never runs at home. A sealed
+//!   or unreadable thread is refused as no thread at all (the gate's
+//!   `may_name_thread`).
 //! - **Jev is asked once, as before.** With two or more live threads the
 //!   inbound point begins here, before the session is known, and the turn
 //!   takes it over (`Handoff`): `classify`'s request is the one it was, its
@@ -22,7 +28,7 @@ use std::time::Instant;
 
 use theseus_judge::builders::ThreadInput;
 use theseus_protocol::thread_route::{RouteHow, ThreadTag};
-use theseus_protocol::threads::ThreadInfo;
+use theseus_protocol::threads::{ThreadInfo, ThreadState};
 use theseus_protocol::{error_code, Event, ThreadPlaced, TurnSubmitParams, TurnSubmitResult};
 
 use super::server::{Conn, RpcFailure};
@@ -35,7 +41,9 @@ use crate::judge::inbound::{
 };
 use crate::session::SessionRecord;
 use crate::thread_flow::{Handoff, Routed};
-use crate::thread_route::{address, top_entities, Address, Addressing};
+use crate::thread_route::{
+    address, top_entities, typed_word, unresolved, Address, Addressing, Unresolved,
+};
 
 /// What the router decided for a turn, which `turn.submit` keeps.
 pub(super) struct Routing {
@@ -127,13 +135,16 @@ impl Core {
         }
         let board = self.threads();
         let home = session.session_id.clone();
-        if board.is_empty() || board.of_session(&home).is_some() {
+        if board.of_session(&home).is_some() {
             return Ok(None);
         }
         let class = self.runner.class_of(&home);
         let live = board.live(class);
         if live.is_empty() {
-            return Ok(None);
+            return match unresolved(&p.input, &board.nameable(class)) {
+                Some(u) => Err(self.refuse_address(&home, &u, None)),
+                None => Ok(None),
+            };
         }
         let state = &self.runner.threads.route;
         let bench = self.bench_clock(p);
@@ -143,6 +154,12 @@ impl Core {
         let mut row = fresh_row(&home);
         let mut early: Option<Early> = None;
         let addr = self.addressed(p, place.as_deref(), &live);
+        if addr.is_none() {
+            if let Some(u) = unresolved(&p.input, &board.nameable(class)) {
+                return Err(self.refuse_address(&home, &u, None));
+            }
+        }
+        let typed = typed_word(&p.input);
         let tag = match addr {
             Some(a) => explicit_tag(&a, &live, p),
             None => {
@@ -152,7 +169,7 @@ impl Core {
                 home_tag(1.0, false)
             }
         };
-        let (tag, run_session) = self.session_for(tag, session);
+        let (tag, run_session) = self.session_for(tag, session, typed)?;
         self.show_thread_at(&tag, &run_session, place.as_deref());
         let tail = self.place_tail(&home, &run_session.session_id, &live, &mut row);
         state.arrived(&home, tag.slug.as_deref(), now);
@@ -286,19 +303,71 @@ impl Core {
         }));
     }
 
-    /// The session that runs it. A thread that cannot take it (it was paused
-    /// as the message arrived) sends it home.
-    fn session_for(&self, tag: ThreadTag, home: &SessionRecord) -> (ThreadTag, SessionRecord) {
+    /// The session that runs it. A thread its address names that cannot take
+    /// it (paused as the message arrived, or not opened) refuses it: the
+    /// message never runs at home in its place. `typed`: the address's word
+    /// as the sender typed it, for the refusal.
+    fn session_for(
+        &self,
+        tag: ThreadTag,
+        home: &SessionRecord,
+        typed: Option<String>,
+    ) -> Result<(ThreadTag, SessionRecord), RpcFailure> {
         let Some(slug) = tag.slug.clone() else {
-            return (tag, home.clone());
+            return Ok((tag, home.clone()));
         };
         match self.thread_session_open(&slug) {
-            Ok(s) => (tag, s),
+            Ok(s) => Ok((tag, s)),
             Err(e) => {
-                tracing::warn!(thread = %slug, error = %e.message, "a routed thread cannot take the message: it runs at home");
-                (home_tag(0.0, true), home.clone())
+                tracing::warn!(thread = %slug, error = %e.message, "a thread its address names cannot take the message: it is refused");
+                let u = Unresolved {
+                    word: typed.unwrap_or_else(|| tag.title.clone()),
+                    slug: Some(slug),
+                };
+                Err(self.refuse_address(&home.session_id, &u, Some(&e.message)))
             }
         }
+    }
+
+    /// The refusal of an address that cannot be honoured (issue 44): one
+    /// plain line to the sender, as `turn.submit`'s answer, and no turn
+    /// anywhere. Why the thread cannot take it is said only of a thread the
+    /// gate lets this place name (`view_gate::may_name_thread`); a sealed or
+    /// unreadable one reads as no thread at all.
+    fn refuse_address(&self, home: &str, u: &Unresolved, failed: Option<&str>) -> RpcFailure {
+        let word = &u.word;
+        let named = u
+            .slug
+            .as_deref()
+            .filter(|s| crate::view_gate::may_name_thread(&self.runner, home, s))
+            .and_then(|s| self.threads().get(s).cloned());
+        let why = match (named.as_ref().map(|t| t.state), failed) {
+            (Some(ThreadState::Paused), _) => format!(
+                "is paused: `theseus thread resume {}` lets it take messages",
+                u.slug.as_deref().unwrap_or_default()
+            ),
+            (Some(ThreadState::Done), _) => format!(
+                "is done: `theseus thread reopen {}` takes it up again",
+                u.slug.as_deref().unwrap_or_default()
+            ),
+            (Some(ThreadState::Active), Some(e)) => format!("could not be opened ({e})"),
+            _ => {
+                return RpcFailure::new(
+                    error_code::REFUSED,
+                    format!(
+                        "Not run: there is no thread \u{201c}{word}\u{201d}. Send it again with a \
+                         thread's name, or without one to talk here."
+                    ),
+                )
+            }
+        };
+        RpcFailure::new(
+            error_code::REFUSED,
+            format!(
+                "Not run: the thread \u{201c}{word}\u{201d} {why}. Send it again then, or \
+                 without the thread's name to talk here."
+            ),
+        )
     }
 
     /// Whether this message is one the router places at all. A session the

@@ -147,6 +147,65 @@ pub fn by_place(place: Option<&str>, threads: &[&ThreadInfo]) -> Option<Address>
     }
 }
 
+/// An address given that names no live thread: the word as the sender typed
+/// it, and the thread it names, if any. It is refused, never run at home.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unresolved {
+    pub word: String,
+    pub slug: Option<String>,
+}
+
+/// The word an explicit address gives, as typed, and whether it came after
+/// `/t`: after a leading `#`, after `/t `, or between "in the " and "
+/// thread:" (or " thread,").
+fn address_word(text: &str) -> Option<(String, bool)> {
+    let t = text.trim_start();
+    if let Some(rest) = t.strip_prefix('#') {
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == ':' || c == ',')
+            .unwrap_or(rest.len());
+        return Some((rest[..end].to_string(), false));
+    }
+    let lower = t.to_lowercase();
+    if lower.starts_with("/t ") || lower.starts_with("/t\t") {
+        let word = t[3..].split_whitespace().next()?;
+        return Some((word.to_string(), true));
+    }
+    if lower.starts_with("in the ") {
+        let head: String = t.chars().take(120).collect();
+        let lh = head.to_ascii_lowercase();
+        let at = [" thread:", " thread,"]
+            .iter()
+            .filter_map(|stop| lh.find(stop))
+            .min()?;
+        return Some((head[7..at].trim().to_string(), false));
+    }
+    None
+}
+
+/// The address `text` gives that names no live thread, read when
+/// [`address`] found none: a `#word` or "in the <title> thread:" that names
+/// a thread of `all` (one paused or done), or `/t word` whatever it names. A
+/// `#word` or "in the …" that names no thread at all is no address.
+pub fn unresolved(text: &str, all: &[&ThreadInfo]) -> Option<Unresolved> {
+    let (word, slash) = address_word(text)?;
+    if word.is_empty() {
+        return None;
+    }
+    match named(&word, all) {
+        Some(t) => Some(Unresolved {
+            word,
+            slug: Some(t.slug.clone()),
+        }),
+        None => slash.then_some(Unresolved { word, slug: None }),
+    }
+}
+
+/// The word an explicit address in `text` gives, as typed, if it has one.
+pub fn typed_word(text: &str) -> Option<String> {
+    address_word(text).map(|(w, _)| w).filter(|w| !w.is_empty())
+}
+
 /// Everything addressing reads: the explicit flag or word, the reply's
 /// thread, the place.
 pub struct Addressing<'a> {
