@@ -66,13 +66,13 @@ async fn the_transcript_assembly_sends_the_golden_requests_byte_for_byte() {
     }
 }
 
-fn view_rig() -> Rig {
+pub(crate) fn view_rig() -> Rig {
     rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)))
 }
 
 /// The conversation's requests whose newest user message says `what`, in the order they were sent: a
 /// request with tools (the ladder's own model calls, a did line's, offer none).
-fn asked(r: &Rig, what: &str) -> Vec<ProviderRequest> {
+pub(crate) fn asked(r: &Rig, what: &str) -> Vec<ProviderRequest> {
     let got: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && last_user(q).contains(what))
         .collect();
@@ -136,7 +136,7 @@ fn plain(q: &ProviderRequest) -> Vec<Value> {
     q.messages.iter().map(unmarked).collect()
 }
 
-fn texts(q: &ProviderRequest) -> String {
+pub(crate) fn texts(q: &ProviderRequest) -> String {
     serde_json::to_string(&q.messages).unwrap()
 }
 
@@ -430,7 +430,12 @@ async fn a_small_view_conversations_requests_are_the_golden() {
 
 /// A turn of `sid` whose input `turn.submit` marked as typed by the owner in person, or by an agent's
 /// process (the gate's own test mark, `view_gate::test_mark`).
-async fn turn_as(core: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_person: bool) {
+pub(crate) async fn turn_as(
+    core: &std::sync::Arc<crate::Core>,
+    sid: &str,
+    input: &str,
+    in_person: bool,
+) -> theseus_protocol::TurnSubmitResult {
     use crate::session::SessionRecord;
     let mark = crate::view_gate::test_mark(&core.runner, sid, in_person);
     let rec = (core.store.get_session::<SessionRecord>(sid).unwrap()).unwrap();
@@ -453,7 +458,7 @@ async fn turn_as(core: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_
             answer_at: None,
         })
         .await
-        .unwrap();
+        .unwrap()
 }
 
 /// The owner's words in his DM, then turns in other places set to view. The point of view's presence is
@@ -557,7 +562,7 @@ async fn a_view_turn_carries_its_memberships_guidance() {
 }
 
 /// A thread `kelp`, bound to its own session, sealed as `seal` says.
-fn kelp(store: &crate::store::Store, seal: bool) -> String {
+pub(crate) fn kelp(store: &crate::store::Store, seal: bool) -> String {
     use crate::session::SessionRecord;
     let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
     store.put_session(&r.session_id, &r).unwrap();

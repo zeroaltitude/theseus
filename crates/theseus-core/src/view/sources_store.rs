@@ -31,6 +31,9 @@ pub struct Sessions {
         std::collections::HashMap<String, std::rc::Rc<crate::store::Transcript>>,
     >,
     facts: std::cell::RefCell<std::collections::HashMap<String, Option<ExchangeFacts>>>,
+    /// Each named thing's card text as it was read for the turn (`super::sources_names`); none for a thing
+    /// with no card.
+    pub cards: std::cell::RefCell<std::collections::BTreeMap<String, Option<String>>>,
     /// How many times the store was read for a session.
     pub reads: std::cell::Cell<u32>,
 }

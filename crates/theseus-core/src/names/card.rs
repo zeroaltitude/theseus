@@ -90,6 +90,7 @@ fn source_of<'a>(
         Kind::Topic => o
             .category(&CategoryId::parse(thing).ok()?)
             .map(Source::Topic),
+        Kind::Item => None,
     }
 }
 
@@ -154,6 +155,7 @@ pub fn compose(src: Sources<'_>) -> Card {
         Kind::Line => "Line of work",
         Kind::Task => "Task",
         Kind::Topic => "Topic",
+        Kind::Item => "Item",
     };
     let mut lines = Vec::new();
     if !src.about.trim().is_empty() {
@@ -310,6 +312,39 @@ pub fn card(
     })))
 }
 
+/// A numbered item's card (`super::items`): its key, and the newest
+/// exchanges of its timeline that `gate` admits, with the newest of them; none
+/// when the gate admits none of them (an item is known only by where it was
+/// said).
+pub fn item_card(
+    store: &crate::store::Store,
+    thing: &str,
+    gate: &dyn Admits,
+) -> anyhow::Result<Option<(Card, Exchange)>> {
+    let said = said(store, thing, gate)?;
+    let Some(newest) = said.first().map(|s| s.exchange.clone()) else {
+        return Ok(None);
+    };
+    let entry = Entry {
+        thing: thing.to_string(),
+        kind: Kind::Item,
+        title: thing
+            .strip_prefix(super::items::ITEM)
+            .unwrap_or(thing)
+            .into(),
+        live: true,
+    };
+    let c = compose(Sources {
+        entry: &entry,
+        about: "",
+        facts: Vec::new(),
+        tasks: Vec::new(),
+        guidance: None,
+        said,
+    });
+    Ok(Some((c, newest)))
+}
+
 /// What `entry` is about, the scopes its facts are in, and its open tasks.
 fn what<'a>(
     entry: &Entry,
@@ -355,6 +390,7 @@ fn what<'a>(
                 .unwrap_or_default();
             (about, Vec::new(), mine)
         }
+        Kind::Item => (String::new(), Vec::new(), Vec::new()),
     }
 }
 

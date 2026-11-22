@@ -21,8 +21,9 @@ use crate::view::budget::{Budget, Overflow};
 use crate::view::fold::FoldNode;
 use crate::view::permit::Permit;
 use crate::view::render::{MarkedBlock, Renderer};
-use crate::view::select::sources::Sources;
+use crate::view::select::sources::{Names, Sources, Things};
 use crate::view::select::{table, Part};
+use crate::view::sources_names::{Called, ViewAdmits};
 use crate::view::sources_store::{author_of, Sessions, StoreSources};
 use crate::view::text::forms::{self, Voice};
 use crate::view::text::labels::Origin;
@@ -67,6 +68,9 @@ impl TurnRunner {
         i: u32,
     ) -> anyhow::Result<Compiled> {
         if self.assembly_here(t) == Assembly::View {
+            // The message's numbered items, named off the path since the exchange opened, are what its
+            // view's names are matched with.
+            t.exchange.await_items().await;
             match self.view_compile(t, input) {
                 Ok(Ok(c)) => return Ok(c),
                 Ok(Err(why)) => Self::view_declined(t, why),
@@ -283,6 +287,17 @@ impl TurnRunner {
             sessions: Default::default(),
         };
         let ladder = OnceLadder::new(&gated);
+        // The names table, built once for the turn through its permit (the core holds the stores it reads).
+        let core = self.threads.core();
+        let called = match &core {
+            Some(core) => {
+                let tasks = crate::task_graph::all(store)?;
+                let admits = ViewAdmits::new(&permit, &pov, self, tasks);
+                let items = t.exchange.items().to_vec();
+                Some(Called::build(core, admits, items, &read.cards)?)
+            }
+            None => None,
+        };
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -290,7 +305,13 @@ impl TurnRunner {
             homes: self,
             judged: asked.and_then(|n| judged_task(store, sid, &n)),
         };
-        let src = sources_of(&permit, &sources, &ladder, &cards, &message);
+        let src = sources_of(
+            &permit,
+            (&sources, called.as_ref()),
+            &ladder,
+            &cards,
+            &message,
+        );
         let renderer = TextRenderer {
             store,
             kernel: Some(&self.kernel),
@@ -441,14 +462,18 @@ fn opened(nodes: &[(u64, Stub)], turn: &str) -> bool {
 }
 
 /// Every source the selectors read: the store's, the turn's permit as their gate, the ladder read once,
-/// the joined task's card, and the message.
+/// the named things (none outside a core), the joined task's card, and the message.
 fn sources_of<'a, 'b>(
     gate: &'a Permit,
-    store: &'a StoreSources<'b>,
+    (store, called): (&'a StoreSources<'b>, Option<&'a Called<'b>>),
     ladder: &'a dyn crate::view::fold::Ladder,
     cards: &'a StoreCards<'b>,
     message: &'a str,
 ) -> Sources<'a> {
+    let (things, names): (&dyn Things, &dyn Names) = match called {
+        Some(c) => (c, c),
+        None => (store, store),
+    };
     Sources {
         gate,
         exchanges: store,
@@ -456,8 +481,8 @@ fn sources_of<'a, 'b>(
         folds: store,
         places: store,
         waiting: store,
-        things: store,
-        names: store,
+        things,
+        names,
         tasks: cards,
         recall: store,
         people: store,

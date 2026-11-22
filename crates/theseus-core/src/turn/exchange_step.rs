@@ -39,6 +39,10 @@ pub(super) struct Held {
     /// The scope of its numbered items (`names::items::scope_for`): the
     /// project of the session the message arrived at.
     scope: Option<String>,
+    /// The message's numbered items, scoped, told once the index has named
+    /// them (`turn::view_step` reads them, `Held::await_items`).
+    items: Option<oneshot::Receiver<Vec<String>>>,
+    items_named: Option<Vec<String>>,
     /// The things of the reply before it, when they were named in time.
     reply_things: Option<BTreeMap<String, u64>>,
     seen: Option<Seen>,
@@ -62,6 +66,20 @@ impl Held {
     /// (the gate reads it, `turn::gate_step`).
     pub(super) fn mark(&self) -> Option<&OwnerMark> {
         self.mark.as_ref()
+    }
+
+    /// The message's numbered items, once the naming started at the
+    /// exchange's opening has told them: bounded by that naming's own wait
+    /// (`names::items::WAIT`), none when it gave up or never started.
+    pub(super) async fn await_items(&mut self) {
+        if let Some(rx) = self.items.take() {
+            self.items_named = Some(rx.await.unwrap_or_default());
+        }
+    }
+
+    /// The message's numbered items, as [`Held::await_items`] took them.
+    pub(super) fn items(&self) -> &[String] {
+        self.items_named.as_deref().unwrap_or_default()
     }
 }
 
@@ -136,20 +154,22 @@ impl TurnRunner {
 
     /// `text`'s numbered items scoped by `scope` (`names::items`), named
     /// apart from its things so a slow tender costs them nothing, given up
-    /// after `names::items::WAIT`, and touched as the things are.
+    /// after `names::items::WAIT`, and touched as the things are. The receiver
+    /// is told them, scoped; it is dropped untold when they are given up.
     fn items_of(
         &self,
         text: &str,
         (turn, session, start_ms): (&str, &str, u64),
         scope: Option<String>,
-    ) {
+    ) -> Option<oneshot::Receiver<Vec<String>>> {
         let (Some(index), Ok(rt), Some(core)) = (
             self.pass.index(),
             tokio::runtime::Handle::try_current(),
             self.weak_core(),
         ) else {
-            return;
+            return None;
         };
+        let (tx, rx) = oneshot::channel();
         let mut cut = text.len().min(THINGS_TEXT);
         while !text.is_char_boundary(cut) {
             cut -= 1;
@@ -164,6 +184,7 @@ impl TurnRunner {
             };
             let items =
                 crate::names::items::scoped(named.pop().unwrap_or_default(), scope.as_deref());
+            let _ = tx.send(items.clone());
             let Some(core) = core.upgrade() else {
                 return;
             };
@@ -173,6 +194,7 @@ impl TurnRunner {
                 }
             }
         });
+        Some(rx)
     }
 
     /// A person's message, its node written: `arrival`, the mark its own
@@ -269,7 +291,8 @@ impl TurnRunner {
             .map(|p| p.exchange.as_str());
         t.exchange.reply_things = self.exchanges.take_reply(&ex.place, preceding);
         if let Some(text) = t.exchange.ask_text.take() {
-            self.items_of(&text, (&ex.turn_id, sid, at), t.exchange.scope.clone());
+            t.exchange.items =
+                self.items_of(&text, (&ex.turn_id, sid, at), t.exchange.scope.clone());
             let (tx, rx) = oneshot::channel();
             let told = move |c| {
                 let _ = tx.send(c);
@@ -375,7 +398,8 @@ impl TurnRunner {
             )
         };
         let at = (ex.turn_id.as_str(), ex.session_id.as_str(), ex.start_ms);
-        self.items_of(&result.output, at, t.exchange.scope.take());
+        // The reply's items are touched; nothing waits for them.
+        let _ = self.items_of(&result.output, at, t.exchange.scope.take());
         self.things_of(&result.output, at, keep);
     }
 }

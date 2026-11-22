@@ -30,6 +30,7 @@ pub mod permit;
 pub mod record;
 pub mod render;
 pub mod select;
+pub mod sources_names;
 pub mod sources_store;
 pub mod text;
 pub mod timeline;
