@@ -257,10 +257,24 @@ impl ContentItem {
     }
 }
 
+/// The part of the day's judge allowance under which a REPLY is asked, in percent: past it a reply's ask is
+/// recorded `refused` on its item and costs nothing, and the rest is the inputs' (issue 44). A guideline for
+/// the owner to move: an input's judgment feeds the injection label; a reply's feeds nothing.
+pub const REPLY_SHARE_PERCENT: u64 = 50;
+
+/// Whether a reply may be asked about with `spent` of the day's `limit` gone ([`REPLY_SHARE_PERCENT`]).
+pub fn reply_may_ask(spent: u64, limit: u64) -> bool {
+    spent < limit * REPLY_SHARE_PERCENT / 100
+}
+
 /// What a session's queue holds.
 #[derive(Default)]
 struct Slot {
+    /// The inputs waiting.
     queue: Vec<ContentItem>,
+    /// The replies waiting (`ItemKind::Reply`): drained only when no input waits, so a reply never makes an
+    /// input wait behind it (issue 44).
+    replies: Vec<ContentItem>,
     /// A task is draining this queue.
     running: bool,
     /// The owner has been told this session's asks are failing, and nothing
@@ -309,6 +323,16 @@ pub(crate) struct Point {
     /// that holds the submitted set against the blocked set (theseus-sh1n3).
     #[cfg(test)]
     pub(crate) submitted: Mutex<Vec<String>>,
+}
+
+impl Slot {
+    /// The next batch: every input waiting, else every reply waiting. Empty when nothing waits.
+    fn next(&mut self) -> Vec<ContentItem> {
+        match self.queue.is_empty() {
+            false => std::mem::take(&mut self.queue),
+            true => std::mem::take(&mut self.replies),
+        }
+    }
 }
 
 impl Point {
@@ -462,7 +486,10 @@ impl JudgeService {
         let spawn = {
             let mut slots = self.content.slots();
             let slot = slots.entry(session.to_string()).or_default();
-            slot.queue.extend(items);
+            let (replies, inputs): (Vec<_>, Vec<_>) =
+                items.into_iter().partition(|i| i.kind == ItemKind::Reply);
+            slot.queue.extend(inputs);
+            slot.replies.extend(replies);
             !std::mem::replace(&mut slot.running, true)
         };
         if spawn {
@@ -533,6 +560,17 @@ impl JudgeService {
         items: &[ContentItem],
         today: &str,
     ) -> Result<Batch, Unasked> {
+        // A batch of replies (they are drained apart from inputs) is asked only under the reply's share of
+        // the day: over it, nothing is reserved and each reply is recorded `refused`.
+        let replies = items.iter().all(|i| i.kind == ItemKind::Reply);
+        if replies
+            && !reply_may_ask(
+                self.budget.today(&self.store, today).spent_micros,
+                self.budget.limit_micros(),
+            )
+        {
+            return Err(Unasked::Refused);
+        }
         let scrub = ScrubWith(self.scrubber.clone());
         let names = self.content.names.get().cloned().unwrap_or_default();
         let built = self
@@ -897,7 +935,7 @@ impl JudgeService {
                                 .of(&self.store, (node, label.kind, &label.source, *entered_ms));
                             item_labels::land(&mut flags, item, label.clone(), *entered_ms)
                         }
-                        None => flags.raise_after(label.clone(), *entered_ms),
+                        None => item_labels::land(&mut flags, None, label.clone(), *entered_ms),
                     };
                     if took {
                         fresh.push(label);
@@ -946,8 +984,9 @@ fn keep_ask(items: &mut item_labels::Pending, store: &crate::store::Store, l: &L
         return;
     }
     let it = &l.item;
-    let item = items.of(store, (&it.node, it.kind, &it.source, it.entered_ms));
-    item.asked(asked_of(l, now));
+    if let Some(item) = items.of(store, (&it.node, it.kind, &it.source, it.entered_ms)) {
+        item.asked(asked_of(l, now));
+    }
 }
 
 /// The pack's ask of one landing, as its item keeps it: the answers it holds, and `answered` or why not.
@@ -1004,11 +1043,12 @@ async fn drain(me: Weak<JudgeService>, session: String) {
             let Some(slot) = slots.get_mut(&session) else {
                 return;
             };
-            if slot.queue.is_empty() {
+            let next = slot.next();
+            if next.is_empty() {
                 slot.running = false;
                 return;
             }
-            std::mem::take(&mut slot.queue)
+            next
         };
         drop(svc);
         let _open = Open {
@@ -1036,6 +1076,7 @@ impl Drop for Open {
         let mut slots = svc.content.slots();
         let slot = slots.entry(self.session.clone()).or_default();
         slot.queue.clear();
+        slot.replies.clear();
         slot.running = false;
     }
 }
@@ -1287,6 +1328,38 @@ async fn land(me: &Weak<JudgeService>, session: &str, landings: Vec<Landing>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn item(node: &str, kind: ItemKind) -> ContentItem {
+        ContentItem::new(node, kind, "s", "text", 1)
+    }
+
+    /// **Inputs first** (issue 44): with an input and a reply waiting, the input is drained first, and a
+    /// reply only once no input waits; an input that arrives meanwhile still goes ahead of the replies.
+    #[test]
+    fn a_reply_never_goes_ahead_of_an_input() {
+        let mut slot = Slot::default();
+        slot.replies.push(item("r1", ItemKind::Reply));
+        slot.queue.push(item("i1", ItemKind::ToolResult));
+        let first: Vec<String> = slot.next().into_iter().map(|i| i.node).collect();
+        assert_eq!(first, ["i1"]);
+        slot.queue.push(item("i2", ItemKind::OperatorMessage));
+        let second: Vec<String> = slot.next().into_iter().map(|i| i.node).collect();
+        assert_eq!(second, ["i2"], "the later input before the waiting reply");
+        let third: Vec<String> = slot.next().into_iter().map(|i| i.node).collect();
+        assert_eq!(third, ["r1"]);
+        assert!(slot.next().is_empty());
+    }
+
+    /// **A reply's share**: a reply is asked while the day's spend is under half its allowance, and not at
+    /// or over it.
+    #[test]
+    fn a_reply_is_asked_under_half_the_day_alone() {
+        assert!(reply_may_ask(0, 1_000_000));
+        assert!(reply_may_ask(499_999, 1_000_000));
+        assert!(!reply_may_ask(500_000, 1_000_000));
+        assert!(!reply_may_ask(900_000, 1_000_000));
+        assert!(!reply_may_ask(0, 0), "no allowance, no reply asked");
+    }
 
     /// **A batch that panics does not leave the queue stuck** (theseus-gyjyo.7,
     /// the review of R5a). The guard a batch holds runs however the batch ends;

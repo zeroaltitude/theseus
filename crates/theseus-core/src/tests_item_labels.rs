@@ -514,3 +514,40 @@ async fn view_show_of_the_next_turn_shows_the_first_exchange_s_labels() {
     let printed: String = r.views.iter().map(theseus_protocol::view::lines).collect();
     assert!(printed.contains(&format!("jev {want}")), "{printed}");
 }
+
+/// **7(b). A reply is asked under half the day's judge allowance alone.** With the day already past half,
+/// the turn's input is judged as ever (inputs are reserved exactly as before), and its reply is recorded
+/// `refused` on its item: never clean, and nothing spent on it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn past_half_the_day_a_reply_is_refused_and_the_input_is_judged() {
+    use crate::judge::spend::{local_day, Stored, META_KEY};
+    let jev = FakeJev::start().unwrap();
+    jev_says_personal(&jev);
+    let r = rig_on(texts(4), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.judge.packs.remove(crate::judge::content::PACK);
+        c.judge.shadow_limit_usd_per_day = 1.0;
+    });
+    let c: &Arc<Core> = &r.core;
+    let day = Stored {
+        day: local_day(theseus_protocol::now_unix_ms()),
+        reserved_micros: 600_000,
+        spent_micros: 600_000,
+    };
+    let seed = theseus_store::NewRecord::json(theseus_store::kinds::META, Some(META_KEY), &day);
+    c.store.append(&[seed.unwrap()]).unwrap();
+    let sid = session(c);
+    crate::test_support::turn(c, &sid, &format!("FYI, {PRIVATE} today.")).await;
+    let (message, reply) = message_and_reply(c, &sid);
+    assert_eq!(
+        landed(c, &message).await.state,
+        "labelled",
+        "the input is judged"
+    );
+    let v = landed(c, &reply).await;
+    assert_eq!(
+        (v.state.as_str(), v.line()),
+        ("failed", "failed (refused)".into())
+    );
+}
