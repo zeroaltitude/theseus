@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{json, Value};
 
 use super::server_calls::Offers;
-use super::{clearing, compaction};
+use super::{clearing, summary};
 use crate::attach::Media;
 use crate::config::Effort;
 use crate::node::{Body, Node};
@@ -264,10 +264,10 @@ impl State {
                 let text = crate::recall::render::render(items, ctx.sources);
                 push(out, "user", vec![json!({"type": "text", "text": text})])
             }
-            // A compaction's summary (30c), first in its prefix; in a tail
-            // its range is still in the prefix, so it renders nothing.
+            // An old session's summary (30c, retired), first in its prefix; in a
+            // tail its range is still in the prefix, so it renders nothing.
             Body::Summary { header, text, .. } if in_prefix => {
-                let text = compaction::rendered(header, text);
+                let text = summary::rendered(header, text);
                 push(out, "user", vec![json!({"type": "text", "text": text})])
             }
             // A moved range's one line (theseus-q9b85): where the range began in

@@ -70,14 +70,12 @@ impl TurnRunner {
     }
 
     /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
-    /// else, and for a view turn over its budget (`Fallback`), the transcript's, with a summary where the
-    /// ring would cut (30c). A view that cannot be assembled soundly fails the turn plainly (`ViewFailed`):
-    /// never a partial view. The view's record is kept with the compilation it was built for, once.
+    /// else, and for a view turn over its budget (`Fallback`), the transcript's. A view that cannot be
+    /// assembled soundly fails the turn plainly (`ViewFailed`): never a partial view. The view's record is kept with the compilation it was built for, once.
     pub(super) async fn compile_here(
         &self,
         t: &mut Turn<'_>,
         input: CompileInput<'_>,
-        i: u32,
     ) -> anyhow::Result<Compiled> {
         if self.assembly_here(t) == Assembly::View {
             // The message's numbered items, named off the path since the exchange opened, are what its
@@ -111,7 +109,7 @@ impl TurnRunner {
         {
             input.force = input.force.or(Some(crate::compiler::Recompile::Transcript));
         }
-        Box::pin(self.compact(t, compile(input), input, i)).await
+        Ok(compile(input))
     }
 
     /// One call of a view turn, or why this turn is the transcript's (`None`: decided before); a turn whose

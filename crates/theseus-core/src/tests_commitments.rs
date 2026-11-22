@@ -422,67 +422,6 @@ fn series(days: Vec<theseus_kernel::Day>, until_ms: Option<u64>) -> theseus_kern
     }
 }
 
-/// A forced compaction drops the "Set wake" results from the request, and
-/// the block is still its last block, with both wakes: the model knows its
-/// commitments after a compaction, and can move one by words.
-#[tokio::test]
-async fn after_a_forced_compaction_the_request_still_carries_the_block() {
-    use crate::tests_compaction as c;
-    let r = c::rig(
-        vec![
-            Scripted::tools(
-                "Setting both.",
-                &[
-                    (
-                        "w1",
-                        "wake_at",
-                        json!({"after": "1h", "note": "check PR 123"}),
-                    ),
-                    (
-                        "w2",
-                        "wake_at",
-                        json!({"every": "1d", "note": "evening haiku"}),
-                    ),
-                ],
-            ),
-            Scripted::text("Set both."),
-        ],
-        vec![c::summary(
-            "The keeper set two wakes and logged six tides.",
-            9_000,
-            120,
-        )],
-    );
-    let sid = c::session(&r.core);
-    c::turn(&r.core, &sid, "set a wake for the PR and a daily haiku")
-        .await
-        .unwrap();
-    assert_eq!(exec_of(&r.core, &sid).wakes.len(), 2);
-    let turns = c::until_recompiled(&r, &sid, 6_000).await;
-    assert!(turns >= 3, "rang after {turns} turns");
-    let compiled = c::rows(&r.core, "context.compiled");
-    assert_eq!(
-        compiled.last().unwrap()["strategy"],
-        "compaction",
-        "{compiled:?}"
-    );
-    c::turn(&r.core, &sid, "what reminders do I have?")
-        .await
-        .unwrap();
-    let q = r.model.requests().pop().unwrap();
-    let all = serde_json::to_string(&q.messages).unwrap();
-    assert!(
-        !all.contains("Set wake "),
-        "the set results are gone with the summarized range"
-    );
-    let block = block_of(&q).expect("the block, after the compaction");
-    assert!(
-        block.contains("check PR 123") && block.contains("evening haiku"),
-        "{block}"
-    );
-    assert_eq!(ids_in(&q).len(), 2);
-}
-
 /// The block's golden: none, one, a series, a far one-shot, and ten-plus cut
 /// at ten with how many were left out.
 #[test]

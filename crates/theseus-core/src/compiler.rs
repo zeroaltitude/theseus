@@ -41,7 +41,7 @@ pub mod cache;
 pub mod card;
 pub(crate) mod clearing;
 pub mod cold;
-pub mod compaction;
+pub mod summary;
 pub mod effort;
 pub mod layers;
 pub(crate) mod phases;
@@ -724,8 +724,8 @@ fn compile_with(
     } else {
         appended
     };
-    // Past a compaction, its summary stands for its range (30c).
-    let all_renderable: Vec<_> = compaction::visible(input.nodes)
+    // Past an old session's summary, it stands for its range (30c).
+    let all_renderable: Vec<_> = summary::visible(input.nodes)
         .into_iter()
         .filter(|(_, n)| moves.shows(n))
         .collect();
@@ -960,7 +960,7 @@ fn render_kept(
 ) -> Rendered {
     // An assembled prefix's recall section is its, wherever it was written.
     let (prefix, tail) = situation::selected(c, nodes);
-    let prefix = compaction::summaries_first(prefix, c.recall_id.as_deref());
+    let prefix = summary::summaries_first(prefix, c.recall_id.as_deref());
     let tail: Vec<&Node> = tail.into_iter().map(|(_, n)| n).collect();
     let entry = catalog.get(&spec.model);
     let fallback = spec.fallback.as_ref().map(|(m, r)| (&m[..], r.as_deref()));

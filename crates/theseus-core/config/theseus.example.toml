@@ -134,7 +134,7 @@ refusal_fallbacks = true
 
 # The profiles that run the models Jev chooses among (route.v11): Haiku 5.5, Sonnet 5.5,
 # Opus 5.5, Fable 5.2 and DeepSeek Flash. A profile is also a pin: `-P`, `theseus profile use`,
-# a place's profile, or a key such as [memory] summary_profile.
+# a place's profile, or a key such as [memory] synth_profile.
 [profiles.opus]
 provider = "anthropic"
 model = "claude-opus-5-5"
@@ -1172,18 +1172,7 @@ resident_mb = 128                         # the index's memory at rest, the mode
 # recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
 # recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
 # include_external = false                # whether fetched text may be recalled
-# Compaction (step 30c): where the ring would drop a session's leading turns to fit
-# the model's window, this profile summarizes them instead, and the request carries
-# the summary, then the turns kept. "session" (the default) is the turn's own
-# profile, provider and model, so the range goes nowhere the session's turns
-# don't. A key of [profiles] sends it to that profile's provider, which may not be
-# the session's. "off" keeps the ring. A call that fails, or a summary that would
-# not fit, rings as before, and the row says why.
-# summary_profile = "session"             # a pin: "session", a key of [profiles], or "off". Unset: Jev chooses the
-#                                         # model for each summary (until the route pack that asks him is acting,
-#                                         # unset runs as "session"). A key of [profiles] such as "haiku" sends the
-#                                         # range to that profile's provider whatever the session's provider
-# assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (live)
+# assembled_budget_tokens = 4000          # the recall section a task's first compile carries (live)
 # The nightly dream ([ontology] dream_guidance) writes a category's first
 # guidance. The nightly synthesis writer these keys once served is retired
 # (2026-11-21); a synthesis a store already holds stays readable.

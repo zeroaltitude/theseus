@@ -76,7 +76,6 @@ pub mod delay_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
-pub mod compaction;
 mod compile_step;
 mod cross_step;
 mod cut_step;

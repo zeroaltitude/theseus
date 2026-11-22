@@ -67,7 +67,7 @@ pub(crate) struct Recalled {
     /// The node's id, for `memory.cited`'s rows.
     pub recall_id: String,
     /// It is an assembled prefix's recall section (30c): a task's first
-    /// compile, or a compaction. Its pack takes `assembled_budget_tokens`,
+    /// compile. Its pack takes `assembled_budget_tokens`,
     /// and the new compilation renders it first in its prefix.
     pub assembled: bool,
     /// The `recall.ran` rows of recalls made while routing had the turn's
@@ -275,8 +275,8 @@ impl TurnRunner {
         let mut in_context = BTreeSet::new();
         if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
             // An assembled section's context is what its prefix keeps: past
-            // a compaction, the summarized range is out of it (30c).
-            let floor = crate::compiler::compaction::floor(&nodes).map(|(_, last)| last);
+            // an old session's summary, the summarized range is out of it (30c).
+            let floor = crate::compiler::summary::floor(&nodes).map(|(_, last)| last);
             let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
             // A range a split moved is out of the compile, so recall may bring it back.
             let moves = crate::moved::read(&nodes);
@@ -455,46 +455,6 @@ impl TurnRunner {
         };
         defer_row(t, &f);
         t.announce_fact(&f);
-    }
-
-    /// A compaction's assembled recall section (30c): the first loop's
-    /// pending recall, when there is one, becomes it; otherwise recall runs
-    /// now at the assembled budget, under its deadline, in front of the
-    /// model or in shadow as the session's arm says. Its node's id, when
-    /// it admitted something in front of the model.
-    pub(super) async fn recall_assembled(&self, t: &mut Turn<'_>) -> Option<String> {
-        if !self.memory.on() {
-            return None;
-        }
-        t.recall.assembled = true;
-        if let Some(n) = &t.recall.pending {
-            return Some(n.id.clone());
-        }
-        // memory-arm's rule (34b), as `recall_first`: a live arm asks for its
-        // own sources, `live` with arm `none` asks nothing, shadow `baseline`'s.
-        let assigned = self.memory.cfg().assign(t.tc.session_id);
-        let begun = match assigned {
-            Some(a) if a.live => self.recall_begin(t, a.arm)?,
-            Some(_) if self.memory.cfg().mode == MemoryMode::Live => return None,
-            _ => self.recall_begin(t, MemoryArm::Baseline)?,
-        };
-        match assigned {
-            Some(a) if a.live => Box::pin(self.recall_live(t, None, begun, a)).await,
-            _ => self.recall_end(t, begun).await,
-        }
-        t.recall.pending.as_ref().map(|n| n.id.clone())
-    }
-
-    /// Drop an assembled section the compaction did not use: its node
-    /// rides nothing, and the next loop recalls nothing more.
-    pub(super) fn recall_unassembled(t: &mut Turn<'_>, fresh: bool) {
-        t.recall.assembled = false;
-        if fresh {
-            t.recall.pending = None;
-            t.recall.rides.clear();
-            t.recall.drops.clear();
-            t.recall.count = 0;
-        }
     }
 
     /// The tokens of the recall notes in the session's tail: those after
@@ -747,8 +707,7 @@ impl TurnRunner {
     /// [`Self::recall_view`] for the turn's own compile, which also records
     /// whether this request carries the pending node (theseus-fpm2). A later
     /// compile of the same loop, which a route's switch makes, overwrites it,
-    /// so the call reads the compile it used. A compaction's nested compile
-    /// renders the same view and leaves the record alone.
+    /// so the call reads the compile it used.
     pub(super) fn recall_carried(
         &self,
         t: &mut Turn<'_>,

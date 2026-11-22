@@ -94,9 +94,8 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// (theseus-w2cs: +124 tokens, so a summary of its own cap no longer fits beside the kept turns and
 /// every compile stays a ring instead; 47,000 and 47,200 no longer compact, 47,400 to 52,000 hold:
 /// a sweep at its join. 47,400 still holds, so the move is for room, not repair).
-fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
+fn small_window(c: &mut crate::Config, mb: u64) {
     c.memory.node_cache_mb = mb;
-    c.memory.summary_profile = Some(summary.into());
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
@@ -238,7 +237,7 @@ fn sent(r: &Rig) -> Vec<String> {
 /// session A's heron, a tool call, turns until the session compacts, and
 /// two after. The core, its model, and session B.
 async fn scenario(mb: u64) -> (Rig, String) {
-    let r = rig_with(MemoryMode::Live, |c| small_window(c, mb, "session"));
+    let r = rig_with(MemoryMode::Live, |c| small_window(c, mb));
     let c = &r.core;
     let a = session(c, None, &[HERON]);
     let b = session(c, None, &[]);
@@ -374,7 +373,7 @@ fn renders_the_same_from_stubs(core: &Arc<Core>, sid: &str) {
 /// stubs.
 #[tokio::test]
 async fn the_transcript_check_holds_through_a_ring_and_a_recompile() {
-    let r = rig_with(MemoryMode::Off, |c| small_window(c, 0, "off"));
+    let r = rig_with(MemoryMode::Off, |c| small_window(c, 0));
     let c = &r.core;
     let sid = session(c, None, &[]);
     turn_with(c, &sid, "hello", None).await;
@@ -411,7 +410,7 @@ async fn the_transcript_check_holds_through_a_ring_and_a_recompile() {
 #[tokio::test]
 async fn a_recall_source_from_before_a_floor_renders_the_same_bytes() {
     for mb in [crate::node_cache::DEFAULT_MB, 0] {
-        let r = rig_with(MemoryMode::Live, |c| small_window(c, mb, "session"));
+        let r = rig_with(MemoryMode::Live, |c| small_window(c, mb));
         let c = &r.core;
         let a = session(c, None, &[HERON]);
         let b = session(c, None, &[]);
@@ -425,7 +424,7 @@ async fn a_recall_source_from_before_a_floor_renders_the_same_bytes() {
             }
         }
         let nodes = c.store.transcript(&a).unwrap();
-        let (_, last) = crate::compiler::compaction::floor(&nodes).expect("A compacted");
+        let (_, last) = crate::compiler::summary::floor(&nodes).expect("A compacted");
         let (pos, heron) = &nodes[0];
         assert!(*pos <= last, "the heron is before the floor");
         assert!(!heron.is_hydrated(), "and a stub there");

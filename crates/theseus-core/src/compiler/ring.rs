@@ -84,7 +84,7 @@ pub(super) fn ring(input: &CompileInput<'_>, r: &Ring<'_>, make: &Make<'_>) -> O
         .renderable
         .iter()
         .map(|(_, n)| n)
-        .filter(|n| !compaction::is_summary(n))
+        .filter(|n| !summary::is_summary(n))
         .collect();
     let floored = seq.len() < r.renderable.len();
     let starts: Vec<usize> = seq

@@ -44,7 +44,7 @@ pub(super) fn resume(
         .renderable
         .iter()
         .map(|(_, n)| n)
-        .filter(|n| !super::compaction::is_summary(n))
+        .filter(|n| !super::summary::is_summary(n))
         .collect();
     let starts: Vec<usize> = seq
         .iter()

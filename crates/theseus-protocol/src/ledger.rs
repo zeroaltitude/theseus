@@ -100,7 +100,6 @@ ledger_kinds! {
     ContextCompiled = "context.compiled",
     ContextTurn = "context.turn",
     ContextDetoured = "context.detoured",
-    ContextCompacted = "context.compacted",
     ContextCleared = "context.cleared",
     ContextFileMissing = "context.file_missing",
     ContextOverflow = "context.overflow",

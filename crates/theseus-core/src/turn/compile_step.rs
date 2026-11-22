@@ -1,7 +1,6 @@
 //! The loop's compile step (moved out of turn.rs at cloud compaction-roots' join, M6 30c, to keep the
-//! turn loop under its line ceiling): this loop's request, an append or a recompile; where the ring
-//! would cut, a compaction (`turn::compaction`); the task view (39a); the overage check; and the
-//! `context.compiled` record.
+//! turn loop under its line ceiling): this loop's request, an append or a recompile; the task view
+//! (39a); the overage check; and the `context.compiled` record.
 
 use super::*;
 
@@ -189,7 +188,7 @@ impl TurnRunner {
         // with nothing left to drop, the turn fails before any call.
         // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
         // A view that cannot be assembled soundly fails the turn plainly, before anything is sent.
-        let mut compiled = match Box::pin(self.compile_here(t, input, i)).await {
+        let mut compiled = match Box::pin(self.compile_here(t, input)).await {
             Ok(c) => c,
             Err(e) => return Self::view_failure(t, e).map(Err),
         };
@@ -280,7 +279,7 @@ impl TurnRunner {
     /// A clearing pass (theseus-3ki0): one row a pass.
     fn cleared_recorded(t: &mut Turn<'_>, compiled: &Compiled, i: u32) {
         if let Some(pass) = compiled.cleared {
-            t.record(&fact::compaction::Cleared {
+            t.record(&fact::context::Cleared {
                 compilation_id: &compiled.compilation.id,
                 pass,
                 limit: compiled.budget.limit_tokens,
