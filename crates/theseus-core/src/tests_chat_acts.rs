@@ -918,33 +918,6 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
 
 // ------------------------------- 5. the place scope, and what the turn is told
 
-/// A sibling session that answers where `sid` answers, as a task's own asks
-/// do: its parent's place, by `Outbox::show_at`.
-///
-/// ⛔ **`show_at`, not `bind_place`** — and that distinction is the whole
-/// reason this construction was thought unavailable. `bind_place` gives a
-/// place to ONE session and a second bind takes it from the first; `show_at`
-/// says where a session ANSWERS, and any number of sessions may answer at one
-/// place. The matchers' own cases used `show_at`, and the rule they proved
-/// (`chat_acts::run::waiting_here` / `held_here`, moved here whole) is
-/// unchanged, so the construction they used still works.
-fn beside(core: &Arc<Core>, sid: &str) -> String {
-    let rec = SessionRecord::new(SessionKind::Conversation, None);
-    core.store.put_session(&rec.session_id, &rec).unwrap();
-    let here = core
-        .outbox
-        .target(sid)
-        .expect("this session answers somewhere, or there is no place to share");
-    core.outbox.show_at(&rec.session_id, Some(&here)).unwrap();
-    assert_eq!(
-        core.outbox.target(&rec.session_id),
-        core.outbox.target(sid),
-        "the sibling answers where this session answers"
-    );
-    assert_ne!(rec.session_id, sid);
-    rec.session_id
-}
-
 /// A question, as the scope rules and `stage_answer_fact` take them.
 fn a_question(id: &str, tool: &str) -> theseus_protocol::ConfirmRequest {
     theseus_protocol::ConfirmRequest {
