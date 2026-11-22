@@ -235,7 +235,7 @@ async fn another_conversations_words_pass_the_gate() {
         begin(&core.runner, sid, "turn_w", place, Proof::Mark(&m));
     };
     let said = |here: &str, there: &str| {
-        reader::Reader::new(core, here, false).words(there, "the harbour gate code", 100)
+        reader::Reader::new(core, here).words(there, "the harbour gate code", 100)
     };
     seat(&desk, true);
     assert_eq!(said(&desk, &dm), "the harbour gate code");

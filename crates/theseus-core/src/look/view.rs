@@ -37,7 +37,7 @@ pub(crate) fn words(core: &Core, session: &str, turn: &str) -> String {
         .runner
         .presence
         .get(session)
-        .is_some_and(|a| a.turn_id == turn);
+        .is_some_and(|a| a.turn_id() == turn);
     let verified = Verified::of_session(&core.runner, session);
     if !this_turn || verified.pov().present == Present::Unknown {
         return format!("{UNKNOWN}\n");
