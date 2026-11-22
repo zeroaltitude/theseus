@@ -106,7 +106,10 @@ impl TurnRunner {
                 "embargoed": digest.as_ref().map_or(0, |d| d.embargoed),
             }),
         );
-        t.digest.text = digest.map(|d| d.text);
+        // Latched for the turn before any request carries it (issue 44).
+        t.digest.text = digest
+            .map(|d| d.text)
+            .filter(|_| crate::task_graph::judged::latch(t.tc.store, t.tc.turn_id));
     }
 
     /// The digest and the place's last words after the request's last cache

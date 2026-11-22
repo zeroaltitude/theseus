@@ -302,6 +302,9 @@ struct Judging {
     session: Mutex<Option<String>>,
     calls: Mutex<Vec<Value>>,
     judged: Mutex<Option<(Operation, bool)>>,
+    /// Latch, for the message's turn, that its requests carry a place digest
+    /// (as the digest step does when it takes one).
+    latch: Mutex<bool>,
 }
 
 impl Judging {
@@ -320,8 +323,11 @@ impl Judging {
             .into_iter()
             .rev()
             .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))?
-            .1
-            .id;
+            .1;
+        if std::mem::take(&mut *self.latch.lock().unwrap()) {
+            assert!(latch(&self.store, node.turn_id.as_deref().unwrap()));
+        }
+        let node = node.id;
         if let Some((operation, acting)) = self.judged.lock().unwrap().take() {
             let kept = Judged {
                 change: JudgedChange {
@@ -382,7 +388,12 @@ impl crate::provider::Provider for Judging {
 }
 
 /// A page read into `session`: a result marked as outside text.
-fn read_a_page(store: &crate::store::Store, session: &str) {
+fn read_a_page(store: &crate::store::Store, session: &str) -> String {
+    read_a_page_in(store, session, None)
+}
+
+/// A page read into `session`, in the turn `turn` when one is named.
+fn read_a_page_in(store: &crate::store::Store, session: &str, turn: Option<&str>) -> String {
     let body = crate::node::Body::ToolResult {
         tool_use_id: "tu_page".into(),
         tool: "http.fetch".into(),
@@ -402,13 +413,21 @@ fn read_a_page(store: &crate::store::Store, session: &str) {
         }),
         payload: None,
     };
-    let n = crate::node::Node::tool_result(session, None, None, body);
+    let n = crate::node::Node::tool_result(session, turn, None, body);
     store.append(&[n.record().unwrap()]).unwrap();
+    n.id
 }
 
 fn judging_core() -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
+    judging_core_with(|_| {})
+}
+
+fn judging_core_with(
+    tweak: impl FnOnce(&mut crate::Config),
+) -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
+    tweak(&mut cfg);
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Judging {
@@ -416,6 +435,7 @@ fn judging_core() -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
         session: Default::default(),
         calls: Default::default(),
         judged: Default::default(),
+        latch: Default::default(),
     });
     let core =
         crate::rpc::Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
@@ -665,7 +685,7 @@ async fn the_admitted_inputs_of_real_turns() {
 
 /// A row of the ladder for `task_words.v1`, as `pack.promote` and
 /// `pack.rollback` write one: `live`, `rolled_back`, `off`.
-fn ladder_row(store: &crate::store::Store, mode: &str) {
+fn ladder_row(store: &crate::store::Store, mode: &str) -> u64 {
     let row = theseus_protocol::packs::PackModeRow {
         pack: crate::judge::task_words::PACK.into(),
         mode: mode.into(),
@@ -684,7 +704,7 @@ fn ladder_row(store: &crate::store::Store, mode: &str) {
     let rec = NewRecord::json(kinds::LEDGER, None, &r)
         .unwrap()
         .scoped(&crate::judge::ladder::scope(crate::judge::task_words::PACK));
-    store.append(&[rec]).unwrap();
+    store.append(&[rec]).unwrap()[0]
 }
 
 /// Review P1.4: a judgment asked while the pack was live, then a rollback
@@ -843,4 +863,375 @@ fn the_promotion_bar_counts_restricts() {
     r.holdout.labeled_per_acting_class = [("restricts".to_string(), 1_000)].into();
     let why = short_of(crate::judge::task_words::PACK, &r).expect("no precision");
     assert!(why.contains("restricts"), "{why}");
+}
+
+// ---- review 2: strict reads, provenance, the interleaving -------------------
+
+/// A store at `dir` in which `write` lands its records, each in a frame of its
+/// own, and the frame at the position it returns is then made corrupt and
+/// found so by the history check, as a disk would leave it: the list reads
+/// skip that record from then on, and the strict reads refuse.
+fn corrupted(
+    dir: &std::path::Path,
+    write: impl FnOnce(&crate::store::Store) -> u64,
+) -> crate::store::Store {
+    let at = dir.join("store");
+    let position = {
+        let store = crate::store::Store::open(&at).unwrap();
+        let p = write(&store);
+        store.checkpoint().unwrap();
+        // One more frame: the open checks from the frame after the checkpoint.
+        store
+            .append_ledger(&crate::ledger::LedgerRow::named(
+                "test.after",
+                None,
+                None,
+                json!({}),
+            ))
+            .unwrap();
+        p
+    };
+    crate::tests_refused::corrupt_frame_of(&at, position);
+    let store = crate::store::Store::open(&at).unwrap();
+    let _ = store.inner().verify_history(|_| {});
+    store
+}
+
+/// Review 2, item 7: a live row, then a rollback row that cannot be read.
+/// The tolerant scope read skips the rollback and folds to live; the ladder's
+/// permission reads strictly and refuses.
+#[test]
+fn an_unreadable_rollback_row_is_no_permission() {
+    use theseus_store::Store as _;
+    let dir = tempfile::tempdir().unwrap();
+    let store = corrupted(dir.path(), |s| {
+        ladder_row(s, "live");
+        ladder_row(s, "rolled_back")
+    });
+    let scope = crate::judge::ladder::scope(crate::judge::task_words::PACK);
+    let tolerant = store.inner().scan_scope(&scope, 0, usize::MAX).unwrap();
+    assert_eq!(tolerant.len(), 1, "the list read skips the bad rollback");
+    assert!(store
+        .inner()
+        .scan_scope_strict(&scope, 0, usize::MAX)
+        .is_err());
+    assert!(!acts_now(&store, "ses_any"), "unreadable = no permission");
+}
+
+/// Review 2, item 7: a view index entry that cannot be read counts as outside,
+/// where the list read would see no view at all.
+#[test]
+fn an_unreadable_view_index_entry_counts_as_outside() {
+    use theseus_store::Store as _;
+    let dir = tempfile::tempdir().unwrap();
+    let store = corrupted(dir.path(), |s| {
+        let e = crate::view::record::turn_record("trn_bad", "cmp_x", 1).unwrap();
+        s.append(&[e]).unwrap()[0]
+    });
+    let prefix = format!(
+        "{}trn_bad{}",
+        crate::view::record::VIEW_TURN_PREFIX,
+        crate::view::record::SEP
+    );
+    let tolerant = store
+        .inner()
+        .first_with_prefix(kinds::META, &prefix, usize::MAX)
+        .unwrap();
+    assert!(tolerant.is_empty(), "the list read skips it");
+    assert!(outside_viewed(&store, "trn_bad", &[]));
+}
+
+/// Review 2, item 7: a transcript record that cannot be read fails the strict
+/// transcript, where the list read leaves it out, so the turn is outside.
+#[test]
+fn an_unreadable_transcript_record_counts_as_outside() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ask = String::new();
+    let store = corrupted(dir.path(), |s| {
+        let m = crate::node::Node::user(S, Some("trn_now"), "operator", "make it staging only");
+        s.append(&[m.record().unwrap()]).unwrap();
+        ask = m.id;
+        let body = crate::node::Body::ToolResult {
+            tool_use_id: "tu_1".into(),
+            tool: "fs.read".into(),
+            status: crate::node::ResultStatus::Ok,
+            is_error: false,
+            content: "a file".into(),
+            correlation_id: None,
+            bytes_total: 6,
+            truncated: false,
+            full_ref: None,
+            duration_ms: None,
+            late: false,
+            meta: Value::Null,
+            image: None,
+            external: None,
+            payload: None,
+        };
+        let n = crate::node::Node::tool_result(S, None, None, body);
+        s.append(&[n.record().unwrap()]).unwrap()[0]
+    });
+    assert_eq!(
+        store.session_nodes(S).unwrap().len(),
+        1,
+        "the list read skips it"
+    );
+    assert!(strict_transcript(&store, S).is_err());
+    let ex = Exchange {
+        turn_id: "trn_now".into(),
+        session_id: S.into(),
+        place: "local".into(),
+        private: true,
+        opened_by: Opener::Message,
+        person: Some(OWNER.into()),
+        start_ms: 0,
+        end_ms: None,
+        ask: Some(ask),
+        reply: None,
+        messages: vec![],
+        stop: None,
+        rebuilt: false,
+    };
+    assert!(outside_admitted(&store, S, "trn_now", Some(&ex)));
+}
+
+/// Review 2, item 3: a recall node earlier in the session showed a page read
+/// in another session; his next, clean message's turn is outside. A recall of
+/// his own marked message is not.
+#[tokio::test]
+async fn an_earlier_recall_of_outside_text_is_admitted() {
+    for outside in [true, false] {
+        let (_dir, core, _model) = judging_core();
+        let first = submit(&core, owner(), "hello", None).await;
+        let source = match outside {
+            true => read_a_page(&core.store, "ses_elsewhere"),
+            false => {
+                core.store
+                    .session_nodes(&first.session_id)
+                    .unwrap()
+                    .into_iter()
+                    .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+                    .unwrap()
+                    .1
+                    .id
+            }
+        };
+        let (position, n) = core.store.get_node(&source).unwrap().unwrap();
+        let item = crate::node::RecalledRef {
+            node_id: source.clone(),
+            session_id: n.session_id.clone(),
+            position,
+            chunk: (0, 6),
+            header: "earlier".into(),
+            tokens: 2,
+        };
+        let r = crate::node::Node::recall(
+            &first.session_id,
+            &first.turn_id,
+            "rcl_1",
+            "baseline",
+            vec![item],
+        );
+        core.store.append(&[r.record().unwrap()]).unwrap();
+        let res = submit(
+            &core,
+            owner(),
+            "make it the north side only",
+            Some(&first.session_id),
+        )
+        .await;
+        let ex = crate::exchange::exchange(&core.store, &res.turn_id).unwrap();
+        assert_eq!(
+            outside_admitted(&core.store, &res.session_id, &res.turn_id, ex.as_ref()),
+            outside,
+            "recall of outside text: {outside}"
+        );
+    }
+}
+
+/// Review 2, item 3: a turn whose requests carried the place's last words
+/// (`thread.routed` with a `tail`) is outside; a routed turn without one is
+/// not, nor is another turn of the session.
+#[test]
+fn a_turn_given_the_places_last_words_is_outside() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let row = |turn: &str, tail: bool| {
+        let mut data = json!({"session": S, "turn": turn});
+        if tail {
+            data["tail"] = json!({"from": "home", "tokens": 40});
+        }
+        crate::ledger::LedgerRow::new(
+            theseus_protocol::LedgerKind::ThreadRouted,
+            Some(S),
+            Some(turn),
+            data,
+        )
+    };
+    store.append_ledger(&row("trn_plain", false)).unwrap();
+    assert!(!tailed(&store, S, "trn_plain"));
+    store.append_ledger(&row("trn_tail", true)).unwrap();
+    assert!(tailed(&store, S, "trn_tail"));
+    assert!(!tailed(&store, S, "trn_other"));
+}
+
+/// Review 2, item 4: the rollback lands BETWEEN the gate and the lock. The
+/// gate reads a live pack and lets the call run without its card; the test
+/// holds the task's lock, so the run waits; the rollback is written; then the
+/// lock is let go. The run's own check under the lock reads the rollback and
+/// refuses: nothing changes, nothing is spent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
+    let (_dir, core, model) = judging_core();
+    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    let first = submit(&core, owner(), "hello", None).await;
+    ladder_row(&core.store, "live");
+    let said = "make it the north side only";
+    let new = format!("{}; {said}", before.objective);
+    model.next(
+        &first.session_id,
+        vec![narrow(&new)],
+        Some((Operation::Restricts, true)),
+    );
+    let held = core.store.lock_task(TASK);
+    let c = core.clone();
+    let sid = first.session_id.clone();
+    let turn = tokio::spawn(async move { submit(&c, owner(), said, Some(&sid)).await });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while core.store.task_writers_waiting() == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the run never reached the task's lock"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    ladder_row(&core.store, "rolled_back");
+    drop(held);
+    turn.await.unwrap();
+    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    assert_eq!(
+        (now.version, &now.objective),
+        (1, &before.objective),
+        "nothing changed"
+    );
+    assert!(crate::test_support::ledger_rows_100k(&core, "task.change_accepted").is_empty());
+    assert!(
+        proposed(&core).is_empty(),
+        "the gate let it run: no card was asked"
+    );
+    let node = core
+        .store
+        .session_nodes(&first.session_id)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
+        .unwrap()
+        .1
+        .id;
+    assert!(
+        receipt(&core.store, &node).unwrap().is_none(),
+        "nothing spent"
+    );
+}
+
+/// Review 2, item 2, through a real view-mode turn: the place's earlier
+/// exchange, in ANOTHER session of the same place, read a page. The view of
+/// the next session's turn lays that exchange, marked outside; that
+/// session's own transcript is clean. With a live pack and an acting
+/// `restricts`, his clean narrowing keeps its card as `outside`, and nothing
+/// changes. The control, the same without the page, applies. The turn's
+/// compilation really is the view's.
+#[tokio::test]
+async fn in_a_view_an_outside_piece_from_another_session_keeps_the_card() {
+    use crate::config::assembly::{Assembly, AssemblySetting};
+    for page in [true, false] {
+        let (_dir, core, model) =
+            judging_core_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        let a = submit(&core, owner(), "hello", None).await;
+        if page {
+            read_a_page_in(&core.store, &a.session_id, Some(&a.turn_id));
+        }
+        let b = submit(&core, owner(), "good morning", None).await;
+        assert_ne!(a.session_id, b.session_id);
+        ladder_row(&core.store, "live");
+        let said = "make it the north side only";
+        let new = format!("{}; {said}", before.objective);
+        model.next(
+            &b.session_id,
+            vec![narrow(&new)],
+            Some((Operation::Restricts, true)),
+        );
+        let res = submit(&core, owner(), said, Some(&b.session_id)).await;
+        let ex = crate::exchange::exchange(&core.store, &res.turn_id).unwrap();
+        let viewed = core
+            .store
+            .session_nodes(&b.session_id)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, n)| n.turn_id.as_deref() == Some(res.turn_id.as_str()))
+            .filter_map(|(_, n)| match n.body {
+                crate::node::Body::AssistantMessage { compilation_id, .. } => compilation_id,
+                _ => None,
+            })
+            .any(|c| {
+                core.store.get_compilation(&c).unwrap().unwrap().strategy
+                    == crate::compiler::view::STRATEGY
+            });
+        assert!(viewed, "the turn was compiled as a view");
+        let nodes = strict_transcript(&core.store, &res.session_id).unwrap();
+        assert!(
+            !nodes.iter().any(crate::external::is_outside),
+            "this session's own transcript is clean"
+        );
+        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        if page {
+            assert!(outside_admitted(
+                &core.store,
+                &res.session_id,
+                &res.turn_id,
+                ex.as_ref()
+            ));
+            assert_eq!(now.version, 1, "nothing changed");
+            let rows = proposed(&core);
+            assert_eq!(rows.len(), 1, "{rows:?}");
+            assert_eq!(rows[0]["card"], "outside");
+        } else {
+            assert_eq!(now.version, 2, "the control applies");
+        }
+    }
+}
+
+/// Review 3, item 1: the turn's own latch is the evidence that its requests
+/// carried a place digest or the place's last words, not the thread board as
+/// it stands. A latched turn, with a live pack and an acting `restricts`,
+/// keeps its card as `outside`; the latch is read at the gate and again
+/// under the task's lock (both build `Records::of`). A turn without one is
+/// not carried.
+#[tokio::test]
+async fn a_latched_digest_keeps_the_card() {
+    let (_dir, core, model) = judging_core();
+    let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    let first = submit(&core, owner(), "hello", None).await;
+    assert!(
+        !carried_in(&core.store, &first.turn_id),
+        "no latch: not carried"
+    );
+    ladder_row(&core.store, "live");
+    let said = "make it the north side only";
+    let new = format!("{}; {said}", before.objective);
+    model.next(
+        &first.session_id,
+        vec![narrow(&new)],
+        Some((Operation::Restricts, true)),
+    );
+    *model.latch.lock().unwrap() = true;
+    let res = submit(&core, owner(), said, Some(&first.session_id)).await;
+    assert!(carried_in(&core.store, &res.turn_id));
+    let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+    assert_eq!(now.version, 1, "nothing changed");
+    let rows = proposed(&core);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["card"], "outside");
 }

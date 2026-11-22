@@ -409,7 +409,7 @@ impl<'a> Records<'a> {
             .flatten();
         let outside =
             super::judged::outside_admitted(tc.store, tc.session_id, tc.turn_id, ex.as_ref());
-        let steered = super::judged::steered(tc.store, tc.session_id);
+        let steered = super::judged::steered(tc.store, tc.session_id) || super::judged::carried(tc);
         Self {
             store: tc.store,
             outbox: tc.outbox,
