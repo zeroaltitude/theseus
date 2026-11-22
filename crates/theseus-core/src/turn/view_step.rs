@@ -264,9 +264,9 @@ impl TurnRunner {
         // A message it shows moved into a thread, or that thread sealed, since it was assembled.
         let moved = crate::view_gate::Moved::read(self, Some(sid));
         (f.exchanges.iter()).any(|id| match crate::exchange::exchange(&self.store, id) {
+            // Only a readable exchange whose nodes are all clear proves admission: a missing one revokes.
             Ok(Some(e)) => moved.holds(&e),
-            Ok(None) => false,
-            Err(_) => true,
+            Ok(None) | Err(_) => true,
         })
     }
 
@@ -876,7 +876,8 @@ fn as_line(
     let Some((p, ask)) = nodes.into_iter().find(|(_, n)| n.kind == Kind::UserMessage) else {
         return Ok(Vec::new());
     };
-    let did = crate::ladder::did::did(store, &handle.0)?.map(|d| d.line);
+    let did = crate::ladder::did::did(store, &handle.0)?
+        .map(|d| crate::ladder::did::shown_line(store, &d));
     let mut node = (*ask).clone();
     if let Body::UserMessage { text, .. } = &mut node.body {
         *text = forms::line(text, did.as_deref(), handle);

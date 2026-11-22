@@ -183,6 +183,33 @@ pub fn said_by(author: crate::view::Author) -> &'static str {
     }
 }
 
+/// What an earlier writer's line (before [`super::writer::AUTHORSHIP_SINCE`]) reads as wherever it would
+/// be shown, unless every message of its exchange is proven the owner's.
+pub const UNAUTHORED_LINE: &str = "(summarised before authorship was recorded; not shown)";
+
+/// A line as it may be shown: as written, unless its writer was not told each message's author and not
+/// every message of its exchange is proven the owner's by its own mark (a missing exchange or message
+/// proves nothing), when it is [`UNAUTHORED_LINE`]. The history page and the view's line forms read it so.
+pub fn shown_line(store: &Store, d: &DidLine) -> String {
+    if d.writer >= super::writer::AUTHORSHIP_SINCE {
+        return d.line.clone();
+    }
+    let his = |id: &String| {
+        matches!(
+            crate::view::sources_store::author_of(store, id),
+            crate::view::Author::His { .. }
+        )
+    };
+    let proven = match exchange::exchange(store, &d.turn_id) {
+        Ok(Some(ex)) => !ex.messages.is_empty() && ex.messages.iter().all(his),
+        _ => false,
+    };
+    match proven {
+        true => d.line.clone(),
+        false => UNAUTHORED_LINE.into(),
+    }
+}
+
 /// The line of a writer's answer: its first line, cut by code.
 pub fn line_of(answer: &str) -> Option<String> {
     let first = answer.lines().map(str::trim).find(|l| !l.is_empty())?;

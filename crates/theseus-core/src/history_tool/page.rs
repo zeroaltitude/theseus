@@ -189,7 +189,10 @@ impl Lens<'_> {
             .map(|n| spoken(&n))
             .unwrap_or_default();
         let did = match crate::ladder::did::said(self.store, &ex.turn_id) {
-            Ok(crate::ladder::did::Said::Line(d)) => Some(cut(&d.line, REPLY_CHARS)),
+            Ok(crate::ladder::did::Said::Line(d)) => Some(cut(
+                &crate::ladder::did::shown_line(self.store, &d),
+                REPLY_CHARS,
+            )),
             _ => None,
         };
         let reply = ex

@@ -377,3 +377,38 @@ fn text_comes_only_from_the_reader_given_and_a_source_without_text_says_none() {
     let p = piece("local", "t9", Band::Floor, &[Reason::Floor]);
     assert_eq!(StoreText(&store).text(&p), None);
 }
+
+/// The owner's look at a record that differs only in a drop it may not see: the whole result is the same,
+/// residue included (the held drop's count and size are taken out of its band's residue).
+#[test]
+fn the_owners_look_tells_nothing_of_a_held_drop_not_even_in_the_residue() {
+    let with = |held: bool| {
+        let mut v = view(1);
+        v.residue.push(Residue {
+            band: Band::ElsewhereWords,
+            pieces: 1 + u32::from(held),
+            tokens: 100 + if held { 333 } else { 0 },
+        });
+        if held {
+            v.dropped.push(Dropped {
+                range: range(exchanges("discord:dm:7"), "far4"),
+                slot: Slot::Elsewhere,
+                band: Band::ElsewhereWords,
+                reasons: BTreeSet::from([Reason::Elsewhere]),
+                handle: Handle("x:far4".into()),
+                tokens: 333,
+                why: DropWhy::OverBudget,
+            });
+        }
+        owner(&LocalOnly).show(&ViewRecord::new("c", v))
+    };
+    let (plain, held) = (with(false), with(true));
+    assert_eq!(
+        serde_json::to_string(&plain).unwrap(),
+        serde_json::to_string(&held).unwrap()
+    );
+    assert!(plain
+        .residue
+        .iter()
+        .any(|r| r.pieces == 1 && r.tokens == 100));
+}
