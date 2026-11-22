@@ -9,9 +9,15 @@
 //! is rendered again from those, and it is the original only if its digest is
 //! the recorded one. When a part is missing or the bytes differ, the refusal
 //! names the part.
+//!
+//! A turn the view built laid its front, window and beside block from outside
+//! the session: they are read back from the blobs its view record names
+//! (`compiler::view::kept`), and the gate is asked about what they laid as it
+//! stands now; a source held since refuses the turn before anything is sent.
 
 use serde_json::Value;
 
+use crate::compiler::view::Frozen;
 use crate::compiler::{render_request, Compilation, RequestSpec};
 use crate::config::Effort;
 use crate::node::{Body, Node};
@@ -21,8 +27,12 @@ use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::store::Transcript;
 
-/// Why a turn whose request the view built is refused, by its compilation's strategy.
-pub const VIEW_REFUSED: &str = "a turn built from a view cannot be replayed yet";
+/// Why a turn whose request the view built is refused when its view record keeps nothing of it.
+pub const VIEW_REFUSED: &str = "this turn was built before views kept what a replay needs";
+/// Why a view turn is refused when the gate holds something it laid now.
+pub const VIEW_HELD: &str =
+    "something this turn's view laid has been sealed or moved since, so it is not \
+     replayed";
 
 /// A reply: what a turn's answer said and asked for (the wire's own type).
 pub use theseus_protocol::own_bench::ReplayReply as Said;
@@ -37,6 +47,8 @@ pub struct Original {
     /// The nodes before the answer, as the compile saw them.
     pub nodes: Transcript,
     pub sources: Sources,
+    /// The view the request was laid from, read back from its blobs; none for a transcript's turn.
+    pub view: Option<Frozen>,
     /// The request, and the digest that matched.
     pub request: ProviderRequest,
     pub digest: String,
@@ -165,11 +177,9 @@ impl Core {
                     format!("{cid} was never stored (a detour's compile is not)"),
                 )
             })?;
-        // A view's front, beside block and memory page are not in the session: its bytes cannot be laid
-        // again from the conversation (rebuilding from the view record is later work).
-        if compilation.strategy == crate::compiler::view::STRATEGY {
-            return Err(no("compilation", VIEW_REFUSED));
-        }
+        let view = (compilation.strategy == crate::compiler::view::STRATEGY)
+            .then(|| self.kept_view(&compilation, session_id, turn))
+            .transpose()?;
         let nodes: Transcript = transcript[..at].to_vec();
         let mut spec = self.kept_spec(&session, &compilation)?;
         let recalls = nodes
@@ -185,7 +195,7 @@ impl Core {
         let mut tried = Vec::new();
         if let Some((request, digest)) = self.reproduce(
             &mut spec,
-            (&compilation, &nodes, &session, &sources),
+            (&compilation, &nodes, &session, &sources, view.as_ref()),
             (want, *placed),
             &mut tried,
         ) {
@@ -196,6 +206,7 @@ impl Core {
                 spec,
                 nodes,
                 sources,
+                view,
                 request,
                 digest,
                 ask,
@@ -220,12 +231,7 @@ impl Core {
     fn reproduce(
         &self,
         spec: &mut RequestSpec,
-        (compilation, nodes, session, sources): (
-            &Compilation,
-            &Transcript,
-            &SessionRecord,
-            &Sources,
-        ),
+        laid: Laid<'_>,
         (want, placed): (&str, Option<Effort>),
         tried: &mut Vec<String>,
     ) -> Option<(ProviderRequest, String)> {
@@ -236,16 +242,10 @@ impl Core {
             for turn_effort in [placed, None] {
                 spec.effort = effort;
                 spec.turn_effort = turn_effort;
-                let rendered = render_request(
-                    spec,
-                    &self.catalog,
-                    compilation,
-                    nodes,
-                    (Some(self.store.blobs()), &session.not_shown, None, sources),
-                );
-                let digest = rendered.request.digest();
+                let request = self.rendered(spec, laid);
+                let digest = request.digest();
                 if digest == want {
-                    return Some((rendered.request, digest));
+                    return Some((request, digest));
                 }
                 tried.push(digest);
                 if turn_effort.is_none() {
@@ -254,6 +254,50 @@ impl Core {
             }
         }
         None
+    }
+
+    /// The request `laid` renders under `spec`: a view turn's from its frozen view
+    /// (`compiler::view::rendered_again`), a transcript's from the session's nodes.
+    pub(super) fn rendered(&self, spec: &RequestSpec, laid: Laid<'_>) -> ProviderRequest {
+        let (compilation, nodes, session, sources, view) = laid;
+        let media = (
+            Some(self.store.blobs()),
+            &session.not_shown[..],
+            None,
+            sources,
+        );
+        match view {
+            Some(f) => crate::compiler::view::rendered_again(
+                (spec, &self.catalog),
+                compilation,
+                f,
+                nodes,
+                media,
+            ),
+            None => render_request(spec, &self.catalog, compilation, nodes, media).request,
+        }
+    }
+
+    /// The view a view turn's request was laid from, read back from the blobs its record names, once the
+    /// gate of now has said none of what it laid is held: a turn from before views kept it is refused in
+    /// words, as is one a source of which was sealed or moved since.
+    fn kept_view(
+        &self,
+        compilation: &Compilation,
+        session_id: &str,
+        turn: &str,
+    ) -> Result<Frozen, NotRebuildable> {
+        let record = crate::view::record::read(&self.store, &compilation.id)
+            .map_err(|e| no("view", format!("{e:#}")))?;
+        let k = record
+            .and_then(|r| r.kept)
+            .ok_or_else(|| no("compilation", VIEW_REFUSED))?;
+        let laid = (&k.sessions[..], &k.exchanges[..], &k.recalled[..]);
+        if crate::turn::view_step::kept::held_now(&self.runner, session_id, laid) {
+            return Err(no("view", VIEW_HELD));
+        }
+        crate::compiler::view::kept::frozen(self.store.blobs(), &k, (session_id, turn))
+            .map_err(|why| no("view", why))
     }
 
     /// The spec the compilation's requests were rendered from: this
@@ -349,6 +393,16 @@ impl Core {
         Ok(spec)
     }
 }
+
+/// What a first request is rendered from: its compilation, the nodes before its answer, its session, the
+/// recall's sources, and the view it was laid from (a view turn's).
+pub(super) type Laid<'a> = (
+    &'a Compilation,
+    &'a Transcript,
+    &'a SessionRecord,
+    &'a Sources,
+    Option<&'a Frozen>,
+);
 
 /// The last user message's text among `nodes`.
 fn last_user_text(nodes: &Transcript) -> String {
