@@ -143,8 +143,7 @@ pub(super) fn results_of<'n>(
     // The calls seen so far with each id, in order: the assistant node, its exchange and its session.
     let mut calls: HashMap<&'n str, Vec<Call<'n>>> = HashMap::new();
     // The gate's record of each call, by session and id, in order: its exchange and its correlation.
-    let mut gated: HashMap<(&'n str, &'n str), Vec<(Option<&'n str>, Option<&'n str>)>> =
-        HashMap::new();
+    let mut gated: Gated<'n> = HashMap::new();
     let mut answered: HashSet<(&'n str, &'n str)> = HashSet::new();
     for n in nodes {
         match &n.body {
@@ -213,6 +212,10 @@ pub(super) fn results_of<'n>(
 
 /// A call as [`results_of`] reads it: the assistant node that makes it, its exchange, its session.
 type Call<'n> = (&'n str, Option<&'n str>, &'n str);
+
+/// The gate's records of the calls as [`results_of`] reads them: by session and id, each call's exchange and
+/// correlation, in order.
+type Gated<'n> = HashMap<(&'n str, &'n str), Vec<(Option<&'n str>, Option<&'n str>)>>;
 
 /// Nodes → provider messages. Tool results are placed in one user message
 /// right after the assistant message whose `tool_use` blocks they answer,
