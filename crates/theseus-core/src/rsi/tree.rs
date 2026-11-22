@@ -68,6 +68,9 @@ pub struct Place {
     /// every caller that has no stop to read: the wait is then as it always
     /// was, for as long as the rule says no.
     pub stop: Option<Stop>,
+    /// The lock on the trees, when this daemon holds it (`trees_lock`): only then does it open a phase tree or
+    /// sweep (issue 41).
+    pub owner: Option<super::trees_lock::TreesOwner>,
 }
 
 /// A stop check: why the build must stop now (the kill switch's halt, the
@@ -281,6 +284,22 @@ impl Place {
     }
     pub fn trees(&self) -> PathBuf {
         self.root().join("trees")
+    }
+    /// The loop's marks of the trees it opened through `join::git::detached`, one file a tree, by its name: beside
+    /// the trees, never under them, since a directory there is a slot in use (issue 41).
+    pub fn opened(&self) -> PathBuf {
+        self.root().join("trees.opened")
+    }
+    /// Whether the trees directory, as it resolves, is inside the state directory: a root that leads out of it
+    /// (a link) is not swept and opens no phase tree.
+    pub fn trees_inside(&self) -> bool {
+        let (Ok(trees), Ok(state)) = (
+            std::fs::canonicalize(self.trees()),
+            std::fs::canonicalize(&self.state),
+        ) else {
+            return false;
+        };
+        trees.starts_with(&state)
     }
     pub fn targets(&self) -> PathBuf {
         self.root().join("target")
@@ -1504,6 +1523,8 @@ fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     }
     p.git_ok(&p.repo, &["worktree", "remove", "--force", &d])?;
     let _ = p.git(&p.repo, &["worktree", "prune"]);
+    // The loop's mark of a tree it opened (`join::guard`), gone with the tree; an item's tree has none.
+    let _ = std::fs::remove_file(p.opened().join(&tree.slug));
     if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         remove_all(&tree.target)?;
     }

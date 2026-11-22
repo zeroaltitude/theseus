@@ -99,6 +99,8 @@ pub(super) fn fixture_full(gate: &str, may: Option<&str>) -> Fixture {
             jail: None,
             notify: None,
             stop: None,
+            // The fixture's process owns its trees, as a daemon's does; a core over the same state shares it.
+            owner: super::trees_lock::take(&root.join("state").join("self")).ok(),
         },
         upstream,
         _dir: dir,

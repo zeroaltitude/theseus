@@ -23,15 +23,19 @@ pub const EVERY: Duration = Duration::from_secs(120);
 impl Core {
     /// The self-improvement tenders after serving, in their order: the
     /// join's, the revert watch's (theseus-pw1q.10), the minted tools' tender
-    /// (theseus-pw1q.21.8) and the pipeline's. First, on the blocking pool, a
-    /// phase's tree a daemon that is gone left open is closed (issue 41;
-    /// `join::guard`): that holds whatever the tenders do meanwhile, since a
-    /// tree this daemon opens is never taken for a gone one's. Then the
-    /// clone fetches once if it lacks the running build's commit.
+    /// (theseus-pw1q.21.8) and the pipeline's. First, on the blocking pool
+    /// (issue 41): an install unit of this state directory that still runs is
+    /// the loop's install under way again (`installing`); a tree the loop
+    /// opened that a daemon that is gone left open is closed, when this daemon
+    /// owns the trees (`join::guard`; that holds whatever the tenders do
+    /// meanwhile, since a tree this daemon opens is never taken for a gone
+    /// one's); then the clone fetches once if it lacks the running build's
+    /// commit.
     pub fn self_after_serving(self: &Arc<Self>) {
         let c = self.clone();
         tokio::task::spawn_blocking(move || {
-            c.close_dead_trees();
+            c.recover_installing();
+            let _ = c.close_dead_trees();
             // And the clone looks for the running build's commit, once (issue 41; `join::contains`).
             c.fetch_running_at_start();
         });

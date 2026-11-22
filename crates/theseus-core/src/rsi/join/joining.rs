@@ -185,8 +185,8 @@ impl Run<'_> {
     }
 
     /// The install's start, under way in the pipeline's view from here (issue 41: a quiet loop is not
-    /// this) until it ends with no restart to come; once its unit is started it stays so, since the
-    /// unit restarts the daemon.
+    /// this) until it ends with no restart to come; once its unit is accepted, the state names it and
+    /// follows it (`pipeline::installing`).
     async fn start_install(
         &self,
         merge: &str,
@@ -198,12 +198,16 @@ impl Run<'_> {
             branch: self.b.branch.clone(),
             merge: merge.to_string(),
             since_ms: theseus_protocol::now_unix_ms(),
+            unit: None,
+            root_helper: false,
         };
         let installing = &self.core.rsi.pipeline.installing;
         *installing.lock().unwrap_or_else(PoisonError::into_inner) = Some(under_way);
         let started = blocking(start).await;
-        if !matches!(started, Ok(Started::Unit(_))) {
-            *installing.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        match &started {
+            // From here systemd says whether it still runs (`pipeline::installing`).
+            Ok(Started::Unit(unit)) => self.core.install_handed_to(unit),
+            _ => *installing.lock().unwrap_or_else(PoisonError::into_inner) = None,
         }
         started
     }

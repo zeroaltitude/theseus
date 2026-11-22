@@ -74,6 +74,7 @@
 //! said, with the tick's task records and rows in one frame.
 
 pub(crate) mod held_long;
+pub(crate) mod installing;
 pub mod main_red;
 pub(crate) mod parked;
 pub(crate) mod queues;
@@ -159,6 +160,10 @@ pub struct Shared {
     /// The loop's own install under way (issue 41): set as the install phase starts, cleared when
     /// it ends without a restart; its unit restarts the daemon, which ends it with the process.
     pub(crate) installing: std::sync::Mutex<Option<Installing>>,
+    /// A test's stand-in for systemd (`installing::Units`); none in a daemon, which asks systemd.
+    pub(crate) units: std::sync::Mutex<Option<Arc<dyn installing::Units>>>,
+    /// systemd's last answer about the install's unit: which unit, when, and what it said.
+    pub(crate) unit_seen: std::sync::Mutex<Option<(String, std::time::Instant, Option<String>)>>,
 }
 
 /// An install the loop has under way, as the pipeline's view names it.
@@ -169,6 +174,10 @@ pub struct Installing {
     pub branch: String,
     pub merge: String,
     pub since_ms: u64,
+    /// The unit the install handed itself to, once it has (`installing`).
+    pub unit: Option<String>,
+    /// The root helper's install (`join::root_install`), read from its record.
+    pub root_helper: bool,
 }
 
 impl std::fmt::Debug for Shared {

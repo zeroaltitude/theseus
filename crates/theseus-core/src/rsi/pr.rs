@@ -88,6 +88,11 @@ pub struct Board {
     jailed: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     l1: Mutex<Option<Option<String>>>,
+    /// The lock on the self loop's trees, once this daemon holds it (issue 41, `trees_lock`): taken at the first
+    /// place asked for, and asked again while another daemon holds it.
+    trees_owner: Mutex<Option<super::trees_lock::TreesOwner>>,
+    /// Whether this daemon has said, once, that another holds the trees.
+    trees_told: std::sync::atomic::AtomicBool,
 }
 
 impl Board {
@@ -300,7 +305,31 @@ impl Board {
             jail: self.jail(),
             notify: self.notify(),
             stop: None,
+            owner: self.trees_owner(),
         }
+    }
+
+    /// The lock on the trees, taken now if this daemon does not hold it yet; none while another daemon holds it
+    /// (said once: this daemon then opens no phase tree and sweeps none).
+    fn trees_owner(&self) -> Option<super::trees_lock::TreesOwner> {
+        let mut held = self
+            .trees_owner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if held.is_none() {
+            match super::trees_lock::take(&self.state.join("self")) {
+                Ok(o) => *held = Some(o),
+                Err(why) => {
+                    if !self
+                        .trees_told
+                        .swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        tracing::warn!(%why, "self: {why}: this daemon opens no phase tree and sweeps none");
+                    }
+                }
+            }
+        }
+        held.clone()
     }
 
     /// The gate's inform notices go to the operator's DM through the core's

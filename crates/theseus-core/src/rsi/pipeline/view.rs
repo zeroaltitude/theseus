@@ -122,30 +122,21 @@ impl Core {
         Ok(out)
     }
 
-    /// The loop's own install under way, as a queue of its own (issue 41).
+    /// The loop's install under way, as a queue of its own (issue 41; `installing`'s one predicate).
     pub(crate) fn pipeline_installing(&self) -> Vec<SelfPipelineItem> {
-        let i = self
-            .rsi
-            .pipeline
-            .installing
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        i.map(|i| SelfPipelineItem {
-            item: i.item,
-            title: i.title,
-            queue: "installing".into(),
-            place: 1,
-            branch: Some(i.branch),
-            since_ms: Some(i.since_ms),
-            why: Some(format!(
-                "installing {}: its build in L1, then its unit, which restarts the daemon",
-                &i.merge[..i.merge.len().min(12)]
-            )),
-            ..SelfPipelineItem::default()
-        })
-        .into_iter()
-        .collect()
+        self.self_installing()
+            .map(|i| SelfPipelineItem {
+                why: Some(super::installing::said(&i)),
+                item: i.item,
+                title: i.title,
+                queue: "installing".into(),
+                place: 1,
+                branch: Some(i.branch).filter(|b| !b.is_empty()),
+                since_ms: Some(i.since_ms).filter(|t| *t > 0),
+                ..SelfPipelineItem::default()
+            })
+            .into_iter()
+            .collect()
     }
 
     /// The week's measures, oldest day first; none while the index is built.

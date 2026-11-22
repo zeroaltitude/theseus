@@ -9,24 +9,31 @@
 //! The merge's own tree stays open across the phases that use it, and is checked at the end of
 //! the pass only.
 //!
-//! **A phase's tree left by a daemon that is gone is closed at start** (issue 41: a restart in the
-//! middle of an install left `install-…` open, and every start waited on "slots" for nine hours).
-//! The evidence that no pass of its own is running is this process's own memory:
-//! - every phase tree is opened by `join::git::detached`, which records it here before the tree
-//!   exists ([`opened_here`]);
-//! - a pass runs in the daemon that opened its tree, and only one daemon serves a state directory,
-//!   because the store's lock is exclusive (a second daemon fails to open the store, so it never
-//!   reaches this sweep). A daemon with another state directory has another trees directory.
+//! **A tree the loop opened, left by a daemon that is gone, is closed at start** (issue 41: a restart in
+//! the middle of an install left `install-…` open, and every start waited on "slots" for nine hours).
+//! The sweep closes only what it can PROVE is the loop's own and abandoned; everything else is left as
+//! it is and reported:
+//! - **the loop's own**: `join::git::detached` writes a mark for each tree it opens
+//!   (`<state>/self/trees.opened/<name>`, holding the kind and when) before the tree exists, and
+//!   `tree::close` removes it with the tree. A directory with no mark (an owner's worktree that happens
+//!   to be called `probe-notes`, a tree an older build opened, anything else) is never touched. Nothing
+//!   else writes a mark: `tree::open` / `reopen` make the items' trees, which have none;
+//! - **abandoned**: this process did not open it ([`opened_here`], recorded before the tree exists; the
+//!   check and the close hold the same lock the record takes), and this process owns the trees
+//!   (`trees_lock`: one daemon at a time, whatever store it opened, so a `--stdio` daemon beside the
+//!   service never sweeps the service's live trees);
+//! - and the trees directory resolves inside the state directory.
 //!
-//! So a phase tree with no record in this process was opened by a process that has ended: its
-//! pass cannot still be running. No live pass can match that, because its tree is recorded before
-//! it is made, and the check and the close hold the same lock the record takes. Closing it frees
-//! the slot and does nothing else: no join, install or revert is started or stopped by it. A tree
-//! a gate still holds (`tree_lease`) is left alone.
+//! Closing frees the slot and does nothing else: no join, install or revert is started or stopped by
+//! it. A tree a gate still holds (`tree_lease`) is left alone, and so is one git will not close: no
+//! plain delete stands in for `tree::close`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::rsi::tree::{self, Place, Tree};
 
@@ -42,21 +49,62 @@ pub fn opened_here(dir: &Path) {
     opened().insert(dir.to_path_buf());
 }
 
+/// Whether this process opened the tree at `dir` (`join::git::detached`).
+pub fn is_opened_here(dir: &Path) -> bool {
+    opened().contains(dir)
+}
+
 /// A test's restart: what a new process knows of the trees, which is nothing.
 #[cfg(test)]
 pub(crate) fn forget_opened_here() {
     opened().clear();
 }
 
+/// The loop's mark of a tree it opened: its kind (`install`, `planted`, …) and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mark {
+    pub kind: String,
+    pub at_ms: u64,
+    pub pid: u32,
+}
+
+/// Write the mark of `name`, of kind `kind`, before its tree exists: written and synced, so a crash after it leaves
+/// it on disk.
+pub fn mark(p: &Place, name: &str, kind: &str) -> Result<()> {
+    use std::io::Write;
+    let dir = p.opened();
+    std::fs::create_dir_all(&dir)?;
+    let m = Mark {
+        kind: kind.into(),
+        at_ms: theseus_protocol::now_unix_ms(),
+        pid: std::process::id(),
+    };
+    let mut f = std::fs::File::create(dir.join(name))?;
+    f.write_all(serde_json::to_string(&m)?.as_bytes())?;
+    f.sync_all()?;
+    Ok(())
+}
+
+/// Remove the mark of `name` (its tree was not made, or is closed).
+pub fn unmark(p: &Place, name: &str) {
+    let _ = std::fs::remove_file(p.opened().join(name));
+}
+
+/// The mark of `name`, when the loop opened it; none for a directory it did not (or a mark that does not read).
+pub fn mark_of(p: &Place, name: &str) -> Option<Mark> {
+    let text = std::fs::read_to_string(p.opened().join(name)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Whether the loop opened `name`.
+pub fn marked(p: &Place, name: &str) -> bool {
+    mark_of(p, name).is_some()
+}
+
 /// The trees one phase opens and closes.
 const PHASE_TREES: &[&str] = &["keel-", "planted-", "install-", "probe-", "revert-"];
 /// The merge's tree, open from the merge to the push.
 const MERGE_TREE: &str = "join-";
-
-/// Whether `name` is a phase's tree (keel, planted, install, probe, revert).
-pub fn is_phase_tree(name: &str) -> bool {
-    PHASE_TREES.iter().any(|p| name.starts_with(p))
-}
 
 /// The names of the join's trees open under the trees directory; with `merge`, the merge's too.
 pub fn left_open(trees: &Path, merge: bool) -> Vec<String> {
@@ -91,29 +139,98 @@ pub fn assert_closed(p: &Place, when: &str, merge: bool) {
     tracing::warn!(trees = ?open, "self-join: {said}");
 }
 
-/// A phase's tree that a daemon that is gone left open, as the start found it.
+/// What the start did with one tree, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Swept {
+    /// The loop's own, abandoned: closed.
+    Closed,
+    /// The loop's own, abandoned, but it could not be closed: why. It is left as it is.
+    NotClosed(String),
+    /// Its mark had no tree any more: the mark is cleared.
+    MarkCleared,
+    /// A phase-named directory the loop did not open (no mark): left as it is.
+    NotTheLoops,
+}
+
+/// One tree the start looked at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dead {
     /// Its name under the trees directory (`install-72af5c3fd1ff`).
     pub tree: String,
-    /// The phase that opened it: `keel`, `planted`, `install`, `probe` or `revert`.
+    /// The kind its mark names (`install`, `planted`, …); for one the loop did not open, its name's.
     pub phase: String,
-    /// Closed, or why it could not be.
-    pub closed: Result<(), String>,
+    pub swept: Swept,
 }
 
-/// Close every phase tree under `p`'s trees directory that this process did not open (the
-/// module's doc). The merge's tree (`join-…`) is not a phase's and is not touched.
-pub fn close_dead(p: &Place) -> Vec<Dead> {
+/// Why the start did not sweep at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoSweep {
+    /// Another daemon owns the trees (`trees_lock`).
+    NotOwner,
+    /// The trees directory leads out of the state directory.
+    Outside,
+}
+
+/// The start's sweep (the module's doc): every tree with the loop's mark that this process did not open is closed;
+/// a mark with no tree is cleared; a phase-named directory with no mark is reported and left.
+pub fn close_dead(p: &Place) -> Result<Vec<Dead>, NoSweep> {
+    if p.owner.is_none() {
+        return Err(NoSweep::NotOwner);
+    }
+    if !p.trees().exists() {
+        return Ok(Vec::new());
+    }
+    if !p.trees_inside() {
+        return Err(NoSweep::Outside);
+    }
     let Ok(trees) = std::fs::canonicalize(p.trees()) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     // Held across the check and the close: a pass that opens a tree now waits for the close.
     let here = opened();
     let mut out = Vec::new();
-    for name in left_open(&trees, false) {
-        let dir = trees.join(&name);
+    let mut names: Vec<String> = std::fs::read_dir(p.opened())
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| !n.contains('/') && !n.starts_with('.'))
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    for name in &names {
+        let dir = trees.join(name);
         if here.contains(&dir) {
+            continue;
+        }
+        let Some(m) = mark_of(p, name) else { continue };
+        let is_tree = std::fs::symlink_metadata(&dir).is_ok_and(|md| md.file_type().is_dir());
+        let swept = if !is_tree && !dir.exists() {
+            unmark(p, name);
+            Swept::MarkCleared
+        } else if !is_tree {
+            Swept::NotClosed(format!("{} is not a directory", dir.display()))
+        } else {
+            let t = Tree {
+                slug: name.clone(),
+                branch: String::new(),
+                target: p.targets().join(name),
+                dir,
+            };
+            match close_one(p, &t, m.kind == "install") {
+                Ok(()) => Swept::Closed,
+                Err(e) => Swept::NotClosed(e),
+            }
+        };
+        out.push(Dead {
+            tree: name.clone(),
+            phase: m.kind,
+            swept,
+        });
+    }
+    for name in left_open(&trees, false) {
+        if names.contains(&name) {
             continue;
         }
         let phase = PHASE_TREES
@@ -121,24 +238,17 @@ pub fn close_dead(p: &Place) -> Vec<Dead> {
             .find(|pre| name.starts_with(**pre))
             .map_or("", |pre| pre.trim_end_matches('-'))
             .to_string();
-        let t = Tree {
-            slug: name.clone(),
-            branch: String::new(),
-            target: p.targets().join(&name),
-            dir,
-        };
-        let closed = close_one(p, &t, phase == "install");
         out.push(Dead {
             tree: name,
             phase,
-            closed,
+            swept: Swept::NotTheLoops,
         });
     }
-    out
+    Ok(out)
 }
 
-/// Close `t` as its phase does (an install's build tree stays: `install::reap_target` owns it), or
-/// remove it as `join::git::detached` removes one a crash left when git no longer knows it.
+/// Close `t` as its phase does (an install's build tree stays: `install::reap_target` owns it). A tree a gate holds,
+/// or one git will not close, is left as it is: no plain delete stands in for the close.
 fn close_one(p: &Place, t: &Tree, keep_target: bool) -> Result<(), String> {
     if let Some(busy) = crate::rsi::tree_lease::held(&[&t.dir, &t.target]) {
         return Err(format!("a gate is still running in {}", busy.display()));
@@ -147,14 +257,9 @@ fn close_one(p: &Place, t: &Tree, keep_target: bool) -> Result<(), String> {
         true => tree::close_keeping_target(p, t),
         false => tree::close(p, t),
     };
-    if closed.is_ok() && !t.dir.exists() {
-        return Ok(());
-    }
-    tree::remove_all(&t.dir)
-        .map_err(|e| format!("{} could not be removed: {e}", t.dir.display()))?;
-    let _ = p.git(&p.repo, &["worktree", "prune"]);
-    match t.dir.exists() {
-        true => Err(format!("{} is still there", t.dir.display())),
-        false => Ok(()),
+    match closed {
+        Ok(()) if !t.dir.exists() => Ok(()),
+        Ok(()) => Err(format!("{} is still there", t.dir.display())),
+        Err(e) => Err(format!("git did not close it: {e:#}")),
     }
 }

@@ -1,49 +1,68 @@
-//! A start closes a phase's tree that a daemon that is gone left open (issue 41; the evidence is
-//! `guard`'s doc), with a `self.pipeline.cleared` row for each: which tree, which phase, and why.
+//! A start closes a tree the loop opened that a daemon that is gone left open (issue 41; what proves it is
+//! `guard`'s doc), with a `self.pipeline.cleared` row for each it closes or could not close: which tree, which
+//! phase, and why. A directory the loop did not open is left as it is and said in the log.
 
 use serde_json::json;
 
-use super::guard;
+use super::guard::{self, Dead, NoSweep, Swept};
 use crate::fact::rsi_pipeline::{Cleared, Moved};
 use crate::rpc::Core;
 
 /// Why a start closes such a tree, as its row says.
-pub const WHY: &str = "a daemon that is gone left it open: this daemon did not open it, and only \
-     this daemon serves this state directory, so no pass of its own is running in it; it held a \
-     pipeline slot";
+pub const WHY: &str = "the loop opened it (its mark is there), this daemon did not, and this daemon owns the \
+     self loop's trees, so no pass is running in it: a daemon that is gone left it open, and it held a pipeline \
+     slot";
 
 impl Core {
-    /// The start's sweep: every phase tree no pass of this daemon opened is closed, each with its
-    /// row. Nothing else is done: no join, install or revert starts or stops. The trees it closed.
-    pub fn close_dead_trees(&self) -> Vec<guard::Dead> {
+    /// The start's sweep: every tree with the loop's mark that this daemon did not open is closed, each with its
+    /// row. Nothing else is done: no join, install or revert starts or stops. What it found, or why it did not look.
+    pub fn close_dead_trees(&self) -> Result<Vec<Dead>, NoSweep> {
         let Some(repo) = self.cfg.self_improve.repo.clone() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         let place = self.tools.self_pr.place(&repo);
-        let dead = guard::close_dead(&place);
+        let found = guard::close_dead(&place);
+        let dead = match found {
+            Ok(d) => d,
+            Err(NoSweep::NotOwner) => {
+                tracing::info!(
+                    "self: {}: this daemon does not sweep the trees",
+                    crate::rsi::trees_lock::NOT_OWNER
+                );
+                return Err(NoSweep::NotOwner);
+            }
+            Err(NoSweep::Outside) => {
+                tracing::warn!(trees = %place.trees().display(),
+                    "self: the trees directory leads out of the state directory: no sweep");
+                return Err(NoSweep::Outside);
+            }
+        };
         for d in &dead {
-            let m = match &d.closed {
-                Ok(()) => Moved::new("", format!("the {} tree {} is closed", d.phase, d.tree)),
-                Err(e) => Moved::new(
-                    "",
+            let (what, closed) = match &d.swept {
+                Swept::Closed => (format!("the {} tree {} is closed", d.phase, d.tree), true),
+                Swept::NotClosed(e) => (
                     format!("the {} tree {} could not be closed: {e}", d.phase, d.tree),
+                    false,
                 ),
+                Swept::MarkCleared => {
+                    tracing::info!(tree = %d.tree, "self: a mark with no tree any more is cleared");
+                    continue;
+                }
+                Swept::NotTheLoops => {
+                    tracing::info!(tree = %d.tree,
+                        "self: a directory named like a phase's tree, which the loop did not open: left as it is");
+                    continue;
+                }
             };
-            let m = m
+            let m = Moved::new("", what)
                 .with("tree", d.tree.as_str())
                 .with("phase", d.phase.as_str())
                 .with("reason", "left_by_a_gone_daemon")
-                .with("closed", d.closed.is_ok())
+                .with("closed", closed)
                 .why(WHY)
-                .numbers(json!({"trees": usize::from(d.closed.is_ok())}));
+                .numbers(json!({"trees": usize::from(closed)}));
             self.rec(None).record(&Cleared(m));
-            match &d.closed {
-                Ok(()) => tracing::info!(tree = %d.tree, phase = %d.phase,
-                    "self: a tree a gone daemon left is closed, and its slot is free"),
-                Err(e) => tracing::warn!(tree = %d.tree, phase = %d.phase, error = %e,
-                    "self: a tree a gone daemon left could not be closed"),
-            }
         }
-        dead
+        Ok(dead)
     }
 }

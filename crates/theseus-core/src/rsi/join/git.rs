@@ -21,10 +21,29 @@ pub fn slug_of(what: &str, branch: &str) -> String {
 }
 
 /// A detached worktree of `rev` named `<what>-<slug of branch>`, with its
-/// own build tree. One left by a crash is removed first.
+/// own build tree. One the loop left by a crash (its mark is there, `guard`) is
+/// closed first; a directory of that name the loop did not open is in the way
+/// and is left as it is: the open fails, naming it.
+///
+/// Only the daemon that owns the trees opens one (`trees_lock`, issue 41), and
+/// only under a trees directory inside the state directory. Its mark
+/// (`<state>/self/trees.opened/<name>`) is written before the tree exists and
+/// removed when it is closed (`tree::close`).
 pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> {
     let slug = slug_of(what, branch);
+    if p.owner.is_none() {
+        bail!(
+            "{}: this daemon opens no {what} tree",
+            crate::rsi::trees_lock::NOT_OWNER
+        );
+    }
     std::fs::create_dir_all(p.trees())?;
+    if !p.trees_inside() {
+        bail!(
+            "the self trees directory {} leads out of the state directory: no {what} tree is opened there",
+            p.trees().display()
+        );
+    }
     let trees = std::fs::canonicalize(p.trees())?;
     let dir = trees.join(&slug);
     let target = p.targets().join(&slug);
@@ -37,11 +56,24 @@ pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> 
     // Recorded before the tree exists, so a start's sweep never takes it for a dead daemon's.
     super::guard::opened_here(&t.dir);
     if t.dir.exists() {
-        let _ = tree::close(p, &t);
-        let _ = std::fs::remove_dir_all(&t.dir);
+        if !super::guard::marked(p, &t.slug) {
+            bail!(
+                "{} is in the way and the loop did not open it: it is left as it is",
+                t.dir.display()
+            );
+        }
+        // The loop's own, left by a crash: closed, or, when git no longer knows it, removed, as it always was.
+        if tree::close(p, &t).is_err() {
+            tree::remove_all(&t.dir)?;
+            let _ = p.git(&p.repo, &["worktree", "prune"]);
+        }
     }
+    super::guard::mark(p, &t.slug, what)?;
     let d = t.dir.to_string_lossy().to_string();
-    p.git_ok(&p.repo, &["worktree", "add", "-q", "--detach", &d, rev])?;
+    if let Err(e) = p.git_ok(&p.repo, &["worktree", "add", "-q", "--detach", &d, rev]) {
+        super::guard::unmark(p, &t.slug);
+        return Err(e);
+    }
     std::fs::create_dir_all(&t.target)?;
     Ok(t)
 }
