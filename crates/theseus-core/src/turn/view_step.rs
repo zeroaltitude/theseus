@@ -84,8 +84,15 @@ impl TurnRunner {
     fn view_compile(&self, t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
         let turn = t.tc.turn_id;
         let held = t.view.as_ref().filter(|f| f.turn_id == turn);
-        if held.is_none() && t.exchange.place_unread() {
-            return Err(ViewFailed::Place.into());
+        if held.is_none() {
+            if t.exchange.place_unread() {
+                return Err(ViewFailed::Place.into());
+            }
+        } else if self.view_gone(t) {
+            // Something it laid was removed or erased since (absence is not proof): reassembled, on a new
+            // chain, with the room the turn made.
+            self.view_refrozen(t, input.spec, None)?;
+            Self::view_reset(t, input.nodes);
         }
         self.view_freeze(t, input.spec)?;
         // A refused image under the turn's thinking, or a block the provider dropped: the same view, a new
@@ -116,10 +123,12 @@ impl TurnRunner {
         Ok(compiled)
     }
 
-    /// After every await of a call's compile and before the provider (issue 44): the size check
-    /// (`room::view_size`) on the finished request; a recompile for size comes back to it (at most
-    /// `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail kept as the
-    /// turn loop keeps one. Anything goes (2026-11-22): nothing is admitted again.
+    /// After every await of a call's compile and before the provider (issue 44): whether anything the frozen
+    /// view laid was removed or erased since ([`Self::view_gone`]: erase stays, absence is not proof), which
+    /// compiles the call again at most twice and fails it plainly a third time (`ViewFailed::Gone`); then the
+    /// size check (`room::view_size`) on the finished request, a recompile for size coming back to both (at
+    /// most `room::SIZINGS` of them). The request that goes out is the last one compiled, its tail kept as
+    /// the turn loop keeps one. Anything goes (2026-11-22): no presence, seal or move is asked again.
     pub(super) async fn view_readmitted(
         &self,
         t: &mut Turn<'_>,
@@ -128,14 +137,21 @@ impl TurnRunner {
         compiled: Compiled,
         i: u32,
     ) -> anyhow::Result<Result<Compiled, super::Failure>> {
-        let (mut compiled, mut sized) = (compiled, 0);
+        let (mut compiled, mut gone, mut sized) = (compiled, 0, 0);
         loop {
-            match room::view_size(t, &mut compiled, sized == room::SIZINGS) {
-                room::Size::Fits => return Ok(Ok(compiled)),
-                room::Size::Over => {
-                    return Ok(Self::overage(t, &compiled, i).map_or(Ok(compiled), Err));
+            if self.view_gone(t) {
+                if gone == VIEW_REASSEMBLIES {
+                    return Ok(Err(Self::view_failed(t, &ViewFailed::Gone)));
                 }
-                room::Size::Again => sized += 1,
+                gone += 1;
+            } else {
+                match room::view_size(t, &mut compiled, sized == room::SIZINGS) {
+                    room::Size::Fits => return Ok(Ok(compiled)),
+                    room::Size::Over => {
+                        return Ok(Self::overage(t, &compiled, i).map_or(Ok(compiled), Err));
+                    }
+                    room::Size::Again => sized += 1,
+                }
             }
             compiled =
                 match Box::pin(self.compile_step(t, session, spec, false, None, None, i)).await? {
@@ -146,6 +162,16 @@ impl TurnRunner {
                     Err(f) => return Ok(Err(f)),
                 };
         }
+    }
+
+    /// Whether an exchange the frozen view lays is gone now, or a node its recall laid is gone or erased
+    /// (`kept::held_now`).
+    pub(super) fn view_gone(&self, t: &Turn<'_>) -> bool {
+        let Some(f) = t.view.as_ref().filter(|f| f.turn_id == t.tc.turn_id) else {
+            return false;
+        };
+        let recalled: Vec<String> = (f.recalled.iter()).map(|r| r.node_id.clone()).collect();
+        kept::held_now(self, t.tc.session_id, (&[], &f.exchanges, &recalled))
     }
 
     /// A new chain for the turn: its next call makes a new compilation (the sent tails let go), and the
@@ -329,6 +355,9 @@ impl TurnRunner {
 /// The headroom the compiler keeps beside the reply for the turn's own calls, in tokens.
 const CALL_HEADROOM: u64 = 4_096;
 
+/// How many times one call is compiled again when something its view laid was removed under it.
+const VIEW_REASSEMBLIES: u32 = 2;
+
 /// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
 /// before the call is sent), once.
 #[cfg(test)]
@@ -361,8 +390,8 @@ pub(super) struct Asked<'a> {
     pub sid: &'a str,
     pub turn: &'a str,
     pub person: Option<String>,
-    /// The gate's point of view, never the caller's word: a preview's; none reads the turn's
-    /// (`Verified::of_session`) where a turn always read it, after the clock.
+    /// The gate's point of view, never the caller's word: a turn's at its own place
+    /// (`Verified::of_turn`), or a preview's; none reads the session's (`Verified::of_session`).
     pub verified: Option<Verified>,
     /// The items today's recall found and admitted, read for slot H (none for a preview, which runs no
     /// recall).

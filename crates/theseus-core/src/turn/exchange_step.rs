@@ -67,6 +67,11 @@ impl Held {
         self.mark.as_ref()
     }
 
+    /// The turn's place, once read and readable ([`TurnRunner::turn_place`]).
+    pub(super) fn read_place(&self) -> Option<&str> {
+        self.read_place.as_ref().and_then(|p| p.as_deref())
+    }
+
     /// Whether the turn's place was read and could not be (the view fails such a turn plainly).
     pub(super) fn place_unread(&self) -> bool {
         matches!(self.read_place, Some(None))

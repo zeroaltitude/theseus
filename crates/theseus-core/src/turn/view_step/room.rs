@@ -30,6 +30,7 @@ use crate::compiler::{CompileInput, Compiled, Overflowed, RequestSpec};
 use crate::view::budget::{Budget, Overflow, HERE_ALLOWANCE};
 use crate::view::record::Room;
 use crate::view::Slot;
+use crate::view_gate::Verified;
 
 #[cfg(test)]
 mod tests;
@@ -162,7 +163,7 @@ impl TurnRunner {
             sid,
             turn,
             person: t.exchange.person().0,
-            verified: None,
+            verified: Some(Verified::of_turn(self, sid, t.exchange.read_place())),
             recalled: found,
             message: None,
             items: t.exchange.items().to_vec(),

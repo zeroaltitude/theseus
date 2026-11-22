@@ -1,6 +1,7 @@
 //! A view turn that cannot be assembled soundly fails plainly (issue 44): no partial view, no other way of
 //! building the request, and nothing is sent. Its words are a person's: the place could not be read, the
-//! context could not be read (with the error).
+//! context could not be read (with the error), or what it laid kept being removed while its call was being
+//! prepared.
 
 use super::super::{Failure, Turn, TurnRunner};
 
@@ -14,6 +15,8 @@ pub(in crate::turn) enum ViewFailed {
     Place,
     /// A read during the view's assembly failed: its words.
     Assembly(String),
+    /// Something the view laid was removed or erased under it a third time within one call's preparation.
+    Gone,
 }
 
 impl std::fmt::Display for ViewFailed {
@@ -21,6 +24,9 @@ impl std::fmt::Display for ViewFailed {
         match self {
             Self::Place => f.write_str("this conversation's place could not be read"),
             Self::Assembly(why) => write!(f, "the conversation's context could not be read: {why}"),
+            Self::Gone => f.write_str(
+                "what this turn's context laid was removed while it was being prepared; send it again",
+            ),
         }
     }
 }
@@ -33,6 +39,7 @@ impl ViewFailed {
         match self {
             Self::Place => "place",
             Self::Assembly(_) => "assembly",
+            Self::Gone => "gone",
         }
     }
 }
@@ -99,5 +106,6 @@ mod tests {
             ViewFailed::Assembly("the store is closed".into()).to_string(),
             "the conversation's context could not be read: the store is closed"
         );
+        assert!(ViewFailed::Gone.to_string().ends_with("send it again"));
     }
 }

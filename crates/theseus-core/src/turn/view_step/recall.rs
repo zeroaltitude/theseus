@@ -85,7 +85,7 @@ impl TurnRunner {
             timeline: super::StoreTimeline(store),
             at_hand: None,
         };
-        let verified = super::Verified::of_session(self, sid);
+        let verified = super::Verified::of_turn(self, sid, t.exchange.read_place());
         let pov = super::verified_pov(&verified, t.exchange.person().0, snap.now_ms);
         let super::Anchor::Place(place) = pov.anchor.clone() else {
             return Ok(BTreeSet::new());
