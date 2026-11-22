@@ -270,11 +270,11 @@ fn a_thinking_block_goes_back_only_to_the_provider_that_wrote_it() {
             .contains("zai-signature")
     };
 
-    // A new compilation, made for Anthropic: nothing strips its prefix,
-    // and still GLM's thinking stays home.
+    // A new chain, made for Anthropic: a view chain's manifest marks its
+    // prefix stripped, and still GLM's thinking in the turn stays home.
     let sonnet = spec("claude-sonnet-5-5", "A");
     let c = run(&nodes, None, &sonnet, 3);
-    assert!(!c.compilation.manifest.strip_thinking);
+    assert!(c.compilation.manifest.strip_thinking);
     assert!(no_thinking(&c), "{:?}", c.request.messages);
     assert_eq!(c.request.messages[1]["content"], json!([call]));
 
@@ -295,7 +295,7 @@ fn a_thinking_block_goes_back_only_to_the_provider_that_wrote_it() {
     // next turn's recompile strips every earlier thinking block.
     let s1 = run(&nodes, None, &glm, 3);
     let switched = run(&nodes, Some(&s1.compilation), &sonnet, 3);
-    assert_eq!(switched.trigger.as_deref(), Some("model_changed"));
+    assert_eq!(switched.trigger.as_deref(), Some("view_turn"));
     assert!(switched.compilation.manifest.strip_thinking);
     assert!(no_thinking(&switched));
 }
@@ -401,7 +401,7 @@ fn the_system_is_two_blocks_each_with_a_breakpoint() {
     let mut edited = sp;
     edited.context_text.push_str(" and one more line");
     let c2 = run(&hi(), Some(&c.compilation), &edited, 1);
-    assert_eq!(c2.trigger.as_deref(), Some("system_changed"));
+    assert_eq!(c2.trigger.as_deref(), Some("view_turn"));
     assert_eq!(
         serde_json::to_string(&c2.request.system[0]).unwrap(),
         serde_json::to_string(&c.request.system[0]).unwrap()

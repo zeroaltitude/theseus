@@ -193,7 +193,7 @@ fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
     let mut edited = s;
     edited.context_text = format!("{header} and a line\n\n{topic}");
     let moved = append(&edited);
-    assert_eq!(moved.trigger.as_deref(), Some("system_changed"));
+    assert_eq!(moved.trigger.as_deref(), Some("view_turn"));
     assert_eq!(moved.compilation.manifest.prefix, None);
     assert_eq!(moved.request.system[2]["text"], edited.context_text);
 }
