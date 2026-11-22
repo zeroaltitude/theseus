@@ -1058,6 +1058,19 @@ async fn a_seal_after_assembly_and_before_the_send_is_honoured() {
     }
 }
 
+/// How many turns the late-seal tests run before theirs: one more than the window's floor of three exchanges
+/// (`view::select::here::FLOOR_EXCHANGES`), so the view has an exchange to cut when it makes room after a
+/// refusal.
+const EARLIER: u32 = 4;
+
+/// [`EARLIER`] turns of `sid`, each a long message answered "Hello.".
+async fn said_before(c: &std::sync::Arc<crate::Core>, sid: &str) {
+    for k in 0..EARLIER {
+        let long = "the keeper's long account of the tide at the north light. ".repeat(20);
+        turn(c, sid, &format!("the tide table, earlier ({k}): {long}")).await;
+    }
+}
+
 /// Round 2 fix, item 1: the kept recall of a view call is admitted again ITEM BY ITEM at a late decline: a
 /// source sealed since leaves nothing, neither its text nor its header (its thread's title).
 #[tokio::test]
@@ -1081,9 +1094,9 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
                 return crate::provider::Scripted::text("aside");
             }
             match seen.fetch_add(1, Ordering::SeqCst) {
-                // An earlier turn, whose exchange is the window the view cuts to make room.
-                0 => crate::provider::Scripted::text("Hello."),
-                1 => {
+                // The earlier turns, whose oldest exchange is the window the view cuts to make room.
+                n if n < EARLIER => crate::provider::Scripted::text("Hello."),
+                EARLIER => {
                     // After the view's first call: the recalled source's thread is sealed, and the call
                     // is refused for its size. Since the cut the view makes room and calls again, smaller
                     // (`view_step::room`), reassembled under the gate of now.
@@ -1106,7 +1119,7 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
     c.store.append(&[n.record().unwrap()]).unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![thread.clone()]));
     let sid = session_in(c, None, &r.root);
-    turn(c, &sid, "the tide table, earlier").await;
+    said_before(c, &sid).await;
     turn(c, &sid, "what is the vault code?").await;
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains("what is the vault code?"))
@@ -1158,9 +1171,9 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                     return crate::provider::Scripted::text("aside");
                 }
                 match seen.fetch_add(1, Ordering::SeqCst) {
-                    // An earlier turn, whose exchange is the window the view cuts to make room.
-                    0 => crate::provider::Scripted::text("Hello."),
-                    1 => {
+                    // The earlier turns, whose oldest exchange is the window the view cuts to make room.
+                    n if n < EARLIER => crate::provider::Scripted::text("Hello."),
+                    EARLIER => {
                         let c = held.get().unwrap();
                         match steer {
                             true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
@@ -1200,7 +1213,7 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         c.runner.memory.set_ask(index);
         let sid = crate::tests_places::session(c, None);
         let _ = desk.set(sid.clone());
-        turn(c, &sid, "the tide table, earlier").await;
+        said_before(c, &sid).await;
         turn(c, &sid, "what do you remember of the tide and the vault?").await;
         let asked: Vec<ProviderRequest> = (r.requests().into_iter())
             .filter(|q| !q.tools.is_empty() && texts(q).contains("the tide and the vault?"))
