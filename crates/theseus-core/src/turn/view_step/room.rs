@@ -100,13 +100,20 @@ impl TurnRunner {
     }
 
     /// The view's budget under `room`: slot G's allowance as lowered, the window as the provider stated it.
+    /// What slot G gives up goes to the ceiling, so the whole (rule 5) is what it was: only slot G is held
+    /// to less, and the floor keeps its room.
     fn room_budget(&self, spec: &RequestSpec, room: &Room) -> Budget {
         let b = self.view_budget(spec);
+        let here = room
+            .here
+            .map_or(b.here_allowance, |h| h.min(b.here_allowance));
+        let window = room
+            .window
+            .map_or(b.provider_window, |w| w.min(b.provider_window));
         Budget {
-            here_allowance: room.here.unwrap_or(b.here_allowance),
-            provider_window: room
-                .window
-                .map_or(b.provider_window, |w| w.min(b.provider_window)),
+            ceiling: b.ceiling + (b.here_allowance - here),
+            here_allowance: here,
+            provider_window: window,
             ..b
         }
     }
