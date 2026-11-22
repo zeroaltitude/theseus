@@ -58,11 +58,6 @@ pub struct TurnRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub persona: Option<RoutePersona>,
-    /// The data rule's part in the turn (theseus-a1wvq.11), when routing
-    /// recorded it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub data: Option<TurnData>,
 }
 
 impl TurnRoute {
@@ -86,30 +81,6 @@ impl TurnRoute {
             Some(_) => format!("Jev: {mode}"),
             None => mode.to_string(),
         }
-    }
-}
-
-/// What the data rule did for a turn, for the route line.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct TurnData {
-    /// Whether the session may use a model of restricted origin, as routing found it: `allowed`, the word of the flag that keeps it off one (`secret`, `confidential`, `personal`), `never` under `cn_models = "never"`, or `no_record`; `pending` and `unjudged` in a route from before theseus-gyjyo.6. Empty in a route from before content flags.
-    #[serde(default)]
-    pub cn: String,
-    /// Why the data rule kept the turn off a restricted-origin model: an open word, absent when it did not.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub gate: Option<String>,
-    /// The origin of the model the turn ran on (`us`, `eu`, `cn`, `unknown`).
-    pub origin: String,
-}
-
-impl TurnData {
-    /// The route line's data words, as every surface words them: `data gate:
-    /// <why>` when the rule kept the turn off a restricted-origin model,
-    /// nothing otherwise.
-    pub fn footer(&self) -> Option<String> {
-        self.gate.as_ref().map(|g| format!("data gate: {g}"))
     }
 }
 
@@ -371,54 +342,23 @@ pub fn model_name(id: &str) -> String {
 mod tests {
     use super::*;
 
-    /// A turn's route with and without its data part round-trips, and a result
-    /// from before it reads as none; the footer words it once for every surface.
+    /// A route an older daemon wrote with its data part (theseus-a1wvq.11,
+    /// retired with the restricted-origin rule on 2026-11-21) still decodes:
+    /// the part is accepted and ignored, and nothing writes it back.
     #[test]
-    fn turn_route_data_round_trips() {
-        let data = TurnData {
-            cn: "allowed".into(),
-            gate: None,
-            origin: "cn".into(),
-        };
-        let with = TurnRoute {
-            reason: "verdict".into(),
-            from: "sonnet".into(),
-            data: Some(data.clone()),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&with).unwrap();
-        assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), with);
-        let without = TurnRoute { data: None, ..with };
-        let json = serde_json::to_string(&without).unwrap();
-        assert!(!json.contains("data"), "{json}");
-        assert_eq!(serde_json::from_str::<TurnRoute>(&json).unwrap(), without);
-        let old = r#"{"reason":"verdict","from":"sonnet"}"#;
-        assert_eq!(serde_json::from_str::<TurnRoute>(old).unwrap().data, None);
-        // A route from before content flags carried a `clearance` and a
-        // `verdict`: it still reads, its `cn` empty.
-        let before = r#"{"reason":"verdict","from":"sonnet","data":{"verdict":"open","clearance":"open","origin":"cn"}}"#;
-        let read = serde_json::from_str::<TurnRoute>(before)
-            .unwrap()
-            .data
-            .unwrap();
-        assert_eq!((read.cn.as_str(), read.origin.as_str()), ("", "cn"));
-        let gated = |cn: &str, gate: Option<&str>| TurnData {
-            cn: cn.into(),
-            gate: gate.map(Into::into),
-            ..data.clone()
-        };
-        assert_eq!(
-            data.footer(),
-            None,
-            "a turn that ran on a cn model words nothing"
-        );
-        assert_eq!(
-            gated("confidential", Some("confidential"))
-                .footer()
-                .as_deref(),
-            Some("data gate: confidential")
-        );
-        assert_eq!(gated("allowed", None).footer(), None);
+    fn an_older_route_with_its_data_part_still_reads() {
+        for old in [
+            r#"{"reason":"verdict","from":"sonnet","data":{"cn":"confidential","gate":"confidential","origin":"us"}}"#,
+            r#"{"reason":"verdict","from":"sonnet","data":{"verdict":"open","clearance":"open","origin":"cn"}}"#,
+        ] {
+            let read = serde_json::from_str::<TurnRoute>(old).unwrap();
+            assert_eq!(
+                (read.reason.as_str(), read.from.as_str()),
+                ("verdict", "sonnet")
+            );
+            let again = serde_json::to_string(&read).unwrap();
+            assert!(!again.contains("data"), "{again}");
+        }
     }
 
     /// The footer's `pinned` is the route's own `reason` and nothing else: the

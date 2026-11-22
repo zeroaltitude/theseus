@@ -200,10 +200,8 @@ build.
     each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). Every
     method is the protocol's (`job.stop` since p2f-ops-act); a job's Stop in the inspector arms on a first press and calls it on a
     second, and the toast says the answer's `words`.
-  - **The model menu's floor** (`ops/floor.ts`): the restricted-origin rule is gone (2026-11-21) and the daemon sends
-    `ProfileInfo.cleared: true` for every profile, so the menu greys only a profile that is not configured.
-    `test/fixtures/profile_floor.json` and `test/ops-floor.test.ts` still hold the old US-only table, which the daemon
-    no longer has.
+  - **The model menu's floor** (`ops/floor.ts`): the restricted-origin rule is gone (2026-11-21) and
+    `ProfileInfo.cleared` with it, so the menu greys only a profile that is not configured (`test/ops-floor.test.ts`).
   - **Jobs, watches** (p2f-ops-act; theseus-dyukm, theseus-xzf71): `job.stop` is a method now (`JobStopParams`/`JobStopResult` in `job_follow.rs`, served beside `work.peek` under its
     place rule). A watch is a palette entity (`watchEntity`: its check, when it gives up, "failing"); choosing it opens the
     Timeline lens, and "Cancel the watch" plans `wake.cancel` and asks first. `profile.list` and `catalog.list` are read once

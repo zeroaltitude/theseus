@@ -54,12 +54,8 @@ pub(super) fn hold(
         (Some(p), _) => format!(" (it was held to {p})"),
         (None, _) => String::new(),
     };
-    let note = done
-        .note
-        .map(|n| format!(" Note: {n}."))
-        .unwrap_or_default();
     Ok(format!(
-        "{now}{was}. This turn keeps the model it started on.{note}"
+        "{now}{was}. This turn keeps the model it started on."
     ))
 }
 
