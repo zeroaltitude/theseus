@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# theseus-stats-landing: STATS.md is counted again at every landing on `main` (issue 45), with no one remembering.
+#
+# Installed by `scripts/stats-hook.sh install` into the repository's shared hooks directory, as `pre-merge-commit`
+# (a `git merge` that commits) and as `pre-commit` (the `git commit` after a `git merge --no-commit`). It acts only on
+# a MERGE onto the branch `main`: HEAD is `refs/heads/main` and MERGE_HEAD exists. Then it runs scripts/stats.py on
+# the merge's tree and stages STATS.md, which git reads into the merge it is about to write, so the count is the
+# merge's own and is named by the merge's parents. Any other commit, on any other branch, is left alone; so branches
+# never touch STATS.md, and no two branches conflict on it.
+#
+# The build sizes: when the main tree's optimised build (`$CARGO_TARGET_DIR` or `target`, profile `release`) has a
+# build stamp, they are read from it again, under the commit that stamp names; else the sizes already in STATS.md are
+# kept as they were.
+#
+# Not covered, by design:
+#   - the self loop's join, which merges with `--no-verify` in a detached tree (rsi/join/git.rs): no hook runs there,
+#     and how the loop counts is a separate change, reviewed before it lands;
+#   - a person's `git merge --no-verify` or `git commit --no-verify`, which skip it as they skip every hook;
+#   - a landing made by pushing a commit made elsewhere: the count happens where the merge is made.
+#
+# A count that fails never stops the landing: it says so, and STATS.md is left as it was.
+set -u
+[ "$(git symbolic-ref -q HEAD)" = refs/heads/main ] || exit 0
+git rev-parse -q --verify MERGE_HEAD >/dev/null || exit 0
+root=$(git rev-parse --show-toplevel) || exit 0
+[ -f "$root/scripts/stats.py" ] || exit 0
+prof="${CARGO_TARGET_DIR:-$root/target}/release"
+sizes=()
+[ -f "$prof/.theseus-build-stamp" ] && sizes=(--sizes-from "$prof")
+if python3 -I "$root/scripts/stats.py" --root "$root" "${sizes[@]}"; then
+  git -C "$root" add -- STATS.md || echo "stats: STATS.md was counted but not staged; the merge goes without it" >&2
+else
+  echo "stats: the count failed; the merge goes on, with STATS.md as it was" >&2
+fi
+exit 0

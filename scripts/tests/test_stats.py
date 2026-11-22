@@ -128,6 +128,76 @@ class StatsTest(unittest.TestCase):
         self.git("merge", "-q", "--no-ff", "-m", "join", "side")
         self.assertIn(f"Counted at the merge of {side} into {main},", self.run_stats())
 
+    def test_a_merge_in_progress_is_named_by_the_parents_it_will_have(self):
+        main = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("checkout", "-q", "-b", "side")
+        self.git("commit", "-q", "--allow-empty", "-m", "side")
+        side = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("checkout", "-q", main)
+        self.git("merge", "-q", "--no-ff", "--no-commit", "side")
+        text = self.run_stats()
+        self.assertIn(f"Counted at the merge of {side} into {main}, over", text)  # staged merge: not "uncommitted"
+
+    def test_a_range_prints_each_total_before_and_after(self):
+        before = self.git("rev-parse", "--short=8", "HEAD")
+        with open(os.path.join(self.root, "crates/demo/src/more.rs"), "w") as f:
+            f.write("// one comment\nfn a() {}\nfn b() {}\n")
+        os.remove(os.path.join(self.root, "crates/demo/src/digest.rs"))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "more")
+        after = self.git("rev-parse", "--short=8", "HEAD")
+        line = stats.range_line(self.root, f"{before}..{after}")
+        code, test, comment = stats.totals(stats.count_rev(self.root, before))
+        # more.rs: code 2, comment 1; digest.rs, gone: code 1. So code +1, comments +1, test code unchanged.
+        self.assertEqual(
+            line, f"lines {before}..{after}: code {code:,} -> {code + 1:,} (+1); test code {test:,} -> {test:,} (+0); "
+                  f"comments {comment:,} -> {comment + 1:,} (+1)")
+
+    def test_the_objects_count_is_the_working_trees(self):
+        self.assertEqual(stats.count_rev(self.root, "HEAD"), stats.count_tree(self.root))
+
+    def test_the_landing_hook_counts_a_merge_onto_main_and_nothing_else(self):
+        os.makedirs(os.path.join(self.root, "scripts"), exist_ok=True)
+        shutil.copy(os.path.join(HERE, "..", "stats.py"), os.path.join(self.root, "scripts", "stats.py"))
+        hooks = os.path.join(self.root, ".git", "hooks")
+        for name in ("pre-merge-commit", "pre-commit"):
+            shutil.copy(os.path.join(HERE, "..", "hooks", "pre-merge-commit"), os.path.join(hooks, name))
+            os.chmod(os.path.join(hooks, name), 0o755)
+        self.git("checkout", "-q", "-B", "main")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "the script")  # an ordinary commit on main: no count
+        stats_md = os.path.join(self.root, "STATS.md")
+        self.assertFalse(os.path.exists(stats_md))
+
+        def branch(name):
+            self.git("checkout", "-q", "-b", name, "main")
+            with open(os.path.join(self.root, f"crates/demo/src/{name}.rs"), "w") as f:
+                f.write("fn x() {}\n")
+            self.git("add", "-A")
+            self.git("commit", "-q", "-m", name)
+            return self.git("rev-parse", "--short=8", "HEAD")
+
+        one = branch("one")
+        self.git("checkout", "-q", "-b", "other", "main")
+        self.git("merge", "-q", "--no-ff", "-m", "not main", "one")  # a merge on another branch: no count
+        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "STATS.md"), "")
+        self.git("checkout", "-q", "main")
+        base = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("merge", "-q", "--no-ff", "-m", "land one", "one")
+        landed = self.git("show", "HEAD:STATS.md")
+        self.assertIn(f"Counted at the merge of {one} into {base}, over", landed)
+        self.assertEqual(self.git("status", "--porcelain"), "", "the count is in the merge, not left over")
+        two = branch("two")
+        self.git("checkout", "-q", "main")
+        base = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("merge", "-q", "--no-ff", "--no-commit", "two")
+        self.git("commit", "-q", "-m", "land two")  # the --no-commit landing: counted by pre-commit
+        self.assertIn(f"Counted at the merge of {two} into {base}, over", self.git("show", "HEAD:STATS.md"))
+        three = branch("three")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--no-ff", "--no-verify", "-m", "land three", "three")  # as the self loop joins
+        self.assertNotIn(three, self.git("show", "HEAD:STATS.md"))
+
     def test_the_same_tree_gives_the_same_bytes(self):
         self.assertEqual(self.run_stats(), self.run_stats())
 

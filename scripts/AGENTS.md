@@ -37,6 +37,9 @@ including in a commit message, because it is stale by the next departure.
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
 - `stats.py`, `tests/test_stats.py` (issue 45): writes the root's `STATS.md` (lines of code, test code and comment per crate,
   build sizes). Branches never touch STATS.md; a landing recounts it. Sizes only from `--sizes-from`/`--installed`.
+  `stats.py --range <merge>^1..<merge>` prints a landing's change in lines (before -> after), for its note.
+  `hooks/pre-merge-commit`, installed once from the main tree by `stats-hook.sh install` (as `pre-merge-commit` and
+  `pre-commit`), recounts STATS.md inside every merge made onto `main`; the self loop's `--no-verify` join is not one.
 - `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
   `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
   reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either
