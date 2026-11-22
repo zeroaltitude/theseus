@@ -34,19 +34,25 @@ of marker strings.
 **What a SIGKILL leaves.** The first line every run prints (on stderr) is its scratch directory's absolute path:
 
 ```
-view kit: scratch directory /tmp/replay/daemon (holds a store copy while it runs; removed at its end)
+view kit: scratch directory /tmp/replay/daemon (its store copy, state/, is removed at the end of the run; the directory itself stays)
 ```
 
-Killing the kit with SIGKILL (or a crash of the machine) skips its cleanup: that directory stays, and it holds the
-store copy (`state/`); the scratch daemon may still run. The kit has no verb that kills or deletes on its own.
-Remove it by hand:
+At a normal end the kit removes the store copy (`state/`) and leaves the rest of that directory (its config, an
+empty home), which holds nothing of the store. Killing the kit with SIGKILL (or a crash of the machine) skips its
+cleanup: the store copy stays too, and the scratch daemon may still run. The kit has no verb that kills or deletes
+on its own. Remove it by hand:
 
 ```bash
 d=/tmp/replay/daemon                       # the path the run printed, exactly
 pgrep -af -- "$d" || echo "nothing runs on it"
 # if a theseusd is listed with --state-dir "$d/state", stop that one process: kill <its pid>
+# then CONFIRM it has exited before deleting anything: this must print nothing
+pgrep -af -- "$d"
 rm -rf -- "$d"
 ```
+
+A teardown that could not kill or reap its daemon says so as `E_CLEANUP <scratch directory> pid <pid>`: check
+that pid and that directory the same way.
 
 The kit needs Python 3.11 or newer (`tomllib`).
 
