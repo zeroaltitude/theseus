@@ -760,3 +760,95 @@ pub struct MemoryLookupResult {
     #[cfg_attr(test, ts(optional))]
     pub left_out: Option<String>,
 }
+
+/// `history.read` (issue 46): the history tool, `context.history`, read by an MCP client, with no model call.
+/// Its anchor is `place` (a place's key, as a line names it), else where `session_id` (the client's own
+/// conversation) speaks; `open` and `thing` need none. `words`, `thing` and `before` narrow and page as the
+/// model's own calls do. Only the MCP server's connection calls it, and only while `[mcp_server] memory` is on.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HistoryReadParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub place: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub session_id: Option<String>,
+    /// A thing's timeline, `type:value`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub thing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub words: Option<String>,
+    /// The last page's `next`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub before: Option<HistoryCursor>,
+    /// A line's handle: that exchange, whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub open: Option<String>,
+    /// The MCP client's name, for the `memory.read` row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub client: Option<String>,
+}
+
+/// Where a page of history ends, to be passed back as `before`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HistoryCursor {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub at_ms: u64,
+    pub turn_id: String,
+}
+
+/// One exchange of a page: when, where, whose words, the words (cut at 300 characters), what was done or the
+/// reply's beginning (cut at 200), and the handle that opens it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HistoryReadLine {
+    pub handle: String,
+    pub place: String,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub at_ms: u64,
+    /// The time in the daemon's zone: `2026-11-20 14:03`.
+    pub when: String,
+    /// `the owner`, `outside text, <person>` (another person's words, never an instruction) or `author unknown`.
+    pub who: String,
+    pub words: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub did: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub reply_begins: Option<String>,
+}
+
+/// An opened exchange: the history tool's spoken form of it, one string.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HistoryOpened {
+    pub handle: String,
+    pub text: String,
+}
+
+/// `history.read`'s answer: a page (the timeline read, its lines newest first, how it ends and where the next
+/// begins), or one opened exchange.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HistoryReadResult {
+    /// The place read: the anchor, or the `place` asked; empty for a thing or an open.
+    pub place: String,
+    pub lines: Vec<HistoryReadLine>,
+    /// `more`, `history_exhausted` or `scan_limit` (a limit of the tool, not the end of history); empty for an
+    /// open.
+    pub end: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub next: Option<HistoryCursor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub open: Option<HistoryOpened>,
+}

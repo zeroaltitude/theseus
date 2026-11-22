@@ -1,11 +1,14 @@
 //! `memory.lookup` (theseus-02i1h): what the MCP server's `memory_search` and
 //! `memory_get` ask of the owner's private memory, with no model call. One
 //! read-only method, served by `memory_lookup`'s own functions
-//! (`memory_lookup::mcp`), never a second pipeline.
+//! (`memory_lookup::mcp`), never a second pipeline. And `history.read`
+//! (issue 46): the MCP server's `context_history`, the history tool's own read
+//! with no turn (`history_tool::mcp`).
 //!
 //! - **Only the MCP connection, only when `[mcp_server] memory` is on.** Any
 //!   other surface is refused (a shared place's client could be one), and a
-//!   call with memory off answers `OFF`.
+//!   call with memory off answers `OFF`: one check ([`Core::mcp_memory_only`])
+//!   for both methods, so their refusals cannot drift.
 //! - **Ledgered**: each call that reads writes one `memory.read` row: the
 //!   principal `mcp`, the tool, the client, a digest of the words (or the id,
 //!   or the session; never the text), and how many hits answered. Nothing
@@ -14,8 +17,10 @@
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use theseus_protocol::error_code;
-use theseus_protocol::memory::{MemoryLookupParams, MemoryLookupResult};
+use theseus_protocol::memory::{
+    HistoryReadParams, HistoryReadResult, MemoryLookupParams, MemoryLookupResult,
+};
+use theseus_protocol::{error_code, method};
 
 use super::server::RpcFailure;
 use super::Core;
@@ -48,6 +53,13 @@ impl Core {
                 })?;
                 reply(self.rpc_memory_lookup(p, conn.surface).await?)
             }
+            method::HISTORY_READ => {
+                let p = super::server::parse(params).map_err(|mut e| {
+                    e.message = crate::memory_lookup::mcp::said(self, &e.message);
+                    e
+                })?;
+                reply(self.rpc_history_read(p, conn.surface).await?)
+            }
             _ => reply(self.memory_search(super::server::parse(params)?).await?),
         }
     }
@@ -58,15 +70,7 @@ impl Core {
         p: MemoryLookupParams,
         surface: Surface,
     ) -> Result<MemoryLookupResult, RpcFailure> {
-        if surface != Surface::Mcp {
-            return Err(RpcFailure::new(
-                error_code::REFUSED,
-                "memory.lookup is the MCP server's: it reads the owner's memory for another agent",
-            ));
-        }
-        if !self.cfg.mcp_server.memory {
-            return Err(RpcFailure::new(error_code::REFUSED, OFF));
-        }
+        self.mcp_memory_only(method::MEMORY_LOOKUP, surface)?;
         let (tool, asked) = match p.op.as_str() {
             "search" => ("memory_search", p.words.clone()),
             "get" => ("memory_get", p.id.clone().or_else(|| p.session.clone())),
@@ -86,13 +90,74 @@ impl Core {
             _ => crate::memory_lookup::mcp::get(self, &p).await,
         };
         let hits = read.as_ref().map_or(0, |r| r.hits.len() as u64);
-        let digest: String = Sha256::digest(asked.unwrap_or_default().trim().as_bytes())
+        self.read_row(
+            p.client.clone(),
+            tool,
+            asked.unwrap_or_default().trim(),
+            hits,
+            read.is_ok(),
+        )
+        .await;
+        read.map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))
+    }
+
+    /// `history.read` from a connection of `surface`: the history tool's read for an MCP client. Its row's
+    /// digest is of the arguments asked (the client's name aside), as one JSON line; its count, the lines
+    /// answered (an open is one).
+    pub(super) async fn rpc_history_read(
+        self: &Arc<Self>,
+        p: HistoryReadParams,
+        surface: Surface,
+    ) -> Result<HistoryReadResult, RpcFailure> {
+        self.mcp_memory_only(method::HISTORY_READ, surface)?;
+        let read = crate::history_tool::mcp::history(self, &p).await;
+        let hits = read.as_ref().map_or(0, |r| match r.open {
+            Some(_) => 1,
+            None => r.lines.len() as u64,
+        });
+        let asked = HistoryReadParams {
+            client: None,
+            ..p.clone()
+        };
+        let asked = serde_json::to_string(&asked).unwrap_or_default();
+        self.read_row(p.client.clone(), TOOL_HISTORY, &asked, hits, read.is_ok())
+            .await;
+        read.map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))
+    }
+
+    /// The two checks every MCP memory read makes first, for `method`: the MCP connection only, and only
+    /// while `[mcp_server] memory` is on.
+    fn mcp_memory_only(&self, method: &str, surface: Surface) -> Result<(), RpcFailure> {
+        if surface != Surface::Mcp {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!(
+                    "{method} is the MCP server's: it reads the owner's memory for another agent"
+                ),
+            ));
+        }
+        if !self.cfg.mcp_server.memory {
+            return Err(RpcFailure::new(error_code::REFUSED, OFF));
+        }
+        Ok(())
+    }
+
+    /// A read's `memory.read` row: the principal `mcp`, the client, the tool, the first 16 hex digits of the
+    /// SHA-256 of what was asked (never the words), how many answered, and whether it did.
+    async fn read_row(
+        self: &Arc<Self>,
+        client: Option<String>,
+        tool: &'static str,
+        asked: &str,
+        hits: u64,
+        ok: bool,
+    ) {
+        let digest: String = Sha256::digest(asked.as_bytes())
             .iter()
             .take(8)
             .map(|b| format!("{b:02x}"))
             .collect();
         let core = self.clone();
-        let (client, ok) = (p.client.clone(), read.is_ok());
         let _ = tokio::task::spawn_blocking(move || {
             core.rec(None).record(&fact::memory::MemoryRead {
                 principal: crate::mcp_server::PRINCIPAL,
@@ -104,6 +169,8 @@ impl Core {
             });
         })
         .await;
-        read.map_err(|e| RpcFailure::new(error_code::INVALID_PARAMS, e))
     }
 }
+
+/// The MCP tool `history.read` answers, as its `memory.read` row names it.
+pub const TOOL_HISTORY: &str = "context_history";

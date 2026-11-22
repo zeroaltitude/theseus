@@ -27,8 +27,9 @@
 //!   operator, up to the call's wait: then it answers `running` with the
 //!   turn's id, and the turn goes on.
 //! - **Memory** (theseus-02i1h): `memory_search` and `memory_get` are
-//!   `memory.lookup` on the connection, which answers only while
-//!   `[mcp_server] memory` is on; each read is also a `memory.read` row.
+//!   `memory.lookup` on the connection, and `context_history` (issue 46) is
+//!   `history.read`; both answer only while `[mcp_server] memory` is on, and
+//!   each read is also a `memory.read` row.
 //! - **Rows**: `mcp_server.call` per call, `mcp_server.refused` at most once a
 //!   minute per kind, both written off the runtime's workers.
 
@@ -367,6 +368,10 @@ impl server::CoreClient for McpCore {
 
     async fn memory(&self, _caller: Caller, params: Value) -> Result<Value, CoreError> {
         self.call(method::MEMORY_LOOKUP, params).await
+    }
+
+    async fn history(&self, _caller: Caller, params: Value) -> Result<Value, CoreError> {
+        self.call(method::HISTORY_READ, params).await
     }
 
     fn called(&self, r: &CallRecord) {

@@ -40,6 +40,7 @@ use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
 use crate::Core;
 
+pub(crate) mod mcp;
 pub(crate) mod open;
 pub(crate) mod page;
 #[cfg(test)]

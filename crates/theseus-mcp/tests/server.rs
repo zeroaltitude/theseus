@@ -264,7 +264,8 @@ async fn tools_list() {
             "task_list",
             "wake_list",
             "memory_search",
-            "memory_get"
+            "memory_get",
+            "context_history"
         ]
     );
     assert_eq!(
@@ -345,6 +346,45 @@ async fn a_memory_tool_maps_to_the_cores_lookup() {
         rows.iter().map(|r| r.tool.as_str()).collect::<Vec<_>>(),
         ["memory_search", "memory_get", "memory_search"]
     );
+}
+
+/// `context_history` (issue 46) maps to the core's `history.read`: only the keys the tool names pass, with the
+/// client's name; a call the core refuses (no place to read) is an error result the client reads; its ledger
+/// row names its conversation when it passed one.
+#[tokio::test]
+async fn the_history_tool_maps_to_the_cores_history_read() {
+    let core = Arc::new(FakeCore::default());
+    let server = start(&core, |_| {}).await;
+    let client = client(&server).await;
+    let got = tool(
+        &client,
+        "context_history",
+        json!({"session_id": "ses_1", "words": "ferry", "before": {"at_ms": 5, "turn_id": "t"},
+               "stray": 1, "op": "search"}),
+    )
+    .await;
+    assert_eq!(
+        got["params"],
+        json!({"session_id": "ses_1", "words": "ferry", "before": {"at_ms": 5, "turn_id": "t"},
+               "client": "theseus"})
+    );
+    let got = tool(&client, "context_history", json!({"open": "turn_a"})).await;
+    assert_eq!(
+        got["params"],
+        json!({"open": "turn_a", "client": "theseus"})
+    );
+    let r = client
+        .call_tool("context_history", json!({"words": "ferry"}))
+        .await
+        .unwrap();
+    assert!(r.is_error && r.text_for_model().contains("pass place or session_id"));
+    let rows = core.calls();
+    assert_eq!(
+        rows.iter().map(|r| r.tool.as_str()).collect::<Vec<_>>(),
+        ["context_history", "context_history", "context_history"]
+    );
+    assert_eq!(rows[0].session_id.as_deref(), Some("ses_1"));
+    assert_eq!(rows[1].session_id, None);
 }
 
 #[tokio::test]

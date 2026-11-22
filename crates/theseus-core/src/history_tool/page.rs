@@ -420,7 +420,7 @@ pub(super) fn when(ms: u64) -> String {
 }
 
 /// Whose words a line's are: the owner's, another known person's (outside text), or not known.
-pub(crate) fn who(person: Option<&str>) -> String {
+pub(super) fn who(person: Option<&str>) -> String {
     match person {
         Some(OWNER) => "the owner".into(),
         Some(p) => format!("outside text, {}", cut(p, 80)),
