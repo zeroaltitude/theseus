@@ -779,6 +779,8 @@ mod tests_view_hand_backs;
 #[cfg(test)]
 mod tests_view_record;
 #[cfg(test)]
+mod tests_view_resume;
+#[cfg(test)]
 mod tests_view_sources;
 #[cfg(test)]
 mod tests_wait_cost;
