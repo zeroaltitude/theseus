@@ -153,8 +153,8 @@ test('the spans’ answers join: one calendar each, its events once, a failed sp
 })
 
 test('the New task sheet: a sensitive event offers every profile the daemon lists, a cn one cleared included, and promises no origin', () => {
-  // As `profile.list` sends profiles since the daemon's origin rule went (2026-11-21): every one cleared.
-  const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, cleared: true, ...(origin && { origin }) } as ProfileInfo)
+  // As `profile.list` sends profiles since the daemon's origin rule went (2026-11-21): none says whether it is cleared.
+  const p = (name: string, origin?: string): ProfileInfo => ({ name, provider: 'x', model: `${name}-model`, max_output_tokens: 1, has_system: true, live: false, ...(origin && { origin }) } as ProfileInfo)
   const profiles = [p('harbour', 'cn'), p('quay', 'us'), p('dock')]
   const s = profileChoices(profiles, undefined)
   assert.ok(s.choices.every((c) => !c.grey), 'none is greyed by origin')

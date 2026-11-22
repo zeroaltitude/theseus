@@ -15,8 +15,4 @@ previous: string | null,
 /**
  * Why the floor refuses that profile for this session; nothing was written.
  */
-refused?: string, 
-/**
- * What the answer cannot promise: the floor decides each turn.
- */
-note?: string, };
+refused?: string, };

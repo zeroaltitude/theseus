@@ -45,6 +45,24 @@ impl TurnRunner {
         self.prefix_spec(spec, at)
     }
 
+    /// The earlier requests' tails put back on this one (`sent_tail`). What a tail says is said
+    /// to a place, a surface, where the session and the turn's reply speak, and to who is present
+    /// (issue 44, the gate): it is put back on a request for the same, and only while no thread it
+    /// may hold has been sealed since.
+    fn tail_begun(&self, t: &Turn<'_>, compiled: &mut Compiled) -> Option<super::sent_tail::Begun> {
+        let sid = t.tc.session_id;
+        let key = format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}",
+            t.tc.place().class,
+            t.standing.surface,
+            self.outbox.speaks_at(sid).ok().flatten(),
+            t.answer_at,
+            crate::view_gate::presence_key(self, sid)
+        );
+        let now = crate::view_gate::held_threads(self, sid);
+        self.tails.begin(sid, (t.tc.turn_id, &key, now), compiled)
+    }
+
     /// The request's last block, in its order: the task view, the wakes and
     /// routines, the surface's standing records, the persona line, then the
     /// project's slice.
@@ -181,16 +199,7 @@ impl TurnRunner {
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
-        // What a tail says is said to a place, a surface, and where the session and the turn's
-        // reply speak: it is put back on a request for the same.
-        let key = format!(
-            "{:?}|{:?}|{:?}|{:?}",
-            t.tc.place().class,
-            t.standing.surface,
-            self.outbox.speaks_at(sid).ok().flatten(),
-            t.answer_at
-        );
-        t.tail = self.tails.begin(sid, (t.tc.turn_id, &key), &mut compiled);
+        t.tail = self.tail_begun(t, &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)

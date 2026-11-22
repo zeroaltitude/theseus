@@ -50,10 +50,6 @@ pub struct SessionProfileResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub refused: Option<String>,
-    /// What the answer cannot promise: the floor decides each turn.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub note: Option<String>,
 }
 
 /// One session or task held to a profile (`session.profile`, META `session.profile.<id>`).

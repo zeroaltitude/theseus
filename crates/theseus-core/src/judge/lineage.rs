@@ -48,13 +48,7 @@ pub fn key(name: &str) -> String {
 /// step leaves alone (the route pack and rerank.v1, live with their own
 /// rollback rules; the memory pass's two). Only a wired root is a
 /// candidate, so a retired route version needs no line here.
-pub const LEFT_ALONE: [&str; 5] = [
-    "route.v10",
-    "route.v11",
-    "rerank.v1",
-    "memory.v1",
-    "attribution.v1",
-];
+pub const LEFT_ALONE: [&str; 4] = ["route.v11", "rerank.v1", "memory.v1", "attribution.v1"];
 
 /// One learned version, read back.
 #[derive(Debug, Clone)]

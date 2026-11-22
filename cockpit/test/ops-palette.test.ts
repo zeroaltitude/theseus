@@ -8,16 +8,16 @@ import { verbById } from '../src/ops/verbs.ts'
 import { entitiesOf, nextScope, watchEntity, scopeTargets, searchValue, targetOf, verbEntries, type OpsTarget } from '../src/ops/palette.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
-const prof = (name: string, model: string, origin: string): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live: false, origin, cleared: origin === 'us' })
+const prof = (name: string, model: string, origin: string): ProfileInfo => ({ name, provider: 'p', model, max_output_tokens: 1, has_system: false, live: false, origin })
 const cx = { profiles: [prof('quick', 'm-s', 'us'), prof('deep', 'm-b', 'us'), prof('kimi', 'm-cn', 'cn')], prices: new Map([['m-s', { input: 1, output: 5, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 }], ['m-b', { input: 4, output: 20, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 }]]) }
 const t = (id: string, over: Partial<OpsTarget> = {}): OpsTarget => ({ id, kind: 'task', title: id, sessionId: id, profile: 'quick', paused: false, running: true, retired: false, failed: false, ended: false, ...over })
 const by = (es: ReturnType<typeof verbEntries>, id: string) => es.find((e) => e.id === id)!
 
-test('three cards selected: switch to the China-origin model is refused for the two that hold private data, per profile', () => {
+test('three cards selected: switch to the China-origin model takes all three, whatever data they hold, per profile', () => {
   const es = verbEntries([t('a'), t('b', { data: 'private' }), t('c', { data: 'sensitive' })], cx)
   const kimi = by(es, 'model:kimi')
-  assert.equal(kimi.plans.length, 1, 'only the open one may go')
-  assert.match(kimi.detail, /1 hold private data · 1 hold sensitive data/)
+  assert.equal(kimi.plans.length, 3, 'no label keeps a card off a model')
+  assert.doesNotMatch(kimi.detail, /hold/)
   const deep = by(es, 'model:deep')
   assert.equal(deep.plans.length, 3)
   assert.match(deep.detail, /~4× the cost/)
@@ -26,9 +26,9 @@ test('three cards selected: switch to the China-origin model is refused for the 
   assert.ok(by(es, 'model:quick').grey)
 })
 
-test('a sensitive card alone: the China-origin entry is greyed with the reason; a plan is one session.profile', () => {
+test('a sensitive card alone: the China-origin entry is offered; a plan is one session.profile', () => {
   const es = verbEntries([t('c', { data: 'sensitive' })], cx)
-  assert.ok(by(es, 'model:kimi').grey)
+  assert.equal(by(es, 'model:kimi').grey, undefined)
   assert.deepEqual(by(es, 'model:deep').plans[0], { verb: 'model_sticky', key: 'c:model', method: 'session.profile', params: { session_id: 'c', profile: 'deep' } })
 })
 

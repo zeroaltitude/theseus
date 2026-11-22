@@ -11,7 +11,7 @@
 //! keeps them, read beside each file's own (`rules::rules_of`); a rule a
 //! pack's file declares itself wins over the table's of the same kind, so
 //! the table's number is the one for a version whose file names none
-//! (route.v10 names its own 5 pins a day). Each is a day's brake: its
+//! (route.v11 names its own 5 pins a day). Each is a day's brake: its
 //! rollback lapses at the next local midnight.
 
 use theseus_judge::learn::RollbackRule;
@@ -39,13 +39,9 @@ pub struct Adopted {
 /// the owner's word, its rollback rules guarding it. The earlier route versions
 /// (`route.v1` to `route.v8`) were adopted the same way; their rows are in the
 /// store, and the build no longer embeds them (`route.v5` to `route.v8` were
-/// retired in issue 44). `route.v10` stays embedded: the route family's
-/// labelled cases are written for it.
+/// retired in issue 44, `route.v10` in issue 46). A stored adoption of a
+/// retired version is checked by its own file's rules (`rules::rules_of`).
 pub const ADOPTED: &[Adopted] = &[
-    Adopted {
-        pack: "route.v10",
-        why: WHY_ROUTE_V10,
-    },
     Adopted {
         pack: "route.v11",
         why: WHY_ROUTE_V11,
@@ -59,10 +55,6 @@ pub const ADOPTED: &[Adopted] = &[
         why: WHY,
     },
 ];
-
-/// `route.v10`'s adoption row's reason: Jev chooses the model and its effort
-/// (theseus-h66v4).
-pub const WHY_ROUTE_V10: &str = "the owner's decision of 2026-10-29";
 
 /// `route.v11`'s adoption row's reason: route.v10 word for word but the
 /// `fable` option's description, which says Fable 5.2 and its prices

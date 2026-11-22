@@ -50,7 +50,7 @@ fn the_model_file_grades_the_effort_too_and_no_other_pack_may_read_it() {
     let work = by_name("work.v1").unwrap();
     assert!(CaseSet::parse(V10, &work)
         .unwrap_err()
-        .contains("written for route.v10"));
+        .contains("written for route.v11"));
     // The effort bar over 62 within one rung needs 50: the ratio, not a number kept.
     assert_eq!(bar_need(effort.cases.len() as u32), 50);
 }

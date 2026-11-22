@@ -53,7 +53,6 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "attribution.v1",
         include_str!("../packs/attribution.v1.toml"),
     ),
-    ("route.v10", include_str!("../packs/route.v10.toml")),
     ("route.v11", include_str!("../packs/route.v11.toml")),
     ("effort.v1", include_str!("../packs/effort.v1.toml")),
     ("work.v1", include_str!("../packs/work.v1.toml")),
@@ -102,6 +101,7 @@ pub const RETIRED: &[&str] = &[
     "route.v6",
     "route.v7",
     "route.v8",
+    "route.v10",
     "content.v1",
     "content.v2",
     "content.v3",
@@ -183,6 +183,23 @@ count = 3
 rule = "on_path_p95"
 max_ms = 250
 min_samples = 20
+"#,
+    ),
+    (
+        "route.v10",
+        r#"[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+
+[[rollback]]
+rule = "pins_per_day"      # the operator overriding Jev's model often is the clearest signal it chose wrong
+count = 5
 "#,
     ),
     ("content.v1", r#""#),
@@ -297,6 +314,7 @@ pub fn retired(name: &str) -> Option<Arc<Pack>> {
         ("route.v6", include_str!("../packs/retired/route.v6.toml")),
         ("route.v7", include_str!("../packs/retired/route.v7.toml")),
         ("route.v8", include_str!("../packs/retired/route.v8.toml")),
+        ("route.v10", include_str!("../packs/retired/route.v10.toml")),
         (
             "content.v1",
             include_str!("../packs/retired/content.v1.toml"),

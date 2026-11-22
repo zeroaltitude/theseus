@@ -5,7 +5,6 @@
 import type { DataMark, ProfileInfo, TaskRecord } from '@protocol'
 import type { OpsRow } from './board.ts'
 import { verbsFor, type WatchRow } from '../lib/agenda.ts'
-import { greyOf } from './floor.ts'
 import { isRunning } from './state.ts'
 import { costHint } from './menus.ts'
 import type { Price } from '../lib/money.ts'
@@ -104,7 +103,7 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
   const failed = targets.filter((t) => t.failed)
   out.push(entry('retry', 'Retry', failed.filter((t) => t.kind === 'task').map((t) => ({ t, plan: { verb: 'retry', key: `${t.id}:retry`, method: 'task.retry', params: { task: t.id } } })),
     targets.filter((t) => !(t.failed && t.kind === 'task')).map((t) => ({ t, why: 'not failed' }))))
-  // Switch model: one entry per profile, the floor deciding each target.
+  // Switch model: one entry per profile; every session may take any (no label keeps one off a model).
   const sessions = targets.filter((t) => t.sessionId && (t.kind === 'conversation' || t.kind === 'task'))
   const cur = cx.profiles.find((p) => p.name === sessions[0]?.profile)
   for (const p of cx.profiles) {
@@ -113,7 +112,6 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
     for (const t of targets) {
       if (!t.sessionId || (t.kind !== 'conversation' && t.kind !== 'task')) skipped.push({ t, why: 'not a session' })
       else if (t.profile === p.name) skipped.push({ t, why: 'already on it' })
-      else if (greyOf(t.data, p.name, p)) skipped.push({ t, why: `hold ${t.data} data` })
       else takes.push({ t, plan: { verb: 'model_sticky', key: `${t.sessionId}:model`, method: 'session.profile', params: { session_id: t.sessionId, profile: p.name } } })
     }
     const hint = costHint(cx.prices.get(p.model), cx.prices.get(cur?.model ?? ''))

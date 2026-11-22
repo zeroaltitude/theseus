@@ -36,7 +36,7 @@ test('injection is the warning tone, the other three the dimmer one, and they ke
   assert.deepEqual(chips.map((c) => c.flag), ['injection', 'secret', 'confidential', 'personal'])
   assert.deepEqual(chips.map((c) => c.tone), ['wait', 'idle', 'idle', 'idle'])
   assert.equal(toneOf('a_new_flag'), 'idle')
-  assert.match(chips[1].title, /off China-origin models/)
+  assert.match(chips[1].title, /marks the session private/)
 })
 
 test('a flag the table lacks still draws a chip, with no claim about its effect', () => {
@@ -52,7 +52,7 @@ test('Remove calls content.unlabel with the session and the flag, and asks first
   assert.equal(c.ask, askOf('injection', 'ses_tides'))
   assert.match(c.ask, /Remove the injection label from ses_tides\?/)
   assert.match(c.ask, /stay in the ledger/)
-  assert.match(unlabelCall('ses_tides', 'personal').ask, /off China-origin models/)
+  assert.match(unlabelCall('ses_tides', 'personal').ask, /marks the session sensitive/)
 })
 
 // The whole rendered question, by equality, for the flag whose effect is a sentence of its own and for one whose effect is
@@ -71,14 +71,14 @@ test('Remove asks the whole question: what the label does, what removing it give
   assert.ok(!askOf('injection', 'ses_tides').includes('removing it lifts that'))
   assert.equal(
     askOf('secret', 'ses_tides'),
-    'Remove the secret label from ses_tides? It keeps the session off China-origin models. Removing it lifts that. ' +
+    'Remove the secret label from ses_tides? It marks the session private. Removing it lifts that. ' +
       'The label and its removal stay in the ledger.',
   )
-  // `confidential` and `personal` are the same restraint and must still read as one liftable clause.
-  for (const f of ['confidential', 'personal'])
+  // `confidential` is the same mark as `secret`, and `personal` the stronger one; each still reads as one liftable clause.
+  for (const [f, m] of [['confidential', 'private'], ['personal', 'sensitive, so none of it is published to a shared place']])
     assert.equal(
       askOf(f, 'ses_a1'),
-      `Remove the ${f} label from ses_a1? It keeps the session off China-origin models. Removing it lifts that. ` +
+      `Remove the ${f} label from ses_a1? It marks the session ${m}. Removing it lifts that. ` +
         'The label and its removal stay in the ledger.',
     )
   // A flag the tables lack claims nothing about its effect or its removal.
@@ -149,7 +149,7 @@ test('the footer’s address names a session and a flag, and plans the removal w
       'Removing it takes the warning off the session, and gives up that refusal where `refuse` is set.',
   )
   const secret = unlabelRoute('ses_a1', 'secret')
-  assert.equal(secret.ok && secret.says, 'It keeps the session off China-origin models. Removing it lifts that.')
+  assert.equal(secret.ok && secret.says, 'It marks the session private. Removing it lifts that.')
 })
 
 test('the removal page prints the route’s sentences and writes no template of its own', () => {
