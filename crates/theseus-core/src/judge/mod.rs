@@ -133,6 +133,9 @@ pub const WIRED: &[(&str, PackMode)] = &[
     // word, 2026-11-12, "i would like it wired and switched on". `[judge]
     // reversibility = false` lowers it to shadow without a build.
     (undo::PACK_NAME, PackMode::Live),
+    // The release card's trigger (issue 44, step 3b): a new acting question
+    // starts in shadow and is promoted on the ladder.
+    (leans_on::PACK, PackMode::Shadow),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).

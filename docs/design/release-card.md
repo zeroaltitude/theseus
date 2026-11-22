@@ -27,8 +27,8 @@ A new pack of its own, not a version of an existing one (`crates/theseus-judge/p
 - **Off the turn's path.** It returns at once; the session's read, the state, its blob, the shadow budget's
   reservation and the call are a spawned task's, as `memory.v1`'s are. A slow, failing or absent judge changes no
   turn. Its row is `judge.call`, scoped `judge:leans_on`.
-- **In shadow.** It is not in `judge::WIRED`, so its ladder line is shadow (`wired_mode`'s default): the design's §6
-  says a new acting question is promoted the way the build already requires (a frozen holdout of 200 labelled
+- **In shadow.** `judge::WIRED` names it at `Shadow`, so its ladder line is shadow (and every test rig that
+  switches off the wired packs but its own switches it off too): the design's §6 says a new acting question is promoted the way the build already requires (a frozen holdout of 200 labelled
   judgments, or the owner's forced promotion). Nothing acts on its answer: the company turn is the same turn,
   byte for byte, whatever it says. `[judge.packs."leans_on.v1"] rung = "off"` switches it off.
 - **Labelled cases**: `packs/leans_on.v1.cases.toml`, sixteen invented, with the traps (a reference satisfied in the

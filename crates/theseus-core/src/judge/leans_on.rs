@@ -13,8 +13,8 @@
 //! - **Off the turn's path, in shadow.** [`JudgeService::at_leans_on`] returns
 //!   at once; the session's read, the state, its blob, the reservation from
 //!   the shadow budget, the call and the record are the spawned task's, as
-//!   `memory.v1`'s are. Nothing acts on the answer: the pack is not in
-//!   `WIRED`, so its line is shadow until the owner promotes it
+//!   `memory.v1`'s are. Nothing acts on the answer: `WIRED` puts the pack
+//!   in shadow, a new acting question's line, until the owner promotes it
 //!   (`theseus packs promote leans_on.v1 --live`), and the company turn is the same
 //!   turn, byte for byte, whatever it answers. Its row is the sink's
 //!   `judge.call`, scoped `judge:leans_on`.
