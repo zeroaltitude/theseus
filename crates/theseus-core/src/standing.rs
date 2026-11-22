@@ -21,8 +21,8 @@
 //!   here:", after the cached prefix (`Block::here`), on turns whose input
 //!   came through that surface (`TurnRequest.surface`). The same privacy
 //!   rule and the same refusal hold there (`missing_here`).
-//! - **Privacy**: a shared place gets the orders of its scope with their text,
-//!   and for the preferences and facts only a line saying they are withheld.
+//! - **Every place gets every record** (anything goes, 2026-11-22): a shared place's preferences and facts
+//!   are no longer withheld.
 //! - **Refused if dropped**: the situation check (`missing`) fails a compile
 //!   whose system lacks a record of the turn's scope it should show.
 //!   Tests: `tests_standing.rs`.
@@ -151,8 +151,8 @@ pub struct Block {
     /// The session's own part: this session's, this place's and this persona's records.
     pub local: String,
     pub used: Vec<StandingUsed>,
-    /// The line a shared place's block carries for the private ones it
-    /// withholds; the check wants it when any were.
+    /// Whether the block withheld any record and carries the line saying so: never since 2026-11-22
+    /// (anything goes); the check still reads it.
     pub withheld: bool,
 }
 
@@ -223,7 +223,7 @@ impl Block {
     fn render(
         all: &[StandingRecord],
         scope: Scope<'_>,
-        class: PlaceClass,
+        _class: PlaceClass,
         now_ms: u64,
         here: bool,
         held: &HashSet<String>,
@@ -237,7 +237,6 @@ impl Block {
         if in_scope.is_empty() {
             return None;
         }
-        let shared = class == PlaceClass::Shared;
         // The tail's block is one; the header's records for everywhere are the
         // header layer's, a session's and a place's the session's own
         // (`local`, theseus-rr15): in the header they would make two sessions'
@@ -249,15 +248,12 @@ impl Block {
                 .partition(|r| r.scope == StandingScope::Everywhere),
         };
         let mut used = Vec::new();
-        let mut withheld = false;
         let mut part = |records: &[&StandingRecord], head: &str| {
             if records.is_empty() {
                 return String::new();
             }
             let head = format!("{head} {FRAMING}");
-            let (text, w) = render(records, &head, shared, held, &mut used);
-            withheld |= w;
-            text
+            render(records, &head, held, &mut used)
         };
         let text = part(&everywhere, if here { HERE } else { HEAD });
         let local = part(&own, LOCAL_HEAD);
@@ -265,7 +261,7 @@ impl Block {
             text,
             local,
             used,
-            withheld,
+            withheld: false,
         })
     }
 
@@ -307,19 +303,16 @@ impl Block {
     }
 }
 
-/// The lines of `records` under `head`, each kind under its title; a shared
-/// place's preferences and facts are one line saying they are withheld. A
-/// record in `held` is listed unshown and its text never written; a block of
-/// nothing but held records is no text.
+/// The lines of `records` under `head`, each kind under its title, in every place (anything goes,
+/// 2026-11-22: a shared place's preferences and facts are no longer withheld). A record in `held` is
+/// listed unshown and its text never written; a block of nothing but held records is no text.
 fn render(
     records: &[&StandingRecord],
     head: &str,
-    shared: bool,
     held: &HashSet<String>,
     used: &mut Vec<StandingUsed>,
-) -> (String, bool) {
+) -> String {
     let mut text = String::from(head);
-    let mut withheld = false;
     for (kind, title) in [
         (StandingKind::Order, "Orders"),
         (StandingKind::Preference, "Preferences"),
@@ -329,15 +322,10 @@ fn render(
         if of_kind.is_empty() {
             continue;
         }
-        let hidden = shared && kind != StandingKind::Order;
         used.extend(of_kind.iter().map(|r| StandingUsed {
             id: r.id.clone(),
-            shown: !hidden && !held.contains(&r.id),
+            shown: !held.contains(&r.id),
         }));
-        if hidden {
-            withheld = true;
-            continue;
-        }
         let of_kind: Vec<_> = of_kind
             .into_iter()
             .filter(|r| !held.contains(&r.id))
@@ -350,13 +338,10 @@ fn render(
             text.push_str(&format!("\n- {}: {}", r.id, one_line(&r.text)));
         }
     }
-    if withheld {
-        text.push_str(&format!("\n{WITHHELD}"));
-    }
     if text == head {
         text.clear();
     }
-    (text, withheld)
+    text
 }
 
 /// A text on one line: a record is a line of the block, so a newline in its
@@ -652,21 +637,6 @@ mod tests {
         assert!(!b.text.contains("std_x") && !b.withheld);
         assert!(b.used.iter().all(|u| u.shown) && b.used.len() == 3);
 
-        let b = Block::of(&all, scope, PlaceClass::Shared, 100).unwrap();
-        assert!(b.text.contains("- std_a: never push to main"), "{}", b.text);
-        assert!(b.text.ends_with(WITHHELD), "{}", b.text);
-        for hidden in ["short", "garden", "std_p", "std_f"] {
-            let all = format!("{}\n{}", b.text, b.local);
-            assert!(!all.contains(hidden), "{hidden} leaked: {all}");
-        }
-        assert_eq!(
-            b.used
-                .iter()
-                .map(|u| (u.id.as_str(), u.shown))
-                .collect::<Vec<_>>(),
-            // The header's records first, then the session's own (theseus-rr15).
-            [("std_a", true), ("std_f", false), ("std_p", false)]
-        );
         assert!(Block::of(
             &all,
             Scope {

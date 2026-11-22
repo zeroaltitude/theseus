@@ -68,6 +68,7 @@ pub mod harness;
 pub mod history_tool;
 pub mod import;
 pub mod initiative;
+pub mod item_labels;
 pub(crate) mod job_model;
 pub mod jobs_left;
 pub mod judge;
@@ -164,15 +165,11 @@ pub mod telemetry;
 pub mod tender;
 pub mod term;
 pub mod thread_context;
-pub mod thread_flow;
-pub mod thread_grow;
 pub mod thread_join;
 pub mod thread_link_seen;
 pub mod thread_read;
 pub mod thread_recall;
-pub mod thread_route;
 pub mod thread_split;
-pub mod thread_title;
 pub mod threads;
 pub mod tighten;
 pub mod tool_set;
@@ -393,8 +390,6 @@ mod tests_harness;
 #[cfg(test)]
 mod tests_hold_compile;
 #[cfg(test)]
-mod tests_home_size;
-#[cfg(test)]
 mod tests_horizon;
 #[cfg(test)]
 mod tests_inbound;
@@ -402,6 +397,8 @@ mod tests_inbound;
 mod tests_initiative;
 #[cfg(test)]
 mod tests_injection_tiers;
+#[cfg(test)]
+mod tests_item_labels;
 #[cfg(test)]
 mod tests_job_ask;
 #[cfg(test)]
@@ -470,6 +467,8 @@ mod tests_notices;
 mod tests_observability;
 #[cfg(test)]
 mod tests_offer;
+#[cfg(test)]
+mod tests_old_store;
 #[cfg(test)]
 mod tests_one_turn;
 #[cfg(test)]
@@ -620,8 +619,6 @@ mod tests_route_defer;
 mod tests_route_effort;
 #[cfg(test)]
 mod tests_route_family;
-#[cfg(test)]
-mod tests_route_keep;
 #[cfg(test)]
 mod tests_route_late;
 #[cfg(test)]

@@ -366,7 +366,9 @@ fn recall_detail(n: &Node) -> Value {
         .iter()
         .map(|r| {
             json!({"node_id": r.node_id, "session_id": r.session_id, "position": r.position,
-                   "chunk": [r.chunk.0, r.chunk.1], "header": r.header, "tokens": r.tokens})
+                   "chunk": [r.chunk.0, r.chunk.1],
+                   "header": crate::recall::evidence::untitled(&r.header, &r.session_id),
+                   "tokens": r.tokens})
         })
         .collect();
     json!({"recall_id": recall_id, "arm": arm, "items": items})

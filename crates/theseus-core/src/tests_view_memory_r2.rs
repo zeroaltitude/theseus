@@ -188,21 +188,22 @@ async fn a_listing_three_back() -> (crate::tests_places::Rig, String, String, St
 }
 
 /// The listing's exchange, third newest and laid with its tool results whole (ample room), and its result
-/// recalled too: the result is in the request once.
+/// recalled too: the result is in the request twice, the window's and slot H's. A result is never counted as
+/// carried (clearing could make the window's a receipt after the set-aside); twice is acceptable, zero is not.
 #[tokio::test]
-async fn a_floor_exchanges_result_laid_whole_and_recalled_is_laid_once() {
+async fn a_floor_exchanges_result_laid_whole_and_recalled_is_never_lost() {
     let (r, old, _, _) = a_listing_three_back().await;
     let c = &r.core;
     c.runner.memory.set_ask(index_of(c, vec![old]));
     let new = session_in(c, None, &r.root);
     turn(c, &new, ASKED).await;
     let sent = texts(&last_call(&r));
-    assert_eq!(sent.matches(LISTED).count(), 1, "{sent}");
+    assert_eq!(sent.matches(LISTED).count(), 2, "{sent}");
 }
 
-/// Slot H's backstop over the exchanges as laid, read from the store: the listing's exchange laid spoken
-/// (its result's body cut to a receipt) does not cover the recalled result, which stays; laid whole, it
-/// does, and the recalled result is set aside as in the window, not counted as left out.
+/// Slot H's backstop over the exchanges as laid, read from the store: the listing's exchange, laid spoken (its
+/// result's body cut to a receipt) or whole, never covers the recalled result, which stays in slot H; nothing
+/// is set aside and nothing is counted as left out.
 #[tokio::test]
 async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
     let (r, old, listed, result) = a_listing_three_back().await;
@@ -255,7 +256,7 @@ async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
         sessions: None,
         zone: &crate::recall::stamp::system,
     };
-    for (form, kept) in [(Form::Spoken, true), (Form::Whole, false)] {
+    for (form, kept) in [(Form::Spoken, true), (Form::Whole, true)] {
         let laid = piece(
             Space::Exchanges {
                 place: place.clone(),
@@ -464,20 +465,56 @@ async fn a_clear_reply_of_an_exchange_the_window_withholds_is_laid_in_slot_h() {
     turn(c, &old, ASK).await;
     move_into_kelp(c, "7741");
     c.runner.memory.set_ask(index_of(c, vec![old]));
+    let before = r.requests().len();
     let new = session_in(c, None, &r.root);
     turn(c, &new, ASKED).await;
-    let q = last_call(&r);
-    let sent = texts(&q);
+    let sent = texts(&last_call(&r));
     assert_eq!(sent.matches(REPLY).count(), 1, "{sent}");
-    // The moved message is laid as no passage and no turn. Recall's own item header still names the
-    // reply's session by a title made of that message (`recall::evidence`): reported, not this lane's.
-    let passage = format!("\n    \"{ASK}\"");
-    for (role, text) in blocks_with(&q, ASK) {
+    // No request of the turn holds the moved message's words anywhere: not as a passage, not as a turn,
+    // and not in a recalled item's header, which names its session by id, place and time, never by a
+    // title made of its first message (issue 44).
+    let turns = &r.requests()[before..];
+    assert!(!turns.is_empty());
+    for q in turns {
+        let all = serde_json::to_string(q).unwrap();
         assert!(
-            role == "user" && !text.contains(&passage) && text != ASK,
-            "{text}"
+            !all.contains("7741") && !all.contains("embargoed figure"),
+            "{all}"
         );
     }
+}
+
+/// A plain recalled item still names its session in its header: its id and when it was said; and no
+/// title, though its session has one.
+#[tokio::test]
+async fn a_recalled_items_header_names_its_session_by_id_place_and_time() {
+    const SAID: &str = "the Hollowmere orchard gate code is kept in the blue tin";
+    const TITLE: &str = "Kestrel tin ledger";
+    let (r, _) = owners_rig(view);
+    let c = &r.core;
+    let notes = crate::tests_places::session(c, None);
+    let n = crate::node::Node::user(&notes, None, "test", SAID);
+    c.store.append(&[n.record().unwrap()]).unwrap();
+    let mut rec = (c.store.get_session::<crate::session::SessionRecord>(&notes))
+        .unwrap()
+        .unwrap();
+    rec.title = Some(TITLE.into());
+    c.store.put_session(&notes, &rec).unwrap();
+    c.runner.memory.set_ask(index_of(c, vec![notes.clone()]));
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, ASKED).await;
+    let q = last_call(&r);
+    let held = blocks_with(&q, SAID);
+    let (_, text) = held.first().expect("recalled");
+    let short = crate::recall::evidence::short(&notes);
+    let line = (text.lines())
+        .find(|l| l.contains(&format!("session {short}")))
+        .unwrap_or_else(|| panic!("the header names its session: {text}"));
+    assert!(
+        line.contains(" in ") && line.contains("said "),
+        "place and time: {line}"
+    );
+    assert!(!texts(&q).contains(TITLE), "no title anywhere: {line}");
 }
 
 /// A recalled message moved into a sealed thread is not laid; moved between two calls of one turn, it is

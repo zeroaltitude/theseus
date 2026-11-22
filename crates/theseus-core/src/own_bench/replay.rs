@@ -9,10 +9,8 @@
 //! directory (`whole/`); the first request, its price and its judgment are
 //! the same.
 //!
-//! A replay never leaves what a turn's place allows: a shared place's turn is
-//! refused, and so is one that would send a sealed thread's, a veiled
-//! recall's or an attachment's bytes to a provider other than the original's
-//! (`crossing`).
+//! A shared place's turn is refused. Anything goes (2026-11-22): any other
+//! turn is replayed on any provider's model, with no rule for what crosses.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,7 +23,6 @@ use theseus_protocol::own_bench::{ReplayVerdict, TurnReplayParams, TurnReplayRes
 use super::rebuild::{Original, Said};
 use super::{parse_effort, BY_OWNER, REPLAY_MAX_TOKENS};
 use crate::fact::own_bench::TurnReplayed;
-use crate::node::Body;
 use crate::places::PlaceClass;
 use crate::rpc::Core;
 
@@ -51,19 +48,6 @@ impl std::fmt::Display for CapReached {
 }
 
 impl std::error::Error for CapReached {}
-
-/// A replay refused because it would send what a place or a label keeps to a
-/// provider other than the original's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Crossing(pub String);
-
-impl std::fmt::Display for Crossing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for Crossing {}
 
 /// A replay done: the result, and what it cost in micros, for the sampler's
 /// books.
@@ -103,24 +87,6 @@ fn from_effort(original: &Original) -> String {
         .unwrap_or_default()
 }
 
-/// Whether a request's messages carry a file: an image or a document block,
-/// at any depth (a tool result's too).
-pub fn carries_attachment(v: &Value) -> bool {
-    match v {
-        Value::Object(m) => {
-            matches!(
-                m.get("type").and_then(Value::as_str),
-                Some("image" | "document")
-            ) || m.values().any(carries_attachment)
-        }
-        Value::Array(a) => a.iter().any(carries_attachment),
-        _ => false,
-    }
-}
-
-/// Why a turn built from a view is not replayed to another provider: no rule for what may cross held.
-pub const VIEW_HOME: &str = "a turn built from a view is replayed only with its own provider";
-
 impl Core {
     /// `turn.replay`: the owner's run, from a private place.
     pub async fn turn_replay(
@@ -141,55 +107,6 @@ impl Core {
             .replay_turn(&p, BY_OWNER, None, &mut spent)
             .await?
             .result)
-    }
-
-    /// Why replaying `original` on a provider other than its own would send
-    /// what must not leave it, or `None`. How it is checked: the turn's
-    /// session in a sealed thread; a recall in front of the model whose
-    /// source session is an imported episode labelled `personal` or
-    /// `partner-confidential`; any image or document block in the rebuilt
-    /// messages. The same provider as the original's sends nothing new.
-    pub(crate) fn crossing(&self, original: &Original, to_provider: &str) -> Option<String> {
-        if original.compilation.manifest.provider == to_provider {
-            return None;
-        }
-        let sid = original.session.session_id.as_str();
-        if self
-            .threads()
-            .of_session(sid)
-            .is_some_and(|t| t.sealed.is_some())
-        {
-            return Some("its thread is sealed".into());
-        }
-        for (_, n) in &original.nodes {
-            let Body::Recall { items, .. } = &n.body else {
-                continue;
-            };
-            for it in items {
-                let imported = self
-                    .store
-                    .get_session::<crate::session::SessionRecord>(&it.session_id)
-                    .ok()
-                    .flatten()
-                    .and_then(|r| r.imported);
-                if let Some(i) = imported {
-                    if crate::memory_lookup::VEILED.contains(&i.labels.sensitivity.as_str()) {
-                        return Some(format!(
-                            "its recall carries a {} source",
-                            i.labels.sensitivity
-                        ));
-                    }
-                }
-            }
-        }
-        if original.request.messages.iter().any(carries_attachment) {
-            return Some("its request carries an attachment".into());
-        }
-        // A turn built from a view goes to no other provider (after the above, which keep their words).
-        if original.view.is_some() {
-            return Some(VIEW_HOME.into());
-        }
-        None
     }
 
     /// One turn's first loop replayed on `p.profile`, judged, and written as
@@ -245,14 +162,6 @@ impl Core {
         let original = tokio::task::spawn_blocking(move || me.rebuild_first(&session, &turn))
             .await
             .context("the rebuild did not finish")??;
-        if let Some(why) = self.crossing(&original, &target.provider) {
-            return Err(Crossing(format!(
-                "not replayed on {} ({}): {why}, and replaying would send it to a provider \
-                 other than the original's ({})",
-                target.profile, target.provider, original.compilation.manifest.provider
-            ))
-            .into());
-        }
         let provider = self
             .runner
             .providers

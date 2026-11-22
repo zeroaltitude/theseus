@@ -36,14 +36,15 @@ pub struct Recalled {
     pub turn: Option<String>,
 }
 
-/// Whether an exchange laid in `form` carries node `kind` with its words (issue 44): laid whole, every node;
-/// spoken, the person's messages and Theseus's replies, never a tool's result (its one-line receipt is not
-/// the passage); as a line, none. The one rule of coverage: recall's exclusion on a view turn
-/// (`turn::view_step::recall`) and slot H's backstop (`budget::set_aside`) both count by it.
+/// Whether an exchange laid in `form` carries node `kind` with its words (issue 44): laid whole or spoken,
+/// what was said (the person's messages and Theseus's replies); as a line, none. A tool's result is never
+/// counted as carried, in any form: clearing can turn a whole exchange's result into a receipt after slot H
+/// set its copy aside, and the recalled result would then reach the model zero times. Twice is acceptable;
+/// zero is not. The one rule of coverage: recall's exclusion on a view turn (`turn::view_step::recall`) and
+/// slot H's backstop (`budget::set_aside`) both count by it.
 pub fn carries(form: Form, kind: Kind) -> bool {
     match form {
-        Form::Whole => kind != Kind::Recall,
-        Form::Spoken => matches!(kind, Kind::UserMessage | Kind::AssistantMessage),
+        Form::Whole | Form::Spoken => matches!(kind, Kind::UserMessage | Kind::AssistantMessage),
         Form::Line => false,
     }
 }
@@ -215,16 +216,20 @@ mod tests {
 mod tests_window {
     use super::*;
 
-    /// Whole carries every node but a note; spoken, the words alone, never a tool's result; a line, none.
+    /// Whole and spoken carry what was said, never a tool's result or a note; a line, none.
     #[test]
-    fn coverage_counts_a_result_only_where_it_is_laid_whole() {
-        assert!(carries(Form::Whole, Kind::ToolResult));
+    fn coverage_never_counts_a_tool_result() {
+        assert!(carries(Form::Whole, Kind::AssistantMessage));
         assert!(!carries(Form::Whole, Kind::Recall));
         assert!(carries(Form::Spoken, Kind::UserMessage));
         assert!(carries(Form::Spoken, Kind::AssistantMessage));
         assert!(!carries(Form::Spoken, Kind::ToolResult));
         assert!(!carries(Form::Spoken, Kind::ToolCall));
         assert!(!carries(Form::Line, Kind::UserMessage));
+        assert!(
+            !carries(Form::Whole, Kind::ToolResult),
+            "a result is never carried"
+        );
     }
 }
 

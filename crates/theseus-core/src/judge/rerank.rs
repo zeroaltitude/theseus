@@ -9,8 +9,8 @@
 //!   the turn's trace, and spawns the rest: the state, its blob, the
 //!   reservation, the call, the reorder, and the record. A slow, failing, or
 //!   rate-limited Jev changes no turn's request bytes, duration, or frames.
-//! - **Only what passed the filters reaches Jev** (the place rule first:
-//!   `theseus_memory::rerank::eligible`), and the builder scrubs the state
+//! - **Only what passed the filters reaches Jev**
+//!   (`theseus_memory::rerank::eligible`), and the builder scrubs the state
 //!   as it scrubs every state.
 //! - **Its own deadline.** The call goes as a live one would, under
 //!   [`DEADLINE`] (600 ms): any failure (a timeout, the breaker open, no key,
@@ -36,7 +36,7 @@ use theseus_judge::builders::{RerankInput, RerankNote, RERANK_NOTES};
 use theseus_judge::{
     Ask, DecisionPoint, Input, Judge, Judgment, JudgmentSink, Mode, Outcome, Pack, Urgency,
 };
-use theseus_memory::recall::{Asker, Candidate, Link, Params, Place};
+use theseus_memory::recall::{Asker, Candidate, Link, Params};
 use theseus_memory::rerank::{eligible, reorder, repack};
 use theseus_memory::MemoryScience;
 use theseus_protocol::memory::RecallRerank;
@@ -75,7 +75,6 @@ pub struct Recalled {
     /// The recall's query: the new message, and the start of the reply
     /// before it.
     pub message: String,
-    pub place: Place,
     pub in_context: BTreeSet<String>,
     /// The nodes the operator labeled wrong or stale (30b): as the
     /// recall's pipeline, the rerank drops them.
@@ -88,9 +87,6 @@ pub struct Recalled {
     /// The turn's arm's science (`Memory::science_for`): the repack ranks as
     /// the recall did.
     pub science: Arc<dyn MemoryScience>,
-    /// What the threads do to the recall (theseus-f2g0): the rerank holds the
-    /// seal and the distance as the pipeline did.
-    pub threads: Option<theseus_memory::ThreadLens>,
     /// What the fused pack admitted, by key (`<node>#<chunk>`).
     pub admitted: Vec<String>,
     pub now_ms: u64,
@@ -100,12 +96,10 @@ impl Recalled {
     fn asker(&self) -> Asker<'_> {
         Asker {
             session_id: &self.session_id,
-            place: &self.place,
             in_context: &self.in_context,
             labeled: &self.labeled,
             links: &self.links,
             now_ms: self.now_ms,
-            threads: self.threads.as_ref(),
         }
     }
 }
@@ -221,8 +215,8 @@ impl JudgeService {
     }
 
     /// The pack and the recall's eligible notes, when it is in the pack's
-    /// sample and any passed the filters (the place rule first, and the
-    /// owner's labels: only they may reach Jev).
+    /// sample and any passed the filters (the owner's labels among them:
+    /// only they may reach Jev).
     fn rerank_eligible(&self, r: &Recalled) -> Option<(Arc<Pack>, Vec<Candidate>)> {
         let pack = theseus_judge::pack::by_name(RERANK_PACK)?;
         if !sampled(&r.recall_id, self.cfg.sample_of(RERANK_PACK, pack.sample)) {

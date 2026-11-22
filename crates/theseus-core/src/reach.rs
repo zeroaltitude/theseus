@@ -159,6 +159,7 @@ pub fn reach(
         forks,
         totals,
         partial,
+        labels: None,
     }))
 }
 

@@ -31,7 +31,9 @@ pub fn author_of(kind: ItemKind) -> &'static str {
         | ItemKind::FetchedPage
         | ItemKind::SearchResult
         | ItemKind::TaskBrief
-        | ItemKind::TaskReport => "tool",
+        | ItemKind::TaskReport
+        // Theseus's own words, as a task's report is: the pack's three authors have no other for them.
+        | ItemKind::Reply => "tool",
     }
 }
 

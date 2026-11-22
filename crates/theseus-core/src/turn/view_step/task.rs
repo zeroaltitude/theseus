@@ -51,14 +51,23 @@ pub(super) fn brief_of(
 }
 
 /// The opening a view anchored at a task's place lays at the head of its window: the task's session's
-/// opening; none for a view anchored anywhere else, or a task with no session.
-pub(super) fn window_head(store: &Store, pov: &PointOfView) -> anyhow::Result<Transcript> {
+/// opening; none for a view anchored anywhere else, or a task with no session. The asking session `sid`
+/// is read first: a task's own turn lays its own opening whether or not the task graph holds a record of
+/// it (a routine's run, a project's weekly review: their runs are tasks with no task record).
+pub(super) fn window_head(
+    store: &Store,
+    sid: &str,
+    pov: &PointOfView,
+) -> anyhow::Result<Transcript> {
     let Anchor::Place(place) = &pov.anchor else {
         return Ok(Vec::new());
     };
     let Some(id) = crate::task_graph::place::task_of(place) else {
         return Ok(Vec::new());
     };
+    if crate::task_graph::place::of_task_session(store, sid).as_deref() == Some(place.as_str()) {
+        return Ok(opening(&store.transcript(sid)?));
+    }
     let session = crate::task_graph::get(store, id)?.and_then(|r| r.session);
     match session {
         Some(s) => Ok(opening(&store.transcript(&s)?)),

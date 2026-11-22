@@ -6,6 +6,13 @@ record. It has no dependencies.
 Key modules: `science.rs`, `recall.rs`, `rerank.rs`. Read
 by: theseus-core (`recall.rs`, the turn's recall step, `memory.search`, and the judge's rerank).
 
+> **Anything goes, since 2026-11-22.** Nothing is withheld from a model request because of who is present,
+> where it is, a seal, a veil or a move, and threads are not containers: no message is sent to a thread's
+> own session, and `thread list` / `thread show` are the only thread commands. Where a paragraph below
+> describes the gate's presence rules, seals, moves, the release card or thread commands as living, it is
+> the record of what was; old records still decode. Authority (whose words a piece is) and the act gates
+> (approvals, a place's tool ceiling, publishing into a shared place) are unchanged.
+
 ## What's here
 
 - `science.rs` (step 30a): the `MemoryScience` trait (design §2.3: `gate`, `decay_sweep`, `rank`, with `id` and

@@ -1,9 +1,8 @@
 //! A generic folder name names no thread (theseus-2uhsy; the owner, 2026-11-07:
 //! option (b)). A working set keeps the folders a thread's turns touched as its
-//! `roots`, and three readers take a root for a name: the router's entity hits
-//! (`thread_route::entity_hits`), the recall lens's naming waiver
-//! (`thread_recall::named`), and the growth that puts one there
-//! (`thread_grow::touched_in`). A folder every stream writes to (`notes`) made
+//! `roots`, and the recall lens's naming waiver (`thread_recall::named`) takes a
+//! root for a name. (The router's entity hits and the growth that put roots
+//! there went with threads, 2026-11-22.) A folder every stream writes to (`notes`) made
 //! one thread's notes cross into every other thread, because any message that
 //! said "notes" named it. A generic folder is the one a person types when they
 //! have not decided, so it is no name.
@@ -15,19 +14,22 @@
 //! - **layout** (`theseus_judge::mine::is_layout_dir`): `src`, `docs`, `tmp`,
 //!   `workspace` and the rest of what the judge's name mining already skips in
 //!   a path;
-//! - **a generic word** of the router (`thread_route::GENERIC`): `main`,
-//!   `test`, `core` and the like, which it already ignores for every other
-//!   kind of entity.
+//! - **a generic word** ([`GENERIC`], the router's list until it went):
+//!   `main`, `test`, `core` and the like.
 //!
 //! A root that is generic is not added to a set, and one a set already holds
 //! (an older thread's) is read as no name, so no stored thread needs mending.
 //! A thread left with no roots is scored as before. The test below walks every
-//! entry through all three readers, so a list and a reader that drift apart
-//! fail naming this file.
+//! entry through the reader, so a list and a reader that drift apart fail
+//! naming this file.
 
 use theseus_judge::mine::is_layout_dir;
 
-use crate::thread_route::GENERIC;
+/// Words too generic to name a thread's work.
+pub(crate) const GENERIC: &[&str] = &[
+    "main", "master", "develop", "dev", "src", "lib", "test", "tests", "docs", "doc", "home",
+    "tmp", "bin", "app", "api", "web", "core", "build", "target", "node", "git", "the", "and",
+];
 
 /// The placeholder names: what someone types for a folder when they have not
 /// decided what it is. The owner's three first (`notes`, `misc`, `stuff`).
@@ -67,11 +69,8 @@ pub fn is_generic_folder(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::thread_grow::touched_in;
     use crate::thread_recall::named;
-    use crate::thread_route::entity_hits;
     use crate::threads::Board;
-    use std::path::Path;
     use theseus_protocol::threads::{ThreadInfo, ThreadState, WorkingSet};
 
     const FILE: &str = "crates/theseus-core/src/generic_folder.rs";
@@ -102,48 +101,22 @@ mod tests {
         }
     }
 
-    /// What each reader makes of a root named `name`: grown from a touched
-    /// file, taken by the router's entity hits, taken by recall's waiver.
-    fn takes(name: &str) -> [bool; 3] {
-        let calls = WorkingSet {
-            files: vec![format!("/work/proj/{name}/a.md")],
-            ..Default::default()
-        };
-        let grown = !touched_in(&calls, Path::new("/work/proj")).roots.is_empty();
-        let w = WorkingSet {
-            roots: vec![name.into()],
-            ..Default::default()
-        };
-        let routed = !entity_hits(&format!("look in {name} again"), &w).is_empty();
+    /// Whether recall's waiver takes a root named `name` for a name.
+    fn waived(name: &str) -> bool {
         let board = Board::build(vec![thread_holding(name)], &Default::default());
-        let waived = !named(&board, &format!("put it in {name} please")).is_empty();
-        [grown, routed, waived]
+        !named(&board, &format!("put it in {name} please")).is_empty()
     }
 
-    /// The red test: before this change `notes` grew into a set, hit the
-    /// router and waived recall's distance, as any specific folder does.
+    /// A generic folder names no thread for recall's waiver; a specific one, or one that only
+    /// holds a generic word, still does.
     #[test]
-    fn a_generic_folder_names_no_thread_and_a_specific_one_still_does() {
-        assert_eq!(takes("notes"), [false; 3], "notes is generic");
-        assert_eq!(takes("Notes"), [false; 3], "in any case");
-        assert_eq!(takes("tarnlib"), [true; 3], "a specific folder names one");
-        // Only a whole folder name is generic: a name that holds one is a name.
-        assert_eq!(takes("harbour-notes"), [true; 3]);
-    }
-
-    /// An absolute root's last part is read the same way.
-    #[test]
-    fn an_absolute_root_is_read_by_its_last_part() {
-        let hit = |root: &str, said: &str| {
-            let w = WorkingSet {
-                roots: vec![root.into()],
-                ..Default::default()
-            };
-            !entity_hits(said, &w).is_empty()
-        };
-        assert!(!hit("/work/proj/notes", "work in notes now"));
-        assert!(!hit("/work/proj/notes/", "work in notes now"));
-        assert!(hit("/work/proj/tidewatch", "work in tidewatch now"));
+    fn a_generic_folder_is_no_name_to_recalls_waiver() {
+        assert!(
+            !waived("notes") && !waived("Notes"),
+            "notes is generic, in any case"
+        );
+        assert!(waived("tarnlib"), "a specific folder names one");
+        assert!(waived("harbour-notes"), "a name that holds one is a name");
     }
 
     /// The owner's three are in the list, and the list is well formed.
@@ -167,40 +140,26 @@ mod tests {
         }
     }
 
-    /// The completeness test: every entry the rule reads as generic, from any
-    /// of its three sources, is taken by no reader. A reader that stops
-    /// calling [`is_generic_folder`], or a list that gains a name a reader
-    /// cannot see, fails here and says which file to correct.
+    /// Recall's waiver, list by list: a placeholder, a generic word and a layout name are each
+    /// read as generic, and none of them names a thread to the waiver. A list that gains a name
+    /// the rule cannot see fails here naming this file.
     #[test]
-    fn every_generic_name_is_refused_by_every_reader() {
-        let all: Vec<&str> = PLACEHOLDERS
-            .iter()
-            .chain(GENERIC.iter())
-            .copied()
-            .chain(LAYOUT_PROBES.iter().copied())
+    fn recalls_waiver_takes_no_name_from_any_generic_list() {
+        let lists: [(&str, &[&str]); 3] = [
+            ("PLACEHOLDERS", PLACEHOLDERS),
+            ("GENERIC", GENERIC),
+            ("LAYOUT_PROBES", LAYOUT_PROBES),
+        ];
+        let read_wrong: Vec<String> = (lists.iter())
+            .flat_map(|(list, names)| names.iter().map(move |n| (*list, *n)))
+            .filter(|(_, n)| !is_generic_folder(n) || waived(n))
+            .map(|(list, n)| format!("{list}: {n}"))
             .collect();
-        for name in all {
-            assert!(
-                is_generic_folder(name),
-                "{name} is listed as generic but {FILE}'s is_generic_folder does not read it so"
-            );
-            let [grown, routed, waived] = takes(name);
-            assert!(
-                !grown,
-                "{name}: thread_grow::touched_in still grows it as a root; it must call \
-                 generic_folder::is_generic_folder (crates/theseus-core/src/thread_grow.rs)"
-            );
-            assert!(
-                !routed,
-                "{name}: thread_route::entity_hits still hits on it as a root \
-                 (crates/theseus-core/src/thread_route.rs)"
-            );
-            assert!(
-                !waived,
-                "{name}: thread_recall::named still names a thread by it \
-                 (crates/theseus-core/src/thread_recall.rs)"
-            );
-        }
+        assert!(
+            read_wrong.is_empty(),
+            "{FILE}: these are not read as generic, or thread_recall::named still names a thread \
+             by them: {read_wrong:?}"
+        );
     }
 
     /// The judge's layout names, probed through this rule: if the judge's list

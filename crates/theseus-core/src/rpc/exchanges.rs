@@ -77,10 +77,10 @@ impl Core {
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        // Kept on 2026-11-22: an act gate, not a read's. Two of these three
-        // methods act (`exchange.rebuild` writes records, `exchange.ladder`
-        // spends on model calls), and the surface rule is their input.
-        if !conn.surface.reads_private() {
+        // Kept on 2026-11-22 for the two that act (`exchange.rebuild` writes
+        // records, `exchange.ladder` spends on model calls): the surface rule
+        // is their input. The report is a read, and every surface reads it.
+        if name != method::EXCHANGE_REPORT && !conn.surface.reads_private() {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
                 "the exchange ledger is read from your own terminal or the web UI",

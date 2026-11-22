@@ -35,6 +35,7 @@ use crate::compiler::{CompileInput, Compiled, Overflowed, RequestSpec};
 use crate::view::budget::{Budget, Overflow, HERE_ALLOWANCE};
 use crate::view::record::Room;
 use crate::view::Slot;
+use crate::view_gate::Verified;
 
 #[cfg(test)]
 mod tests;
@@ -169,14 +170,14 @@ impl TurnRunner {
         if laid.is_empty() {
             laid = recalled(t);
         }
-        // Admitted again now: a source sealed since is not laid (issue 44, `view_step::recall`).
+        // Read again now: a source that no longer reads is not laid (issue 44, `view_step::recall`).
         let (laid, found) = self.view_recall(sid, laid);
         let asked = Asked {
             store,
             sid,
             turn,
             person: t.exchange.person().0,
-            verified: None,
+            verified: Some(Verified::of_turn(self, sid, t.exchange.read_place())),
             recalled: found,
             message: None,
             items: t.exchange.items().to_vec(),

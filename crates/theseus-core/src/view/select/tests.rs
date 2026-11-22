@@ -385,14 +385,10 @@ fn the_window_lays_the_floor_spoken_the_rest_spoken_and_tool_results_whole() {
         },
         "a retrieved word of his never authorises"
     );
-    assert!(
-        select(&s, Band::Floor, Present::Unknown).is_empty(),
-        "unknown admits nothing"
-    );
 }
 
 #[test]
-fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places_only_where_he_is_alone() {
+fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places() {
     let mut s = Store::default();
     s.ex.push(ex("here", "local", 1));
     s.ex.push(ex("a1", "a", 2));
@@ -417,8 +413,6 @@ fn elsewhere_is_his_last_two_days_and_his_newest_in_five_places_only_where_he_is
         10 + 1_500,
         "a long reply is its two ends"
     );
-    assert!(select(&s, Band::ElsewhereWords, Present::Private).is_empty());
-    assert!(select(&s, Band::ElsewhereWords, Present::Shared).is_empty());
 }
 
 #[test]
@@ -451,10 +445,6 @@ fn the_past_thins_with_age_and_a_fragment_is_never_bare() {
         ids(&select(&s, Band::PastOlder, Present::OwnerAlone)),
         ["d61"]
     );
-    assert!(
-        select(&s, Band::Past7, Present::Shared).is_empty(),
-        "in company: this place only"
-    );
 }
 
 #[test]
@@ -476,7 +466,6 @@ fn in_play_named_waiting_and_recall_ask_for_their_sources() {
         card_of(select(&s, Band::Waiting, Present::OwnerAlone)),
         ["card:question"]
     );
-    assert!(select(&s, Band::Waiting, Present::Private).is_empty());
     assert_eq!(
         card_of(select(&s, Band::Recall, Present::Private)),
         ["card:recalled"]
@@ -485,15 +474,6 @@ fn in_play_named_waiting_and_recall_ask_for_their_sources() {
         select(&s, Band::Reached, Present::OwnerAlone).is_empty(),
         "no search before the first word"
     );
-}
-
-/// Slot H with an unknown presence lays nothing recalled (issue 44), where any known one lays it.
-#[test]
-fn recall_lays_nothing_for_an_unknown_presence() {
-    let s = Store::default();
-    let laid = select(&s, Band::Recall, Present::OwnerAlone);
-    assert_eq!(laid.len(), 1, "a known presence lays it");
-    assert!(select(&s, Band::Recall, Present::Unknown).is_empty());
 }
 
 #[test]
