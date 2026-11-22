@@ -26,10 +26,15 @@ impl Core {
     /// (theseus-pw1q.21.8) and the pipeline's. First, on the blocking pool, a
     /// phase's tree a daemon that is gone left open is closed (issue 41;
     /// `join::guard`): that holds whatever the tenders do meanwhile, since a
-    /// tree this daemon opens is never taken for a gone one's.
+    /// tree this daemon opens is never taken for a gone one's. Then the
+    /// clone fetches once if it lacks the running build's commit.
     pub fn self_after_serving(self: &Arc<Self>) {
         let c = self.clone();
-        tokio::task::spawn_blocking(move || c.close_dead_trees());
+        tokio::task::spawn_blocking(move || {
+            c.close_dead_trees();
+            // And the clone looks for the running build's commit, once (issue 41; `join::contains`).
+            c.fetch_running_at_start();
+        });
         self.self_join_after_serving();
         self.self_revert_after_serving();
         self.mint_tender_after_serving();

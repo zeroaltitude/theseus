@@ -146,6 +146,38 @@ async fn the_daemon_tells_from_its_own_clone_whether_the_running_build_has_the_j
     );
 }
 
+/// Issue 41: after an install from outside the loop the clone lacks the running build's commit. Before the start's look
+/// the answer says plainly that it has not looked yet; the start's one fetch finds the commit and the answer is told; a
+/// commit the remote does not have is said so after the look, and a clone that has the commit fetches nothing.
+#[tokio::test]
+async fn the_start_looks_for_the_running_builds_commit_before_it_answers() {
+    let r = rig(SelfMode::Act);
+    r.seed("trim-the-sails", PROVED, SONNET);
+    r.core.self_join_pass(&r.seams()).await.unwrap();
+    let merge = r.upstream_main();
+    // Built and installed from outside the loop: main moved on upstream, and the clone has not fetched it.
+    let later = child_of(&r.f.upstream, &merge);
+    git(&r.f.upstream, &["update-ref", "refs/heads/main", &later]);
+    let j = r.core.self_last_join_as(Some(&later)).unwrap();
+    assert_eq!(j.install, Install::Unconfirmed, "{}", j.line);
+    assert!(j.line.contains("has not looked yet"), "{}", j.line);
+    assert!(r.core.fetch_running_as(Some(&later)), "the start fetches");
+    let j = r.core.self_last_join_as(Some(&later)).unwrap();
+    assert_eq!(j.install, Install::Running, "{}", j.line);
+    assert!(
+        !r.core.fetch_running_as(Some(&later)),
+        "a clone that has the commit fetches nothing"
+    );
+    let absent = "8".repeat(40);
+    assert!(r.core.fetch_running_as(Some(&absent)));
+    let j = r.core.self_last_join_as(Some(&absent)).unwrap();
+    assert!(
+        j.line.contains("fetched main since it started") && j.line.contains("still does not have"),
+        "{}",
+        j.line
+    );
+}
+
 // ---- a join that was undone is never said to run ---------------------------------------------------
 
 /// A revert is a later commit that has the join as an ancestor, so a build that holds the revert "contains" the join
