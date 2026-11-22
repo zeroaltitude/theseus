@@ -154,6 +154,27 @@ async fn profile_list_names_each_profiles_origin() {
     }
 }
 
+/// `profile.list` sends `cleared: true` for every configured profile, on the
+/// wire (review of issue 46): a cockpit page open since before the upgrade
+/// runs the old floor, `greyOf(mark, name, profile)`, which returned null at
+/// once for `profile.cleared === true` and otherwise refused every profile of a
+/// private or sensitive session, US ones too. Given this response it greys
+/// nothing, as the current cockpit does.
+#[tokio::test]
+async fn profile_list_still_tells_an_older_cockpit_that_every_profile_is_cleared() {
+    let r = rig(None, 1, |_| {});
+    let wire = serde_json::to_value(r.core.profile_list()).unwrap();
+    let profiles = wire["profiles"].as_array().unwrap();
+    assert!(profiles.len() >= 2, "{wire}");
+    for p in profiles {
+        assert_eq!(p["cleared"], serde_json::Value::Bool(true), "{p}");
+    }
+    assert!(
+        profiles.iter().any(|p| p["origin"] == "cn"),
+        "a restricted-origin profile is cleared too: {wire}"
+    );
+}
+
 /// `ProfileInfo.effort` is the effort the profile is configured at, so the
 /// cockpit can group `opus` and `opus_high` (a profile of the operator's own,
 /// added here) as one model at two efforts before any turn has said what it

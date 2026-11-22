@@ -1239,6 +1239,9 @@ impl Core {
                     crate::catalog::origin_word(self.cfg.profile_origin(name, &self.catalog))
                         .into(),
                 ),
+                // For a cockpit page open since before the upgrade, whose floor greys a
+                // profile it is not told is cleared (`ProfileInfo.cleared`): every one is.
+                cleared: Some(true),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())
