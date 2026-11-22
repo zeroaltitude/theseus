@@ -23,7 +23,7 @@
 //!   under its own daily cap); each an undoable write.
 //!
 //! Interpretations route context and never grant access: a membership takes
-//! effect at the next recompile, and a shared place is never asked.
+//! effect at the next turn, and a shared place is never asked.
 
 use std::sync::Mutex;
 

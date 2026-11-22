@@ -321,6 +321,34 @@ pub(crate) fn pin_mid_period() -> ClockPin {
     ClockPin
 }
 
+/// History from before the exchange ledger (issue 44), which no turn can make now: the session's nodes stay,
+/// and every ledger record its turns wrote goes (each message's mark, each turn's exchange and touches), as
+/// a store from before the ledger holds them.
+pub(crate) fn before_the_ledger(store: &crate::store::Store, session: &str) {
+    use crate::exchange::{EXCHANGE_PREFIX, SAID_PREFIX, SEP, TOUCH_PREFIX};
+    use theseus_store::Store as _;
+    let nodes = store.transcript(session).unwrap();
+    let turns: std::collections::HashSet<String> = (nodes.iter())
+        .filter_map(|(_, n)| n.turn_id.clone())
+        .collect();
+    let mut keys: Vec<String> = nodes
+        .iter()
+        .map(|(_, n)| format!("{SAID_PREFIX}{}", n.id))
+        .chain(turns.iter().map(|t| format!("{EXCHANGE_PREFIX}{t}")))
+        .collect();
+    let touches = store.inner().latest_with_prefix(kinds::META, TOUCH_PREFIX);
+    keys.extend(
+        (touches.unwrap().into_iter())
+            .filter_map(|r| r.key)
+            .filter(|k| k.rsplit(SEP).next().is_some_and(|t| turns.contains(t))),
+    );
+    let present: Vec<String> = keys
+        .into_iter()
+        .filter(|k| store.get_meta::<Value>(k).ok().flatten().is_some())
+        .collect();
+    store.delete_meta_keys(&present).unwrap();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
