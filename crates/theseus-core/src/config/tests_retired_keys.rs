@@ -158,14 +158,14 @@ fn an_unknown_key_still_fails_the_load() {
 #[test]
 fn strip_takes_only_the_retired_keys() {
     let mut doc: toml::Table = "[cache]\nttl = \"1h\"\nkeep_warm_hours = 1\n\
-                                [model]\nkeep_warm_hours = 3\n"
+                                [tui]\nkeep_warm_hours = 3\n"
         .parse()
         .unwrap();
     let out = strip(&mut doc);
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].name, "cache.keep_warm_hours");
     assert_eq!(doc["cache"].as_table().unwrap().len(), 1);
-    assert!(doc["model"]
+    assert!(doc["tui"]
         .as_table()
         .unwrap()
         .contains_key("keep_warm_hours"));
