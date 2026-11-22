@@ -78,6 +78,18 @@ pub(crate) struct Recalled {
     /// ([`VIEW`]): nothing of it rides the plan frame. `None` until a compile
     /// says otherwise, so a path that compiles nothing behaves as it did.
     pub withheld: Option<&'static str>,
+    /// A view turn's recall, kept (never persisted) when a view call withheld it at dispatch: re-admitted
+    /// once if the turn later declines to the transcript (issue 44).
+    pub kept_for_view: Option<Box<KeptForView>>,
+}
+
+/// What a withheld recall needs to ride a later transcript call of its turn.
+pub(crate) struct KeptForView {
+    pending: Node,
+    rides: Vec<NewRecord>,
+    count: u32,
+    items: Vec<RecalledRef>,
+    recall_id: String,
 }
 
 impl Recalled {
@@ -630,6 +642,39 @@ impl TurnRunner {
     pub(super) fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
         let view = self.assembly_here(t) == crate::config::assembly::Assembly::View;
         (view && !Self::view_declined_here(t)).then_some(VIEW)
+    }
+
+    /// A view call withheld the pending recall at dispatch: keep it, never persisted, for a decline of
+    /// this turn to the transcript. Once: the first view dispatch keeps it.
+    pub(super) fn recall_kept_for_view(t: &mut Turn<'_>) {
+        if t.recall.withheld != Some(VIEW) || t.recall.kept_for_view.is_some() {
+            return;
+        }
+        let Some(pending) = t.recall.pending.clone() else {
+            return;
+        };
+        t.recall.kept_for_view = Some(Box::new(KeptForView {
+            pending,
+            rides: t.recall.rides.clone(),
+            count: t.recall.count,
+            items: t.recall.items.clone(),
+            recall_id: t.recall.recall_id.clone(),
+        }));
+    }
+
+    /// The turn declined the view after a view call was dispatched: its kept recall is the turn's pending
+    /// recall again, once, so it rides the transcript's request and its record is written with it.
+    pub(super) fn recall_readmitted(t: &mut Turn<'_>) {
+        if t.recall.pending.is_some() {
+            return;
+        }
+        if let Some(k) = t.recall.kept_for_view.take() {
+            t.recall.pending = Some(k.pending);
+            t.recall.rides = k.rides;
+            t.recall.count = k.count;
+            t.recall.items = k.items;
+            t.recall.recall_id = k.recall_id;
+        }
     }
 
     /// The compile withheld the pending node, so the turn recalled nothing:
