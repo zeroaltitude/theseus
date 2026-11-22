@@ -927,7 +927,6 @@ fn summary(recompile: bool) -> ContextCompiled {
             },
             ttl: "1h".into(),
             conversation_ttl: "5m".into(),
-            stubbed: vec![],
             layers: Default::default(),
         },
         // The place rule: a shared place's compile, which withheld one file;
@@ -1338,4 +1337,19 @@ fn a_captured_session_decodes_and_writes_the_same_bytes() {
         *methods.entry(note.method).or_default() += 1;
     }
     eprintln!("{methods:?}");
+}
+
+/// A `context.compiled` row from a daemon before the cut still reads: its cache summary's
+/// `stubbed` list (the cold rewrite's stubs, gone with the transcript, issue 44) is ignored.
+#[test]
+fn an_old_cache_summary_with_stubs_still_reads() {
+    let old = json!({
+        "breakpoints": ["header", "conversation"],
+        "ttl": "1h",
+        "conversation_ttl": "5m",
+        "stubbed": [{"node_id": "nod_1", "index": 0, "name": "big.pdf", "tokens": 31000}],
+    });
+    let c: CacheSummary = serde_json::from_value(old).unwrap();
+    assert_eq!(c.breakpoints, vec!["header", "conversation"]);
+    assert_eq!((c.ttl.as_str(), c.conversation_ttl.as_str()), ("1h", "5m"));
 }
