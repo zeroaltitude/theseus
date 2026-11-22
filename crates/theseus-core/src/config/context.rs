@@ -30,12 +30,6 @@ pub struct ContextConfig {
     /// smaller one makes clearing come sooner and cost less.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_window_tokens: Option<u64>,
-    /// The exchange ledger (issue 44, step 1; `crate::exchange`): each person's message's mark, each
-    /// turn's exchange and touches, and a measuring row per private turn, none of it sent to a model.
-    /// Always on: `[context] ledger` is a retired key (`super::retired_keys`), so only a test turns it
-    /// off, to stand for history from before the ledger.
-    #[serde(skip)]
-    pub ledger: Option<bool>,
 }
 
 /// `persona_max_tokens`' default and bounds.
@@ -47,13 +41,7 @@ impl ContextConfig {
         self.files.is_empty()
             && self.default_persona.is_none()
             && self.working_window_tokens.is_none()
-            && self.ledger.is_none()
             && self.persona_max_tokens.is_none()
-    }
-
-    /// Whether the exchange ledger is written: always, but where a test stands for history from before it.
-    pub fn ledger_on(&self) -> bool {
-        self.ledger.unwrap_or(true)
     }
 
     /// A persona's soul may be this many tokens.

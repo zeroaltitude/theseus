@@ -270,7 +270,7 @@ pub fn plan_lines(r: &ThreadSplitPlan) -> Vec<String> {
             r.from, r.thread, r.gist
         ),
         format!(
-            "  {} next request: {} -> {} tokens{}",
+            "  {} next request: {} -> {} tokens{} (today's count less the range's own)",
             r.from,
             r.source.before,
             r.source.after,

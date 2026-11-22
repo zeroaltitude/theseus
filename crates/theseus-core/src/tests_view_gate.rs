@@ -727,31 +727,6 @@ async fn an_agent_turn_at_the_terminal_looks_up_nothing_from_elsewhere() {
     );
 }
 
-/// With `[context] ledger` off, nothing is marked and nothing is computed:
-/// the terminal reads places as before, agent or not.
-#[tokio::test]
-async fn with_the_ledger_off_the_terminal_reads_places_as_before() {
-    let r = rig_scripted(|c| c.context.ledger = Some(false), script);
-    bind(&r.core);
-    let dm = session(&r.core, Some(&format!("dm:{OWNER}")));
-    turn(&r.core, &dm, HIS).await;
-    r.core
-        .runner
-        .memory
-        .set_ask(index_over(&r.core, vec![dm.clone()]));
-    let agent = session(&r.core, None);
-    turn_as(
-        &r.core,
-        &agent,
-        r#"LOOKUP {"words": "harbour gate"}"#,
-        false,
-    )
-    .await;
-    assert!(r.core.runner.presence.get(&agent).is_none());
-    let got = crate::tests_places::result_of(&r.core, &agent, "m1");
-    assert!(got.contains(HIS), "as before the ledger: {got}");
-}
-
 /// A wake takes the presence of the turn that set it: the call that set it,
 /// in its session, names that turn, whose ask's mark the ledger wrote.
 #[tokio::test]
