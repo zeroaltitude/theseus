@@ -62,8 +62,11 @@ impl TurnRunner {
             }
         };
         let asking = view_gate::begin(self, sid, t.tc.turn_id, place, proof);
-        // No marked message to read it from again: what it was given is kept for a turn that continues it.
-        if mark.is_none() {
+        // No person's message to read it from again (a wake, a report, a continuation): what it was given
+        // is kept for a turn that continues it.
+        let unopened =
+            t.exchange.occasion().is_some() || !t.wakes.is_empty() || !t.woke_by.is_empty();
+        if mark.is_none() && unopened {
             let continues = (t.exchange.continues()).and_then(|c| c.first().cloned().flatten());
             let given = Given::new(t.tc.turn_id, asking.present(), continues);
             self.exchange_given(t, &given);

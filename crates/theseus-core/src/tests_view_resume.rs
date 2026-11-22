@@ -38,12 +38,16 @@ fn given(c: &crate::Core, turn: &str) -> Option<Present> {
     Some(g.present())
 }
 
-/// The turn of the `turn.started` rows of `sid`, oldest first.
+/// The turns of `sid` that compiled a request, oldest first, each once (its `context.compiled` rows).
 fn started(c: &crate::Core, sid: &str) -> Vec<String> {
-    (crate::test_support::rows(c, "turn.started").into_iter())
-        .filter(|r| r["session_id"] == sid)
-        .filter_map(|r| r["turn_id"].as_str().map(str::to_string))
-        .collect()
+    let mut out: Vec<String> = Vec::new();
+    for r in crate::test_support::rows(c, "context.compiled") {
+        let turn = r["turn_id"].as_str().unwrap_or_default().to_string();
+        if r["session_id"] == sid && !out.contains(&turn) {
+            out.push(turn);
+        }
+    }
+    out
 }
 
 fn answered(c: &crate::Core, sid: &str, words: &str) -> bool {
