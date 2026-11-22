@@ -1365,6 +1365,7 @@ async fn a_forks_history_tool_holds_nothing_past_its_point() {
         here: "local".into(),
         in_view: None,
         words: None,
+        span: None,
         cut,
     };
     let args = crate::view::history::HistoryArgs::default();
@@ -1400,4 +1401,31 @@ async fn a_forks_history_tool_holds_nothing_past_its_point() {
         crate::history_tool::open::open(&forked, &later).is_err(),
         "a fork opens nothing past its point"
     );
+}
+
+/// A fork asking a time span past its point gets nothing past it (D6a step 1): the span reads every exchange
+/// of today, and the fork's cut, behind the same seam (`Lens::admitted`), still holds the source's later turn.
+#[tokio::test]
+async fn a_fork_asking_a_span_gets_nothing_past_its_point() {
+    let r = rig();
+    let (s, nodes) = three_turns(&r).await;
+    let f = fork(&r.core, &s, &nodes[3].0); // through the answer to "two"
+    turn(&r.core, &f.session_id, "other road").await;
+    let (one, three) = (turn_of(&r.core, &nodes[0].0), turn_of(&r.core, &nodes[4].0));
+    let pov = crate::view::PointOfView {
+        anchor: crate::view::Anchor::Place("local".into()),
+        person: None,
+        present: crate::view::Present::Open,
+        at_hand: None,
+        now_ms: theseus_protocol::now_unix_ms(),
+    };
+    let a: crate::view::history::HistoryArgs =
+        serde_json::from_value(json!({"when": "today"})).unwrap();
+    let b = crate::history_tool::Board::default();
+    let got = crate::history_tool::answer(&r.core, &b, (&f.session_id, "t"), &pov, &a)
+        .await
+        .unwrap()
+        .text;
+    assert!(got.contains(&one), "the inherited turn: {got}");
+    assert!(!got.contains(&three), "the source's later turn: {got}");
 }

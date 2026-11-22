@@ -8,7 +8,10 @@
 //!   (cut by code at 300 characters), the `did` line or the reply's beginning, and a handle.
 //! - **Open**: a handle gives the exchange in spoken form, cut at about 3,000 tokens (`open`).
 //! - **Narrowing**: `place` (any other place), `thing` (its timeline in the touch index), `words` (the words
-//!   index, searched over the sessions on that timeline, then a filter on the walk).
+//!   index, searched over the sessions on that timeline, then a filter on the walk), and a time span: `when`,
+//!   or `from` / `to` ([`span_of`]: an explicit argument's reader, `recall::when::read_local`, never recall's
+//!   reading of English in a person's message). A span's page holds exactly its exchanges, newest first,
+//!   paged by `before`; an empty span says so; beside `words`, `place` or `thing` it narrows them.
 //! - **Every place, for every reader** (anything goes, 2026-11-22): no presence, place class, seal or move
 //!   keeps an exchange off a page or out of an open.
 //! - **Where** ([`anchor`]): a message's turn is anchored where the message arrived; any other turn where its
@@ -35,6 +38,7 @@ use theseus_tools::{
 
 use crate::config::memory::MemoryArm;
 use crate::exchange::{self, Exchange, Opener};
+use crate::recall::when::When;
 use crate::view::history::{HistoryArgs, HISTORY_TOOL, LOOKS_PER_TURN, PAGE_EXCHANGES};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, PointOfView, Present};
@@ -62,6 +66,47 @@ fn parse(input: &Value) -> Result<HistoryArgs, String> {
     serde_json::from_value(input.clone()).map_err(|e| format!("bad input: {e}"))
 }
 
+/// The time span a call names, read as of `now_ms` by the reader an explicit argument takes
+/// (`recall::when::read_local`): `when`, or `from` and `to` (each read as a span, `from` giving its start and
+/// `to` its end). None when none is given; a span that does not read is told in words, never guessed.
+pub(crate) fn span_of(a: &HistoryArgs, now_ms: u64) -> Result<Option<When>, String> {
+    let some = |s: &Option<String>| {
+        s.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let read = |s: &str| {
+        crate::recall::when::read_local(s, now_ms).ok_or_else(|| {
+            format!(
+                "\"{}\" does not read as a time: name a day, a date or a span (\"yesterday\", \"2026-11-20\", \
+                 \"last week\", \"from 3 to 5 November\")",
+                page::flat(s)
+            )
+        })
+    };
+    match (some(&a.when), some(&a.from), some(&a.to)) {
+        (None, None, None) => Ok(None),
+        (Some(w), None, None) => Ok(Some(read(&w)?)),
+        (Some(_), _, _) => Err("name a span with when, or with from and to, not both".into()),
+        (None, from, to) => {
+            let start = from.as_deref().map(read).transpose()?;
+            let end = to.as_deref().map(read).transpose()?;
+            let said = match (&from, &to) {
+                (Some(f), Some(t)) => format!("from {f} to {t}"),
+                (Some(f), None) => format!("since {f}"),
+                (None, Some(t)) => format!("before the end of {t}"),
+                (None, None) => unreachable!("one of them is given"),
+            };
+            Ok(Some(When {
+                said,
+                from_ms: start.and_then(|w| w.from_ms),
+                to_ms: end.and_then(|w| w.to_ms),
+            }))
+        }
+    }
+}
+
 /// The registry's `context.history`: its name, schema and plan, for the gate. The runtime runs it
 /// ([`Board::run`]).
 pub struct HistoryTool;
@@ -71,7 +116,7 @@ impl Tool for HistoryTool {
         HISTORY_TOOL
     }
     fn description(&self) -> &'static str {
-        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one."
+        "This place's earlier history, 100 exchanges a page before those you see; before pages back; open reads one; when (or from/to) a time span."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -81,7 +126,10 @@ impl Tool for HistoryTool {
                 "open": {"type": "string"},
                 "words": {"type": "string"},
                 "thing": {"type": "string"},
-                "place": {"type": "string"}
+                "place": {"type": "string"},
+                "when": {"type": "string"},
+                "from": {"type": "string"},
+                "to": {"type": "string"}
             },
             "additionalProperties": false
         })
@@ -297,11 +345,13 @@ pub(crate) async fn answer(
         },
         &done,
     );
+    let span = span_of(a, pov.now_ms)?;
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
         in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
+        span: span.clone(),
         // A fork's history holds nothing an ancestor said at or after its point (`fork::cut`): a cut that
         // cannot be read fails the call plainly.
         cut: crate::fork::cut::Cut::of(&core.store, session).map_err(|e| format!("{e:#}"))?,
@@ -334,7 +384,7 @@ pub(crate) async fn answer(
     let resume = walked.resume.map(|at| board.keep(turn, at));
     let p = walked.page;
     Ok(ToolOutput {
-        text: page::render(&p, here, used.looks, resume.as_ref()),
+        text: page::render(&p, (here, span.as_ref()), used.looks, resume.as_ref()),
         meta: json!({
             "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
             "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,

@@ -34,6 +34,15 @@ pub struct HistoryArgs {
     /// Open one line to its full text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<Handle>,
+    /// A time span (`"last week"`, `"2026-11-20"`, `"from 3 to 5 November"`): only its exchanges, newest first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    /// A span's start, read as `when` is (its start); with `to` or alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// A span's end, read as `when` is (its end, not included); with `from` or alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
 }
 
 /// One line of a page: his words exactly, and a line of what Theseus did.

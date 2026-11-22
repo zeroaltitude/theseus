@@ -134,6 +134,7 @@ fn lens<'a>(store: &'a Store, here: &str) -> Lens<'a> {
         here: here.into(),
         in_view: None,
         words: None,
+        span: None,
         cut: Default::default(),
     }
 }
@@ -352,7 +353,7 @@ fn a_line_cuts_his_words_at_300_and_the_replys_beginning_at_200_by_code() {
         "200 and the ellipsis"
     );
     assert_eq!(line.did, None);
-    let said = render(&p, HERE, 0, None);
+    let said = render(&p, (HERE, None), 0, None);
     assert_eq!(
         said.lines().filter(|l| l.starts_with("- ")).count(),
         2,
@@ -756,4 +757,104 @@ fn a_tasks_window_holds_its_newest_two_n_and_history_reaches_the_rest() {
         }
     }
     assert!(seen.iter().any(|t| t == "turn_0001"), "{seen:?}");
+}
+
+/// Noon (UTC) of a day of November 2026: inside that local day for any offset under twelve hours.
+fn noon_nov(day: u64) -> u64 {
+    1_794_312_000_000 + (day - 10) * 86_400_000
+}
+
+/// A time span (D6a step 1, issue 46): its page holds exactly its exchanges, newest first, read by the explicit
+/// argument's reader; `from` / `to` give its start and its end; an empty span says so in words; a span that does
+/// not read as a time is refused in words, never guessed.
+#[tokio::test]
+async fn a_span_holds_exactly_its_exchanges_and_an_empty_one_says_so() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    for (i, day) in [(1, 10), (2, 11), (3, 11), (4, 12)] {
+        let e = Ex {
+            at: noon_nov(day) + i * 1_000,
+            ..ex(i, HERE, &me)
+        };
+        put(&r.core.store, &e);
+    }
+    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let call = |v: Value| answer(&r.core, &b, (&me, "t"), &pov, &args(v));
+    let day = call(json!({"when": "2026-11-11"})).await.unwrap().text;
+    assert!(
+        day.contains("message 2") && day.contains("message 3"),
+        "{day}"
+    );
+    assert!(
+        !day.contains("message 1") && !day.contains("message 4"),
+        "{day}"
+    );
+    assert!(
+        day.find("message 3") < day.find("message 2"),
+        "newest first: {day}"
+    );
+    let range = call(json!({"from": "2026-11-11", "to": "2026-11-12"}))
+        .await
+        .unwrap()
+        .text;
+    for want in ["message 2", "message 3", "message 4"] {
+        assert!(range.contains(want), "{want}: {range}");
+    }
+    assert!(!range.contains("message 1"), "{range}");
+    let empty = call(json!({"when": "2026-11-20"})).await.unwrap().text;
+    assert!(empty.contains("no exchange of"), "{empty}");
+    assert!(!empty.contains("message"), "{empty}");
+    let bad = call(json!({"when": "the blue moon"})).await.unwrap_err();
+    assert!(bad.contains("does not read as a time"), "{bad}");
+    let both = call(json!({"when": "2026-11-11", "from": "2026-11-10"}))
+        .await
+        .unwrap_err();
+    assert!(both.contains("not both"), "{both}");
+}
+
+/// A span beside a place narrows it: only the span's exchanges of that place.
+#[tokio::test]
+async fn a_span_beside_a_place_narrows_it() {
+    use crate::tests_places::{rig, session};
+    let r = rig();
+    let me = session(&r.core, None);
+    let other = session(&r.core, None);
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11),
+            ..ex(1, HERE, &me)
+        },
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(11) + 1_000,
+            ..ex(2, DM, &other)
+        },
+    );
+    put(
+        &r.core.store,
+        &Ex {
+            at: noon_nov(12),
+            ..ex(3, DM, &other)
+        },
+    );
+    let (b, pov) = (Board::default(), pov(HERE, Present::OwnerAlone));
+    let got = answer(
+        &r.core,
+        &b,
+        (&me, "t"),
+        &pov,
+        &args(json!({"place": DM, "when": "2026-11-11"})),
+    )
+    .await
+    .unwrap()
+    .text;
+    assert!(got.contains("message 2"), "{got}");
+    assert!(
+        !got.contains("message 1") && !got.contains("message 3"),
+        "{got}"
+    );
 }
