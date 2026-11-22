@@ -22,8 +22,9 @@
 //! the numbers, nothing of what a result held.
 
 use super::{recalled, Asked, Built, Turn, TurnRunner};
-use crate::compiler::view::{Frozen, KEEP_TOKENS};
+use crate::compiler::view::{Fit, Frozen, KEEP_TOKENS};
 use crate::compiler::{CompileInput, Compiled, Overflowed, RequestSpec};
+use crate::turn::Failure;
 use crate::view::budget::{Budget, Overflow, HERE_ALLOWANCE};
 use crate::view::record::Room;
 use crate::view::Slot;
@@ -33,27 +34,33 @@ mod tests;
 
 /// How many times slot G's allowance is halved before it is none.
 const HALVINGS: u32 = 3;
+/// How many times a finished request over its size sends the view back to make room before the turn fails.
+const SIZINGS: u32 = 2;
+/// Tokens added to a measured shortfall when the last step reserves it (the view's count and the request's
+/// estimate are not the same measure).
+const SQUEEZE_SLACK: u64 = 256;
 
 impl TurnRunner {
     /// One call of a view turn compiled from its frozen view, with room made when it is over the budget or
-    /// was refused for its size (the module comment's order). A request no step fits, or a floor that
-    /// cannot fit, comes back over its budget, and the compile step fails the turn on it.
+    /// was refused for its size (the module comment's order). The request is measured as it will be sent:
+    /// what finishing it added last time (`Fit::tail`) counts, and after a refusal it must be strictly
+    /// smaller than the refused one, estimate against estimate. A request no step fits, or a floor that
+    /// cannot fit, comes back over its budget, and the compile step fails the turn on it: never sent.
     pub(super) fn view_roomed(
         &self,
         t: &mut Turn<'_>,
         input: CompileInput<'_>,
     ) -> anyhow::Result<Compiled> {
-        let refused = input.overflowed.and_then(stated_window);
-        if let (Some(w), Some(f)) = (refused, t.view.as_mut()) {
-            f.room.window = Some(f.room.window.map_or(w, |r| r.min(w)));
+        if let Some(f) = t.view.as_mut() {
+            if let Some(w) = input.overflowed.and_then(stated_window) {
+                f.room.window = Some(f.room.window.map_or(w, |r| r.min(w)));
+            }
+            if let Some(o) = input.overflowed {
+                f.fit.under = Some(f.fit.under.map_or(o.estimated, |u| u.min(o.estimated)));
+            }
         }
-        // After a refusal the retry must also be smaller than the refused request, by the estimate: a
-        // provider that stated no count, or one under the estimate, says the estimate itself is short.
-        let line = input.overflowed.map(|o| o.estimated);
-        let fits =
-            |c: &Compiled| c.budget.overage.is_none() && line.is_none_or(|l| c.estimate.tokens < l);
         let mut compiled = rendered(t, input)?;
-        if floored(t) || fits(&compiled) {
+        if floored(t) || short_of(t, &compiled) == 0 {
             return Ok(compiled);
         }
         let now = t.view.as_ref().map(|f| f.room).unwrap_or_default();
@@ -61,11 +68,76 @@ impl TurnRunner {
             self.view_refrozen(t, input.spec, Some(room))?;
             Self::view_reset(t, input.nodes);
             compiled = rendered(t, input)?;
-            if floored(t) || fits(&compiled) {
-                break;
+            if floored(t) || short_of(t, &compiled) == 0 {
+                return Ok(compiled);
             }
         }
+        // The last step: what is still short is reserved too, so the cut order takes every optional piece it
+        // must; only the floor and the turn's own nodes that still do not fit are an overage.
+        let short = short_of(t, &compiled);
+        if let Some(f) = t.view.as_mut() {
+            f.fit.squeeze += short + short / 4 + SQUEEZE_SLACK;
+        }
+        let last = t.view.as_ref().map(|f| f.room).unwrap_or_default();
+        self.view_refrozen(t, input.spec, Some(last))?;
+        Self::view_reset(t, input.nodes);
+        compiled = rendered(t, input)?;
+        if !floored(t) {
+            over_by(
+                &mut compiled,
+                t.view.as_ref().map(|f| f.fit).unwrap_or_default(),
+            );
+        }
         Ok(compiled)
+    }
+
+    /// Before a view call is sent, its request as finished (tails and blocks attached): within its limit,
+    /// and strictly smaller than a request the provider refused for its size, or the view makes room again
+    /// with what finishing added now counted (at most [`SIZINGS`] times), or the turn fails on its overage.
+    /// Never an oversized send. The budget is read again from the finished request; the digest stays the
+    /// compile's (a replay rebuilds the request before its tails, `own_bench::rebuild`).
+    pub(super) async fn view_sized(
+        &self,
+        t: &mut Turn<'_>,
+        session: &mut crate::session::SessionRecord,
+        spec: &RequestSpec,
+        compiled: Compiled,
+        i: u32,
+    ) -> anyhow::Result<Result<Compiled, Failure>> {
+        let mut compiled = compiled;
+        for again in 0..=SIZINGS {
+            let turn = t.tc.turn_id;
+            let Some(f) = t.view.as_mut().filter(|f| f.turn_id == turn) else {
+                return Ok(Ok(compiled));
+            };
+            let tail = (
+                compiled.estimate.upper.saturating_sub(f.fit.base.0),
+                compiled.estimate.tokens.saturating_sub(f.fit.base.1),
+            );
+            f.fit.tail = (f.fit.tail.0.max(tail.0), f.fit.tail.1.max(tail.1));
+            let finished = Fit {
+                base: (compiled.estimate.upper, compiled.estimate.tokens),
+                tail: (0, 0),
+                ..f.fit
+            };
+            compiled.budget.used_tokens = compiled.estimate.tokens;
+            if shortfall(&compiled, &finished) == 0 {
+                return Ok(Ok(compiled));
+            }
+            if again == SIZINGS || f.floor.is_some() {
+                over_by(&mut compiled, finished);
+                break;
+            }
+            compiled =
+                match Box::pin(self.compile_step(t, session, spec, None, None, None, i)).await? {
+                    Ok(mut c) => {
+                        self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
+                        c
+                    }
+                    Err(f) => return Ok(Err(f)),
+                };
+        }
+        Ok(Self::overage(t, &compiled, i).map_or(Ok(compiled), Err))
     }
 
     /// The turn's view assembled (again) under `room`, or the room its frozen view made (`None`): the
@@ -79,6 +151,7 @@ impl TurnRunner {
         let (sid, turn, store) = (t.tc.session_id, t.tc.turn_id, t.tc.store);
         let was = t.view.take().filter(|f| f.turn_id == turn);
         let room = room.or(was.as_ref().map(|f| f.room)).unwrap_or_default();
+        let fit = was.as_ref().map(|f| f.fit).unwrap_or_default();
         let (stripped, mut laid) = was.map(|f| (f.stripped, f.recalled)).unwrap_or_default();
         if laid.is_empty() {
             laid = recalled(t);
@@ -95,8 +168,8 @@ impl TurnRunner {
         };
         #[cfg(test)]
         super::failed::injected(sid)?;
-        let built = self.view_built(asked, spec, &self.room_budget(spec, &room))?;
-        let mut f = frozen_of(built, room, laid);
+        let built = self.view_built(asked, spec, &self.room_budget(spec, &room, &fit))?;
+        let mut f = frozen_of(built, (room, fit), laid);
         f.stripped.extend(stripped);
         // A turn no message opened: its empty "now", and beside it one line saying what woke it (issue 44).
         if let Some(o) = t.exchange.occasion() {
@@ -108,9 +181,14 @@ impl TurnRunner {
 
     /// The view's budget under `room`: slot G's allowance as lowered, the window as the provider stated it.
     /// What slot G gives up goes to the ceiling, so the whole (rule 5) is what it was: only slot G is held
-    /// to less, and the floor keeps its room.
-    fn room_budget(&self, spec: &RequestSpec, room: &Room) -> Budget {
-        let b = self.view_budget(spec);
+    /// to less, and the floor keeps its room. A turn that made room also reserves what its requests carry
+    /// beyond the view (`Fit::own`: its own nodes, the tools, the tails) and any shortfall measured since,
+    /// so the cut order takes the optional pieces (recall, reached exchanges, cards) before the floor.
+    fn room_budget(&self, spec: &RequestSpec, room: &Room, fit: &Fit) -> Budget {
+        let mut b = self.view_budget(spec);
+        if room.made > 0 {
+            b.reserve += fit.own + fit.squeeze;
+        }
         let here = room
             .here
             .map_or(b.here_allowance, |h| h.min(b.here_allowance));
@@ -127,8 +205,61 @@ impl TurnRunner {
 }
 
 /// The call compiled from the turn's frozen view, under the window the provider stated, and over by the
-/// floor's numbers when the floor did not fit.
-fn rendered(t: &Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
+/// floor's numbers when the floor did not fit. Its estimate before finishing is kept (`Fit::base`), and what
+/// the request carries beyond the view (`Fit::own`).
+fn rendered(t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
+    let compiled = rendered_now(t, input)?;
+    if let Some(f) = t.view.as_mut() {
+        let tokens = compiled.estimate.tokens;
+        f.fit.base = (compiled.estimate.upper, tokens);
+        f.fit.own = (tokens + f.fit.tail.1).saturating_sub(f.fit.charged);
+    }
+    Ok(compiled)
+}
+
+/// How far the request, as it will be sent (`Fit::tail` added), is from fitting: over its limit (upper
+/// bound) or not strictly under a refused request (tokens); 0 when it fits.
+fn short_of(t: &Turn<'_>, c: &Compiled) -> u64 {
+    t.view.as_ref().map_or(0, |f| shortfall(c, &f.fit))
+}
+
+fn shortfall(c: &Compiled, fit: &Fit) -> u64 {
+    let limit = c.budget.limit_tokens;
+    let over = match limit {
+        0 => 0,
+        l => (c.estimate.upper + fit.tail.0).saturating_sub(l),
+    };
+    let refused = fit.under.map_or(0, |u| {
+        (c.estimate.tokens + fit.tail.1 + 1).saturating_sub(u)
+    });
+    over.max(refused)
+}
+
+/// `c` marked over its budget by `fit`'s shortfall, when it has one: the compile step fails the turn on it
+/// before anything is sent (a request that did not get smaller than a refused one included).
+fn over_by(c: &mut Compiled, fit: Fit) {
+    let short = shortfall(c, &fit);
+    if short == 0 || c.budget.overage.is_some() {
+        return;
+    }
+    let refused = fit
+        .under
+        .is_some_and(|u| c.estimate.tokens + fit.tail.1 >= u);
+    let why = match refused {
+        true => {
+            "the request could not be made smaller than the one the provider refused for its size"
+        }
+        false => {
+            "the request, as it is sent, passes the window with all the room the view could make"
+        }
+    };
+    c.budget.overage = Some(theseus_protocol::memory::BudgetOverage {
+        tokens: short,
+        why: why.into(),
+    });
+}
+
+fn rendered_now(t: &Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
     let Some(f) = t.view.as_ref() else {
         anyhow::bail!("the turn's view was not assembled");
     };
@@ -151,17 +282,18 @@ fn floored(t: &Turn<'_>) -> bool {
 }
 
 /// The frozen view of `built` under `room`: what slot G held, or the floor's overflow.
-fn frozen_of(built: Built, room: Room, recalled: Vec<String>) -> Frozen {
+fn frozen_of(built: Built, (room, fit): (Room, Fit), recalled: Vec<String>) -> Frozen {
     let Built { frozen, assembled } = built;
-    let (held, floor) = match assembled {
+    let (held, charged, floor) = match assembled {
         Ok(a) => {
             let here = (a.view.shown.iter()).filter(|s| s.piece.slot == Slot::Here);
-            (here.map(|s| s.tokens).sum(), None)
+            (here.map(|s| s.tokens).sum(), a.view.tokens, None)
         }
-        Err(o) => (0, Some(o)),
+        Err(o) => (0, fit.charged, Some(o)),
     };
     Frozen {
         room: Room { held, ..room },
+        fit: Fit { charged, ..fit },
         floor,
         recalled,
         ..frozen

@@ -190,7 +190,8 @@ impl TurnRunner {
         let mut compiled = compiled;
         for again in 0..=VIEW_READMISSIONS {
             if !(self.view_revoked(t) || self.view_moved(t)) {
-                return Ok(Ok(compiled));
+                // The request as it will be sent is held to its size (`room::view_sized`).
+                return self.view_sized(t, session, spec, compiled, i).await;
             }
             if again == VIEW_READMISSIONS {
                 return Ok(Err(Self::view_failed(t, &ViewFailed::Moved)));
