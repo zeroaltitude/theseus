@@ -940,9 +940,19 @@ async fn a_correction_supersedes_the_fact_and_recall_prefers_it() {
         .unwrap()
         .push_back(Scripted::text("You're welcome."));
     turn(c, &q, "Thanks, that is what I needed.").await;
-    let used = || core_rows(c, &crate::fact::recall::scope(&q), "memory.used");
-    until("both items attributed", || used().len() == 2).await;
-    let u = used();
+    // On the view every turn lays its recall afresh, so the thank-you turn has its own recall of the same
+    // two notes, each with its own row: the question's recall is read by its id.
+    let asked = m.recall_id.clone();
+    let rows = || core_rows(c, &crate::fact::recall::scope(&q), "memory.used");
+    until("both recalls' items attributed", || rows().len() == 4).await;
+    let (u, again): (Vec<Value>, Vec<Value>) = rows()
+        .into_iter()
+        .partition(|x| x["recall_id"] == asked.as_str());
+    assert_eq!(u.len(), 2, "the question's two items: {u:?}");
+    assert!(
+        again.iter().all(|x| x["used"] == json!(false)),
+        "\"You're welcome.\" uses neither: {again:?}"
+    );
     let of = |id: &str| u.iter().find(|x| x["node_id"] == id).cloned().unwrap();
     assert_eq!(of(&fix.id)["used"], true, "{u:?}");
     assert_eq!(of(&fix.id)["outcome"], "ok");
