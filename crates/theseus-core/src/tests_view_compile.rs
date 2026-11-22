@@ -1009,13 +1009,14 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
     assert!(sent.contains("the heron is grey"), "the widest: {sent}");
 }
 
-/// Round 3, the self loop's scope against an ordinary task (the brief's second test), with one foreign-context
-/// fixture: the owner's DM, another session at another place, made recallable. An ordinary task's turn (a task
-/// of principal `operator`) and an ordinary conversation's are laid it (the widest point of view); a fixer's and
-/// an approver's turn asking the same are laid nothing of it. The task asks on its second turn: a task's first
-/// compile admits no recall note (`compiler::situation::admits`), so the DM is indexed after its first.
+/// Round 3, the self loop's scope against an ordinary session (the brief's second test), with one
+/// foreign-context fixture: the owner's DM, another session at another place, made recallable. An ordinary
+/// conversation's turn is laid it (the widest point of view); a fixer's and an approver's turn asking the same
+/// are laid nothing of it. An ordinary TASK is not shown here: a task's first compile admits a recall note only
+/// as its compilation's own section (`compiler::situation`), and the task's execution is complete after that
+/// turn, so this rig gives it no second turn to ask on.
 #[tokio::test]
-async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_task_does() {
+async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
     use crate::tests_view_hand_backs::unmarked;
     const SECRET: &str = "the kelp vault code is 5519";
     let r = rig_with(|c| {
@@ -1030,15 +1031,11 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_t
     .unwrap();
     let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
     turn_as(c, &dm, SECRET, true).await;
-    let parent = crate::tests_places::session(c, None);
-    let (task, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
-    unmarked(c, &task, "task: begin").await.unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
     let ordinary = crate::tests_places::session(c, None);
     let fixer = self_session(c, "self fix: kelp");
     let approver = self_session(c, "self approve: kelp");
     for (sid, asks) in [
-        (&task, "task: what is the kelp vault code?"),
         (&ordinary, "ordinary: what is the kelp vault code?"),
         (&fixer, "fixer: what is the kelp vault code?"),
         (&approver, "approver: what is the kelp vault code?"),
@@ -1046,10 +1043,11 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_t
         unmarked(c, sid, asks).await.unwrap();
     }
     let sent = |asks: &str| texts(&asked(&r, asks).pop().expect("its request"));
-    for asks in ["task: what is", "ordinary: what is"] {
-        let got = sent(asks);
-        assert!(got.contains("5519"), "{asks}: the widest: {got}");
-    }
+    let got = sent("ordinary: what is");
+    assert!(
+        got.contains("5519"),
+        "the ordinary session, the widest: {got}"
+    );
     for asks in ["fixer: what is", "approver: what is"] {
         let got = sent(asks);
         assert!(!got.contains("5519"), "{asks}: another place's: {got}");
@@ -1142,7 +1140,7 @@ async fn a_scope_that_cannot_be_read_fails_the_assembly_and_widens_nothing() {
     let sent = r.requests().len();
     let err = c
         .context_census(&theseus_protocol::census::ContextCensusParams {
-            session_id: Some(sid.clone()),
+            session_id: Some(sid),
             place: None,
             exact: false,
         })

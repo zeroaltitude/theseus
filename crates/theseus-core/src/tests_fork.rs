@@ -1043,10 +1043,13 @@ async fn a_fork_of_a_session_with_no_labels_inside_the_point_carries_no_data() {
     assert!(rec.data.is_none(), "the label's item is after the point");
 }
 
-/// The first text of each message of a request, in order.
+/// Each text block of each message of a request, in order (a message may hold more than one: two user
+/// messages in a row are sent as one message of two blocks).
 fn said_in(req: &ProviderRequest) -> Vec<String> {
     (req.messages.iter())
-        .filter_map(|m| m["content"][0]["text"].as_str().map(str::to_string))
+        .filter_map(|m| m["content"].as_array())
+        .flatten()
+        .filter_map(|b| b["text"].as_str().map(str::to_string))
         .collect()
 }
 

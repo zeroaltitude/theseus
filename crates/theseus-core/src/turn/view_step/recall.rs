@@ -205,7 +205,7 @@ mod tests {
         core.store.put_session(&source.session_id, &source).unwrap();
         let mut rec = SessionRecord::new(SessionKind::Conversation, None);
         rec.forked_from = Some(Box::new(theseus_protocol::ForkOrigin {
-            session: source.session_id.clone(),
+            session: source.session_id,
             node: "nod_gone".into(),
             position: 1,
             compilation: None,
