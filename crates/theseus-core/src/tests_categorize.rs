@@ -1007,8 +1007,13 @@ async fn a_shared_place_and_a_task_are_never_judged() {
 /// The tenth turn, the one that brings a judgment, is the same with the
 /// judge off as against a Jev that is down, slow, or malformed: its request
 /// bytes, its result, its frames, and its time (well under the slow Jev's).
+/// Each rig starts at the same pinned moment (the start of a minute), so the
+/// minute each message's heading prints is the same in every rig.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_slow_or_failing_jev_changes_no_turn() {
+    let _clock = crate::test_support::pin_mid_period();
+    let start = theseus_protocol::now_unix_ms();
+    theseus_protocol::time::move_clock_to(start);
     let base = rig(None, EVERY, |_| {});
     let sid = session(&base.core, None);
     moorings(&base.core, &sid, EVERY - 1).await;
@@ -1022,6 +1027,7 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
     ] {
         let jev = FakeJev::start().unwrap();
         jev.set_mode(mode.clone());
+        theseus_protocol::time::move_clock_to(start);
         let r = rig(Some(&jev), EVERY, |c| c.judge.total_secs = 5);
         let sid = session(&r.core, None);
         moorings(&r.core, &sid, EVERY - 1).await;
