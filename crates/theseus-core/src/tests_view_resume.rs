@@ -38,12 +38,12 @@ fn given(c: &crate::Core, turn: &str) -> Option<Present> {
     Some(g.present())
 }
 
-/// The turns of `sid` that compiled a request, oldest first, each once (its `context.compiled` rows).
+/// The turns of `sid`, oldest first, each once: the turn of each of its nodes (a turn that extends the same
+/// chain writes no compile row of its own, so its nodes are the record).
 fn started(c: &crate::Core, sid: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for r in crate::test_support::rows(c, "context.compiled") {
-        let turn = r["turn_id"].as_str().unwrap_or_default().to_string();
-        if r["session_id"] == sid && !out.contains(&turn) {
+    for (_, n) in c.store.session_nodes(sid).unwrap() {
+        if let Some(turn) = n.turn_id.filter(|t| !out.contains(t)) {
             out.push(turn);
         }
     }
@@ -177,7 +177,7 @@ async fn a_continuations_own_call_answered_later_keeps_the_question() {
     assert_eq!(t.matches(ASKED).count(), 1, "the question, once: {t}");
     r.until("its answer", 15, |_| answered(c, &sid, "GAUGE-SECOND-88"))
         .await;
-    r.until("three turns' compiles", 15, |_| started(c, &sid).len() >= 3)
+    r.until("three turns", 15, |_| started(c, &sid).len() >= 3)
         .await;
     let turns = started(c, &sid);
     assert!(turns.len() >= 3, "{turns:?}");
