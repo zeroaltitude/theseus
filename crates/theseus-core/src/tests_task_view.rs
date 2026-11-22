@@ -684,7 +684,13 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
         relayed
             .iter()
             .any(|t| t.contains("its report is waiting where the owner is alone")),
-        "the notice is relayed (kept: {kept}): {relayed:?}"
+        "the notice is relayed (kept: {kept}): {relayed:?}; the parent's messages: {:?}",
+        (r.core.store.session_nodes(&parent).unwrap().iter())
+            .filter_map(|(_, n)| match &n.body {
+                Body::UserMessage { text, .. } => Some(text.chars().take(120).collect::<String>()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
     );
     assert!(
         relayed.iter().all(|t| !t.contains(FACT)),
