@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_protocol::exchange::{
-    ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams, ExchangeReportParams,
+    ExchangeAdoptParams, ExchangeLadderParams, ExchangeLadderResult, ExchangeRebuildParams,
+    ExchangeReportParams,
 };
 use theseus_protocol::{error_code, method, TurnSubmitParams};
 
@@ -21,6 +22,7 @@ pub(super) const OWN: &[&str] = &[
     method::EXCHANGE_REPORT,
     method::EXCHANGE_REBUILD,
     method::EXCHANGE_LADDER,
+    method::EXCHANGE_ADOPT,
 ];
 
 impl Core {
@@ -153,6 +155,10 @@ impl Core {
                     stopped: b.stopped,
                 })
             }
+            method::EXCHANGE_ADOPT => {
+                let p: ExchangeAdoptParams = parse(params)?;
+                self.clone().adopt(p, conn).await?
+            }
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -161,5 +167,63 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
+    }
+}
+
+impl Core {
+    /// `exchange.adopt`: the owner's own act, so the owner in person only,
+    /// as `exchange.ladder` is: never an agent's process at the terminal, and
+    /// never a job. Each session's seal is the gate's (`view_gate::seal_of`),
+    /// and anything not proven clear is left.
+    async fn adopt(
+        self: Arc<Self>,
+        p: ExchangeAdoptParams,
+        conn: Conn<'_>,
+    ) -> Result<serde_json::Result<Value>, RpcFailure> {
+        let who = conn.answerer(None, None);
+        let rule = &self.runner.place_rule;
+        if let Err(why) = crate::places::owner_in_person_of(
+            &who,
+            rule,
+            &self.cfg,
+            "adopting history into a place is the owner's own act",
+            "",
+        ) {
+            return Err(RpcFailure::new(
+                error_code::REFUSED,
+                format!("not adopted: {why}"),
+            ));
+        }
+        let private =
+            rule.class(&self.cfg, Some(p.place.trim())) == crate::places::PlaceClass::Private;
+        let surface = conn.surface.as_str().to_string();
+        let core = self.clone();
+        let r = super::import::blocking(move || {
+            let sealed = |sid: &str| {
+                crate::view_gate::seal_of(&core.runner, None, sid)
+                    != theseus_memory::gate::Seal::Clear
+            };
+            // The threads unread: every node is held out.
+            let board = core.runner.threads.all(&core.store).ok();
+            let node_sealed = |sid: &str, node: &str| {
+                board.as_ref().is_none_or(|b| {
+                    crate::view_gate::node_seal(&core.store, b, None, sid, node)
+                        != theseus_memory::gate::Seal::Clear
+                })
+            };
+            let a = crate::exchange::adopt::Asker {
+                surface: &surface,
+                private,
+                sealed: &sealed,
+                node_sealed: &node_sealed,
+                now_ms: theseus_protocol::time::now_unix_ms(),
+            };
+            match p.undo.clone() {
+                Some(id) => crate::exchange::adopt::undo(&core.store, &a, &p, &id),
+                None => crate::exchange::adopt::adopt(&core.store, &a, &p),
+            }
+        })
+        .await?;
+        Ok(serde_json::to_value(r))
     }
 }
