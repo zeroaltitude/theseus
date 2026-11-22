@@ -68,29 +68,26 @@ async fn the_owner_alone_is_shown_every_recalled_item_once() {
     assert_eq!(compiled.last().unwrap()["strategy"], "view");
 }
 
-/// In a shared channel the owner's private memory is not laid: the view lays no more than the transcript's
-/// `Recall` note carried there, which is nothing of it.
+/// In a shared channel the owner's private memory is not laid: none of his imported, earlier or episodic
+/// items reaches a request made in company.
 #[tokio::test]
-async fn in_company_a_private_item_is_not_laid() {
-    let mut got = Vec::new();
-    for on_view in [false, true] {
-        // The transcript's side is a turn with the ledger off, which only a test can set.
-        let (r, ids) = owners_rig(|c| c.context.ledger = (!on_view).then_some(false));
-        let c = &r.core;
-        let mut sources = old_memories(c);
-        sources.push(ids[3].clone());
-        c.runner.memory.set_ask(index_of(c, sources));
-        let shared = crate::tests_places::session(c, Some(&format!("channel:{LAB}")));
-        turn(c, &shared, ASKED).await;
-        let sent = texts(&calls(&r).pop().unwrap());
-        got.push([IMPORTED, BEFORE, EPISODE].map(|w| sent.contains(w)));
-    }
-    let (transcript, view) = (got[0], got[1]);
-    for (i, laid) in view.iter().enumerate() {
-        assert!(!laid, "item {i} is not laid in company: {view:?}");
+async fn in_company_none_of_the_owners_private_items_is_laid() {
+    let (r, ids) = owners_rig(|_| {});
+    let c = &r.core;
+    let mut sources = old_memories(c);
+    sources.push(ids[3].clone());
+    c.runner.memory.set_ask(index_of(c, sources));
+    let shared = crate::tests_places::session(c, Some(&format!("channel:{LAB}")));
+    turn(c, &shared, ASKED).await;
+    let sent = texts(&calls(&r).pop().unwrap());
+    assert!(
+        sent.contains(ASKED),
+        "the request read is the shared turn's: {sent}"
+    );
+    for words in [IMPORTED, BEFORE, EPISODE] {
         assert!(
-            !laid || transcript[i],
-            "never more than the transcript: {transcript:?} {view:?}"
+            !sent.contains(words),
+            "{words:?} is not laid in company: {sent}"
         );
     }
 }

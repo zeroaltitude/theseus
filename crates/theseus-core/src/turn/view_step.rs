@@ -23,7 +23,7 @@ pub(crate) use super::exchange_step::route_unreadable;
 pub(crate) use failed::fail_next_assembly;
 pub(in crate::turn) use failed::ViewFailed;
 
-use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
+use super::{CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
 use crate::node::{Body, Node};
 use crate::store::{Store, Transcript};
@@ -51,12 +51,6 @@ use crate::view_gate::Verified;
 use theseus_memory::gate::Seal;
 
 impl TurnRunner {
-    /// A turn with the ledger off is the transcript's: it writes no exchange for a view to read. Only a test
-    /// can turn the ledger off (`[context] ledger` is a retired key), to stand for history from before it.
-    pub(super) fn on_transcript(&self) -> bool {
-        !self.cfg.context.ledger_on()
-    }
-
     /// This loop's compile, from the turn's view (assembled on its first call). A view that cannot be
     /// assembled soundly fails the turn plainly (`ViewFailed`): never a partial view. The view's record is
     /// kept with the compilation it was built for, once.
@@ -65,9 +59,6 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         input: CompileInput<'_>,
     ) -> anyhow::Result<Compiled> {
-        if self.on_transcript() {
-            return Ok(compile(input));
-        }
         // The message's numbered items, named off the path since the exchange opened, are what its view's
         // names are matched with.
         t.exchange.await_items().await;

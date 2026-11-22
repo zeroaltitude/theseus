@@ -127,10 +127,6 @@ pub(super) fn failed(t: &mut Turn<'_>, class: &str) {
 }
 
 impl TurnRunner {
-    fn ledger_on(&self, _: &Turn<'_>) -> bool {
-        self.cfg.context.ledger_on()
-    }
-
     /// The turn's place, read once and the same for its exchange and its gate (issue 44): where its
     /// message arrived (its mark's), else where its reply is delivered (`speaks_at`: a wake's or a
     /// report's target too). None when that cannot be read: a route that cannot be read is no place,
@@ -274,9 +270,6 @@ impl TurnRunner {
         let crate::node::Body::UserMessage { text, .. } = &node.body else {
             return;
         };
-        if !self.ledger_on(t) {
-            return;
-        }
         let mark = arrival.map(|m| OwnerMark {
             node: node.id.clone(),
             ran_session: t.tc.session_id.into(),
@@ -303,9 +296,6 @@ impl TurnRunner {
     /// touches; the naming of its message's things starts here, keyed at its
     /// start, and the counts of the place's last reply's are taken for its row.
     pub(super) fn exchange_open(&self, t: &mut Turn<'_>, prompted: bool) {
-        if !self.ledger_on(t) {
-            return;
-        }
         let sid = t.tc.session_id;
         // A task's first turn answers its brief, written before the turn: its ask.
         let brief = (t.tc.task.is_some() && t.exchange.ask.is_none())

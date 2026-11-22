@@ -59,8 +59,9 @@ fn a_settings_file_naming_every_retired_key_loads_and_names_each() {
         assert!(said[0].contains(k.why), "{}", said[0]);
     }
     assert_eq!(ignored.len(), RETIRED.len());
-    // Nothing of what the file said reached a reader: the ledger is on.
-    assert_eq!(cfg.context.ledger, None);
+    // Nothing of what the file said reached a reader: the context section is as if unset (the ledger has
+    // no switch left to read).
+    assert!(cfg.context.is_empty(), "{:?}", cfg.context);
 }
 
 /// `[context] ledger = true` is ignored with the same warning as `false`: the

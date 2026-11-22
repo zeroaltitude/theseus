@@ -581,12 +581,8 @@ pub fn continued(store: &Store, class: &Place, turn_id: &str) -> Option<Present>
 /// input of a turn of `delivery`, the session it reports to. Not when the
 /// place it reports to has moved since the task started, nor when the
 /// presence of the turn that started it would be narrower there now than it
-/// was then: its sources may not be shown there. With the ledger off, as
-/// before.
+/// was then: its sources may not be shown there.
 pub fn report_shown(runner: &TurnRunner, delivery: &str, task: &str) -> bool {
-    if !runner.cfg.context.ledger_on() {
-        return true;
-    }
     let Ok(Some(rec)) = runner.store.get_session::<SessionRecord>(task) else {
         return false;
     };
@@ -653,17 +649,13 @@ pub fn readmit_sources(
 
 /// The threads of a place digest a turn of `session` may be shown: only
 /// where the owner is alone does it name other threads (they are other
-/// places); otherwise its own thread `here` alone. With the ledger off, as
-/// before.
+/// places); otherwise its own thread `here` alone.
 pub fn digest_threads<'b>(
     runner: &TurnRunner,
     session: &str,
     here: &str,
     live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
 ) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
-    if !runner.cfg.context.ledger_on() {
-        return live;
-    }
     let alone = runner
         .presence
         .get(session)
@@ -745,9 +737,6 @@ impl RecallPlaces {
                 own: Some(t),
                 channel: true,
             };
-        }
-        if !runner.cfg.context.ledger_on() {
-            return Self::default();
         }
         Self::narrowed_to(runner, asker, asking)
     }
