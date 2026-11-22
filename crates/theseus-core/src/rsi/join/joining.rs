@@ -157,8 +157,35 @@ impl Run<'_> {
             self.seams.installer.clone(),
             merge.clone(),
         );
-        match blocking(move || i.start(&p, &m)).await {
+        // Under way from here, as the pipeline's view says (issue 41): a quiet loop is not this.
+        let under_way = crate::rsi::pipeline::Installing {
+            item: self.b.item.clone(),
+            title: self.b.why.lines().next().unwrap_or("").trim().to_string(),
+            branch: self.b.branch.clone(),
+            merge: merge.clone(),
+            since_ms: theseus_protocol::now_unix_ms(),
+        };
+        *self
+            .core
+            .rsi
+            .pipeline
+            .installing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(under_way);
+        let started = blocking(move || i.start(&p, &m)).await;
+        if !matches!(started, Ok(Started::Unit(_))) {
+            // Ended with no restart to come: no install is under way.
+            *self
+                .core
+                .rsi
+                .pipeline
+                .installing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        }
+        match started {
             Ok(Started::Unit(unit)) => {
+                // Its unit copies the build in and restarts the daemon: still under way until then.
                 tracing::info!(%unit, "self-join: the install is handed to its unit");
             }
             Ok(Started::NotInstalled(n)) => {

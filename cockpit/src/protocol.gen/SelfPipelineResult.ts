@@ -15,6 +15,12 @@ export type SelfPipelineResult = { state: SelfState,
  */
 builder: string, ready: Array<SelfPipelineItem>, building: Array<SelfPipelineItem>, reviewing: Array<SelfPipelineItem>, joining: Array<SelfPipelineItem>, 
 /**
+ * The loop's own install under way (issue 41): its build in L1, then its
+ * unit, which restarts the daemon. A state of its own, so anything that
+ * waits for a quiet loop sees it.
+ */
+installing: Array<SelfPipelineItem>, 
+/**
  * Out of the pipeline, waiting on the owner: rejected twice, at the
  * keel, or stopped at a join.
  */

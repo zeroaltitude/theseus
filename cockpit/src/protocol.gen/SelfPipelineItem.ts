@@ -5,7 +5,7 @@
  */
 export type SelfPipelineItem = { item: string, title: string, 
 /**
- * `ready`, `building`, `reviewing`, `joining` or `held`.
+ * `ready`, `building`, `reviewing`, `joining`, `installing` or `held`.
  */
 queue: string, 
 /**

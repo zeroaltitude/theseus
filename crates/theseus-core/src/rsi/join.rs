@@ -88,6 +88,8 @@ mod tests_dependencies;
 #[cfg(test)]
 mod tests_install_truth;
 #[cfg(test)]
+mod tests_installing;
+#[cfg(test)]
 mod tests_moved;
 #[cfg(test)]
 mod tests_notify;

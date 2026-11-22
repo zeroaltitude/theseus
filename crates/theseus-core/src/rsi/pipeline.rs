@@ -73,6 +73,7 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
+pub(crate) mod held_long;
 pub mod main_red;
 pub(crate) mod parked;
 pub(crate) mod queues;
@@ -88,6 +89,8 @@ mod tests_brief;
 mod tests_cap;
 #[cfg(test)]
 mod tests_fetch;
+#[cfg(test)]
+mod tests_held_long;
 #[cfg(test)]
 mod tests_lease;
 #[cfg(test)]
@@ -153,6 +156,19 @@ pub struct Shared {
     /// New self builds are paused (`super::pause`): memory of this process only, so a restart of
     /// the daemon clears it.
     pub(crate) paused: std::sync::Mutex<Option<super::pause::Pause>>,
+    /// The loop's own install under way (issue 41): set as the install phase starts, cleared when
+    /// it ends without a restart; its unit restarts the daemon, which ends it with the process.
+    pub(crate) installing: std::sync::Mutex<Option<Installing>>,
+}
+
+/// An install the loop has under way, as the pipeline's view names it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Installing {
+    pub item: String,
+    pub title: String,
+    pub branch: String,
+    pub merge: String,
+    pub since_ms: u64,
 }
 
 impl std::fmt::Debug for Shared {

@@ -11,7 +11,7 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { useNavigate, useSearchParams } from 'react-router'
 import { useQueries } from '@tanstack/react-query'
 import { History, Inbox, PanelLeftOpen, PanelRightOpen, X } from 'lucide-react'
-import type { CatalogList, ConfirmRequest, ProfileList, SessionListResult, TaskListResult } from '@protocol'
+import type { CatalogList, ConfirmRequest, HealthResult, ProfileList, SessionListResult, TaskListResult } from '@protocol'
 import { call, useRpc } from '@/lib/rpc'
 import { pricing } from '@/lib/money'
 import { watchRows } from '@/lib/agenda'
@@ -195,6 +195,9 @@ export default function Ops() {
   const [dockFocus, setDockFocus] = useState(false)
   const { data: pl } = useRpc<ProfileList>('profile.list', undefined, 0)
   const { data: cat } = useRpc<CatalogList>('catalog.list', undefined, 0)
+  // The self loop held on its slots for hours (issue 41): said here, with the one act that clears it.
+  const { data: hl } = useRpc<HealthResult>('health', undefined, 60_000)
+  const selfHeld = hl?.self_held
   const [flash, setFlash] = useState<string | null>(null)
   useEffect(() => { if (!flash) return; const t = window.setTimeout(() => setFlash(null), 3500); return () => window.clearTimeout(t) }, [flash])
   const searchRef = useRef<HTMLInputElement>(null)
@@ -429,6 +432,11 @@ export default function Ops() {
       {world && (
         <div className="flex items-center gap-2 rounded-lg bg-wait/[0.06] px-3 py-2 text-[12px] text-wait ring-1 ring-wait/30">
           <History size={14} /> As of {stamp(world.t)}, folded from the ledger. Acting needs the present: return to LIVE in the ship&rsquo;s log below.
+        </div>
+      )}
+      {!world && selfHeld && (
+        <div role="status" data-testid="self-held" className="flex items-center gap-2 rounded-lg bg-wait/[0.06] px-3 py-2 text-[12px] text-wait ring-1 ring-wait/30">
+          {selfHeld.charAt(0).toUpperCase() + selfHeld.slice(1)}
         </div>
       )}
       <CommandBar counts={counts} f={a.f} onFilter={filter} lens={a.lens} onLens={lens} choices={choices} q={a.q} onQ={(q) => set({ q })} n={n} of={of}

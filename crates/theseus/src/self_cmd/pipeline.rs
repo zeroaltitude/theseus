@@ -1,5 +1,5 @@
 //! `theseus self pipeline [--week]` (theseus-pw1q.16): the self pipeline's
-//! queues (ready, building, reviewing, joining, and the owner's), what holds
+//! queues (ready, building, reviewing, joining, an install under way, and the owner's), what holds
 //! its next start and why, today's spend and rows, and with `--week` the
 //! week's measures. The owner's words on it are `theseus self drop`, `self
 //! move` and `self halt`, which act at once.
@@ -102,8 +102,16 @@ pub fn lines(r: &SelfPipelineResult) -> Vec<String> {
         ("Building", &r.building),
         ("Reviewing", &r.reviewing),
         ("Joining (one at a time, under the join lock)", &r.joining),
+        (
+            "Installing (the loop's own, until its unit restarts the daemon)",
+            &r.installing,
+        ),
         ("Held for the owner", &r.held),
     ] {
+        // An install is said while one is under way (issue 41), and is no line otherwise.
+        if q.is_empty() && std::ptr::eq(q, &r.installing) {
+            continue;
+        }
         if q.is_empty() {
             out.push(format!("{name}: none."));
             continue;

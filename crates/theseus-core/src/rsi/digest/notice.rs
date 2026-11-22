@@ -304,24 +304,31 @@ pub fn notice_text(rows: &[LedgerRow], n: &Night) -> Option<String> {
 }
 
 impl Core {
-    /// What waits for the owner, worded: each backlog item held for the owner
-    /// (a keel class) that was filed in the window, with the command that shows
-    /// it (an older one was told when it was filed: the notice is quiet).
+    /// What waits for the owner, worded: a hold on the loop's slots that has
+    /// lasted for hours (`pipeline::held_long`), then each backlog item held for
+    /// the owner (a keel class) that was filed in the window, with the command
+    /// that shows it (an older one was told when it was filed: the notice is
+    /// quiet).
     fn notice_waits(&self, since_ms: u64) -> Vec<String> {
+        // The loop held on its slots for hours (issue 41): told each morning while it lasts.
+        let held = self.self_held().map(|l| format!("• {l}"));
         let Ok(b) = self.self_backlog(&SelfBacklogParams::default()) else {
-            return vec![];
+            return held.into_iter().collect();
         };
-        b.items
-            .iter()
-            .filter(|i| i.state == "waiting_human" && i.filed_ms >= since_ms)
-            .map(|i| {
-                let why = i
-                    .keel
-                    .as_deref()
-                    .map_or(String::new(), |k| format!(" ({k})"));
-                format!("• {}{why}: theseus self backlog show {}", i.title, i.rank)
-            })
-            .collect()
+        let mut waits: Vec<String> = held.into_iter().collect();
+        waits.extend(
+            b.items
+                .iter()
+                .filter(|i| i.state == "waiting_human" && i.filed_ms >= since_ms)
+                .map(|i| {
+                    let why = i
+                        .keel
+                        .as_deref()
+                        .map_or(String::new(), |k| format!(" ({k})"));
+                    format!("• {}{why}: theseus self backlog show {}", i.title, i.rank)
+                }),
+        );
+        waits
     }
 
     /// The items of the Rust mints: the backlog's tasks that carry a `mint:`

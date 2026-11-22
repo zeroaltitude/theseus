@@ -53,6 +53,11 @@ const PHASE_TREES: &[&str] = &["keel-", "planted-", "install-", "probe-", "rever
 /// The merge's tree, open from the merge to the push.
 const MERGE_TREE: &str = "join-";
 
+/// Whether `name` is a phase's tree (keel, planted, install, probe, revert).
+pub fn is_phase_tree(name: &str) -> bool {
+    PHASE_TREES.iter().any(|p| name.starts_with(p))
+}
+
 /// The names of the join's trees open under the trees directory; with `merge`, the merge's too.
 pub fn left_open(trees: &Path, merge: bool) -> Vec<String> {
     let Ok(dir) = std::fs::read_dir(trees) else {
