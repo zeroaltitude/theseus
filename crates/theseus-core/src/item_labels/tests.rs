@@ -1,15 +1,30 @@
 use super::*;
 
 fn label(flag: Flag, node: &str, at_ms: u64) -> Label {
+    of_kind(flag, node, at_ms, ItemKind::ToolResult)
+}
+
+/// A label raised by an item of `kind`: the kind the session decision reads.
+fn of_kind(flag: Flag, node: &str, at_ms: u64, kind: ItemKind) -> Label {
     Label {
         flag,
         node: Some(node.into()),
-        kind: ItemKind::ToolResult,
+        kind,
         source: "fs.read".into(),
         confidence: 0.9,
         band: Band::Act,
         at_ms,
         judgment: "jdg_1".into(),
+    }
+}
+
+/// The one session these pure tests read for.
+const SID: &str = "ses_1";
+
+fn read(flags: &ContentFlags) -> Reading<'_> {
+    Reading {
+        session: SID,
+        flags,
     }
 }
 
@@ -67,7 +82,7 @@ fn the_items_and_the_session_always_agree() {
                         let gone = session.removed.last().cloned().expect("kept");
                         let node = r.node.expect("named");
                         let item = items.iter_mut().find(|i| i.node == node).expect("its item");
-                        removed(item, &gone);
+                        removed(item, SID, &gone);
                     }
                 }
                 _ => {
@@ -85,21 +100,22 @@ fn the_items_and_the_session_always_agree() {
                     }
                     let item = &mut items[at];
                     let entered = item.entered_ms;
-                    let l = label(flag, &item.node.clone(), clock);
-                    land(&mut session, item, l, entered);
+                    // The label carries its item's true kind: the session decision reads it, never the record.
+                    let l = of_kind(flag, &item.node.clone(), clock, item.kind);
+                    land(&mut session, Some(item), l, entered);
                 }
             }
             for f in Flag::ALL {
                 let stands = (items.iter())
                     .filter(|i| i.kind.on_session())
-                    .any(|i| i.stands(f, &session));
+                    .any(|i| i.stands(f, read(&session)));
                 assert_eq!(session.has(f), stands, "seed {seed}, {f:?}");
             }
             for l in &session.labels {
                 let node = l.node.as_deref().expect("named");
                 let item = items.iter().find(|i| i.node == node).expect("its item");
                 assert!(
-                    item.stands(l.flag, &session),
+                    item.stands(l.flag, read(&session)),
                     "seed {seed}: {node} {:?}",
                     l.flag
                 );
@@ -115,13 +131,16 @@ fn a_failed_ask_is_failed_and_never_clean() {
     let s = ContentFlags::default();
     let mut i = ItemLabels::new("n1", ItemKind::ToolResult, "fs.read", 1);
     i.asked(asked("failed", vec![]));
-    assert_eq!(state(Some(&i), &s), "failed");
-    assert_eq!(view("n1", Some(&i), &s, vec![]).line(), "failed (failed)");
+    assert_eq!(state(Some(&i), read(&s)), "failed");
+    assert_eq!(
+        view("n1", Some(&i), read(&s), vec![]).line(),
+        "failed (failed)"
+    );
     i.asked(asked("answered", vec![no(Flag::Secret)]));
-    assert_eq!(state(Some(&i), &s), "clean");
+    assert_eq!(state(Some(&i), read(&s)), "clean");
     i.asked(asked("refused", vec![]));
     assert_eq!(
-        state(Some(&i), &s),
+        state(Some(&i), read(&s)),
         "clean",
         "a later failure keeps the answer"
     );
@@ -140,7 +159,7 @@ fn clean_not_asked_and_not_judged_are_told_apart() {
     let mut i = ItemLabels::new("n1", ItemKind::OperatorMessage, "operator message", 1);
     let answers = [Flag::Secret, Flag::Confidential, Flag::Personal];
     i.asked(asked("answered", answers.into_iter().map(no).collect()));
-    let v = view("n1", Some(&i), &s, vec!["topic:rust".into()]);
+    let v = view("n1", Some(&i), read(&s), vec!["topic:rust".into()]);
     assert_eq!(v.state, "clean");
     assert_eq!(v.line(), "asked, clean; topics topic:rust");
     let q = |w: &str| {
@@ -153,7 +172,7 @@ fn clean_not_asked_and_not_judged_are_told_apart() {
     assert_eq!(q("injection").said, "not_asked");
     assert_eq!(q("secret").said, "no");
     assert_eq!(q("secret").band.as_deref(), Some("act"));
-    let none = view("n2", None, &s, vec![]);
+    let none = view("n2", None, read(&s), vec![]);
     assert_eq!(
         (none.state.as_str(), none.line()),
         ("not_judged", "not judged then".into())
@@ -170,11 +189,11 @@ fn a_flag_reads_its_band_and_pack_and_a_removal_is_on_both() {
     let mut l = label(Flag::Personal, "n1", 2);
     l.band = Band::Confirm;
     l.confidence = 0.91;
-    assert!(land(&mut s, &mut i, l, 1));
+    assert!(land(&mut s, Some(&mut i), l, 1));
     let mut d = label(Flag::Confidential, "n1", 3);
     d.judgment = String::new();
-    assert!(land(&mut s, &mut i, d, 1));
-    let v = view("n1", Some(&i), &s, vec![]);
+    assert!(land(&mut s, Some(&mut i), d, 1));
+    let v = view("n1", Some(&i), read(&s), vec![]);
     assert_eq!(v.state, "labelled");
     assert_eq!(
         v.line(),
@@ -182,8 +201,8 @@ fn a_flag_reads_its_band_and_pack_and_a_removal_is_on_both() {
     );
     s.remove(Flag::Personal, "the owner", "cli", 9)
         .expect("held");
-    removed(&mut i, s.removed.last().unwrap());
-    let v = view("n1", Some(&i), &s, vec![]);
+    removed(&mut i, SID, s.removed.last().unwrap());
+    let v = view("n1", Some(&i), read(&s), vec![]);
     assert!(!s.has(Flag::Personal));
     assert_eq!(
         v.line(),
@@ -215,8 +234,95 @@ fn the_record_is_keyed_by_its_node_and_decodes_sparse() {
 fn a_replys_label_stays_on_the_reply() {
     let mut s = ContentFlags::default();
     let mut i = ItemLabels::new("r1", ItemKind::Reply, "reply", 1);
-    assert!(!land(&mut s, &mut i, label(Flag::Injection, "r1", 2), 1));
+    let l = of_kind(Flag::Injection, "r1", 2, ItemKind::Reply);
+    assert!(!land(&mut s, Some(&mut i), l, 1));
     assert!(s.labels.is_empty(), "the session carries nothing");
-    assert!(i.stands(Flag::Injection, &s));
-    assert_eq!(state(Some(&i), &s), "labelled");
+    assert!(i.stands(Flag::Injection, read(&s)));
+    assert_eq!(state(Some(&i), read(&s)), "labelled");
+}
+
+/// **5. The session decision reads the incoming label, not the stored record.** A stored record that says
+/// `reply` does not keep an input's label off the session, and one that says `tool_result` does not put a
+/// reply's on it.
+#[test]
+fn the_session_decision_reads_the_incoming_label_alone() {
+    let mut s = ContentFlags::default();
+    let mut stale = ItemLabels::new("n1", ItemKind::Reply, "reply", 1);
+    assert!(land(
+        &mut s,
+        Some(&mut stale),
+        label(Flag::Secret, "n1", 2),
+        1
+    ));
+    assert!(s.has(Flag::Secret), "an input's label goes on the session");
+    let mut other = ItemLabels::new("n2", ItemKind::ToolResult, "fs.read", 1);
+    let reply = of_kind(Flag::Personal, "n2", 3, ItemKind::Reply);
+    assert!(!land(&mut s, Some(&mut other), reply, 1));
+    assert!(
+        !s.has(Flag::Personal),
+        "a reply's label stays off the session"
+    );
+    assert!(!land(
+        &mut s,
+        None,
+        of_kind(Flag::Injection, "n3", 4, ItemKind::Reply),
+        1
+    ));
+    assert!(
+        land(&mut s, None, label(Flag::Injection, "n3", 4), 1),
+        "no record: the session still decides"
+    );
+}
+
+/// **3. A removal is its session's.** Kept on the item for the session that removed it, it covers the item
+/// read for that session and no other.
+#[test]
+fn a_removal_kept_on_the_item_covers_its_own_session_alone() {
+    let mut fork = ContentFlags::default();
+    let mut i = ItemLabels::new("n1", ItemKind::PersonMessage, "discord:dm", 1);
+    let source = ContentFlags::default();
+    assert!(land(
+        &mut fork,
+        Some(&mut i),
+        label(Flag::Personal, "n1", 2),
+        1
+    ));
+    fork.remove(Flag::Personal, "the owner", "cli", 9)
+        .expect("held");
+    removed(&mut i, "ses_fork", fork.removed.last().unwrap());
+    let in_fork = Reading {
+        session: "ses_fork",
+        flags: &fork,
+    };
+    let in_source = Reading {
+        session: SID,
+        flags: &source,
+    };
+    assert!(!i.stands(Flag::Personal, in_fork));
+    assert!(
+        i.stands(Flag::Personal, in_source),
+        "the source's item keeps it"
+    );
+}
+
+/// **4. A cut is never clean.** An answer read in part (`truncated`) reads `failed (truncated)`, and so does
+/// a reply the batch's piece bound cut out whole; a flag it raised still stands.
+#[test]
+fn an_item_read_in_part_is_never_clean() {
+    let s = ContentFlags::default();
+    let mut i = ItemLabels::new("n1", ItemKind::Reply, "reply", 1);
+    let mut part = asked("answered", vec![no(Flag::Secret)]);
+    part.truncated = true;
+    i.asked(part);
+    assert_eq!(
+        view("n1", Some(&i), read(&s), vec![]).line(),
+        "failed (truncated)"
+    );
+    let mut cut = ItemLabels::new("n2", ItemKind::Reply, "reply", 1);
+    cut.asked(asked("truncated", vec![]));
+    assert_eq!(state(Some(&cut), read(&s)), "failed");
+    let mut s2 = ContentFlags::default();
+    let raised = of_kind(Flag::Personal, "n1", 2, ItemKind::Reply);
+    land(&mut s2, Some(&mut i), raised, 1);
+    assert_eq!(state(Some(&i), read(&s2)), "labelled");
 }
