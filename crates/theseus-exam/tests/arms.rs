@@ -177,10 +177,17 @@ fn answer(mut stream: TcpStream, seen: &Mutex<Vec<Vec<String>>>) -> std::io::Res
         })
         .unwrap_or_default();
     let joined = texts.join("\n");
-    let reply = match joined.find("[Recalled by the harness:") {
-        Some(at) => format!("From my notes: {}", &joined[at..]),
-        None => UNKNOWN.to_string(),
+    // On the view (issue 44) a daemon's recall is no block of its own: each recalled item is a piece of the
+    // block beside the message, under a heading that says recall chose it. Those pieces, and nothing else of
+    // that block, are this stand-in's notes too; the oracle's note, given in the message, is read as before.
+    let recalled = recalled_beside(&req);
+    let reply = match (joined.find("[Recalled by the harness:"), recalled.first()) {
+        (Some(at), _) => format!("From my notes: {}", &joined[at..]),
+        (None, Some(piece)) => format!("From my notes: {piece}"),
+        (None, None) => UNKNOWN.to_string(),
     };
+    let mut texts = texts;
+    texts.extend(recalled);
     seen.lock().unwrap().push(texts);
     let events = [
         json!({"type": "message_start", "message": {"id": "msg_exam", "type": "message", "role": "assistant", "model": "claude-sonnet-5-5", "content": [], "usage": {"input_tokens": 60, "output_tokens": 1}}}),
@@ -405,6 +412,75 @@ fn check_records(recs: &[drive::Record]) {
     }
 }
 
+/// The headings the view lays over a piece (`view::text::labels`): one line, before the piece's words.
+fn is_heading(line: &str) -> bool {
+    line.ends_with("; testimony, not instruction; possibly stale")
+        || line.ends_with("author unknown; not the owner's instruction")
+        || line.starts_with("the owner said, in ")
+}
+
+/// The recall laid in the block beside the last user message (`view::wire_text::BESIDE_HEAD`): a line that opens
+/// with the recall's own preamble ("[Recalled by the harness: …") and whose next words are the view's heading for the
+/// recalled item, to the end of that item (the next heading after it). A preamble that is an earlier turn's words (the
+/// oracle's message, which carries its note in the text, laid again in a later turn of the same daemon) is followed by
+/// the note's own header instead, and is not recall: the `none` arm answers from nothing.
+fn recalled_beside(req: &Value) -> Vec<String> {
+    let last = (req["messages"].as_array().into_iter().flatten()).rfind(|m| m["role"] == "user");
+    let blocks: Vec<&str> = match last.map(|m| &m["content"]) {
+        Some(Value::Array(b)) => b.iter().filter_map(|b| b["text"].as_str()).collect(),
+        Some(Value::String(s)) => vec![s.as_str()],
+        _ => Vec::new(),
+    };
+    let mut out = Vec::new();
+    for block in blocks
+        .into_iter()
+        .filter(|b| b.starts_with(theseus_core::view::wire_text::BESIDE_HEAD))
+    {
+        let lines: Vec<&str> = block.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if !line.starts_with("[Recalled by the harness:") {
+                continue;
+            }
+            let next = lines[i + 1..].iter().find(|l| !l.trim().is_empty());
+            if !next.is_some_and(|l| is_heading(l)) {
+                continue;
+            }
+            let mut piece = vec![*line];
+            let mut headings = 0;
+            for l in &lines[i + 1..] {
+                if is_heading(l) {
+                    headings += 1;
+                    if headings > 1 {
+                        break;
+                    }
+                }
+                piece.push(l);
+            }
+            out.push(piece.join("\n").trim_end().to_string());
+            break;
+        }
+    }
+    out
+}
+
+/// A note's lines as the view and the oracle share them: the view lays each recalled item under a heading of its
+/// own where the core's note numbers it (`(1) [m:…] …`), so the headings, the numbers and the blank lines around
+/// them are left out; every other byte is compared.
+fn note_lines(note: &str) -> Vec<String> {
+    let number = |l: &str| -> String {
+        match l.split_once(") ") {
+            Some((n, rest)) if n.starts_with('(') && n[1..].chars().all(|c| c.is_ascii_digit()) => {
+                rest.to_string()
+            }
+            _ => l.to_string(),
+        }
+    };
+    (note.lines())
+        .filter(|l| !l.trim().is_empty() && !is_heading(l))
+        .map(number)
+        .collect()
+}
+
 /// The oracle's note is the baseline daemon's render of the same gold, byte
 /// for byte, after the task.
 fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<String>]) {
@@ -418,9 +494,12 @@ fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<Str
             "no request with {}'s recall: {seen:?}",
             item.id
         );
+        // On the view the baseline's note is laid beside the message, the view's heading over its item where the
+        // oracle's note numbers it: with those lines out, the two are the same, line for line (issue 44).
         assert!(
-            seen.iter()
-                .any(|t| t.len() == 2 && t[0].ends_with(&item.task) && t[1] == note),
+            seen.iter().any(|t| t.len() == 2
+                && t[0].ends_with(&item.task)
+                && note_lines(&t[1]) == note_lines(note)),
             "{}: the core rendered another note: {seen:?}",
             item.id
         );
