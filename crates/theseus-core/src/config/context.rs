@@ -36,15 +36,12 @@ pub struct ContextConfig {
     /// Absent: `KEPT_MB`; 0 keeps none, and every compile renders whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept_mb: Option<u64>,
-    /// The exchange ledger (issue 44, step 1; `crate::exchange`): each
-    /// person's message's mark, each turn's exchange and touches, and a
-    /// measuring row per private turn, all beside the conversation and none
-    /// of it sent to a model. Absent: on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The exchange ledger (issue 44, step 1; `crate::exchange`): each person's message's mark, each
+    /// turn's exchange and touches, and a measuring row per private turn, none of it sent to a model.
+    /// Always on: `[context] ledger` is a retired key (`super::retired_keys`), so only a test turns it
+    /// off, to stand for history from before the ledger.
+    #[serde(skip)]
     pub ledger: Option<bool>,
-    /// How a request's context is assembled (issue 44; `super::assembly`). Absent: `"view"`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub assembly: Option<super::assembly::AssemblySetting>,
 }
 
 /// `persona_max_tokens`' default and bounds.
@@ -62,19 +59,11 @@ impl ContextConfig {
             && self.kept_mb.is_none()
             && self.ledger.is_none()
             && self.persona_max_tokens.is_none()
-            && self.assembly.is_none()
     }
 
-    /// The one reader of `[context] assembly`: how `place`'s requests are assembled. With no setting,
-    /// the view, unless the ledger is off: the view is read from the ledger, so a place with it off
-    /// stays on the transcript rather than see no conversation at all (a set `view` with the ledger
-    /// off is refused at load).
-    pub fn assembly_for(&self, place: &str) -> super::assembly::Assembly {
-        match &self.assembly {
-            Some(a) => a.for_place(place),
-            None if !self.ledger_on() => super::assembly::Assembly::Transcript,
-            None => Default::default(),
-        }
+    /// Whether the exchange ledger is written: always, but where a test stands for history from before it.
+    pub fn ledger_on(&self) -> bool {
+        self.ledger.unwrap_or(true)
     }
 
     /// A persona's soul may be this many tokens.
@@ -89,19 +78,7 @@ impl ContextConfig {
         {
             anyhow::bail!("context.persona_max_tokens = {n} is out of range: 200 to 8000");
         }
-        if !self.ledger_on() && self.assembly.as_ref().is_some_and(|a| a.any_view()) {
-            anyhow::bail!(
-                "context.assembly sets a place to \"view\" while context.ledger = false: a view is read \
-                 from the exchange ledger, so it needs the ledger on. Remove `ledger = false`, or set \
-                 assembly back to \"transcript\""
-            );
-        }
         Ok(())
-    }
-
-    /// Whether the exchange ledger is written.
-    pub fn ledger_on(&self) -> bool {
-        self.ledger.unwrap_or(true)
     }
 
     /// The kept renders' bound, in bytes.

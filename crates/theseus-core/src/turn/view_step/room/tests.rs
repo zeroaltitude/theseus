@@ -11,7 +11,6 @@ use super::{stated_window, steps};
 use crate::bus::EventSink;
 use crate::compiler::view::KEEP_TOKENS;
 use crate::compiler::Overflowed;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::provider::binding::Binding;
 use crate::provider::{FakeProvider, ProviderError, ProviderRequest, Scripted};
 use crate::session::SessionRecord;
@@ -146,7 +145,6 @@ fn rig(
     let root = root.canonicalize().unwrap();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.context.assembly = Some(AssemblySetting::All(Assembly::View));
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {

@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use theseus_protocol::index::{IndexNeighboursParams, IndexNeighboursResult};
 
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::exchange::{self, Root};
 use crate::memory_pass::{IndexFuture, PassIndex};
 use crate::tender::TenderMiss;
@@ -174,7 +173,6 @@ async fn a_cards_excerpt_keeps_its_author() {
 fn kelp_rig(seal: bool) -> crate::tests_places::Rig {
     crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| {
@@ -291,7 +289,6 @@ async fn a_sealed_threads_pending_confirmation_is_absent_and_harmless() {
     let thread = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, true),
@@ -448,7 +445,6 @@ async fn a_frozen_views_next_call_drops_a_card_whose_source_moved() {
     let (held, moved) = (core.clone(), source.clone());
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| {
@@ -517,7 +513,6 @@ async fn a_cards_thing_shows_no_standing_facts_or_preferences() {
     let session = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *session.borrow_mut() = thread_named(s, "kelp"),

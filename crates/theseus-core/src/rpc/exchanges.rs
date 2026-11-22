@@ -140,10 +140,6 @@ impl Core {
                     dry_run: b.dry_run,
                     place: b.place,
                     since_ms: b.since.map_or(0, |p| p.at_ms),
-                    assembly: match b.assembly {
-                        crate::config::assembly::Assembly::View => "view".into(),
-                        crate::config::assembly::Assembly::Transcript => "transcript".into(),
-                    },
                     skipped: b.skipped,
                     day_left_usd: b.day_left_usd,
                     needs_over_day_line: b.needs_over_day_line,

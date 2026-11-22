@@ -21,7 +21,6 @@ use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::budget::{Dropped, Residue, Shown, View};
 use super::{PointOfView, Reason, Slot};
-use crate::config::assembly::Assembly;
 use crate::store::Store;
 
 pub mod show;
@@ -44,6 +43,16 @@ pub const VIEW_TALLY_PREFIX: &str = "view_tally.";
 pub const SEP: char = '\u{1}';
 /// The most views of one turn [`of_turn`] reads: the newest.
 pub const VIEWS_READ: usize = 32;
+
+/// Which way a stored view's request was built. A record is only ever written by the view; the name is
+/// kept so every record reads as it was written (`[context] assembly`, which once chose, is retired).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Assembly {
+    Transcript,
+    #[default]
+    View,
+}
 
 /// One turn's view, as stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

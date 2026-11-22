@@ -216,7 +216,7 @@ impl TurnRunner {
             place: p.place.into(),
             session: p.session.into(),
             reader: "owner".into(),
-            assembly: name(&self.cfg.context.assembly_for(p.place)),
+            assembly: name(&crate::view::record::Assembly::View),
             tally: view.as_ref().map(tally_of).unwrap_or_default(),
             window: view.as_ref().map_or(0, window_of),
             view,

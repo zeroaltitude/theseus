@@ -1119,7 +1119,6 @@ async fn a_look_called_after_the_shell_answer_is_counted_used_and_the_family_loa
 /// one new chain (a new compilation on the call after the find), as the transcript recompiles on it.
 #[tokio::test]
 async fn a_view_turn_loads_a_found_family_on_a_new_chain() {
-    use crate::config::assembly::{Assembly, AssemblySetting};
     let r = rig_deferring(
         |c| {
             c.catalog.insert(
@@ -1129,7 +1128,6 @@ async fn a_view_turn_loads_a_found_family_on_a_new_chain() {
                     ..Default::default()
                 },
             );
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
         },
         script,
     );

@@ -1,6 +1,6 @@
-//! A turn in a place set to `view` (issue 44, `[context] assembly`; `compiler::view`): which assembly the
-//! turn's place has, and its view, assembled once on its first call and frozen for the rest of the turn.
-//! A task's turn has no place and is always the transcript's.
+//! A turn's view (issue 44; `compiler::view`): every conversation's request is assembled by the view, once
+//! on the turn's first call and frozen for the rest of the turn. A task's turn is the transcript's until
+//! tasks take the view (`task_on_transcript`).
 //!
 //! Who is present is never the view's to say: the point of view's presence and anchor are the turn's
 //! verified ones (`crate::view_gate::Verified`, computed by `turn::gate_step` from the input's mark and the
@@ -22,7 +22,6 @@ pub(in crate::turn) use failed::ViewFailed;
 
 use super::{compile, CompileInput, Compiled, RequestSpec, Turn, TurnRunner};
 use crate::compiler::view::Frozen;
-use crate::config::assembly::Assembly;
 use crate::node::{Body, Node};
 use crate::store::{Store, Transcript};
 use crate::stub::{Kind, Stub};
@@ -49,83 +48,40 @@ use crate::view_gate::Verified;
 use theseus_memory::gate::Seal;
 
 impl TurnRunner {
-    /// The turn's place, as the ledger writes it: where its message arrived, else its session's own.
-    fn place_here(&self, t: &Turn<'_>) -> String {
-        t.exchange.place().map_or_else(
-            || {
-                let target = self.outbox.try_target(t.tc.session_id).ok().flatten();
-                crate::exchange::place_of(target.as_deref(), t.tc.dir)
-            },
-            str::to_string,
-        )
+    /// A task's turn is the transcript's: its turns write no exchange for a view to read. TASK CLAUSE: it goes,
+    /// with the transcript, when a task's turns take the view (the task view, issue 44). So is a turn with
+    /// the ledger off, which only a test can set (to stand for history from before the ledger).
+    pub(super) fn task_on_transcript(&self, t: &Turn<'_>) -> bool {
+        t.tc.task.is_some() || !self.cfg.context.ledger_on()
     }
 
-    /// How this turn's requests are assembled: `[context] assembly` for its place; with no such setting,
-    /// the view. A task's turn takes the transcript.
-    pub(super) fn assembly_here(&self, t: &Turn<'_>) -> Assembly {
-        if t.tc.task.is_some() {
-            return Assembly::Transcript;
-        }
-        self.cfg.context.assembly_for(&self.place_here(t))
-    }
-
-    /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
-    /// else, and for a view turn over its budget (`Fallback`), the transcript's, with a summary where the
-    /// ring would cut (30c). A view that cannot be assembled soundly fails the turn plainly (`ViewFailed`):
-    /// never a partial view. The view's record is kept with the compilation it was built for, once.
+    /// This loop's compile, from the turn's view (assembled on its first call). A view that cannot be
+    /// assembled soundly fails the turn plainly (`ViewFailed`): never a partial view. The view's record is
+    /// kept with the compilation it was built for, once.
     pub(super) async fn compile_here(
         &self,
         t: &mut Turn<'_>,
         input: CompileInput<'_>,
         i: u32,
     ) -> anyhow::Result<Compiled> {
-        if self.assembly_here(t) == Assembly::View {
-            // The message's numbered items, named off the path since the exchange opened, are what its
-            // view's names are matched with.
-            t.exchange.await_items().await;
-            match self.view_compile(t, input) {
-                Ok(Ok(c)) => return Ok(c),
-                Ok(Err(why)) => Self::view_declined(t, why),
-                Err(e) if e.is::<ViewFailed>() => return Err(e),
-                // Never a partial view: the turn fails with the error's words, and nothing is sent.
-                Err(e) => return Err(ViewFailed::Assembly(format!("{e:#}")).into()),
-            }
+        if self.task_on_transcript(t) {
+            return Box::pin(self.compact(t, compile(input), input, i)).await;
         }
-        // A view turn that declined is the transcript's in full: the recall this call withheld for the
-        // view, or a view call before it kept, is carried now, as on any transcript turn
-        // (`recall_step::carries`), whatever the withheld flag says.
-        let recarried;
-        let mut input: CompileInput<'_> = input;
-        let kept = t.recall.withheld.is_some() || t.recall.kept_for_view.is_some();
-        if kept && self.carries(t).is_none() {
-            t.recall.withheld = None;
-            // After a view call was dispatched, the recall it withheld comes back once.
-            self.recall_readmitted(t);
-            recarried = self.recall_view(t, input.nodes.to_vec());
-            (input.nodes, input.sources) = (&recarried.0, &recarried.1);
+        // The message's numbered items, named off the path since the exchange opened, are what its view's
+        // names are matched with.
+        t.exchange.await_items().await;
+        match self.view_compile(t, input) {
+            Ok(c) => Ok(c),
+            Err(e) if e.is::<ViewFailed>() => Err(e),
+            // Never a partial view: the turn fails with the error's words, and nothing is sent.
+            Err(e) => Err(ViewFailed::Assembly(format!("{e:#}")).into()),
         }
-        // After a view's compilation the transcript starts a new chain: the view's prefix is not its own.
-        if input
-            .current
-            .is_some_and(|c| c.strategy == crate::compiler::view::STRATEGY)
-        {
-            input.force = input.force.or(Some(crate::compiler::Recompile::Transcript));
-        }
-        Box::pin(self.compact(t, compile(input), input, i)).await
     }
 
-    /// One call of a view turn, or why this turn is the transcript's (`None`: decided before); a turn whose
-    /// place could not be read fails (`ViewFailed::Place`).
-    fn view_compile(
-        &self,
-        t: &mut Turn<'_>,
-        input: CompileInput<'_>,
-    ) -> anyhow::Result<Result<Compiled, Option<Fallback>>> {
+    /// One call of a view turn; a turn whose place could not be read fails (`ViewFailed::Place`).
+    fn view_compile(&self, t: &mut Turn<'_>, input: CompileInput<'_>) -> anyhow::Result<Compiled> {
         let turn = t.tc.turn_id;
         let held = t.view.as_ref().filter(|f| f.turn_id == turn);
-        if held.is_some_and(|f| f.declined) {
-            return Ok(Err(None));
-        }
         if held.is_none() {
             if t.exchange.place_unread() {
                 return Err(ViewFailed::Place.into());
@@ -170,7 +126,7 @@ impl TurnRunner {
                 }
             }
         }
-        Ok(Ok(compiled))
+        Ok(compiled)
     }
 
     /// After every await of a call's compile and before the provider (issue 44): the frozen view's verified
@@ -206,31 +162,9 @@ impl TurnRunner {
         Ok(Ok(compiled))
     }
 
-    /// Whether this turn declined the view: it is the transcript's turn.
-    pub(super) fn view_declined_here(t: &Turn<'_>) -> bool {
-        (t.view.as_ref()).is_some_and(|f| f.turn_id == t.tc.turn_id && f.declined)
-    }
-
-    /// The turn is the transcript's from now on, and the ledger says why once.
-    fn view_declined(t: &mut Turn<'_>, why: Option<Fallback>) {
-        let Some(why) = why else {
-            return;
-        };
-        t.tc.ledger(
-            theseus_protocol::LedgerKind::ContextViewFallback,
-            serde_json::json!({"turn_id": t.tc.turn_id, "why": why.as_str()}),
-        );
-        t.view = Some(Frozen {
-            turn_id: t.tc.turn_id.into(),
-            declined: true,
-            ..Frozen::default()
-        });
-    }
-
     /// Whether the gate reads the turn's point of view differently from when its view was assembled.
     pub(super) fn view_moved(&self, t: &Turn<'_>) -> bool {
-        // A declined turn has no view to move (it is the transcript's).
-        let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == t.tc.turn_id && !f.declined) else {
+        let Some(f) = (t.view.as_ref()).filter(|f| f.turn_id == t.tc.turn_id) else {
             return false;
         };
         let now = Verified::of_session(self, t.tc.session_id);
@@ -510,19 +444,6 @@ impl Built {
             frozen,
             assembled: Err(o),
         }
-    }
-}
-
-/// Why a turn in a view place is the transcript's: a closed list, said in `context.view_fallback`. It is
-/// empty: a turn no message opened, a turn's place, history the ledger holds no exchange for, a failed read,
-/// a gate that kept moving (issue 44) and a request too large (`room`) are each the view's own to answer, and
-/// none hands a turn back. The plumbing goes with the transcript.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Fallback {}
-
-impl Fallback {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {}
     }
 }
 

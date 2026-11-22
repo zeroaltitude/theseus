@@ -14,7 +14,6 @@ use theseus_protocol::{Response, TurnSubmitResult};
 use super::ledger::{Prev, Row};
 use super::*;
 use crate::approval::Client;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::Config;
 use crate::ledger::LedgerRow;
 use crate::provider::{FakeProvider, Scripted};
@@ -246,26 +245,6 @@ async fn an_agents_process_on_the_terminal_is_never_the_owner_in_person() {
         assert_eq!(ex.person, None, "{name}");
     }
     assert!(newest(&c.store, Root::Person(OWNER), 8).unwrap().is_empty());
-}
-
-/// The requests a rig's two turns sent on the transcript, with its own directory's path made
-/// one name, so two rigs compare.
-async fn sent(ledger: bool) -> String {
-    let r = rig(2, |c| {
-        c.context.ledger = Some(ledger);
-        c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript));
-    });
-    let first = turn(&r.core, owner_cli(), None, "the tide is out").await;
-    turn(&r.core, owner_cli(), Some(&first.session_id), "and in?").await;
-    let requests = serde_json::to_string(&r.fake.requests()).unwrap();
-    requests.replace(&*r.dir.path().to_string_lossy(), "<dir>")
-}
-
-#[tokio::test]
-async fn a_private_request_is_byte_identical_with_the_ledger_off() {
-    let (on, off) = (sent(true).await, sent(false).await);
-    assert!(on.contains("and in?"), "the second request was sent");
-    assert_eq!(on, off);
 }
 
 /// `rebuild::run` on the rig's store, with `index`.

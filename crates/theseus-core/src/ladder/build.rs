@@ -14,7 +14,6 @@ use super::read::{self, Step};
 use super::writer::{Ask, ModelWriter, Work, Writer};
 use super::DayPurse;
 use super::N;
-use crate::config::assembly::Assembly;
 use crate::exchange::{self, Root};
 use crate::judge::categorize::ExchangeEnd;
 use crate::judge::JudgeService;
@@ -78,9 +77,6 @@ pub struct Built {
     pub place: String,
     /// The place's latest `/new`, if it has one.
     pub since: Option<Pos>,
-    /// How the place's requests are assembled (`[context] assembly`): a
-    /// place on the transcript shows none of what a build writes.
-    pub assembly: Assembly,
     /// A place whose name holds the key separator: no ladder, nothing done.
     pub skipped: bool,
     /// The place's exchanges since its latest `/new`.
@@ -143,8 +139,7 @@ impl Core {
         let Some(ex) = blocking(|| exchange::exchange(&self.store, turn))? else {
             return Ok(());
         };
-        if self.cfg.context.assembly_for(&ex.place) != Assembly::View || !super::laddered(&ex.place)
-        {
+        if !super::laddered(&ex.place) {
             return Ok(());
         }
         let since = blocking(|| super::new_mark(&self.store, &ex.place))?;
@@ -195,7 +190,6 @@ impl Core {
         let mut b = Built {
             dry_run,
             place: place.to_string(),
-            assembly: self.cfg.context.assembly_for(place),
             ..Built::default()
         };
         if !super::laddered(place) {

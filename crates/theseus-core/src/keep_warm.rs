@@ -437,14 +437,6 @@ impl TurnRunner {
         if place.class != PlaceClass::Private {
             return forget("a shared place");
         }
-        // A view place's request is built afresh each turn (issue 44): no transcript prefix to keep warm.
-        if self.cfg.context.assembly.is_some() {
-            let target = self.outbox.try_target(sid).ok().flatten();
-            let at = crate::exchange::place_of(target.as_deref(), rec.dir.as_deref());
-            if self.cfg.context.assembly_for(&at) == crate::config::assembly::Assembly::View {
-                return forget("its place is set to view");
-            }
-        }
         let Some(execution_id) = rec.execution_id.clone() else {
             return forget("no execution");
         };

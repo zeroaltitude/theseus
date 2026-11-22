@@ -1,22 +1,14 @@
-//! `[context] assembly` in the compiler (issue 44; `compiler::view`, `turn::view_step`): the transcript's
-//! requests are the golden's whatever the setting says of other places, and a place set to `view` sends
-//! its window as real turns, read across sessions, frozen within a turn, with a front that holds from one
-//! turn to the next.
-
-use std::collections::BTreeMap;
+//! The view in the compiler (issue 44; `compiler::view`, `turn::view_step`): every conversation's turn
+//! sends its window as real turns, read across sessions, frozen within a turn, with a front that holds from
+//! one turn to the next.
 
 use serde_json::Value;
 
-use crate::config::assembly::{Assembly, AssemblyByPlace, AssemblySetting};
 use crate::provider::binding::unmarked;
 use crate::provider::ProviderRequest;
 use crate::tests_places::{last_user, rig_with, turn, Rig};
-use crate::tests_private_view::{body, owners_rig, said_earlier, session_in, with_person, ASKED};
+use crate::tests_private_view::{body, owners_rig, session_in, with_person, ASKED};
 
-const GOLDEN: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/golden/private_requests.txt"
-);
 /// `tests/golden/view_requests.txt`: a small conversation's requests in a place set to `view`.
 /// `THESEUS_GOLDEN=write` writes it again.
 const VIEW_GOLDEN: &str = concat!(
@@ -24,50 +16,8 @@ const VIEW_GOLDEN: &str = concat!(
     "/tests/golden/view_requests.txt"
 );
 
-/// The golden's two requests (`tests_private_view`), made under `setting`.
-async fn golden_under(setting: Option<AssemblySetting>) -> String {
-    let (r, ids) = owners_rig(|c| c.context.assembly = setting);
-    let c = &r.core;
-    let tmp = r.root.parent().unwrap().to_path_buf();
-    let mut got = String::new();
-    for (name, place) in [
-        ("cli", None),
-        ("dm", Some(format!("dm:{}", crate::tests_places::OWNER))),
-    ] {
-        let sid = session_in(c, place.as_deref(), &r.root);
-        with_person(c, &sid);
-        said_earlier(c, &sid);
-        turn(c, &sid, ASKED).await;
-        let req = r.requests().pop().unwrap();
-        got.push_str(&format!(
-            "== {name}\n{}",
-            body(&req, &tmp, &[&[sid], &ids[..]].concat())
-        ));
-    }
-    got
-}
-
-/// With `transcript`, said outright or as the default of a table that sets another place to `view`, every
-/// golden request is byte for byte what it is with no setting at all.
-#[tokio::test]
-async fn the_transcript_assembly_sends_the_golden_requests_byte_for_byte() {
-    let want = std::fs::read_to_string(GOLDEN).unwrap();
-    let elsewhere = AssemblyByPlace {
-        default: Assembly::Transcript,
-        places: BTreeMap::from([("discord:elsewhere".to_string(), Assembly::View)]),
-    };
-    for setting in [
-        None,
-        Some(AssemblySetting::All(Assembly::Transcript)),
-        Some(AssemblySetting::ByPlace(elsewhere)),
-    ] {
-        let got = golden_under(setting.clone()).await;
-        assert!(got == want, "{setting:?} moved the golden requests:\n{got}");
-    }
-}
-
 pub(crate) fn view_rig() -> Rig {
-    rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)))
+    rig_with(|_| {})
 }
 
 /// The conversation's requests whose newest user message says `what`, in the order they were sent: a
@@ -241,29 +191,21 @@ async fn a_view_place_sends_its_window_as_real_turns_frozen_within_a_turn() {
 }
 
 /// The window is the place's, not the session's: a new session in the same place sees the exchange the
-/// earlier one ran; the transcript's does not.
+/// earlier one ran.
 #[tokio::test]
 async fn a_view_window_reads_the_place_across_its_sessions() {
-    for (view, sees) in [(true, true), (false, false)] {
-        let r = match view {
-            true => view_rig(),
-            false => {
-                rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript)))
-            }
-        };
-        let c = &r.core;
-        let before = session_in(c, None, &r.root);
-        turn(c, &before, "alpha: the earlier words").await;
-        let after = session_in(c, None, &r.root);
-        turn(c, &after, "beta: what came before").await;
-        let q = asked(&r, "beta: what came before").pop().unwrap();
-        assert_eq!(
-            texts(&q).contains("alpha: the earlier words"),
-            sees,
-            "view {view}: {}",
-            texts(&q)
-        );
-    }
+    let r = view_rig();
+    let c = &r.core;
+    let before = session_in(c, None, &r.root);
+    turn(c, &before, "alpha: the earlier words").await;
+    let after = session_in(c, None, &r.root);
+    turn(c, &after, "beta: what came before").await;
+    let q = asked(&r, "beta: what came before").pop().unwrap();
+    assert!(
+        texts(&q).contains("alpha: the earlier words"),
+        "{}",
+        texts(&q)
+    );
 }
 
 /// The fault of 2026-11-21, replayed in `view` with no judge in the way: a reply minutes after an answer,
@@ -271,7 +213,7 @@ async fn a_view_window_reads_the_place_across_its_sessions() {
 #[tokio::test]
 async fn a_reply_that_names_nothing_sees_the_answer_before_it() {
     let r = crate::tests_places::rig_scripted(
-        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
         |q| match last_user(q).contains("which door") {
             true => crate::provider::Scripted::text("The north door, code 4417."),
             false => crate::provider::Scripted::text("Noted."),
@@ -389,7 +331,6 @@ async fn a_view_place_is_not_kept_warm() {
     use crate::tests_keep_warm::{build, one_hour, reads, session, turn};
     let dir = tempfile::tempdir().unwrap();
     let mut c = one_hour(24);
-    c.context.assembly = Some(AssemblySetting::All(Assembly::View));
     let (core, fake) = build(dir.path(), c);
     let live = core.live_profile().0;
     let sid = session(&core, theseus_protocol::SessionKind::Conversation, None);
@@ -525,15 +466,14 @@ async fn a_view_place_offers_the_history_tool_as_the_transcript_does() {
 }
 
 /// The view runs the transcript's spec preparation: with tools deferred (the owner's direct conversation
-/// defers them) a view turn offers the resolved set the transcript's turn does, not the raw catalog.
+/// defers them) a view turn offers the resolved set the transcript's turn does, not the raw catalog. The
+/// transcript's turn is one with the ledger off, which only a test can set.
 #[tokio::test]
 async fn a_view_turn_offers_the_resolved_deferred_tools() {
     let mut offered = Vec::new();
     for view in [true, false] {
         let r = crate::tests_places::rig_deferring(
-            |c| {
-                c.context.assembly = view.then_some(AssemblySetting::All(Assembly::View));
-            },
+            |c| c.context.ledger = (!view).then_some(false),
             |_| crate::provider::Scripted::text("Hello."),
         );
         let sid = session_in(&r.core, None, &r.root);
@@ -553,7 +493,7 @@ async fn a_view_turn_offers_the_resolved_deferred_tools() {
 /// guidance has that guidance in its view request's system part.
 #[tokio::test]
 async fn a_view_turn_carries_its_memberships_guidance() {
-    let (r, _) = owners_rig(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+    let (r, _) = owners_rig(|_| {});
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     with_person(c, &sid);
@@ -588,7 +528,6 @@ async fn a_sealed_threads_exchange_in_the_same_place_is_not_in_the_window() {
         let thread = std::cell::RefCell::new(String::new());
         let r = crate::tests_places::rig_setup(
             |c| {
-                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
                 c.threads.enabled = true;
             },
             |s| *thread.borrow_mut() = kelp(s, seal),
@@ -619,7 +558,6 @@ async fn a_seal_between_two_calls_of_a_turn_ends_the_chain() {
     let thread = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, false),
@@ -787,7 +725,6 @@ async fn an_established_session_without_its_exchanges_is_the_views_turn() {
 #[tokio::test]
 async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() {
     let r = rig_with(|c| {
-        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
         c.context.working_window_tokens = Some(12_000);
     });
     let c = &r.core;
@@ -816,7 +753,7 @@ async fn a_steer_that_narrows_the_presence_reassembles_the_view() {
     let desk: Arc<Mutex<String>> = Arc::default();
     let (held, at) = (core.clone(), desk.clone());
     let r = crate::tests_places::rig_setup_scripted(
-        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
         |_| {},
         move |q| {
             if last_user(q).contains("desk: narrow me") && !crate::tests_places::answers_a_call(q) {
@@ -857,7 +794,6 @@ async fn a_fold_over_a_thread_sealed_after_it_was_built_is_dropped() {
     let thread = std::cell::RefCell::new(String::new());
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, false),
@@ -921,7 +857,6 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
             c.memory.mode = crate::config::MemoryMode::Live;
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
         },
         |_| {},
         move |q| {
@@ -997,7 +932,6 @@ async fn a_seal_after_assembly_and_before_the_send_is_honoured() {
         let thread = std::cell::RefCell::new(String::new());
         let r = crate::tests_places::rig_setup_scripted(
             |c| {
-                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
                 c.threads.enabled = true;
             },
             |s| *thread.borrow_mut() = kelp(s, false),
@@ -1073,7 +1007,6 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
             c.memory.mode = crate::config::MemoryMode::Live;
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp(s, false),
@@ -1150,7 +1083,6 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         let r = crate::tests_places::rig_setup_scripted(
             |c| {
                 c.memory.mode = crate::config::MemoryMode::Live;
-                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
                 c.threads.enabled = true;
             },
             |s| *thread.borrow_mut() = kelp(s, false),
@@ -1261,7 +1193,6 @@ async fn a_move_or_its_threads_seal_between_two_calls_holds_the_shown_message() 
         let held = core.clone();
         let r = crate::tests_places::rig_setup_scripted(
             |c| {
-                c.context.assembly = Some(AssemblySetting::All(Assembly::View));
                 c.threads.enabled = true;
             },
             move |s| {
@@ -1315,7 +1246,6 @@ async fn the_owners_inspection_withholds_a_message_moved_into_a_sealed_thread() 
     use crate::view::record::show::Source as _;
     let r = crate::tests_places::rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| {
@@ -1362,7 +1292,7 @@ async fn a_shown_exchange_removed_between_two_calls_is_held() {
     let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::default();
     let held = core.clone();
     let r = crate::tests_places::rig_setup_scripted(
-        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
         |_| {},
         move |q| {
             let last = last_user(q);

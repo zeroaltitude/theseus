@@ -66,10 +66,7 @@ impl TurnRunner {
         // so no node is written and the reply counts none.
         let rides = match t.recall.withheld {
             None => std::mem::take(&mut t.recall.rides),
-            Some(why) => {
-                Self::recall_kept_for_view(t);
-                Self::recall_dropped(t, why)
-            }
+            Some(why) => Self::recall_dropped(t, why),
         };
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(

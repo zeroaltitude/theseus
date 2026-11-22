@@ -12,7 +12,6 @@ use theseus_protocol::view::{ViewPreviewResult, ViewShown};
 use theseus_protocol::{error_code, method};
 
 use crate::approval::Surface;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::exchange::{self, Exchange, Opener};
 use crate::peer_proc::{Behind, JOB};
 use crate::session::SessionRecord;
@@ -24,7 +23,7 @@ use crate::view::Space;
 use crate::Core;
 
 fn view_rig() -> Rig {
-    rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)))
+    rig_with(|_| {})
 }
 
 /// `view.preview` from `client`.
@@ -233,22 +232,6 @@ async fn a_place_with_unledgered_history_is_the_views_and_counts_it() {
         .is_empty());
 }
 
-/// A place set to `transcript` says so, and what a switch to `view` would do: never "takes the view".
-#[tokio::test]
-async fn a_transcript_place_is_not_said_to_take_the_view() {
-    let r = rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::Transcript)));
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    turn(c, &sid, "first: the tide").await;
-    let p = preview(&r.core, json!({"place": place(c, &sid)}))
-        .await
-        .unwrap();
-    assert_eq!(p.assembly, "transcript");
-    let said = theseus_protocol::view::preview_lines(&p);
-    assert!(said.contains("set to transcript"), "{said}");
-    assert!(!said.contains("it would take the view"), "{said}");
-}
-
 /// Only the owner in person is answered. The daemon cannot tell which session an agent's process runs, so
 /// a session the caller names is no scope: an agent's process naming another place's session, a Theseus
 /// job's process, a shell with a job's marker, Discord, and text from the web UI are each refused in words,
@@ -331,7 +314,6 @@ fn thread_rig_as(how: &str) -> (Rig, String) {
     let thread = std::cell::RefCell::new(String::new());
     let r = rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| *thread.borrow_mut() = kelp_as(s, how),

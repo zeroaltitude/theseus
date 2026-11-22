@@ -143,11 +143,5 @@ pub fn ladder_lines(r: &ExchangeLadderResult) -> String {
     if r.needs_over_day_line {
         s.push_str("; finishing would pass it: run again with --cap-usd N --over-day-line");
     }
-    if r.assembly != "view" {
-        s.push_str(&format!(
-            "; this place is assembled as a {}, so nothing built here is shown until it is a view",
-            r.assembly
-        ));
-    }
     s
 }

@@ -15,7 +15,6 @@ use super::build::Allowance;
 use super::did::{self, Outcome};
 use super::tests::{exchange_at, Fake};
 use super::{Day, DayPurse, Purse, Reserved, DAY_KEY, N};
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::config::Config;
 use crate::judge::categorize::ExchangeEnd;
 use crate::provider::{FakeProvider, Scripted};
@@ -26,16 +25,8 @@ use theseus_protocol::SessionKind;
 const PLACE: &str = "local:/srv/tides";
 
 fn core(lines: &[&str]) -> (tempfile::TempDir, Arc<Core>, Arc<FakeProvider>) {
-    core_with(lines, Some(Assembly::View))
-}
-
-fn core_with(
-    lines: &[&str],
-    assembly: Option<Assembly>,
-) -> (tempfile::TempDir, Arc<Core>, Arc<FakeProvider>) {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
-    cfg.context.assembly = assembly.map(AssemblySetting::All);
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(
@@ -102,21 +93,6 @@ async fn an_exchanges_end_writes_its_line_off_the_turns_path() {
     assert!(day.reserved.is_empty(), "the reservation was settled");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_place_on_the_transcript_spends_nothing_on_summaries() {
-    let (_d, core, fake) = core_with(&["Never asked."], Some(Assembly::Transcript));
-    let sid = session(&core);
-    let turn = exchange_at(&core.store, &sid, PLACE, 1_000, false);
-    let e = ExchangeEnd {
-        session_id: sid,
-        execution_id: String::new(),
-        turn_id: turn.clone(),
-    };
-    core.runner.judge.ladder_at_exchange_end(&e, false);
-    assert_eq!(until_line(&core, &turn).await, None);
-    assert!(fake.requests().is_empty());
-}
-
 #[tokio::test]
 async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
     let (_d, core, _) = core(&[]);
@@ -138,7 +114,6 @@ async fn a_build_counts_and_prices_in_a_dry_run_then_writes_within_its_cap() {
         (total as u64, total as u64, 1)
     );
     assert!(dry.estimated_usd > 0.0 && !dry.needs_over_day_line);
-    assert_eq!(dry.assembly, Assembly::View);
     assert!(w.asks.lock().unwrap().is_empty(), "a dry run asks nothing");
     assert!(core.store.get_meta::<Day>(DAY_KEY).unwrap().is_none());
     // A cap of five calls: five lines, then it stops, and folds nothing.

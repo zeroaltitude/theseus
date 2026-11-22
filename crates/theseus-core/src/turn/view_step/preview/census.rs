@@ -7,7 +7,6 @@
 use anyhow::Result;
 
 use super::super::{Asked, CompileInput, Compiled, TurnRunner};
-use crate::config::assembly::Assembly;
 use crate::session::SessionRecord;
 use crate::view::budget::Overflow;
 use crate::view_gate::{place_name, Verified};
@@ -16,17 +15,13 @@ use crate::view_gate::{place_name, Verified};
 const CENSUS_TURN: &str = "census";
 
 impl TurnRunner {
-    /// The place whose view `rec`'s next request is assembled by, when that place is set to the view: a
-    /// conversation's (a task's turns are the transcript's today).
+    /// The place whose view `rec`'s next request is assembled by: a conversation's (a task's turns are the
+    /// transcript's until tasks take the view).
     pub(crate) fn census_view_place(&self, rec: &SessionRecord) -> Option<String> {
-        if self.cfg.context.assembly.is_none()
-            || rec.task.is_some()
-            || rec.kind == theseus_protocol::SessionKind::Task
-        {
+        if rec.task.is_some() || rec.kind == theseus_protocol::SessionKind::Task {
             return None;
         }
-        let place = place_name(self, &rec.session_id)?;
-        (self.cfg.context.assembly_for(&place) == Assembly::View).then_some(place)
+        place_name(self, &rec.session_id)
     }
 
     /// `rec`'s next request at `place`, as a view turn's first call compiles it, for an empty message from

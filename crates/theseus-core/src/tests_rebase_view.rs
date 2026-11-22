@@ -6,7 +6,6 @@
 
 use std::collections::HashSet;
 
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::exchange::ledger::{Prev, Row};
 use crate::exchange::{self, Exchange};
 use crate::history_tool::page::{self, Lens};
@@ -18,7 +17,7 @@ use crate::view::record::{self, ViewRecord};
 use crate::view::{Form, Present, Slot, Space};
 
 fn view_rig() -> Rig {
-    rig_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)))
+    rig_with(|_| {})
 }
 
 fn none(_: &str) -> bool {
@@ -242,7 +241,6 @@ fn sealed_thread_rig() -> (Rig, String) {
     let thread = std::cell::RefCell::new(String::new());
     let r = rig_setup(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.threads.enabled = true;
         },
         |s| {

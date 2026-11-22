@@ -9,11 +9,6 @@ export type ExchangeLadderResult = { dry_run: boolean, place: string,
  */
 since_ms: number, 
 /**
- * How the place's requests are assembled (`transcript` or `view`): a
- * place on the transcript shows nothing a build writes.
- */
-assembly: string, 
-/**
  * The place's name holds a character no ladder key may: nothing done.
  */
 skipped: boolean, 

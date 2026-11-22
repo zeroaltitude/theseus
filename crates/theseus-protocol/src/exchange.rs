@@ -99,9 +99,6 @@ pub struct ExchangeLadderResult {
     pub place: String,
     /// The place's latest `/new`; 0 for a place that has had none.
     pub since_ms: u64,
-    /// How the place's requests are assembled (`transcript` or `view`): a
-    /// place on the transcript shows nothing a build writes.
-    pub assembly: String,
     /// The place's name holds a character no ladder key may: nothing done.
     pub skipped: bool,
     /// What is left of the day's line, and whether this run would need

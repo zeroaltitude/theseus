@@ -9,7 +9,6 @@ use std::sync::{Arc, OnceLock};
 
 use serde_json::json;
 
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::provider::{ProviderError, ProviderRequest, Scripted};
 use crate::tests_places::{
     answers_a_call, last_user, rig_setup_scripted, rig_with, session, Rig, LAB,
@@ -18,7 +17,6 @@ use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{fallbacks, legal, submit, texts};
 
 fn view(c: &mut crate::Config) {
-    c.context.assembly = Some(AssemblySetting::All(Assembly::View));
 }
 
 /// The `context.compiled` rows of `sid`, oldest first: (turn, strategy).

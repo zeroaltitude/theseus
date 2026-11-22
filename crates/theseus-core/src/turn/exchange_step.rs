@@ -13,7 +13,6 @@ use tokio::sync::oneshot;
 
 use super::{Turn, TurnRunner};
 use crate::compiler::{Compiled, RequestSpec};
-use crate::config::assembly::Assembly;
 use crate::exchange::ledger::{self, Given, Seen, View};
 use crate::exchange::{
     exchange_record, mark_record, put_reply, thing_touches, touch, Exchange, Opener, OwnerMark,
@@ -354,9 +353,8 @@ impl TurnRunner {
             .map(|p| p.exchange.as_str());
         t.exchange.reply_things = self.exchanges.take_reply(&ex.place, preceding);
         if let Some(text) = t.exchange.ask_text.take() {
-            // Only a place set to the view reads the message's items back (`turn::view_step`).
-            let view = self.cfg.context.assembly_for(&ex.place) == Assembly::View;
-            let scope = (t.exchange.scope.clone(), view);
+            // The view reads the message's items back (`turn::view_step`).
+            let scope = (t.exchange.scope.clone(), true);
             t.exchange.items = self.items_of(&text, (&ex.turn_id, sid, at), scope);
             let (tx, rx) = oneshot::channel();
             let told = move |c| {

@@ -445,8 +445,7 @@ async fn a_turn_whose_request_carried_its_recall_writes_one_recall_node() {
 /// recall itself ran and admitted the note, so an empty index cannot pass.
 #[tokio::test]
 async fn a_view_place_withholds_its_recall_node_with_a_row_that_says_view() {
-    use crate::config::assembly::{Assembly, AssemblySetting};
-    let r = canary_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+    let r = canary_with(|_| {});
     let c = &r.core;
     let a = session(c, None, &[HERON]);
     let b = session(c, None, &[]);
