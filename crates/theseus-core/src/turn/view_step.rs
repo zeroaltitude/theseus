@@ -272,8 +272,7 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, mut sessions) =
-            window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
+        let (window, mut sessions) = window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;

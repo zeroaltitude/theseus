@@ -331,8 +331,9 @@ impl TurnRunner {
     /// Shadow of the small-talk bar (theseus-fpm2): when the turn's verdict
     /// says `low` effort, the manifest records how many admitted notes a bar
     /// would have left out. Nothing is dropped; the budget is the one already
-    /// fixed, so this never waits. A paused manifest (the session's cap) holds
-    /// notes that were never attached, so it records none.
+    /// fixed, so this never waits. A `paused` manifest records none: no build
+    /// pauses recall since the session cap was deleted (2026-11-22), so only an
+    /// old row says it, and its notes were never attached.
     ///
     /// **The decision is the route step's, not this step's**
     /// (`tier::ShadowMark`, card `b4-fpm2-f4-sibling-hole`). The two

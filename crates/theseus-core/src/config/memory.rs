@@ -555,7 +555,6 @@ mod tests {
             "recall_max_items = 0",
             "recall_max_items = 41",
             "deep_recall_tokens = 0",
-            "deep_recall_tokens = 70000",
             "deep_recall_items = 0",
             "deep_recall_items = 41",
             "recall_deadline_ms = 0",
