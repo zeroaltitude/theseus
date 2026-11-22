@@ -36,10 +36,12 @@ const STUB: &str = "attachments are no longer replaced by stubs: there is no col
                     session any more";
 const COLD: &str = "a thread is no longer resumed cold from a cut transcript: the view reads its \
                     conversation's exchanges";
+const THREADS: &str = "threads are no longer containers (2026-11-22): a thread's own recall, its \
+                       growth, its home's size and its seals are gone";
 
-/// The whole list (the map of the cut, §6 step 8), less three keys something that stays still reads:
+/// The whole list (the map of the cut, §6 step 8), less two keys something that stays still reads:
 /// `[cache] keep_warm_every_minutes` and `keep_warm_min_tokens` (the read during a job wait; the sticky
-/// effort rule) and `[threads] resume_keep_turns` (the home-size warning). Those are live settings.
+/// effort rule). Those are live settings. The thread keys whose readers went on 2026-11-22 are here too.
 pub const RETIRED: &[Retired] = &[
     r("context", "assembly", VIEW),
     r("context", "kept_mb", KEPT),
@@ -55,6 +57,19 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "keep_warm_hours", WARM),
     r("threads", "working_tokens", COLD),
     r("threads", "working_percent", COLD),
+    r("threads", "cross_recall_penalty", THREADS),
+    r("threads", "cross_recall_bar", THREADS),
+    r("threads", "cross_recall_beats_own", THREADS),
+    r("threads", "cross_recall_needs_entity", THREADS),
+    r("threads", "base_distance", THREADS),
+    r("threads", "own_top_admissible", THREADS),
+    r("threads", "cross_recall_judge", THREADS),
+    r("threads", "cross_recall_judge_k", THREADS),
+    r("threads", "working_set_grows", THREADS),
+    r("threads", "bench_clock", THREADS),
+    r("threads", "resume_keep_turns", THREADS),
+    r("threads", "home_warn_percent", THREADS),
+    r("threads", "seal_recommend", THREADS),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {
