@@ -130,7 +130,6 @@ fn run(
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::Continuation,
-        kept: None,
     })
 }
 
@@ -274,58 +273,6 @@ fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
         !c3.request.extra.contains_key("fallbacks"),
         "sonnet 5 has no fallbacks row"
     );
-}
-
-#[test]
-fn opus_reads_sonnets_thinking_across_a_first_party_switch_and_not_the_reverse() {
-    let nodes = vec![
-        (1, Node::user("s", None, "web", "hi")),
-        (
-            2,
-            assistant(vec![thinking(), json!({"type": "text", "text": "hello"})]),
-        ),
-        (3, Node::user("s", None, "web", "again")),
-    ];
-    let kept = |c: &Compiled| c.request.messages[1]["content"].as_array().unwrap().len();
-    let mut sonnet_said = nodes.clone();
-    if let Body::AssistantMessage { model, .. } = &mut sonnet_said[1].1.body {
-        *model = "claude-sonnet-5-5".into();
-    }
-    let sonnet = spec("claude-sonnet-5-5", "A");
-    let c1 = run(&sonnet_said[..1], None, &sonnet, 1);
-
-    // Sonnet 5.5 to Opus 5.5: the trigger stays, the thinking stays.
-    let opus = spec("claude-opus-5-5", "A");
-    let c2 = run(&sonnet_said, Some(&c1.compilation), &opus, 3);
-    assert_eq!(c2.trigger.as_deref(), Some("model_changed"));
-    assert!(!c2.compilation.manifest.strip_thinking);
-    assert_eq!(kept(&c2), 2, "{:?}", c2.request.messages);
-    assert_eq!(c2.request.messages[1]["content"][0], thinking());
-
-    // The same switch with a system change too is not the exception.
-    let mut changed = spec("claude-opus-5-5", "B");
-    let c3 = run(&sonnet_said, Some(&c1.compilation), &changed, 3);
-    assert_eq!(c3.trigger.as_deref(), Some("model_changed+system_changed"));
-    assert_eq!(kept(&c3), 1);
-
-    // Not first party: stripped, and the trigger is still model_changed.
-    changed = spec("claude-opus-5-5", "A");
-    changed.first_party = false;
-    let c4 = run(&sonnet_said, Some(&c1.compilation), &changed, 3);
-    assert_eq!(c4.trigger.as_deref(), Some("model_changed"));
-    assert!(c4.compilation.manifest.strip_thinking);
-    assert_eq!(kept(&c4), 1);
-
-    // The other way (Opus wrote, Sonnet reads): stripped.
-    let mut opus_said = nodes;
-    if let Body::AssistantMessage { model, .. } = &mut opus_said[1].1.body {
-        *model = "claude-opus-5-5".into();
-    }
-    let o1 = run(&opus_said[..1], None, &opus, 1);
-    let back = run(&opus_said, Some(&o1.compilation), &sonnet, 3);
-    assert_eq!(back.trigger.as_deref(), Some("model_changed"));
-    assert!(back.compilation.manifest.strip_thinking);
-    assert_eq!(kept(&back), 1);
 }
 
 /// A cassette of a response as the Messages API documents it: a signed
@@ -492,104 +439,6 @@ fn late_results_render_as_text_and_missing_results_are_repaired() {
     );
     assert_eq!(c.repairs, vec!["t9".to_string()]);
     assert_eq!(m.last().unwrap()["content"][0]["is_error"], true);
-}
-
-#[test]
-fn fresh_drops_the_past_and_overflow_rings_at_a_user_boundary() {
-    let sp = spec("claude-opus-5", "S");
-    let big = "word ".repeat(2_000);
-    let mut nodes = Vec::new();
-    for i in 0..6u64 {
-        nodes.push((
-            i * 2 + 1,
-            Node::user("s", None, "web", &format!("q{i} {big}")),
-        ));
-        nodes.push((
-            i * 2 + 2,
-            assistant(vec![
-                thinking(),
-                json!({"type": "text", "text": format!("a{i}")}),
-            ]),
-        ));
-    }
-    let nodes: Vec<(u64, crate::stub::Stub)> =
-        nodes.into_iter().map(|(p, n)| (p, n.into())).collect();
-    let (catalog, sources) = (Catalog::builtin(), Default::default());
-    let input = CompileInput {
-        session_id: "s",
-        current: None,
-        nodes: &nodes,
-        last_position: 12,
-        spec: &sp,
-        catalog: &catalog,
-        force: Some(Recompile::Fresh),
-        window_override: None,
-        blobs: None,
-        hidden: &[],
-        strip: None,
-        overflowed: None,
-        sources: &sources,
-        assembled: None,
-        situation: &situation::Situation::Continuation,
-        kept: None,
-    };
-    let c = compile(input);
-    assert_eq!(c.compilation.strategy, "fresh");
-    assert!(c.compilation.manifest.strip_thinking);
-    assert_eq!(
-        c.request.messages.len(),
-        2,
-        "only the latest exchange survives"
-    );
-    assert!(c.request.messages[0]["content"][0]["text"]
-        .as_str()
-        .unwrap()
-        .starts_with("q5"));
-    assert!(c.request.messages[1]["content"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|b| !is_thinking(b)));
-
-    let c = compile(CompileInput {
-        force: None,
-        window_override: Some(13_000),
-        ..input
-    });
-    assert_eq!(c.trigger.as_deref(), Some("overflow"));
-    assert_eq!(c.compilation.strategy, "ring");
-    assert!(c.compilation.manifest.strip_thinking);
-    assert_eq!(
-        c.request.messages[0]["role"], "user",
-        "ring cuts before a user message"
-    );
-    assert!(c.request.messages.len() < 12);
-    assert!(c.request.messages.iter().all(|m| m["content"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|b| !is_thinking(b))));
-    // The ring's cut, in the report (M6 30b): the leading nodes it left
-    // out as a range, first to last, under a limit the request fits.
-    let b = &c.budget;
-    assert_eq!(c.compilation.budget.as_ref(), Some(b), "stored with it");
-    assert_eq!(b.limit_tokens, 13_000 - sp.max_tokens as u64 - 4_096);
-    assert!(
-        b.used_tokens <= b.limit_tokens && b.overage.is_none(),
-        "{b:?}"
-    );
-    let cut = &b.dropped[0];
-    assert_eq!(
-        (cut.tier.as_str(), cut.reason.as_str()),
-        ("ring", "overflow")
-    );
-    let range = cut.range.as_ref().unwrap();
-    let kept = &c.compilation.includes[0];
-    let first_kept = nodes.iter().position(|(_, n)| &n.id == kept).unwrap();
-    assert_eq!(range.first, nodes[0].1.id);
-    assert_eq!(range.last, nodes[first_kept - 1].1.id);
-    assert_eq!(range.nodes, first_kept as u64);
-    assert!(cut.tokens > 0);
 }
 
 /// A spec whose header and context blocks have these many characters.
@@ -813,7 +662,6 @@ fn a_model_that_does_not_cache_gets_no_breakpoints() {
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::Continuation,
-        kept: None,
     });
     assert_eq!(c.request.system.len(), 2);
     assert_eq!(marks(&c), [Value::Null, Value::Null, Value::Null]);
@@ -842,281 +690,10 @@ fn a_manifest_from_before_the_cache_layout_reads_as_none() {
     assert_eq!(c2.request.system, c.request.system);
 }
 
-// ------------------------------------- a request past the window (theseus-9p88)
-
-/// `run` on a 1M-token model, after the provider said a request passed
-/// the window.
-fn run_over(
-    nodes: &[(u64, Node)],
-    current: Option<&Compilation>,
-    spec: &RequestSpec,
-    last: u64,
-    overflowed: Option<&Overflowed>,
-) -> Compiled {
-    let nodes: Vec<(u64, crate::stub::Stub)> =
-        nodes.iter().map(|(p, n)| (*p, n.clone().into())).collect();
-    compile(CompileInput {
-        session_id: "s",
-        current,
-        nodes: &nodes,
-        last_position: last,
-        spec,
-        catalog: &Catalog::builtin(),
-        force: None,
-        window_override: None,
-        blobs: None,
-        hidden: &[],
-        strip: None,
-        overflowed,
-        sources: &Default::default(),
-        assembled: None,
-        situation: &situation::Situation::Continuation,
-        kept: None,
-    })
-}
-
-/// Six exchanges of about 3,000 tokens each, every answer with thinking.
-fn six_exchanges() -> Vec<(u64, Node)> {
-    let big = "word ".repeat(2_000);
-    let mut nodes = Vec::new();
-    for i in 0..6u64 {
-        nodes.push((
-            i * 2 + 1,
-            Node::user("s", None, "web", &format!("q{i} {big}")),
-        ));
-        nodes.push((
-            i * 2 + 2,
-            assistant(vec![
-                thinking(),
-                json!({"type": "text", "text": format!("a{i}")}),
-            ]),
-        ));
-    }
-    nodes
-}
-
-/// The exchanges a request keeps: its user messages' first words.
-fn kept(c: &Compiled) -> Vec<String> {
-    c.request
-        .messages
-        .iter()
-        .filter(|m| m["role"] == "user")
-        .map(|m| {
-            let text = m["content"][0]["text"].as_str().unwrap_or_default();
-            text.split(' ').next().unwrap_or_default().to_string()
-        })
-        .collect()
-}
-
-/// theseus-9p88: the provider refused a request its estimate and Opus 5's
-/// 1M window said fit. The next compilation rings anyway, by the window
-/// the provider named, and reads its candidates at the provider's count:
-/// a count twice the estimate keeps fewer exchanges than the estimate
-/// alone would. Without the provider's word, nothing rings.
-#[test]
-fn a_request_the_provider_refused_rings_by_its_window_and_its_count() {
-    let sp = spec("claude-opus-5", "S");
-    let nodes = six_exchanges();
-    let c0 = run_over(&nodes, None, &sp, 12, None);
-    assert_eq!(c0.compilation.strategy, "transcript", "1M fits it all");
-    let mut more = nodes;
-    more.push((13, Node::user("s", None, "web", "q6 and now?")));
-    let plain = run_over(&more, Some(&c0.compilation), &sp, 13, None);
-    assert_eq!(plain.decision(), "append", "the estimate alone fits");
-    assert_eq!(kept(&plain).len(), 7);
-
-    // The provider's window, 20,000; its count of the request unknown.
-    let by_window = Overflowed {
-        counted: None,
-        estimated: plain.est_tokens,
-        maximum: Some(20_000),
-        retrying: None,
-    };
-    let w = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&by_window));
-    assert_eq!(w.trigger.as_deref(), Some("overflow"));
-    assert_eq!(w.compilation.strategy, "ring");
-    assert_eq!(w.compilation.manifest.context_window, Some(20_000));
-    let budget = 20_000 - 1_000 - 4_096;
-    assert!(w.est_tokens <= budget * 6 / 10, "{}", w.est_tokens);
-    assert_eq!(w.request.messages[0]["role"], "user");
-    // The provider counted twice the estimate: fewer exchanges fit.
-    let counted = Overflowed {
-        counted: Some(plain.est_tokens * 2),
-        ..by_window
-    };
-    let n = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&counted));
-    assert_eq!(n.trigger.as_deref(), Some("overflow"));
-    assert!(
-        kept(&n).len() < kept(&w).len(),
-        "{:?} against {:?}",
-        kept(&n),
-        kept(&w)
-    );
-    assert!(
-        n.est_tokens * 2 <= budget * 6 / 10 || kept(&n) == ["q6"],
-        "the count's reading fits, or only the last exchange is left: {:?}",
-        kept(&n)
-    );
-    // A window the estimate fits: only the provider's word rings it, and
-    // its count, ten times the estimate, reads every candidate so.
-    let forced = Overflowed {
-        counted: Some(plain.est_tokens * 10),
-        maximum: Some(200_000),
-        ..counted.clone()
-    };
-    let budget = 200_000 - 1_000 - 4_096;
-    assert!(plain.estimate.upper <= budget, "the estimate fits");
-    let f = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&forced));
-    assert_eq!(f.trigger.as_deref(), Some("overflow"), "rung anyway");
-    assert!(kept(&f).len() < kept(&plain).len(), "{:?}", kept(&f));
-    assert!(f.est_tokens * 10 <= budget * 6 / 10, "{}", f.est_tokens);
-    // A catalog window smaller than the provider's stays.
-    let bigger = Overflowed {
-        maximum: Some(5_000_000),
-        ..counted
-    };
-    let b = run_over(&more, Some(&c0.compilation), &sp, 13, Some(&bigger));
-    assert_eq!(b.compilation.manifest.context_window, Some(1_000_000));
-}
-
-/// theseus-9p88: a forced ring with nothing earlier to drop (the session's
-/// only message passed the window, and nothing came after it) renders the
-/// same request, which the turn reads as "the ring could drop nothing".
-/// Since theseus-3ki0 the ring also cuts inside the message's turn: once
-/// its loops follow it, the forced ring drops the early ones, the message
-/// pinned at the top, and renders a new request.
-#[test]
-fn a_forced_ring_with_one_message_renders_the_same_request() {
-    let sp = spec("claude-opus-5", "S");
-    let mut nodes = vec![(1, Node::user("s", None, "web", "one long message"))];
-    let c0 = run_over(&nodes, None, &sp, 1, None);
-    let o = Overflowed {
-        counted: Some(2_000_000),
-        estimated: c0.est_tokens,
-        maximum: Some(1_000_000),
-        retrying: None,
-    };
-    let c1 = run_over(&nodes, Some(&c0.compilation), &sp, 1, Some(&o));
-    assert!(!c1.new_compilation, "{:?}", c1.trigger);
-    assert_eq!(c1.digest, c0.digest);
-    // Its turn's loops after it: the forced ring cuts between them.
-    for k in 0..6u64 {
-        let id = format!("t{k}");
-        nodes.push((2 + k * 2, assistant(vec![call(&id)])));
-        nodes.push((
-            3 + k * 2,
-            result(&id, &"x".repeat(9_000), ResultStatus::Ok, false),
-        ));
-    }
-    let c2 = run_over(&nodes, Some(&c0.compilation), &sp, 13, None);
-    let o = Overflowed {
-        counted: Some(c2.est_tokens * 10),
-        estimated: c2.est_tokens,
-        ..o
-    };
-    let c3 = run_over(&nodes, Some(&c2.compilation), &sp, 13, Some(&o));
-    assert!(c3.new_compilation, "{:?}", c3.trigger);
-    assert_ne!(c3.digest, c2.digest);
-    assert_eq!(
-        c3.request.messages[0]["content"][0]["text"],
-        "one long message"
-    );
-    assert!(c3.request.messages.len() < c2.request.messages.len());
-}
-
-/// An answer of turn `turn`'s, cut at the window, with a call.
-fn cut_answer(turn: &str, loop_index: u32, text: &str, call_id: &str) -> Node {
-    let mut n = assistant(vec![
-        thinking(),
-        json!({"type": "text", "text": text}),
-        call(call_id),
-    ]);
-    n.turn_id = Some(turn.into());
-    n.loop_index = Some(loop_index);
-    if let Body::AssistantMessage { stop_reason, .. } = &mut n.body {
-        *stop_reason = Some(crate::provider::WINDOW_EXCEEDED.into());
-    }
-    n
-}
-
 fn of_turn(mut n: Node, turn: &str, loop_index: u32) -> Node {
     n.turn_id = Some(turn.into());
     n.loop_index = Some(loop_index);
     n
-}
-
-/// theseus-9p88: the retry of an answer cut at the window leaves it out,
-/// with its call and the call's "not run" result, so the request ends
-/// with the operator's message, not the cut answer (a prefill the newer
-/// models refuse). Once the retry answers, every later render leaves it
-/// out too, by the rule alone, so each request begins with the one
-/// before. A cut answer no later answer of its turn followed stays.
-#[test]
-fn an_answer_cut_at_the_window_is_left_out_once_a_retry_replaces_it() {
-    let sp = spec("claude-opus-5", "S");
-    let mut nodes = vec![
-        (1, of_turn(Node::user("s", None, "web", "q0"), "t0", 0)),
-        (
-            2,
-            of_turn(
-                assistant(vec![json!({"type": "text", "text": "a0"})]),
-                "t0",
-                0,
-            ),
-        ),
-        (3, of_turn(Node::user("s", None, "web", "q1"), "t1", 0)),
-    ];
-    let c0 = run_over(&nodes, None, &sp, 3, None);
-    let cut = cut_answer("t1", 0, "the first half", "c1");
-    let cut_id = cut.id.clone();
-    nodes.push((4, cut));
-    nodes.push((5, result("c1", "not run", ResultStatus::Error, false)));
-    let o = Overflowed {
-        counted: Some(900_000),
-        estimated: c0.est_tokens,
-        maximum: Some(1_000_000),
-        retrying: Some(cut_id),
-    };
-    let retry = run_over(&nodes, Some(&c0.compilation), &sp, 5, Some(&o));
-    assert_eq!(retry.trigger.as_deref(), Some("overflow"));
-    let last = retry.request.messages.last().unwrap();
-    assert_eq!(
-        (&last["role"], &last["content"][0]["text"]),
-        (&json!("user"), &json!("q1")),
-        "{:?}",
-        retry.request.messages
-    );
-    let text = serde_json::to_string(&retry.request.messages).unwrap();
-    assert!(!text.contains("the first half") && !text.contains("\"c1\""));
-
-    // The retry's answer replaces it in every later render.
-    nodes.push((
-        6,
-        of_turn(
-            assistant(vec![json!({"type": "text", "text": "whole"})]),
-            "t1",
-            1,
-        ),
-    ));
-    nodes.push((7, of_turn(Node::user("s", None, "web", "q2"), "t2", 0)));
-    let next = run_over(&nodes, Some(&retry.compilation), &sp, 7, None);
-    assert_eq!(next.decision(), "append");
-    assert_eq!(
-        &next.request.messages[..retry.request.messages.len()],
-        &retry.request.messages[..],
-        "the next request begins with the retry's"
-    );
-    let text = serde_json::to_string(&next.request.messages).unwrap();
-    assert!(!text.contains("the first half") && text.contains("whole"));
-
-    // A cut answer nothing in its turn followed is rendered.
-    nodes.push((8, cut_answer("t2", 0, "cut and left", "c2")));
-    nodes.push((9, result("c2", "not run", ResultStatus::Error, false)));
-    nodes.push((10, of_turn(Node::user("s", None, "web", "q3"), "t3", 0)));
-    let later = run_over(&nodes, Some(&retry.compilation), &sp, 10, None);
-    let text = serde_json::to_string(&later.request.messages).unwrap();
-    assert!(text.contains("cut and left") && text.contains("\"c2\""));
-    assert!(!text.contains("the first half"));
 }
 
 // ------------------------------------------------- the estimate (theseus-f5hf)
@@ -1147,7 +724,6 @@ fn run_in(
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::Continuation,
-        kept: None,
     })
 }
 
@@ -1181,50 +757,6 @@ fn call(id: &str) -> Value {
 fn json_output(n: usize) -> String {
     let row = r#"{"id":1234,"name":"node_17","kind":"file","size":4096,"tags":["a","b"]},"#;
     row.repeat(n / row.len() + 1)[..n].to_string()
-}
-
-/// A conversation heavy in tool results on Sonnet 5.5. chars/4 puts it
-/// under the ring's budget, while its count at the recorded ratio for
-/// Theseus's JSON (×1.52 of chars/4, the cache2 lane's first request)
-/// passes the window itself: the provider would refuse it. The estimate
-/// reads the JSON at the catalog's figure, and the ring rings.
-#[test]
-fn the_ring_rings_for_json_that_chars4_reads_as_fitting() {
-    let sp = spec("claude-sonnet-5-5", "S");
-    let out = json_output(88_000);
-    let mut nodes = Vec::new();
-    for i in 0..3u64 {
-        let id = format!("t{i}");
-        nodes.push((3 * i + 1, Node::user("s", None, "web", "read the next")));
-        nodes.push((3 * i + 2, assistant(vec![call(&id)])));
-        nodes.push((3 * i + 3, result(&id, &out, ResultStatus::Ok, false)));
-    }
-    let window = 100_000;
-    let budget = window - 1_000 - 4_096;
-    // The request as it stands, with no window to ring at.
-    let whole = run(&nodes, None, &sp, 9);
-    let chars4 = whole.estimate.bytes / 4;
-    assert!(chars4 < budget, "chars/4 {chars4} rings by itself");
-    assert!(
-        chars4 * 152 / 100 > window,
-        "the recorded ratio's count fits"
-    );
-    assert_eq!(whole.estimate.method, EstimateMethod::Bytes);
-    assert!(whole.est_tokens > chars4, "{:?}", whole.estimate);
-    assert!(
-        whole.estimate.upper > chars4 * 152 / 100,
-        "{:?}",
-        whole.estimate
-    );
-
-    let c = run_in(&nodes, None, &sp, 9, window);
-    assert_eq!(c.trigger.as_deref(), Some("overflow"));
-    assert_eq!(c.compilation.strategy, "ring");
-    assert!(c.est_tokens <= budget * 6 / 10, "{:?}", c.estimate);
-    assert!(
-        c.estimate.upper <= budget,
-        "the kept turns do not ring again"
-    );
 }
 
 /// From a compilation's second call on, the estimate adds what is new
@@ -1340,54 +872,6 @@ fn the_estimate_is_within_its_margin_of_recorded_counts() {
     // At its worst, an 11 KB tool output read at 1.76 bytes a token, the
     // estimate is 15 % low; the ring's bound covers it.
     assert!(worst > 0.84, "{worst}");
-}
-
-/// GLM's tokenizer reads Theseus's requests at about four bytes a token
-/// (×1.02 of chars/4, the cache2 lane), so its figures leave a GLM
-/// conversation unrung where Sonnet 5.5's would ring the same bytes.
-#[test]
-fn a_glm_conversation_is_not_rung_early() {
-    let window = 200_000;
-    let mut glm = spec("glm-5.3-flash", "S");
-    glm.provider = "zai".into();
-    // A conversation that chars/4 puts at 65 % of the budget.
-    let budget = window - 1_000 - 4_096;
-    let text = "word ".repeat((budget * 65 / 100 * 4 / 6) as usize / 5);
-    let mut nodes = Vec::new();
-    for i in 0..6u64 {
-        nodes.push((i * 2 + 1, Node::user("s", None, "web", &text)));
-        nodes.push((
-            i * 2 + 2,
-            assistant(vec![json!({"type": "text", "text": "ok"})]),
-        ));
-    }
-    nodes.pop();
-    let c = run_in(&nodes, None, &glm, 11, window);
-    let chars4 = c.estimate.bytes / 4;
-    assert!(chars4 > budget * 64 / 100, "{chars4}");
-    assert_eq!(
-        c.trigger.as_deref(),
-        Some("new_session"),
-        "{:?}",
-        c.estimate
-    );
-    assert!(c.est_tokens < chars4 * 115 / 100, "{:?}", c.estimate);
-    // Counted, GLM's own count of 90 % of the budget does not ring.
-    let first = run_in(&hi(), None, &glm, 1, window);
-    let mut counted = hi();
-    counted.push((
-        2,
-        answered(
-            vec![json!({"type": "text", "text": "ok"})],
-            &first.compilation.id,
-            budget * 90 / 100,
-            2,
-        ),
-    ));
-    counted.push((3, Node::user("s", None, "web", "and then?")));
-    let c = run_in(&counted, Some(&first.compilation), &glm, 3, window);
-    assert_eq!(c.estimate.method, EstimateMethod::Counted);
-    assert!(!c.new_compilation, "{:?}", c.estimate);
 }
 
 /// GLM and DeepSeek think without being asked (theseus-a1wvq.1): their rows

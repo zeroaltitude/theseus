@@ -461,7 +461,7 @@ fn the_plan_puts_the_header_in_layer_three_and_the_delta_after_it() {
         header: sha(&files(300)),
         fresh: sha(&fresh),
     };
-    let mut spec = crate::compiler::tests_ring::spec();
+    let mut spec = crate::compiler::tests_parts::spec();
     spec.context_text = fresh;
     spec.session_text = "Directory: /work/tide-gauges".into();
     spec.prefix = Some(Arc::new(Plan {

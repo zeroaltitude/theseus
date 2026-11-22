@@ -109,9 +109,6 @@ pub(super) struct Ctx<'a, 'n> {
     /// The answers a later call replaced.
     pub replaced: &'a HashSet<&'n str>,
     pub strip_prefix_thinking: bool,
-    /// Whether Anthropic's own API answers this request (the spec's
-    /// `first_party`): what `readable` asks of a model switch's thinking.
-    pub first_party: bool,
     pub provider: &'a str,
     pub media: &'a Media<'a>,
     pub sources: &'a crate::recall::render::Sources,
@@ -143,14 +140,14 @@ pub(super) fn results_of<'n>(nodes: impl Iterator<Item = &'n Node>) -> HashMap<&
 /// `tool_result` blocks first; consecutive same-role messages merge. An
 /// assistant message whose provider is not `provider`, the request's, or
 /// whose model is not the request's, keeps no thinking block: its signature
-/// is one only its own provider and model can verify (theseus-kol; 25e). An answer cut at the window that a later call replaced is
-/// left out, with its calls (theseus-9p88): the one `retrying` names, and
+/// is one only its own provider and model can verify (theseus-kol; 25e).
+/// An answer cut at the window that a later call replaced is left out, with its calls (theseus-9p88): the one `retrying` names, and
 /// any that a later answer of its turn followed. Also returns the repaired
 /// calls and the tokens the images are estimated at.
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
-    (strip_prefix_thinking, first_party): (bool, bool),
+    strip_prefix_thinking: bool,
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
@@ -164,7 +161,6 @@ pub fn render_messages(
         results: &results,
         replaced: &replaced,
         strip_prefix_thinking,
-        first_party,
         provider,
         media,
         sources,
@@ -216,9 +212,7 @@ impl State {
                 // another model (M5 25e) carries none back either.
                 let strip = (in_prefix && ctx.strip_prefix_thinking)
                     || wrote != ctx.provider
-                    || (wrote_model != media.model
-                        && media.also != Some(wrote_model)
-                        && !super::readable::reads(ctx.first_party, wrote_model, media.model));
+                    || (wrote_model != media.model && media.also != Some(wrote_model));
                 let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {

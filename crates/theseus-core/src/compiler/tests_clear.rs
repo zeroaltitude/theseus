@@ -4,7 +4,7 @@
 
 use serde_json::{json, Value};
 
-use super::tests_ring::{answer, closed, result, spec};
+use super::tests_parts::{answer, closed, result, spec};
 use super::*;
 use crate::stub::Stub;
 
@@ -86,7 +86,6 @@ fn compile_capped(
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::Continuation,
-        kept: None,
     })
 }
 

@@ -264,10 +264,6 @@ files = []                              # the system level, e.g. ["~/.openclaw/w
 # Omitted: the model's full window from the catalog. Past half of it, a long turn's old
 # tool results become stubs; past it, the turn compacts its earlier loops.
 # working_window_tokens = 200000
-# Each session's render, kept across turns so a turn renders only what was written since:
-# at most this many MiB across the sessions, the least recently used going first; 0 keeps
-# none, and every turn renders its session whole.
-# kept_mb = 64
 # The exchange ledger: beside each person's message, whether it was typed by the owner in person
 # and where it arrived; each turn's exchange and what it touched; and one row of counts per private
 # turn (`theseus ledger exchanges`). None of it is sent to a model. false writes none of it.

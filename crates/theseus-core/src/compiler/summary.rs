@@ -103,3 +103,50 @@ pub(super) fn summaries_first<'n>(
         .map(|(_, n)| n)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::super::tests_parts::{answer, spec};
+    use super::super::*;
+    use crate::stub::Stub;
+
+    /// A summary as compaction wrote it, in the layout of a store from before the cut.
+    const OLD_SUMMARY: &str = r#"{"id":"sum_00000000000000000000000000000003","schema":1,"session_id":"s","turn_id":null,"loop_index":0,"origin":"harness","author":null,"created_at_ms":1790000000003,"body":{"kind":"summary","first":1,"last":2,"nodes":2,"text":"The keeper asked when high water was; it was at noon.","profile":"glm","model":"glm-5.3-flash","cost_usd":0.001,"header":"[Summary of 2 earlier messages, 2026-09-20 (@1 to @2), written by glm on glm-5.3-flash]"}}"#;
+
+    #[test]
+    fn an_old_sessions_summary_still_stands_for_its_range_and_renders_first() {
+        let summary: Node = serde_json::from_str(OLD_SUMMARY).expect("an old summary decodes");
+        let nodes: Vec<(u64, Stub)> = vec![
+            (1, Node::user("s", None, "web", "when is high water?").into()),
+            (2, answer(vec![json!({"type": "text", "text": "At noon."})]).into()),
+            (3, summary.into()),
+            (4, Node::user("s", None, "web", "and low water?").into()),
+        ];
+        let spec = spec();
+        let c = compile(CompileInput {
+            session_id: "s",
+            current: None,
+            nodes: &nodes,
+            last_position: 4,
+            spec: &spec,
+            catalog: &crate::catalog::Catalog::builtin(),
+            force: None,
+            window_override: None,
+            blobs: None,
+            hidden: &[],
+            strip: None,
+            overflowed: None,
+            sources: &Default::default(),
+            assembled: None,
+            situation: &situation::Situation::ConversationStart,
+        });
+        let first = c.request.messages[0]["content"][0]["text"].as_str().unwrap_or_default();
+        assert!(first.starts_with("[Summary of 2 earlier messages"), "{first}");
+        assert!(first.contains("it was at noon."), "{first}");
+        let all = serde_json::to_string(&c.request.messages).unwrap();
+        assert!(!all.contains("when is high water?"), "its range stays out: {all}");
+        assert!(all.contains("and low water?"), "{all}");
+    }
+}

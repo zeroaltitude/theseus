@@ -115,8 +115,7 @@ async fn a_stream_idle_cut_does_not_switch_models() {
 async fn a_timeout_fallbacks_requests_keep_the_whole_transcript() {
     // Loop 0 calls a tool; loop 1 is cut and goes to the fallback; loop 2
     // calls again there; loop 3 answers. Nothing was refused, so nothing is
-    // left out of the render (the kept render's own rule is
-    // `compiler::tests_kept::a_timeout_fallback_keeps_the_kept_render`).
+    // left out of the render.
     let r = rig(vec![
         read_call(),
         cut(TimeoutPhase::Total),

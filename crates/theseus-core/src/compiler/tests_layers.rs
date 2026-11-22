@@ -3,7 +3,7 @@
 //! the session's block after them with none.
 
 use super::layers::{layer_digests, HEADER, PERSONA, PROJECT};
-use super::tests_ring::spec;
+use super::tests_parts::spec;
 use super::*;
 
 /// A text of about `n` bytes.
@@ -46,7 +46,6 @@ fn compiled(spec: &RequestSpec) -> Compiled {
         sources: &Default::default(),
         assembled: None,
         situation: &situation::Situation::ConversationStart,
-        kept: None,
     })
 }
 
@@ -184,7 +183,6 @@ fn a_planned_third_layer_is_the_headers_bytes_and_an_append_repeats_them() {
             sources: &Default::default(),
             assembled: None,
             situation: &situation::Situation::ConversationStart,
-            kept: None,
         })
     };
     let next = append(&s);

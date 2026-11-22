@@ -372,7 +372,7 @@ fn render(
     // A cut answer this call replaces is left out, as the transcript leaves it (theseus-9p88).
     let retrying = input.overflowed.and_then(|o| o.retrying.as_deref());
     let media = (input.blobs, input.hidden, retrying, input.sources);
-    let mut rendered = render_kept(spec, catalog, split, nodes, media, None);
+    let mut rendered = render_request(spec, catalog, split, nodes, media);
     let first_tail = nodes
         .iter()
         .find(|(p, _)| *p > split.as_of)

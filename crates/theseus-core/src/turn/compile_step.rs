@@ -180,12 +180,8 @@ impl TurnRunner {
             sources: &sources,
             assembled: assembled.as_deref(),
             situation: &given,
-            // The render kept across turns, under this view of the nodes:
-            // the old attachments a cold rewrite stubbed (theseus-0l3g).
-            kept: Some((&self.kept, Self::stubbed_key(&stubbed))),
         };
-        // Where the ring cut, a summary in its place (30c); past the window
-        // with nothing left to drop, the turn fails before any call.
+        // Past the window with nothing left to drop, the turn fails before any call.
         // A place set to `view` builds it from the turn's view instead (issue 44, `view_step`).
         // A view that cannot be assembled soundly fails the turn plainly, before anything is sent.
         let mut compiled = match Box::pin(self.compile_here(t, input)).await {
@@ -265,15 +261,6 @@ impl TurnRunner {
     ) {
         summary.walk_tokens = self.walk_tokens(spec, compiled);
         Self::exchange_sent(t, (nodes, compiled, spec), cold, summary);
-    }
-
-    /// The view of the nodes the kept render is held under (theseus-0l3g): a
-    /// digest of the old attachments a cold rewrite stubbed.
-    fn stubbed_key(stubbed: &[theseus_protocol::StubbedFile]) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        format!("{stubbed:?}").hash(&mut h);
-        h.finish()
     }
 
     /// A clearing pass (theseus-3ki0): one row a pass.
