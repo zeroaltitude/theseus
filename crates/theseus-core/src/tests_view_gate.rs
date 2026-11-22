@@ -1230,6 +1230,89 @@ async fn a_report_into_a_place_that_narrowed_is_a_notice() {
     assert!(notice.contains("a1b2c3") && notice.contains("where the owner is alone"));
 }
 
+/// A task started in a channel bound private by a turn no message opened (a wake's: the gate's presence is
+/// kept for it, `exchange::given`), whose report comes back after the SAME channel became shared: the report
+/// is a notice there, not its text, as a marked setup's is (the hand-backs review's P1: the kept presence is
+/// read at the place's class today, never as it was kept).
+#[tokio::test]
+async fn a_kept_presence_does_not_carry_a_report_into_a_place_that_became_shared() {
+    use crate::exchange::given::{given_record, Given};
+    use crate::exchange::{exchange_record, mark_record, Exchange, Opener};
+    let r = rig();
+    let lab = format!("discord:channel:{LAB}");
+    let bound = |private: bool| BoundPlace {
+        target: lab.clone(),
+        name: "#lab".into(),
+        private,
+        ..Default::default()
+    };
+    for marked in [false, true] {
+        r.core.bind_places(vec![bound(true)]);
+        let parent = session(&r.core, Some(&format!("channel:{LAB}")));
+        assert_eq!(r.core.runner.place_of(&parent), Place::Private);
+        let (turn, call, ask) = (
+            format!("turn_set_up_{marked}"),
+            format!("tc_task_{marked}"),
+            format!("nod_ask_{marked}"),
+        );
+        let ex = Exchange {
+            turn_id: turn.clone(),
+            session_id: parent.clone(),
+            place: lab.clone(),
+            private: true,
+            opened_by: if marked {
+                Opener::Message
+            } else {
+                Opener::Wake
+            },
+            person: None,
+            start_ms: 1,
+            end_ms: Some(2),
+            ask: marked.then(|| ask.clone()),
+            reply: None,
+            messages: if marked { vec![ask.clone()] } else { vec![] },
+            stop: None,
+            rebuilt: false,
+        };
+        let body: crate::node::Body = serde_json::from_value(json!({"kind": "tool_call",
+            "tool_use_id": call, "tool": "task.create", "wire_name": "task_create",
+            "input": {}, "assistant_node": "msg_t"}))
+        .unwrap();
+        let node = crate::node::Node::tool_call(&parent, Some(&turn), Some(0), body);
+        let mut records = vec![exchange_record(&ex).unwrap(), node.record().unwrap()];
+        if marked {
+            let mut m = view_gate::test_mark(&r.core.runner, &parent, true);
+            m.node = ask.clone();
+            records.push(mark_record(&m).unwrap());
+        } else {
+            let kept = Given::new(&turn, Present::PrivateChannel, None);
+            records.push(given_record(&kept).unwrap());
+        }
+        r.core.store.append(&records).unwrap();
+        let target = r.core.outbox.try_target(&parent).unwrap();
+        let mut task =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        task.task = Some(
+            serde_json::from_value(json!({"parent_session": parent,
+                "parent_execution": "exe_p", "by": call, "target": target}))
+            .unwrap(),
+        );
+        r.core.store.put_session(&task.session_id, &task).unwrap();
+        assert!(
+            view_gate::report_shown(&r.core.runner, &parent, &task.session_id),
+            "the channel private, as it was: the report is shown (marked: {marked})"
+        );
+        // The same target, now shared: nothing of the binding moved but its class.
+        r.core.bind_places(vec![bound(false)]);
+        assert!(matches!(r.core.runner.place_of(&parent), Place::Shared(_)));
+        assert_eq!(r.core.outbox.try_target(&parent).unwrap(), target);
+        assert!(
+            !view_gate::report_shown(&r.core.runner, &parent, &task.session_id),
+            "a shared channel is given the notice, not the report (marked: {marked})"
+        );
+    }
+}
+
 /// An earlier `Recall` node's sources are admitted again under the current
 /// turn's presence: a note admitted when the owner was alone does not ride
 /// into an agent's turn at the terminal, nor into a channel bound private

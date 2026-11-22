@@ -548,10 +548,13 @@ fn exchange_presence(
     let marked = ask.and_then(|a| crate::exchange::mark(store, a).ok().flatten());
     let mut out = match marked {
         Some(m) => present_of_mark(class, &m),
-        None => crate::exchange::given::given(store, &ex.turn_id)
-            .ok()
-            .flatten()?
-            .present(),
+        None => kept_at(
+            class,
+            crate::exchange::given::given(store, &ex.turn_id)
+                .ok()
+                .flatten()?
+                .present(),
+        ),
     };
     let mut steers: Vec<&str> = (ex.messages.iter().map(String::as_str))
         .filter(|id| Some(*id) != ask)
@@ -575,6 +578,18 @@ fn exchange_presence(
         });
     }
     Some(out)
+}
+
+/// A kept presence (`exchange::given`) read at `class`, today's reading of the place: never wider than the
+/// place allows now (a place that became shared is shared; one that cannot be read admits nothing), and never
+/// wider than what was kept. A marked ask is read at `class` by its mark; this is the same for a turn no
+/// message opened, so a report's audience check (`report_shown`) sees a place that changed class.
+fn kept_at(class: &Place, kept: Present) -> Present {
+    match class {
+        Place::Private => kept,
+        Place::Shared(_) => kept.max(Present::Shared),
+        Place::Unknown => Present::Unknown,
+    }
 }
 
 /// The presence of the turn of `session` that made the call `call_id` (a

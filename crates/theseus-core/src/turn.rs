@@ -1480,7 +1480,11 @@ impl TurnRunner {
                 let mut body = serde_json::to_value(&failed).unwrap_or_default();
                 body["kind"] = json!("failed");
                 body["turns"] = json!(failing.turns);
-                if let Err(e) = self.outbox.post_for(&failed.session_id, &exec_id, body) {
+                // Where its reply would have gone: the turn's own answer place, else where the session speaks
+                // (its target, else the wake target a session `/new` displaced keeps).
+                let sid = &failed.session_id;
+                let at = (answer_at.clone()).or_else(|| self.outbox.speaks_at(sid).ok().flatten());
+                if let Some(Err(e)) = at.map(|at| self.outbox.post(sid, &exec_id, &at, body)) {
                     tracing::warn!(error = %format!("{e:#}"), "the failed turn's notice was not written");
                 }
             }

@@ -13,7 +13,10 @@
 //!   `Unknown`, would leave the request without the work: the view fails the turn plainly.
 //!
 //! A task's turns are the task's own (their place and presence are set elsewhere): they keep the presences,
-//! and nothing here fails them.
+//! and nothing here fails them. A self-loop worker's continuation (`view_gate::worker`: its execution's
+//! principal is `self`) is not failed for a presence it cannot read either: it opens with an unmarked harness
+//! message, so it has none, and its view lays only what its own session said at its own place. Where it
+//! answers, and whether its continued turns can be read, are checked as for any turn.
 
 use theseus_memory::gate::Present;
 use theseus_memory::recall::Place;
@@ -116,7 +119,10 @@ impl TurnRunner {
         let lost = found
             .iter()
             .any(|p| p.is_none_or(|p| p == Present::Unknown));
-        if t.tc.task.is_none() && lost {
+        // A worker (a task, or a session the self loop opened) is not failed for it: its view lays only what
+        // its own session said at its own place (`view_gate::own_turns`, `Permit::speaking`), never the owner
+        // alone, nothing of another place.
+        if lost && t.tc.task.is_none() && !view_gate::worker(self, t.tc.session_id) {
             t.exchange.cannot_resume(Unresumable::Unread);
         }
         found

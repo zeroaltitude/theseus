@@ -391,3 +391,119 @@ async fn a_conversation_answers_its_next_message_after_each_plain_failure() {
     assert!(after.is_ok(), "{after:?}");
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
+
+/// The review's P1 (composition with the own-history rule): a self-loop worker (its execution's principal is
+/// `self`, not a task) opens with an unmarked harness message, so it has no mark and nothing kept; its first
+/// call is cut, and the next start resumes it. It is not failed for the presence it cannot read: its view
+/// lays what its own session said at its own place (`Permit::speaking`), the brief exactly once, nothing of
+/// another place (the owner's DM fact is absent), and it answers.
+#[tokio::test]
+async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
+    const BRIEF: &str = "SELF BRIEF: count the herons at the weir";
+    let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
+        Scripted::text("Noted."),
+        cut(),
+        Scripted::text("Herons: nine."),
+    ]));
+    let (c, dm, _) = restart_rig(
+        fake.clone(),
+        Some(&format!("dm:{}", crate::tests_places::OWNER)),
+        "dm: the vault word is plover",
+    )
+    .await;
+    assert!(answered(&c, &dm, "Noted."));
+    // The self loop's session: its execution's principal is `self`, it is no task.
+    let mut rec =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    let authority = theseus_kernel::Authority {
+        principal: crate::rsi::SELF_PRINCIPAL.into(),
+        ..Default::default()
+    };
+    let exec = (c.kernel)
+        .open_execution(&rec.session_id, rec.kind, authority, None, None)
+        .unwrap();
+    rec.execution_id = Some(exec.id);
+    c.store.put_session(&rec.session_id, &rec).unwrap();
+    let sid = rec.session_id.clone();
+    assert!(crate::view_gate::worker(&c.runner, &sid) && rec.task.is_none());
+    // Its opening, as the self loop runs one: no arrival mark.
+    let (live, _) = c.live_profile();
+    let target = c.runner.resolve_target(&live, None, None, None).unwrap();
+    let _ = c
+        .runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(BRIEF.into()),
+            target,
+            sink: crate::bus::EventSink::new(c.bus.clone(), &sid, None),
+            author: "self:mint".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await;
+    let before = fake.requests().len();
+    let done = resume(&c, &sid).await.expect("the worker's resume runs");
+    assert_eq!(done.output, "Herons: nine.");
+    let sent = &fake.requests()[before..];
+    assert!(!sent.is_empty(), "the resume made its call");
+    for q in sent {
+        legal(q);
+        let t = texts(q);
+        assert_eq!(t.matches(BRIEF).count(), 1, "the brief exactly once: {t}");
+        assert!(!t.contains("plover"), "nothing of another place: {t}");
+    }
+    assert!(answered(&c, &sid, "Herons: nine."));
+}
+
+/// The review's P2: a session `/new` displaced keeps only its saved wake target (no target of its own). Its
+/// resume, whose chain cannot be read, fails plainly, and the failure is posted at that wake target, where its
+/// reply would have gone; then a new message to the session is answered.
+#[tokio::test]
+async fn a_displaced_sessions_plain_failure_is_posted_where_its_wake_answers() {
+    const AT: &str = "discord:dm:42";
+    let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
+        cut(),
+        Scripted::text("Back again."),
+    ]));
+    let (c, sid, turn) = restart_rig(fake.clone(), None, "where is the pilot boat?").await;
+    c.store
+        .append(&[c.outbox.wake_target_record(&sid, AT).unwrap()])
+        .unwrap();
+    assert_eq!(
+        c.outbox.target(&sid),
+        None,
+        "displaced: no target of its own"
+    );
+    c.store
+        .append(&[crate::exchange::exchange_record(&{
+            let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
+            ex.ask = Some("msg-that-is-not-there".into());
+            ex.messages.clear();
+            (ex.end_ms, ex.stop) = (None, None);
+            ex
+        })
+        .unwrap()])
+        .unwrap();
+    let e = resume(&c, &sid).await.unwrap_err();
+    let te = e.downcast_ref::<crate::turn::TurnError>().unwrap();
+    assert_eq!(te.class, "context_unreadable");
+    let posted: Vec<serde_json::Value> = (c.outbox.open_for(AT).iter())
+        .filter(|a| crate::outbox::kind_of(a) == "failed")
+        .map(|a| crate::outbox::body_of(a).clone())
+        .collect();
+    assert!(
+        (posted.iter()).any(|b| b["class"] == "context_unreadable"
+            && b["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("could not be read")),
+        "the failure is posted at the wake target: {posted:?}"
+    );
+    let next = submit(&c, &sid, "and now, the pilot boat?").await.unwrap();
+    assert_eq!(next.output, "Back again.");
+}
