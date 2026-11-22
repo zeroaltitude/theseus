@@ -65,7 +65,7 @@ async fn unmarked(c: &Arc<crate::Core>, sid: &str, input: &str) -> anyhow::Resul
 /// turn takes the view there, with no hand-back.
 #[tokio::test]
 async fn a_wake_in_a_session_that_posts_nowhere_takes_the_view_where_its_answer_goes() {
-    let r = rig_with(view);
+    let r = rig_with(|_| {});
     let c = &r.core;
     let old = session(c, Some(&format!("channel:{LAB}")));
     crate::tests_places::turn(c, &old, "WAKE in a second").await;
@@ -102,7 +102,7 @@ async fn a_wake_in_a_session_that_posts_nowhere_takes_the_view_where_its_answer_
 /// so, and no request is sent.
 #[tokio::test]
 async fn a_place_that_cannot_be_read_fails_the_turn_plainly_and_sends_nothing() {
-    let r = rig_with(view);
+    let r = rig_with(|_| {});
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     crate::turn::view_step::route_unreadable(&sid);
@@ -193,7 +193,7 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
     let calls = Arc::new(AtomicU32::new(0));
     let seen = calls.clone();
     let r = rig_setup_scripted(
-        view,
+        |_| {},
         |_| {},
         move |q| {
             if q.tools.is_empty() {
@@ -263,7 +263,7 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
 /// words; never a partial view, and nothing is sent.
 #[tokio::test]
 async fn a_read_failure_during_assembly_fails_the_turn_with_its_words() {
-    let r = rig_with(view);
+    let r = rig_with(|_| {});
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     crate::turn::view_step::fail_next_assembly(&sid);
@@ -287,7 +287,7 @@ async fn a_read_failure_during_assembly_fails_the_turn_with_its_words() {
 #[tokio::test]
 async fn a_third_move_in_one_call_fails_it_plainly_and_sends_nothing() {
     use theseus_memory::gate::Present;
-    let r: Rig = rig_with(view);
+    let r: Rig = rig_with(|_| {});
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
     let core: Arc<OnceLock<Arc<crate::Core>>> = Arc::new(OnceLock::new());
