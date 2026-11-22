@@ -1,6 +1,6 @@
 //! The ladder over a store with a fake writer: a `did` line from the message
-//! and the reply alone, once, with its exchange's marks; none for a sealed
-//! source or past the day's line; the reader's words where there is none;
+//! and the reply alone, once, with its exchange's marks; none past the day's
+//! line; the reader's words where there is none;
 //! the fold by count, its words by reference and its marks; the levels above
 //! built by code; and `/new`. Every name here is invented.
 
@@ -143,16 +143,12 @@ pub(super) fn new_at(at_ms: u64) -> crate::view::Pos {
     }
 }
 
-fn shown() -> impl Fn(&str) -> bool + Sync {
-    |_: &str| false
-}
-
 #[tokio::test]
 async fn a_did_line_reads_the_message_and_the_reply_never_a_tool_result() {
     let (_d, s) = store();
     let turn = exchange_at(&s, "ses_a", PLACE, 1_000, true);
     let w = Fake::default();
-    let out = did::write(&s, &w, &turn, &shown(), &DayPurse::new(&s, None, false))
+    let out = did::write(&s, &w, &turn, &DayPurse::new(&s, None, false))
         .await
         .unwrap();
     let Outcome::Written(d) = out else {
@@ -189,7 +185,7 @@ async fn a_did_line_reads_the_message_and_the_reply_never_a_tool_result() {
     assert_eq!(did::said(&s, &turn).unwrap(), Said::Line(d));
     // Written once.
     assert_eq!(
-        did::write(&s, &w, &turn, &shown(), &DayPurse::new(&s, None, false))
+        did::write(&s, &w, &turn, &DayPurse::new(&s, None, false))
             .await
             .unwrap(),
         Outcome::Had
@@ -214,20 +210,6 @@ async fn a_line_is_cut_by_code_and_none_is_shown_as_not_summarised() {
 }
 
 #[tokio::test]
-async fn a_sealed_source_is_not_summarised_and_nothing_is_asked() {
-    let (_d, s) = store();
-    let turn = exchange_at(&s, "ses_sealed", PLACE, 1_000, false);
-    let w = Fake::default();
-    let sealed = |sid: &str| sid == "ses_sealed";
-    let out = did::write(&s, &w, &turn, &sealed, &DayPurse::new(&s, None, false))
-        .await
-        .unwrap();
-    assert_eq!(out, Outcome::Hidden);
-    assert!(w.asks.lock().unwrap().is_empty());
-    assert_eq!(did::did(&s, &turn).unwrap(), None);
-}
-
-#[tokio::test]
 async fn the_days_line_holds_and_what_was_spent_is_kept() {
     let (_d, s) = store();
     let w = Fake {
@@ -237,10 +219,9 @@ async fn the_days_line_holds_and_what_was_spent_is_kept() {
     let mut written = 0;
     for i in 0..4 {
         let turn = exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
-        if let Outcome::Written(_) =
-            did::write(&s, &w, &turn, &shown(), &DayPurse::new(&s, None, false))
-                .await
-                .unwrap()
+        if let Outcome::Written(_) = did::write(&s, &w, &turn, &DayPurse::new(&s, None, false))
+            .await
+            .unwrap()
         {
             written += 1;
         }
@@ -261,22 +242,17 @@ async fn an_exchange_still_being_answered_has_no_line_yet() {
         .unwrap();
     let w = Fake::default();
     assert_eq!(
-        did::write(&s, &w, &turn, &shown(), &DayPurse::new(&s, None, false))
+        did::write(&s, &w, &turn, &DayPurse::new(&s, None, false))
             .await
             .unwrap(),
         Outcome::NotEnded
     );
 }
 
-fn step<'a>(
-    w: &'a Fake,
-    hidden: &'a (dyn Fn(&str) -> bool + Sync),
-    purse: &'a DayPurse<'a>,
-) -> Step<'a> {
+fn step<'a>(w: &'a Fake, purse: &'a DayPurse<'a>) -> Step<'a> {
     Step {
         writer: w,
         flags: &NoFlags,
-        hidden,
         purse,
     }
 }
@@ -288,29 +264,18 @@ async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
         .map(|i| exchange_at(&s, "ses_a", PLACE, 1_000 + i, i == 3))
         .collect();
     let w = Fake::default();
-    let hidden = shown();
-    let s1 = read::fold_step(
-        &s,
-        PLACE,
-        None,
-        &step(&w, &hidden, &DayPurse::new(&s, None, false)),
-    )
-    .await
-    .unwrap();
+    let s1 = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
+        .await
+        .unwrap();
     assert!(s1.made.is_empty(), "2N - 1 exchanges: no fold");
     assert_eq!(
         read::ladder(&s, PLACE, None).unwrap().window.len(),
         2 * N - 1
     );
     let last = exchange_at(&s, "ses_a", PLACE, 1_000 + 2 * N as u64, false);
-    let s2 = read::fold_step(
-        &s,
-        PLACE,
-        None,
-        &step(&w, &hidden, &DayPurse::new(&s, None, false)),
-    )
-    .await
-    .unwrap();
+    let s2 = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
+        .await
+        .unwrap();
     assert_eq!(s2.made.len(), 1);
     let node = &s2.made[0];
     assert_eq!((node.level, node.exchanges.len()), (1, N));
@@ -343,28 +308,51 @@ async fn the_window_folds_its_oldest_n_at_2n_and_keeps_n() {
     );
 }
 
+/// A first-level node written over a sealed or veiled source before anything goes (2026-11-22), as the
+/// store holds it: it still decodes, the ladder reads it, and it is shown as it stands: a node is written
+/// once for its range, so the fold step takes it and asks no model for its exchanges again.
 #[tokio::test]
-async fn a_sealed_window_folds_by_code_and_no_model_reads_it() {
+async fn an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands() {
     let (_d, s) = store();
-    for i in 0..2 * N as u64 {
-        exchange_at(&s, "ses_sealed", PLACE, 1_000 + i, false);
-    }
+    let turns: Vec<String> = (0..2 * N as u64)
+        .map(|i| exchange_at(&s, "ses_sealed", PLACE, 1_000 + i, false))
+        .collect();
+    let last_ms = 1_000 + N as u64 - 1;
+    let old = json!({
+        "id": "fld_old", "place": PLACE, "level": 1, "exchanges": &turns[..N],
+        "first_ms": 1_000, "last_ms": last_ms, "his": [], "counted": 0, "children": [],
+        "title": format!("{N} exchanges, not summarised"), "account": fold::HIDDEN,
+        "marks": {"place": PLACE, "audience": "private", "author": "theseus", "outside": false,
+                  "sealed": true, "veiled": true},
+        "model": null, "writer": 1, "at_ms": 5,
+    });
+    let old: fold::FoldNode = serde_json::from_value(old).unwrap();
+    s.append(&fold::records(&old).unwrap()).unwrap();
+    let l = read::ladder(&s, PLACE, None).unwrap();
+    assert_eq!(
+        l.rungs[0].nodes,
+        vec![old.clone()],
+        "it reads as it was written"
+    );
+    assert_eq!(
+        l.window.len(),
+        N,
+        "the exchanges it stands for are out of the window"
+    );
     let w = Fake::default();
-    let sealed = |sid: &str| sid == "ses_sealed";
-    let st = read::fold_step(
-        &s,
-        PLACE,
-        None,
-        &step(&w, &sealed, &DayPurse::new(&s, None, false)),
-    )
-    .await
-    .unwrap();
-    assert_eq!(st.made.len(), 1);
-    assert_eq!(st.made[0].account, fold::HIDDEN);
-    assert_eq!(st.made[0].model, None);
-    assert!(
-        st.made[0].marks.sealed && st.made[0].marks.veiled,
-        "fails closed"
+    let purse = DayPurse::new(&s, None, false);
+    let oldest: Vec<Exchange> = turns[..N]
+        .iter()
+        .map(|t| exchange::exchange(&s, t).unwrap().unwrap())
+        .collect();
+    let (again, spent) = read::first(&s, &oldest, &step(&w, &purse))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (again, spent),
+        (old, 0.0),
+        "shown as it stands, never written again"
     );
     assert!(w.asks.lock().unwrap().is_empty());
 }
@@ -373,13 +361,11 @@ async fn a_sealed_window_folds_by_code_and_no_model_reads_it() {
 async fn a_level_of_2n_nodes_folds_into_one_above_built_by_code() {
     let (_d, s) = store();
     let w = Fake::default();
-    let hidden = shown();
     let flags = Flagged;
     let purse = DayPurse::new(&s, None, false);
     let st = Step {
         writer: &w,
         flags: &flags,
-        hidden: &hidden,
         purse: &purse,
     };
     let mut made = Vec::new();
@@ -458,12 +444,11 @@ async fn only_what_came_after_the_latest_new_is_counted() {
     assert_eq!(l.window.len(), 3);
     assert!(l.window.iter().all(|e| e.session_id == "ses_new"));
     let w = Fake::default();
-    let hidden = shown();
     let st = read::fold_step(
         &s,
         PLACE,
         Some(&new_at(9_000)),
-        &step(&w, &hidden, &DayPurse::new(&s, None, false)),
+        &step(&w, &DayPurse::new(&s, None, false)),
     )
     .await
     .unwrap();
@@ -491,12 +476,10 @@ async fn the_views_traits_read_the_ladder_and_write_its_nodes() {
         exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
     }
     let w = Fake::default();
-    let hidden = shown();
     let folds = super::view::StoreFolds {
         store: &s,
         writer: &w,
         flags: &NoFlags,
-        hidden: &hidden,
     };
     let ladder = super::view::StoreLadder(&s);
     let before = ladder.read(PLACE, N, None).unwrap();
@@ -540,15 +523,9 @@ async fn a_fold_over_a_change_of_audience_carries_the_narrowest_and_so_does_a_li
         }
     }
     let w = Fake::default();
-    let hidden = shown();
-    let st = read::fold_step(
-        &s,
-        PLACE,
-        None,
-        &step(&w, &hidden, &DayPurse::new(&s, None, false)),
-    )
-    .await
-    .unwrap();
+    let st = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
+        .await
+        .unwrap();
     assert_eq!(st.made[0].marks.audience, Audience::Private, "private wins");
     // A lift over a private node and a shared one, and over an unknown one.
     let mut shared = st.made[0].clone();
@@ -589,10 +566,10 @@ async fn a_ladder_reads_only_its_own_place_and_a_place_that_breaks_a_key_has_non
     assert!(read::ladder(&s, &other, None).unwrap().window.is_empty());
     let turn = exchange_at(&s, "ses_b", &other, 2_000, false);
     let w = Fake::default();
-    let out = did::write(&s, &w, &turn, &shown(), &DayPurse::new(&s, None, false))
+    let out = did::write(&s, &w, &turn, &DayPurse::new(&s, None, false))
         .await
         .unwrap();
-    assert_eq!(out, Outcome::Hidden);
+    assert_eq!(out, Outcome::NoLadder);
     assert!(w.asks.lock().unwrap().is_empty());
 }
 
@@ -621,15 +598,9 @@ async fn a_history_past_eighty_folds_from_its_oldest_and_loses_nothing() {
             total as usize
         );
         let w = Fake::default();
-        let hidden = shown();
-        let st = read::fold_step(
-            &s,
-            PLACE,
-            None,
-            &step(&w, &hidden, &DayPurse::new(&s, None, false)),
-        )
-        .await
-        .unwrap();
+        let st = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
+            .await
+            .unwrap();
         let folds = (total as usize - N) / N;
         assert_eq!(st.made.len(), folds, "{total}");
         assert_eq!(
@@ -652,18 +623,12 @@ async fn a_long_failure_of_the_folds_model_grows_the_window_and_recovery_folds_i
         fail: 30.into(),
         ..Fake::default()
     };
-    let hidden = shown();
     let mut turns = Vec::new();
     for i in 0..120u64 {
         turns.push(exchange_at(&s, "ses_a", PLACE, 1_000 + i, false));
-        let st = read::fold_step(
-            &s,
-            PLACE,
-            None,
-            &step(&w, &hidden, &DayPurse::new(&s, None, false)),
-        )
-        .await
-        .unwrap();
+        let st = read::fold_step(&s, PLACE, None, &step(&w, &DayPurse::new(&s, None, false)))
+            .await
+            .unwrap();
         if i < 2 * N as u64 + 20 {
             assert!(st.made.is_empty());
         }
@@ -680,12 +645,10 @@ async fn the_fold_writer_returns_a_written_range_and_never_writes_it_again() {
         exchange_at(&s, "ses_a", PLACE, 1_000 + i, false);
     }
     let w = Fake::default();
-    let hidden = shown();
     let folds = super::view::StoreFolds {
         store: &s,
         writer: &w,
         flags: &NoFlags,
-        hidden: &hidden,
     };
     let window = super::view::StoreLadder(&s)
         .read(PLACE, N, None)
@@ -715,7 +678,7 @@ async fn an_exchange_that_read_outside_text_is_sent_inside_the_wrapper() {
     let inside = exchange_at(&s, "ses_a", PLACE, 1_001, false);
     let w = Fake::default();
     for t in [&outside, &inside] {
-        did::write(&s, &w, t, &shown(), &DayPurse::new(&s, None, false))
+        did::write(&s, &w, t, &DayPurse::new(&s, None, false))
             .await
             .unwrap();
     }

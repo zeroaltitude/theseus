@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 mod failed;
 pub(crate) mod kept;
-pub(in crate::turn) mod occasion;
+pub(crate) mod occasion;
 pub(super) mod preview;
 mod recall;
 mod room;
@@ -227,7 +227,7 @@ impl TurnRunner {
             given.map_or_else(|| message_of(store, sid, turn), |text| Ok((None, text)))?;
         let verified_pov = verified.pov().clone();
         let (fork, permit) = crate::fork::window::Fork::permit(store, sid, turn, verified);
-        let read = Sessions::default();
+        let read = fork.sessions();
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
@@ -272,7 +272,7 @@ impl TurnRunner {
             // (`room`), a preview reports it.
             Err(NotAssembled::Overflow(o)) => return Ok(Built::overflowed(turn, o, memory_page)),
         };
-        let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
+        let (window, mut sessions) = window_of((store, &read, sid), &a, &pov, turn, renderer.zone)?;
         sessions.extend(resolved.sessions.borrow().iter().cloned());
         let exchanges = laid_exchanges(&window, turn, &resolved.exchanges.borrow(), &a);
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -622,7 +622,7 @@ fn message_of(store: &Store, sid: &str, turn: &str) -> anyhow::Result<(Option<St
 /// card, a waiting line or a fact was read from (`Sessions::depends`) among them, so a seal of any before a
 /// later call revokes the view.
 fn window_of(
-    (store, read): (&Store, &Sessions),
+    (store, read, sid): (&Store, &Sessions, &str),
     a: &Assembled,
     pov: &PointOfView,
     turn: &str,
@@ -634,7 +634,7 @@ fn window_of(
         .map(|s| (s.piece.range.first.id.as_str(), s.form))
         .collect();
     // A task's opening heads its window (`task::window_head`); any other place's window opens empty.
-    let (mut window, mut spoken) = (task::window_head(store, pov)?, HashSet::new());
+    let (mut window, mut spoken) = (task::window_head(store, sid, pov)?, HashSet::new());
     let mut laid = Vec::new();
     for e in a.ladder.window.iter().filter(|e| e.turn_id != turn) {
         let Some(form) = here.get(e.turn_id.as_str()) else {

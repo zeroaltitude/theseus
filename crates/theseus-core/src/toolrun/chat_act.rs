@@ -36,8 +36,6 @@ impl ToolRuntime {
             crate::chat_acts::ANSWER => acts.answer(tc, &call.input),
             crate::chat_acts::ALLOW => acts.allow(tc, &call.input).await,
             crate::chat_acts::SYNC => acts.sync(tc, &call.input),
-            crate::chat_acts::SEAL => acts.seal_thread(tc, &call.input),
-            crate::chat_acts::MOVE => acts.move_to_thread(tc, &call.input),
             crate::chat_acts::ITEM_ADD => acts.item_add(tc, &call.input),
             crate::chat_acts::ITEM_CLOSE => acts.item_close(tc, &call.input),
             crate::chat_acts::ITEM_LIST => acts.item_list(tc, &call.input),

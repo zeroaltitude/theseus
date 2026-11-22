@@ -1,5 +1,9 @@
 # Share this exact message to this place (issue 44, step 3b, the simple shape)
 
+> **Superseded on 2026-11-22: anything goes.** Nothing private is withheld from a shared place any more, so
+> there is nothing for the card to release; its verb is gone and an old release record still decodes. What
+> follows is the record of the card as it was built.
+
 The owner's decision 2 (`context-point-of-view.md` §15): in company, Theseus is shown nothing he said privately. This
 note describes the one way something private crosses: **the owner shares one exact message of his to one place,
 by his own act.** Nothing does it for him.

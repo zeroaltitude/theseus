@@ -5,7 +5,6 @@
 use serde_json::json;
 use theseus_kernel::ExecState;
 use theseus_protocol::ops::{DataMark, TaskRehomeParams};
-use theseus_protocol::threads::ThreadNewParams;
 
 use crate::places::BoundPlace;
 use crate::provider::Scripted;
@@ -198,26 +197,23 @@ async fn the_next_report_lands_in_the_new_home_and_the_carve_stays_with_the_pare
 }
 
 #[tokio::test]
-async fn a_thread_is_a_home_and_a_conversation_with_no_place_leaves_the_board_alone() {
+async fn a_conversation_with_no_place_leaves_the_board_alone_and_a_thread_is_refused() {
     let mut r = rig_with_a_task();
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "harbor".into(),
-                title: Some("Harbor".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
     r.entered.recv().await.unwrap();
-    // A thread no place has shown has no place to post at: the report stays on the board.
-    let got = r
+    // Threads were retired: a thread is no home.
+    let e = r
         .core
         .task_rehome(&params(&task.id, "thread:harbor"), &cli())
+        .unwrap_err();
+    assert!(format!("{e:#}").contains("threads are gone"), "{e:#}");
+    // A conversation with no place has no place to post at: the report stays on the board.
+    let home = terminal_home(&r);
+    let got = r
+        .core
+        .task_rehome(&params(&task.id, &home), &cli())
         .unwrap();
     assert_eq!((got.from.as_deref(), got.to), (Some(TARGET), None));
     let e = exec(&r.core, &task.id);
@@ -270,7 +266,7 @@ async fn an_ended_task_a_missing_home_and_a_shared_place_are_refused() {
         .core
         .task_rehome(&params(&task.id, "thread:nowhere"), &cli())
         .unwrap_err();
-    assert!(said(e).contains("no thread nowhere"));
+    assert!(said(e).contains("threads are gone"));
     let shared = channel_home(&r, "discord:channel:9001", false);
     let e = r
         .core
@@ -382,20 +378,11 @@ async fn a_rehome_to_nowhere_writes_a_null_place_a_rollback_reads_as_none() {
     let parent = parent_session(&r.core);
     turn(&r.core, &parent, ASK).await;
     let task = only_task(&r.core, &parent);
-    r.core
-        .thread_new(
-            &ThreadNewParams {
-                slug: "harbor".into(),
-                title: Some("Harbor".into()),
-                ..Default::default()
-            },
-            cli(),
-        )
-        .unwrap();
     r.entered.recv().await.unwrap();
+    let home = terminal_home(&r);
     let got = r
         .core
-        .task_rehome(&params(&task.id, "thread:harbor"), &cli())
+        .task_rehome(&params(&task.id, &home), &cli())
         .unwrap();
     assert_eq!(got.to, None);
     let key = format!("task.place.{}", task.session_id);

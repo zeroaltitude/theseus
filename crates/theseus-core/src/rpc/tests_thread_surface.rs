@@ -213,37 +213,6 @@ fn a_place_runs_as_a_thread_when_it_is_private_and_the_thread_active() {
     assert!(e.message.contains("thread resume"), "{}", e.message);
 }
 
-/// One `turn.submit` over a Discord connection, as the binding sends a
-/// message the owner spoke in their DM to a thread.
-async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> serde_json::Value {
-    let speaking = Speaking {
-        discord: DiscordOrigin {
-            user_id: user.to_string(),
-            channel_id: DM_CHANNEL.to_string(),
-            guild_id: None,
-        },
-        answer_at: Some(answer_at.into()),
-    };
-    to_thread(
-        core,
-        slug,
-        Client::new("discord", Surface::Discord),
-        Some(speaking),
-    )
-    .await
-}
-
-/// One `turn.submit` addressed to the thread `slug`, over `client`, with
-/// `speaking` as that connection names it (none from the CLI).
-async fn to_thread(
-    core: Arc<Core>,
-    slug: &str,
-    client: Client,
-    speaking: Option<Speaking>,
-) -> serde_json::Value {
-    submit(core, (None, Some(slug)), client, speaking).await
-}
-
 /// One `turn.submit` to a session or a thread, over `client`.
 async fn submit(
     core: Arc<Core>,
@@ -297,44 +266,6 @@ async fn submit(
     out
 }
 
-/// A thread's turn spoken in the owner's DM is answered in that DM, and the
-/// thread's own session has no place of its own that the reply goes to; a
-/// stranger's, or a place that is not the speaker's own, is refused.
-#[tokio::test]
-async fn a_threads_reply_is_posted_where_the_owner_spoke() {
-    let c = core();
-    make(&c, "tides");
-    let dm = format!("discord:dm:{OWNER}");
-    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
-    let sid = r["result"]["session_id"].as_str().unwrap().to_string();
-    assert_eq!(
-        c.threads().of_session(&sid).map(|t| t.slug.as_str()),
-        Some("tides")
-    );
-    assert!(c.outbox.target(&sid).is_none());
-    let posts = c.outbox.open_for(&dm);
-    let replies: Vec<_> = posts
-        .iter()
-        .filter(|a| crate::outbox::kind_of(a) == "reply")
-        .collect();
-    assert_eq!(replies.len(), 1, "one reply, in the DM");
-    let body = crate::outbox::body_of(replies[0]);
-    assert_eq!(body["reply_to"], "4242");
-    assert_eq!(body["result"]["session_id"], sid.as_str());
-
-    // Another place than the speaker's own is refused, and so is a stranger.
-    let lab = format!("discord:channel:{LAB}");
-    let r = say_in_dm(c.clone(), "tides", &lab, OWNER).await;
-    assert_eq!(r["error"]["code"], error_code::INVALID_PARAMS, "{r}");
-    let r = say_in_dm(c.clone(), "tides", "discord:dm:555", 555).await;
-    assert_eq!(r["error"]["code"], error_code::REFUSED, "{r}");
-    assert_eq!(
-        c.outbox.open_for(&dm).len(),
-        posts.len(),
-        "nothing more posted"
-    );
-}
-
 // ------------------------------------------- what a thread's place tells the model
 
 /// A core whose model keeps its requests, with voice on and bound, and the
@@ -382,65 +313,6 @@ fn told(model: &crate::provider::FakeProvider) -> (bool, bool) {
     (tail.contains("slash commands"), tail.contains("/join"))
 }
 
-/// A turn addressed to a thread has no place of its own, but its message came
-/// from one. In the owner's DM, or in a private channel of theirs, the model is
-/// told it has a chat route and a voice channel to join, as in that place
-/// itself; from the CLI, which has neither, it is told neither. Before, the
-/// place rule read only a place string with the chat prefix, and a thread's
-/// turn had none.
-#[tokio::test]
-async fn a_thread_turn_is_told_the_chat_route_and_the_voice_channel_of_the_place_it_was_spoken_in()
-{
-    let (c, model) = core_keeping_requests();
-    make(&c, "tides");
-    let dm = format!("discord:dm:{OWNER}");
-    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
-    assert!(r["error"].is_null(), "{r}");
-    assert_eq!(told(&model), (true, true), "the owner's DM");
-    let sid = r["result"]["session_id"].as_str().unwrap().to_string();
-    assert!(c.outbox.target(&sid).is_none(), "still no place of its own");
-    assert_eq!(
-        c.runner.view_of(&sid).class,
-        crate::places::PlaceClass::Private,
-        "a thread is private always"
-    );
-
-    let lab = format!("discord:channel:{LAB}");
-    let speaking = Speaking {
-        discord: DiscordOrigin {
-            user_id: OWNER.to_string(),
-            channel_id: LAB.to_string(),
-            guild_id: Some("7".into()),
-        },
-        answer_at: Some(lab),
-    };
-    let client = Client::new("discord", Surface::Discord);
-    let r = to_thread(c.clone(), "tides", client, Some(speaking)).await;
-    assert!(r["error"].is_null(), "{r}");
-    assert_eq!(told(&model), (true, true), "a private channel of theirs");
-
-    // The same thread, spoken to from the CLI: neither.
-    let r = to_thread(c.clone(), "tides", Client::new("cli", Surface::Cli), None).await;
-    assert!(r["error"].is_null(), "{r}");
-    assert_eq!(told(&model), (false, false), "the CLI has neither");
-    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
-    assert!(r["error"].is_null(), "{r}");
-    assert_eq!(told(&model), (true, true), "and the DM again: back");
-}
-
-/// With no voice channel bound, a thread turn in the owner's DM is told of the
-/// chat route and not of `/join`, as the DM itself is.
-#[tokio::test]
-async fn a_thread_turn_is_offered_join_only_where_voice_is_bound() {
-    let (c, model) = core_keeping_requests();
-    c.runner.place_rule.bind_voice(false);
-    make(&c, "tides");
-    let dm = format!("discord:dm:{OWNER}");
-    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
-    assert!(r["error"].is_null(), "{r}");
-    assert_eq!(told(&model), (true, false));
-}
-
 /// The control: the owner's DM itself, a turn of the place's own session. If
 /// the live turn did not tell it either, the place rule was never the whole of
 /// it.
@@ -469,4 +341,128 @@ async fn a_turn_in_the_owners_dm_is_told_the_chat_route_and_the_voice_channel() 
     .await;
     assert!(r["error"].is_null(), "{r}");
     assert_eq!(told(&model), (true, true));
+}
+
+/// A plain session bound to `place` (`dm:<id>`, `channel:<id>`), as a binding's place opens one.
+fn place_session(c: &Core, place: &str) -> String {
+    let rec = c.open_session(Default::default()).unwrap();
+    c.outbox.bind_place(place, &rec.session_id).unwrap();
+    rec.session_id
+}
+
+/// The owner speaking over the Discord connection, from `channel` (a DM's or a guild channel's).
+fn spoken_in(channel: u64, guild: Option<&str>) -> Speaking {
+    Speaking {
+        discord: DiscordOrigin {
+            user_id: OWNER.to_string(),
+            channel_id: channel.to_string(),
+            guild_id: guild.map(str::to_string),
+        },
+        answer_at: None,
+    }
+}
+
+/// The route hints by place, on plain sessions (the authority half of the thread case this file had, issue
+/// 44): in the owner's DM and in a private channel of theirs the model is told it has a chat route and a
+/// voice channel to join; at the CLI, which has neither, it is told neither; and the DM again tells both.
+#[tokio::test]
+async fn each_place_is_told_its_own_chat_route_and_voice_channel() {
+    let (c, model) = core_keeping_requests();
+    let dm = place_session(&c, &format!("dm:{OWNER}"));
+    let lab = place_session(&c, &format!("channel:{LAB}"));
+    let discord = || Client::new("discord", Surface::Discord);
+    let r = submit(
+        c.clone(),
+        (Some(&dm), None),
+        discord(),
+        Some(spoken_in(DM_CHANNEL, None)),
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true), "the owner's DM");
+    let r = submit(
+        c.clone(),
+        (Some(&lab), None),
+        discord(),
+        Some(spoken_in(LAB, Some("7"))),
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true), "a private channel of theirs");
+    let r = submit(
+        c.clone(),
+        (None, None),
+        Client::new("cli", Surface::Cli),
+        None,
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (false, false), "the CLI has neither");
+    let r = submit(
+        c.clone(),
+        (Some(&dm), None),
+        discord(),
+        Some(spoken_in(DM_CHANNEL, None)),
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true), "and the DM again: back");
+}
+
+/// With no voice channel bound, a turn in the owner's DM is told of the chat route and not of `/join`.
+#[tokio::test]
+async fn a_turn_is_offered_join_only_where_voice_is_bound() {
+    let (c, model) = core_keeping_requests();
+    c.runner.place_rule.bind_voice(false);
+    let dm = place_session(&c, &format!("dm:{OWNER}"));
+    let client = Client::new("discord", Surface::Discord);
+    let r = submit(
+        c.clone(),
+        (Some(&dm), None),
+        client,
+        Some(spoken_in(DM_CHANNEL, None)),
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, false));
+}
+
+/// An old client's turn (issue 44): `{session_id, thread, speaking}` runs in the session it names, as the
+/// owner who spoke there (the DM's route hints are the place's and the speaker's), and the thread is
+/// ignored; with no `session_id`, the thread opens no thread's session, only a fresh ordinary one.
+#[tokio::test]
+async fn an_old_clients_thread_field_keeps_the_real_session_and_speaker() {
+    let (c, model) = core_keeping_requests();
+    let dm = place_session(&c, &format!("dm:{OWNER}"));
+    let discord = || Client::new("discord", Surface::Discord);
+    let speaking = Some(spoken_in(DM_CHANNEL, None));
+    let r = submit(
+        c.clone(),
+        (Some(&dm), Some("tides")),
+        discord(),
+        speaking.clone(),
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(r["result"]["session_id"], dm.as_str(), "{r}");
+    assert_eq!(
+        told(&model),
+        (true, true),
+        "the DM's own place, its speaker the owner"
+    );
+
+    let r = submit(c.clone(), (None, Some("tides")), discord(), speaking).await;
+    assert!(r["error"].is_null(), "{r}");
+    let fresh = r["result"]["session_id"].as_str().unwrap().to_string();
+    assert_ne!(fresh, dm);
+    let rec = c
+        .store
+        .get_session::<crate::session::SessionRecord>(&fresh)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rec.kind, theseus_protocol::SessionKind::Conversation);
+    assert!(
+        c.outbox.target(&fresh).is_none(),
+        "bound to no place, a thread's or any other"
+    );
 }

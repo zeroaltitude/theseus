@@ -1,6 +1,6 @@
 //! The sampler (own-benchmark): a few turns per cell, one rung down the
-//! routing table, judged, under the day's cap; never a shared place's turn,
-//! and never one that would send an attachment to another provider.
+//! routing table, judged, under the day's cap; a shared place's turn too;
+//! and a turn with an attachment replays on another provider like any other.
 
 use std::sync::Arc;
 
@@ -217,21 +217,24 @@ async fn a_zero_cap_turns_the_sampler_off() {
     assert!(out.stopped.unwrap().contains("off"));
 }
 
-/// A shared place's turn is never sampled; a private one is.
+/// Anything goes (2026-11-22): a shared place's turn is a candidate like a private one; both are sampled.
 #[tokio::test]
-async fn the_sampler_leaves_a_shared_places_turns_alone() {
+async fn the_sampler_takes_a_shared_places_turn_like_any_other() {
     let jev = jev_same();
     let r = rig(Some(&jev));
-    script(&r, &["a", "b", "r1"]);
+    script(&r, &["a", "b", "r1", "r2"]);
     let shared = session(&r.core, Some(&format!("channel:{PIER}")), &[]);
-    turn(&r.core, &shared, "Which port?").await;
+    let st = turn(&r.core, &shared, "Which port?").await.turn_id;
     let (private, t) = asked(&r).await;
     let out = r.core.replay_sample(now()).await.unwrap();
-    assert_eq!(out.replayed, 1, "{out:?}");
-    assert_eq!(out.skipped.get("shared_place"), Some(&1));
+    assert_eq!(out.replayed, 2, "{out:?}");
+    assert_eq!(out.skipped.get("shared_place"), None);
     let rows = judged_rows(&r);
-    assert_eq!(rows[0].turn_id.as_deref(), Some(t.as_str()));
-    assert_eq!(rows[0].session_id.as_deref(), Some(private.as_str()));
+    let turns: Vec<_> = rows.iter().filter_map(|r| r.turn_id.clone()).collect();
+    assert!(turns.contains(&st), "the shared place's turn: {turns:?}");
+    assert!(turns.contains(&t), "the private one: {turns:?}");
+    let sessions: Vec<_> = rows.iter().filter_map(|r| r.session_id.clone()).collect();
+    assert!(sessions.contains(&private) && sessions.contains(&shared));
 }
 
 /// A rig whose `glm` profile has a provider of its own.
@@ -288,11 +291,10 @@ fn png_turn(core: &Arc<crate::Core>, sid: &str) -> crate::turn::TurnRequest {
     }
 }
 
-/// An attachment never goes to a provider other than the original's: the
-/// same turn replays on a profile of its own provider, and is refused on
-/// another's, with nothing sent.
+/// Anything goes (2026-11-22): a turn with an attachment replays on a profile of another provider, the
+/// attachment sent with it, as on one of its own.
 #[tokio::test]
-async fn an_attachment_is_never_sent_to_another_provider() {
+async fn an_attachment_replays_on_another_provider_like_any_other() {
     let (r, zai) = two_providers();
     script(&r, &["It is a screenshot.", "A picture."]);
     let sid = session(&r.core, None, &[]);
@@ -310,22 +312,19 @@ async fn an_attachment_is_never_sent_to_another_provider() {
         compare: Some(false),
         ..Default::default()
     };
-    let err = r.core.turn_replay(p("glm"), "cli").await.unwrap_err();
+    let other = r.core.turn_replay(p("glm"), "cli").await.unwrap();
+    assert_eq!(other.profile, "glm");
+    assert_eq!(other.turn, t);
+    let sent = zai.requests();
+    assert_eq!(sent.len(), 1, "the other provider was sent the replay");
     assert!(
-        err.downcast_ref::<super::replay::Crossing>().is_some(),
-        "{err:#}"
+        serde_json::to_string(&sent[0].messages)
+            .unwrap()
+            .contains("\"image\""),
+        "with its attachment"
     );
-    assert!(format!("{err:#}").contains("attachment"), "{err:#}");
-    assert!(
-        zai.requests().is_empty(),
-        "nothing reached the other provider"
-    );
-    // The same provider is the original's: no bytes go anywhere new.
     let ok = r.core.turn_replay(p("haiku"), "cli").await.unwrap();
     assert_eq!(ok.replay.text, "A picture.");
-    // And the sampler counts the refusal rather than the turn.
-    let out = r.core.replay_sample(now()).await.unwrap();
-    assert_eq!(out.replayed, 0, "{out:?}");
 }
 
 /// A report over nothing says $0.00, never a negative zero.

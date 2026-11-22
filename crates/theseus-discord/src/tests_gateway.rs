@@ -135,9 +135,23 @@ impl Rig {
         more: &[String],
         tweak: impl FnOnce(&mut Config),
     ) -> Self {
+        Self::start_seeded(fake, model, bindings, more, tweak, |_| {}).await
+    }
+
+    /// The same, with `seed` given the core before the binding starts: what
+    /// an older run left in the store.
+    pub(crate) async fn start_seeded(
+        fake: Arc<FakeDiscord>,
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        bindings: &str,
+        more: &[String],
+        tweak: impl FnOnce(&mut Config),
+        seed: impl FnOnce(&Arc<Core>),
+    ) -> Self {
         let began = Instant::now();
         let dir = tempfile::tempdir().unwrap();
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
+        seed(&core);
         if OPEN_AT_BIND.with(std::cell::Cell::get) {
             crate::runtime::open_at_bind(&core);
         }
@@ -1081,6 +1095,7 @@ pub(crate) fn injection_jev() -> theseus_judge::fake::FakeJev {
 
 mod ask;
 mod asked;
+mod bound_before;
 mod calendar;
 mod card_question;
 mod cards;
@@ -1153,42 +1168,4 @@ async fn a_day_ceiling_notice_goes_to_the_owners_dm_alone() {
     assert_eq!(r.posted(ANA_DM).iter().filter(|m| is_post(m)).count(), 1);
     assert!(asked.requests().is_empty(), "no model call was made");
     assert_eq!(r.ledger("spend.ceiling").len(), 1);
-}
-
-/// A home past its size (theseus-jg1eg): a turn in `#lab`, bound shared, whose request passes
-/// `[threads] home_warn_percent` of the window earns one post that names the place and the size, in the
-/// owner's DM alone and never in `#lab`; a second message in `#lab` adds none.
-#[tokio::test]
-async fn a_home_size_warning_goes_to_the_owners_dm_alone() {
-    let fake = Arc::new(FakeProvider::scripted(vec![
-        Scripted::text("one"),
-        Scripted::text("two"),
-    ]));
-    let asked = fake.clone();
-    let model = move |_: &Path, _| -> Arc<dyn Provider> { fake.clone() };
-    let r = Rig::start_tweaked(model, guild(true), &bindings(false), &[], |c| {
-        c.threads.home_warn_percent = 1;
-    })
-    .await;
-    let long = "the design chat goes on and on. ".repeat(1_500);
-    r.say((ANA, "ana"), Some(LAB), &long);
-    let is_post = |m: &Msg| {
-        m.versions[0].contains("home is") && m.versions[0].contains("of the model's window")
-    };
-    r.until("the warning in ana's DM", || {
-        r.posted(ANA_DM).iter().any(is_post)
-    })
-    .await;
-    r.until("the turn's reply in #lab", || {
-        r.posted(LAB).iter().any(|m| m.content.contains("one"))
-    })
-    .await;
-    assert!(r.posted(LAB).iter().all(|m| !is_post(m)), "never in #lab");
-    r.say((ANA, "ana"), Some(LAB), "And again.");
-    r.until("the second turn's reply", || {
-        r.posted(LAB).iter().any(|m| m.content.contains("two"))
-    })
-    .await;
-    assert_eq!(r.posted(ANA_DM).iter().filter(|m| is_post(m)).count(), 1);
-    assert_eq!(asked.requests().len(), 2, "both turns were made");
 }

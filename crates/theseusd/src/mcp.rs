@@ -249,14 +249,8 @@ impl McpCore {
             )
             .await?;
         let nodes = h["nodes"].as_array().cloned().unwrap_or_default();
-        let reply = nodes
-            .iter()
-            .rev()
-            .find(|n| {
-                n["kind"] == "assistant_message"
-                    && n["text"].as_str().is_some_and(|t| !t.is_empty())
-            })
-            .and_then(|n| n["text"].as_str().map(String::from));
+        // The vault's values substituted, as the memory tools' replies are (review G-R2 r2).
+        let reply = theseus_core::memory_lookup::mcp_last_reply(&self.core, &nodes);
         let turn = nodes
             .iter()
             .rev()

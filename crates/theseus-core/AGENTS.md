@@ -5,6 +5,13 @@ server, the push, the outbox, and telemetry. Read by theseusd, theseus-discord, 
 
 Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash.rs`, `aws/`. Read by: theseusd, discord, sim.
 
+> **Anything goes, since 2026-11-22.** Nothing is withheld from a model request because of who is present,
+> where it is, a seal, a veil or a move, and threads are not containers: no message is sent to a thread's
+> own session, and `thread list` / `thread show` are the only thread commands. Where a paragraph below
+> describes the gate's presence rules, seals, moves, the release card or thread commands as living, it is
+> the record of what was; old records still decode. Authority (whose words a piece is) and the act gates
+> (approvals, a place's tool ceiling, publishing into a shared place) are unchanged.
+
 ## What's here
 
 - **The turn**: `turn.rs` and `turn/` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
@@ -2419,9 +2426,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   turn's next frame, and a `Citation` in the result's `cites` (the reply's post carries it in its footer's `result`).
   `TurnRunner::citation` builds one: the frozen header, the source's excerpt over the range recall showed (600
   characters), and, for a person's Discord message, where it was said: the turn's `reply_to` rides in the input's
-  own frame as the META record `msg.origin.<node id>` (no store format change; no row of its own). **A shared place
-  never cites a private or imported source**: `citation(item, shared)` returns none for one, and a shared session's
-  `memory.cites` and `session.history` leave it out; the handle stays text. `memory.cites` (`rpc/cites.rs`) resolves
+  own frame as the META record `msg.origin.<node id>` (no store format change; no row of its own). **A citation is
+  shown wherever its item is** (anything goes, 2026-11-22): `citation(item)` keeps no place's source out. `memory.cites` (`rpc/cites.rs`) resolves
   handles in a session's own `Recall` nodes, newest first; `session.history`'s `cites` does the same for the
   replies on its page. Citations only show: no Jev call, no frame, no ping. Tests: `tests_cite.rs`.
 - **The import** (theseus-0lrr.6, the soul migration): `import/`. An outside pipeline's episode files (JSON Lines,

@@ -81,6 +81,11 @@ pub struct Budget {
     /// G's allowance at none, every piece that may be cut is; the whole is the window less the reserve.
     #[serde(default)]
     pub floor_only: bool,
+    /// The floor's window exchanges are cut like the rest of slot G (`turn::view_step::room`'s barest render,
+    /// after a provider refused a request of the turn for its size and the floor was no smaller): only the
+    /// turn's message and the fixed blocks stand.
+    #[serde(default)]
+    pub bare: bool,
 }
 
 impl Budget {
@@ -92,6 +97,7 @@ impl Budget {
             provider_window,
             reserve,
             floor_only: false,
+            bare: false,
         }
     }
 
@@ -186,7 +192,19 @@ pub fn fit(
     pieces: Vec<Admitted<Piece>>,
     budget: &Budget,
 ) -> Result<View, Overflow> {
-    let items = merge::merge(pieces.into_iter().map(Admitted::into_inner).collect());
+    let bared = |mut p: Piece| {
+        if budget.bare && p.band == Band::Floor {
+            p.band = Band::WindowWords;
+        }
+        p
+    };
+    let items = merge::merge(
+        pieces
+            .into_iter()
+            .map(Admitted::into_inner)
+            .map(bared)
+            .collect(),
+    );
     let (groups, members) = merge::unit_groups(&items);
     let done = cut::cut(&items, &groups, &members, budget);
     let room = budget.total();

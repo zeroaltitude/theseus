@@ -45,6 +45,7 @@ pub const TASK_BRIEF: &str = "task_brief";
 ///
 /// A task's REPORT is not exempt: a report reports rather than instructs, and a
 /// child that read a poisoned page can write its parent a report shaped by it.
+/// Theseus's own REPLY (`reply`) is not exempt either, for the same reason.
 pub fn asks_injection(kind: &str) -> bool {
     !matches!(kind, OPERATOR_MESSAGE | TASK_BRIEF)
 }
@@ -60,7 +61,7 @@ pub struct ContentInput {
     pub text: String,
     /// The item's kind, which the pack reads: `operator_message`,
     /// `tool_result`, `fetched_page`, `search_result`, `task_brief`,
-    /// `task_report`.
+    /// `task_report`, `reply`.
     pub kind: String,
     /// Where it came from, in one line: the tool's name and the resource or
     /// address it named, or the place a message arrived in. Never a secret.
@@ -273,6 +274,8 @@ mod tests {
             "fetched_page",
             "search_result",
             "task_report",
+            // Theseus's own reply (issue 44): a model's words, as a report is.
+            "reply",
         ] {
             assert!(asks_injection(kind), "{kind}");
             assert_eq!(

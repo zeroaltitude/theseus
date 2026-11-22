@@ -540,7 +540,6 @@ mod tests {
         let sizes = |b: InjectionBudget| (b.recall_tokens, b.recall_items, b.admit_ceiling);
         assert_eq!(sizes(at(Tier::Ordinary)), (3_000, 8, 2.0));
         assert_eq!(sizes(at(Tier::Deep)), (8_000, 16, 3.0));
-        assert_eq!(cfg.memory.session_recall_cap_tokens, 64_000);
     }
 
     /// A route.v10 verdict: `model` answered (so `open()`), the class `mode` word is only the pick,

@@ -1,5 +1,10 @@
 # The gate: what of memory may reach a model (issue 44, step 2)
 
+> **Superseded on 2026-11-22: anything goes.** Nothing is withheld from a model request because of who is
+> present, where it is, a seal or a move; every turn is assembled from the one memory by the same slots. What
+> follows is the record of the gate as it was built. Authority (whose words a piece is) and the act gates
+> (approvals, a place's tool ceiling, publishing into a shared place) are unchanged.
+
 Issue 44's context design builds every view from one memory, for one point of view. This step builds the gate that
 view stands on: the rule, the narrowest value of who is present ("owner alone"), the turn's presence carried to
 the readers that run today, seals on every path, and the view's permit.

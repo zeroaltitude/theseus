@@ -45,13 +45,10 @@ fn run(persona: Option<PersonaBoost>, cands: Vec<Candidate>) -> Pack {
     let none = BTreeSet::new();
     let asker = Asker {
         session_id: "ses_here",
-        place: &Place::Private,
         in_context: &none,
         labeled: &none,
         links: &[],
         now_ms: 0,
-
-        threads: None,
     };
     let p = Params {
         persona,

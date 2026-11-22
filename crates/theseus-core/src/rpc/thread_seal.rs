@@ -1,28 +1,15 @@
-//! Sealed threads (theseus-f2g0; the owner, 2026-10-09 D12: **Jev
-//! recommends; the owner seals**). A sealed thread's notes never come into
-//! another thread's recall, or any recall, ambiently (`theseus_memory::
-//! threads`: the lens holds them out of every pack, the rerank included).
+//! Sealed threads (theseus-f2g0; the owner, 2026-10-09 D12). Threads were retired on 2026-11-22
+//! (issue 44): `thread.seal`, `.unseal` and `.seal_dismiss` answer no method, and Jev's seal
+//! recommendation is gone. The writers below stay only as fixture writers for tests in other
+//! units' files (and `thread_seal` for the model's seal act, which the submit path's unit
+//! removes), until the sweep.
 //!
-//! - **`thread.seal`** is the owner's act, from a private place
-//!   (`judge_act(Act::Thread)`): the thread's record and its `thread.sealed`
-//!   row in one frame. The answer reports what had already crossed, from the
-//!   `derived_from` edges of `Recall` nodes that name the thread's notes
-//!   ("2 facts were already used in «pr round»"); with `redirect`, a harness
-//!   note in each of those sessions says the facts are withdrawn.
-//! - **`thread.unseal`**: the owner, from a private place.
-//! - **A proposal** ([`Core::thread_recommend_seal`], the entry point the core
-//!   and a later Jev pack call; row T10a, theseus-c1uz, brings the Jev
-//!   question that calls it): sets `seal_pending`, writes `thread.seal_proposed`
-//!   and posts a card to the owner's DM with **Seal this thread** and **Not
-//!   needed**. While it waits the thread is held out of other threads' recall
-//!   (a tightening only). **`thread.seal_dismiss`** ("Not needed") clears it,
-//!   writes `thread.seal_dismissed` (a label for Jev's learning report) and
-//!   remembers the thread's content digest (META `thread.seal_dismissed.<slug>`),
-//!   so it is proposed once until its content changes.
-//! - **Inheritance**: a thread made `sealed`, or split from a sealed thread
-//!   (`split_from`), starts sealed; a task's session is its parent thread's
-//!   (`thread_recall`), so it is held with it; [`merged_seal`] is the rule for
-//!   a merge, which the router's row calls.
+//! - **`thread_seal`**: the thread's record and its `thread.sealed` row in one frame, with a
+//!   report of what had already crossed (`redirect` leaves a harness note in each session).
+//! - **`thread_unseal`**, **`thread_recommend_seal`** (`seal_pending`, `thread.seal_proposed`, a
+//!   card to the owner's DM) and **`thread_seal_dismiss`**.
+//! - **Inheritance**: a thread made `sealed`, or split from a sealed thread (`split_from`),
+//!   starts sealed.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,8 +17,7 @@ use anyhow::{anyhow, Result};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use theseus_protocol::threads::{
-    ThreadCrossed, ThreadInfo, ThreadNameParams, ThreadNewParams, ThreadRow, ThreadSealParams,
-    ThreadSealResult,
+    ThreadCrossed, ThreadInfo, ThreadNewParams, ThreadRow, ThreadSealParams, ThreadSealResult,
 };
 use theseus_protocol::{error_code, method};
 use theseus_store::{kinds, NewRecord};
@@ -143,6 +129,7 @@ pub(super) fn created_rows(ts: &[ThreadInfo], who: &str, via: &str) -> Result<Ve
 
 impl Core {
     /// `thread.seal`.
+    #[doc(hidden)]
     pub fn thread_seal(
         &self,
         p: &ThreadSealParams,
@@ -211,6 +198,7 @@ impl Core {
     }
 
     /// `thread.unseal`: the owner, from a private place, opens it again.
+    #[doc(hidden)]
     pub fn thread_unseal(
         &self,
         slug: &str,
@@ -264,6 +252,7 @@ impl Core {
     /// `thread.seal_dismiss`: "Not needed". The proposal ends, the answer is a
     /// label row, and the content's digest is remembered so the thread is not
     /// proposed again until it changes.
+    #[doc(hidden)]
     pub fn thread_seal_dismiss(
         &self,
         slug: &str,
@@ -338,6 +327,7 @@ impl Core {
     /// Nothing is proposed for a thread already sealed or pending, one done,
     /// or one the owner said "not needed" to while its content is as it was.
     /// True when a proposal was made.
+    #[doc(hidden)]
     pub fn thread_recommend_seal(&self, slug: &str, reason: &str) -> Result<bool> {
         self.threads_on().map_err(|e| anyhow!("{}", e.message))?;
         let reason = line(reason, "reason").map_err(|e| anyhow!("{}", e.message))?;
@@ -514,27 +504,6 @@ impl Core {
             Ok(())
         })?;
         Ok(())
-    }
-}
-
-/// The dispatch for `thread.seal`, `.unseal` and `.seal_dismiss`.
-pub(super) fn route_seal(
-    core: &Core,
-    name: &str,
-    params: serde_json::Value,
-    conn: super::server::Conn<'_>,
-) -> Result<serde_json::Value, RpcFailure> {
-    use super::server::route;
-    match name {
-        method::THREAD_SEAL => route(params, |p: ThreadSealParams| {
-            core.thread_seal(&p, conn.answerer(p.author.clone(), p.discord.clone()))
-        }),
-        method::THREAD_UNSEAL => route(params, |p: ThreadNameParams| {
-            core.thread_unseal(&p.slug, conn.answerer(p.author, p.discord))
-        }),
-        _ => route(params, |p: ThreadNameParams| {
-            core.thread_seal_dismiss(&p.slug, conn.answerer(p.author, p.discord))
-        }),
     }
 }
 

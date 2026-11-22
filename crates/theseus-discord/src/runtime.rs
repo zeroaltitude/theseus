@@ -70,6 +70,7 @@ pub(crate) use horizon::{answers_of as horizon_answers, buttons as horizon_butto
 pub(crate) use onto_card::{buttons as onto_buttons, write_of as onto_write};
 pub(crate) use remind::{buttons as remind_buttons, text as remind_text};
 pub(crate) use source::source_buttons;
+mod bound_before;
 pub(crate) mod default_forum;
 mod extensions;
 pub(crate) mod forum;
@@ -439,6 +440,9 @@ async fn start_places(
     for d in &bindings.dm {
         shared.start_dm(d).await?;
     }
+    // A channel a thread was bound to before threads were retired runs as
+    // itself (issue 44).
+    shared.start_bound_before().await;
     tokio::spawn(route(shared.clone(), notes));
     board::hear_every_change(shared);
     shared.start_task_forums(bindings);
@@ -908,6 +912,7 @@ impl Shared {
             None,
             None,
         );
+        self.revive_bound_before();
         self.revive_task_threads();
         Ok(())
     }

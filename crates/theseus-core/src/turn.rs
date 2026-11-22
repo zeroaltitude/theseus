@@ -75,7 +75,6 @@ pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
 mod compile_step;
-mod cross_step;
 mod cut_step;
 pub(crate) mod data_step;
 mod defer_step;
@@ -91,7 +90,6 @@ mod fallback_step;
 mod families_step;
 mod fill_step;
 pub(crate) mod helper_step;
-pub(crate) mod home_size_step;
 mod inbound_step;
 mod join_step;
 mod later_step;
@@ -392,8 +390,6 @@ struct Turn<'a> {
     /// `None` once any call's price is unknown.
     cost: Option<f64>,
     tool_calls: u32,
-    /// The home's size is weighed once a turn: a routed move compiles loop 0 twice.
-    home_weighed: bool,
     /// The model's latest response.
     last: Option<ModelResponse>,
     /// The tool call waiting on a confirm.
@@ -584,7 +580,6 @@ impl<'a> Turn<'a> {
             usage: Usage::default(),
             cost: Some(0.0),
             tool_calls: 0,
-            home_weighed: false,
             last: None,
             awaiting: None,
             budget_question: None,
@@ -1648,7 +1643,7 @@ impl TurnRunner {
             session.failing = None;
         }
         let sid = session.session_id.clone();
-        let turn_id = self.turn_id_for(&sid);
+        let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
         let place = self.view_of(&sid);
         let dir = session.dir.clone();
@@ -1939,7 +1934,12 @@ impl TurnRunner {
                     self.tails.finish(t.tc.session_id, &mut c, t.tail.take());
                     Some(c)
                 }
-                Err(f) if !t.route.held => return Ok(Next::Fail(f)),
+                // A request that could not be made smaller than the one the provider refused for its
+                // size: the window's failure, in its words (nothing earlier could be dropped).
+                Err(f) if !t.route.held => match (&overflow, f.class == WINDOW_CLASS) {
+                    (Some(o), true) => return Ok(Next::Fail(Self::window_failure(t, o, false))),
+                    _ => return Ok(Next::Fail(f)),
+                },
                 Err(_) => None,
             };
             // A reach for the owner's personal details in a shared place: the

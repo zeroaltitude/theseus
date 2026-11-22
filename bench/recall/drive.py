@@ -201,10 +201,9 @@ def theseus_config(
     # The daemon's default only warns at the ceiling (theseus-9e02): a run stops at its own.
     t["kernel"]["daily_spend_ceiling_mode"] = "stop"
     t.setdefault("tools", {})["projects_dir"] = str(workspace)
-    # The tail's recall cap is the one the plan reserves (`generate.RECALL_TOKENS`),
-    # not the daemon's far larger default (theseus-d9je7).
-    t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm,
-                   "session_recall_cap_tokens": generate.RECALL_TOKENS}
+    # No session recall cap is set: it was deleted (2026-11-22); the view lays recall within its own
+    # shared ceiling for what is not the window, and says what it left out.
+    t["memory"] = {**t.get("memory", {}), "mode": "live", "arm": memory_arm}
     t.setdefault("discord", {})["enabled"] = False
     t.setdefault("web", {})["enabled"] = False
     if "mcp_server" in t:

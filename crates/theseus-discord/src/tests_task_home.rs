@@ -393,6 +393,46 @@ async fn task_home_off_is_todays_dm() {
     );
 }
 
+/// A private channel with task threads off gives its task an index card and no
+/// place of its own: the task answers at its post, its card is its post's,
+/// not the channel's, and no one is mentioned in the channel (theseus-90qqy).
+#[tokio::test]
+async fn a_tasks_card_goes_to_its_post_not_the_channel() {
+    let r = rig(
+        vec![start(&[REEF]), Scripted::text("Started this.")],
+        |dir| vec![(REEF, gated_asks(dir, "reef.txt"))],
+        &bindings(true, "task_threads = false\n"),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "its index card", || {
+        post_with(&r, forum, "Reef-chart").is_some()
+    })
+    .await;
+    let post = post_with(&r, forum, "Reef-chart").unwrap();
+    let session = task_session(&r);
+    until(&r, "the task answers at its post", || {
+        r.core.outbox.target(&session).as_deref()
+            == Some(format!("discord:channel:{}", post.id).as_str())
+    })
+    .await;
+    open_gate(&r);
+    until(&r, "the card in the post", || {
+        !cards(&r, post.id).is_empty()
+    })
+    .await;
+    replied(&r, LAB, "Started this.").await;
+    assert!(cards(&r, LAB).is_empty(), "no card in the channel");
+    assert!(
+        r.posted(LAB).iter().all(|m| m.mentions.is_empty()),
+        "no one is mentioned in the channel: {:#?}",
+        r.posted(LAB)
+    );
+}
+
 /// With the home off a voice place's task reports to the owner's DM: its report
 /// is there, naming its post; the voice chat holds none of it.
 #[tokio::test]

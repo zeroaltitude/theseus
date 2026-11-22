@@ -12,20 +12,13 @@ use anyhow::Result;
 use theseus_memory::gate::{self as rule, Denied, Marks, PointOfView, Present, Seal, Veil};
 use theseus_memory::recall::Place;
 
-use crate::recall::Answer;
 use crate::session::SessionRecord;
 use crate::store::Store;
-use crate::threads::Board;
 use crate::turn::TurnRunner;
-
-mod moved;
-pub use moved::{moved_at_all, sources_moved, Moved};
 
 /// What the gate names an imported session's place: the owner's own history,
 /// from no place of this daemon's.
 pub const IMPORTED: &str = "imported";
-/// The longest a task's chain is followed to its thread.
-const DEPTH: usize = 4;
 
 pub use crate::task_graph::words::OwnerMarks;
 
@@ -65,12 +58,6 @@ pub fn present(
     }
 }
 
-/// The place a session's target names, as the gate compares them: the
-/// ledger's name with no directory.
-pub fn anchor_of(target: Option<&str>) -> String {
-    crate::exchange::place_of(target, None)
-}
-
 /// The gate.
 pub struct Gate;
 
@@ -107,162 +94,21 @@ pub fn place_name(runner: &TurnRunner, session: &str) -> Option<String> {
     Some(crate::exchange::place_of(None, dir.as_deref()))
 }
 
-/// The thread `session` serves, read so that nothing unread reads as none:
-/// a session, ancestry or binding that does not decode, a native session
-/// with no record, a chain too long to follow, a binding to a thread record
-/// that is absent or did not decode, or a thread the board does not hold is
-/// an error.
-pub fn thread_of(
-    store: &Store,
-    board: &Board,
+/// A whole session's marks: its place, today's reading of it, no seal (anything goes, 2026-11-22), and
+/// `veil` as its caller read it.
+pub fn session_marks(
+    runner: &TurnRunner,
+    _asker: Option<&str>,
     session: &str,
-    depth: usize,
-) -> Result<Option<String>> {
-    if crate::import::is_imported(session) {
-        return Ok(None);
-    }
-    if board.unread_session(session) {
-        anyhow::bail!(
-            "session {session} is bound to a thread whose record is absent or does not read"
-        );
-    }
-    let slug = match board.of_session(session) {
-        Some(t) => Some(t.slug.clone()),
-        None => {
-            let Some(rec) = store.get_session::<SessionRecord>(session)? else {
-                anyhow::bail!("session {session} has no record: its thread cannot be proven");
-            };
-            let linked = [&rec.superseded_by, &rec.supersedes]
-                .into_iter()
-                .flatten()
-                .filter_map(|l| l.place.as_deref())
-                .find_map(theseus_protocol::threads::slug_of_place)
-                .map(str::to_string);
-            match (linked, rec.task) {
-                (Some(slug), _) => Some(slug),
-                (None, Some(t)) if depth < DEPTH => {
-                    return thread_of(store, board, &t.parent_session, depth + 1)
-                }
-                (None, Some(_)) => anyhow::bail!("session {session}'s task chain is too long"),
-                (None, None) => None,
-            }
-        }
-    };
-    match slug {
-        Some(s) if board.get(&s).is_none() || board.unread_slug(&s) => {
-            anyhow::bail!("session {session} names the thread {s}, whose record is not held")
-        }
-        Some(s) => Ok(Some(s)),
-        // A binding that did not read may be this session's.
-        None if board.unread_binding() => anyhow::bail!("a thread's binding does not read"),
-        None => Ok(None),
-    }
-}
-
-/// Whether a reader in `asker` may be told of thread `slug`: always (anything goes, 2026-11-22; no seal
-/// holds a thread's name). A pass-through until its callers go (the sweep).
-pub fn may_name_on(_store: &Store, _board: &Board, _asker: &str, _slug: &str) -> bool {
-    // Anything goes (2026-11-22): no seal holds a thread's name.
-    true
-}
-
-/// The seal of `session` for a reader in `asker`: always `Clear` (anything goes, 2026-11-22). A
-/// pass-through until its callers go (the sweep).
-pub fn seal_of(_runner: &TurnRunner, _asker: Option<&str>, _session: &str) -> Seal {
-    // Anything goes (2026-11-22): no seal or pending seal holds anything.
-    Seal::Clear
-}
-
-/// The seal of one node, for a reader in `asker`: always `Clear`, whatever a split or a claim moved
-/// (anything goes, 2026-11-22). A pass-through until its callers go (the sweep).
-pub fn node_seal(
-    _store: &Store,
-    _board: &Board,
-    _asker: Option<&str>,
-    _session: &str,
-    _node: &str,
-) -> Seal {
-    // Anything goes (2026-11-22): no seal, pending seal or move holds a node.
-    Seal::Clear
-}
-
-/// The nodes of `nodes` a reader in `asker` may read: every one (anything goes, 2026-11-22). A pass-through
-/// until its callers go (the sweep).
-pub fn readable_nodes<T>(
-    _runner: &TurnRunner,
-    _asker: Option<&str>,
-    nodes: Vec<T>,
-    _of: impl Fn(&T) -> (&str, &str),
-) -> Vec<T> {
-    nodes
-}
-
-/// What of the index's hits a reader in `asker` may not draw on for a seal: nothing (anything goes,
-/// 2026-11-22). A pass-through until its callers go (the sweep).
-pub fn seal_out(
-    _runner: &TurnRunner,
-    _asker: Option<&str>,
-    _answer: &mut Answer,
-) -> Vec<theseus_protocol::memory::RecallDrop> {
-    Vec::new()
-}
-
-/// `seal_out`'s drops, said in a recall's manifest as `sealed`.
-pub fn count_sealed(
-    m: &mut theseus_protocol::memory::RecallManifest,
-    sealed: Vec<theseus_protocol::memory::RecallDrop>,
-) {
-    if sealed.is_empty() {
-        return;
-    }
-    *m.drops.entry("sealed".into()).or_default() += sealed.len() as u64;
-    m.dropped.extend(sealed);
-}
-
-/// A whole session's marks, for a reader in `asker`: its place, today's
-/// reading of it, its seal, and `veil` as its caller read it.
-pub fn session_marks(runner: &TurnRunner, asker: Option<&str>, session: &str, veil: Veil) -> Marks {
+    veil: Veil,
+) -> Marks {
     Marks {
         place: place_name(runner, session),
         class: runner.place_of(session),
         time_ms: 0,
-        seal: seal_of(runner, asker, session),
+        seal: Seal::Clear,
         veil,
     }
-}
-
-/// Whether the report of the task `task` may be written as the input of a turn of `delivery`: always
-/// (anything goes, 2026-11-22). A pass-through until its caller goes (the sweep).
-pub fn report_shown(_runner: &TurnRunner, _delivery: &str, _task: &str) -> bool {
-    true
-}
-
-/// What a turn is given in place of a report it may not read here.
-pub fn withheld_report(short: &str) -> String {
-    format!(
-        "[task {short} has finished, and its report is waiting where the owner is alone: it may hold \
-         words from a place this conversation may not see, so it is not shown here]"
-    )
-}
-
-/// The sources of earlier `Recall` nodes a turn of `asker` may still be shown: every one (anything goes,
-/// 2026-11-22). A pass-through until its callers go (the sweep).
-pub fn readmit_sources(
-    _runner: &TurnRunner,
-    _asker: &str,
-    _sources: &mut crate::recall::render::Sources,
-) {
-}
-
-/// The threads of a place digest a turn of `session` may be shown: every one (anything goes,
-/// 2026-11-22). A pass-through until its caller goes (the sweep).
-pub fn digest_threads<'b>(
-    _runner: &TurnRunner,
-    _session: &str,
-    _here: &str,
-    live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
-) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
-    live
 }
 
 /// The standing records, of `(id, source)`, a turn may not be shown: each kept from a message

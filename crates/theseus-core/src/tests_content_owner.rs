@@ -39,7 +39,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
-use theseus_protocol::threads::{Speaking, ThreadEditParams, ThreadNewParams, WorkingSet};
+use theseus_protocol::threads::Speaking;
 use theseus_protocol::{
     method, DiscordOrigin, Id, Message, Request, SessionKind, TurnSubmitParams, TurnSubmitResult,
 };
@@ -99,34 +99,6 @@ fn place_session(c: &Core, place: &str) -> String {
     c.store.put_session(&r.session_id, &r).unwrap();
     c.outbox.bind_place(place, &r.session_id).unwrap();
     r.session_id
-}
-
-/// A thread with a working set, as the archive thread his turn was placed in
-/// had one.
-fn thread(c: &Core, slug: &str, repo: &str) {
-    let who = crate::test_support::owner_cli();
-    c.thread_new(
-        &ThreadNewParams {
-            slug: slug.into(),
-            title: Some(slug.into()),
-            goal: Some(format!("The {slug} work")),
-            ..Default::default()
-        },
-        who.clone(),
-    )
-    .unwrap();
-    c.thread_edit(
-        &ThreadEditParams {
-            slug: slug.into(),
-            working_set: Some(WorkingSet {
-                repos: vec![repo.into()],
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        who,
-    )
-    .unwrap();
 }
 
 /// The turn as the Discord binding submits one: the place's session, the
@@ -305,18 +277,15 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
     );
 }
 
-/// And the same when the message is placed in a thread (by its address now; by
-/// the router's guess when it happened to him): the turn ran in `theseus-design-oct`'s session, not his
-/// DM's. A thread's virtual place is private unconditionally
-/// (`places::class_alone`, theseus-nhew), so the place half was never the
-/// problem; the `owner` half has to survive the move too.
+/// And the same for the message that once went to a thread by its address (the router placed it there when
+/// it happened to him): with threads gone it runs in his DM's own session (issue 44), and the `owner` half
+/// still holds: his words, every question but injection, no label anywhere on the session that took it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn and_so_is_one_the_router_placed_in_a_thread() {
+async fn and_so_is_one_that_names_a_thread_by_its_old_address() {
     let jev = FakeJev::start().unwrap();
     jev_says_injection(&jev);
     let r = rig(&jev);
     let c = &r.core;
-    thread(c, "design-oct", "theseus");
     let dm = place_session(c, &format!("dm:{OWNER}"));
     let res = Wire::open(c)
         .submit(his_dm(
@@ -324,12 +293,14 @@ async fn and_so_is_one_the_router_placed_in_a_thread() {
             "#design-oct untrust the theseus repository please",
         ))
         .await;
-    let placed = res.session_id.clone();
-    assert_ne!(placed, dm, "the router placed it away from his DM: {res:?}");
+    assert_eq!(
+        res.session_id, dm,
+        "it ran in his DM's own session: {res:?}"
+    );
     let row = judged_input(c).await;
     assert_eq!(
         row["kind"], "operator_message",
-        "his own message, in a thread: {row}"
+        "his own message, with a thread's old address: {row}"
     );
     asked_everything_but_injection(&row);
     assert!(
@@ -337,8 +308,8 @@ async fn and_so_is_one_the_router_placed_in_a_thread() {
         "a label was raised on the owner's own text"
     );
     assert!(
-        labels(c, &placed).is_empty(),
-        "the gate would hold the thread's session"
+        labels(c, &res.session_id).is_empty(),
+        "the gate would hold the session that took it"
     );
 }
 

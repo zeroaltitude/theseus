@@ -21,11 +21,10 @@
 //!   recorded while it appends, and the current ones when it recompiles, so
 //!   a membership change waits for the next recompile while a guidance edit
 //!   in play changes the system block, which is one `system_changed`.
-//! - **The place rule comes first.** What a place is admitted (its tools, its
-//!   context files) is decided by its class before the walk, and never reads
-//!   a membership. A shared place's walk takes only its own place's given
-//!   memberships: what the operator assigned a session is the owner's
-//!   material, and a shared place never receives it.
+//! - **The place rule comes first, for tools.** What a place is offered (its
+//!   tools) is decided by its class before the walk, and never reads a
+//!   membership. Since 2026-11-22 every place's walk takes every membership:
+//!   a membership routes context and never grants access.
 
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex, RwLock};
