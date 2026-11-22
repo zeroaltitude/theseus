@@ -15,8 +15,8 @@ use theseus_memory::recall::Place;
 
 use super::{Turn, TurnRunner};
 use crate::node::Body;
-use crate::stub::Kind;
 use crate::session::SessionRecord;
+use crate::stub::Kind;
 use crate::view_gate::{self, Proof};
 
 impl TurnRunner {
@@ -27,7 +27,8 @@ impl TurnRunner {
         let sid = t.tc.session_id;
         let today = self.place_of(sid);
         // The one place of the turn, its exchange's too (`turn_place`); unreadable, no place.
-        let place = (self.turn_place(t)).unwrap_or_else(|| crate::exchange::rebuild::UNKNOWN.into());
+        let place =
+            (self.turn_place(t)).unwrap_or_else(|| crate::exchange::rebuild::UNKNOWN.into());
         let mark = t.exchange.mark().cloned();
         let proof = match &mark {
             Some(m) => Proof::Mark(m),
@@ -73,14 +74,21 @@ impl TurnRunner {
 /// What a turn no message opened continues, each one's presence read as a set-up's: the turn that made
 /// each call its own results answer (a job's late result, an answered call), else the session's newest
 /// turn before it (an interrupted one). None found is `Unknown`, as for any set-up.
-fn continued(store: &crate::store::Store, class: &Place, sid: &str, turn: &str) -> Vec<Option<Present>> {
+fn continued(
+    store: &crate::store::Store,
+    class: &Place,
+    sid: &str,
+    turn: &str,
+) -> Vec<Option<Present>> {
     let Ok(nodes) = store.transcript(sid) else {
         return vec![None];
     };
     let own: Vec<Option<Present>> = (nodes.iter())
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind == Kind::ToolResult)
         .map(|(_, n)| match &n.node().body {
-            Body::ToolResult { tool_use_id, .. } => view_gate::set_up(store, class, sid, tool_use_id),
+            Body::ToolResult { tool_use_id, .. } => {
+                view_gate::set_up(store, class, sid, tool_use_id)
+            }
             _ => None,
         })
         .collect();

@@ -125,6 +125,7 @@ pub mod provider;
 pub mod push;
 pub mod reach;
 pub mod recall;
+pub mod release;
 pub mod resident;
 pub mod restore;
 pub mod retract;
@@ -770,9 +771,9 @@ mod tests_unlabel;
 #[cfg(test)]
 mod tests_view_compile;
 #[cfg(test)]
-mod tests_view_hand_backs;
-#[cfg(test)]
 mod tests_view_gate;
+#[cfg(test)]
+mod tests_view_hand_backs;
 #[cfg(test)]
 mod tests_view_record;
 #[cfg(test)]
