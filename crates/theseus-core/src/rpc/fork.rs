@@ -66,7 +66,7 @@ impl Core {
             Some(id) => self.kernel.execution(id)?,
             None => None,
         };
-        self.fork_allowed(surface, &source, src_exec.as_ref())?;
+        Self::fork_allowed(surface, &source, src_exec.as_ref())?;
         let (at_position, at_node) = self.fork_point(&source, &p.at)?;
         let base = self.compilation_holding(&at_node, at_position, &source)?;
 
@@ -203,7 +203,6 @@ impl Core {
     /// Whether this caller may fork this session: any surface may fork any
     /// session (2026-11-22), but an MCP client only a conversation it opened.
     fn fork_allowed(
-        &self,
         surface: Surface,
         source: &SessionRecord,
         exec: Option<&theseus_kernel::Execution>,
