@@ -27,8 +27,11 @@ use crate::{Config, Core};
 /// must not hold misses it.
 const ANSWERS: Duration = Duration::from_secs(10);
 
-/// A model that answers as `fake` does, except that a request whose
-/// messages hold `hold-model` waits until the test lets it go.
+/// A model that answers as `fake` does, except that a request whose new
+/// message holds `hold-model` waits until the test lets it go. The new
+/// message is the last block of the last message: before it, a view lays
+/// what else is in play at the place, another session's held input
+/// included, which holds nothing.
 struct Gated {
     fake: Arc<FakeProvider>,
     open: watch::Sender<bool>,
@@ -47,7 +50,8 @@ impl Provider for Gated {
             let held = req
                 .messages
                 .last()
-                .is_some_and(|m| m.to_string().contains("hold-model"));
+                .and_then(|m| m["content"].as_array()?.last().cloned())
+                .is_some_and(|b| b.to_string().contains("hold-model"));
             if held {
                 let mut open = self.open.subscribe();
                 let _ = open.wait_for(|o| *o).await;
