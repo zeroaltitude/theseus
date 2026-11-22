@@ -129,3 +129,170 @@ async fn a_history_error_carries_the_vault_value_substituted() {
         e.message
     );
 }
+
+/// With `[mcp_server] memory` off the call answers the same refusal as the memory tools, and writes no row;
+/// another surface is refused as the MCP server's (mirrors
+/// `memory_off_answers_the_refusal_and_other_surfaces_are_refused`).
+#[tokio::test]
+async fn memory_off_answers_the_refusal_and_other_surfaces_are_refused() {
+    let r = rig(false);
+    let e = ask(&r.core, json!({"place": "local"})).await.unwrap_err();
+    assert_eq!(
+        e.message,
+        "memory is off for MCP clients (`[mcp_server] memory`)"
+    );
+    assert!(rows(&r.core, "memory.read").is_empty());
+    let on = rig(true);
+    for surface in [Surface::Cli, Surface::Discord] {
+        let e = rpc(
+            &on.core,
+            surface,
+            method::HISTORY_READ,
+            json!({"place": "local"}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            e.message,
+            "history.read is the MCP server's: it reads the owner's memory for another agent",
+            "{e:?}"
+        );
+    }
+    assert!(crate::mcp_server::allowed(method::HISTORY_READ));
+}
+
+/// An erased import is never read: its words are on no page, a words search finds nothing of it, and its
+/// node opens nothing (mirrors `an_erased_import_is_read_as_nothing_by_session_or_by_words`).
+#[tokio::test]
+async fn an_erased_import_is_read_as_nothing() {
+    use crate::tests_memory_lookup::{episode, import};
+    const GONE: &str = "the lighthouse keeper's ledger";
+    let r = rig(true);
+    let imported = import(
+        &r.core,
+        &[episode(9, "public", "2026-03-03T18:00:00Z", GONE)],
+    );
+    crate::import::write::erase(&r.core.store, "kelp-2026", Some("a test"), "cli").unwrap();
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the ferry note about the ledger").await;
+    let mut all = imported.clone();
+    all.push(native.clone());
+    r.core.runner.memory.set_ask(index_over(&r.core, all));
+    for p in [
+        json!({"place": place_of(&r.core, &native)}),
+        json!({"session_id": native, "words": "lighthouse keeper ledger"}),
+    ] {
+        let v = history(&r.core, p).await;
+        assert!(!v.to_string().contains("lighthouse"), "{v}");
+    }
+    let node = (r
+        .core
+        .store
+        .session_nodes(&imported[0])
+        .unwrap()
+        .into_iter())
+    .map(|(_, n)| n.id)
+    .next()
+    .expect("its tombstone");
+    let e = ask(&r.core, json!({"open": node})).await.unwrap_err();
+    assert!(!e.message.contains("lighthouse"), "{}", e.message);
+}
+
+fn rows(core: &Core, kind: &str) -> Vec<Value> {
+    core.store
+        .ledger_tail::<crate::ledger::LedgerRow>(1000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == kind)
+        .map(|(_, r)| r.data)
+        .collect()
+}
+
+/// Each call is one `memory.read` row: the principal `mcp`, the tool `context_history`, the client, a digest
+/// of what was asked, how many lines answered (an open is one): never the words (mirrors
+/// `each_read_is_a_memory_read_row_with_a_digest_and_no_words`).
+#[tokio::test]
+async fn each_read_is_a_memory_read_row_with_a_digest_and_no_words() {
+    let r = rig(true);
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the ferry parser note").await;
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, vec![native.clone()]));
+    let asked = json!({"session_id": native, "words": "ferry parser"});
+    let page = history(&r.core, asked.clone()).await;
+    let handle = lines(&page)[0]["handle"].as_str().unwrap().to_string();
+    history(&r.core, json!({"open": handle})).await;
+    let written = rows(&r.core, "memory.read");
+    assert_eq!(written.len(), 2, "{written:?}");
+    assert_eq!(written[0]["principal"], "mcp");
+    assert_eq!(written[0]["tool"], "context_history");
+    assert_eq!(written[0]["client"], "lantern-agent");
+    assert_eq!(
+        written[0]["hits"].as_u64().unwrap(),
+        lines(&page).len() as u64
+    );
+    assert_eq!(written[0]["ok"], true);
+    assert_eq!(
+        (&written[1]["tool"], &written[1]["hits"]),
+        (&json!("context_history"), &json!(1))
+    );
+    let digest = written[0]["digest"].as_str().unwrap();
+    assert_eq!(digest.len(), 16);
+    for row in &written {
+        let all = row.to_string();
+        assert!(!all.contains("ferry") && !all.contains("parser"), "{all}");
+    }
+    // The same call, the same digest; a refused one is a row too, not answered.
+    history(&r.core, asked).await;
+    ask(&r.core, json!({"words": "ferry"})).await.unwrap_err();
+    let again = rows(&r.core, "memory.read");
+    assert_eq!(again[2]["digest"], digest);
+    assert_eq!((again.len(), &again[3]["ok"]), (4, &json!(false)));
+}
+
+/// The anchor: a page or a words search names a place or the client's conversation, or is refused in words;
+/// `session_id` reads where that conversation speaks, the same page as its place.
+#[tokio::test]
+async fn a_page_needs_a_place_or_a_conversation() {
+    let r = rig(true);
+    for p in [json!({}), json!({"words": "ferry"})] {
+        let e = ask(&r.core, p).await.unwrap_err();
+        assert_eq!(
+            e.message,
+            crate::history_tool::mcp::NO_ANCHOR,
+            "{}",
+            e.message
+        );
+    }
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the first ferry note").await;
+    let place = place_of(&r.core, &native);
+    let by_place = history(&r.core, json!({"place": place})).await;
+    let by_session = history(&r.core, json!({"session_id": native})).await;
+    assert_eq!(
+        by_place["lines"], by_session["lines"],
+        "{by_place} / {by_session}"
+    );
+    assert_eq!(by_session["place"], place.as_str());
+}
+
+/// No turn, no turn's allowance: nothing is in view, so a bare page starts at the newest exchange, and calls
+/// past a turn's five looks are pages as the first was, never "allowance used".
+#[tokio::test]
+async fn no_turn_means_the_newest_first_and_no_allowance() {
+    let r = rig(true);
+    let native = session(&r.core, None);
+    turn(&r.core, &native, "the first ferry note").await;
+    turn(&r.core, &native, "the second ferry note").await;
+    let place = place_of(&r.core, &native);
+    for _ in 0..(crate::view::history::LOOKS_PER_TURN + 2) {
+        let v = history(&r.core, json!({"place": place})).await;
+        let got = lines(&v);
+        assert_eq!(got.len(), 2, "{v}");
+        assert!(got[0]["words"].as_str().unwrap().contains("second"), "{v}");
+        assert_eq!(v["end"], "history_exhausted", "{v}");
+        assert!(v.get("next").is_none(), "{v}");
+    }
+}
