@@ -1,4 +1,6 @@
-//! route.v10's three rollback rules, armed (theseus-ervz9, route.v10 row 5): they
+//! The route pack's three rollback rules, armed (theseus-ervz9, route.v10 row 5;
+//! since route.v10 retired in issue 46, held on route.v11, which declares the same
+//! three in the same words): they
 //! are what make the flip reversible, so each is read from the pack's own file
 //! and each fires on its own numbers. `adopt.rs` used to inject `PinsPerDay { 3 }`
 //! for every route version, so v10's own 5 never armed: the file's rule wins, and
@@ -17,7 +19,7 @@ use crate::rpc::{Core, Parts};
 use crate::store::Store;
 use crate::tests_judge::{board, judge_config, texts};
 
-const V10: &str = "route.v10";
+const V10: &str = "route.v11";
 
 fn core_at(dir: &Path) -> Arc<Core> {
     let mut cfg = judge_config(dir, None);
@@ -196,5 +198,5 @@ async fn pack_list_shows_the_three_rules_and_health_a_rollback() {
         .into_iter()
         .find(|l| l.starts_with(V10))
         .expect("a health line");
-    assert_eq!(line, "route.v10: rolled back until 00:00 (pins_per_day)");
+    assert_eq!(line, "route.v11: rolled back until 00:00 (pins_per_day)");
 }

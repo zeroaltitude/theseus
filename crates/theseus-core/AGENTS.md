@@ -2029,8 +2029,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     request for a name, and no label keeps a session off a model (the restricted-origin rule is gone, 2026-11-21). At start the
     embedded packs' text is checked against the list (`Core::check_pack_text_after_serving`, a `privacy.packs` startup phase
     naming pack and count, never a name). Tests: `judge/tests_content.rs`.
-    **route.v10** (theseus-h66v4) is the acting route pack; route.v8's `data` question was asked and read by nothing since
-    theseus-9ymz0 (the labels on a session replaced it) and is not in route.v10.
+    **route.v11** is the acting route pack (route.v10 word for word but the `fable` option's words; route.v10 retired in
+    issue 46); route.v8's `data` question was asked and read by nothing since theseus-9ymz0 and is in neither.
   - **Content flags** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17; `content.rs`, `content_wait.rs`,
     `config/content_based_security.rs`, `fact/data.rs`): every item that enters a session (an operator's message, a tool
     result, a brief, a report) is classified once, by itself, and what is found is a durable label on `SessionRecord.data`
