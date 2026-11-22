@@ -132,11 +132,13 @@ impl Lens<'_> {
         Ok((!self.forked(&ex)?).then_some(ex))
     }
 
-    /// Whether a fork's cut holds `ex` out of its history: the exchange its point falls in, or one an
-    /// ancestor began after it, by position (`fork::cut::Cut::reach`). A read that fails is an error.
+    /// Whether a fork's cut holds `ex` out of its history: any ancestor's exchange not PROVEN wholly before the
+    /// point (`fork::cut::Cut::proven_inside`: every node it names read, each at or before the cut). So the
+    /// exchange its point falls in, one an ancestor began after it, and one whose referenced node is missing
+    /// (whose stored `did` line may summarise a later reply) are all held, page and open alike; an exchange of a
+    /// session the cut does not name is left alone. A read that fails is an error, never a default cut.
     pub fn forked(&self, ex: &Exchange) -> Result<bool> {
-        Ok(!self.cut.is_empty()
-            && self.cut.reach(self.store, ex)? != crate::fork::cut::Reach::Inside)
+        Ok(!self.cut.is_empty() && !self.cut.proven_inside(self.store, ex)?)
     }
 
     /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words
