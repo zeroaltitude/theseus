@@ -647,6 +647,38 @@ async fn job_stop_obeys_the_place_rule() {
     stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
 }
 
+/// The read and the act split (2026-11-22): a surface that reads no private
+/// text now peeks at and follows a private session's job, and its stop is
+/// still refused by the place rule, the act gate's input.
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn a_guarded_surface_reads_a_private_job_and_still_may_not_stop_it() {
+    let r = rig_with("echo private work; sleep 60");
+    let (job, _) = start_job(&r).await;
+    let mut cli = Wire::connect(&r.core, Surface::Cli, 1 << 20);
+    peek_until(&mut cli, &job, |p| p.bytes > 0).await;
+    let mut shared = Wire::connect(&r.core, Surface::Discord, 1 << 20);
+    let p = shared.call(method::WORK_PEEK, json!({"id": job})).await;
+    assert!(p.error.is_none(), "the peek reads: {:?}", p.error);
+    let f = shared
+        .call(method::ACTION_OUTPUT, json!({"id": job, "from": 0}))
+        .await;
+    assert!(f.error.is_none(), "the follow reads: {:?}", f.error);
+    let off = shared
+        .call(method::ACTION_UNFOLLOW, json!({"id": job}))
+        .await;
+    assert!(off.error.is_none(), "{:?}", off.error);
+    let s = shared
+        .call(
+            method::JOB_STOP,
+            json!({"id": job, "discord": owner_in("1", Some("2"))}),
+        )
+        .await;
+    assert_eq!(s.error.expect("refused").code, error_code::NOT_FOUND);
+    let a = r.core.kernel.action(&job).unwrap().unwrap();
+    assert!(!a.state.is_settled(), "still running: {:?}", a.state);
+    stop_of(cli.call(method::JOB_STOP, json!({"id": job})).await);
+}
+
 /// The owner's Discord account, speaking in `channel` of guild `guild`.
 fn owner_in(channel: &str, guild: Option<&str>) -> Value {
     json!({"user_id": crate::tests_places::OWNER.to_string(), "channel_id": channel,

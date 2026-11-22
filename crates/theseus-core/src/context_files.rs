@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use crate::compiler::ContextFileRef;
 
 /// A context file as `[context] files` and `[personas.<name>] files` name it:
-/// its path, or a table with its path and its readers (since M4 19a; a shared
-/// place carries only the public ones, the place rule).
+/// its path, or a table with its path and its readers (since M4 19a). Since
+/// 2026-11-22 every place carries every file; `readers` is recorded only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ContextEntry {
@@ -46,7 +46,8 @@ pub struct ContextFileEntry {
     pub readers: ContextReaders,
 }
 
-/// Who may read a context file: the owner (the default), or anyone.
+/// Who a context file's entry says may read it: the owner (the default), or
+/// anyone. Recorded in the manifest; it withholds nothing since 2026-11-22.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextReaders {
