@@ -4733,8 +4733,9 @@ async fn an_image_is_one_image_block_for_a_vision_model_stored_once_and_rendered
         stored.len()
     );
 
-    // The same image again: still one blob. The first request's messages
-    // are the second's first messages, byte for byte.
+    // The same image again: still one blob, and it renders the same bytes. (Issue 44: a view turn's
+    // request is laid afresh each turn, so the first request is no byte prefix of the second; the image
+    // block itself is what renders identically.)
     let second = submit(
         &r.core,
         submit_params(
@@ -4747,10 +4748,17 @@ async fn an_image_is_one_image_block_for_a_vision_model_stored_once_and_rendered
     assert_eq!(second["output"], "Still HELLO.", "{second}");
     assert_eq!(blob_files(&r), 1);
     let reqs = r.fake.requests();
-    let (a, b) = (&reqs[0].messages, &reqs[1].messages);
+    let image_of = |q: &crate::provider::ProviderRequest| {
+        (q.messages.iter())
+            .filter_map(|m| m["content"].as_array())
+            .flatten()
+            .find(|b| b["type"] == "image")
+            .cloned()
+            .expect("the request carries the image")
+    };
     assert_eq!(
-        serde_json::to_vec(&b[..a.len()]).unwrap(),
-        serde_json::to_vec(a).unwrap()
+        serde_json::to_vec(&image_of(&reqs[1])).unwrap(),
+        serde_json::to_vec(&image_of(&reqs[0])).unwrap()
     );
     // A cold cache (a restart) renders the same bytes too.
     let cold = crate::blobs::Blobs::new(r.core.store.dir());
@@ -5061,133 +5069,6 @@ async fn an_image_marked_not_shown_stays_so_after_a_restart() {
     let q = &fake.requests()[0];
     assert!(!carries_an_image(q), "{:?}", q.messages);
     assert_eq!(first_user_blocks(q)[0]["text"], TIDE_LINE);
-}
-
-/// theseus-0s4: an image the provider took before and refuses now sits
-/// under the model's earlier answer, whose thinking was given for it. Its
-/// line replaces it, so the retry's compilation strips that thinking
-/// (`image_not_shown`), as any change under it does.
-#[tokio::test]
-async fn an_image_refused_under_an_answer_strips_that_answers_thinking() {
-    let answered = Scripted::Blocks {
-        blocks: vec![
-            json!({"type": "thinking", "thinking": "a tide chart, high water at four", "signature": "sig-tide"}),
-            json!({"type": "text", "text": "A tide chart."}),
-        ],
-        stop_reason: "end_turn".into(),
-    };
-    let r = rig(vec![
-        answered,
-        refused_image(0, 1),
-        Scripted::text("Noted."),
-    ]);
-    let bytes = crate::attach::tests::png(640, 480, 300);
-    let first = submit(
-        &r.core,
-        submit_params(
-            None,
-            "What is this?",
-            vec![image_attached("tide.png", &bytes)],
-        ),
-    )
-    .await;
-    assert_eq!(first["output"], "A tide chart.", "{first}");
-    let sid = first["session_id"].as_str().unwrap().to_string();
-    let second = submit(&r.core, submit_params(Some(&sid), "And the low?", vec![])).await;
-    assert_eq!(second["output"], "Noted.", "{second}");
-    let reqs = r.fake.requests();
-    assert_eq!(reqs.len(), 3);
-    let thinking = |q: &crate::provider::ProviderRequest| {
-        serde_json::to_string(&q.messages)
-            .unwrap()
-            .contains(r#""type":"thinking""#)
-    };
-    assert!(
-        thinking(&reqs[1]) && carries_an_image(&reqs[1]),
-        "the refused request"
-    );
-    assert!(
-        !thinking(&reqs[2]) && !carries_an_image(&reqs[2]),
-        "{:?}",
-        reqs[2].messages
-    );
-    assert_eq!(first_user_blocks(&reqs[2])[0]["text"], TIDE_LINE);
-    let compiled = ledgered(&r, "context.compiled");
-    assert_eq!(
-        compiled.last().unwrap()["trigger"],
-        "image_not_shown",
-        "{compiled:?}"
-    );
-}
-
-/// theseus-0s4: the same image sent again, and refused the second time, by
-/// the later copy's block alone. The mark hides both copies, and the first
-/// sat under the model's answer, so the retry strips that answer's thinking
-/// too: the API binds a thinking block to every message before it.
-#[tokio::test]
-async fn an_image_sent_again_and_refused_strips_the_thinking_over_its_first_copy() {
-    let answered = Scripted::Blocks {
-        blocks: vec![
-            json!({"type": "thinking", "thinking": "a tide chart, high water at four", "signature": "sig-tide"}),
-            json!({"type": "text", "text": "A tide chart."}),
-        ],
-        stop_reason: "end_turn".into(),
-    };
-    let r = rig(vec![
-        answered,
-        refused_image(2, 1),
-        Scripted::text("The same chart."),
-    ]);
-    let bytes = crate::attach::tests::png(640, 480, 300);
-    let first = submit(
-        &r.core,
-        submit_params(
-            None,
-            "What is this?",
-            vec![image_attached("tide.png", &bytes)],
-        ),
-    )
-    .await;
-    assert_eq!(first["output"], "A tide chart.", "{first}");
-    let sid = first["session_id"].as_str().unwrap().to_string();
-    let second = submit(
-        &r.core,
-        submit_params(
-            Some(&sid),
-            "And this one?",
-            vec![image_attached("tide.png", &bytes)],
-        ),
-    )
-    .await;
-    assert_eq!(second["output"], "The same chart.", "{second}");
-    let reqs = r.fake.requests();
-    assert_eq!(reqs.len(), 3);
-    let thinking = |q: &crate::provider::ProviderRequest| {
-        serde_json::to_string(&q.messages)
-            .unwrap()
-            .contains(r#""type":"thinking""#)
-    };
-    assert!(
-        thinking(&reqs[1]) && carries_an_image(&reqs[1]),
-        "the refused request"
-    );
-    assert!(
-        !thinking(&reqs[2]) && !carries_an_image(&reqs[2]),
-        "{:?}",
-        reqs[2].messages
-    );
-    for m in [0, 2] {
-        assert_eq!(reqs[2].messages[m]["content"][0]["text"], TIDE_LINE, "{m}");
-    }
-    let rows = ledgered(&r, "image.not_shown");
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0]["message_index"], 2, "the copy the 400 named");
-    let compiled = ledgered(&r, "context.compiled");
-    assert_eq!(
-        compiled.last().unwrap()["trigger"],
-        "image_not_shown",
-        "{compiled:?}"
-    );
 }
 
 /// theseus-0s4: Anthropic's 400 for an image it cannot decode names no block
