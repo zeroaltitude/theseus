@@ -705,8 +705,8 @@ pub fn narrowest(all: impl IntoIterator<Item = Option<Present>>) -> Option<Prese
 /// How recall reads places for one asker. Narrowed to one place, the asker
 /// reads as that place and its own sessions as it, and every other session
 /// as it always has, which the place rule then drops for `place`. A channel
-/// bound private is always narrowed to itself (decision 5); with the ledger
-/// on, so is a turn that is not the owner alone, to its exact arrival place.
+/// bound private is always narrowed to itself (decision 5); so is a turn that
+/// is not the owner alone, to its exact arrival place.
 /// Otherwise places read as before.
 #[derive(Clone, Debug, Default)]
 pub struct RecallPlaces {
@@ -831,19 +831,43 @@ impl Verified {
     /// runs): today's class of `session`'s place, and a message typed there by the owner in person, read by
     /// the rule a turn's mark is read by ([`present_of_mark`]). A channel is never the owner alone.
     pub fn of_preview(runner: &TurnRunner, session: &str, place: &str) -> Self {
+        Self::of_fresh(runner.place_of(session), place)
+    }
+
+    /// [`Self::of_preview`] for a session that does not exist yet, at `place` of class `today` (a census of a
+    /// fresh session's first request): the same rule, at a place that holds nothing.
+    pub fn of_fresh(today: Place, place: &str) -> Self {
         struct InPerson;
         impl OwnerMarks for InPerson {
             fn in_person(&self, _: &str) -> Result<Option<bool>> {
                 Ok(Some(true))
             }
         }
-        let today = runner.place_of(session);
         let present = present(&today, Some(place), Input::Message(""), &InPerson);
         Verified(PointOfView {
             anchor: place.into(),
             place: today,
             present,
         })
+    }
+
+    /// The point of view a next turn of the task whose session is `session` would get, for a census of it (no
+    /// turn runs): the presence its turns get from the `task.create` call that started it, read as a set-up
+    /// (`turn::gate_step`), at the task's own place ([`task_pov`]). None for a session that is not a task's.
+    pub fn of_task(runner: &TurnRunner, session: &str) -> Option<Self> {
+        let rec: SessionRecord = runner.store.get_session(session).ok()??;
+        let task = rec.task?;
+        let class = runner.place_of(&task.parent_session);
+        let set_up = set_up(&runner.store, &class, &task.parent_session, &task.by);
+        let pov = PointOfView {
+            anchor: String::new(),
+            place: runner.place_of(session),
+            present: narrowest([set_up]).unwrap_or(Present::Unknown),
+        };
+        Some(Verified(task_pov(
+            pov,
+            crate::task_graph::place::of_session(session),
+        )))
     }
 
     /// `pov` as given, for the gate's own tests.

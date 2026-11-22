@@ -2,9 +2,9 @@
 //! for a kind of place, compiled once and counted part by part down to each tool's schema. Nothing is sent
 //! and nothing is written; `exact` asks the provider's token counter (not a model) when a key resolves.
 //!
-//! It compiles as a turn does (`TurnRunner::census_request`: the spec a turn builds, its standing block,
-//! `compiler::compile` over the session's transcript; in a place set to the view, the turn's own assembler and
-//! the view's compile, `turn::view_step::preview::census`), so it follows whatever the compile changes, then
+//! It compiles as a turn does (`TurnRunner::census_request`: the spec a turn builds, its standing block, the
+//! turn's own assembler and the view's compile, `turn::view_step::preview::census`; a task's at its own place,
+//! a fresh session's at an empty place of its kind), so it follows whatever the compile changes, then
 //! apportions the compile's own estimate to the parts (`Ledger`): a part's tokens are the difference of the
 //! running rounded total before and after it, so the parts add up to the total exactly, however many there
 //! are. A tool's use is a read of the ledger's `action.planned` rows (`tool_use`): an operator's read, never
@@ -38,9 +38,12 @@ pub const USE_DAYS: u32 = 30;
 const DAY_MS: u64 = 86_400_000;
 /// The rows read for the use a page at a time.
 const USE_PAGE: usize = 5_000;
-/// Said with a census of a place set to the view.
+/// Said with a census of a session.
 const VIEW_NOTE: &str = "built as the view builds the next turn's first request, for an empty message from \
                          the owner in person: no recall was run, so recall's pieces are not counted";
+/// Said with a census of a fresh session's first request.
+const FRESH_NOTE: &str =
+    "a fresh session's first request: an empty place, so its window holds nothing";
 /// The bytes of a request's smallest form, a user message of one word.
 const SMALLEST: &str = "x";
 
@@ -100,7 +103,7 @@ pub struct NextRequest {
     pub persona_files: Vec<(String, String)>,
     pub guidance: Vec<(String, String)>,
     pub standing: String,
-    /// The tokens of the recalled notes the history holds (a part of its messages).
+    /// The tokens of the recalled notes the request holds: none, as the census runs no recall.
     pub recall_tokens: u64,
     pub notes: Vec<String>,
 }
@@ -141,32 +144,19 @@ impl TurnRunner {
         place_kind: &str,
         live: &str,
     ) -> Result<NextRequest> {
-        self.census_request_with(rec, place_kind, live, None)
-    }
+        /// The spec `rec`'s next request is built from, for a view's preview (issue 44): its target, files and
+        /// session block, read and nothing more. No thread card is resolved (a legacy compilation's card would
+        /// be installed in the shared cache, which pins what a later turn sends), no request is compiled (no
+        /// stubs are cached), so nothing a turn observes changes. The view reads the spec's system parts and
+        /// its model alone.
+        pub(crate) fn preview_spec(&self, rec: &SessionRecord, live: &str) -> Result<RequestSpec> {
+            let (kind, view, _, _) = self.census_place(Some(rec), "cli");
+            let target = self.census_target(Some(rec), "cli", live)?;
+            let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
+            spec.session_text = self.session_block(rec.dir.as_deref(), view, rec.flagged());
+            Ok(spec)
+        }
 
-    /// The spec `rec`'s next request is built from, for a view's preview (issue 44): its target, files and
-    /// session block, read and nothing more. No thread card is resolved (a legacy compilation's card would
-    /// be installed in the shared cache, which pins what a later turn sends), no request is compiled (no
-    /// stubs are cached), so nothing a turn observes changes. The view reads the spec's system parts and
-    /// its model alone.
-    pub(crate) fn preview_spec(&self, rec: &SessionRecord, live: &str) -> Result<RequestSpec> {
-        let (kind, view, _, _) = self.census_place(Some(rec), "cli");
-        let target = self.census_target(Some(rec), "cli", live)?;
-        let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
-        spec.session_text = self.session_block(rec.dir.as_deref(), view, rec.flagged());
-        Ok(spec)
-    }
-
-    /// `census_request` over the session's transcript with one more node written at its end, that
-    /// nothing wrote: a split's dry run reads the next request as a `Moved` node would leave it
-    /// (theseus-q9b85).
-    pub fn census_request_with(
-        &self,
-        rec: Option<&SessionRecord>,
-        place_kind: &str,
-        live: &str,
-        extra: Option<&crate::node::Node>,
-    ) -> Result<NextRequest> {
         let (kind, view, sid, mut notes) = self.census_place(rec, place_kind);
         let target = self.census_target(rec, place_kind, live)?;
         let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
@@ -196,22 +186,15 @@ impl TurnRunner {
             notes.push("a fresh session has no category guidance yet".to_string());
         }
         let standing = self.census_standing(&sid, target.persona.as_deref(), view.class, &mut spec);
-        let mut nodes = match rec {
+        let nodes = match rec {
             Some(r) => self.store.transcript(&r.session_id)?,
             None => Vec::new(),
         };
-        if let Some(n) = extra {
-            let at = self.store.last_position();
-            nodes.push((
-                at,
-                crate::stub::Stub::hydrated(at, std::sync::Arc::new(n.clone())),
-            ));
-        }
-        let (compiled, recall_tokens) =
-            self.census_compile(&sid, &spec, rec, nodes, extra.is_some())?;
-        if rec.is_some_and(|r| extra.is_none() && self.census_view_place(r).is_some()) {
-            notes.push(VIEW_NOTE.to_string());
-        }
+        let compiled = self.census_compile((&sid, rec), (place_kind, view.class), &spec, nodes)?;
+        notes.push(match rec {
+            Some(_) => VIEW_NOTE.to_string(),
+            None => FRESH_NOTE.to_string(),
+        });
         let how = match (rec.is_some(), compiled.new_compilation) {
             (false, _) => "fresh",
             (true, true) => "recompile",
@@ -241,38 +224,31 @@ impl TurnRunner {
                 .map(|(n, _, t)| (n.clone(), t.clone()))
                 .collect(),
             standing,
-            recall_tokens,
+            recall_tokens: 0,
             compiled,
             spec,
             notes,
         })
     }
 
-    /// The census's compile of `nodes` (the session's transcript, `moved` when a split's dry run added a
-    /// node), and the tokens of the recall notes it holds. In a place set to the view: its own assembler,
-    /// never the transcript's compile, and no recall (a split's dry run aside, which reads the transcript a
-    /// `Moved` node would leave).
+    /// The census's compile of `sid`'s next request (`rec` none: a fresh session's of `kind`), as the view
+    /// builds it (`turn::view_step::preview::census`): `nodes` is the session's transcript, for the turn's own.
     fn census_compile(
         &self,
-        sid: &str,
+        (sid, rec): (&str, Option<&SessionRecord>),
+        kind: (&str, PlaceClass),
         spec: &RequestSpec,
-        rec: Option<&SessionRecord>,
         nodes: crate::store::Transcript,
-        moved: bool,
-    ) -> Result<(Compiled, u64)> {
+    ) -> Result<Compiled> {
         let hidden = rec.map(|r| r.not_shown.as_slice()).unwrap_or_default();
-        let view_place = rec
-            .filter(|_| !moved)
-            .and_then(|r| Some((r, self.census_view_place(r)?)));
         let current = match rec.and_then(|r| r.compilation_id.as_deref()) {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
         };
-        let (recall_tokens, sources) = match view_place {
-            Some(_) => (0, crate::recall::render::Sources::new()),
-            None => self.recall_part(&nodes),
-        };
-        let situation = crate::compiler::situation::given(false, false, false);
+        let (sources, situation) = (
+            crate::recall::render::Sources::new(),
+            crate::compiler::situation::given(false, false, false),
+        );
         let input = crate::compiler::CompileInput {
             session_id: sid,
             current: current.as_ref(),
@@ -290,33 +266,7 @@ impl TurnRunner {
             assembled: None,
             situation: &situation,
         };
-        let compiled = match &view_place {
-            Some((r, place)) => self.census_view_compile(r, place, input)?,
-            None => crate::compiler::compile(input),
-        };
-        Ok((compiled, recall_tokens))
-    }
-
-    /// The tokens of the recall notes a transcript holds, and the sources they render from.
-    fn recall_part(
-        &self,
-        nodes: &crate::store::Transcript,
-    ) -> (u64, crate::recall::render::Sources) {
-        let recalls = nodes
-            .iter()
-            .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let tokens = recalls
-            .clone()
-            .map(|(_, n)| match &n.body {
-                crate::node::Body::Recall { items, .. } => items.iter().map(|i| i.tokens).sum(),
-                _ => 0,
-            })
-            .sum();
-        (
-            tokens,
-            self.memory
-                .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
-        )
+        self.census_view_compile((sid, rec), kind, input)
     }
 
     /// The kind of session, the place it speaks in and its id for a census: the session's own, or a fresh
