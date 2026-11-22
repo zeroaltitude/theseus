@@ -50,42 +50,61 @@ fn last_text(req: &ProviderRequest) -> String {
     last.map(|m| texts(m).join("\n")).unwrap_or_default()
 }
 
-/// Whether `req` is a turn's request (it offers tools: a ladder's or a did line's offer none) of the task
-/// whose brief says `brief`.
-fn of_task(req: &ProviderRequest, brief: &str) -> bool {
-    let text = user_text(req);
-    !req.tools.is_empty() && text.contains(TASK_HEAD) && text.contains(brief)
+/// The brief of the task whose request `req` is: the last paragraph of the first text block that holds a
+/// task's brief (its opening heads its window); none for a conversation's request.
+fn own_brief(req: &ProviderRequest) -> Option<String> {
+    (req.messages.iter())
+        .filter(|m| m["role"] == "user")
+        .flat_map(texts)
+        .find(|t| t.contains(TASK_HEAD))
+        .and_then(|t| t.rsplit("\n\n").next().map(str::to_string))
 }
 
-/// The task requests of `brief`, in the order they were sent.
+/// The task requests of `brief` (a turn's: it offers tools, and a ladder's or a did line's offer none),
+/// in the order they were sent.
 fn task_requests(r: &Rig, brief: &str) -> Vec<ProviderRequest> {
     (r.model.requests.lock().unwrap().iter())
-        .filter(|q| of_task(q, brief))
+        .filter(|q| !q.tools.is_empty() && own_brief(q).as_deref() == Some(brief))
         .cloned()
         .collect()
 }
 
-/// A rig whose every place, a task's own included, is set to `view`; `task` answers a task's requests.
-fn view_rig(task: impl Fn(&ProviderRequest) -> Option<Scripted> + Send + Sync + 'static) -> Rig {
+/// A rig whose every place, a task's own included, is set to `view`; `task` answers a task's requests, by
+/// its brief (none: it is done). The conversation's `CREATE <input>` starts a task with that input.
+fn view_rig(
+    task: impl Fn(&ProviderRequest, &str) -> Option<Scripted> + Send + Sync + 'static,
+) -> Rig {
     rig(
         move |req| {
-            if user_text(req).contains(TASK_HEAD) {
-                if let Some(s) = task(req) {
-                    return s;
-                }
+            if let Some(brief) = own_brief(req) {
+                return task(req, &brief).unwrap_or_else(|| Scripted::text("Done."));
             }
             if answers_a_call(req) {
                 return Scripted::text("Started it.");
             }
             let last = last_text(req);
             if let Some(input) = last.split("CREATE ").nth(1) {
-                let input: Value = serde_json::from_str(input).expect("a task.create input");
+                // The first JSON value: what follows the message in its user turn is not the input.
+                let input: Value = (serde_json::Deserializer::from_str(input).into_iter())
+                    .next()
+                    .expect("a task.create input")
+                    .expect("valid JSON");
                 return Scripted::tools("Starting it.", &[("t_task", "task_create", input)]);
             }
             Scripted::text("Noted.")
         },
         |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
     )
+}
+
+/// What a test that waited in vain shows: each of `task`'s exchanges, and the newest words of each of
+/// its requests.
+fn state_of(r: &Rig, task: &Execution, brief: &str) -> String {
+    let ex: Vec<String> = (exchanges(&r.core, task).iter())
+        .map(|e| format!("{:?} {} end={:?}", e.opened_by, e.place, e.end_ms))
+        .collect();
+    let asked: Vec<String> = (task_requests(r, brief).iter()).map(last_text).collect();
+    format!("exchanges {ex:?}; requests' last words {asked:?}")
 }
 
 /// The owner's message `CREATE <input>`, quoting `ASK` so the arrangement holds.
@@ -150,7 +169,7 @@ const COUNT: &str = "COUNT-VIEW: count the boats in the north quay";
 /// the task's place, the first opened by its brief, the second by its wake.
 #[tokio::test]
 async fn a_tasks_turns_take_the_view_at_its_own_place_and_its_second_sees_its_first() {
-    let r = view_rig(|req| {
+    let r = view_rig(|req, _| {
         let last = last_text(req);
         Some(match () {
             _ if last.contains("⏰ wake") => Scripted::text("SECOND: fifteen boats now."),
@@ -217,13 +236,10 @@ const CHECKING: &str = "CHECK-VIEW: establish on your own how many gulls the pie
 /// claim it checks, and nothing of the checked task's own turns: not its brief.
 #[tokio::test]
 async fn a_check_takes_the_view_and_holds_nothing_of_the_checked_tasks_turns() {
-    let r = view_rig(|req| {
-        let text = user_text(req);
-        Some(match () {
-            _ if text.contains(CHECKING) => Scripted::text("CHECKED: the claim holds."),
-            _ if text.contains(MAKER) => Scripted::text(CLAIM),
-            _ => return None,
-        })
+    let r = view_rig(|_, brief| match brief {
+        CHECKING => Some(Scripted::text("CHECKED: the claim holds.")),
+        MAKER => Some(Scripted::text(CLAIM)),
+        _ => None,
     });
     let parent = parent_session(&r.core);
     let made = json!({"brief": MAKER, "arrangement": arranged()});
@@ -253,22 +269,18 @@ async fn a_check_takes_the_view_and_holds_nothing_of_the_checked_tasks_turns() {
 
 const OUTER: &str = "OUTER-VIEW: have a subtask count the gulls, then say what it found";
 const INNER: &str = "INNER-VIEW: count the gulls";
-/// What only a subtask's brief says (`task_lineage::Lineage::note`): the root task's brief.
-const SUBTASK: &str = "Root goal, the brief of this tree's first task";
 
 /// A report to a task opens a turn of that task's, in a view at its own place: the subtask's report is
 /// its message, and its first turn is in its window.
 #[tokio::test]
 async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
-    let r = view_rig(|req| {
-        let (text, last) = (user_text(req), last_text(req));
-        Some(match () {
-            _ if text.contains(SUBTASK) => Scripted::text("INNER FOUND: 42 gulls."),
-            _ if last.contains("[Report from task") => Scripted::text("OUTER: it found 42."),
-            _ if text.contains(OUTER) && answers_a_call(req) => {
-                Scripted::text("OUTER STARTED: waiting on the count.")
-            }
-            _ if text.contains(OUTER) => Scripted::tools(
+    let r = view_rig(|req, brief| {
+        let last = last_text(req);
+        Some(match brief {
+            INNER => Scripted::text("INNER FOUND: 42 gulls."),
+            OUTER if last.contains("[Report from task") => Scripted::text("OUTER: it found 42."),
+            OUTER if answers_a_call(req) => Scripted::text("OUTER STARTED: waiting on the count."),
+            OUTER => Scripted::tools(
                 "Starting the count, and a late look.",
                 &[
                     (
@@ -290,12 +302,14 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
     let input = json!({"brief": OUTER, "arrangement": arranged()});
     crate::test_support::turn(&r.core, &parent, &create(&input)).await;
     let outer = task_by_brief(&r.core, OUTER);
-    until_within("the report's turn", 30, || {
-        exchanges(&r.core, &outer)
-            .iter()
-            .any(|e| e.opened_by == Opener::Report && e.end_ms.is_some())
-    })
-    .await;
+    let t0 = std::time::Instant::now();
+    while !(exchanges(&r.core, &outer).iter())
+        .any(|e| e.opened_by == Opener::Report && e.end_ms.is_some())
+    {
+        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
+        assert!(!waited, "no report's turn: {}", state_of(&r, &outer, OUTER));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
 
     let place = crate::task_graph::place::of_session(&outer.session_id);
     let ex = exchanges(&r.core, &outer);
@@ -346,11 +360,7 @@ async fn agents_turn(core: &Arc<Core>, sid: &str, input: &str) {
 /// window: the conversation's own next turn lays the earlier words, the task's request does not.
 #[tokio::test]
 async fn a_tasks_request_holds_nothing_of_the_parents_window_it_may_not_see() {
-    let r = view_rig(|req| {
-        user_text(req)
-            .contains(ERRAND)
-            .then(|| Scripted::text("Listed them."))
-    });
+    let r = view_rig(|_, brief| (brief == ERRAND).then(|| Scripted::text("Listed them.")));
     let parent = parent_session(&r.core);
     agents_turn(&r.core, &parent, SECRET).await;
     let input = json!({"brief": ERRAND, "arrangement": arranged()});
