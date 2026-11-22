@@ -244,7 +244,13 @@ async fn health_counts_a_binding_that_cannot_be_read_until_it_is_bound_again() {
     r.core.runner.threads.all(&r.core.store).unwrap();
     let h = r.core.threads_health().expect("the threads are said");
     assert_eq!(h.unread_bindings, 1);
-    r.core.thread_session("kelp", cli()).unwrap();
+    // The thread bound again, as opening its session binds it.
+    let sid = session(&r.core, None);
+    r.core
+        .runner
+        .threads
+        .bind(&r.core.store, "kelp", |_| Ok(((), Some(sid.clone()))))
+        .unwrap();
     let h = r.core.threads_health().expect("the threads are said");
     assert_eq!(h.unread_bindings, 0, "bound again, it reads");
 }
