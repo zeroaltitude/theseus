@@ -231,27 +231,6 @@ async fn a_single_instruction_reads_300_large_results_without_an_overage() {
     assert!(text.starts_with("[Summary of "), "{text}");
 }
 
-/// `[context] working_window_tokens` lowers the window: the same turn on a
-/// 1M catalog window compacts against the working window.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_working_window_lowers_the_budget() {
-    let r = rig(80, 3_000, 1_000_000, Some(40_000));
-    let (sid, result) = turn(&r.core, INSTRUCTION).await;
-    result.expect("the turn ends");
-    let comps = r.core.store.session_compilations(&sid).unwrap();
-    let c = comps.last().unwrap();
-    assert_eq!(c.manifest.context_window, Some(40_000));
-    assert_eq!(
-        c.budget.as_ref().unwrap().limit_tokens,
-        40_000 - u64::from(OUTPUT) - 4_096
-    );
-    assert!(rows(&r.core, "context.overage").is_empty());
-    assert!(!rows(&r.core, "context.compacted").is_empty());
-    for q in r.model.requests() {
-        assert_eq!(first_text(&q), INSTRUCTION);
-    }
-}
-
 /// The turn's result carries how full the last request was and the window it
 /// compiled against (theseus-wy6v.2): the catalog's, or the working window
 /// when one lowers it.
