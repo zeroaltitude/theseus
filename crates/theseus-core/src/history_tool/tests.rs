@@ -136,6 +136,10 @@ fn no(_: &str) -> bool {
     false
 }
 
+fn none_moved(_: &Exchange) -> bool {
+    false
+}
+
 fn all_private(_: &str) -> bool {
     true
 }
@@ -151,6 +155,7 @@ fn lens<'a>(
         here: here.into(),
         present,
         hidden,
+        moved: &none_moved,
         private: &all_private,
         in_view: None,
         words: None,

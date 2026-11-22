@@ -289,6 +289,18 @@ impl Core {
         authority: Authority,
         limit_micros: Option<theseus_kernel::Micros>,
     ) -> Result<SessionRecord> {
+        self.open_session_with(p, (authority, limit_micros), &|_| Ok(Vec::new()))
+    }
+
+    /// `open_session_as`, with the records `with` makes for the new session
+    /// in the same frame: what must exist with it or not at all (a thread's
+    /// place binding, issue 44).
+    pub(crate) fn open_session_with(
+        &self,
+        p: SessionOpenParams,
+        (authority, limit_micros): (Authority, Option<theseus_kernel::Micros>),
+        with: &dyn Fn(&SessionRecord) -> Result<Vec<theseus_store::NewRecord>>,
+    ) -> Result<SessionRecord> {
         let persona = self.chosen_persona(p.persona.as_deref())?;
         let mut rec = SessionRecord::new(p.kind.unwrap_or(SessionKind::Conversation), p.label);
         // Its directory rides in the frame that creates it (theseus-aab7).
@@ -310,7 +322,7 @@ impl Core {
                 LedgerRow::new(LedgerKind::SessionOpened, Some(&rec.session_id), None, data);
             let opened =
                 theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &opened)?;
-            let frame = vec![
+            let mut frame = vec![
                 theseus_store::NewRecord::json(
                     theseus_store::kinds::SESSION,
                     Some(&rec.session_id),
@@ -318,6 +330,11 @@ impl Core {
                 )?,
                 opened,
             ];
+            frame.extend(with(&rec)?);
+            #[cfg(test)]
+            if self.store.plain_fault_hit(&frame) {
+                anyhow::bail!("an injected fault: this frame was not written");
+            }
             k.stage(&frame)?;
             Ok(exec)
         })?;
@@ -1239,6 +1256,9 @@ impl Core {
                     crate::catalog::origin_word(self.cfg.profile_origin(name, &self.catalog))
                         .into(),
                 ),
+                // For a cockpit page open since before the upgrade, whose floor greys a
+                // profile it is not told is cleared (`ProfileInfo.cleared`): every one is.
+                cleared: Some(true),
                 effort: p
                     .effort
                     .and_then(|e| serde_json::to_value(e).ok())

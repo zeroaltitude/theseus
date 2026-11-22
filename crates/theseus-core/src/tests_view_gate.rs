@@ -659,7 +659,7 @@ async fn a_shared_place_keeps_todays_rule() {
 
 /// A turn of `sid` whose input `turn.submit` marked as typed in person or by
 /// an agent's process.
-pub(crate) async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person: bool) {
+async fn turn_as(core: &std::sync::Arc<Core>, sid: &str, input: &str, in_person: bool) {
     use crate::session::SessionRecord;
     let rec = core
         .store

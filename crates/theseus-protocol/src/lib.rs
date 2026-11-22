@@ -766,6 +766,14 @@ pub struct ProfileInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub origin: Option<String>,
+    /// A compatibility output, always `true` from this daemon: the restricted-origin rule is gone
+    /// (2026-11-21) and no label keeps a session off a profile. A cockpit page loaded from a build
+    /// before that (its `ops/floor.ts`) greys every profile of a private or sensitive session whose
+    /// `cleared` is not `true`, US ones included, until it is reloaded; this keeps such a page
+    /// working. The current cockpit does not read it, so it is not in the generated types.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(skip))]
+    pub cleared: Option<bool>,
     /// The effort the profile is configured at (`low` to `max`); absent when it sets none and the model's
     /// own default stands. The cockpit groups the profiles of one model by it (theseus-yxkww).
     #[serde(default, skip_serializing_if = "Option::is_none")]

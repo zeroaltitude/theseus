@@ -82,10 +82,13 @@ impl TurnRunner {
             }
         }
         // A view turn that declined is the transcript's in full: the recall this call withheld for the
-        // view is carried now, as on any transcript turn (`recall_step::carries`).
+        // view, or a view call before it kept, is carried now, as on any transcript turn
+        // (`recall_step::carries`), whatever the withheld flag says (a `moved` decline is made before the
+        // compile step clears it).
         let recarried;
         let mut input: CompileInput<'_> = input;
-        if t.recall.withheld.is_some() && self.carries(t).is_none() {
+        let kept = t.recall.withheld.is_some() || t.recall.kept_for_view.is_some();
+        if kept && self.carries(t).is_none() {
             t.recall.withheld = None;
             // After a view call was dispatched, the recall it withheld comes back once.
             self.recall_readmitted(t);
@@ -327,11 +330,14 @@ impl TurnRunner {
         let permit = Permit::of(verified);
         let read = Sessions::default();
         let held = |s: &str| crate::view_gate::seal_of(self, Some(sid), s) != Seal::Clear;
+        let moved = crate::view_gate::Moved::read(self, Some(sid));
+        let moved = |e: &crate::exchange::Exchange| moved.holds(e);
         let sources = StoreSources {
             store,
             mark: since.clone().map(|m| (place.as_str(), m)),
             recalled,
             sealed: &held,
+            moved: &moved,
             sessions: &read,
         };
         // One read of the ladder for the whole assembly: every selector, the text and the window see it.
@@ -340,6 +346,7 @@ impl TurnRunner {
             inner: &store_ladder,
             store,
             held: &held,
+            moved: &moved,
             sessions: Default::default(),
         };
         let ladder = OnceLadder::new(&gated);
@@ -527,22 +534,26 @@ impl Fallback {
 }
 
 /// The ladder as the gate reads it today: a fold node is kept only when every exchange it stands for
-/// resolves to a session and none of those sessions is sealed, seal pending or unreadable now (its words
-/// AND its account go together); the sessions of those kept are recorded, so a seal before a later call
-/// revokes them too.
+/// resolves to a session, none of those sessions is sealed, seal pending or unreadable now, and none of
+/// those exchanges holds a message or reply moved into a thread not proven clear (`view_gate::Moved`; a
+/// fold built before the move is held so); its words AND its account go together. The sessions of those
+/// kept are recorded, so a seal before a later call revokes them too.
 struct GatedLadder<'a> {
     inner: &'a dyn crate::view::fold::Ladder,
     store: &'a Store,
     held: &'a dyn Fn(&str) -> bool,
+    moved: &'a dyn Fn(&crate::exchange::Exchange) -> bool,
     sessions: std::cell::RefCell<Vec<String>>,
 }
 
 impl GatedLadder<'_> {
-    /// The sessions of every exchange fold node `id` stands for; none when any cannot be resolved.
+    /// The sessions of every exchange fold node `id` stands for; none when any cannot be resolved, or any
+    /// holds a moved message the reader may not read.
     fn constituents(&self, id: &str) -> Option<Vec<String>> {
         let node = crate::ladder::fold::node(self.store, id).ok()??;
         let read = crate::ladder::fold::open(self.store, &node).ok()?;
-        (!node.exchanges.is_empty() && read.len() == node.exchanges.len())
+        let whole = !node.exchanges.is_empty() && read.len() == node.exchanges.len();
+        (whole && !read.iter().any(|e| (self.moved)(e)))
             .then(|| read.into_iter().map(|e| e.session_id).collect())
     }
 }
@@ -1034,3 +1045,7 @@ mod tests {
         assert_eq!(read.reads.get(), 2);
     }
 }
+
+#[cfg(test)]
+#[path = "view_step_moved.rs"]
+mod moved_tests;
