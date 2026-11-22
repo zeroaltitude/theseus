@@ -9,18 +9,16 @@ use serde_json::{json, Value};
 
 use super::open::open;
 use super::page::{render, Lens, READ_MOST};
-use super::{answer, pov_of, Board, Count, OPENS_PER_TURN};
+use super::{answer, Board, Count, OPENS_PER_TURN};
 use crate::exchange::{
     exchange_record, mark_record, touch, Exchange, Opener, OwnerMark, Peer, Root, OWNER,
 };
 use crate::node::{Body, Node, Origin, ResultStatus};
 use crate::places::PlaceClass;
-use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::view::history::{HistoryArgs, HistoryPage, PageEnd, LOOKS_PER_TURN};
 use crate::view::timeline::Cursor;
 use crate::view::{Anchor, Handle, PointOfView, Present};
-use theseus_protocol::{SessionKind, SessionLink};
 
 const HERE: &str = "local";
 const DM: &str = "discord:dm:42";
@@ -478,43 +476,7 @@ fn the_tool_is_offered_in_company_and_loads_in_a_dm_and_a_channel() {
     }
 }
 
-// --- Through the core: who is present, where a wake is, the seal, the words, the opens. ---
-
-fn exchange_of(
-    core: &crate::Core,
-    sid: &str,
-    turn: &str,
-    place: &str,
-    person: Option<&str>,
-    opened_by: Opener,
-) {
-    let ask = Node::user(sid, Some(turn), "owner", "hello");
-    let x = Exchange {
-        turn_id: turn.into(),
-        session_id: sid.into(),
-        place: place.into(),
-        private: true,
-        opened_by,
-        person: person.map(str::to_string),
-        start_ms: 1,
-        end_ms: None,
-        ask: (opened_by == Opener::Message).then(|| ask.id.clone()),
-        reply: None,
-        messages: vec![],
-        stop: None,
-        rebuilt: false,
-    };
-    let mut recs = vec![ask.record().unwrap(), exchange_record(&x).unwrap()];
-    if let Some(mut m) = mark_of(&ask, person, place) {
-        // A chat transport's owner: his handle proves who, not that he is alone.
-        if place.starts_with("discord:") {
-            m.in_person = place.starts_with("discord:dm:");
-            m.owner_handle = Some(true);
-        }
-        recs.push(mark_record(&m).unwrap());
-    }
-    core.store.append(&recs).unwrap();
-}
+// --- Through the core: the opens, and a played turn. ---
 
 #[tokio::test]
 async fn twelve_opens_a_turn_then_the_allowance_is_told() {

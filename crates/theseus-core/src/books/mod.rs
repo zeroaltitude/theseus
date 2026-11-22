@@ -39,6 +39,12 @@ use crate::node::Body;
 use crate::session::SessionRecord;
 use crate::store::Store;
 
+/// What a surface that reads no private text is told of an imported node's
+/// text (`rpc::methods::withheld_node`). Books read it no more (anything
+/// goes); it stays for that reader until its own cut.
+pub const WITHHELD: &str = "an imported episode is the owner's own history, private under the \
+                            place rule: its text is not shown in a shared place";
+
 /// The book an episode's hint names: one of `BOOKS`, else `unsorted`.
 pub fn book_of(hint: Option<&str>) -> &'static str {
     hint.and_then(|h| BOOKS.iter().find(|b| **b == h).copied())
