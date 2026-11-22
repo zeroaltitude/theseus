@@ -357,7 +357,14 @@ pub(crate) async fn answer(
     let private = |s: &str| places.of_session(&core.runner, s) == Place::Private;
     let hidden = |s: &str| s != session && core.ladder_hidden(s);
     let moved = crate::view_gate::Moved::read(&core.runner, Some(session));
-    let moved = |e: &crate::exchange::Exchange| moved.holds(e);
+    // A fork's history holds nothing an ancestor said at or after its point (`fork::cut`): the exchange the
+    // point falls in, and one begun after it, are held whole, as a moved one is; a read that fails holds it.
+    let cut = crate::fork::cut::Cut::of(&core.store, session).map_err(|e| format!("{e:#}"))?;
+    let forked = |e: &crate::exchange::Exchange| {
+        !cut.is_empty()
+            && (cut.reach(&core.store, e)).map_or(true, |r| r != crate::fork::cut::Reach::Inside)
+    };
+    let moved = |e: &crate::exchange::Exchange| moved.holds(e) || forked(e);
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
@@ -403,7 +410,7 @@ pub(crate) async fn answer(
         lens.words = Some(found(core, w, scope).await?);
         // The node gate is read again after the await: a negative is never carried across it.
         fresh = crate::view_gate::Moved::read(&core.runner, Some(session));
-        fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e);
+        fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e) || forked(e);
         lens.moved = &fresh_held;
     }
     let bare = bare_first(a, here) && used.looks < LOOKS_PER_TURN;
