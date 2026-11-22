@@ -125,6 +125,7 @@ pub mod provider;
 pub mod push;
 pub mod reach;
 pub mod recall;
+pub mod release;
 pub mod resident;
 pub mod restore;
 pub mod retract;
