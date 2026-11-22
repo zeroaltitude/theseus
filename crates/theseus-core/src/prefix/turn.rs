@@ -104,8 +104,8 @@ impl TurnRunner {
             read: entry.cache_read_per_mtok,
         };
         let lower = lower_of(spec);
-        // What the new work is about: the newest message, the thread's card
-        // and the layer's own section names.
+        // What the new work is about: the newest message and the layer's own
+        // section names.
         let message = at
             .nodes
             .iter()
@@ -116,11 +116,6 @@ impl TurnRunner {
                 _ => None,
             })
             .unwrap_or_default();
-        let card = spec
-            .card
-            .as_ref()
-            .map(|c| c.now.clone())
-            .unwrap_or_default();
         let names: Vec<&str> = sections.iter().map(|(s, _)| s.name.as_str()).collect();
         let q = Query {
             sections,
@@ -128,9 +123,7 @@ impl TurnRunner {
             class: class_name(at.class),
             model: &spec.model,
             sketch: super::sketch::of(
-                [message.as_str(), card.as_str()]
-                    .into_iter()
-                    .chain(names.iter().copied()),
+                std::iter::once(message.as_str()).chain(names.iter().copied()),
             ),
             prices,
             bands: Bands {
@@ -165,7 +158,7 @@ impl TurnRunner {
         if let Some(b) = self.standing_block(session_id, place.class) {
             b.apply(&mut spec);
         }
-        self.thread_spec(&mut spec, session_id, None);
+        self.helper_spec(&mut spec, session_id);
         let guidance = spec
             .walk
             .as_deref()

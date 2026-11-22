@@ -105,7 +105,6 @@ impl TurnRunner {
                 f.stripped.extend(own);
             }
             f.compilation_id = Some(compiled.compilation.id.clone());
-            f.card.clone_from(&compiled.card);
             // Routing's first compile is persisted only if the call uses it (`route_step::keep_first`).
             if !t.route.defer_persist {
                 kept::record_kept(t, &compiled);
@@ -173,7 +172,6 @@ impl TurnRunner {
             return;
         };
         f.compilation_id = None;
-        f.card = None;
         f.stripped.extend(
             (nodes.iter())
                 .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))

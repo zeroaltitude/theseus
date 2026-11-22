@@ -959,7 +959,6 @@ impl Core {
             persona: Default::default(),
             threads: Default::default(),
             prefix: Default::default(),
-            cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
             reconsiders: Default::default(),

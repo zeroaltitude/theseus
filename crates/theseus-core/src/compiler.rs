@@ -28,7 +28,6 @@ use budget::{budget_report, request_budget};
 pub use layers::{cache_layout, BlockBreakpoint, CacheLayout, MIN_BYTES_PER_TOKEN};
 use layers::{system_blocks, system_digest};
 pub mod cache;
-pub mod card;
 pub(crate) mod clearing;
 pub mod effort;
 pub mod layers;
@@ -177,8 +176,6 @@ pub struct RequestSpec {
     /// The third layer: the system level's context files, then the guidance
     /// of the session's categories; empty without any.
     pub context_text: String,
-    /// A thread's card, at the head of its messages (`card`).
-    pub card: Option<card::Card>,
     /// The third block: the session's own (`session_block`); maybe empty.
     pub session_text: String,
     /// The context files `context_text` carries, for the manifest.
@@ -474,9 +471,6 @@ pub struct Compiled {
     pub situation: situation::Situation,
     /// The clearing pass this compile made (theseus-3ki0), for its row.
     pub cleared: Option<Pass>,
-    /// The thread card this request renders, when it has one: a new
-    /// compilation's is stored with it (`thread.card.<compilation id>`).
-    pub card: Option<String>,
     /// The prefix library's pick this compile took, for its frame (theseus-rr15).
     pub prefix: Option<Arc<crate::prefix::Picked>>,
 }
@@ -547,23 +541,16 @@ pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
 }
 
 /// The spec preparation every strategy runs before it renders: the spec an append renders and the one a
-/// recompile renders, with the walk's guidance composed into the third layer, the deferred tool set
-/// resolved (`tools_defer::forks`), and a thread card split into its recorded and current text
-/// (`card::split`). `None` for the first: the two are one spec. The prefix library's header is applied after
-/// (`prefix::applied`), on the spec a call renders.
+/// recompile renders, with the walk's guidance composed into the third layer and the deferred tool set
+/// resolved (`tools_defer::forks`). `None` for the first: the two are one spec. The prefix library's header
+/// is applied after (`prefix::applied`), on the spec a call renders.
 pub(crate) fn prepared<'a>(
     input: &CompileInput<'a>,
 ) -> (
     Option<std::borrow::Cow<'a, RequestSpec>>,
     std::borrow::Cow<'a, RequestSpec>,
 ) {
-    let (appended, recompiled) = crate::tools_defer::forks(input);
-    if input.spec.card.is_none() {
-        return (appended, recompiled);
-    }
-    let appended = appended.unwrap_or_else(|| recompiled.clone());
-    let (a, r) = card::split(appended, recompiled);
-    (Some(a), r)
+    crate::tools_defer::forks(input)
 }
 
 /// Render a compilation plus its tail into a provider request. `media` is
@@ -603,7 +590,6 @@ pub fn render_request(
         retrying,
         (sources, &cleared, &offers),
     );
-    card::attach(spec, &mut rendered);
 
     let mut betas = Vec::new();
     let mut extra = std::collections::BTreeMap::new();

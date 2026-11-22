@@ -165,12 +165,8 @@ impl TurnRunner {
             view,
             rec.is_some_and(SessionRecord::flagged),
         );
-        // The thread's card and tools, as a turn takes them (theseus-h4a7).
-        self.thread_spec(
-            &mut spec,
-            &sid,
-            rec.and_then(|r| r.compilation_id.as_deref()),
-        );
+        // A helper's reader set, as a turn takes it.
+        self.helper_spec(&mut spec, &sid);
         // The families it loads and defers, as a turn chooses them (theseus-7m7w.2).
         let fresh = rec.is_none().then_some(place_kind);
         spec.defer = self.census_deferral(&sid, kind == SessionKind::Task, fresh, &spec);

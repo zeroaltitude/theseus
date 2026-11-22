@@ -95,11 +95,7 @@ impl TurnRunner {
             rec.as_ref()
                 .is_some_and(crate::session::SessionRecord::flagged),
         );
-        self.thread_spec(
-            &mut spec,
-            session,
-            rec.as_ref().and_then(|r| r.compilation_id.as_deref()),
-        );
+        self.helper_spec(&mut spec, session);
         spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
         let owned = !target.engages && crate::persona::owned(&files);
         let header = self.header_parts(target, place, owned);

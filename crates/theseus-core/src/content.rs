@@ -1506,7 +1506,6 @@ mod tests {
                 "the steer, the stop, the doubt",
             ),
             ("compiler/place_digest.rs", CONTEXT, "the place digest"),
-            ("compiler/card.rs", CONTEXT, "the thread card"),
             ("arrangement.rs", CONTEXT, "the task arrangement"),
             ("turn/route_step/fan_out_cue.rs", CONTEXT, "the fan-out cue"),
             (
@@ -1632,12 +1631,8 @@ mod tests {
             );
             carrying += 1;
         }
-        assert!(carrying >= 9, "only {carrying} carrying files");
+        assert!(carrying >= 8, "only {carrying} carrying files");
         // And what each block renders carries the words.
-        let card = crate::compiler::card::text(
-            &serde_json::from_value(serde_json::json!({"slug": "s", "title": "T"})).unwrap(),
-        );
-        assert!(card.contains(CONTEXT_NOT_THE_OWNERS), "{card}");
         let arrangement = crate::arrangement::render(&[]);
         assert!(
             arrangement.contains(CONTEXT_NOT_THE_OWNERS),

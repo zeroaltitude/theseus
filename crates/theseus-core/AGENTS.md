@@ -191,21 +191,18 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     harness puts in a request, and that a recalled note is no part of the person's message; theseus-fpm2), the
     precedence line (`compiler::situation::PRECEDENCE`, 35a), the tools note, and the profile's text, all static.
     Harness facts every request needs go there, never into a session's messages.
-  - **The layered request and the thread's context** (theseus-h4a7; `compiler/layers.rs`, `compiler/card.rs`,
-    `thread_context.rs`): the system is three layers with a breakpoint each, then the messages'
+  - **The layered request** (theseus-h4a7; `compiler/layers.rs`): the system is three layers with a breakpoint each, then the messages'
     automatic one, the provider's four: `header` (the header text and the standing block), `persona` (the persona in
     play's files), `project` (the system-level files, then the guidance of the session's categories, a thread's
     `topics` among them: `Walk::with_topics`), and an unmarked `session` block (its directory). Nothing per request
     goes inside the three, so two sessions on a profile and a place class send them byte for byte; `layers.rs` is the
     one place they are rendered (the prefix library, row T13, builds on it), and `context.compiled`'s `cache.layers`
-    holds each one's digest (the stored manifest is unchanged: no store format). In a thread's session the thread's
-    card heads the first message (`card.rs`), a snapshot kept as the META record `thread.card.<compilation id>` in the
-    compilation's own frame; a view turn's chain takes the card as it stands at its first call.
-    `thread.note {line}` (threaded sessions only; the tool is left out of every other spec) rides the call's frame
-    with the thread's next record. A thread is no longer resumed cold from a cut transcript (`cold.rs` and the stubs
-    of a cold rewrite were removed 2026-11-22): its next turn's view reads its conversation's exchanges, as any
-    turn's does, and `[threads] working_tokens` and `working_percent` are retired keys (a file naming them loads with
-    a warning). Tests: `compiler/tests_layers.rs`, `rpc/tests_thread_context.rs`.
+    holds each one's digest (the stored manifest is unchanged: no store format). A thread's session gets no card
+    any more (issue 46): no card block heads its messages and no `thread.card.<compilation id>` META record is
+    written; an old store's records of it stay where they are, read by nothing. A thread is no longer resumed cold
+    from a cut transcript (`cold.rs` and the stubs of a cold rewrite were removed 2026-11-22): its next turn's view
+    reads its conversation's exchanges, as any turn's does, and `[threads] working_tokens` and `working_percent` are
+    retired keys (a file naming them loads with a warning). Tests: `compiler/tests_layers.rs`.
   - **The prefix library** (theseus-rr15, T13; store format 41; `prefix.rs`, `prefix/`, `config/prefix.rs`,
     `fact/prefix.rs`, `rpc/prefix.rs`): layer 3 (the project: the system-level files, then the topics' guidance) is
     kept as a header by digest (META `prefix:<digest>`, its hit log `prefix.hits.<digest>`, a retirement

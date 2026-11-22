@@ -75,8 +75,6 @@ pub struct Frozen {
     /// The exchanges it lays or folds (the window's, the shown pieces' and the fold nodes' constituents):
     /// their messages' node seals are re-checked before each call, as the sessions' seals are.
     pub exchanges: Vec<String>,
-    /// The thread card the chain began with: its later calls send it, whatever the thread says since.
-    pub card: Option<String>,
     /// The verified point of view it was assembled under; a different reading before a later call (a steer
     /// narrowed it) reassembles under the new permit.
     pub verified: Option<theseus_memory::gate::PointOfView>,
@@ -180,12 +178,12 @@ fn chain_spec<'c>(
         input.window_override.or(entry.map(|e| e.context_window))
     };
     // The transcript's spec preparation (`super::prepared`): a chain's first call renders the recompile's
-    // spec (the walk's guidance, the resolved tools, the card as it stands now); its later calls the
-    // append's, with the card the chain began with. An effective spec that changed since the chain began (a
+    // spec (the walk's guidance, the resolved tools); its later calls the append's. An effective spec that
+    // changed since the chain began (a
     // family `tools_find` loaded, a changed system, tools or model) starts a new chain, as the transcript
     // recompiles on a changed digest.
     let (appended, recompiled) = prepared(input);
-    let fresh = || effective(&recompiled, None, &frozen.memory_page);
+    let fresh = || effective(&recompiled, &frozen.memory_page);
     let chained = input
         .current
         .filter(|c| frozen.compilation_id.as_deref() == Some(c.id.as_str()));
@@ -193,7 +191,7 @@ fn chain_spec<'c>(
         None => (fresh(), None),
         Some(c) => {
             let base = appended.as_deref().unwrap_or(&*recompiled);
-            let s = effective(base, frozen.card.as_deref(), &frozen.memory_page);
+            let s = effective(base, &frozen.memory_page);
             let m = manifest_for(&s, input.catalog, window_of(&s), true);
             let same = (m.system_digest == c.manifest.system_digest)
                 && m.tools_digest == c.manifest.tools_digest
@@ -293,7 +291,6 @@ fn compiled_from(
             .count() as u64,
         situation,
         cleared,
-        card: spec.card.as_ref().map(|c| c.shown.clone()),
         prefix: None,
     }
 }
@@ -499,13 +496,9 @@ pub fn own_answers<'a>(
         .map(|(_, n)| n.id.clone())
 }
 
-/// The spec a call renders: `s` with the prefix library's header, the chain's card when it has one, and the
-/// memory page.
-fn effective(s: &RequestSpec, card: Option<&str>, page: &str) -> RequestSpec {
-    let mut s = prefix::applied(s).into_owned();
-    if let (Some(c), Some(t)) = (s.card.as_mut(), card) {
-        c.shown = t.to_string();
-    }
+/// The spec a call renders: `s` with the prefix library's header and the memory page.
+fn effective(s: &RequestSpec, page: &str) -> RequestSpec {
+    let s = prefix::applied(s).into_owned();
     match with_page(&s, page) {
         Some(p) => p,
         None => s,
@@ -515,7 +508,7 @@ fn effective(s: &RequestSpec, card: Option<&str>, page: &str) -> RequestSpec {
 /// The spec a turn's first call would render from `s` today, the memory page in it: what
 /// `context.explain` digests to say whether a turn's system is unchanged.
 pub(crate) fn first_call_spec(s: &RequestSpec) -> RequestSpec {
-    effective(s, None, crate::view::text::page::memory_page().1)
+    effective(s, crate::view::text::page::memory_page().1)
 }
 
 /// A result of the turn's own laid as its first `shown` characters, with one line saying so.

@@ -206,7 +206,6 @@ pub struct TurnRunner {
     pub persona: crate::persona::Board,
     /// The threads (theseus-nhew), in memory.
     pub threads: crate::threads::Threads,
-    pub cards: crate::thread_context::Cards,
     /// The prefix library (theseus-rr15), in memory.
     pub prefix: crate::prefix::Library,
     /// Jev's judgments (M5 23a): each turn's end is handed to it, and it
@@ -1833,7 +1832,7 @@ impl TurnRunner {
         spec.session_text = self.session_block(t.tc.dir, t.tc.place(), flagged);
         spec.walk = self.walk(sid, t.tc.place().class);
         self.stand(t, &mut spec);
-        self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
+        self.helper_spec(&mut spec, sid);
         self.families_ready(t, &spec.model).await;
         self.injection(t, false);
         self.defer_tools(t, &mut spec);

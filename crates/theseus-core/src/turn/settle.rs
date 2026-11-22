@@ -486,7 +486,6 @@ impl TurnRunner {
                     Some(turn_id),
                 )?,
             ];
-            records.extend(crate::thread_context::card_record(compiled));
             records.extend(crate::prefix::records(compiled, turn_id)?);
             Ok(records)
         };

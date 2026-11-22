@@ -1084,7 +1084,7 @@ impl TurnRunner {
         );
         s.walk = self.walk(t.tc.session_id, t.tc.place().class);
         self.stand(t, &mut s);
-        self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
+        self.helper_spec(&mut s, t.tc.session_id);
         self.defer_tools(t, &mut s);
         if t.route.fan_out {
             self.defer_cued(t, &mut s);

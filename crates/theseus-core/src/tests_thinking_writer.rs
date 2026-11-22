@@ -31,7 +31,6 @@ fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
         context_text: String::new(),
         session_text: String::new(),
         persona_text: String::new(),
-        card: None,
         context_files: vec![],
         persona: None,
         defer: None,

@@ -1,7 +1,7 @@
 //! `view.preview` through the whole core (issue 44): the preview lays what a real turn then records (folds
 //! and his other places included); a place with un-ledgered history says it falls back; only the owner in
-//! person is answered; a sealed thread, a fork's inherited prefix of one, a move into one and another
-//! place's exchanges are in no piece and no count; and nothing a later turn reads is written.
+//! person is answered; another place's exchanges are in no piece and no count; and nothing a later turn
+//! reads is written.
 
 use std::sync::Arc;
 
@@ -16,7 +16,7 @@ use crate::exchange::{self, Exchange, Opener};
 use crate::peer_proc::{Behind, JOB};
 use crate::session::SessionRecord;
 use crate::tests_m3::{rpc_as, surface};
-use crate::tests_places::{rig_setup, rig_with, turn, Rig, OWNER};
+use crate::tests_places::{rig_with, turn, Rig, OWNER};
 use crate::tests_private_view::session_in;
 use crate::view::record::{self, show::Reader, source::GateSource};
 use crate::view::Space;
@@ -284,38 +284,6 @@ async fn every_reader_is_answered() {
     assert!(v.restricted.is_none(), "{v:?}");
 }
 
-/// A thread `kelp`, bound to its own session: `sealed`, `pending` (a seal proposed) or `clear`.
-fn kelp_as(store: &crate::store::Store, how: &str) -> String {
-    let r = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
-    store.put_session(&r.session_id, &r).unwrap();
-    let mut t = json!({"slug": "kelp", "title": "kelp"});
-    match how {
-        "sealed" => t["sealed"] = json!({"by": "cli", "at_ms": 1, "reason": "embargo"}),
-        "pending" => t["seal_pending"] = json!("holds a figure"),
-        _ => {}
-    }
-    store.put_meta("thread:kelp", &t).unwrap();
-    store
-        .put_meta("discord.session.thread:kelp", &r.session_id)
-        .unwrap();
-    r.session_id
-}
-
-fn thread_rig(seal: bool) -> (Rig, String) {
-    thread_rig_as(if seal { "sealed" } else { "clear" })
-}
-
-fn thread_rig_as(how: &str) -> (Rig, String) {
-    let thread = std::cell::RefCell::new(String::new());
-    let r = rig_setup(
-        |c| {
-            c.threads.enabled = true;
-        },
-        |s| *thread.borrow_mut() = kelp_as(s, how),
-    );
-    (r, thread.into_inner())
-}
-
 /// An exchange of `session` at `place`, as the ledger writes it.
 fn exchange_of(core: &Core, turn: &str, session: &str, place: &str) {
     let e = Exchange {
@@ -358,40 +326,4 @@ async fn another_places_exchange_is_in_no_count() {
     assert_eq!((p.earlier.turns, p.earlier.no_exchange), (1, 0), "{p:?}");
     let said = serde_json::to_string(&p).unwrap();
     assert!(!said.contains("turn_there"), "{said}");
-}
-
-/// A preview resolves no thread card: a legacy compilation with no card kept gets none installed in the
-/// shared cache (which would pin what a later turn sends), where the census's own read installs one.
-#[tokio::test]
-async fn a_preview_installs_no_card_a_later_turn_reads() {
-    let (r, thread) = thread_rig(false);
-    let c = &r.core;
-    turn(c, &thread, "kelp: the plan").await;
-    let legacy = "cmp_legacy_preview";
-    c.store
-        .update_session(&thread, |s| {
-            s.compilation_id = Some(legacy.into());
-            Ok(vec![])
-        })
-        .unwrap();
-    let at = exchange::exchange(&c.store, &turns_of(c, &thread).remove(0))
-        .unwrap()
-        .unwrap()
-        .place;
-    let p = preview(&r.core, json!({"place": at})).await.unwrap();
-    assert_eq!(p.session, thread);
-    assert_eq!(
-        c.runner.cards.held(legacy),
-        None,
-        "the preview installed a card"
-    );
-    // The census's read does install one: the test would see the old path.
-    let rec = c
-        .store
-        .get_session::<SessionRecord>(&thread)
-        .unwrap()
-        .unwrap();
-    let (live, _) = c.live_profile();
-    c.runner.census_request(Some(&rec), "cli", &live).unwrap();
-    assert!(c.runner.cards.held(legacy).is_some());
 }

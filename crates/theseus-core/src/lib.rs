@@ -164,7 +164,6 @@ pub mod task_wait;
 pub mod telemetry;
 pub mod tender;
 pub mod term;
-pub mod thread_context;
 pub mod thread_join;
 pub mod thread_link_seen;
 pub mod thread_recall;

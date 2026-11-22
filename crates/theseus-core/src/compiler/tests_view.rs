@@ -19,7 +19,6 @@ fn spec() -> RequestSpec {
         context_text: String::new(),
         session_text: "Directory: /w".into(),
         persona_text: String::new(),
-        card: None,
         context_files: vec![],
         persona: None,
         tools: vec![
@@ -354,32 +353,6 @@ fn a_tool_set_that_changed_mid_turn_starts_a_new_chain() {
     assert!(
         !all.contains("\"thinking\""),
         "the turn's answer goes without its thinking: {all}"
-    );
-}
-
-/// The thread card the chain began with is the one its later calls send, though the turn-start spec's
-/// append would take the card recorded before; it is recorded with the compilation.
-#[test]
-fn the_chains_card_is_frozen_and_recorded() {
-    let mut s = spec();
-    s.card = Some(card::Card::new(
-        "[Thread card: NOW]".into(),
-        Some("[Thread card: BEFORE]".into()),
-    ));
-    let mut f = frozen("t1", &exchange("t0", 10));
-    let mut own = vec![Node::user("s", Some("t1"), "cli", "now")];
-    let first = run_with(&s, &f, &own, None);
-    assert_eq!(first.card.as_deref(), Some("[Thread card: NOW]"));
-    f.compilation_id = Some(first.compilation.id.clone());
-    f.card = first.card.clone();
-    own.push(said("t1", vec![thinking(), read("c1")]));
-    own.push(result("t1", "c1", "short"));
-    let second = run_with(&s, &f, &own, Some(&first.compilation));
-    assert!(!second.new_compilation);
-    let all = serde_json::to_string(&second.request.messages).unwrap();
-    assert!(
-        all.contains("Thread card: NOW") && !all.contains("Thread card: BEFORE"),
-        "{all}"
     );
 }
 

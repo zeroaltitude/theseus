@@ -1,8 +1,8 @@
 //! An old store opens (issue 44, anything goes, 2026-11-22): the records the withholding and the threads
 //! wrote are no longer written or honoured, and every one still decodes as it was stored. Here: what the
 //! gate gave a message-less turn (`given.<turn>`), where a split or a claim moved a node (`moved.of.<node>`),
-//! a thread's record with its seal, its pending seal or its merge (`thread:<slug>`), and the `thread.*`
-//! ledger rows. The others have their own: a release and its end (`release::tests::a_stored_release_and_its_end_still_decode`),
+//! a thread's record with its seal, its pending seal or its merge (`thread:<slug>`), the card a thread's
+//! compilation kept (`thread.card.<compilation id>`, issue 46), and the `thread.*` ledger rows. The others have their own: a release and its end (`release::tests::a_stored_release_and_its_end_still_decode`),
 //! a fold node over a sealed source (`ladder::tests::an_old_node_over_a_sealed_source_still_reads_and_is_shown_as_it_stands`).
 
 use serde_json::json;
@@ -96,6 +96,18 @@ fn an_old_thread_record_with_its_seal_or_its_merge_still_decodes() {
         ),
         (ThreadState::Done, Some("kelp"), 1)
     );
+}
+
+/// The card snapshot a thread's compilation kept (`thread.card.<compilation id>`), which nothing writes or
+/// sends any more (issue 46): it reads back as the text it was stored as.
+#[test]
+fn an_old_thread_card_snapshot_still_decodes() {
+    let (_d, s) = store();
+    let card = "[Thread card: kelp\nGoal: the survey\nWhere it stands:\n- the north grid is done]";
+    s.put_meta("thread.card.cmp_old", &card.to_string())
+        .unwrap();
+    let back: Option<String> = s.get_meta("thread.card.cmp_old").unwrap();
+    assert_eq!(back.as_deref(), Some(card));
 }
 
 /// The `thread.*` ledger rows an older build wrote: each decodes and its kind is still known, so the
