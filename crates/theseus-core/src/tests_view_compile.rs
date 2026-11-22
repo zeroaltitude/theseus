@@ -932,3 +932,66 @@ async fn a_source_removed_during_a_size_repair_is_not_sent() {
         assert!(!texts(q).contains("6620"), "{}", texts(q));
     }
 }
+
+/// A session the self loop opens, as its fixer, reviewer or approver turns do (`rsi::join::fix::turns`):
+/// its execution's principal is `self`.
+fn self_session(c: &crate::Core, label: &str) -> String {
+    let rec = c
+        .open_session_as(
+            theseus_protocol::SessionOpenParams {
+                label: Some(label.into()),
+                ..Default::default()
+            },
+            theseus_kernel::Authority {
+                principal: crate::rsi::SELF_PRINCIPAL.into(),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    rec.session_id
+}
+
+/// Round 3, the self loop's scope (the conductor's rule of 12:33): a fixer's and an approver's request hold
+/// nothing of another session or another place, and none of slots C, E or F; an ordinary session at the same
+/// place, with no mark either, is laid the other session's words (the widest point of view).
+#[tokio::test]
+async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_widest() {
+    use crate::tests_view_hand_backs::unmarked;
+    let r = view_rig();
+    let c = &r.core;
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+    turn_as(c, &dm, "dm: the lighthouse lamp is amber", true).await;
+    let fixer = self_session(c, "self fix: kelp");
+    let approver = self_session(c, "self approve: kelp");
+    let ordinary = crate::tests_places::session(c, None);
+    // Every one of them works at the same place as the desk's session.
+    let place = |s: &str| crate::view_gate::place_name(&c.runner, s);
+    let desk = crate::tests_places::session(c, None);
+    assert_eq!(place(&fixer), place(&desk), "one place");
+    turn_as(c, &desk, "desk: the heron is grey", true).await;
+    for (sid, asks) in [
+        (&fixer, "fixer: what is in front of you?"),
+        (&approver, "approver: what is in front of you?"),
+        (&ordinary, "ordinary: what is in front of you?"),
+    ] {
+        unmarked(c, sid, asks).await.unwrap();
+    }
+    for asks in ["fixer: what is in front", "approver: what is in front"] {
+        let sent = texts(&asked(&r, asks).pop().expect("its request"));
+        assert!(
+            !sent.contains("the heron is grey"),
+            "{asks}: another session's: {sent}"
+        );
+        assert!(
+            !sent.contains("lighthouse lamp"),
+            "{asks}: another place's: {sent}"
+        );
+    }
+    let sent = texts(
+        &asked(&r, "ordinary: what is in front")
+            .pop()
+            .expect("its request"),
+    );
+    assert!(sent.contains("the heron is grey"), "the widest: {sent}");
+}

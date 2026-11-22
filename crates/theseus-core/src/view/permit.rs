@@ -60,6 +60,10 @@ impl Permit {
 }
 
 impl Gate for Permit {
+    fn own_place_only(&self) -> bool {
+        self.0.is_some()
+    }
+
     fn admit(&self, _pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
         if !self.in_scope(&piece) {
             return None;
