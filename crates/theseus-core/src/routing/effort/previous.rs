@@ -43,6 +43,7 @@ pub fn is_attempt(class: Option<&str>) -> bool {
         "context_window",
         "context_overage",
         "context_unadmitted",
+        "context_unreadable",
         "secret_failed",
         "secret_resolving",
         "auth",

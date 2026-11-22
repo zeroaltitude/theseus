@@ -83,7 +83,7 @@ pub(crate) fn asked(r: &Rig, what: &str) -> Vec<ProviderRequest> {
 /// The provider's rules on an unscrubbed request: it opens with the person; roles alternate; every call
 /// has its result in the very next message and every result answers a call of the message before it, each
 /// once; no message is empty; at most four cache breakpoints.
-fn legal(q: &ProviderRequest) {
+pub(crate) fn legal(q: &ProviderRequest) {
     let ids = |m: &Value, kind: &str, key: &str| -> Vec<String> {
         (m["content"].as_array().into_iter().flatten())
             .filter(|b| b["type"] == kind)
@@ -721,7 +721,7 @@ pub(crate) fn fallbacks(c: &crate::Core) -> Vec<String> {
 }
 
 /// A turn of `sid` submitted as the driver does, its outcome returned (a turn may fail on its own).
-async fn submit(
+pub(crate) async fn submit(
     core: &std::sync::Arc<crate::Core>,
     sid: &str,
     input: &str,
@@ -750,10 +750,11 @@ async fn submit(
         .await
 }
 
-/// Fallback (c): an established session switched to view, whose earlier conversation the ledger holds no
-/// exchange for, is the transcript's turn: "apply the second option" is sent with the options.
+/// Hand-back (c) answered: an established session whose earlier conversation the ledger holds no exchange
+/// for is the view's turn all the same. The unledgered turn is out of the view's reach: nothing of it is
+/// sent, and no fallback row is written.
 #[tokio::test]
-async fn an_established_session_without_its_exchanges_is_the_transcripts_turn() {
+async fn an_established_session_without_its_exchanges_is_the_views_turn() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
@@ -766,12 +767,13 @@ async fn an_established_session_without_its_exchanges_is_the_transcripts_turn() 
     c.store.append(&[earlier.record().unwrap()]).unwrap();
     turn(c, &sid, "apply the second option").await;
     let q = r.requests().pop().unwrap();
-    assert!(texts(&q).contains("the blue one"), "{}", texts(&q));
-    assert!(
-        fallbacks(c).contains(&"unledgered_history".to_string()),
-        "{:?}",
-        fallbacks(c)
-    );
+    assert!(texts(&q).contains("apply the second option"), "{}", texts(&q));
+    assert!(!texts(&q).contains("the blue one"), "{}", texts(&q));
+    let strategies: Vec<String> = (crate::test_support::rows(c, "context.compiled").into_iter())
+        .filter_map(|r| r["strategy"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(strategies, vec!["view".to_string()]);
+    assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
 }
 
 /// A view that cannot fit even its floor in its window (a 12,000-token working window under the reply's
@@ -902,31 +904,6 @@ async fn a_fold_over_a_thread_sealed_after_it_was_built_is_dropped() {
     turn_as(c, &desk, "desk: after the seal", true).await;
     let after = asked(&r, "desk: after the seal").pop().unwrap();
     assert!(!texts(&after).contains("7741"), "{}", texts(&after));
-}
-
-/// A view turn that declines is the transcript's turn in full: its live recall, withheld while the view
-/// was tried, is carried in the same call's request as on any transcript turn. Here the decline is
-/// `unledgered_history` (an earlier turn of the session has no exchange), and the recalled episode, said
-/// in another session and absent from this transcript, is in the provider's request.
-#[tokio::test]
-async fn a_declined_view_turn_carries_its_recall() {
-    let (r, _) = owners_rig(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
-    let c = &r.core;
-    let sid = session_in(c, None, &r.root);
-    let earlier = crate::node::Node::user(&sid, Some("turn_old"), "test", "an earlier word");
-    c.store.append(&[earlier.record().unwrap()]).unwrap();
-    turn(c, &sid, ASKED).await;
-    assert!(
-        fallbacks(c).contains(&"unledgered_history".to_string()),
-        "{:?}",
-        fallbacks(c)
-    );
-    let q = r.requests().pop().unwrap();
-    assert!(
-        texts(&q).contains(crate::tests_private_view::EPISODE),
-        "the recalled episode rides the declined turn's request: {}",
-        texts(&q)
-    );
 }
 
 /// The view's first call is refused by the provider for its size, with nothing of the turn's own to clear:
