@@ -107,4 +107,11 @@ impl Admitted<Piece> {
 pub trait Gate {
     /// `None` denies.
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>>;
+
+    /// Whether a point of view whose presence is unknown may still be shown something here: the asking
+    /// session's own exchanges at its anchor (`super::permit::Permit::speaking`). Otherwise an unknown
+    /// presence admits nothing, and its selectors read nothing.
+    fn speaks_unknown(&self) -> bool {
+        false
+    }
 }

@@ -24,12 +24,12 @@ pub(super) fn anchor_place(pov: &PointOfView) -> Option<&str> {
     }
 }
 
-/// The place slot G reads: the anchor's, whoever is present. An unknown presence is still shown what its own
-/// session said there (`view::permit::Permit::speaking`); the gate holds out everything else.
-fn window_place(pov: &PointOfView) -> Option<&str> {
-    match &pov.anchor {
-        Anchor::Place(p) => Some(p),
-        Anchor::Task(_) => None,
+/// The place slot G reads: the anchor's; with an unknown presence only where the gate still shows it what
+/// its own session said there (`view::gate::Gate::speaks_unknown`), and the gate holds out everything else.
+fn window_place<'p>(pov: &'p PointOfView, gate: &dyn super::super::gate::Gate) -> Option<&'p str> {
+    match (&pov.anchor, pov.present) {
+        (Anchor::Place(p), Present::Unknown) => gate.speaks_unknown().then_some(p.as_str()),
+        _ => anchor_place(pov),
     }
 }
 
@@ -131,7 +131,7 @@ impl Selector for Here<'_> {
     }
 
     fn select(&self, pov: &PointOfView, _: &dyn Snapshot) -> anyhow::Result<Vec<Piece>> {
-        let Some(place) = window_place(pov) else {
+        let Some(place) = window_place(pov, self.src.gate) else {
             return Ok(Vec::new());
         };
         let (window, nodes) = read(&self.src, place)?;

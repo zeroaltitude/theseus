@@ -125,6 +125,10 @@ pub fn marks(piece: &Piece) -> rule::Marks {
 }
 
 impl Gate for Permit {
+    fn speaks_unknown(&self) -> bool {
+        !self.2.is_empty()
+    }
+
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
         if self.spoken(pov, &piece) {
             return super::gate::admit_spoken(&self.0, pov, piece);

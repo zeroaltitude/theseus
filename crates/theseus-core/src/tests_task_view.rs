@@ -22,7 +22,7 @@ use crate::Core;
 
 /// What every task's brief opens with (`task::brief_text_in`): a request that holds it in a person's words
 /// is a task's.
-const TASK_HEAD: &str = "a background task";
+const TASK_HEAD: &str = ": a background task";
 
 /// A message's text blocks (a tool's result is not a text block).
 fn texts(m: &Value) -> Vec<String> {
@@ -56,7 +56,7 @@ fn own_brief(req: &ProviderRequest) -> Option<String> {
     (req.messages.iter())
         .filter(|m| m["role"] == "user")
         .flat_map(texts)
-        .find(|t| t.contains(TASK_HEAD))
+        .find(|t| t.contains("[Task ") && t.contains(TASK_HEAD))
         .and_then(|t| t.rsplit("\n\n").next().map(str::to_string))
 }
 

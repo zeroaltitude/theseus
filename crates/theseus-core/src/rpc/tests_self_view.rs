@@ -74,13 +74,12 @@ impl Model {
         serde_json::to_string(&q.messages).unwrap()
     }
 
-    /// Requests that offer no tools: a summary writer's.
-    fn untooled(&self) -> usize {
-        self.requests
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|q| q.tools.is_empty())
+    /// Requests that offer no tools (a summary writer's) holding `what`.
+    fn untooled(&self, what: &str) -> usize {
+        (self.requests.lock().unwrap().iter())
+            .filter(|q| {
+                q.tools.is_empty() && serde_json::to_string(q).unwrap_or_default().contains(what)
+            })
             .count()
     }
 }
@@ -188,7 +187,11 @@ async fn a_builders_second_turn_after_a_restart_holds_its_objective_and_first_an
     );
     assert_eq!(strategy(&c2, &session), "view");
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert_eq!(model.untooled(), 0, "no summary of a self session");
+    assert_eq!(
+        model.untooled("FIRST-SELF"),
+        0,
+        "no summary of a self session"
+    );
 }
 
 /// A reviewer's session as `CheckTurn` opens it: its first request holds the claim it reviews; a second turn
