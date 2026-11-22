@@ -72,6 +72,10 @@ fn clear(_: &str) -> bool {
     false
 }
 
+fn unmoved(_: &Exchange) -> bool {
+    false
+}
+
 fn private(_: &str) -> bool {
     true
 }
@@ -83,6 +87,7 @@ fn history(c: &Core, here: &str) -> Vec<String> {
         here: here.into(),
         present: Present::OwnerAlone,
         hidden: &clear,
+        moved: &unmoved,
         private: &private,
         in_view: None,
         words: None,
@@ -194,6 +199,7 @@ async fn adopted_words_are_author_unknown_and_never_his_elsewhere() {
         mark: None,
         recalled: Vec::new(),
         sealed: &clear,
+        moved: &unmoved,
         sessions: &sessions,
     };
     let f = src.facts(&o.dm_turns[0]).unwrap().unwrap();
@@ -209,6 +215,7 @@ async fn adopted_words_are_author_unknown_and_never_his_elsewhere() {
         here: here.into(),
         present: Present::OwnerAlone,
         hidden: &clear,
+        moved: &unmoved,
         private: &private,
         in_view: None,
         words: None,

@@ -217,7 +217,9 @@ pub async fn write(
     if r.reply.is_none() {
         return Ok(Outcome::NoReply);
     }
-    if !super::laddered(&r.ex.place) || hidden(&r.ex.session_id) {
+    // A message moved into a thread is that thread's: no line is written from its words (`moved_at_all`).
+    let moved = blocking(|| crate::view_gate::moved_at_all(store, &r.ex));
+    if !super::laddered(&r.ex.place) || hidden(&r.ex.session_id) || moved {
         return Ok(Outcome::Hidden);
     }
     let ask = Ask {

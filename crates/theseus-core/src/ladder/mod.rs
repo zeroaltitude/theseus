@@ -45,6 +45,8 @@ pub mod writer;
 mod tests;
 #[cfg(test)]
 mod tests_job;
+#[cfg(test)]
+pub(crate) mod tests_moved;
 
 /// The window's grain: it holds `N` to `2N` exchanges, and a fold takes `N`.
 pub const N: usize = 20;
