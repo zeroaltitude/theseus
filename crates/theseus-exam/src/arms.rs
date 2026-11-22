@@ -12,11 +12,17 @@
 //!    when it has the model), then stopped. Its state, index included, is
 //!    the arm's snapshot, marked `READY`; a resumed run reuses it.
 //! 3. **Each run** starts fresh daemons from the snapshots, in
-//!    `<work>/run-<n>/<arm>`, runs that run's cells (`drive::run`: pairing,
-//!    the spend cap, resume), and stops them. A daemon indexes the turns it
-//!    serves, so a daemon that lived across runs would recall an item's
-//!    earlier answer in its next run; a fresh one per run never does. Within
-//!    a run, a cell may still recall another item's cell of that run.
+//!    `<work>/run-<n>/<arm>`, for its preflight, stops them, and runs that
+//!    run's cells (`drive::run`: pairing, the spend cap, resume), **each on a
+//!    daemon of its own** (`cell_daemons`): the cell's daemon's snapshot
+//!    copied to `<work>/run-<n>/cells/<cell>`, started and waited for as the
+//!    run's are, stopped when the cell is done. A daemon indexes the turns it serves and
+//!    lays the owner's words of every place in a request, so a daemon shared
+//!    by two cells would show the second what the first said (and recall
+//!    it); a daemon per cell never does: a cell's request holds nothing any
+//!    other cell said. What that costs is a daemon's start and stop per
+//!    cell, beside a turn's time, and a copy of the snapshot on disk per cell
+//!    until the work directory goes.
 //! 4. **Nothing is left running**: each daemon is stopped as the run ends,
 //!    on an error too (a dropped `Daemon` stops), and at the end no process
 //!    names the work directory.
@@ -27,6 +33,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{bail, ensure, Context, Result};
@@ -134,6 +141,59 @@ fn bring_up(
     Ok(d)
 }
 
+/// A cell's daemon, stopped when dropped, what had to be killed kept.
+struct CellStop {
+    d: Daemon,
+    killed: Arc<Mutex<Vec<String>>>,
+}
+
+impl Drop for CellStop {
+    fn drop(&mut self) {
+        let k = self.d.stop().unwrap_or_default();
+        self.killed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend(k);
+    }
+}
+
+/// What starts each cell's daemon (`drive::Plan::cells`): its daemon's snapshot copied to `<cells>/<cell>`
+/// (a cell run again moves the last copy aside), started, and waited for until it serves and its tender holds
+/// the store, as a run's daemons are.
+fn cell_daemons(
+    plan: &ArmsPlan,
+    snapshots: &BTreeMap<String, PathBuf>,
+    m: &Manifest,
+    cells: &Path,
+    killed: &Arc<Mutex<Vec<String>>>,
+) -> drive::CellDaemons {
+    let (theseusd, base, env) = (
+        plan.theseusd.clone(),
+        plan.base_config.clone(),
+        plan.env.clone(),
+    );
+    let (settle, last, snapshots) = (plan.settle, m.last_position, snapshots.clone());
+    let (cells, killed) = (cells.to_path_buf(), killed.clone());
+    Arc::new(move |d: &str, cell: &str| -> Result<drive::CellDaemon> {
+        let snap = snapshots
+            .get(d)
+            .with_context(|| format!("no snapshot of the {d} daemon"))?;
+        let dir = cells.join(cell);
+        aside(&dir)?;
+        copy_dir(snap, &dir.join("state"))?;
+        let mut daemon = daemon::start(&theseusd, &dir, d, &daemon::config_for(&base, d), &env)?;
+        daemon.wait_serving()?;
+        daemon.wait_indexed(last, settle, &mut |_| {})?;
+        Ok(drive::CellDaemon {
+            socket: daemon.socket.clone(),
+            stop: Box::new(CellStop {
+                d: daemon,
+                killed: killed.clone(),
+            }),
+        })
+    })
+}
+
 /// Stop every daemon in `ds`, keeping what had to be killed.
 fn stop_all(ds: &mut Vec<Daemon>, killed: &mut Vec<String>) -> Result<()> {
     for mut d in ds.drain(..) {
@@ -216,6 +276,7 @@ pub fn run(
     std::fs::create_dir_all(&plan.work)?;
     let mut killed = Vec::new();
     let snapshots = prepare(plan, &daemons, m, &mut killed, log)?;
+    let cell_killed = Arc::new(Mutex::new(Vec::new()));
     let mut summary = ArmsSummary {
         daemons: daemons.iter().map(|d| d.to_string()).collect(),
         runs: Vec::new(),
@@ -238,6 +299,7 @@ pub fn run(
             timeout: plan.timeout,
             out: plan.out.clone(),
             only_run: Some(run),
+            cells: None,
         };
         if left_in_run(&dp, exam)? == 0 {
             log(&format!("run {run}: every cell has its verdict"));
@@ -254,10 +316,19 @@ pub fn run(
             up.push(daemon);
         }
         let (said, model) = drive::preflight(&dp, exam, m)?;
+        dp.cells = Some(cell_daemons(
+            plan,
+            &snapshots,
+            m,
+            &rdir.join("cells"),
+            &cell_killed,
+        ));
         dp.profile_model = model;
         log(&format!("run {run}: {said}"));
-        let s = drive::run(&dp, exam, m);
+        // The run's daemons served its preflight; its cells run on daemons of their own.
         stop_all(&mut up, &mut killed)?;
+        let s = drive::run(&dp, exam, m);
+        killed.append(&mut cell_killed.lock().unwrap_or_else(PoisonError::into_inner));
         let s = s?;
         summary.spent_usd = s.spent_usd;
         summary.stopped_at_cap |= s.stopped_at_cap;
