@@ -43,7 +43,11 @@ fn row(kind: LedgerKind, scope: &str, data: Value, at_ms: u64, key: &str) -> New
 fn old_rows(c: &Core, now: u64) -> Vec<NewRecord> {
     let (state, _) = crate::tests_replay::loop_state(c, "anything");
     let mut out = Vec::new();
-    for (pack, i) in [("role.v1", 0u64), ("continue.v1", 1)] {
+    for (pack, i) in [
+        ("role.v1", 0u64),
+        ("continue.v1", 1),
+        ("recall_cross.v1", 2),
+    ] {
         let id = format!("jdg_old_{i}");
         let j = crate::tests_replay::judgment(
             &id,
@@ -111,13 +115,13 @@ async fn a_retired_familys_records_are_still_listed_and_reported() {
         .iter()
         .filter_map(|e| e.data["pack"].as_str())
         .collect();
-    for pack in ["role.v1", "continue.v1"] {
+    for pack in ["role.v1", "continue.v1", "recall_cross.v1"] {
         assert!(packs.contains(&pack), "{pack}: {packs:?}");
     }
     // The learning report, run now, reports both.
     let report = c.learning_report(Value::Null).await.unwrap();
     let reported: Vec<&str> = report.packs.iter().map(|p| p.pack.as_str()).collect();
-    for pack in ["role.v1", "continue.v1"] {
+    for pack in ["role.v1", "continue.v1", "recall_cross.v1"] {
         assert!(reported.contains(&pack), "{pack}: {reported:?}");
     }
     // The learned version is in its lineage.
@@ -129,4 +133,5 @@ async fn a_retired_familys_records_are_still_listed_and_reported() {
     // And nothing can run them.
     assert!(theseus_judge::pack::by_name("role.v1").is_none());
     assert!(theseus_judge::pack::by_name("continue.v1").is_none());
+    assert!(theseus_judge::pack::by_name("recall_cross.v1").is_none());
 }

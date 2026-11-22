@@ -200,11 +200,6 @@ fn card_families() -> Vec<(&'static str, String)> {
         "👁 the deploy landed → MERGED",
     );
     let seal = crate::rpc::thread_seal::seal_text("harbour", "harbour", "it looks embargoed");
-    let link = crate::thread_link_seen::Pair {
-        here: ("pipeline".into(), "datatidy pipeline".into()),
-        other: ("stats".into(), "datatidy stats".into()),
-    }
-    .text();
     let retraction = crate::retract::card_text("the tide is at 5", "wrong date", &[]);
     let kept = crate::capture::kept_card("📌 Kept as a standing order everywhere: x");
     let asked = crate::capture::ask_card("📌 Keep as a standing order everywhere?");
@@ -223,7 +218,6 @@ fn card_families() -> Vec<(&'static str, String)> {
         ("routine month spent", routine_month),
         ("watch notice", watch),
         ("seal card", seal),
-        ("link card", link),
         ("retraction card", retraction),
         ("standing kept card", kept),
         ("standing ask card", asked),

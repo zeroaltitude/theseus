@@ -99,7 +99,7 @@ pub fn cross(i: &CrossInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pack::by_name;
+    use crate::pack::retired;
     use crate::state::NoScrub;
 
     fn input(n: usize) -> CrossInput {
@@ -119,7 +119,8 @@ mod tests {
     /// the state; at most ten.
     #[test]
     fn each_note_is_asked_once_with_its_thread() {
-        let p = by_name("recall_cross.v1").unwrap();
+        // Retired (XD3): its builder stays, so a stored state still reads.
+        let p = retired("recall_cross.v1").unwrap();
         let prepared = prepare(&p, &Input::RecallCross(input(12)), &NoScrub).unwrap();
         let v = prepared.state.value();
         assert_eq!(v["message"], "Regenerate the report with the new cutoff.");
