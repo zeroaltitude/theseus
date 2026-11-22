@@ -291,7 +291,6 @@ mod tests {
         method::THREAD_LINK,
         method::THREAD_UNLINK,
         method::THREAD_UNCLAIM,
-        method::PREFIX_REPORT,
         method::PERSONA_LIST,
         method::PERSONA_IMPORT,
         method::PERSONA_CARD_CONFIRM,

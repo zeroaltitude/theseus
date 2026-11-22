@@ -255,7 +255,7 @@ pub struct Config {
     /// `[cockpit]`: the link a reply's footer carries (theseus-x9swu), `config/cockpit.rs`.
     #[serde(default, skip_serializing_if = "CockpitConfig::is_default")]
     pub cockpit: CockpitConfig,
-    /// `[prefix]`: the prefix library (theseus-rr15), `config/prefix.rs`.
+    /// `[prefix]`, retired with the prefix library (2026-11-22): `config/prefix.rs`.
     #[serde(default, skip_serializing_if = "PrefixConfig::is_default")]
     pub prefix: PrefixConfig,
     /// `[notify]`: when an open question pings the owner's DM (theseus-j7cje), `config/notify.rs`.
@@ -1852,7 +1852,6 @@ impl Config {
         discord::validate_forum_channel(&self.discord.forum_channel)?;
         discord::validate_task_home(&self.discord.task_home)?;
         self.route_bench.validate()?;
-        self.prefix.validate()?;
         self.notify.validate()?;
         self.project.validate()?;
         self.projects.validate()?;

@@ -93,7 +93,6 @@ pub mod persona;
 pub mod persona_import;
 pub mod persona_write;
 mod places;
-pub mod prefix;
 pub mod projects;
 mod push;
 pub mod resident;

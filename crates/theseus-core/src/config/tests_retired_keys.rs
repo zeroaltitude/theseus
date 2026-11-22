@@ -40,6 +40,12 @@ const EVERY: &str = "[model]\n\
                      resume_keep_turns = 20\n\
                      home_warn_percent = 50\n\
                      seal_recommend = false\n\
+                     [prefix]\n\
+                     enabled = true\n\
+                     max_bytes = 10485760\n\
+                     act = 0.9\n\
+                     confirm = 0.6\n\
+                     candidates = 16\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\
@@ -220,4 +226,18 @@ fn the_assembly_table_naming_places_is_retired_whole() {
             "{text}: {warnings:?}"
         );
     }
+}
+
+/// The prefix library's section, as an old settings file has it, loads with one warning a key (above); a key
+/// it never had still fails the load, as in any section.
+#[test]
+fn an_old_prefix_section_loads_and_a_key_it_never_had_still_fails() {
+    let (_, warnings) = parse("[prefix]\nenabled = false\nact = 0.5\n").expect("loads");
+    assert_eq!(
+        warnings.iter().filter(|w| w.starts_with("prefix.")).count(),
+        2,
+        "{warnings:?}"
+    );
+    let e = parse("[prefix]\nenabled = false\nwarmth = 3\n").unwrap_err();
+    assert!(format!("{e:#}").contains("warmth"), "{e:#}");
 }

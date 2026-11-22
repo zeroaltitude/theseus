@@ -294,7 +294,6 @@ fn compiled_from(
         situation,
         cleared,
         card: spec.card.as_ref().map(|c| c.shown.clone()),
-        prefix: None,
     }
 }
 
@@ -499,10 +498,9 @@ pub fn own_answers<'a>(
         .map(|(_, n)| n.id.clone())
 }
 
-/// The spec a call renders: `s` with the prefix library's header, the chain's card when it has one, and the
-/// memory page.
+/// The spec a call renders: `s` with the chain's card when it has one, and the memory page.
 fn effective(s: &RequestSpec, card: Option<&str>, page: &str) -> RequestSpec {
-    let mut s = prefix::applied(s).into_owned();
+    let mut s = s.clone();
     if let (Some(c), Some(t)) = (s.card.as_mut(), card) {
         c.shown = t.to_string();
     }

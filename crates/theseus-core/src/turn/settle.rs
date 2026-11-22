@@ -487,7 +487,6 @@ impl TurnRunner {
                 )?,
             ];
             records.extend(crate::thread_context::card_record(compiled));
-            records.extend(crate::prefix::records(compiled, turn_id)?);
             Ok(records)
         };
         // A view turn builds a compilation every turn (issue 44, issue 46): its records ride the

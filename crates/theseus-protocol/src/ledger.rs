@@ -247,6 +247,7 @@ ledger_kinds! {
     PlaceWarned = "place.warned",
     PolicyTightened = "policy.tightened",
     PolicyUntightened = "policy.untightened",
+    // The retired prefix library's pick (theseus-rr15): old rows hold it; nothing writes it now.
     PrefixPicked = "prefix.picked",
     PrivacyWarned = "privacy.warned",
     ProfileAsked = "profile.asked",

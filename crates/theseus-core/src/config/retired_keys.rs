@@ -39,12 +39,15 @@ const CAP: &str =
                    afresh, within the view's own budget for it";
 const COLD: &str = "a thread is no longer resumed cold from a cut transcript: the view reads its \
                     conversation's exchanges";
+const PREFIX: &str = "the prefix library is gone (2026-11-22): each request's system sections are \
+                      rendered afresh by the view, with the same content, and no saved header is reused";
 const THREADS: &str = "threads are no longer containers (2026-11-22): a thread's own recall, its \
                        growth, its home's size and its seals are gone";
 
 /// The whole list (the map of the cut, §6 step 8), less two keys something that stays still reads:
 /// `[cache] keep_warm_every_minutes` and `keep_warm_min_tokens` (the read during a job wait; the sticky
-/// effort rule). Those are live settings. The thread keys whose readers went on 2026-11-22 are here too.
+/// effort rule). Those are live settings. The thread keys whose readers went on 2026-11-22 are here too, and
+/// the prefix library's (`[prefix]`), gone the same day.
 pub const RETIRED: &[Retired] = &[
     r("context", "assembly", VIEW),
     r("memory", "session_recall_cap_tokens", CAP),
@@ -74,6 +77,11 @@ pub const RETIRED: &[Retired] = &[
     r("threads", "resume_keep_turns", THREADS),
     r("threads", "home_warn_percent", THREADS),
     r("threads", "seal_recommend", THREADS),
+    r("prefix", "enabled", PREFIX),
+    r("prefix", "max_bytes", PREFIX),
+    r("prefix", "act", PREFIX),
+    r("prefix", "confirm", PREFIX),
+    r("prefix", "candidates", PREFIX),
 ];
 
 const fn r(section: &'static str, key: &'static str, why: &'static str) -> Retired {

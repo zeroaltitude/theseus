@@ -32,8 +32,6 @@ fn spec(model: &str, system: &str) -> RequestSpec {
         defer: None,
         memberships: vec![],
         guidance: vec![],
-        prefix: None,
-        prefix_used: None,
     }
 }
 
