@@ -215,6 +215,15 @@ async fn a_tasks_turns_take_the_view_at_its_own_place_and_its_second_sees_its_fi
     complete(&r.core, &task).await;
 
     let reqs = task_requests(&r, COUNT);
+    // Its opening is laid once in every request: at the head of the window, never again in the tail.
+    for q in &reqs {
+        assert_eq!(
+            user_text(q).matches(TASK_HEAD).count(),
+            1,
+            "{}",
+            user_text(q)
+        );
+    }
     assert!(
         reqs.len() >= 3,
         "two calls, then the wake's: {}",
@@ -301,6 +310,33 @@ const INNER: &str = "INNER-VIEW: count the gulls";
 /// its message, and its first turn is in its window.
 #[tokio::test]
 async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
+    report_into_a_task(false).await;
+}
+
+/// The same in a shared place: the subtask's report into a task whose conversation is a shared channel is
+/// shown to the task (`view_gate::report_shown` reads the task's exchange as where it speaks), not held.
+#[tokio::test]
+async fn a_report_into_a_task_in_a_shared_place_is_shown_there() {
+    report_into_a_task(true).await;
+}
+
+/// A conversation in a shared channel, as the owner's binding makes one.
+fn shared_parent(core: &Arc<Core>) -> String {
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    core.outbox
+        .bind_place("channel:77", &rec.session_id)
+        .unwrap();
+    core.runner.place_rule.bind_one(crate::places::BoundPlace {
+        target: "discord:channel:77".into(),
+        name: "the lab".into(),
+        private: false,
+        ..Default::default()
+    });
+    rec.session_id
+}
+
+async fn report_into_a_task(shared: bool) {
     let r = view_rig(|req, brief| {
         let last = last_text(req);
         Some(match brief {
@@ -326,7 +362,10 @@ async fn a_report_to_a_task_is_a_view_turn_at_the_tasks_place() {
             _ => return None,
         })
     });
-    let parent = parent_session(&r.core);
+    let parent = match shared {
+        true => shared_parent(&r.core),
+        false => parent_session(&r.core),
+    };
     // The quoted message apart: the outer task's arrangement copies it, and the subtask's quote must be
     // found in the outer task's brief alone.
     let arrangement = asked_apart(&r.core, &parent).await;
