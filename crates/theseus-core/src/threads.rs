@@ -92,6 +92,14 @@ impl Board {
         !self.unread_bindings.is_empty()
     }
 
+    /// Whether anything of the threads did not read at the load: a thread
+    /// record, a binding, or a session bound to a thread with no record.
+    pub fn any_unread(&self) -> bool {
+        !(self.unread_slugs.is_empty()
+            && self.unread_sessions.is_empty()
+            && self.unread_bindings.is_empty())
+    }
+
     /// How many threads' bindings did not read, for health: a count, never
     /// which.
     pub fn unread_bindings(&self) -> usize {

@@ -332,7 +332,7 @@ impl Core {
         // the owner's acts, which their judgment refuses.
         self.mcp_admit(surface, &req.method, &params)?;
         match req.method.as_str() {
-            method::HEALTH => reply(self.health_now().await),
+            method::HEALTH => reply(self.health_for(&conn.answerer(None, None)).await),
             method::SESSION_OPEN => route(params, |p| self.session_open_on(surface, p)),
             m if super::sessions::OWN.contains(&m) => self.rpc_sessions(m, params, conn),
             m if super::retry::OWN.contains(&m) => self.rpc_retry(m, params, conn),
