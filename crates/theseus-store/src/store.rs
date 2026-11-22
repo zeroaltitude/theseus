@@ -1253,6 +1253,32 @@ impl WalStore {
         &self.inner.dir
     }
 
+    /// [`Store::scan_scope`], strictly (issue 44): a record the index lists
+    /// that cannot be read fails the whole read, where the list reads skip it
+    /// (`listed`). For a reader that decides a permission from the list, to
+    /// which a skipped record is a missing refusal.
+    pub fn scan_scope_strict(&self, scope: &str, after: u64, limit: usize) -> Result<Vec<Record>> {
+        let positions = self.inner.index.positions_in_scope(scope, after, limit)?;
+        self.inner.read_many_strict(&positions)
+    }
+
+    /// [`Store::first_with_prefix`], strictly: as [`WalStore::scan_scope_strict`].
+    pub fn first_with_prefix_strict(
+        &self,
+        kind: RecordKind,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<Vec<Record>> {
+        let positions: Vec<u64> = self
+            .inner
+            .index
+            .first_keys_with_prefix(kind, prefix, prefix, limit)?
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect();
+        self.inner.read_many_strict(&positions)
+    }
+
     /// The full check the open leaves out (theseus-8ni): every frame before
     /// where open began checking, read-only. `pace` is called after each
     /// stretch with the time it took, for a tender that keeps to its share
@@ -2068,6 +2094,19 @@ impl Inner {
             if let Some(loc) = loc {
                 out.extend(self.listed(*p, loc)?);
             }
+        }
+        Ok(out)
+    }
+
+    /// [`Inner::read_many`], strictly: a position the index lists with no
+    /// place in the log, or a record whose read is refused, fails the read.
+    fn read_many_strict(&self, positions: &[u64]) -> Result<Vec<Record>> {
+        let mut out = Vec::with_capacity(positions.len());
+        for (p, loc) in positions.iter().zip(self.index.locations(positions)?) {
+            let loc = loc
+                .with_context(|| format!("the index lists @{p} and the log has no record there"))?;
+            count_read();
+            out.push(checked(*p, self.wal.read_at(loc)?)?);
         }
         Ok(out)
     }
