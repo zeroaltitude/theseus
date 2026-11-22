@@ -49,6 +49,7 @@ impl TurnRunner {
                 message: Some(String::new()),
             },
             input.spec,
+            &self.view_budget(input.spec),
         )?;
         if let Err(Overflow::Floor { tokens, room, .. }) = &built.assembled {
             anyhow::bail!(
