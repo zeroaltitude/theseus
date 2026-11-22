@@ -17,6 +17,75 @@ How to read the numbers: **(measured)** comes from the owner's own ledger, count
 whose basis is given; every token count made from bytes is an estimate at 3.6 bytes a token. Budgets are settings,
 not findings; the shadow steps exist to fit them.
 
+**What follows is the plan as the owner approved it.** It was built on 2026-11-21, in places differently. The
+section below says what was built and what was not; where a later section misstated the code, it now carries an
+**As built** paragraph. The owner's decisions in §15 are his words and are left as he gave them.
+
+## What is built, and what is not (2026-11-21)
+
+**Nothing was run in shadow, and nothing in §10 has been measured.** The plan's order (a ledger, then the whole
+assembly in shadow beside today's, then one quiet place) was not followed. The ledger's measuring row is written
+on every private turn, but no question of §10 has been answered from it: there is no labelled set, no paired
+replay, no benchmark arm and no yardstick. The figures in Part Two are still estimates; none has been checked
+against a turn of the view.
+
+**The view is one setting per place, off by default.** `[context] assembly` is `"transcript"` or `"view"`, for
+every place or by place (`assembly = { default = "transcript", places = { "<place>" = "view" } }`), a place as the
+ledger writes it. Absent, every request is the transcript's, byte for byte as before (a golden test holds it). The
+view needs `[context] ledger` on (the default); a settings file that sets a place to `view` with the ledger off does
+not load. A task's turn has no place and is always the transcript's. There is no `shadow` value: a place is
+either the transcript's or the view's.
+
+**A turn the view cannot assemble soundly runs as the transcript's turn.** Before its first call, a turn in a view
+place checks that it can be assembled, and if not it is the transcript's turn from then to its end, with its recall
+carried as on any transcript turn. The reason is written on the ledger (`context.view_fallback`) and is one of a
+closed list: `continuation` (no person's message, wake or report of its own opened the turn), `route` (the gate's
+anchor is not the place the exchange opened in), `unledgered_history` (the session's recent turns include some the
+ledger holds no exchange for), `over_budget` (the request is over the budget, or the provider said a request of the
+turn passed its window) and `assembly_error`.
+
+**Built, step by step** (§11's numbers):
+
+- **1, the ledger and the owner's mark**: the mark on every submitted message, the exchanges, the touch index, the
+  measuring row, and the one-time rebuild (`docs/design/exchanges.md`).
+- **1b, the history tool**: `context.history`, offered on every turn (§6).
+- **2, the gate**: `owner alone`, the turn's presence, seals that fail closed, and the view's permit
+  (`docs/design/view-gate.md`; §4 below).
+- **4, `did` lines and the ladder**, by a background job with its own daily line of spend
+  (`docs/design/ladder.md`).
+- **5, recognition, in part**: topics per exchange, the `item` kind, the table of scoped names and a thing's card
+  (`docs/design/names.md`). None of it reaches the view yet.
+- **6 and 7, together**: the assembler went straight into the compiler, behind the setting above, with no shadow
+  run (`docs/design/view-compile.md`). The memory page, the record of what a turn was shown, `theseus view show`, and
+  Theseus's own reading of its view (`look.theseus`) came with it (`docs/design/view-record.md`).
+- **8, in part**: a joined task's card; the change of objective without a card, built and switched off (§7).
+- **Ahead of the plan, by the same day's trims**: routing by a guess is gone (a message goes to a thread only by its
+  address; §9), and the rule by model provider is deleted (decision 8; §4).
+
+**The sources the view does not have yet.** The selectors for these slots exist and are tested with fakes, but
+their sources over the store answer nothing, so they lay nothing: **what waits** (slot C), **facts about the
+person** (slot B), and **named things and their cards** (slot D, and slot H's named things; the name matcher of
+step 5 is not wired into the view). Slot H holds recall, and a joined task's card when the judge's existing
+`addressed_task` answer names one task. Slots E, F and G (his past, his words elsewhere lately, and here: the
+window and the ladder) are read from the store.
+
+**What the one-time rebuild can and cannot prove.** `theseus ledger rebuild-exchanges` writes an exchange for
+every turn that has none, from its nodes. Its place and its person come only from the owner's mark on its message,
+and a message has a mark only if it was submitted after the ledger came into the build: a session's binding is
+where it posts now, not proof of where a message arrived or who typed it. So **history from before the owner's
+mark has no proven place**: its exchanges are of place `unknown` with no person, and no place's window, ladder or
+history tool holds them. Before the rebuild, a turn in a place with such history declines the view
+(`unledgered_history`); after it, a place switched to the view starts as a conversation with no past. No mark is
+ever made backwards.
+
+**Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
+a task's own view (§7); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
+step 10; and the `derived_from` edges of §3.
+
+**Numbers the plan calls settings are constants.** N (20), the ceiling (60,000), slot G's allowance (150,000),
+the clearing's marks (80,000 and 40,000), the history tool's looks a turn (5), the floor (three exchanges) and
+the rest are fixed in the code. The sprint added no setting beyond `[context] ledger` and `[context] assembly`.
+
 ---
 
 # Part One: the design
@@ -39,13 +108,15 @@ not findings; the shadow steps exist to fit them.
    selected, fewer with age. Nothing is silently absent: every node and every band opens.
 6. **A name calls its thing.** A recognised mention brings the thing's card, its current facts, its newest
    exchange and what he has said about it through time. Loose topics ("the retry storm") are things too: the
-   judge already files every message under topics, and that filing is kept per exchange.
+   judge already files every message under topics, and that filing is kept per exchange. **As built**: things
+   are recognised and topics filed per exchange, and a card can be read, but nothing named is shown yet (§5.4).
 7. **Nothing is in view because it was in view last turn.** Every piece is chosen again each turn by a selector
    with a written rule, and the view records why each piece is there.
 8. **A reference with nothing in view is looked for before Theseus asks**: by name; by opening the right node
    of the ladder; by search over what was really said in the last two days; and by a tool the model is always
    offered, which hands it the next hundred exchanges back whenever *it* thinks it is missing something, with
-   no horizon. One clear find is brought in; several are offered.
+   no horizon. One clear find is brought in; several are offered. **As built**: the tool is there; the search
+   of the last two days before the first word is not, and a name brings nothing into the view yet.
 9. **A task is a point of view too.** Its context is assembled around its objective, its jobs, its evidence and
    what the owner has said about it anywhere. Joining it gives its status at once from records. Its objective
    changes only through the owner's own gate, on his current words.
@@ -54,6 +125,8 @@ not findings; the shadow steps exist to fit them.
 11. **It is measured before it is trusted**: a ledger first (no prompt changes at all), then the whole assembly
     in shadow beside today's, then one quiet private place, then the main conversation. Three steps are deep
     cuts and are the owner's to take. The first step can start today.
+    **As built**, the shadow step was skipped: the view is a setting per place, off by default, and nothing
+    has been measured yet ("What is built, and what is not", above).
 
 ## 2. What the owner asked for, and where each sentence lands
 
@@ -127,6 +200,26 @@ Properties that hold for all of it.
   an old message that a thread took (recovered only where a routing record proves it; otherwise unknown, never
   guessed).
 
+**As built** (`docs/design/exchanges.md`, `docs/design/ladder.md`):
+
+- **No `derived_from` edge is written.** An edge kind lands only with its reader, and retraction walks edges to
+  node ids, not to these records. The records' keys carry the node and turn ids instead, so retracting a source
+  does not yet find what was made from it.
+- **New kinds of record needed no store-format step**, as said; but one reader (the outbox's load) read every
+  META record at each start, which would have made every start pay for this history. It now reads its
+  own prefixes only.
+- **A late reply is not joined to its exchange.** A late result's turn is a continuation with an exchange of its
+  own; an exchange is rewritten only by its own turn's close or failure.
+- **"Attributed" cannot be read from a node.** A node does not carry its chat author's id (its author is the
+  binding's display label). Before the mark, words could be attributed only through the place (a direct
+  conversation bound to the owner); the rebuild does not do even that. It takes place and person from the mark
+  alone and reads no routing record, so all history from before the mark is author unknown, of place `unknown`.
+- **A correction rewrites nothing.** A `did` line and a fold node are written once and never change. A message
+  the judge calls a correction is recorded (`ladder.correction.<turn>`) so that the fold above the first level
+  keeps it.
+- **The terminal and the web page are one place**, `local:<dir>`, by the directory the session works in (both are
+  the owner's own surfaces on one machine).
+
 ## 4. The point of view, and the gate
 
 A point of view is computed once at the start of a turn, from one snapshot of the store, and recorded on the view:
@@ -164,6 +257,30 @@ through the gate; a registry test fails on any *new* decision by place outside i
 adding or deleting records that this point of view may not see changes nothing that is sent, not a byte, not a
 count.
 
+**As built** (`docs/design/view-gate.md`):
+
+- **Who is present has five values**: owner alone, a private channel, shared, open, unknown. The place rule no
+  longer has an `open` place, so nothing produces `open` today.
+- **Presence is computed once a turn**, by the gate alone, after the turn's input is written. A person's message:
+  `owner alone` only when its mark says the owner typed it in person and it arrived at the terminal, the web page
+  or a direct conversation. **A channel is never alone**, a channel bound private included, whoever is in it
+  today: someone may join later and read the history (decision 5). **An agent's process is not the owner**, at the
+  terminal or anywhere: its turn reads its own arrival place alone. A message with no mark is not alone. A turn
+  that no message opened takes the narrowest presence recorded by the turns that set it up (a wake, a task and
+  its report each name the turn that made them); none recorded is unknown. A steer can only narrow a running
+  turn's presence. Presence is held in memory and lost at a restart, where a session reads as not alone.
+- **Seals fail closed**, on every path that reads memory (recall and its rerank, the lookups, the search,
+  reading a thread), before anything ranks or sends a piece: a session, binding or thread record that cannot be
+  read, a chain too long to follow, or a thread the board does not hold, is held out as if sealed.
+- **The rule by model provider is deleted** (decision 8), not only on the trimming list.
+- **Within a turn**, a seal set or a presence narrowed between two calls reassembles the view under the new
+  permit, on a new chain. Not yet checked: a change between a call's assembly and its dispatch, and a joined
+  task card whose home is sealed during the turn.
+- **The registry test** pins each file's count of decisions by place as it was when the gate landed, and fails
+  when one grows. **The property** is held over generated stores for what the gate admits and for the view the
+  selectors make; the same test on the bytes sent is not written.
+- **At hand is not computed yet**: a point of view has none, so nothing is ranked by it.
+
 ## 5. The assembly
 
 ### 5.1 The slots
@@ -190,6 +307,11 @@ has its own allowance (§5.2).
 is shorter: A, B, D, E, G, H and
 I, all from this place alone; slot E holds the words of the people present, said here; C and F are absent.
 
+**As built**, the selectors of every slot exist and run in the admission order of rule 6, which is a table in the
+code. Slots B, C and D, and slot H's named things, lay nothing yet: their sources over the store answer nothing
+("What is built, and what is not", above). Slot H holds recall and a joined task's card. The ceiling and slot G's
+allowance are constants, not settings.
+
 **How your memory works: a page for the model** (the owner's idea). The system part carries one fixed page of
 about 1,000 tokens that tells the model how its context is built: what the window is and that it is counted in
 exchanges; that older conversation is folded into nodes, each a compact account that opens by its handle; the
@@ -206,6 +328,11 @@ hidden: the page says where. And the record of what a turn was shown and why (§
 the model itself, where the owner is alone: Theseus can ask what it was given, what was left out, and for what
 reason.
 
+**As built**, the page is version 3, held to 1,000 tokens and to a golden copy by tests, and goes in the system
+part after the session's block in a place set to the view. Theseus reads the record of its own turn through
+`look.theseus` (`what: ["view"]`): every piece where the owner is alone, this place's pieces in company, never
+text; the owner reads any turn's with `theseus view show` (`docs/design/view-record.md`).
+
 **The order on the wire** (the owner's point: what is fixed goes first, what moves goes last):
 
 1. A, the system part.
@@ -220,6 +347,12 @@ reason.
 Parts 1 to 4 are the same bytes from one turn to the next and change only at a fold (§5.2), at a day's turn, or
 when a fact about him changes. Part 5 is chosen afresh every turn. The order also reads as a conversation
 should: who and what, then time running forward, with what is nearest in time nearest the message.
+
+**As built**, the order is this one. Parts 2 and 3 head the first user message as harness text; the window is read
+from the store across the sessions that ran it, and its earlier thinking is not carried. The window's end carries a
+cache mark. Each turn's first call is a new compilation (strategy `view`), so nothing of the turn before is held
+to its bytes except the window, which only appends. Nothing of the view is written into the session, and neither
+is a recall note: recall reaches the model as a piece. A place set to the view is not kept warm.
 
 **The budgeter's rules** (one function; these are all of them):
 
@@ -350,6 +483,27 @@ certain and everything since a three-hour pause.
 one place per project directory (the session block already holds the directory; the ledger does not record it
 per turn today, so step 1 adds it). A new session does not start a new place or empty the window.
 
+**As built** (`docs/design/ladder.md`):
+
+- **N, the floor, the allowance and the clearing's marks are constants** in the code (20; three exchanges;
+  150,000; 80,000 and 40,000), not settings.
+- **A fold is by count only**, never by a judge or by the clock: the judge's reading of a running chain is not
+  consulted, and nothing measures it.
+- **Only the first level is written by a model**, from the original exchanges (an account of at most 2,400
+  characters, a title of at most 120). **No model writes a level above it**: code builds that node from its
+  children's titles and handles, the person's lines that are corrections or made a standing record, and a count
+  of the rest.
+- **A node never changes once written.** A later correction rewrites none; it is recorded so that a node above the
+  first level keeps the line.
+- **A source is summarised only when it is proven neither sealed nor veiled**, checked again just before the model
+  call; a window that is held out folds by code, marked sealed and veiled. The ladder's spend has a daily line of
+  its own ($2), reserved before each call. `theseus exchanges ladder <place>` builds a place's ladder from its
+  history; only the owner in person may run it.
+- **`/new`** is the chat's `/new`; the terminal has none. The terminal and the web page are one place,
+  `local:<dir>`.
+- **A place's history from before the owner's mark is in no place's window or ladder** ("What is built, and what
+  is not", above).
+
 ### 5.3 His words from everywhere: how they thin with age
 
 This is slot E and slot F: his words across every place. A place's own past is its ladder (§5.2); where the two
@@ -414,6 +568,23 @@ places, the rules above are.
 for measuring which selector earns its tokens. They are not a second lifecycle: a piece is there this turn
 because a selector chose it this turn, and for no other reason.
 
+**As built** (`docs/design/names.md`), recognition exists and is not yet read by the view:
+
+- **Topics per exchange**: each category the judge's `onto.v1` answer chooses at its acting band writes a touch to
+  that message's exchange, so a topic has a timeline. No judge call is added and its request is unchanged.
+- **Numbered items** are the index's new `item` kind, kept apart from its entities, so recall and the gate see
+  nothing new. An unqualified item is scoped by the project of the session it arrived at, or stays an unscoped
+  candidate. The rebuild does not ask for items.
+- **Scoped names**: a table of the names of lines of work, tasks and topics, built for a caller through the gate,
+  so a thing the caller may not see makes no match and no ambiguity. A qualified name wins; an alias is accepted
+  only when exactly one live thing holds it.
+- **A thing's card**: a title and at most 12 lines (what it is about, up to five current facts, up to two open
+  tasks, the owner's guidance, and the newest three exchanges of its timeline with the words that opened each),
+  the whole card behind the gate. Facts are the owner's standing records scoped to the thing's own place or
+  session; no stored record names a fact's subject yet, so a topic has no facts of its own.
+- **None of it reaches a model yet.** The name matcher is not wired into the view, so no name calls a thing in,
+  and nothing is in play.
+
 ## 6. A reference with nothing in view
 
 **How a turn knows.** Mostly it does not need to: the window, the ladder (everything ever said here, at some
@@ -455,6 +626,25 @@ The search reads replies as well as his words for a reason: "the second one" ref
 
 **If the judge is absent.** After three timeouts in a row the turn stops waiting until one answers. Rungs 0, 1
 and 3 need no judge.
+
+**As built**, only rungs 0 and 3 exist. Nothing is recognised into the view (rung 1), there is no search before
+the first word (rung 2), and `leans_on` is not asked. The judge's `fragment`, `mentions_other_conversation` and
+`addressed_task` answers are recorded on the ledger's measuring row; of them only `addressed_task` is acted on
+(§7). The history tool, `context.history`:
+
+- **Bare**, it pages back through **this place**, 100 exchanges before the oldest one in full view, one line each
+  (his words cut by code at 300 characters, the `did` line or the reply's beginning, a handle), with no horizon.
+  It reads other private places only when narrowed to one, and only where the owner is alone. It can also be
+  narrowed to a thing's timeline or by words. A handle opens one exchange in spoken form, cut at about 3,000
+  tokens. A turn has five pages and twelve opens, constants, and is told plainly when it has used them, apart
+  from "history is exhausted".
+- **Every line and every open passes the place rule and the seal**, failing closed; paging and counts run over
+  admitted exchanges only.
+- **It is offered everywhere**, a shared place included (where it reads that place alone), and **loads by
+  surface**: in a direct conversation and a channel it is in the first request; at the terminal, in a task and in
+  a headless run it is declared and deferred, one search away, and the self card names it.
+- **On a turn no message opened** (a wake, a task's report) it reads nothing in a private place: it does not
+  take the presence of the turn that set it up, as the gate does.
 
 ## 7. Tasks
 
@@ -507,6 +697,31 @@ tools, no new session, offered only where he is alone, its answer headed as the 
 the task's marks. This is the task's point of view answering, as the owner described it; it comes second in
 step 8, after the card.
 
+**As built:**
+
+- **A task's own view is not built.** A task's turn has no place and is always assembled as the transcript's.
+  Asking the task itself is not built either.
+- **The joined card is built**, from records alone (objective, state, spend, plan step n of m, the jobs in
+  flight, the task's last message cut at 300 tokens, each "as of" its time), only where the owner is alone. It is
+  called in when the judge's `addressed_task` names exactly one task; a match on the task's name does not call it
+  yet, because the name matcher is not wired into the view.
+- **Decision 6 is built and switched off.** The checks are written: an independent typed judgment of this exact
+  message naming this task, this version and a narrowing; the kind `narrows`; not a task's own session; the whole
+  id; the newest version, and his message not older than it; nothing from outside read since his message; his
+  mark, in person, of the current exchange of this session; and the owner alone. A narrowing keeps the objective
+  word for word and adds his whole message beside it, never a part the model chose; his words are kept by
+  reference (`task.words.<id>.<version>`). But the kind the model declares is its own label, and nothing else
+  checked that his words mean it ("also deploy it to production" sent as a narrowing widens the task). So the
+  first check is the independent judgment, and no judge pack asks that question yet: **every change keeps its
+  card**, counted as `no_judgment` on the `task.change_proposed` row. Turning it on needs three things first: that
+  question, asked of his marked message; outside text judged from the turn's admitted inputs and their marks
+  rather than from the session's nodes; and a one-use receipt, so that one message authorises at most one change to
+  one task.
+- **A model-proposed pause was withdrawn.** `task.update` offers `narrows`, `widens` and `replaces` only, and has
+  no pause field; a call that asks for a pause is refused. The pause as first built set a state on the record and held nothing that ran,
+  and making it a real hold inside the kernel's frame was not a small change. The owner's own `task.pause` and
+  `task.resume` are the durable ones. Stored pauses of the first build stay readable.
+
 ## 8. Three turns
 
 Sizes est., with N = 20.
@@ -539,6 +754,10 @@ calls, and its view is laid again.
 host?" The window is counted in exchanges, so last night's work, its tool results included, is still in full.
 Nothing was thinned by the clock.
 
+**As built**, in a place set to the view: (a) and (d) hold, each held by a test of the view compiler. In (b),
+slot F is built, the search is not, and the sizes are unmeasured. In (c), the card comes in only when the judge's
+`addressed_task` names the task, and the change keeps its card (§7).
+
 ## 9. What becomes of threads, sessions and places; what stays a wall
 
 - **A place** is an address, an audience and a timeline. It holds no conversation of its own.
@@ -569,7 +788,22 @@ kept in the transcript for ever and the 64,000-token cap that pauses recall; con
 memory mechanism (it stays for tasks and as the window's guard); the judge fields nobody reads, once something
 reads them or replaces them.
 
+**As built**, part of this went early, everywhere and not only in a place set to the view, by the trims of
+2026-11-21. **Nothing is routed by a guess**: a message goes to a thread only by its address (a `#slug`, `/t slug`,
+"in the <title> thread:", a place one thread alone lists, or a reply to a thread's reply), and everything else runs
+at home at once. The router's scoring went with it (so it is no input to "at hand", which is not computed), and so
+did the fusion with the judge's `thread` pick (the question is still asked on the same request, and nothing reads
+it), the router's questions to him, the learned thread corrections, the misroute guard, and the home claim's
+writer (`thread.unclaim` stays for claims already stored). The thread importer is deleted; the session import is
+not. Kept as built: thread records and their commands, sealed threads and their wall, an addressed thread's own
+session, the place tail, and `thread.move`, the owner's own act, which now teaches nothing. In a place set to the
+view, an exchange of a sealed thread is not in the window.
+
 ## 10. How it is measured before it is trusted
+
+**As built, none of this has been measured** (2026-11-21). The ledger's row (the first line of the table) is
+written on every private turn, and `theseus ledger exchanges` sums it; no other instrument below exists, and no
+bar below has been checked. The view went live behind its setting without them.
 
 | Question | Measured by | What stops or changes it |
 |---|---|---|
@@ -611,6 +845,33 @@ above mine).
 | **9** | **Threads become lines of work everywhere**: nothing is routed by a guess; thread sessions are frozen, not deleted; sealed threads untouched. If overlapping work exceeds 2 a week, the **aside** first: a side question during a long turn runs at once on its own read-only call (300) | no misfiled message, anywhere | removals | **yes: deep cut**, after the benchmark arm passes |
 | 10 | Only on evidence from labelled misses, each for itself: conversational obligations (a question he was asked, a promise Theseus made) as tracked items with stable ids, where age lowers an item's place but never closes it; month paragraphs of Theseus's side; a second selector that ranks by spreading weight down the timelines (one design's proposal; it reads the same index) | fewer things forgotten | 300 to 1,200 | no, unless it adds memory or time |
 | **11** | **Delete** | less code | about −3,000 | **yes: deep cut**, the one step no setting can undo |
+
+**As built (2026-11-21)**, the path was walked in one day and not in this order. There is no `off`/`shadow`/`live`
+setting per step. There are two: `[context] ledger` (default on: the mark, the exchanges, the touches and the row)
+and `[context] assembly` (default `"transcript"`), which reads the view, place by place. Step by step:
+
+- **1**: built. Where its row differs from the plan: a script run from his own terminal has a terminal and no agent
+  on its chain, so it is classed a person (the row says what the light guard saw, not more); the build has no
+  stored cause of a cold start, so the row records the clock check, the compile's situation and trigger, and the
+  cache's reads and writes; the prompt by kind is counted from the wire request's blocks, and its "header" is the
+  system text without the project files (the persona, the self card and the session block are one part); things are
+  named by an asynchronous call to the index, so they are absent without an index and the row takes what is in by
+  the turn's end. The count of channels bound private is not a row at each start; `theseus ledger exchanges` reads
+  it from the place rule when asked.
+- **1b**: built (§6).
+- **2**: built (§4), decision 5 included.
+- **3**: not built as planned. His words in his other private places reach a model only in a place set to the
+  view, as slot F; the per-turn block of a transcript place does not carry them. 3b is not built.
+- **4**: built, without the `gists` view and without his reading of 50 lines and 10 nodes.
+- **5**: the recognition half built, not run in shadow and not read by the view; the search and `leans_on` not
+  built.
+- **6 and 7**: built as one, live behind `[context] assembly` with no shadow run, no labelled set, no replay, no
+  benchmark arm and no yardstick. `theseus view show` and the memory page came with it. Which place to try first is
+  the owner's: the setting names it.
+- **8**: the card built; decision 6 built and off; the task's own view and asking the task not built (§7).
+- **9**: routing by a guess went everywhere, ahead of the benchmark (§9); thread sessions are kept; the aside is
+  not built.
+- **10 and 11**: not started, beyond the trims of the same day.
 
 **The first step is the ledger and the owner's mark.** It changes no prompt and calls no model. The mark has to
 come first because nothing that follows can call a stored sentence "his" without it, and it cannot be added
@@ -825,7 +1086,8 @@ conversation that has grown long.
    The shadow rows count each.
 4. **Which cache lifetime to write at is a measurement.** For a context rebuilt whole every turn, the one-hour
    write cost 50% more and bought nothing (simulation). With a fixed front that may reverse: he often answers
-   after more than five minutes. Step 6 prices both on his real gaps.
+   after more than five minutes. Step 6 prices both on his real gaps. **As built**, step 6 ran no shadow, so
+   there are no rows to price this from; it is unmeasured.
 
 **A lever that exists today, with no code** (read in the code by the build critic, not run): the daemon's
 working-window setting would cut the main conversation from 360,000 to about 40,000 to 60,000 by today's own
