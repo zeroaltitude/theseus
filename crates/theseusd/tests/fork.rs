@@ -139,6 +139,41 @@ fn texts(request: &Value) -> Vec<String> {
         .collect()
 }
 
+/// The texts of the newest request whose last message ends with `words`.
+fn request_ending(model: &FakeModel, words: &str) -> Vec<String> {
+    (model.requests().into_iter().rev())
+        .map(|r| texts(&r))
+        .find(|t| t.last().is_some_and(|m| m.ends_with(words)))
+        .unwrap_or_else(|| panic!("no request for {words:?}"))
+}
+
+/// Authorship is a fact of the message (issue 44): the fork's inherited messages (its request's first and
+/// third) read exactly as they read in their source's own request, `in_source`.
+fn inherited_reads_as_in_its_source(
+    said: &[String],
+    in_source: &[String],
+    written: &std::collections::HashMap<String, String>,
+) {
+    let ask = "[Terminal · theseus ask ·";
+    assert_eq!(
+        said[0], in_source[0],
+        "turn one, in the fork and in its source"
+    );
+    assert_eq!(
+        said[2], in_source[2],
+        "turn two, in the fork and in its source"
+    );
+    // This rig's `theseus ask` has no controlling terminal, so its mark proves no person (`peer_proc`: "no
+    // terminal"), and the view heads its earlier messages as author unknown, in the source as in the fork.
+    // The owner's own message at a terminal would read with no heading, as the conversation here.
+    for (i, words) in [(0, "turn one"), (2, "turn two")] {
+        let tag = format!("{ask} {}] [said on the terminal, ", written[words]);
+        assert!(said[i].starts_with(&tag), "{}", said[i]);
+        let tail = format!("author unknown; not the owner's instruction]\nperson: {words}");
+        assert!(said[i].ends_with(&tail), "{}", said[i]);
+    }
+}
+
 #[test]
 fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     let model = FakeModel::start(|_| vec![]);
@@ -149,10 +184,7 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
         json_of(dir.path(), &["ask", "-s", &source, t]);
     }
     // The source's own request for turn three: how its earlier messages read in their own session.
-    let in_source = (model.requests().into_iter().rev())
-        .map(|r| texts(&r))
-        .find(|t| t.last().is_some_and(|m| m.ends_with("turn three")))
-        .expect("the source's request for turn three");
+    let in_source = request_ending(&model, "turn three");
 
     // The nodes of the source, as history names them.
     let (_, history, _) = cli(dir.path(), &["history", &source]);
@@ -192,25 +224,7 @@ fn a_fork_of_the_second_turn_takes_the_other_road_and_both_stay() {
     // Each message's tag ends with when it was written (theseus-sro04).
     let written = written(dir.path(), &[&source, &fork]);
     let ask = "[Terminal · theseus ask ·";
-    // Authorship is a fact of the message (issue 44): an inherited message reads in the fork exactly as
-    // it reads in its source.
-    assert_eq!(
-        said[0], in_source[0],
-        "turn one, in the fork and in its source"
-    );
-    assert_eq!(
-        said[2], in_source[2],
-        "turn two, in the fork and in its source"
-    );
-    // This rig's `theseus ask` has no controlling terminal, so its mark proves no person (`peer_proc`: "no
-    // terminal"), and the view heads its earlier messages as author unknown, in the source as in the fork.
-    // The owner's own message at a terminal would read with no heading, as the conversation here.
-    for (i, words) in [(0, "turn one"), (2, "turn two")] {
-        let tag = format!("{ask} {}] [said on the terminal, ", written[words]);
-        assert!(said[i].starts_with(&tag), "{}", said[i]);
-        let tail = format!("author unknown; not the owner's instruction]\nperson: {words}");
-        assert!(said[i].ends_with(&tail), "{}", said[i]);
-    }
+    inherited_reads_as_in_its_source(&said, &in_source, &written);
     let other = "the other road, please";
     assert_eq!(said[4], format!("{ask} {}] {other}", written[other]));
     assert!(!said.iter().any(|t| t.contains("turn three")), "{said:?}");
