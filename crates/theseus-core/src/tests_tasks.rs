@@ -67,7 +67,9 @@ fn text_of(m: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Array(b) => b
             .iter()
+            .filter(|b| !crate::task_graph::view::is_view(b))
             .filter_map(|b| b["text"].as_str())
+            .map(crate::surface::strip_tag)
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),

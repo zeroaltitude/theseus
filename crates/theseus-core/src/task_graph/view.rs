@@ -42,13 +42,15 @@ pub fn is_view(block: &Value) -> bool {
 
 /// Whether a text is the start of one of the harness's tail blocks: the
 /// view's, the commitments', the date and the git state a turn attaches
-/// (`turn/env_tail.rs`), or the context view's block beside the message
-/// (`view::wire_text::BESIDE_HEAD`). A stand-in model that reads the last user
+/// (`turn/env_tail.rs`), the context view's block beside the message
+/// (`view::wire_text::BESIDE_HEAD`), or a block the view laid under one of its
+/// labels (`view::text::labels::is_labelled`). A stand-in model that reads the last user
 /// text skips these, so a block attached here and left out of this list is
 /// read as the person's words.
 pub fn is_head(text: &str) -> bool {
     text.starts_with(HEAD)
         || text.starts_with(crate::view::wire_text::BESIDE_HEAD)
+        || crate::view::text::labels::is_labelled(text)
         || text.starts_with(crate::commitments::HEAD)
         || text.starts_with(crate::standing::HERE)
         || text.starts_with(crate::project::slice::HEAD)

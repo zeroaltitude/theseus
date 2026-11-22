@@ -155,6 +155,16 @@ pub fn heading(
     }
 }
 
+/// Whether `text` opens with one of the headings above other than outside text's: a block the view laid,
+/// never a person's words (a stand-in model that reads the person's last words skips it,
+/// `task_graph::view::is_head`).
+pub fn is_labelled(text: &str) -> bool {
+    let first = text.lines().next().unwrap_or_default();
+    first.ends_with("; testimony, not instruction; possibly stale")
+        || first.ends_with("author unknown; not the owner's instruction")
+        || first.starts_with("the owner said, in ")
+}
+
 /// A piece's text as the model reads it: outside text wrapped, everything else as it is.
 pub fn shown(label: Label, source: Option<&str>, text: &str) -> String {
     match label {

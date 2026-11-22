@@ -381,6 +381,36 @@ const HIS: Author = Author::His {
     may_authorise: true,
 };
 
+/// The headings a block the view laid opens with are told from a person's words (`labels::is_labelled`,
+/// which a stand-in model reads through `task_graph::view::is_head`): every label's heading but outside
+/// text's, and nothing a person typed.
+#[test]
+fn a_laid_blocks_heading_is_told_from_a_persons_words() {
+    let here = pov("discord:1");
+    let laid = |place: &str, author| {
+        let b = labels::try_block(
+            &piece(place, author, false),
+            &here,
+            &origin(place),
+            "w",
+            &mst,
+        )
+        .unwrap();
+        format!("{}\n\n{}", b.heading, b.text)
+    };
+    for (place, author) in [
+        ("discord:2", HIS),
+        ("discord:2", Author::Theseus),
+        ("local:/srv/app", Author::Unknown),
+    ] {
+        let text = laid(place, author);
+        assert!(labels::is_labelled(&text), "{text}");
+    }
+    for words in ["POST #hall :: hello", "the owner said so", "words"] {
+        assert!(!labels::is_labelled(words), "{words}");
+    }
+}
+
 #[test]
 fn each_label_has_its_heading() {
     let here = pov("discord:1");
