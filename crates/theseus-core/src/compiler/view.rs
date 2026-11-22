@@ -123,7 +123,7 @@ fn chain_spec<'c>(
     // append's, with the card the chain began with. An effective spec that changed since the chain began (a
     // family `tools_find` loaded, a changed system, tools or model) starts a new chain, as the transcript
     // recompiles on a changed digest.
-    let (appended, recompiled) = prepared(&input);
+    let (appended, recompiled) = prepared(input);
     let fresh = || effective(&recompiled, None, &frozen.memory_page);
     let chained = input
         .current
