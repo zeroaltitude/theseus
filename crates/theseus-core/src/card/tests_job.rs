@@ -144,10 +144,9 @@ fn the_fixtures_partner_line_carries_the_secret() {
     assert!(fixture::SECRET_LINE.contains(SECRET));
 }
 
-/// A partner-confidential episode is counted and never read: its text is in
-/// no request, and neither is an outside line or a chat the labels do not
-/// make evidence. (Planted revert: skip the partner check in
-/// `evidence::scan`, and the secret is in the request.)
+/// An outside line, and a chat the labels do not make evidence, are in no
+/// request. (A partner-confidential episode is read as any other since
+/// 2026-11-22: anything goes.)
 #[tokio::test]
 async fn labels_are_respected_before_any_call() {
     let r = rig(vec![two()], |_| {});
@@ -155,7 +154,7 @@ async fn labels_are_respected_before_any_call() {
     let got = propose(&r).await;
     let sent = bodies(&r);
     assert_eq!(sent.len(), 1);
-    for secret in [SECRET, OUTSIDE, CHATTER, "kestrel"] {
+    for secret in [OUTSIDE, CHATTER] {
         assert!(
             !sent[0].contains(secret),
             "{secret} reached the model: {}",
@@ -163,7 +162,7 @@ async fn labels_are_respected_before_any_call() {
         );
     }
     assert!(sent[0].contains("opinion"), "the evidence did");
-    assert_eq!((got.withheld, got.calls), (1, 1), "{got:?}");
+    assert_eq!(got.calls, 1, "{got:?}");
 }
 
 /// The owner card asks its own target model's forcing: on a Sonnet profile

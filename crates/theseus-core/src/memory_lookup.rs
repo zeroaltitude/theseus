@@ -2,7 +2,7 @@
 //! when it wants one, beside what the compiler recalls for the turn.
 //!
 //! - **What it asks**: `words` go through recall's own pipeline (the index,
-//!   the filters with the place rule first, the pack), kept to a span of
+//!   the filters, the pack), kept to a span of
 //!   time and to a book's or a topic's sessions when those are given; with
 //!   no words, `when`, `book` and `topic` list the imported episodes as
 //!   `import.sessions` does (its catalog, a query of about 12 ms), each with
@@ -11,17 +11,15 @@
 //!   that ends a page early and says where the next begins.
 //! - **What each item carries**: its as-of date (an imported episode's span,
 //!   a native node's creation, in the daemon's time zone), its session id,
-//!   its source, its sensitivity, and its text, veiled for `personal` and
-//!   `partner-confidential` exactly as the cockpit's Context page veils it
-//!   (`VEILED`): the labels show, the text does not. The owner reads a
-//!   veiled text in the cockpit; nothing here opens one.
-//! - **Private places only.** Never offered in a shared place (it is no
-//!   public tool: `places::offered`), refused there by the gate if called
-//!   (`places::refusal`), and checked again here against the asking
-//!   session's class and its place (`TurnRunner::place_of`): a shared place
-//!   gets nothing of it.
+//!   its source, its sensitivity, and its text. A label veils nothing
+//!   (anything goes, 2026-11-22): `personal` and `partner-confidential` are
+//!   shown as labels beside the text.
+//! - **Every session, from every place it is offered in.** Which places
+//!   offer it is the tool ceiling's (`places::offered`: a shared place is
+//!   offered the public tools alone, and this is none); what it reads is not
+//!   narrowed by the asking place, a seal or a move.
 //! - **By session** (theseus-8c8s, `read`): `session` reads one session's
-//!   messages in order, a page at a time, veiled as the rest; with `words`
+//!   messages in order, a page at a time; with `words`
 //!   it searches that session alone. A span with no words lists this
 //!   harness's own sessions in it before the imported episodes. So the
 //!   model never needs the daemon's CLI through `proc.run` to say what a
@@ -56,16 +54,12 @@ pub const FAMILY: &str = "memory";
 /// Its name, as the config's `[policy.tools]` checks it.
 pub const NAMES: [&str; 1] = [LOOKUP];
 
-/// The sensitivities whose text is veiled, as the cockpit's Context page
-/// veils them (`cockpit/src/lib/explorer.ts`'s `VEILED`).
+/// The sensitivities the cockpit's Context page veils
+/// (`cockpit/src/lib/explorer.ts`'s `VEILED`). Nothing here veils by them
+/// any more (anything goes); the replay bench still reads the list.
 pub const VEILED: [&str; 2] = ["personal", "partner-confidential"];
-/// An imported item whose episode's labels could not be read: its text is
-/// veiled too, since its sensitivity is not known (fail closed).
+/// The label of an imported item whose episode's labels could not be read.
 pub const UNREAD: &str = "labels unread";
-
-fn veils(sensitivity: Option<&str>) -> bool {
-    sensitivity.is_some_and(|s| VEILED.contains(&s) || s == UNREAD)
-}
 
 /// A page's items by default, and at most.
 const PAGE: u64 = 8;
@@ -77,18 +71,6 @@ const BUDGET_MAX: u64 = 6_000;
 const DEADLINE: Duration = Duration::from_secs(2);
 /// The most sessions a book or a topic narrows a search of words to.
 const SESSIONS_MAX: u64 = 500;
-
-/// Why a session of a sealed thread is not read.
-pub const SEALED: &str =
-    "is a sealed thread's, or a seal is proposed for it: memory.lookup does not \
-     read it from here. The owner opens it in its own thread, or unseals it";
-/// Why a channel bound private reads no other place.
-pub const CHANNEL: &str = "is not this channel's: a channel bound private draws on its own \
-     conversation alone, since anyone who joins it later reads what was said in it";
-
-/// Why a shared place gets nothing.
-pub const SHARED: &str = "memory.lookup reads the owner's memory, and this place is shared: \
-     people besides the owner read it, so nothing of memory is looked up here";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -194,7 +176,7 @@ impl Tool for MemoryLookup {
         LOOKUP
     }
     fn description(&self) -> &'static str {
-        "Search and read your memory of past conversations and the operator's imported history, in-process. Use it for anything said, done or worked on before, instead of the theseus CLI (theseus memory index search, theseus history, theseus sessions) through proc_run. By words, time (when: \"March 2026\"; from, to), book or topic; a time alone lists its sessions; session reads one session's messages. Personal and partner-confidential text is veiled. Page with cursor. Read-only: several calls in one response run at once."
+        "Search and read your memory of past conversations and the operator's imported history, in-process. Use it for anything said, done or worked on before, instead of the theseus CLI (theseus memory index search, theseus history, theseus sessions) through proc_run. By words, time (when: \"March 2026\"; from, to), book or topic; a time alone lists its sessions; session reads one session's messages. Page with cursor. Read-only: several calls in one response run at once."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -261,15 +243,11 @@ impl Board {
         let _ = self.core.set(Arc::downgrade(core));
     }
 
-    /// The call, in its own task: refused in a shared place, by the turn's
-    /// class and again by the session's place.
+    /// The call, in its own task.
     pub fn run(&self, tc: &crate::toolrun::TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
         let fail = |why: &str| -> AsyncMediaRun {
             Box::pin(std::future::ready(Err(ToolFailure::new(why))))
         };
-        if tc.class != crate::places::PlaceClass::Private {
-            return fail(SHARED);
-        }
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
             return fail("memory.lookup is not ready: the core is not built");
         };
@@ -278,11 +256,8 @@ impl Board {
             Err(e) => return fail(&e),
         };
         let session = tc.session_id.to_string();
-        // The turn's presence, taken whole as the call starts: what it reads
-        // is decided by this, whatever happens to the session after.
-        let places = crate::view_gate::RecallPlaces::of(&core.runner, Some(tc.session_id));
         Box::pin(async move {
-            lookup(core, session, a, places)
+            lookup(core, session, a)
                 .await
                 .map(|o| (o, None, None))
                 .map_err(ToolFailure::new)
@@ -298,8 +273,7 @@ pub(crate) async fn call(
     session: &str,
     input: Value,
 ) -> Result<ToolOutput, String> {
-    let places = crate::view_gate::RecallPlaces::of(&core.runner, Some(session));
-    lookup(core, session.to_string(), Args::parse(&input)?, places).await
+    lookup(core, session.to_string(), Args::parse(&input)?).await
 }
 
 /// The page lines of recall's admitted items, as `lookup` renders them:
@@ -335,28 +309,13 @@ struct Item {
     harness: String,
 }
 
-async fn lookup(
-    core: Arc<Core>,
-    session: String,
-    a: Args,
-    places: crate::view_gate::RecallPlaces,
-) -> Result<ToolOutput, String> {
-    page(&core, &session, a, &places).await
+async fn lookup(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
+    page(&core, &session, a).await
 }
 
-/// Whether the session `id` may be read by id from `session`: only when the
-/// gate would admit it whole: never a sealed thread's (or one whose seal is
-/// proposed) unless it is the asker's own thread, and from a turn narrowed to
-/// one place (a channel bound private, a turn not the owner alone) only that
-/// place's. A native session with no record and no nodes is not there; one
-/// with nodes and no record cannot be proven unsealed.
-fn by_id_admitted(
-    core: &Arc<Core>,
-    session: &str,
-    id: &str,
-    places: &crate::view_gate::RecallPlaces,
-) -> Result<(), String> {
-    let runner = &core.runner;
+/// Whether the session `id` is there to read: a native session with no
+/// record and no nodes is not.
+fn by_id_admitted(core: &Arc<Core>, id: &str) -> Result<(), String> {
     let unrecorded = !crate::import::is_imported(id)
         && matches!(
             core.store.get_session::<crate::session::SessionRecord>(id),
@@ -367,36 +326,22 @@ fn by_id_admitted(
             "no session is named {id}: give a session id an earlier answer named (ses_…)"
         ));
     }
-    if crate::view_gate::seal_of(runner, Some(session), id) != theseus_memory::gate::Seal::Clear {
-        return Err(format!("session {id} {SEALED}"));
-    }
-    if !places.may_read(runner, id) {
-        return Err(format!("session {id} {CHANNEL}"));
-    }
     Ok(())
 }
 
 /// The answer's page.
-async fn page(
-    core: &Arc<Core>,
-    session: &str,
-    a: Args,
-    places: &crate::view_gate::RecallPlaces,
-) -> Result<ToolOutput, String> {
+async fn page(core: &Arc<Core>, session: &str, a: Args) -> Result<ToolOutput, String> {
     let (core, session) = (core.clone(), session.to_string());
-    if !matches!(core.runner.place_of(&session), Place::Private) {
-        return Err(SHARED.into());
-    }
     let now = theseus_protocol::now_unix_ms();
     let when = a.span(now)?;
     let limit = a.limit.unwrap_or(PAGE).clamp(1, PAGE_MAX);
     let offset = a.cursor.unwrap_or(0);
     let budget = a.budget_tokens.unwrap_or(BUDGET).clamp(100, BUDGET_MAX);
     if let Some(id) = some(&a.session) {
-        by_id_admitted(&core, &session, id, places)?;
+        by_id_admitted(&core, id)?;
     }
     if some(&a.session).is_some() && some(&a.words).is_none() {
-        return read::session(&core, &session, &a, when.as_ref(), (offset, limit, budget)).await;
+        return read::session(&core, &a, when.as_ref(), (offset, limit, budget)).await;
     }
     // A search of words asks for one past the page, to know there is more.
     let (head, items, total) = match some(&a.words) {
@@ -408,12 +353,11 @@ async fn page(
                 words.to_string(),
                 &a,
                 when.as_ref(),
-                (k, false),
-                places,
+                k,
             )
             .await?
         }
-        None => by_catalog(&core, &session, places, &a, when.as_ref(), offset, limit).await?,
+        None => by_catalog(&core, &a, when.as_ref(), offset, limit).await?,
     };
     let counted = some(&a.words).is_none();
     let items: Vec<Item> = match some(&a.words) {
@@ -452,18 +396,13 @@ async fn page(
         .take(shown as usize)
         .map(|i| i.session_id.as_str())
         .collect();
-    let veiled = items
-        .iter()
-        .take(shown as usize)
-        .filter(|i| veils(i.sensitivity.as_deref()))
-        .count();
     Ok(ToolOutput {
         text,
         meta: json!({
             "mode": if some(&a.words).is_some() { "words" } else { "catalog" },
             "when": when.clone(),
             "total": total, "shown": shown, "cursor": offset,
-            "next": more.then_some(next), "veiled": veiled, "sessions": ids,
+            "next": more.then_some(next), "veiled": 0, "sessions": ids,
             "tokens": used,
         }),
     })
@@ -491,25 +430,17 @@ fn render(n: u64, it: &Item) -> String {
     if let Some(b) = &it.book {
         head.push_str(&format!(" · book {b}"));
     }
-    let veiled = veils(it.sensitivity.as_deref());
     // A volatile value is answered with the time it was true at, never as a
     // bare fact (M6 §2.11, theseus-3nk): the recall render's own rule and
     // wording, so the same value says the same thing here and in a prefix.
-    // Veiled text shows nothing to read, and an item whose source's time
-    // could not be read has no as-of to give.
-    if let Some(mark) = (!veiled && it.at_ms > 0)
+    // An item whose source's time could not be read has no as-of to give.
+    if let Some(mark) = (it.at_ms > 0)
         .then(|| crate::recall::render::volatile_at(&it.text, it.at_ms))
         .flatten()
     {
         head.push_str(&format!(" · {mark}"));
     }
-    let body = match veiled {
-        true => format!(
-            "[{} · veiled: its text stays veiled here, as on the cockpit's Context page; the owner opens it there]",
-            it.sensitivity.as_deref().unwrap_or_default().replace('-', " ")
-        ),
-        false => it.text.split_whitespace().collect::<Vec<_>>().join(" "),
-    };
+    let body = it.text.split_whitespace().collect::<Vec<_>>().join(" ");
     format!("{head}\n   {body}")
 }
 
@@ -547,8 +478,6 @@ fn offset_words() -> String {
 /// book or topic lists this harness's own sessions in it first (`read`).
 async fn by_catalog(
     core: &Arc<Core>,
-    asker: &str,
-    places: &crate::view_gate::RecallPlaces,
     a: &Args,
     when: Option<&When>,
     offset: u64,
@@ -556,27 +485,10 @@ async fn by_catalog(
 ) -> Result<(String, Vec<Item>, u64), String> {
     let own = match when {
         Some(w) if some(&a.book).is_none() && some(&a.topic).is_none() => {
-            read::own_sessions(core, asker, places, w).await?
+            read::own_sessions(core, w).await?
         }
         _ => Vec::new(),
     };
-    // A channel bound private, or a turn that is not the owner alone, lists
-    // its own place's sessions and no imported episode, which is the owner's
-    // history from elsewhere.
-    if places.narrowed().is_some() {
-        let n = own.len() as u64;
-        let items: Vec<Item> = own
-            .into_iter()
-            .skip(offset as usize)
-            .take(limit as usize)
-            .collect();
-        let head = format!(
-            "memory.lookup: {} of this place {}, newest first; only the owner alone, at the terminal, the web page or a DM, is listed other places'.",
-            crate::narrative::count(n, "session", "sessions"),
-            what(a, when)
-        );
-        return Ok((head, items, n));
-    }
     let n_own = own.len() as u64;
     let mut items: Vec<Item> = own
         .into_iter()
@@ -636,16 +548,15 @@ fn episode_item(e: &ImportedEpisode, text: Option<String>) -> Item {
 }
 
 /// Recall's pipeline over `words`, as a turn of this session's would run
-/// it (the place rule first), kept to the span and to a book's or a topic's
-/// sessions: the first `k` it admits.
+/// it, kept to the span and to a book's or a topic's sessions: the first `k`
+/// it admits.
 async fn by_words(
     core: &Arc<Core>,
     session: Option<&str>,
     words: String,
     a: &Args,
     when: Option<&When>,
-    (k, private_only): (u64, bool),
-    places: &crate::view_gate::RecallPlaces,
+    k: u64,
 ) -> Result<(String, Vec<Item>, u64), String> {
     // A book or a topic: its sessions, from the catalog.
     let (sessions, narrowed) = match narrowed_to(core, a).await? {
@@ -681,36 +592,28 @@ async fn by_words(
         sessions,
     );
     begun.max_items = Some(k);
-    let mut answer = begun.answer().await;
-    // A channel bound private, or a turn that is not the owner alone, recalls
-    // as a place of one (the gate's decision 5).
-    let threads = core.runner.thread_scene(session, &words, false);
-    // Seals hold on every path, threads on or off (the gate).
-    let sealed = crate::view_gate::seal_out(&core.runner, session, &mut answer.0);
+    let answer = begun.answer().await;
     let scene = crate::recall::Scene {
         mode: "lookup",
         session_id: session,
         turn_id: None,
-        place: places.asker(Place::Private),
+        place: session.map_or(Place::Private, |s| core.runner.place_of(s)),
         in_context,
         labeled: memory.labeled(&core.store).map_err(|e| format!("{e:#}"))?,
         budget_tokens: Some(BUDGET_MAX * 4),
         max_items: None,
         science: memory.science_for(MemoryArm::Baseline),
-        // Asked for, so no distance; a sealed thread's notes stay out.
-        threads,
         persona: None,
         category: None,
     };
-    let mut m = memory.manifest(
+    let m = memory.manifest(
         &scene,
         &begun,
         answer,
-        |s| places.of_session(&core.runner, s),
+        |s| core.runner.place_of(s),
         |ids| crate::recall::links(&core.store, ids),
         true,
     );
-    crate::view_gate::count_sealed(&mut m, sealed);
     // `words_only`: the vector search was late or failed, and the word
     // sources answered (recall-fallback); their hits are an answer.
     if m.outcome != "ran" && m.outcome != crate::recall::WORDS_ONLY {
@@ -720,16 +623,7 @@ async fn by_words(
             m.why.as_deref().map(|w| format!(": {w}")).unwrap_or_default()
         ));
     }
-    // A private asker is let draw on a shared place's sessions; the MCP
-    // tools never show one (theseus-02i1h): checked here, as the place
-    // rule reads each hit's session.
-    let admitted: Vec<_> = m
-        .admitted
-        .iter()
-        .filter(|i| !private_only || core.runner.place_of(&i.session_id) == Place::Private)
-        .cloned()
-        .collect();
-    let items = items_of(core, &admitted).await?;
+    let items = items_of(core, &m.admitted).await?;
     let total = items.len() as u64;
     let head = format!(
         "memory.lookup: recall's items for {words:?}{}{narrowed}, best first.",
@@ -832,7 +726,7 @@ async fn items_of(
                 it
             }
             // An imported session the catalog did not name: its labels
-            // are unknown, so its text stays veiled.
+            // are unknown, and said so.
             None if crate::import::is_imported(&i.session_id) => Item {
                 when: String::new(),
                 session_id: i.session_id.clone(),

@@ -16,13 +16,9 @@
 //!   after serving), the same terms are made by reading every imported
 //!   session's record (`Walked`), and the answer says so (`indexed:
 //!   false`). A test holds the two to the same answers.
-//! - **A shared place reads no episode's text.** An imported session is
-//!   the owner's own history, private under the place rule whatever place
-//!   its episode names (`recall::place_of`), so recall never draws on it
-//!   in a shared place; here, asked for a shared place, each episode keeps
-//!   its book, times, source and labels' sensitivity, and its summary,
-//!   topics, place and partner are withheld, and no filter or facet reads
-//!   them.
+//! - **Every place reads every episode** (anything goes, 2026-11-22): its
+//!   summary, topics, place and partner, with its filters and facets. An
+//!   old answer's `withheld` field still decodes; nothing sets it.
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -42,10 +38,6 @@ use crate::import::{summary_id_of, AsOf, EpisodeLabels, EpisodePlace, SESSION_PR
 use crate::node::Body;
 use crate::session::SessionRecord;
 use crate::store::Store;
-
-/// Why a shared place sees no episode's text.
-pub const WITHHELD: &str = "an imported episode is the owner's own history, private under the \
-                            place rule: its text is not shown in a shared place";
 
 /// The book an episode's hint names: one of `BOOKS`, else `unsorted`.
 pub fn book_of(hint: Option<&str>) -> &'static str {
@@ -350,7 +342,6 @@ pub struct Query {
     /// The (term, key) the last page ended on.
     cursor: Option<(String, String)>,
     limit: usize,
-    private: bool,
 }
 
 /// A page's default size, and its largest.
@@ -358,9 +349,9 @@ pub const PAGE: usize = 50;
 pub const PAGE_MAX: usize = 200;
 
 impl Query {
-    /// `p` checked, for a private place or not: the reason it is not a
-    /// question, if it is not.
-    pub fn of(p: &BooksPageParams, private: bool) -> std::result::Result<Self, String> {
+    /// `p` checked: the reason it is not a question, if it is not.
+    /// `_private` is read no more (anything goes); it goes with the sweep.
+    pub fn of(p: &BooksPageParams, _private: bool) -> std::result::Result<Self, String> {
         if !is_book(&p.book) {
             return Err(format!(
                 "{:?} is not a book: one of {}, or {UNSORTED}",
@@ -375,11 +366,6 @@ impl Query {
                 return Err(format!("{v:?} is not a value a filter can name"));
             };
             filters.push((f, v.to_string()));
-        }
-        if !private && !filters.is_empty() {
-            return Err(format!(
-                "no filter reads the episodes' labels here: {WITHHELD}"
-            ));
         }
         let walk = walk_prefix(&p.book, filters.first().map(|(f, v)| (*f, v.as_str())));
         let cursor = match &p.cursor {
@@ -398,7 +384,6 @@ impl Query {
             filters,
             cursor,
             limit,
-            private,
         })
     }
 }
@@ -416,12 +401,10 @@ fn page_from(store: &Store, src: &dyn Terms, q: &Query, t0: Instant) -> Result<B
         .counts(&count_term(book), &format!("{}\u{1}", count_term(book)))?
         .first()
         .map_or(0, |(_, n)| *n);
-    let facets = (q.private && q.cursor.is_none())
-        .then(|| facets(src, book))
-        .transpose()?;
+    let facets = q.cursor.is_none().then(|| facets(src, book)).transpose()?;
     let mut episodes = Vec::with_capacity(keys.len());
     for key in &keys {
-        if let Some(e) = episode(store, key, book, q.private)? {
+        if let Some(e) = episode(store, key, book)? {
             episodes.push(e);
         }
     }
@@ -520,7 +503,7 @@ fn facets(src: &dyn Terms, book: &str) -> Result<BookFacets> {
 
 /// One episode as a page shows it, from its session's record and its
 /// summary's node: none when the record is gone.
-fn episode(store: &Store, key: &str, book: &str, private: bool) -> Result<Option<BookEpisode>> {
+fn episode(store: &Store, key: &str, book: &str) -> Result<Option<BookEpisode>> {
     let Some(r) = store.get_session::<SessionRecord>(key)? else {
         return Ok(None);
     };
@@ -540,10 +523,6 @@ fn episode(store: &Store, key: &str, book: &str, private: bool) -> Result<Option
         triage: i.triage.as_ref().map(|t| t.category.clone()),
         ..BookEpisode::default()
     };
-    if !private {
-        e.withheld = Some(WITHHELD.to_string());
-        return Ok(Some(e));
-    }
     e.place = Some(BookPlace {
         kind: i.place.kind.clone(),
         name: i.place.name.clone(),

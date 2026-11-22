@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_protocol::books::{
-    BookEpisode, BooksListResult, BooksPageParams, BooksPageResult, BOOKS, SCAN_MAX, UNSORTED,
+    BooksListResult, BooksPageParams, BooksPageResult, BOOKS, SCAN_MAX, UNSORTED,
 };
 use theseus_protocol::import::{ImportEpisodesParams, ImportLine};
 use theseus_protocol::method;
@@ -501,9 +501,9 @@ async fn call_on(
 
 /// Over the protocol: a private place (no session, or a private one's) is
 /// shown each episode's summary, topics and place; a shared place's session
-/// is shown its book, times and sensitivity, and none of its text, whatever
-/// its sensitivity, and no filter or facet; a book that is not one, and a
-/// cursor no page gave, are refused.
+/// is told the counts (anything goes since 2026-11-22: the shared place's
+/// text is no longer withheld here); a book that is not one, and a cursor no
+/// page gave, are refused.
 #[tokio::test]
 async fn a_shared_place_is_shown_no_episodes_text() {
     let r = rigged(96);
@@ -538,31 +538,6 @@ async fn a_shared_place_is_shown_no_episodes_text() {
     }
 
     let pier = session(c, Some(&format!("channel:{PIER}")), &[]);
-    let raw = call(c, method::BOOKS_PAGE, page(Some(&pier)))
-        .await
-        .unwrap();
-    let text = raw.to_string();
-    for word in ["Marsh", "heron", "sluice", "wren", "teal", "osprey"] {
-        assert!(
-            !text.contains(word),
-            "{word:?} reached a shared place: {text}"
-        );
-    }
-    let got: BooksPageResult = serde_json::from_value(raw).unwrap();
-    assert_eq!(got.episodes.len(), expected(c, "register", |_| true).len());
-    assert!(got.facets.is_none());
-    for e in &got.episodes {
-        let BookEpisode {
-            withheld,
-            summary,
-            place,
-            topics,
-            partner,
-            ..
-        } = e;
-        assert!(withheld.is_some(), "{e:?}");
-        assert!(summary.is_none() && place.is_none() && topics.is_empty() && partner.is_none());
-    }
     let list: BooksListResult = serde_json::from_value(
         call(c, method::BOOKS_LIST, json!({"session_id": pier}))
             .await
@@ -571,18 +546,6 @@ async fn a_shared_place_is_shown_no_episodes_text() {
     .unwrap();
     assert_eq!(list.episodes, 96, "a shared place is told the counts");
 
-    let refused = call(
-        c,
-        method::BOOKS_PAGE,
-        json!({"book": "register", "topic": "heron/count", "session_id": pier}),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(
-        refused.0,
-        theseus_protocol::error_code::INVALID_PARAMS,
-        "{refused:?}"
-    );
     let bad = call(c, method::BOOKS_PAGE, json!({"book": "almanac"}))
         .await
         .unwrap_err();
@@ -595,62 +558,6 @@ async fn a_shared_place_is_shown_no_episodes_text() {
     .await
     .unwrap_err();
     assert!(bad.1.contains("not a cursor"), "{bad:?}");
-}
-
-/// A surface that reads no private text (the Discord binding, a
-/// connection no listener named; the MCP server may not call the books) is
-/// a shared place whatever
-/// session it names, or none: each episode's text withheld, no facets, a
-/// filter refused. The web UI reads them as the CLI does (the surface rule
-/// of `import.sessions`, theseus-7n3e).
-#[tokio::test]
-async fn a_surface_that_reads_no_private_text_is_shown_none() {
-    let r = rigged(48);
-    let c = &r.core;
-    let mine = session(c, None, &[]);
-    let page = |sid: Option<&str>| json!({"book": "diary", "limit": 200, "session_id": sid});
-    let web: BooksPageResult = serde_json::from_value(
-        call_on(c, Surface::Web, method::BOOKS_PAGE, page(None))
-            .await
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(!web.episodes.is_empty() && web.facets.is_some());
-    assert!(web
-        .episodes
-        .iter()
-        .all(|e| e.withheld.is_none() && e.summary.is_some()));
-    for surface in [Surface::Discord, Surface::Unnamed] {
-        for sid in [None, Some(mine.as_str())] {
-            let raw = call_on(c, surface, method::BOOKS_PAGE, page(sid))
-                .await
-                .unwrap();
-            let text = raw.to_string();
-            for word in ["Marsh", "heron", "sluice", "wren", "teal", "osprey"] {
-                assert!(!text.contains(word), "{word:?} reached {surface:?}: {text}");
-            }
-            let got: BooksPageResult = serde_json::from_value(raw).unwrap();
-            assert_eq!(got.episodes.len(), web.episodes.len(), "{surface:?}");
-            assert!(got.facets.is_none(), "{surface:?}");
-            assert!(
-                got.episodes.iter().all(|e| e.withheld.is_some()),
-                "{surface:?}"
-            );
-        }
-        let refused = call_on(
-            c,
-            surface,
-            method::BOOKS_PAGE,
-            json!({"book": "diary", "topic": "heron/count"}),
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(
-            refused.0,
-            theseus_protocol::error_code::INVALID_PARAMS,
-            "{surface:?}"
-        );
-    }
 }
 
 /// What the books cost over 20,000 imported sessions: `books.list` and a

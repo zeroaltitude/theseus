@@ -141,8 +141,6 @@ pub(crate) mod content;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_cross_judge;
-#[cfg(test)]
 mod tests_exec_list;
 #[cfg(test)]
 mod tests_health_counts;
@@ -180,8 +178,6 @@ mod tests_named_by_reply;
 mod tests_node_names;
 #[cfg(test)]
 mod tests_ordered;
-#[cfg(test)]
-mod tests_own_top;
 #[cfg(test)]
 mod tests_peek;
 #[cfg(test)]
@@ -246,8 +242,6 @@ mod tests_thread_home;
 mod tests_thread_join;
 #[cfg(test)]
 mod tests_thread_link;
-#[cfg(test)]
-mod tests_thread_mix;
 #[cfg(test)]
 mod tests_thread_recall;
 #[cfg(test)]

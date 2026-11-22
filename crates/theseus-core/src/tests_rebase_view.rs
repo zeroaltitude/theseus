@@ -16,22 +16,10 @@ use crate::tests_places::{last_user, rig_setup, rig_with, session, turn, Rig, OW
 use crate::tests_private_view::session_in;
 use crate::view::history::HistoryArgs;
 use crate::view::record::{self, ViewRecord};
-use crate::view::{Form, Present, Slot, Space};
+use crate::view::{Form, Slot, Space};
 
 fn view_rig() -> Rig {
     rig_with(|_| {})
-}
-
-fn none(_: &str) -> bool {
-    false
-}
-
-fn none_moved(_: &Exchange) -> bool {
-    false
-}
-
-fn all_private(_: &str) -> bool {
-    true
 }
 
 /// The exchanges a view laid in its window (slot G), with the form each was laid in.
@@ -97,13 +85,8 @@ async fn a_bare_history_call_begins_where_the_views_window_does() {
     let lens = Lens {
         store: &c.store,
         here,
-        present: Present::OwnerAlone,
-        hidden: &none,
-        moved: &none_moved,
-        private: &all_private,
         in_view: Some(begins),
         words: None,
-        own: None,
     };
     let paged: Vec<String> = (lens
         .walk(&HistoryArgs::default(), None, 0)
@@ -360,13 +343,8 @@ fn bare_page(c: &crate::Core, session: &str, here: &str) -> Vec<String> {
     let lens = Lens {
         store: &c.store,
         here: here.into(),
-        present: Present::OwnerAlone,
-        hidden: &none,
-        moved: &none_moved,
-        private: &all_private,
         in_view: begins,
         words: None,
-        own: None,
     };
     let walked = lens.walk(&HistoryArgs::default(), None, 0).unwrap();
     walked.page.lines.into_iter().map(|l| l.handle.0).collect()

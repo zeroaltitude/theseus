@@ -5,9 +5,9 @@
 //!   (`USER.md`, `user-…`), a feedback note (`feedback` in the file's path,
 //!   the place's name or a topic), an SOP (`book_hint` `sop`), and a
 //!   `decision_or_preference` triage. Anything else is not read at all.
-//! - **Never partner-confidential.** The label (or a partner codename) is
-//!   checked from the session's record, before its nodes are touched: the
-//!   episode is counted in `withheld` and its text is not loaded.
+//! - **Every label is read** (anything goes, 2026-11-22): a
+//!   partner-confidential episode is evidence as any other; `withheld` is
+//!   always 0, and stays in the answer for old readers.
 //! - **Whose words.** A conversation (`decision`) gives the owner's own
 //!   messages (`Integrity::Operator`) only. A note (a file the owner kept,
 //!   or his earlier assistant's USER file about him) gives operator and
@@ -96,7 +96,8 @@ pub struct Episode {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scan {
     pub episodes: Vec<Episode>,
-    /// Evidence episodes left unread because they are partner-confidential.
+    /// Evidence episodes left unread for a label: none any more (anything
+    /// goes); kept for the answer's shape.
     pub withheld: u64,
     /// Lines dropped as an assistant's setup, not the owner's words.
     pub setup: u64,
@@ -235,12 +236,6 @@ pub fn one_task(line: &str) -> bool {
     ONE_TASK.iter().any(|p| has_phrase(&l, p))
 }
 
-/// Whether an episode's labels make it partner-confidential: the label, or a
-/// partner codename.
-pub fn partner(i: &ImportedFrom) -> bool {
-    i.labels.sensitivity == "partner-confidential" || i.labels.partner.is_some()
-}
-
 /// What `i` is evidence of, by its labels alone.
 pub fn classify(i: &ImportedFrom) -> Option<Kind> {
     let file = Path::new(&i.file)
@@ -331,11 +326,6 @@ pub fn scan(store: &Store) -> Result<Scan> {
                 continue;
             }
             let Some(kind) = classify(&i) else { continue };
-            // The label decides before a node is read.
-            if partner(&i) {
-                out.withheld += 1;
-                continue;
-            }
             if let Some(e) = episode(store, &sid, &i, kind, &mut out)? {
                 out.episodes.push(e);
             }
@@ -429,7 +419,7 @@ fn episode(
 /// anchored at its first cited message: its session, its time, its one line.
 /// `episodes[i]` is `observations[i]`'s. An observation citing no node is
 /// left out (the observer writes at least one). Read from the store alone: no
-/// archive record, so a partner-confidential episode is never in it.
+/// archive record.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LiveScan {
     pub episodes: Vec<Episode>,

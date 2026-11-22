@@ -1,7 +1,7 @@
 //! Recall (M6 step 30a; design §2.4), in shadow: on a turn's first loop, when
 //! the turn brings something new (its input, a wake, a task's report), ask the
 //! index what past nodes bear on it, filter and pack what it answers
-//! (`theseus_memory::recall`, the place rule first), and record what would
+//! (`theseus_memory::recall`), and record what would
 //! have been admitted as a `recall.shadow` row (`fact::recall`). Nothing of it
 //! reaches the model, and it writes no frame: the row rides in the turn's
 //! next one.
@@ -11,9 +11,9 @@
 //!   turn reads the answer once its call has answered: a stalled or absent
 //!   index costs the turn at most the deadline past its call, and the row says
 //!   `deadline` or `unavailable`.
-//! - **The place rule.** A candidate's place is its session's, read as the
-//!   turn's own is (`TurnRunner::place_of`, `class_of`'s rule): its target,
-//!   or where its wakes answer; a place that cannot be read is no place's.
+//! - **Every place.** A turn draws on every session (anything goes,
+//!   2026-11-22). A candidate's place is its session's, read as the turn's
+//!   own is (`TurnRunner::place_of`): the manifest says it, nothing drops it.
 //! - `memory.search` runs the same pipeline for a query, writing nothing, and
 //!   `memory.recalls` reads a session's rows (`rpc/memory.rs`).
 //!
@@ -745,30 +745,12 @@ pub struct Scene<'a> {
     /// The turn's arm's science (`Memory::science_for`): `baseline` in
     /// shadow, and for a search with no arm.
     pub science: Arc<dyn MemoryScience>,
-    /// The threads' part of the recall (theseus-f2g0); none when no thread
-    /// exists or the recall is not a session's.
-    pub threads: Option<crate::thread_recall::ThreadScene>,
     /// The engaged persona's part of the recall (theseus-a8n7); none when no
     /// persona is engaged.
     pub persona: Option<crate::persona_recall::PersonaScene>,
     /// The categories the asking session shares with a note's (theseus-jrf4c);
     /// none in a shared place, for a lookup, or with the term off.
     pub category: Option<crate::category_recall::CategoryScene>,
-}
-
-impl Scene<'_> {
-    /// What the threads do to this recall over `candidates` (theseus-f2g0).
-    pub fn lens(&self, candidates: &[Candidate]) -> Option<theseus_memory::ThreadLens> {
-        let t = self.threads.as_ref()?;
-        Some(
-            t.lens(
-                candidates
-                    .iter()
-                    .map(|c| (c.session_id.as_str(), c.node_id.as_str(), c.fused)),
-                &self.in_context,
-            ),
-        )
-    }
 }
 
 impl Memory {
@@ -887,15 +869,12 @@ impl Memory {
         } else {
             Vec::new()
         };
-        let lens = scene.lens(&candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
-            place: &scene.place,
             in_context: &scene.in_context,
             labeled: &scene.labeled,
             links: &links,
             now_ms: theseus_protocol::now_unix_ms(),
-            threads: lens.as_ref(),
         };
         let mut params = begun.params(self.cfg.params(), (m.budget_tokens, scene.max_items));
         params.persona = scene.persona.as_ref().and_then(|p| p.boost(&candidates));
@@ -916,7 +895,7 @@ impl Memory {
     }
 
     /// The pack again, ranked by `order` (Jev's, from a live rerank, 32d):
-    /// the same filters, the place rule first, the memory pass's links, and
+    /// the same filters, the memory pass's links, and
     /// the same budget, into `m`'s items, drops, and budget.
     pub fn refill(
         &self,
@@ -927,15 +906,12 @@ impl Memory {
         mut ranks: Ranks,
         order: Vec<String>,
     ) {
-        let lens = scene.lens(&candidates);
         let asker = Asker {
             session_id: scene.session_id.unwrap_or_default(),
-            place: &scene.place,
             in_context: &scene.in_context,
             labeled: &scene.labeled,
             links,
             now_ms: theseus_protocol::now_unix_ms(),
-            threads: lens.as_ref(),
         };
         let params = self.params_of(m, scene.max_items);
         let marks = neighbour::marks(&candidates);
@@ -1017,7 +993,7 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
         overage: None,
     });
     for d in &pack.dropped {
-        *m.drops.entry(d.reason.family().into()).or_default() += 1;
+        *m.drops.entry(d.reason.as_str().into()).or_default() += 1;
     }
     m.admitted = pack
         .admitted
@@ -1052,9 +1028,9 @@ fn fill(m: &mut RecallManifest, pack: Pack, ranks: &mut Ranks, texts: bool) {
             fused: d.candidate.fused,
             tokens: d.tokens,
             retention: None,
-            own_top: d.distance.map(|x| x.own_top),
-            share: d.distance.map(|x| x.share),
-            paid: d.distance.map(|x| x.paid),
+            own_top: None,
+            share: None,
+            paid: None,
         })
         .collect();
 }

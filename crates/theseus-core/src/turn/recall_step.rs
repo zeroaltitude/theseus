@@ -189,13 +189,7 @@ impl TurnRunner {
     /// The scene of the turn's recall under `arm`'s science: its place, the
     /// nodes its request carries (and the sources of the recalls among
     /// them), and the labels.
-    pub(super) fn scene<'a>(
-        &self,
-        t: &'a Turn<'_>,
-        mode: &'a str,
-        arm: MemoryArm,
-        message: &str,
-    ) -> Scene<'a> {
+    pub(super) fn scene<'a>(&self, t: &'a Turn<'_>, mode: &'a str, arm: MemoryArm) -> Scene<'a> {
         // A view turn counts only what its view lays (issue 44); the transcript, all it carries.
         let in_context = match self.on_transcript() {
             false => self.view_in_context(t),
@@ -208,17 +202,11 @@ impl TurnRunner {
                 tracing::warn!(error = %format!("{e:#}"), "recall: the labels cannot be read; none is applied");
                 BTreeSet::new()
             });
-        // A channel bound private recalls as a place of one (the gate's
-        // decision 5); the category reads the place as it is.
-        let today = self.place_of(t.tc.session_id);
-        let place =
-            crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id)).asker(today.clone());
-        let threads = self.thread_scene(Some(t.tc.session_id), message, true);
-        let category = self.category_scene(
-            Some(t.tc.session_id),
-            today == theseus_memory::Place::Private,
-            threads.as_ref(),
-        );
+        // Every turn draws on every place (anything goes); the manifest
+        // names the place it asked from.
+        let place = self.place_of(t.tc.session_id);
+        let threads = self.thread_scene(Some(t.tc.session_id));
+        let category = self.category_scene(Some(t.tc.session_id), true, threads.as_ref());
         // The prompt's tier sizes the pack (theseus-d9je7); an assembled
         // section keeps its own budget.
         let (budget_tokens, max_items) = match t.recall.assembled {
@@ -240,7 +228,6 @@ impl TurnRunner {
             budget_tokens,
             max_items,
             science: self.memory.science_for(arm),
-            threads,
             persona: self.persona_scene(t.target.persona.as_deref()),
             category,
         }
@@ -278,26 +265,20 @@ impl TurnRunner {
     /// recalls, its span, and its line.
     pub(super) async fn recall_end(&self, t: &mut Turn<'_>, mut begun: Begun) {
         let t0 = t.trace.at(begun.started);
-        let mut answer = begun.answer().await;
-        let places = crate::view_gate::RecallPlaces::of(self, Some(t.tc.session_id));
-        let scene = self.scene(t, "shadow", MemoryArm::Baseline, &begun.said);
-        // Seals hold on every path, threads on or off (the gate).
-        let sealed = crate::view_gate::seal_out(self, Some(t.tc.session_id), &mut answer.0);
+        let answer = begun.answer().await;
+        let scene = self.scene(t, "shadow", MemoryArm::Baseline);
         let (mut m, candidates, links) = self.memory.manifest_with(
             &scene,
             &begun,
             answer,
-            |s| places.of_session(self, s),
+            |s| self.place_of(s),
             |ids| crate::recall::links(&self.store, ids),
             false,
         );
-        crate::view_gate::count_sealed(&mut m, sealed);
         self.memory.noted(&m);
         // What the rerank reads of the scene (32c), taken now: the rest of
         // the scene borrows the turn, which the row and the mark need.
-        let lens = scene.lens(&candidates);
         let Scene {
-            place,
             in_context,
             labeled,
             science,
@@ -323,14 +304,12 @@ impl TurnRunner {
                 session_id: t.tc.session_id.to_string(),
                 turn_id: t.tc.turn_id.to_string(),
                 message: begun.query.clone(),
-                place,
                 in_context,
                 labeled,
                 candidates,
                 links,
                 params: self.memory.cfg().params(),
                 science,
-                threads: lens,
                 admitted: m
                     .admitted
                     .iter()
@@ -465,7 +444,7 @@ impl TurnRunner {
         let mut items = Vec::new();
         let ids: Vec<&str> = m.admitted.iter().map(|i| i.node_id.as_str()).collect();
         let handles = theseus_protocol::cite::handles_for(&ids);
-        let threads = self.thread_scene(Some(t.tc.session_id), "", false);
+        let threads = self.thread_scene(Some(t.tc.session_id));
         let persona = self.persona_scene(t.target.persona.as_deref());
         for (item, handle) in m.admitted.iter().zip(&handles) {
             let probe = RecalledRef {
@@ -592,15 +571,12 @@ impl TurnRunner {
         let recalls = nodes
             .iter()
             .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let mut sources = match recalls.clone().next() {
+        let sources = match recalls.clone().next() {
             Some(_) => self
                 .memory
                 .read_sources(&self.store, recalls.map(|(_, n)| &**n)),
             None => Sources::new(),
         };
-        // Each earlier note is admitted again under this turn's presence and
-        // the seals as they are now (the gate).
-        crate::view_gate::readmit_sources(self, t.tc.session_id, &mut sources);
         (nodes, sources)
     }
 
