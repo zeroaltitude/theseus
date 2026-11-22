@@ -35,6 +35,9 @@ pub struct Sessions {
     /// (`super::sources_names`), a waiting record's line (`super::sources_waiting`), the facts about the
     /// person (`super::sources_people`). The renderer lays what the selectors read, once.
     pub texts: std::cell::RefCell<std::collections::BTreeMap<super::Space, String>>,
+    /// The sessions those texts were read from, as the gate admitted them: a seal of one before a later
+    /// call of the turn revokes the view (`turn::view_step`).
+    pub depends: std::cell::RefCell<std::collections::BTreeSet<String>>,
     /// How many times the store was read for a session.
     pub reads: std::cell::Cell<u32>,
 }

@@ -8,7 +8,7 @@
 //! session's marks, so the gate decides it like any other (a sealed thread's question is not shown).
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use theseus_kernel::Kernel;
 use theseus_protocol::tasks::TaskState;
@@ -28,6 +28,8 @@ pub struct StoreWaiting<'a> {
     pub homes: &'a dyn Homes,
     /// Each text read, by its space; the renderer lays it (`wire_text`).
     pub texts: &'a RefCell<BTreeMap<Space, String>>,
+    /// The sessions read from (`Sessions::depends`).
+    pub depends: &'a RefCell<BTreeSet<String>>,
 }
 
 impl StoreWaiting<'_> {
@@ -36,6 +38,7 @@ impl StoreWaiting<'_> {
         let size = tokens(&line);
         let space = Space::Waiting { id: id.to_string() };
         self.texts.borrow_mut().insert(space.clone(), line);
+        self.depends.borrow_mut().insert(session.to_string());
         let pos = Pos {
             at_ms,
             id: id.to_string(),

@@ -294,7 +294,7 @@ impl TurnRunner {
             sessions: Default::default(),
         };
         let ladder = OnceLadder::new(&gated);
-        let moving = self.moving(store, (&permit, &pov), t.exchange.items(), &read.texts)?;
+        let moving = self.moving(store, (&permit, &pov), t.exchange.items(), &read)?;
         let cards = StoreCards {
             store,
             kernel: &self.kernel,
@@ -329,6 +329,8 @@ impl TurnRunner {
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
+        // What a card, a waiting line or a fact was read from: a seal before a later call revokes it.
+        sessions.extend(read.depends.borrow().iter().cloned());
         sessions.sort();
         sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -358,12 +360,13 @@ impl TurnRunner {
         store: &'a Store,
         (permit, pov): (&'a Permit, &'a PointOfView),
         items: &[String],
-        texts: &'a std::cell::RefCell<std::collections::BTreeMap<Space, String>>,
+        read: &'a Sessions,
     ) -> anyhow::Result<Moving<'a>> {
+        let (texts, depends) = (&read.texts, &read.depends);
         let called = match self.threads.core() {
             Some(core) => {
                 let tasks = crate::task_graph::all(store)?;
-                let admits = ViewAdmits::new(permit, pov, self, tasks);
+                let admits = ViewAdmits::new(permit, pov, self, tasks, depends);
                 Some(Called::build(core, admits, items.to_vec(), texts)?)
             }
             None => None,
@@ -375,6 +378,7 @@ impl TurnRunner {
                 kernel: &self.kernel,
                 homes: self,
                 texts,
+                depends,
             },
             people: StorePeople {
                 ontology: self.ontology.snapshot(store)?,

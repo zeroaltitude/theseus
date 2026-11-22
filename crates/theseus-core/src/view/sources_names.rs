@@ -45,6 +45,8 @@ pub struct ViewAdmits<'a> {
     pub tasks: Vec<TaskRecord>,
     /// The marks of each thing admitted, by its key.
     admitted: RefCell<BTreeMap<String, Marks>>,
+    /// Every session a record admitted was read from (`Sessions::depends`).
+    depends: &'a RefCell<BTreeSet<String>>,
 }
 
 impl<'a> ViewAdmits<'a> {
@@ -53,6 +55,7 @@ impl<'a> ViewAdmits<'a> {
         pov: &'a PointOfView,
         homes: &'a dyn Homes,
         tasks: Vec<TaskRecord>,
+        depends: &'a RefCell<BTreeSet<String>>,
     ) -> Self {
         Self {
             gate,
@@ -60,7 +63,17 @@ impl<'a> ViewAdmits<'a> {
             homes,
             tasks,
             admitted: RefCell::default(),
+            depends,
         }
+    }
+
+    /// [`Self::passes`] for a record of `session`, which the view then depends on.
+    fn passes_of(&self, session: &str, marks: Marks, at_ms: u64) -> bool {
+        let ok = self.passes(marks, at_ms);
+        if ok {
+            self.depends.borrow_mut().insert(session.to_string());
+        }
+        ok
     }
 
     /// Whether the gate admits a record of these marks, of this time.
@@ -89,9 +102,9 @@ impl<'a> ViewAdmits<'a> {
         self.gate.admit(self.pov, piece).is_some()
     }
 
-    /// A task's marks: its home session's.
-    fn task_marks(&self, t: &TaskRecord) -> Marks {
-        self.homes.marks(&crate::task_graph::home(&self.tasks, t))
+    /// A task's home session.
+    fn home(&self, t: &TaskRecord) -> String {
+        crate::task_graph::home(&self.tasks, t)
     }
 
     /// The marks the gate admitted `thing` with, if it did.
@@ -131,30 +144,41 @@ fn exchange_marks(homes: &dyn Homes, e: &Exchange) -> Marks {
 
 impl Admits for ViewAdmits<'_> {
     fn fact(&self, r: &StandingRecord) -> bool {
-        let marks = match &r.scope {
-            StandingScope::Session(s) => self.homes.marks(s),
+        match &r.scope {
+            StandingScope::Session(s) => self.passes_of(s, self.homes.marks(s), r.since_ms),
             // A place's record is held as private to it: shown there, or to the owner alone.
-            StandingScope::Place(p) => private(p),
-            _ => filing(),
-        };
-        self.passes(marks, r.since_ms)
+            StandingScope::Place(p) => self.passes(private(p), r.since_ms),
+            _ => self.passes(filing(), r.since_ms),
+        }
     }
 
     fn exchange(&self, e: &Exchange) -> bool {
-        self.passes(exchange_marks(self.homes, e), e.start_ms)
+        self.passes_of(&e.session_id, exchange_marks(self.homes, e), e.start_ms)
     }
 
     fn thing(&self, s: Source<'_>) -> bool {
-        let (key, marks) = match s {
+        let (key, session, marks) = match s {
             // A line of work with no session of its own has no place to be read from: no name.
             Source::Line(th) => match &th.session_id {
-                Some(sid) => (format!("thread:{}", th.slug), self.homes.marks(sid)),
+                Some(sid) => (
+                    format!("thread:{}", th.slug),
+                    Some(sid.clone()),
+                    self.homes.marks(sid),
+                ),
                 None => return false,
             },
-            Source::Task(t) => (format!("task:{}", t.id), self.task_marks(t)),
-            Source::Topic(c) => (c.id.to_string(), filing()),
+            Source::Task(t) => {
+                let home = self.home(t);
+                let marks = self.homes.marks(&home);
+                (format!("task:{}", t.id), Some(home), marks)
+            }
+            Source::Topic(c) => (c.id.to_string(), None, filing()),
         };
-        let ok = self.passes(marks.clone(), self.pov.now_ms);
+        let now = self.pov.now_ms;
+        let ok = match &session {
+            Some(s) => self.passes_of(s, marks.clone(), now),
+            None => self.passes(marks.clone(), now),
+        };
         if ok {
             self.admitted.borrow_mut().insert(key, marks);
         }
@@ -162,7 +186,8 @@ impl Admits for ViewAdmits<'_> {
     }
 
     fn task(&self, t: &TaskRecord) -> bool {
-        self.passes(self.task_marks(t), t.created_at_ms)
+        let home = self.home(t);
+        self.passes_of(&home, self.homes.marks(&home), t.created_at_ms)
     }
 
     fn guidance(&self, _: &Guidance) -> bool {
