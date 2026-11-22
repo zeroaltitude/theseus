@@ -3,6 +3,7 @@
 
     scripts/stats.py [--sizes-from TARGET/PROFILE] [--installed DIR]... [--root DIR]
     scripts/stats.py --range BEFORE..AFTER [--root DIR]
+    scripts/stats.py --prepare-landing [--sizes-from TARGET/PROFILE] [--root DIR]
 
 `--range` writes nothing: it counts the trees of two commits from git's objects (no checkout) and prints one line, the
 change in lines a landing's note states (code, test code, comments; before -> after). A landing's range is its merge's
@@ -17,9 +18,13 @@ Sizes: `--sizes-from` reads an optimised build's profile directory (`$CARGO_TARG
 (`/usr/local/lib/theseus/<commit>`), and may be given more than once (the root helper's directory too). A part of the sizes not asked for is copied
 from the STATS.md already there, so a recount at a landing leaves the sizes measured at the last install alone.
 
-At a landing, `scripts/hooks/post-merge` (installed by `scripts/stats-hook.sh install`) runs this after a merge made on
-`main` and folds STATS.md into that merge, so the count is the merge's own. A merge still in progress (`git merge
---no-commit`) is named by MERGE_HEAD and HEAD, the parents the commit will have.
+`--prepare-landing` is a step of preparing a landing, before its merge is committed: with a merge onto `main` prepared
+(`git merge --no-commit`), it counts the PREPARED TREE (the index's, `git write-tree`, read from git's objects, never
+the working files), writes STATS.md and stages it, and nothing else. It refuses when HEAD is not `main`, when no merge
+is in progress, when the index holds unmerged paths, or when anything but STATS.md would change. The landing's own
+commit, signed by whoever lands, then holds the count, and every gate judges the tree that lands; no commit is ever
+rewritten. Build sizes are read again from the release build when it has its stamp (`$CARGO_TARGET_DIR` or `target`,
+profile `release`), else kept. A merge in progress is named by MERGE_HEAD and HEAD, the parents it will have.
 
 Nothing here reads a clock: the same tree and the same arguments give the same bytes.
 Python 3, standard library only.
@@ -340,18 +345,22 @@ def kept(old, heading):
     return f"{heading}\n\nNot yet measured: `scripts/stats.py --sizes-from <target dir>/release --installed <dir>`.\n"
 
 
-def render(root, rows, old, sizes_from, installed):
-    # A merge is named by its parents: a landing folds STATS.md into the merge it counted, which changes the merge's
-    # own hash but not its parents, so the line stays true of the commit that carries it.
+def merge_head(root):
+    """The merge in progress (`git merge --no-commit`), short, or ''."""
+    return subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "--short=8", "MERGE_HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def render(root, rows, old, sizes_from, installed, prepared=False):
+    # A merge is named by its parents. A merge in progress is the landing being prepared, named by the parents it
+    # will have (HEAD and MERGE_HEAD), whatever HEAD itself is: HEAD may be an earlier landing's merge.
     head, *parents = git(root, "log", "-1", "--abbrev=8", "--format=%h %p", "HEAD").split()
-    merging = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "--short=8", "MERGE_HEAD"],
-                             capture_output=True, text=True).stdout.strip()
-    if merging and len(parents) < 2:
-        # A merge not yet committed (`git merge --no-commit`): its parents will be HEAD and MERGE_HEAD, and its own
-        # changes are staged, so only what is not yet staged is uncommitted. (A merge just made is HEAD itself, with
-        # its two parents, though git may still hold MERGE_HEAD while its post-merge hook runs.)
+    merging = merge_head(root)
+    if merging:
         at = f"the merge of {merging} into {head}"
-        dirty = git(root, "diff", "--name-only", "--", ".", ":!STATS.md").strip()
+        # A prepared count is of the index's tree, so no working file is in it; else the merge's own changes are
+        # staged, and only what is not staged is uncommitted.
+        dirty = "" if prepared else git(root, "diff", "--name-only", "--", ".", ":!STATS.md").strip()
     else:
         at = f"the merge of {parents[1]} into {parents[0]}" if len(parents) == 2 else f"commit {head}"
         dirty = git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", ":!STATS.md").strip()
@@ -372,13 +381,47 @@ def render(root, rows, old, sizes_from, installed):
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def prepare_landing(root, sizes_from, installed):
+    """`--prepare-landing`: count the prepared landing's tree and stage STATS.md alone; refuse plainly otherwise."""
+    def refuse(why):
+        raise SystemExit(f"stats: not counted: {why}")
+    if subprocess.run(["git", "-C", root, "symbolic-ref", "-q", "HEAD"], capture_output=True,
+                      text=True).stdout.strip() != "refs/heads/main":
+        refuse("HEAD is not main; a landing is prepared on main")
+    if not merge_head(root):
+        refuse("no merge is in progress; prepare the landing with `git merge --no-commit --no-ff <branch>` first")
+    if git(root, "ls-files", "--unmerged").strip():
+        refuse("the merge has unmerged paths; resolve them and stage the result first")
+    before = git(root, "write-tree").strip()
+    if not sizes_from:
+        prof = os.path.join(os.environ.get("CARGO_TARGET_DIR") or os.path.join(root, "target"), "release")
+        sizes_from = prof if os.path.isfile(os.path.join(prof, ".theseus-build-stamp")) else None
+    path = os.path.join(root, "STATS.md")
+    old = read(path) if os.path.isfile(path) else ""
+    text = render(root, count_rev(root, before), old, sizes_from, installed, prepared=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    git(root, "add", "--", "STATS.md")
+    after = git(root, "write-tree").strip()
+    changed = [p for p in git(root, "diff-tree", "-r", "--name-only", before, after).split("\n") if p]
+    if changed not in ([], ["STATS.md"]):
+        git(root, "read-tree", before)
+        refuse(f"staging STATS.md would change {', '.join(changed)} too; the index is put back")
+    print(f"stats: counted the prepared landing; STATS.md {'staged' if changed else 'unchanged'}", file=sys.stderr)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=ROOT, help="the repository to count (default: this script's)")
     ap.add_argument("--sizes-from", metavar="DIR", help="an optimised build's profile directory, e.g. target/release")
     ap.add_argument("--installed", metavar="DIR", action="append", default=[], help="an install directory")
     ap.add_argument("--range", metavar="BEFORE..AFTER", help="print the change in lines between two commits; write nothing")
+    ap.add_argument("--prepare-landing", action="store_true",
+                    help="count a prepared merge onto main from its index tree, and stage STATS.md alone")
     args = ap.parse_args(argv)
+    if args.prepare_landing:
+        prepare_landing(args.root, args.sizes_from, args.installed)
+        return
     if args.range:
         if ".." not in args.range:
             ap.error("--range takes BEFORE..AFTER")

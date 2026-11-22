@@ -156,52 +156,69 @@ class StatsTest(unittest.TestCase):
     def test_the_objects_count_is_the_working_trees(self):
         self.assertEqual(stats.count_rev(self.root, "HEAD"), stats.count_tree(self.root))
 
-    def test_the_landing_hook_counts_a_merge_onto_main_and_nothing_else(self):
-        os.makedirs(os.path.join(self.root, "scripts"), exist_ok=True)
-        shutil.copy(os.path.join(HERE, "..", "stats.py"), os.path.join(self.root, "scripts", "stats.py"))
-        hooks = os.path.join(self.root, ".git", "hooks")
-        for name in ("post-merge", "post-commit"):
-            shutil.copy(os.path.join(HERE, "..", "hooks", "post-merge"), os.path.join(hooks, name))
-            os.chmod(os.path.join(hooks, name), 0o755)
-        self.git("checkout", "-q", "-B", "main")
+    def side_branch(self, name, base="main"):
+        """A branch NAME off BASE with one new file of one code line; its short id."""
+        self.git("checkout", "-q", "-b", name, base)
+        with open(os.path.join(self.root, f"crates/demo/src/{name}.rs"), "w") as f:
+            f.write("fn x() {}\n")
         self.git("add", "-A")
-        self.git("commit", "-q", "-m", "the script")  # an ordinary commit on main: no count
-        stats_md = os.path.join(self.root, "STATS.md")
-        self.assertFalse(os.path.exists(stats_md))
+        self.git("commit", "-q", "-m", name)
+        return self.git("rev-parse", "--short=8", "HEAD")
 
-        def branch(name):
-            self.git("checkout", "-q", "-b", name, "main")
-            with open(os.path.join(self.root, f"crates/demo/src/{name}.rs"), "w") as f:
-                f.write("fn x() {}\n")
-            self.git("add", "-A")
-            self.git("commit", "-q", "-m", name)
-            return self.git("rev-parse", "--short=8", "HEAD")
+    def prepare(self):
+        stats.main(["--root", self.root, "--prepare-landing"])
 
-        one = branch("one")
-        self.git("checkout", "-q", "-b", "other", "main")
-        self.git("merge", "-q", "--no-ff", "-m", "not main", "one")  # a merge on another branch: no count
-        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "STATS.md"), "")
+    def test_a_prepared_landing_is_counted_from_its_tree_and_stages_stats_alone(self):
+        self.git("checkout", "-q", "-B", "main")
+        main = self.git("rev-parse", "--short=8", "HEAD")
+        side = self.side_branch("side")
         self.git("checkout", "-q", "main")
-        base = self.git("rev-parse", "--short=8", "HEAD")
-        who = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
-        out = subprocess.run(["git", "-C", self.root, *who, "merge", "-q", "--no-ff", "-m", "land one", "one"],
-                             env=GIT_ENV, capture_output=True, text=True)
-        self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "STATS.md"), "STATS.md", f"hook said: {out.stderr}")
-        landed = self.git("show", "HEAD:STATS.md")
-        self.assertIn(f"Counted at the merge of {one} into {base}, over", landed)
-        self.assertEqual(self.git("status", "--porcelain"), "", "the count is in the merge, not left over")
-        two = branch("two")
+        self.git("merge", "-q", "--no-ff", "--no-commit", "side")
+        tree = self.git("write-tree")
+        # A dirty working file beside the prepared merge: not in the tree that lands, so not in the count.
+        with open(os.path.join(self.root, "crates/demo/src/digest.rs"), "a") as f:
+            f.write("fn dirty_one() {}\nfn dirty_two() {}\n")
+        self.prepare()
+        staged = self.git("show", ":STATS.md")
+        self.assertIn(f"Counted at the merge of {side} into {main}, over", staged)
+        self.assertNotIn("uncommitted", staged)
+        code, test, comment = stats.totals(stats.count_rev(self.root, tree))
+        self.assertIn(f"| **Total** | **{code:,}** | **{test:,}** | **{comment:,}** |", staged)
+        self.assertNotEqual(stats.totals(stats.count_tree(self.root)), [code, test, comment], "the dirty file counts there")
+        # Only STATS.md was staged; the dirty file is still only in the working tree.
+        self.assertEqual(self.git("diff", "--cached", "--name-only", tree), "STATS.md")
+        self.assertEqual(self.git("diff", "--name-only"), "crates/demo/src/digest.rs")
+        # The landing's own commit holds it, with the parents it was named by.
+        self.git("commit", "-q", "-m", "land side")
+        self.assertEqual(self.git("show", "HEAD:STATS.md"), staged.rstrip("\n"))
+        parents = self.git("rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
+        self.assertEqual([p[:8] for p in parents], [main, side])
+
+    def test_a_landing_on_top_of_an_earlier_merge_names_the_pending_one(self):
+        self.git("checkout", "-q", "-B", "main")
+        self.side_branch("one")
         self.git("checkout", "-q", "main")
-        base = self.git("rev-parse", "--short=8", "HEAD")
+        self.git("merge", "-q", "--no-ff", "-m", "land one", "one")
+        earlier = self.git("rev-parse", "--short=8", "HEAD")
+        two = self.side_branch("two")
+        self.git("checkout", "-q", "main")
         self.git("merge", "-q", "--no-ff", "--no-commit", "two")
-        self.git("commit", "-q", "-m", "land two")  # the --no-commit landing: counted by post-commit
-        self.assertIn(f"Counted at the merge of {two} into {base}, over", self.git("show", "HEAD:STATS.md"))
-        self.assertEqual(self.git("rev-list", "--parents", "-n", "1", "HEAD").split()[1][:8], base, "parents kept")
-        three = branch("three")
-        self.git("checkout", "-q", "--detach", "main")
-        self.git("merge", "-q", "--no-ff", "--no-verify", "-m", "join three", "three")  # as the self loop joins
-        self.assertNotIn(three, self.git("show", "HEAD:STATS.md"))
+        self.prepare()
+        self.assertIn(f"Counted at the merge of {two} into {earlier}, over", self.git("show", ":STATS.md"))
+
+    def test_the_prepare_step_refuses_off_main_and_with_no_merge(self):
+        self.git("checkout", "-q", "-B", "main")
+        with self.assertRaises(SystemExit) as no_merge:
+            self.prepare()
+        self.assertIn("no merge is in progress", str(no_merge.exception))
+        self.side_branch("side")
+        self.git("checkout", "-q", "-b", "other", "main")
+        self.git("merge", "-q", "--no-ff", "--no-commit", "side")
+        with self.assertRaises(SystemExit) as off_main:
+            self.prepare()
+        self.assertIn("HEAD is not main", str(off_main.exception))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "STATS.md")), "nothing written when refused")
+        self.assertEqual(self.git("diff", "--cached", "--name-only", "--", "STATS.md"), "")
 
     def test_the_same_tree_gives_the_same_bytes(self):
         self.assertEqual(self.run_stats(), self.run_stats())
