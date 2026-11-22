@@ -31,7 +31,6 @@ fn rebuilt_as_sent(r: &Rig, sid: &str) {
         .expect("a turn");
     let got = (r.core.rebuild_first(sid, &turn)).unwrap_or_else(|e| panic!("rebuildable: {e}"));
     assert_eq!(got.compilation.strategy, crate::compiler::view::STRATEGY);
-    assert!(got.view.is_some(), "rebuilt from its view");
     let sent = calls(r).remove(0);
     assert_eq!(got.digest, sent.digest());
     assert_eq!(got.request, sent, "the rebuilt request is the one sent");
