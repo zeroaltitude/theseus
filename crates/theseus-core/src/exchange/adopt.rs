@@ -25,8 +25,10 @@
 //!   with no exchange yet means it has not run: nothing is adopted then (the
 //!   dry run counts them).
 //! - **The gate.** A session whose seal is not proven clear (sealed,
-//!   proposed, or unreadable) is left; a seal set later still hides its
-//!   exchanges where they are read, as for any exchange.
+//!   proposed, or unreadable) is left, and so is an exchange one of whose
+//!   messages was moved into a thread not proven clear (the node's seal); a
+//!   seal set later still hides its exchanges where they are read, as for
+//!   any exchange.
 //! - **What is written.** Nothing already written is written again. The
 //!   adoption's record (`adoption.<id>`: the place, who, when, the sessions,
 //!   the turns, the touches it wrote), one `adopted.<turn>` per exchange, and
@@ -98,6 +100,11 @@ pub struct Asker<'a> {
     pub private: bool,
     /// A session whose seal is not proven clear.
     pub sealed: &'a dyn Fn(&str) -> bool,
+    /// A node of a session whose own seal is not proven clear: one a split
+    /// or a claim moved into a sealed thread (`view_gate::node_seal`). The
+    /// window and the history tool ask a session's seal only, so a moved
+    /// message is never adopted into view.
+    pub node_sealed: &'a dyn Fn(&str, &str) -> bool,
     pub now_ms: u64,
 }
 
@@ -224,6 +231,11 @@ fn plan(store: &Store, place: &str, a: &Asker<'_>) -> anyhow::Result<Plan> {
             };
             match (ex.place == UNKNOWN, ex.place == place) {
                 (true, _) => {
+                    let mut nodes = ex.messages.iter().chain(&ex.ask).chain(&ex.reply);
+                    if nodes.any(|n| (a.node_sealed)(sid, n)) {
+                        left(&mut p.out, "exchanges_with_a_sealed_message", 1);
+                        continue;
+                    }
                     took = true;
                     p.turns.push((turn, ex.session_id, ex.start_ms));
                 }

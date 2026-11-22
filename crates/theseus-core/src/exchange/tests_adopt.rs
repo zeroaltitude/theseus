@@ -233,11 +233,16 @@ async fn adopted_history_sits_before_new_and_the_history_tool_pages_past_it() {
     );
 }
 
+fn none_moved(_: &str, _: &str) -> bool {
+    false
+}
+
 fn asker<'a>(sealed: &'a dyn Fn(&str) -> bool) -> Asker<'a> {
     Asker {
         surface: "cli",
         private: true,
         sealed,
+        node_sealed: &none_moved,
         now_ms: 1,
     }
 }
@@ -315,4 +320,27 @@ async fn a_session_tied_to_no_place_is_left_and_counted() {
         assert_eq!(got.left.get("sessions_tied_to_no_place"), Some(&1));
     }
     assert_eq!(place(c, &t.turn_id), rebuild::UNKNOWN);
+}
+
+/// A message a split or a claim moved into a sealed thread keeps its whole
+/// exchange out: the window and the history tool ask a session's seal only.
+#[tokio::test]
+async fn an_exchange_with_a_message_moved_into_a_sealed_thread_is_never_adopted() {
+    let o = old().await;
+    let c = &o.r.core;
+    let ask = exchange(&c.store, &o.dm_turns[0])
+        .unwrap()
+        .unwrap()
+        .ask
+        .unwrap();
+    let moved = move |_: &str, n: &str| n == ask;
+    let a = Asker {
+        node_sealed: &moved,
+        ..asker(&clear)
+    };
+    let r = adoption::adopt(&c.store, &a, &params(DM, false)).unwrap();
+    assert_eq!(r.exchanges, 1);
+    assert_eq!(r.left.get("exchanges_with_a_sealed_message"), Some(&1));
+    assert_eq!(place(c, &o.dm_turns[0]), rebuild::UNKNOWN);
+    assert_eq!(place(c, &o.dm_turns[1]), DM);
 }

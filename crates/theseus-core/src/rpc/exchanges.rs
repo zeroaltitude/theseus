@@ -203,10 +203,19 @@ impl Core {
                 crate::view_gate::seal_of(&core.runner, None, sid)
                     != theseus_memory::gate::Seal::Clear
             };
+            // The threads unread: every node is held out.
+            let board = core.runner.threads.all(&core.store).ok();
+            let node_sealed = |sid: &str, node: &str| {
+                board.as_ref().is_none_or(|b| {
+                    crate::view_gate::node_seal(&core.store, b, None, sid, node)
+                        != theseus_memory::gate::Seal::Clear
+                })
+            };
             let a = crate::exchange::adopt::Asker {
                 surface: &surface,
                 private,
                 sealed: &sealed,
+                node_sealed: &node_sealed,
                 now_ms: theseus_protocol::time::now_unix_ms(),
             };
             match p.undo.clone() {
