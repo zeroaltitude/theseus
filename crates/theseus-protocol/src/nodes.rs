@@ -75,14 +75,19 @@ pub struct NodeReachParams {
     pub max_generations: Option<u32>,
 }
 
-/// A compilation whose prefix (`includes`) holds a node.
+/// A compilation whose requests laid a node: its prefix (`includes`) held it, or (a view turn's) its kept
+/// view record or its own tail did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ReachCompilation {
     pub compilation_id: String,
-    /// `transcript`, `fresh`, or `ring`.
+    /// `view`; an old store's `transcript`, `fresh` or `ring`.
     pub strategy: String,
     pub created_at_ms: u64,
+    /// The session the compilation's requests ran in: on the view, a turn of any session may lay another
+    /// session's exchange. Empty in an answer from before it was said.
+    #[serde(default)]
+    pub session_id: String,
 }
 
 /// Where a node was seen in its own session: the compilations that hold it,
@@ -145,7 +150,8 @@ pub struct NodeReachResult {
     pub forks: Vec<ReachFork>,
     pub totals: ReachTotals,
     /// The walk stopped short: a node at `max_generations` has copies of
-    /// its own, or the walk reached its cap of copies.
+    /// its own, the walk reached its cap of copies, or the record of what a
+    /// view turn laid could not be read (what it sent is then unknown).
     pub partial: bool,
     /// What Jev says about the node itself (issue 44): its content answers,
     /// flags and its exchange's topics. Absent from a walk alone.
