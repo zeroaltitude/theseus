@@ -6,8 +6,10 @@
 //! Each loop asks one question: append, or recompile? M3 answers it with
 //! deterministic triggers only (no Jev): a new session, a model or provider
 //! change, a system prompt change, a tool set change, or an operator's manual
-//! request. This is the transcript's compile, which only a task's turn still
-//! takes until tasks take the view (`compiler::view`); nothing in it makes
+//! request. This is the transcript's compile; what still takes it (a place
+//! set to `transcript` or with the ledger off, a view turn that declined,
+//! keep-warm between turns, the census of a fresh session, a task or a
+//! split's dry run) goes with the lanes that remove those. Nothing in it makes
 //! room past the window but the clearing pass.
 //!
 //! The renderer is deterministic and append-only: the same nodes and the same
@@ -602,10 +604,11 @@ pub(crate) fn prepared<'a>(
     (Some(a), r)
 }
 
-/// `compile`, with the spec an append renders and the one a recompile does: the transcript's last use, a
-/// task's turn until tasks take the view. It appends while nothing changed under its prefix, else makes a
-/// new compilation of every renderable node, then clears old results past the clearing line. Nothing else
-/// makes room: a request past the window carries its overage, and the turn fails on it (`turn::overage`).
+/// `compile`, with the spec an append renders and the one a recompile does. It appends while nothing changed
+/// under its prefix, else makes a new compilation of every renderable node, then clears old results past the
+/// clearing line. Nothing else makes room: a request past the window carries its overage, and the turn fails
+/// on it (`turn::overage`).
+#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
 fn compile_with(
     input: CompileInput<'_>,
     appended: &RequestSpec,
