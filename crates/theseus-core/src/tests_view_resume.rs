@@ -411,8 +411,10 @@ async fn a_conversation_answers_its_next_message_after_each_plain_failure() {
 #[tokio::test]
 async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
     const BRIEF: &str = "SELF BRIEF: count the herons at the weir";
+    // The owner's DM turn and the worker's opening are each cut (a turn that answers makes side calls,
+    // which would take a later answer); the resume answers.
     let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
-        Scripted::text("Noted."),
+        cut(),
         cut(),
         Scripted::text("Herons: nine."),
     ]));
@@ -424,7 +426,9 @@ async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
         |cfg| cfg.self_improve.mode = theseus_protocol::rsi::SelfMode::Act,
     )
     .await;
-    assert!(answered(&c, &dm, "Noted."));
+    assert!(c.store.session_nodes(&dm).unwrap().iter().any(|(_, n)| {
+        matches!(&n.body, crate::node::Body::UserMessage { text, .. } if text.contains("plover"))
+    }));
     // The self loop's session: its execution's principal is `self`, it is no task.
     let mut rec =
         crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
