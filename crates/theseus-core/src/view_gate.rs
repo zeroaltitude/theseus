@@ -53,7 +53,9 @@ use crate::store::Store;
 use crate::threads::Board;
 use crate::turn::TurnRunner;
 
+mod listing;
 mod moved;
+pub use listing::{Listing, Shown};
 pub use moved::{moved_at_all, Moved};
 
 /// What the gate names an imported session's place: the owner's own history,
@@ -340,25 +342,6 @@ fn moved_seal(store: &Store, board: &Board, asker: Option<&str>, node: &str) -> 
             Seal::Unread
         }
     }
-}
-
-/// Whether a reader in `asker` may be shown the title of `session`, whose
-/// own seal it may read: a title is made from the session's first inputs,
-/// so not when any of its messages was moved into a thread held from it
-/// (`moved_seal`), nor when its messages or the threads cannot be read.
-pub fn title_shown(runner: &TurnRunner, asker: Option<&str>, session: &str) -> bool {
-    let Some(b) = board(runner, "a session's title") else {
-        return false;
-    };
-    let Ok(nodes) = runner.store.session_nodes(session) else {
-        return false;
-    };
-    nodes.iter().all(|(_, n)| match &n.body {
-        Body::UserMessage { .. } | Body::AssistantMessage { .. } => {
-            moved_seal(&runner.store, &b, asker, &n.id) == Seal::Clear
-        }
-        _ => true,
-    })
 }
 
 /// The nodes of `nodes` a reader in `asker` may read for their seal (by

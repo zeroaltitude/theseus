@@ -621,3 +621,126 @@ async fn a_wake_set_by_a_wake_reads_nothing_of_history() {
         assert_eq!(pov.present, crate::view::Present::Unknown, "{sid}");
     }
 }
+
+/// Kelp sealed, with a turn in it, and a home session whose first message
+/// was moved into kelp (its `moved.of` and the split's record, as a split
+/// writes them): `(kelp's session, home)`.
+async fn sealed_with_a_move(r: &Rig, title: &str) -> (String, String) {
+    thread(r, "kelp");
+    let kelp = r.core.thread_session("kelp", cli()).unwrap().session_id;
+    turn_as(&r.core, &kelp, "the kelp beds are embargoed", true).await;
+    let home = session(&r.core, None);
+    turn_as(&r.core, &home, title, true).await;
+    turn_as(&r.core, &home, "and the ebb table too", true).await;
+    let first = r
+        .core
+        .store
+        .session_nodes(&home)
+        .unwrap()
+        .into_iter()
+        .find(|(_, n)| crate::recall::text_of(n).contains(title))
+        .map(|(_, n)| n.id)
+        .unwrap();
+    let store = &r.core.store;
+    store
+        .put_meta(
+            &crate::moved::moved_of_key(&first),
+            &json!({"thread": "kelp", "split": "spl_x"}),
+        )
+        .unwrap();
+    store
+        .put_meta(
+            "thread.split.spl_x",
+            &json!({"id": "spl_x", "source_session": home, "thread": "kelp"}),
+        )
+        .unwrap();
+    seal(r, "kelp");
+    (kelp, home)
+}
+
+/// `session.list` through a real connection: a sealed thread's session is
+/// not listed for a reader who is not the owner in person, and is listed
+/// with none of its words for him; a session a message was moved out of into
+/// the sealed thread shows none of its words (its title was made from that
+/// message) to anyone; any other session is as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_list_shows_a_reader_nothing_of_a_held_thread() {
+    use crate::approval::Surface;
+    const TITLE: &str = "the mooring ledger for the north quay";
+    let r = rig();
+    let (kelp, home) = sealed_with_a_move(&r, TITLE).await;
+    let plain = session(&r.core, None);
+    turn_as(&r.core, &plain, "the open tide log", true).await;
+    let ask = |surface: Surface| {
+        let params = json!({"ids": [kelp, home, plain]});
+        let c = r.core.clone();
+        async move {
+            crate::tests_mcp_memory::rpc(
+                &c,
+                surface,
+                theseus_protocol::method::SESSION_LIST,
+                params,
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let ids = |v: &serde_json::Value| -> Vec<String> {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["session_id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let owner = ask(Surface::Cli).await;
+    assert_eq!(ids(&owner).len(), 3, "the owner lists all three: {owner}");
+    let text = owner.to_string();
+    assert!(!text.contains("kelp beds"), "{text}");
+    assert!(!text.contains(TITLE), "{text}");
+    assert!(text.contains("the open tide log"), "{text}");
+    for surface in [Surface::Unnamed, Surface::Discord] {
+        let other = ask(surface).await;
+        assert!(!ids(&other).contains(&kelp), "{surface:?}: {other}");
+        assert!(ids(&other).contains(&home), "{surface:?}: {other}");
+        assert!(!other.to_string().contains(TITLE), "{surface:?}: {other}");
+    }
+}
+
+/// `memory.lookup`'s listing dates, counts and labels a session by the
+/// messages its reader may read: a session one of whose messages was moved
+/// into a sealed thread is listed with no title and one turn fewer, and one
+/// whose every message was moved is not listed.
+#[tokio::test]
+async fn the_memory_listing_counts_only_admitted_messages() {
+    const TITLE: &str = "the mooring ledger for the north quay";
+    let r = rig();
+    let (_, home) = sealed_with_a_move(&r, TITLE).await;
+    let desk = session(&r.core, None);
+    view_gate::seat_owner(&r.core.runner, &desk);
+    let got = crate::memory_lookup::call(r.core.clone(), &desk, json!({"when": "today"}))
+        .await
+        .unwrap()
+        .text;
+    assert!(!got.contains(TITLE), "{got}");
+    assert!(got.contains(&home), "listed: {got}");
+    assert!(
+        got.contains("1 turn)"),
+        "the moved turn is not counted: {got}"
+    );
+    // Every message of it moved: not listed.
+    for (_, n) in r.core.store.session_nodes(&home).unwrap() {
+        r.core
+            .store
+            .put_meta(
+                &crate::moved::moved_of_key(&n.id),
+                &json!({"thread": "kelp", "split": "spl_x"}),
+            )
+            .unwrap();
+    }
+    let got = crate::memory_lookup::call(r.core.clone(), &desk, json!({"when": "today"}))
+        .await
+        .unwrap()
+        .text;
+    assert!(!got.contains(&home), "not listed: {got}");
+}

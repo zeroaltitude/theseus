@@ -222,14 +222,45 @@ impl Core {
     /// agent's process, the MCP server, a transport) is told nothing of it:
     /// a count says a thread exists.
     pub async fn health_for(&self, who: &crate::approval::Answerer) -> HealthResult {
-        use crate::approval::Surface;
         let mut h = self.health_now().await;
-        let owner = matches!(who.surface, Surface::Cli | Surface::Web)
-            && crate::places::owner_in_person(who, &self.runner.place_rule, &self.cfg).is_ok();
-        if owner {
+        if self.owner_here(who) {
             h.threads = self.threads_health_for(true);
         }
         h
+    }
+
+    /// Whether `who` is the owner in person at his terminal or the web UI:
+    /// no agent behind it, as `places::owner_in_person` judges the owner's
+    /// other in-person acts (issue 44).
+    pub(crate) fn owner_here(&self, who: &crate::approval::Answerer) -> bool {
+        use crate::approval::Surface;
+        matches!(who.surface, Surface::Cli | Surface::Web)
+            && crate::places::owner_in_person(who, &self.runner.place_rule, &self.cfg).is_ok()
+    }
+
+    /// `session.list` for the caller `who`: `session_list_on`, then what the
+    /// gate lets that reader be shown of each session (issue 44,
+    /// `view_gate::Listing`): a session held from it is not listed (for the
+    /// owner in person, listed with none of its words), and one a message
+    /// was moved out of into a held thread shows none of its words.
+    pub(crate) fn session_list_read(
+        &self,
+        p: theseus_protocol::SessionListParams,
+        who: &crate::approval::Answerer,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        use crate::view_gate::Shown;
+        let mut r = self.session_list_on(p, who.surface)?;
+        let listing = crate::view_gate::Listing::read(&self.runner, self.owner_here(who));
+        r.sessions
+            .retain_mut(|s| match listing.of(&self.runner, &s.session_id) {
+                Shown::Out => false,
+                Shown::Unworded => {
+                    withhold_session_words(s);
+                    true
+                }
+                Shown::Whole => true,
+            });
+        Ok(r)
     }
 
     /// The daemon stops (roadmap row 51): the index tender gets SIGTERM and

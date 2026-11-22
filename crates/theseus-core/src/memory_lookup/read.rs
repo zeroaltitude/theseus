@@ -242,8 +242,12 @@ async fn labels_of(
 /// The sessions this harness held in `span`, newest first: those with a
 /// turn, whose time from their start to their last activity meets it.
 /// A sealed thread's sessions (or one whose seal is proposed) are left out,
-/// as they are by id, and a channel bound private lists only its own; a
-/// title made from a message moved into a held thread is not shown.
+/// as they are by id, and a channel bound private lists only its own. What a
+/// session is listed by (whether it is, its order, its span, its turns, its
+/// label and title) comes from the messages the asker may read (issue 44): a
+/// session with a message moved into a thread held from the asker is dated
+/// and counted by the others, under no label or title, and one whose every
+/// message was moved is not listed.
 pub(super) async fn own_sessions(
     core: &Arc<Core>,
     asker: &str,
@@ -255,53 +259,100 @@ pub(super) async fn own_sessions(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("the sessions could not be read: {e:#}"))?;
-    all.retain(|r| {
-        let end = r.last_active_ms.max(r.created_at_unix_ms);
-        r.turns > 0
-            && span.from_ms.is_none_or(|f| end >= f)
-            && span.to_ms.is_none_or(|t| r.created_at_unix_ms < t)
-    });
     let runner = &core.runner;
     all.retain(|r| {
-        crate::view_gate::seal_of(runner, Some(asker), &r.session_id)
-            == theseus_memory::gate::Seal::Clear
+        r.turns > 0
+            && crate::view_gate::seal_of(runner, Some(asker), &r.session_id)
+                == theseus_memory::gate::Seal::Clear
             && places.may_read(runner, &r.session_id)
     });
-    all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms.max(r.created_at_unix_ms)));
-    // A title is made from a session's first inputs: one of a session with a
-    // message moved into a thread held from the asker is not shown, as the
-    // session's own read does not show it (the gate's `title_shown`).
     let (c, who) = (core.clone(), asker.to_string());
-    let ids: Vec<String> = all.iter().map(|r| r.session_id.clone()).collect();
-    let untitled: std::collections::HashSet<String> = tokio::task::spawn_blocking(move || {
-        ids.into_iter()
-            .filter(|id| !crate::view_gate::title_shown(&c.runner, Some(&who), id))
+    let mut listed: Vec<Listed> = tokio::task::spawn_blocking(move || {
+        all.into_iter()
+            .filter_map(|r| listed_of(&c, &who, r))
             .collect()
     })
     .await
     .map_err(|e| e.to_string())?;
-    Ok(all
+    listed.retain(|l| {
+        span.from_ms.is_none_or(|f| l.end >= f) && span.to_ms.is_none_or(|t| l.start < t)
+    });
+    listed.sort_by_key(|l| std::cmp::Reverse(l.end));
+    Ok(listed
         .into_iter()
-        .map(|r| Item {
-            when: span_words(
-                r.created_at_unix_ms,
-                r.last_active_ms.max(r.created_at_unix_ms),
-            ),
-            source: format!(
-                "this harness ({}, {})",
-                r.label.as_deref().unwrap_or(r.kind.as_str()),
-                crate::narrative::count(r.turns, "turn", "turns")
-            ),
-            text: match untitled.contains(&r.session_id) {
-                true => String::new(),
-                false => r.title.unwrap_or_default(),
-            },
-            session_id: r.session_id,
-            sensitivity: None,
-            book: None,
-            ..Item::default()
+        .map(|l| {
+            let r = l.rec;
+            let label = match l.whole {
+                true => r.label.as_deref().unwrap_or(r.kind.as_str()).to_string(),
+                false => r.kind.as_str().to_string(),
+            };
+            Item {
+                when: span_words(l.start, l.end),
+                source: format!(
+                    "this harness ({label}, {})",
+                    crate::narrative::count(l.turns, "turn", "turns")
+                ),
+                text: match l.whole {
+                    true => r.title.unwrap_or_default(),
+                    false => String::new(),
+                },
+                session_id: r.session_id,
+                sensitivity: None,
+                book: None,
+                ..Item::default()
+            }
         })
         .collect())
+}
+
+/// A session as a listing shows it to one asker.
+struct Listed {
+    rec: SessionRecord,
+    start: u64,
+    end: u64,
+    turns: u64,
+    /// Every message of it may be read: listed as its record says.
+    whole: bool,
+}
+
+/// `rec` as `asker` may see it listed: by its record when every message may
+/// be read; else by the messages that may (their times, the people's among
+/// them as its turns); none when no message may, or they cannot be read.
+fn listed_of(core: &Core, asker: &str, rec: SessionRecord) -> Option<Listed> {
+    let said = |n: &Node| {
+        matches!(
+            n.body,
+            Body::UserMessage { .. } | Body::AssistantMessage { .. }
+        )
+    };
+    let nodes = core.store.session_nodes(&rec.session_id).ok()?;
+    let all = nodes.iter().filter(|(_, n)| said(n)).count();
+    let kept = crate::view_gate::readable_nodes(&core.runner, Some(asker), nodes, |(_, n)| {
+        (n.session_id.as_str(), n.id.as_str())
+    });
+    let kept: Vec<&Node> = kept.iter().map(|(_, n)| n).filter(|n| said(n)).collect();
+    if kept.len() == all {
+        return Some(Listed {
+            start: rec.created_at_unix_ms,
+            end: rec.last_active_ms.max(rec.created_at_unix_ms),
+            turns: rec.turns,
+            whole: true,
+            rec,
+        });
+    }
+    let start = kept.iter().map(|n| n.created_at_ms).min()?;
+    let end = kept.iter().map(|n| n.created_at_ms).max()?;
+    let turns = kept
+        .iter()
+        .filter(|n| matches!(n.body, Body::UserMessage { .. }))
+        .count() as u64;
+    Some(Listed {
+        rec,
+        start,
+        end,
+        turns,
+        whole: false,
+    })
 }
 
 /// A time as a page says it: `2026-03-14 09:30`, in the daemon's zone.

@@ -813,9 +813,13 @@ impl TurnRunner {
         let recalls = nodes
             .iter()
             .filter(|(_, n)| n.kind == crate::stub::Kind::Recall);
-        let sources = self
+        let mut sources = self
             .memory
             .read_sources(&self.store, recalls.map(|(_, n)| &**n));
+        // Admitted again as a turn's are, under the presence and the seals of
+        // now: a source sealed since its turn does not ride a warm read
+        // (issue 44).
+        crate::view_gate::readmit_sources(self, sid, &mut sources);
         let situation = crate::compiler::situation::given(false, false, false);
         // The prefix library's header, replayed as the next append has it.
         let replayed = self.prefix_replayed(spec, current.as_ref());

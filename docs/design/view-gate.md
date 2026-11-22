@@ -120,8 +120,9 @@ the rule under any name a file gives it. Both are heuristics over the sources, n
 - **The place digest** is given no thread held from a reader that is not the owner alone (`digest_threads`,
   whatever the ledger says), so it neither names nor counts one: a count says a thread exists. The owner alone is
   still told how many, as the digest's own rule (`a_place_digest_never_shows_a_sealed_thread`) has it.
-- **The session listing** shows no title for a session with a message moved into a thread held from the reader
-  (`title_shown`): a title is made from a session's first inputs. The session is still listed.
+- **The session listing** (`memory.lookup`'s span) lists, orders, dates and counts a session by the messages the
+  reader may read (`listed_of`): with a message moved into a thread held from the reader, it shows no label or
+  title, and with every message moved it is not listed.
 - **Health** counts the thread bindings that do not read (`threads.unread_bindings`, never which), the condition
   under which recall holds out every session whose thread it cannot prove. Binding the thread again clears it.
 - **Not done: a turn whose presence is `Unknown`** (a wake set by a wake) still draws on its own place through
