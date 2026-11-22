@@ -297,9 +297,17 @@ pub(crate) async fn answer(
         },
         &done,
     );
+    // A fork's history holds nothing an ancestor said at or after its point (`fork::cut`): the exchange the
+    // point falls in, and one begun after it, are held whole; a read that fails holds it.
+    let cut = crate::fork::cut::Cut::of(&core.store, session).map_err(|e| format!("{e:#}"))?;
+    let forked = |e: &crate::exchange::Exchange| {
+        !cut.is_empty()
+            && (cut.reach(&core.store, e)).map_or(true, |r| r != crate::fork::cut::Reach::Inside)
+    };
     let mut lens = page::Lens {
         store: &core.store,
         here: here.clone(),
+        held: &forked,
         in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
     };

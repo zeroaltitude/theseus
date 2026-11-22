@@ -87,6 +87,7 @@ async fn a_bare_history_call_begins_where_the_views_window_does() {
     let lens = Lens {
         store: &c.store,
         here,
+        held: &|_| false,
         in_view: Some(begins),
         words: None,
     };
@@ -305,6 +306,7 @@ fn bare_page(c: &crate::Core, session: &str, here: &str) -> Vec<String> {
     let lens = Lens {
         store: &c.store,
         here: here.into(),
+        held: &|_| false,
         in_view: begins,
         words: None,
     };
@@ -386,7 +388,7 @@ fn an_inherited_exchange_at_the_marks_millisecond_is_kept_only_after_the_mark() 
         place: theseus_memory::recall::Place::Private,
         present: RulePresent::OwnerAlone,
     });
-    let (f, _) = crate::fork::window::Fork::permit(&store, &fork, "turn_f", verified);
+    let (f, _) = crate::fork::window::Fork::permit(&store, &fork, "turn_f", verified).unwrap();
     let ids = |since: Option<&crate::view::Pos>| -> Vec<String> {
         let read = f.ladder(&store).read("local", WINDOW_N, since).unwrap();
         read.window.into_iter().map(|e| e.turn_id).collect()

@@ -175,7 +175,7 @@ impl TurnRunner {
             laid = recalled(t);
         }
         // Read again now: a source that no longer reads is not laid (issue 44, `view_step::recall`).
-        let (laid, found) = self.view_recall(sid, laid);
+        let (laid, found) = self.view_recall(sid, laid)?;
         let asked = Asked {
             store,
             sid,

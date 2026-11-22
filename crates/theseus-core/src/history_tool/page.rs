@@ -88,6 +88,9 @@ pub struct Lens<'a> {
     pub store: &'a Store,
     /// The place the turn is in (`exchange::place_of`).
     pub here: String,
+    /// Whether an exchange is held out whole, before any page, count or cursor is made: for a fork, one an
+    /// ancestor said at or after the fork's point (`fork::cut`); for any other session, none.
+    pub held: &'a (dyn Fn(&Exchange) -> bool + Sync),
     /// Where a bare call begins ([`in_view`]).
     pub in_view: Option<Cursor>,
     /// The turns the words index found, when words were given.
@@ -120,9 +123,14 @@ impl Lens<'_> {
         }
     }
 
-    /// The exchange `r` names.
+    /// Whether `ex` may be shown: every exchange the lens does not hold out (`held`).
+    pub fn admits(&self, ex: &Exchange) -> bool {
+        !(self.held)(ex)
+    }
+
+    /// The exchange `r` names, when it may be shown.
     fn admitted(&self, r: &ExchangeRef) -> Result<Option<Exchange>> {
-        exchange::exchange(self.store, &r.turn_id)
+        Ok(exchange::exchange(self.store, &r.turn_id)?.filter(|ex| self.admits(ex)))
     }
 
     /// The sessions of the exchanges of `root`, from its newest on, within [`READ_MOST`] touches: what a words

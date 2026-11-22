@@ -38,6 +38,7 @@ pub fn open(lens: &Lens<'_>, h: &Handle) -> Result<String, String> {
     let none = || format!("no exchange {} can be opened here", flat(h.0.trim()));
     let ex = exchange::exchange(lens.store, h.0.trim())
         .map_err(|_| none())?
+        .filter(|e| lens.admits(e))
         .ok_or_else(none)?;
     let nodes = nodes(lens, &ex).map_err(|e| format!("{e:#}"))?;
     Ok(render(lens, &ex, &nodes))
