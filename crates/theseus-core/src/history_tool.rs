@@ -294,7 +294,7 @@ pub(crate) fn pov_of(
         .presence
         .get(session)
         .filter(|a| a.turn_id() == turn);
-    let present = match (here, gate) {
+    let present = match (&here, gate) {
         (None, _) => Present::Unknown,
         (Some(_), Some(a)) => clamped(class, of_gate(a.present())),
         (Some(_), None) => presence(core, session, ex.as_ref(), class),

@@ -110,7 +110,7 @@ impl TurnRunner {
                 "embargoed": digest.as_ref().map_or(0, |d| d.embargoed),
             }),
         );
-        t.digest.here = digest.is_some().then_some(here);
+        t.digest.here = digest.is_some().then(|| here.clone());
         t.digest.text = digest.map(|d| d.text);
     }
 
