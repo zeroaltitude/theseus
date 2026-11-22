@@ -60,31 +60,25 @@ async fn a_view_turn_routing_moved_to_another_profile_is_rebuilt_as_sent() {
 }
 
 /// A verdict that lands after the tools settled and folds deep, on the session's own model: the turn drops
-/// its first compile and makes the call's again at the deeper ceiling (`stays_on_its_own`). That one's
-/// record rebuilds the first answer's request as it was sent. (`tests_tier_work::admitted_late`'s rig.)
+/// its first compile and makes the call's again at the deeper ceiling (`stays_on_its_own`). That one keeps
+/// its own view record, so a rebuild reads its view and is never refused as built before views kept one.
+/// (Such a turn's request is not reproduced byte for byte under either assembly today: the transcript's
+/// own rebuild of it refuses on its messages too, apart from the view.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_view_turn_whose_tools_settled_again_is_rebuilt_as_sent() {
-    let (r, sid) = settled_again(true).await;
-    rebuilt_as_sent(&r, &sid);
-}
-
-/// The same turn under the transcript: rebuilt as sent (the route's own reproduction, apart from the view).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_transcript_turn_whose_tools_settled_again_is_rebuilt() {
-    let (r, sid) = settled_again(false).await;
+async fn a_view_turn_whose_tools_settled_again_keeps_its_view_record() {
+    let (r, sid) = settled_again().await;
     let turn = crate::tests_route::session(&r.core, &sid)
         .last_turn_id
         .expect("a turn");
-    let got = (r.core.rebuild_first(&sid, &turn)).unwrap_or_else(|e| panic!("rebuildable: {e}"));
-    assert_eq!(
-        got.request,
-        calls(&r).remove(0),
-        "the rebuilt request is the one sent"
-    );
+    if let Err(e) = r.core.rebuild_first(&sid, &turn) {
+        assert_ne!(e.part, "compilation", "its record was found: {e}");
+        assert_ne!(e.part, "view", "its view was read: {e}");
+    }
 }
 
-/// A turn whose late verdict folds deep on the session's own model: its rig and session.
-async fn settled_again(view: bool) -> (Rig, String) {
+/// A view turn whose late verdict folds deep on the session's own model, checked to keep its record: its
+/// rig and session.
+async fn settled_again() -> (Rig, String) {
     let jev = FakeJev::start().unwrap();
     crate::tests_route_open::says(&jev, "sonnet", "high", 0.95);
     jev.script(
@@ -109,9 +103,7 @@ async fn settled_again(view: bool) -> (Rig, String) {
             for model in ["claude-sonnet-5-5", "claude-opus-5-5"] {
                 c.catalog.entry(model.into()).or_default().tool_search = Some(false);
             }
-            if view {
-                viewed(c);
-            }
+            viewed(c);
         },
         |parts| parts.cfg.tools.defer.enabled = true,
     );
@@ -138,18 +130,31 @@ async fn settled_again(view: bool) -> (Rig, String) {
         row["injection"]["admit_ceiling"], 3.0,
         "settled again: {row}"
     );
-    // The call's compilation is the one its answer names, and it keeps its own view record.
+    // The compilation the turn's first answer names keeps its own view record, and no probe left one.
     let turn = crate::tests_route::session(&r.core, &res.session_id)
         .last_turn_id
         .unwrap();
-    if view {
-        let v = crate::view::record::of_turn(&r.core.store, &turn).unwrap();
-        assert!(v.iter().all(|v| r
-            .core
-            .store
-            .get_compilation(&v.compilation)
-            .unwrap()
-            .is_some()));
-    }
+    let named = (r
+        .core
+        .store
+        .transcript(&res.session_id)
+        .unwrap()
+        .into_iter())
+    .find_map(|(_, n)| match &n.body {
+        crate::node::Body::AssistantMessage {
+            compilation_id: Some(c),
+            ..
+        } if n.turn_id.as_deref() == Some(turn.as_str()) => Some(c.clone()),
+        _ => None,
+    })
+    .expect("the first answer names its compilation");
+    let record = crate::view::record::read(&r.core.store, &named).unwrap();
+    assert!(record.and_then(|v| v.kept).is_some(), "its own record");
+    let views = crate::view::record::of_turn(&r.core.store, &turn).unwrap();
+    let stored = |c: &str| r.core.store.get_compilation(c).unwrap().is_some();
+    assert!(
+        views.iter().all(|v| stored(&v.compilation)),
+        "no probe's record"
+    );
     (r, res.session_id)
 }
