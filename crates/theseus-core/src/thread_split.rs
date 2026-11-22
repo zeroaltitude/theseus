@@ -1,5 +1,7 @@
 //! Splitting a thread (theseus-vt9k, T8): the turns of a thread a new thread
-//! opens with, and `thread.split`, the model's tool for it.
+//! opens with. The model's `thread.split` tool went with threads on
+//! 2026-11-22 (issue 44); what is left is read by the compiler (`is_quote`)
+//! and by writers kept for other units' tests, until the sweep.
 //!
 //! - **The turns.** The new thread's first compile is an arrangement
 //!   (`arrangement.rs`) of the chosen messages of the source: each piece is a
@@ -14,22 +16,14 @@
 //!   what they say: the paths the calls named (`path`, `paths`, `file`,
 //!   `files`), the directories (`cwd`, `dir`), the hosts of the URLs, and the
 //!   `#123` references the messages hold. The owner edits the rest.
-//! - **`thread.split`** asks for the owner's tap at every posture (the gate's
-//!   layer-1 rule, `Plan::authority`), runs in the thread's own session only,
-//!   and its result is the note the source keeps: appended to the tail, so
-//!   the source's prefix is unchanged.
 
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use theseus_protocol::threads::{ThreadInfo, WorkingSet};
-use theseus_tools::{parse, AsyncMediaRun, Backend, Plan, Retry, Tool, ToolCtx, ToolFailure};
-use theseus_tools::{ToolClass, ToolOutput};
 
 use crate::arrangement::{self, Piece, Role};
 use crate::node::Body;
 use crate::store::Transcript;
 use crate::thread_join::MAX_SET;
-use crate::toolrun::TurnCtx;
 
 /// The author of the arrangement a split writes (`thread:<source>`), which
 /// tells it from a task's (`session:<parent>`) to the compiler.
@@ -42,9 +36,8 @@ pub fn is_quote(n: &crate::node::Node) -> bool {
         .is_some_and(|a| a.starts_with(AUTHOR_PREFIX))
 }
 
+/// The name the model's split tool had: a split's `via`, and a name a thread's card holds.
 pub const SPLIT: &str = "thread.split";
-/// The tool's family, for the runtime's dispatch.
-pub const FAMILY: &str = "thread.split";
 
 /// The most messages a split quotes, and the most characters of them: the new
 /// thread starts with them whole, so a split of a whole long thread is asked
@@ -314,174 +307,10 @@ pub fn brief(new: &ThreadInfo, from: &str, quoted: u32, first: u64, last: u64) -
     )
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SplitInput {
-    slug: String,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    goal: Option<String>,
-    from: String,
-    #[serde(default)]
-    to: Option<String>,
-}
-
-/// `thread.split`: part of this thread becomes a thread of its own.
-pub struct ThreadSplitTool;
-
-impl Tool for ThreadSplitTool {
-    fn name(&self) -> &'static str {
-        SPLIT
-    }
-
-    fn family(&self) -> &'static str {
-        FAMILY
-    }
-
-    fn description(&self) -> &'static str {
-        "Move a part of this thread into a new thread of its own, when it has become a separate \
-         concern. Quote the first message of that part exactly (at least 20 characters), and its \
-         last message unless it runs to the end of the thread. The new thread opens with those \
-         messages quoted; nothing here is moved or deleted. The owner confirms. Only in a thread."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string", "description": "The new thread's name: lower-case letters, digits and hyphens."},
-                "title": {"type": "string"},
-                "goal": {"type": "string", "description": "One sentence."},
-                "from": {"type": "string", "description": "A quote of the part's first message, exactly as written."},
-                "to": {"type": "string", "description": "A quote of its last message; none: through the end of the thread."}
-            },
-            "required": ["slug", "from"],
-            "additionalProperties": false
-        })
-    }
-
-    fn class(&self) -> ToolClass {
-        ToolClass::Write
-    }
-
-    fn backend(&self) -> Backend {
-        Backend::Async
-    }
-
-    fn retry(&self) -> Retry {
-        // Run again after a crash, the thread would exist twice.
-        Retry::NonRepeatable
-    }
-
-    fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
-        let i: SplitInput = parse(input)?;
-        Ok(Plan {
-            summary: format!(
-                "split part of this thread into the thread {}",
-                i.slug.trim()
-            ),
-            authority: Some("a new thread opens with turns of this one".into()),
-            ..Default::default()
-        })
-    }
-
-    fn run_async(&self, _input: &Value, _ctx: &ToolCtx) -> theseus_tools::AsyncRun {
-        Box::pin(std::future::ready(Err(ToolFailure::new(
-            "thread.split runs through the runtime, which reads the thread",
-        ))))
-    }
-}
-
-fn fail(why: impl Into<String>) -> AsyncMediaRun {
-    let why = why.into();
-    Box::pin(std::future::ready(Err(ToolFailure::new(why))))
-}
-
-/// Run `thread.split` for the turn `tc`'s call `correlation_id`.
-pub fn run(tc: &TurnCtx<'_>, correlation_id: &str, input: &Value) -> AsyncMediaRun {
-    let i: SplitInput = match parse(input) {
-        Ok(i) => i,
-        Err(e) => return fail(format!("Not split: {e}")),
-    };
-    let Some(core) = tc.threads.core() else {
-        return fail("Not split: the core is not built");
-    };
-    let nodes = match tc.store.transcript(tc.session_id) {
-        Ok(n) => n,
-        Err(e) => return fail(format!("Not split: {e:#}")),
-    };
-    let holder = crate::task::holder_of(&nodes, correlation_id);
-    let mut pieces = vec![arrangement::PieceRef {
-        quote: Some(i.from.clone()),
-        node: None,
-        role: Role::Context,
-    }];
-    let same =
-        i.to.as_deref()
-            .is_some_and(|t| arrangement::normalize(t) == arrangement::normalize(&i.from));
-    if let Some(t) = i.to.as_deref().filter(|_| !same) {
-        pieces.push(arrangement::PieceRef {
-            quote: Some(t.to_string()),
-            node: None,
-            role: Role::Context,
-        });
-    }
-    let want = arrangement::Input {
-        pieces,
-        trust: vec![],
-        supersedes: vec![],
-    };
-    let found = match arrangement::resolve(&want, &nodes, holder.as_deref()) {
-        Ok(p) => p,
-        Err(r) => {
-            return fail(format!(
-                "Not split: {}",
-                r.message
-                    .replace("piece 0", "`from`")
-                    .replace("piece 1", "`to`")
-            ))
-        }
-    };
-    let first = found[0].node.clone();
-    let last = match (same, found.get(1)) {
-        (_, Some(l)) => Some(l.node.clone()),
-        (true, None) => Some(first.clone()),
-        (false, None) => None,
-    };
-    // Through the end of the thread, less the request that asked for this
-    // call: the person's message that began the turn, and what followed it.
-    let stop = holder.as_deref().and_then(|h| {
-        let at = nodes.iter().position(|(_, n)| n.id == h)?;
-        nodes[..at]
-            .iter()
-            .rev()
-            .find(|(_, n)| {
-                n.origin == crate::node::Origin::Operator
-                    && n.kind == crate::stub::Kind::UserMessage
-            })
-            .map(|(_, n)| n.id.clone())
-            .or_else(|| Some(h.to_string()))
-    });
-    let pick = Pick::Between { first, last, stop };
-    let session = tc.session_id.to_string();
-    Box::pin(async move {
-        theseus_store::blocking(|| {
-            core.split_from_session(
-                &session,
-                &i.slug,
-                i.title.as_deref(),
-                i.goal.as_deref(),
-                pick,
-            )
-        })
-        .map(|(text, meta)| (ToolOutput { text, meta }, None, None))
-        .map_err(ToolFailure::new)
-    })
-}
-
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
     use crate::node::{Node, ResultStatus};
 

@@ -805,10 +805,8 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<watch_cmd::WatchesCmd>,
     },
-    /// Threads: lines of work on virtual places `thread:<slug>`, each with a session
-    /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
-    /// resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone
-    /// (refused inside a job).
+    /// Threads, read-only: they were retired on 2026-11-22, and `thread` lists the stored
+    /// records and `thread show SLUG` reads one.
     #[command(display_order = 16)]
     Thread {
         #[command(subcommand)]

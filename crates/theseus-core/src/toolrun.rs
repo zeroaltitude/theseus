@@ -2022,7 +2022,6 @@ pub fn build_runtime(
         }));
         r.register(Arc::new(crate::watch_tool::WatchTool));
         r.register(Arc::new(crate::thread_context::ThreadNote));
-        r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::project_tool::ProjectAttach));
         crate::chat_acts::register(cfg, &mut r);

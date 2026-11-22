@@ -92,7 +92,6 @@ mod families_step;
 mod fill_step;
 mod gate_step;
 pub(crate) mod helper_step;
-pub(crate) mod home_size_step;
 mod inbound_step;
 mod join_step;
 mod later_step;
