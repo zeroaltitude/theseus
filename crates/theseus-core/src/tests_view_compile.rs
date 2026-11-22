@@ -567,7 +567,7 @@ async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() 
         .await
         .expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
     assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
     assert!(
@@ -577,9 +577,9 @@ async fn a_view_over_its_budget_fails_on_its_overage_and_is_never_handed_back() 
 }
 
 /// The view's first call is refused by the provider for its size, with nothing of the turn's own to clear:
-/// it is never handed back. The retry is compiled under the provider's stated window, its floor cannot fit
-/// that, and the turn fails before a second call on the core overage, once, with no fallback
-/// (`room::tests` has a refusal the view makes room for).
+/// it is never handed back. A smaller request exists (its recall can go), so it is sent once; refused again,
+/// the turn fails plainly on the window, with no third call and no fallback (`room::tests` has a refusal
+/// the view makes room for).
 #[tokio::test]
 async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let r = crate::tests_places::rig_setup_scripted(
@@ -609,13 +609,17 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let sid = session_in(c, None, &r.root);
     let err = submit(c, &sid, ASKED).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let asked: Vec<ProviderRequest> = (r.requests().into_iter())
         .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
         .collect();
-    assert_eq!(asked.len(), 1, "the refused call, and no retry loop");
+    assert_eq!(
+        asked.len(),
+        2,
+        "the refused call and one smaller retry, and no retry loop"
+    );
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
-    assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
+    assert_eq!(crate::test_support::rows(c, "context.overflow").len(), 2);
 }
 
 /// Item 4 of round 2, under the cut: a floor too large for the view's budget (one enormous message) is never
@@ -630,7 +634,7 @@ async fn a_floor_too_large_for_the_view_fails_on_its_overage() {
     let huge = "enormous ".repeat(1_500_000);
     let err = submit(c, &sid, &huge).await.expect_err("past the window");
     let te = err.downcast_ref::<crate::turn::TurnError>().unwrap();
-    assert_eq!(te.class, crate::turn::overage::OVERAGE_CLASS);
+    assert_eq!(te.class, crate::turn::WINDOW_CLASS);
     let said = format!("{err:#}");
     assert!(
         said.contains("does not fit") && said.contains("Nothing was sent"),

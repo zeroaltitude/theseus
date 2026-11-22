@@ -41,6 +41,7 @@ pub fn is_attempt(class: Option<&str>) -> bool {
         "self_budget",
         "unpriced",
         "context_window",
+        // A row written before the overage took the window's class.
         "context_overage",
         "context_unadmitted",
         "context_unreadable",

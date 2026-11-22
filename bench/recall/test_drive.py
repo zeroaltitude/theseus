@@ -1060,7 +1060,7 @@ class TheseusDriver(unittest.TestCase):
             rows = {r["index"]: r for r in map(json.loads, (out / "turns.jsonl").read_text().splitlines())}
             mark = rows[prog.marks()[0]]
             self.assertEqual(mark["exit"], 1, mark)
-            self.assertIn("class=context_overage", mark["error"])
+            self.assertIn("class=context_window", mark["error"])
             self.assertIn("against the 22,154 the window leaves", mark["error"])
 
     _measured: int | None = None

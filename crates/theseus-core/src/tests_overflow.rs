@@ -183,11 +183,12 @@ async fn a_prompt_the_provider_refuses_as_too_long_rings_and_the_retry_answers()
             &json!("ring")
         )
     );
+    // The retry is the view's own, assembled again on the smaller request (the transcript's ring is gone).
     let compiled = rows(&r.core, "context.compiled");
     let last = compiled.last().unwrap();
     assert_eq!(
         (&last["trigger"], &last["strategy"]),
-        (&json!("overflow"), &json!("ring")),
+        (&json!("view_turn"), &json!("view")),
         "{last}"
     );
     assert!(rows(&r.core, "turn.failed").is_empty());
@@ -275,10 +276,11 @@ async fn an_answer_cut_at_the_window_is_made_again_on_a_ring_without_it() {
     assert_eq!(third.output, "You're welcome.");
     let reqs = r.fake.requests();
     let next = &reqs[3];
-    assert_eq!(
-        &next.messages[..retry.messages.len()],
-        &retry.messages[..],
-        "the next request begins with the retry's"
+    // The view assembles each turn again: the next request carries the retry's exchange (not the retry's
+    // bytes as its prefix, which only the transcript's ring kept).
+    assert!(
+        text_of(next).contains("and the tide table?"),
+        "the next request carries the retry's exchange"
     );
     assert!(!text_of(next).contains("Half of the tide tab"));
     assert!(text_of(next).contains("The whole tide table."));

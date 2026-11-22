@@ -102,6 +102,9 @@ pub struct Room {
     /// This assembly is the floor alone (the last before an overage); not recorded.
     #[serde(skip)]
     pub floor_only: bool,
+    /// This floor is bare: its window exchanges are cut too (after a provider's size refusal); not recorded.
+    #[serde(skip)]
+    pub bare: bool,
 }
 
 impl Room {
