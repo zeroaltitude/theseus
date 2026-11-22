@@ -2,6 +2,10 @@
 
 *One page on personas and threads. Numbers come from the tests and checks it cites. Updated 2026-10-28.*
 
+> **Threads, since 2026-11-22:** threads are no longer containers. No message is sent to a thread's own session;
+> `theseus thread list` and `thread show` read the stored threads, and every other thread command is gone. The
+> thread parts below are the record of how they worked. Personas are unchanged.
+
 ## What it is
 
 **Personas** are characters of one agent, not separate agents. Give Theseus more than one: a name, an emoji, a

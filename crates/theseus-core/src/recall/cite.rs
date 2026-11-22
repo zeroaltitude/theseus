@@ -59,7 +59,8 @@ impl TurnRunner {
     /// cannot be read. A citation is shown wherever its item is (anything
     /// goes, 2026-11-22): no place keeps one out.
     pub fn citation(&self, item: &RecalledRef) -> Option<Citation> {
-        let (handle, header) = split_header(&item.header)?;
+        let stored = super::evidence::untitled(&item.header, &item.session_id);
+        let (handle, header) = split_header(stored)?;
         let source = self.memory.read_source(&self.store, item)?;
         Some(Citation {
             handle: handle.to_string(),

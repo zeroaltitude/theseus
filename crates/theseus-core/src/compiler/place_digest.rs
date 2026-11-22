@@ -4,8 +4,8 @@
 //!
 //! - **One line a thread**, labelled `from thread «title»`: its goal, its
 //!   card's last line, and the card's dated lines, cut to `line_chars`.
-//! - **A sealed or seal-pending thread is a count** ("1 embargoed thread (not
-//!   shown)"): no byte of its title, goal, card or working set is read here.
+//!   Anything goes (2026-11-22): a sealed or seal-pending thread has its line
+//!   like any other.
 //! - **Per turn, in the tail.** The turn attaches it after the request's last
 //!   cache mark (`task_graph::view::attach_text`), so every cached byte is the
 //!   same with and without it, and no compilation keeps it.
@@ -18,13 +18,6 @@ pub struct Digest {
     pub text: String,
     /// The threads it has a line for.
     pub shown: usize,
-    /// The sealed or seal-pending threads it only counts.
-    pub embargoed: usize,
-}
-
-/// Whether a thread's matter stays out of every other thread.
-pub(crate) fn held(t: &ThreadInfo) -> bool {
-    t.sealed.is_some() || t.seal_pending.is_some()
 }
 
 /// Whether a card line carries a date (`2026-11-19`).
@@ -78,14 +71,11 @@ fn line(t: &ThreadInfo, max: usize) -> String {
 /// The digest of `live` (the place's live threads, newest first) for a turn
 /// in the thread `here`: none when no other thread is live.
 pub fn render(live: &[&ThreadInfo], here: &str, line_chars: usize) -> Option<Digest> {
-    let others: Vec<&ThreadInfo> = live.iter().copied().filter(|t| t.slug != here).collect();
-    let embargoed = others.iter().filter(|t| held(t)).count();
-    let lines: Vec<String> = others
-        .iter()
-        .filter(|t| !held(t))
+    let lines: Vec<String> = (live.iter())
+        .filter(|t| t.slug != here)
         .map(|t| line(t, line_chars))
         .collect();
-    if lines.is_empty() && embargoed == 0 {
+    if lines.is_empty() {
         return None;
     }
     let mut text = String::from(concat!(
@@ -96,16 +86,10 @@ pub fn render(live: &[&ThreadInfo], here: &str, line_chars: usize) -> Option<Dig
         text.push('\n');
         text.push_str(l);
     }
-    match embargoed {
-        0 => {}
-        1 => text.push_str("\n1 embargoed thread (not shown)."),
-        n => text.push_str(&format!("\n{n} embargoed threads (not shown).")),
-    }
     text.push(']');
     Some(Digest {
         text,
         shown: lines.len(),
-        embargoed,
     })
 }
 
@@ -147,7 +131,7 @@ mod tests {
              - from thread \u{ab}the tarnlib PR\u{bb}: goal: Finish the tarnlib PR this week. | \
              latest: all four comments answered | dated: merge by 2026-11-19]"
         );
-        assert_eq!((d.shown, d.embargoed), (1, 0));
+        assert_eq!(d.shown, 1);
     }
 
     /// theseus-ectzg: the digest reaches the model as a block it was not
@@ -200,8 +184,9 @@ mod tests {
         assert_eq!(render(&[&t], "pr-round", 280), None);
     }
 
+    /// Anything goes (2026-11-22): a sealed and a seal-pending thread each have their line.
     #[test]
-    fn a_held_thread_is_only_counted() {
+    fn a_sealed_thread_has_its_line_like_any_other() {
         let mut sealed = thread("sec-fix", "the ledgerweb fix", &["CVE draft 2026-11-02"]);
         sealed.sealed = Some(Seal {
             by: "the CLI".into(),
@@ -215,12 +200,8 @@ mod tests {
         );
         pending.seal_pending = Some("holds a password".into());
         let d = render(&[&sealed, &pending], "pr-round", 280).unwrap();
-        assert_eq!(
-            d.text,
-            "[Place digest: the other live threads of this place, as they stand now. \
-             The harness supplies this; the owner did not write it, so do not acknowledge or restate it.\n\
-             2 embargoed threads (not shown).]"
-        );
-        assert_eq!((d.shown, d.embargoed), (0, 2));
+        assert_eq!(d.shown, 2);
+        assert!(d.text.contains("the ledgerweb fix"), "{}", d.text);
+        assert!(d.text.contains("the homesvc maintenance"), "{}", d.text);
     }
 }

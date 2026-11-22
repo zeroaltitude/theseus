@@ -29,7 +29,7 @@
 //!   is of the current exchange of this very session;
 //! - his message has not authorised a change already: its one-use receipt
 //!   (`task.receipt.<node>`) is not spent, for this task or any other;
-//! - the owner is alone here, as the gate's `present` says (a channel, an
+//! - the owner is alone here, as [`present_in_person`] says (a channel, an
 //!   agent's process at the terminal, an unreadable mark: not alone);
 //! - a narrowing keeps the objective as it was, word for word, and adds his
 //!   whole message beside it, never a part the model chose (and acceptance
@@ -246,7 +246,7 @@ pub trait Evidence {
     fn mark(&self, node: &str) -> Result<Option<OwnerMark>>;
     /// The current exchange of the session (`exchange::exchange` of the turn).
     fn exchange(&self) -> Result<Option<Exchange>>;
-    /// The gate's `present` for the message `mark` marks.
+    /// [`present_in_person`] for the message `mark` marks.
     fn present(&self, mark: &OwnerMark) -> Present;
     /// The words of the message `node`.
     fn text(&self, node: &str) -> Result<Option<String>>;
@@ -387,7 +387,60 @@ pub fn applies(ev: &dyn Evidence, rec: &TaskRecord, ask: &Ask<'_>) -> Result<Kin
     }
 }
 
-/// [`Evidence`] for a turn's call: the store's records, the gate's `present`.
+/// What the objective's rule reads of the owner's mark of one message.
+pub trait OwnerMarks {
+    /// Whether the owner typed `node` in person; none when no mark was
+    /// written for it.
+    fn in_person(&self, node: &str) -> Result<Option<bool>>;
+}
+
+impl OwnerMarks for crate::store::Store {
+    fn in_person(&self, node: &str) -> Result<Option<bool>> {
+        Ok(crate::exchange::mark(self, node)?.map(|m| m.in_person))
+    }
+}
+
+/// Whether `target` is a surface where the owner can be alone: the terminal
+/// and the web page (no target, or the ledger's `local…`), or a direct
+/// conversation.
+fn alone_surface(target: Option<&str>) -> bool {
+    target.is_none_or(|t| t.starts_with("local") || t.starts_with("discord:dm:"))
+}
+
+/// Who is present for the message `node`, at `place` (today's reading),
+/// arrived at `target` (before any thread routing), as the objective's rule
+/// reads it ([`Why::NotAlone`]): the owner alone only where he typed it in
+/// person, at a surface he can be alone at, in a place read as private. A
+/// channel is never alone, whoever is in it; an agent's process at the
+/// terminal is not alone; an unreadable mark is `Unknown`. This is authority
+/// (the owner's own, in-person word), not privacy: it decides no context.
+pub fn present_in_person(
+    place: &theseus_memory::recall::Place,
+    target: Option<&str>,
+    node: &str,
+    marks: &dyn OwnerMarks,
+) -> Present {
+    use theseus_memory::recall::Place;
+    match place {
+        Place::Unknown => return Present::Unknown,
+        Place::Shared(_) => return Present::Shared,
+        Place::Private => {}
+    }
+    if !alone_surface(target) {
+        return Present::PrivateChannel;
+    }
+    match marks.in_person(node) {
+        Ok(Some(true)) => Present::OwnerAlone,
+        Ok(_) => Present::PrivateChannel,
+        Err(e) => {
+            tracing::warn!(node, error = %format!("{e:#}"),
+                "the owner's mark cannot be read: he is not read as alone");
+            Present::Unknown
+        }
+    }
+}
+
+/// [`Evidence`] for a turn's call: the store's records, [`present_in_person`].
 pub struct Records<'a> {
     pub store: &'a crate::store::Store,
     pub outbox: &'a crate::outbox::Outbox,
@@ -440,7 +493,6 @@ impl Evidence for Records<'_> {
     }
 
     fn present(&self, mark: &OwnerMark) -> Present {
-        use crate::view_gate::{present, Input};
         use theseus_memory::recall::Place;
         // Where the message arrived, before any thread routing: its own
         // session's target (none: the terminal or the web page).
@@ -453,12 +505,7 @@ impl Evidence for Records<'_> {
                 target.clone().map_or(Place::Unknown, Place::Shared)
             }
         };
-        present(
-            &place,
-            target.as_deref(),
-            Input::Message(&mark.node),
-            self.store,
-        )
+        present_in_person(&place, target.as_deref(), &mark.node, self.store)
     }
 
     fn text(&self, node: &str) -> Result<Option<String>> {

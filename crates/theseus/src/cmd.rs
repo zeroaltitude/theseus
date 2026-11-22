@@ -75,15 +75,18 @@ pub async fn ask(
         None | Some("-") => read_stdin_prompt()?,
         Some(p) => p.to_string(),
     };
-    // The thread this shell chose (`thread switch`'s export) when none was named; a script that
-    // never set it asks the home conversation (theseus-j0yh).
+    // A thread named by `--thread` or by the shell (`THESEUS_THREAD`) is ignored: threads are
+    // gone (2026-11-22), and the turn runs here. The one line says so.
     let thread = a.thread.or_else(|| {
         a.session
             .is_none()
             .then(theseus_client::current::from_env)
             .flatten()
     });
-    let dir = ask_dir(a.dir.as_deref(), a.session.is_some() || thread.is_some())?;
+    if thread.is_some() {
+        eprintln!("{THREADS_GONE}");
+    }
+    let dir = ask_dir(a.dir.as_deref(), a.session.is_some())?;
     let params = serde_json::to_value(TurnSubmitParams {
         surface: None,
         dir,
@@ -99,7 +102,7 @@ pub async fn ask(
         reply_to: None,
         // Inside a job, its session (theseus-b5cl).
         opened_from: theseus_client::client::job_session(),
-        thread,
+        thread: None,
         speaking: None,
         in_reply_to: None,
         route_at_ms: a.route_at_ms,
@@ -110,6 +113,9 @@ pub async fn ask(
     let shown = (a.thinking, a.trace);
     stream_turn(conn, json, no_stream, params, shown, spawned, follow_for).await
 }
+
+/// What `ask` says when it was given a thread: it is ignored, and the turn runs here.
+pub(crate) const THREADS_GONE: &str = "threads are gone; this ran here";
 
 /// The directory `ask` sends (theseus-aab7): `--dir`, made absolute, else
 /// this process's own when it starts a session; a session it continues

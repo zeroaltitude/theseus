@@ -1,8 +1,8 @@
 //! The place digest (theseus-98bz.9), through the core: classify.v4's `scope`
 //! rides the one inbound request of a message in a thread; on `place` that
-//! turn's requests carry one labelled line for each other open thread after
-//! the last cache mark, and a sealed or seal-pending thread only as a count;
-//! `thread`, a late answer, and the switch off give none.
+//! turn's requests carry one labelled line for each other live thread after
+//! the last cache mark, a sealed or seal-pending one too (anything goes,
+//! 2026-11-22); `thread`, a late answer, and the switch off give none.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,19 +70,6 @@ const THREADS: [(&str, &str, &str, &[&str], &str); 5] = [
     ),
 ];
 
-/// The words of the sealed and the seal-pending threads that must reach no
-/// other thread's request.
-const HELD: [&str; 8] = [
-    "zircon",
-    "ledgerweb",
-    "Patch the zircon",
-    "zircon-stage-01.lan",
-    "opal",
-    "homesvc opal",
-    "Move opal",
-    "opal-stage-01.lan",
-];
-
 fn rig(jev: &FakeJev, n: usize, digest: bool) -> Rig {
     rig_on(texts(n), Some(jev), |c| {
         inbound_only(c);
@@ -142,8 +129,10 @@ fn scope(jev: &FakeJev, option: &str) {
     );
 }
 
-/// One `turn.submit` addressed to `thread` (`theseus ask --thread`).
+/// One `turn.submit` to `thread`'s session (a `turn.submit` names no thread any more: threads are
+/// gone, and an address runs where it was written).
 async fn ask(c: &Arc<Core>, thread: &str, input: &str) -> TurnSubmitResult {
+    let session = c.thread_session(thread, cli()).unwrap().session_id;
     let (client, server) = duplex(1 << 20);
     let (sr, sw) = tokio::io::split(server);
     tokio::spawn(
@@ -152,7 +141,7 @@ async fn ask(c: &Arc<Core>, thread: &str, input: &str) -> TurnSubmitResult {
     );
     let (cr, mut cw) = tokio::io::split(client);
     let p = TurnSubmitParams {
-        thread: Some(thread.into()),
+        session_id: Some(session),
         ..serde_json::from_value(serde_json::json!({"input": input})).unwrap()
     };
     let mut line =
@@ -193,11 +182,10 @@ fn digest_of(q: &ProviderRequest) -> Option<String> {
 }
 
 /// A turn whose scope is `place`, in a place of five threads, one sealed and
-/// one seal-pending: one labelled line for each of the two open other threads
-/// and the count line, after the last cache mark; and no byte of the held
-/// threads' titles, goals, cards or working sets anywhere in the request.
+/// one seal-pending: one labelled line for each of the four other threads,
+/// after the last cache mark, the sealed and the seal-pending ones too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_place_digest_never_shows_a_sealed_thread() {
+async fn a_place_digest_shows_a_sealed_thread_like_any_other() {
     let jev = FakeJev::start().unwrap();
     let r = rig(&jev, 2, true);
     let c = &r.core;
@@ -212,24 +200,31 @@ async fn a_place_digest_never_shows_a_sealed_thread() {
     let q = last_request(&r);
     let d = digest_of(&q).expect("a digest");
     let lines: Vec<&str> = d.lines().skip(1).collect();
-    assert_eq!(lines.len(), 3, "{d}");
-    assert!(lines[0].starts_with("- from thread \u{ab}the"), "{d}");
-    assert!(lines[1].starts_with("- from thread \u{ab}the"), "{d}");
-    for open in ["the datatidy cleanup", "the quillhn work"] {
+    assert_eq!(lines.len(), 4, "{d}");
+    for l in &lines {
+        assert!(l.starts_with("- from thread \u{ab}the"), "{d}");
+    }
+    for open in [
+        "the datatidy cleanup",
+        "the quillhn work",
+        "the ledgerweb zircon fix",
+        "the homesvc opal migration",
+    ] {
         assert!(d.contains(&format!("\u{ab}{open}\u{bb}")), "{d}");
     }
     assert!(
         d.contains("dated: the cutoff is 0.55 since 2026-10-20"),
         "{d}"
     );
-    assert_eq!(lines[2], "2 embargoed threads (not shown).]");
+    assert!(d.ends_with(']'), "{d}");
+    assert_eq!(d.matches("embargoed").count(), 0, "no count line: {d}");
     assert!(
         !d.contains("tarnlib PR\u{bb}"),
         "the asking thread has no line: {d}"
     );
     let sent = whole(&q);
-    for held in HELD {
-        assert!(!sent.contains(held), "{held:?} reached the request");
+    for held in ["ledgerweb", "Patch the zircon", "homesvc opal", "Move opal"] {
+        assert!(sent.contains(held), "{held:?} did not reach the request");
     }
     // After the last cache mark: the block before it carries the mark.
     let blocks = q.messages.last().unwrap()["content"].as_array().unwrap();

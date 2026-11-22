@@ -1,11 +1,8 @@
-//! One long instruction keeps going (theseus-3ki0), through the whole core,
-//! with a scripted stand-in for the session's model on a small window and
-//! one for the summary profile's (`glm`): a single message whose turn reads
-//! hundreds of large results never ends in `context_overage`. Past the
-//! clearing line its old results become stubs (a `context.cleared` row a
-//! pass), past the window it compacts inside its turn, the instruction
-//! pinned verbatim at the top of every request, no call ever without its
-//! result; and the turn ends as its model ends it.
+//! One long instruction keeps going (theseus-3ki0), through the whole core, with a scripted stand-in for the
+//! session's model on a small window: a single message whose turn reads hundreds of large results never ends in
+//! `context_overage`. Past the clearing line its old results become stubs (a `context.cleared` row a pass), the
+//! view makes its own room (issue 44: no ring, no compaction), the instruction is in every request, no call is
+//! ever without its result, and the turn ends as its model ends it.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -14,7 +11,7 @@ use serde_json::{json, Value};
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
-use crate::provider::{FakeProvider, ProviderRequest, Scripted};
+use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::turn::TurnRequest;
@@ -27,8 +24,8 @@ with the tide table. Keep going until you have read them all.";
 
 struct Rig {
     core: Arc<Core>,
-    model: Arc<FakeProvider>,
-    glm: Arc<FakeProvider>,
+    _model: Arc<FakeProvider>,
+    _glm: Arc<FakeProvider>,
     _dir: tempfile::TempDir,
 }
 
@@ -89,8 +86,8 @@ fn rig_tweaked(
     let core = Core::build(parts).unwrap();
     Rig {
         core,
-        model,
-        glm,
+        _model: model,
+        _glm: glm,
         _dir: dir,
     }
 }
@@ -127,129 +124,6 @@ fn rows(core: &Core, kind: &str) -> Vec<Value> {
         .filter(|(_, r)| r.kind == kind)
         .map(|(_, r)| r.data)
         .collect()
-}
-
-/// Every call in a request has its result in the next message, and every
-/// result its call in the message before.
-fn closed(q: &ProviderRequest) -> Result<(), String> {
-    let ids = |m: Option<&Value>, kind: &str, key: &str| -> Vec<String> {
-        m.and_then(|m| m["content"].as_array())
-            .into_iter()
-            .flatten()
-            .filter(|b| b["type"] == kind)
-            .map(|b| b[key].as_str().unwrap_or_default().to_string())
-            .collect()
-    };
-    for (i, m) in q.messages.iter().enumerate() {
-        let results_next = ids(q.messages.get(i + 1), "tool_result", "tool_use_id");
-        for id in ids(Some(m), "tool_use", "id") {
-            if !results_next.contains(&id) {
-                return Err(format!("message {i}: call {id} has no result after it"));
-            }
-        }
-        let calls_before = ids(i.checked_sub(1).map(|p| &q.messages[p]), "tool_use", "id");
-        for id in ids(Some(m), "tool_result", "tool_use_id") {
-            if !calls_before.contains(&id) {
-                return Err(format!("message {i}: result {id} has no call before it"));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn first_text(q: &ProviderRequest) -> String {
-    q.messages[0]["content"][0]["text"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string()
-}
-
-/// 300 large results in one turn on a window that holds about 30: old
-/// results cleared, then compactions inside the turn, the instruction
-/// verbatim at the top after both, every call closed, no overage, and the
-/// turn ends with the model's answer.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_single_instruction_reads_300_large_results_without_an_overage() {
-    // A window of 80,000 holds about 25 of these exchanges beside the
-    // catalog's definitions: a pass keeps the newest results within its
-    // token keep (theseus-5lzox: the window was 100,000 when the newest 20
-    // exchanges stayed whole), so passes come every dozen loops or so, and
-    // the stubs they leave fill the window for two compactions.
-    // 80,000 until the three p3h rows joined the catalog together (theseus-z9mze.2, .3, theseus-o1h3f.1: 80,000
-    // to 81,000 clear 30 passes or more; 82,000 to 86,000 hold, 87,000 and up do not: a sweep at their join).
-    // 82,000 until the persona's "Act, then tell" sentence joined the prefix (theseus-dfoug: +39 tokens; 81,000
-    // and 82,000 clear 30 passes or more; 83,000 to 86,000 hold, 87,000 does not: a sweep at its join).
-    let r = rig(300, 2_500, 84_000, None);
-    let (sid, result) = turn(&r.core, INSTRUCTION).await;
-    let result = result.expect("the turn ends as its model ends it");
-    assert!(result
-        .output
-        .ends_with("All the logs agree with the tide table."));
-    assert_eq!(result.stop_reason, "no_tool_calls");
-    assert!(rows(&r.core, "context.overage").is_empty());
-
-    let compacted: Vec<Value> = rows(&r.core, "context.compacted")
-        .into_iter()
-        .filter(|c| c["outcome"] == "compaction")
-        .collect();
-    assert!(compacted.len() >= 2, "{} compactions", compacted.len());
-    let cleared = rows(&r.core, "context.cleared");
-    assert!(!cleared.is_empty(), "a clearing pass");
-    // One row a pass: each names a stored compilation made by it.
-    let comps = r.core.store.session_compilations(&sid).unwrap();
-    for row in &cleared {
-        let id = row["compilation_id"].as_str().unwrap();
-        let c = comps.iter().find(|c| c.id == id).expect("stored");
-        assert!(
-            c.budget
-                .as_ref()
-                .unwrap()
-                .dropped
-                .iter()
-                .any(|d| d.tier == "cleared"),
-            "{id}"
-        );
-        assert!(row["results"].as_u64().unwrap() > 0);
-    }
-    assert!(cleared.len() < 300 / 10, "{} passes: rare", cleared.len());
-
-    // Every request: the instruction first, verbatim; no call open.
-    let sent = r.model.requests();
-    assert_eq!(sent.len(), 301);
-    for (k, q) in sent.iter().enumerate() {
-        assert_eq!(first_text(q), INSTRUCTION, "request {k}");
-        closed(q).unwrap_or_else(|e| panic!("request {k}: {e}"));
-    }
-    // The summarizer heard what the work in progress is, not the operator.
-    let asked = r.glm.requests();
-    assert!(!asked.is_empty());
-    let system = asked[0].system[0]["text"].as_str().unwrap();
-    assert!(system.contains("what is left to do"), "{system}");
-    // A summary renders below the instruction in the last request.
-    let last = sent.last().unwrap();
-    let text = last.messages[0]["content"][1]["text"].as_str().unwrap();
-    assert!(text.starts_with("[Summary of "), "{text}");
-}
-
-/// `[context] working_window_tokens` lowers the window: the same turn on a
-/// 1M catalog window compacts against the working window.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_working_window_lowers_the_budget() {
-    let r = rig(80, 3_000, 1_000_000, Some(40_000));
-    let (sid, result) = turn(&r.core, INSTRUCTION).await;
-    result.expect("the turn ends");
-    let comps = r.core.store.session_compilations(&sid).unwrap();
-    let c = comps.last().unwrap();
-    assert_eq!(c.manifest.context_window, Some(40_000));
-    assert_eq!(
-        c.budget.as_ref().unwrap().limit_tokens,
-        40_000 - u64::from(OUTPUT) - 4_096
-    );
-    assert!(rows(&r.core, "context.overage").is_empty());
-    assert!(!rows(&r.core, "context.compacted").is_empty());
-    for q in r.model.requests() {
-        assert_eq!(first_text(&q), INSTRUCTION);
-    }
 }
 
 /// The turn's result carries how full the last request was and the window it

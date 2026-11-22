@@ -235,11 +235,6 @@ fn the_admission_table_has_each_band_once_and_its_floors_are_the_floor_and_now()
         );
     }
     assert_eq!(ADMISSION[0].band, Band::Frame, "the frame is counted first");
-    assert!(
-        !Band::ElsewhereWords.in_company()
-            && !Band::Waiting.in_company()
-            && Band::Floor.in_company()
-    );
 }
 
 #[test]

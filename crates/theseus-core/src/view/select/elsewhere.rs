@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use super::super::history::PAGE_EXCHANGES;
 use super::super::timeline::{Cursor, ExchangeRef, TimelineRoot};
-use super::super::{Anchor, Audience, Form, Piece, PointOfView, Present, Reason};
+use super::super::{Anchor, Audience, Form, Piece, PointOfView, Reason};
 use super::make::{self, Cut};
 use super::sources::{ExchangeFacts, Sources};
 use super::{Band, Selector, Snapshot};
@@ -32,9 +32,6 @@ struct Who<'p> {
 
 impl Who<'_> {
     fn of<'p>(pov: &'p PointOfView) -> Option<Who<'p>> {
-        if pov.present != Present::OwnerAlone {
-            return None;
-        }
         Some(Who {
             person: pov.person.as_deref()?,
             here: match &pov.anchor {

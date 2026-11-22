@@ -6,9 +6,8 @@
 //! The gate is asked of every record before it is read or counted ([`ViewAdmits`]): a thing it refuses is no
 //! name, no candidate, and makes no alias it shares ambiguous; a card's facts, tasks, guidance and exchanges
 //! are each admitted first, so a refused one is not even in a card's "… and N more" line. An exchange is
-//! admitted only when its session's CURRENT marks (place, audience, seal) and its own arrival place both
-//! pass, and none of its messages was moved into a thread not proven clear (`view_gate::Moved`, the turn's
-//! one); its words are read only then. The card itself then goes through the same gate again, as every
+//! admitted only when its session's CURRENT marks (place, audience) and its own arrival place both pass;
+//! its words are read only then. The card itself then goes through the same gate again, as every
 //! selector's piece does, with its thing's own marks, and carries the sessions it was read from so the
 //! view's record re-checks them (`Space::Card::from`).
 //!
@@ -39,7 +38,6 @@ use crate::names::items::{self, ITEM};
 use crate::names::table::{self, How, Table};
 use crate::store::Store;
 use crate::task_graph::joined::Homes;
-use crate::view_gate::Moved;
 
 /// The place the owner's own filing is marked with (the ontology's categories and guidance, a standing
 /// record for everywhere): private, and never the anchor, so only the owner alone sees it.
@@ -91,8 +89,6 @@ pub struct ViewAdmits<'a> {
     pub store: &'a Store,
     /// A session's marks as the gate reads them now (its place, its class, its seal).
     pub homes: &'a dyn Homes,
-    /// The turn's node seal: an exchange holding a message moved into a thread not proven clear is held.
-    pub moved: &'a Moved<'a>,
     /// Every task, for a task's home session.
     pub tasks: Vec<TaskRecord>,
     /// The marks of each thing admitted, by its key.
@@ -106,7 +102,7 @@ pub struct ViewAdmits<'a> {
 impl<'a> ViewAdmits<'a> {
     pub fn new(
         (gate, pov): (&'a dyn Gate, &'a PointOfView),
-        (store, homes, moved): (&'a Store, &'a dyn Homes, &'a Moved<'a>),
+        (store, homes): (&'a Store, &'a dyn Homes),
         tasks: Vec<TaskRecord>,
         depends: &'a RefCell<BTreeSet<String>>,
     ) -> Self {
@@ -115,7 +111,6 @@ impl<'a> ViewAdmits<'a> {
             pov,
             store,
             homes,
-            moved,
             tasks,
             admitted: RefCell::default(),
             depends,
@@ -190,13 +185,9 @@ impl Admits for ViewAdmits<'_> {
         false
     }
 
-    /// Its session's current marks AND its own arrival place pass ([`admitted`]), and no message of it was
-    /// moved into a thread not proven clear; its id joins the card's provenance, and the dispatch and the
-    /// record re-ask its moves and seals afresh (`turn::view_step`, `record::source`).
+    /// Its session's current marks AND its own arrival place pass ([`admitted`]); its id joins the card's
+    /// provenance, and the record re-asks it afresh (`record::source`).
     fn exchange(&self, e: &Exchange) -> bool {
-        if self.moved.holds(e) {
-            return false;
-        }
         let now = self.homes.marks(&e.session_id);
         let here = private(&e.place);
         let arrived = Marks {
@@ -535,15 +526,9 @@ mod tests {
             at_hand: None,
             now_ms: 9_000,
         };
-        let moved = Moved::of(&store, None, None);
         let depends = RefCell::default();
         let homes = Now(now);
-        let a = ViewAdmits::new(
-            (&permit, &pov),
-            (&store, &homes, &moved),
-            Vec::new(),
-            &depends,
-        );
+        let a = ViewAdmits::new((&permit, &pov), (&store, &homes), Vec::new(), &depends);
         let ok = a.exchange(e);
         drop(a);
         let depended = depends.borrow().contains("ses_1");
@@ -562,16 +547,6 @@ mod tests {
             ..clear()
         };
         assert_eq!(admits(unplaced, &dm("discord:dm:42")), (false, false));
-        let unknown = Marks {
-            audience: Audience::Unknown,
-            ..clear()
-        };
-        assert_eq!(admits(unknown, &dm("discord:dm:42")), (false, false));
-        let sealed = Marks {
-            sealed: true,
-            ..clear()
-        };
-        assert_eq!(admits(sealed, &dm("discord:dm:42")), (false, false));
         let nowhere = crate::exchange::rebuild::UNKNOWN;
         assert_eq!(admits(clear(), &dm(nowhere)), (false, false));
         assert_eq!(admits(clear(), &dm("")), (false, false));
@@ -607,7 +582,6 @@ mod tests {
             at_hand: None,
             now_ms: 9_000,
         };
-        let moved = Moved::of(&store, None, None);
         let depends = RefCell::default();
         let channel = Now(Marks {
             audience: Audience::Shared,
@@ -621,7 +595,7 @@ mod tests {
         };
         let a = ViewAdmits::new(
             (&permit, &pov),
-            (&store, &channel, &moved),
+            (&store, &channel),
             vec![task.clone()],
             &depends,
         );

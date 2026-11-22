@@ -6,7 +6,7 @@
 //! row takes no effort is sent none. Here each is driven by Jev's `model` and `effort` answers on
 //! `tests_route_open`'s rig (route.v10's shape acting), so the level is the only thing that moves.
 //!
-//! - a turn at Jev's level repeats the request before it, whole, across turns (the cache);
+//! - a turn at Jev's level keeps the request before it: its system, tools and effort, its messages as history;
 //! - the history's messages come from the answers' records, whatever the top-level effort;
 //! - a model whose catalog row takes no effort ignores Jev's answer, and the row says so.
 
@@ -26,8 +26,8 @@ fn level_message(level: &str) -> Value {
     json!({"role": "system", "content": [], "output_config": {"effort": level}})
 }
 
-/// `later` begins with every byte `earlier` sent before its cache breakpoint: the same model,
-/// tools, system and top-level effort, and `earlier`'s messages.
+/// `later` keeps what `earlier` sent: the same model, tools, system and top-level effort, and
+/// `earlier`'s messages laid again as history.
 fn keeps(earlier: &ProviderRequest, later: &ProviderRequest, what: &str) {
     assert_eq!(later.model, earlier.model, "{what}: the model");
     assert_eq!(later.tools, earlier.tools, "{what}: the tools");
@@ -39,11 +39,25 @@ fn keeps(earlier: &ProviderRequest, later: &ProviderRequest, what: &str) {
     assert_eq!(later.thinking, earlier.thinking, "{what}: the thinking");
     let n = earlier.messages.len();
     assert!(later.messages.len() > n, "{what}: nothing appended");
-    assert_eq!(
-        serde_json::to_string(&later.messages[..n]).unwrap(),
-        serde_json::to_string(&earlier.messages).unwrap(),
-        "{what}: the messages before the breakpoint changed"
-    );
+    for (k, m) in earlier.messages.iter().enumerate() {
+        assert!(
+            carries(&later.messages[k], m),
+            "{what}: message {k} lost what it said: {} against {m}",
+            later.messages[k]
+        );
+    }
+}
+
+/// `later` is `earlier` laid again as history: the same role, and each of its blocks in it, a
+/// text block's words framed as the view lays an earlier turn's (issue 44).
+pub(crate) fn carries(later: &Value, earlier: &Value) -> bool {
+    let all = later.to_string();
+    let blocks = earlier["content"].as_array().map_or(&[][..], Vec::as_slice);
+    later["role"] == earlier["role"]
+        && blocks.iter().all(|b| match b["text"].as_str() {
+            Some(t) => all.contains(Value::from(t).to_string().trim_matches('"')),
+            None => all.contains(&b.to_string()),
+        })
 }
 
 /// The effort each answer of the session recorded.
@@ -145,10 +159,8 @@ async fn the_historys_messages_follow_the_records() {
     assert_eq!(effective(haiku), Some(Effort::Low), "Haiku's profile's own");
     let fable = &reqs[1];
     assert_eq!(fable.model, "claude-fable-5-2");
-    assert_eq!(
-        (&fable.messages[0], &fable.messages[1]),
-        (&level_message("low"), &reqs[0].messages[1])
-    );
+    assert!(carries(&fable.messages[1], &reqs[0].messages[1]));
+    assert_eq!(fable.messages[0], level_message("low"));
     assert_eq!(
         fable.messages[3],
         level_message("high"),

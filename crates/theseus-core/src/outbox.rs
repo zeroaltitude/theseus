@@ -1718,7 +1718,6 @@ mod tests {
         "thread_link_seen.rs",
         "turn/admission.rs",
         "turn/ceiling_step.rs",
-        "turn/home_size_step.rs",
         "turn/personal_step.rs",
     ];
 

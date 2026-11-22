@@ -542,7 +542,7 @@ enum Cmd {
     /// `--budget`, `--profile`, and `--quote-file` text it reads verbatim. Yours alone (refused
     /// inside a job). `task show ID` prints one task whole, its report and the commands that act
     /// on it; `task pause ID` and `task resume ID` hold and release a running one. `task rehome ID HOME`
-    /// sends a task's report to another conversation or `thread:<slug>`; `task reschedule ID --at
+    /// sends a task's report to another conversation; `task reschedule ID --at
     /// WHEN|--in-time SPAN` moves a deferred task's start. `tasks` lists them.
     #[command(hide = true)]
     Task {
@@ -805,10 +805,8 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<watch_cmd::WatchesCmd>,
     },
-    /// Threads: lines of work on virtual places `thread:<slug>`, each with a session
-    /// of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause|
-    /// resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone
-    /// (refused inside a job).
+    /// Threads, read-only: they were retired on 2026-11-22, and `thread` lists the stored
+    /// records and `thread show SLUG` reads one.
     #[command(display_order = 16)]
     Thread {
         #[command(subcommand)]
@@ -876,8 +874,7 @@ struct AskArgs {
     /// Continue an existing session instead of opening a new one.
     #[arg(long, short)]
     session: Option<String>,
-    /// Run in this thread's session, opened at its first message: the slug
-    /// `theseus thread list` shows.
+    /// Accepted and ignored: threads are gone, and the turn runs here (it says so).
     #[arg(long, value_name = "SLUG", conflicts_with = "session")]
     thread: Option<String>,
     /// Profile for this turn (default: the live profile).
