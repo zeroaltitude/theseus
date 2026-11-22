@@ -22,10 +22,12 @@ use crate::{Config, Core};
 
 const OUTPUT: u32 = 2_000;
 const WINDOW: u64 = 80_000;
-const CHARS: usize = 8_000;
+/// The lines of each log, after its first: about 10,000 characters, a result well over what clearing leaves
+/// whole.
+const LINES: usize = 150;
 const ASK: &str = "Read every log under logs/ and tell me whether the keepers agree.";
 const DONE: &str = "All the logs agree with the tide table.";
-const LINE: &str = "the keeper logged the tide at the north light and the table agreed. ";
+const LINE: &str = "the keeper logged the tide at the north light and the table agreed.\n";
 
 #[test]
 fn the_steps_clear_first_then_lower_slot_g_to_none() {
@@ -108,12 +110,17 @@ fn reads(k: usize) -> Scripted {
     }
 }
 
-/// The body every log holds after its first line.
-fn body() -> String {
-    LINE.repeat(CHARS / LINE.len() + 1)[..CHARS].to_string()
+/// Log `k`: its first line, [`LINES`] lines of the keeper's words, and its last line, which only a result
+/// sent whole holds.
+fn log(k: usize) -> String {
+    format!("log {k}\n{}{}", LINE.repeat(LINES), end(k))
 }
 
-/// A core in a place set to `view` whose model reads `calls` logs of [`CHARS`] characters, one a loop, then
+fn end(k: usize) -> String {
+    format!("end of log {k}\n")
+}
+
+/// A core in a place set to `view` whose model reads `calls` logs of [`LINES`] lines, one a loop, then
 /// answers [`DONE`]; `extra` is answered in place of the read at its index. Its window is [`WINDOW`], its
 /// reply's room [`OUTPUT`].
 fn rig(calls: usize, extra: Option<(usize, Scripted)>, binding: Option<Binding>) -> Rig {
@@ -123,7 +130,7 @@ fn rig(calls: usize, extra: Option<(usize, Scripted)>, binding: Option<Binding>)
     let mut script: Vec<Scripted> = (0..calls).map(reads).collect();
     for k in 0..calls {
         let name = format!("logs/keeper-{k:03}.txt");
-        std::fs::write(root.join(name), format!("log {k}\n{}", body())).unwrap();
+        std::fs::write(root.join(name), log(k)).unwrap();
     }
     if let Some((at, s)) = extra {
         script.insert(at, s);
@@ -247,7 +254,10 @@ async fn a_turn_of_many_large_results_makes_its_own_room_and_answers() {
     }
     let last = sent.last().unwrap();
     let newest = result_of(last, &format!("toolu_{:03}", CALLS - 1));
-    assert!(newest.contains(&body()), "the newest result is whole");
+    assert!(
+        newest.contains(end(CALLS - 1).trim()),
+        "the newest result is whole"
+    );
     assert!(
         texts(last).contains("[Result cleared to save context: fs_read logs/keeper-000.txt"),
         "the oldest result is its stand-in"
@@ -274,7 +284,7 @@ async fn a_refusal_for_size_is_retried_under_the_providers_number_and_succeeds()
     const AT: usize = 12;
     let refused = Scripted::Fail(ProviderError::InvalidRequest {
         status: 400,
-        message: "invalid_request_error: prompt is too long: 80000 tokens > 70000 maximum".into(),
+        message: "invalid_request_error: prompt is too long: 72000 tokens > 70000 maximum".into(),
     });
     let r = rig(CALLS, Some((AT, refused)), None);
     let res = turn(&r.core).await.expect("the turn answers");
@@ -291,7 +301,7 @@ async fn a_refusal_for_size_is_retried_under_the_providers_number_and_succeeds()
     );
     assert!(texts(retry).contains("[Result cleared to save context: fs_read logs/keeper-000.txt"));
     assert!(
-        result_of(retry, &format!("toolu_{:03}", AT - 1)).contains(&body()),
+        result_of(retry, &format!("toolu_{:03}", AT - 1)).contains(end(AT - 1).trim()),
         "the newest result is whole"
     );
     let made = rooms(&r.core, &res.turn_id);

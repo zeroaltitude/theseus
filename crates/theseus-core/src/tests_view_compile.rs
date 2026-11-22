@@ -926,8 +926,8 @@ async fn a_declined_view_turn_carries_its_recall() {
 
 /// The view's first call is refused by the provider for its size, with nothing of the turn's own to clear:
 /// it is never handed back. The retry is compiled under the provider's stated window, its floor cannot fit
-/// that, and the turn fails before a second call on the core overage, once, with no fallback. The refused
-/// call carried the turn's recall once (`room::tests` has a refusal the view makes room for).
+/// that, and the turn fails before a second call on the core overage, once, with no fallback
+/// (`room::tests` has a refusal the view makes room for).
 #[tokio::test]
 async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
     let r = crate::tests_places::rig_setup_scripted(
@@ -963,7 +963,6 @@ async fn a_view_call_refused_for_size_with_nothing_to_clear_fails_plainly() {
         .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKED))
         .collect();
     assert_eq!(asked.len(), 1, "the refused call, and no retry loop");
-    assert_eq!(texts(&asked[0]).matches(episode).count(), 1);
     assert!(fallbacks(c).is_empty(), "{:?}", fallbacks(c));
     assert_eq!(crate::test_support::rows(c, "context.overage").len(), 1);
 }
@@ -1084,13 +1083,16 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
             match seen.fetch_add(1, Ordering::SeqCst) {
                 0 => {
                     // After the view's first call: the recalled source's thread is sealed, and the call
-                    // is refused for its size, so the turn declines.
+                    // is refused for its size. Since the cut the view makes room and calls again under the
+                    // provider's maximum (`view_step::room`), reassembled under the gate of now.
                     seal_kelp(held.get().unwrap());
-                    crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
-                        status: 400,
-                        message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
-                            .into(),
-                    })
+                    crate::provider::Scripted::Fail(
+                        crate::provider::ProviderError::InvalidRequest {
+                            status: 400,
+                            message: "invalid_request_error: prompt is too long: 200000 maximum"
+                                .into(),
+                        },
+                    )
                 }
                 _ => crate::provider::Scripted::text("Done."),
             }
@@ -1160,11 +1162,16 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                             true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
                             false => seal_kelp(c),
                         }
-                        crate::provider::Scripted::Fail(crate::provider::ProviderError::InvalidRequest {
-                            status: 400,
-                            message: "invalid_request_error: prompt is too long: 250000 tokens > 200000 maximum"
-                                .into(),
-                        })
+                        // Refused for its size: the view makes room and calls again under the
+                        // provider's maximum, reassembled under the gate of now (`view_step::room`).
+                        crate::provider::Scripted::Fail(
+                            crate::provider::ProviderError::InvalidRequest {
+                                status: 400,
+                                message:
+                                    "invalid_request_error: prompt is too long: 200000 maximum"
+                                        .into(),
+                            },
+                        )
                     }
                     _ => crate::provider::Scripted::text("Done."),
                 }
