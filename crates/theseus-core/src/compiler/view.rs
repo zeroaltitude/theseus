@@ -338,7 +338,10 @@ fn laid(
     let window = frozen.window.iter().map(|(_, n)| n.clone());
     let prefix: Vec<Stub> = front.chain(window).collect();
     // A recall note is the transcript's: in a view, recall is a selector's piece beside the message.
-    let notes = between::notes(nodes, turn);
+    let laid: HashSet<&str> = (frozen.window.iter())
+        .filter_map(|(_, n)| n.turn_id.as_deref())
+        .collect();
+    let notes = between::notes(nodes, turn, &laid);
     let own = nodes
         .iter()
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) || notes.contains(&n.id))
