@@ -18,17 +18,13 @@
 //!   the turn's next frame.
 //! - **While routing decides** (theseus-n7nc): the row waits for the route
 //!   (`recall_routed`), and is recorded once it is known.
-//! - **Only what the request carried** (theseus-fpm2): the node rides the plan
-//!   frame only when the compile the call used rendered it (`carries`, read by
-//!   `recall_view` and recorded as `Recalled::withheld`). A place set to `view`
-//!   carries none (issue 44): its recall reaches the model as a selector's
-//!   piece beside the message, so no note is written into the session. The
-//!   withholding writes a `recall.withheld` row (`recall_dropped`, scoped with
-//!   the recall's other rows, why `view`) carrying the `recall_id` of the
-//!   `recall.ran` row that admitted the notes and how many it admitted, so a
-//!   reader can tell "withheld" from "nothing matched" (theseus-ectzg). A
-//!   compile that withheld the node reports no budget drops of its pack
-//!   (`recall_compiled`). (Two earlier gates, the small-talk bar and a model
+//! - **Every turn carries its node** (issue 44, issue 46): a view turn's too,
+//!   so its count, citations, reach and retraction see what it recalled; the
+//!   view lays the items beside the message and keeps the node out of the
+//!   window and the turn's tail. `Recalled::withheld`, the `recall.withheld`
+//!   row (`recall_dropped`, theseus-ectzg) and the kept-for-view readmission
+//!   served the view's withholding and its hand-back, which no turn takes now;
+//!   old rows of the kind still read. (Two earlier gates, the small-talk bar and a model
 //!   of restricted origin, are gone; their old rows still read.)
 
 use std::collections::BTreeSet;
