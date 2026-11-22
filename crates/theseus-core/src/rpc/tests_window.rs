@@ -7,7 +7,6 @@ use theseus_protocol::{LedgerWindowParams, SessionOpenParams, POSTMORTEM_KINDS};
 
 use super::tests::test_core;
 use super::Core;
-use crate::approval::Surface;
 
 fn open(c: &Core) -> String {
     c.open_session(SessionOpenParams::default())
@@ -47,14 +46,11 @@ fn the_window_holds_the_postmortems_kinds_inside_its_times() {
     put(&c, t - 3_800, "turn.ended", Some(&s), json!({"i": 2}));
     put(&c, t + 700_000, "turn.started", Some(&s), json!({"i": 3}));
     let r = c
-        .ledger_window(
-            LedgerWindowParams {
-                since_ms: t - 4_500,
-                until_ms: Some(t + 600_000),
-                ..Default::default()
-            },
-            Surface::Cli,
-        )
+        .ledger_window(LedgerWindowParams {
+            since_ms: t - 4_500,
+            until_ms: Some(t + 600_000),
+            ..Default::default()
+        })
         .unwrap();
     let ours: Vec<&str> = r
         .rows
@@ -86,15 +82,12 @@ fn pages_walk_the_window_each_row_once() {
     let mut after = None;
     loop {
         let r = c
-            .ledger_window(
-                LedgerWindowParams {
-                    since_ms: 0,
-                    after,
-                    limit: Some(7),
-                    ..Default::default()
-                },
-                Surface::Cli,
-            )
+            .ledger_window(LedgerWindowParams {
+                since_ms: 0,
+                after,
+                limit: Some(7),
+                ..Default::default()
+            })
             .unwrap();
         seen.extend(r.rows.iter().filter_map(|x| x.data["i"].as_u64()));
         match r.next {
@@ -121,13 +114,10 @@ fn a_value_the_vault_holds_is_scrubbed() {
         json!({"argv": ["curl", "-H", "Authorization: vault-held-ghp-abcdefghijklmnopqrstuvwxyz0123456789"]}),
     );
     let r = c
-        .ledger_window(
-            LedgerWindowParams {
-                since_ms: 0,
-                ..Default::default()
-            },
-            Surface::Cli,
-        )
+        .ledger_window(LedgerWindowParams {
+            since_ms: 0,
+            ..Default::default()
+        })
         .unwrap();
     let text = r
         .rows
@@ -168,14 +158,11 @@ fn a_session_narrows_the_window_to_its_rows_and_the_daemons() {
     put(&c, 1_002, "turn.started", Some(&b), json!({}));
     put(&c, 1_003, "turn.ended", Some(&a), json!({}));
     let r = c
-        .ledger_window(
-            LedgerWindowParams {
-                since_ms: 0,
-                session_id: Some(a.clone()),
-                ..Default::default()
-            },
-            Surface::Cli,
-        )
+        .ledger_window(LedgerWindowParams {
+            since_ms: 0,
+            session_id: Some(a.clone()),
+            ..Default::default()
+        })
         .unwrap();
     let ours: Vec<&str> = r
         .rows
@@ -194,59 +181,13 @@ fn a_session_narrows_the_window_to_its_rows_and_the_daemons() {
         .all(|x| x.session_id.as_deref().is_none_or(|s| s == a)));
     assert_eq!(r.scope, std::slice::from_ref(&a));
     let err = c
-        .ledger_window(
-            LedgerWindowParams {
-                since_ms: 0,
-                session_id: Some("ses_nobody".into()),
-                ..Default::default()
-            },
-            Surface::Cli,
-        )
+        .ledger_window(LedgerWindowParams {
+            since_ms: 0,
+            session_id: Some("ses_nobody".into()),
+            ..Default::default()
+        })
         .unwrap_err();
     assert!(err.message.contains("no session"), "{}", err.message);
-}
-
-/// A surface that reads no private text must name the session, and then
-/// sees that session's rows alone.
-#[test]
-fn a_shared_place_sees_only_its_own_session() {
-    let c = test_core("ok");
-    let (mine, other) = (open(&c), open(&c));
-    put(&c, 1_001, "turn.started", Some(&mine), json!({}));
-    put(
-        &c,
-        1_002,
-        "turn.started",
-        Some(&other),
-        json!({"author": "someone else's"}),
-    );
-    let all = LedgerWindowParams {
-        since_ms: 0,
-        ..Default::default()
-    };
-    let e = c.ledger_window(all, Surface::Discord).unwrap_err();
-    assert!(e.message.contains("name the session"), "{}", e.message);
-    let r = c
-        .ledger_window(
-            LedgerWindowParams {
-                since_ms: 0,
-                session_id: Some(mine.clone()),
-                ..Default::default()
-            },
-            Surface::Discord,
-        )
-        .unwrap();
-    assert!(r.shared);
-    let sessions: Vec<&str> = r
-        .rows
-        .iter()
-        .filter_map(|x| x.session_id.as_deref())
-        .collect();
-    assert!(
-        !sessions.is_empty() && sessions.iter().all(|s| *s == mine),
-        "{sessions:?}"
-    );
-    assert!(!serde_json::to_string(&r).unwrap().contains("someone else"));
 }
 
 /// The read writes no frame: the ledger and the log end where they ended.
@@ -256,17 +197,12 @@ fn the_read_writes_no_frame() {
     let s = open(&c);
     put(&c, 1_000, "turn.started", Some(&s), json!({}));
     let before = (c.store.last_position(), c.store.ledger_len().unwrap());
-    for surface in [Surface::Cli, Surface::Discord] {
-        c.ledger_window(
-            LedgerWindowParams {
-                since_ms: 0,
-                session_id: Some(s.clone()),
-                ..Default::default()
-            },
-            surface,
-        )
-        .unwrap();
-    }
+    c.ledger_window(LedgerWindowParams {
+        since_ms: 0,
+        session_id: Some(s.clone()),
+        ..Default::default()
+    })
+    .unwrap();
     assert_eq!(
         (c.store.last_position(), c.store.ledger_len().unwrap()),
         before
@@ -314,14 +250,11 @@ fn a_busy_days_window_pages_in_under_two_seconds() {
     let (mut rows, mut pages, mut after) = (0, 0, None);
     loop {
         let r = c
-            .ledger_window(
-                LedgerWindowParams {
-                    since_ms: t - 86_400_000,
-                    after,
-                    ..Default::default()
-                },
-                Surface::Cli,
-            )
+            .ledger_window(LedgerWindowParams {
+                since_ms: t - 86_400_000,
+                after,
+                ..Default::default()
+            })
             .unwrap();
         rows += r
             .rows

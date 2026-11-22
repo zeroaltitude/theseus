@@ -1199,41 +1199,6 @@ async fn the_episodes_list_with_their_labels_and_their_text_goes_to_a_private_pl
     );
 }
 
-/// On a connection no listener named (never a private place), `import.sessions`
-/// gives the labels and the counts alone: no title, no summary, no place name,
-/// and no search of words.
-#[tokio::test]
-async fn a_place_that_is_not_private_reads_the_episodes_labels_alone() {
-    let r = live();
-    let c = &r.core;
-    import(c, lines(&fixture())).await;
-    // On a connection no listener named (never a private place), no text: the labels and the counts alone, and no
-    // search of words. (The MCP server's connection may not call it at all.)
-    let away = listed(
-        call_as(
-            c,
-            Client::from("conn#9"),
-            method::IMPORT_SESSIONS,
-            json!({"summaries": true, "q": "decision"}),
-        )
-        .await
-        .unwrap(),
-    );
-    assert!(
-        away.withheld.as_deref().unwrap().contains("private place"),
-        "{away:?}"
-    );
-    assert_eq!(away.total, 12, "its words are not searched");
-    assert!(away
-        .episodes
-        .iter()
-        .all(|e| e.title.is_none() && e.summary_text.is_none() && e.place_name.is_none()));
-    assert!(away
-        .episodes
-        .iter()
-        .all(|e| !e.topics.is_empty() && !e.sensitivity.is_empty()));
-}
-
 /// `import.sessions`' projection is kept until a batch or an erase moves the
 /// import's counts: then built again, and an erased tag's sessions leave the
 /// list, back only when asked, with no text.
@@ -1344,17 +1309,6 @@ async fn a_turn_s_context_says_what_it_recalled_and_from_which_episode() {
     }
     // Away from a private place the times stay: they are no text.
     assert_eq!(ask(&here, false).noted, x.noted);
-    // Away from a private place: no excerpt, no header, no title.
-    let away = ask(&here, false);
-    assert!(away.recalls[0].admitted.iter().all(|a| a.text.is_none()));
-    assert!(away
-        .parts
-        .iter()
-        .filter(|p| p.block == "recall")
-        .all(|p| p.text.is_none() && !p.name.contains("wren")));
-    assert!(away.sources.values().all(|s| s.title.is_none()
-        && s.place.is_empty()
-        && s.imported.as_ref().is_some_and(|e| e.title.is_none())));
     // An imported session takes no turn: its episode, no parts.
     let ep = ask(&imported[0], true);
     let e = ep.imported.expect("its episode");

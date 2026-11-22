@@ -200,10 +200,8 @@ impl Core {
         Ok((exec, bytes))
     }
 
-    /// Whether this caller may fork this session. A fork reads the source's
-    /// conversation on its owner's behalf: a surface that reads no private
-    /// text may fork only a shared place's session (its words are the
-    /// place's already), and an MCP client only a conversation it opened.
+    /// Whether this caller may fork this session: any surface may fork any
+    /// session (2026-11-22), but an MCP client only a conversation it opened.
     fn fork_allowed(
         &self,
         surface: Surface,
@@ -218,16 +216,6 @@ impl Core {
                     source.session_id
                 ))),
             };
-        }
-        if !surface.reads_private()
-            && self.runner.class_of(&source.session_id) == crate::places::PlaceClass::Private
-        {
-            return Err(refused(format!(
-                "{} speaks in a private place, which {} does not read: fork it from the CLI or \
-                 the web UI",
-                source.session_id,
-                surface.name()
-            )));
         }
         Ok(())
     }

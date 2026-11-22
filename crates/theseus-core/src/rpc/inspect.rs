@@ -10,8 +10,8 @@
 //! compilation keeps its digest), so the cockpit reads it from
 //! `context.explain`, which says whether it is still the bytes the turn saw.
 //!
-//! Thinking, a prompt, a tool's input and its result go to a private place
-//! only (`withheld` says so to any other surface).
+//! Every surface reads it whole (2026-11-22): thinking, the prompt, each
+//! tool's input and result, the rows' data and the spans' attributes.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ use theseus_protocol::{error_code, ContextCompiled, LedgerKind, Span, Usage};
 use theseus_store::pages::{ledger_kind_session, ledger_session};
 use theseus_store::{kinds, Page, Store as _};
 
-use super::server::{parse, Conn, RpcFailure};
+use super::server::{parse, RpcFailure};
 use super::Core;
 use crate::ledger::LedgerRow;
 use crate::node::{Body, Node};
@@ -50,21 +50,12 @@ const ANSWERS: [LedgerKind; 4] = [
     LedgerKind::ActionExpired,
 ];
 
-pub(super) const WITHHELD: &str =
-    "thinking, prompts, tool inputs and results go to a private place \
-     only (the cockpit, the CLI): this surface reads the shapes, sizes and timings";
-
 impl Core {
     /// `turn.inspect`, off the serving workers.
-    pub(super) async fn rpc_inspect(
-        self: Arc<Self>,
-        params: Value,
-        conn: Conn<'_>,
-    ) -> Result<Value, RpcFailure> {
+    pub(super) async fn rpc_inspect(self: Arc<Self>, params: Value) -> Result<Value, RpcFailure> {
         let p: TurnInspectParams = parse(params)?;
-        let private = conn.surface.reads_private();
         let core = self.clone();
-        let r = tokio::task::spawn_blocking(move || core.turn_inspect(&p, private))
+        let r = tokio::task::spawn_blocking(move || core.turn_inspect(&p))
             .await
             .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))?
             .map_err(RpcFailure::invalid)?;
@@ -105,11 +96,7 @@ impl Core {
     }
 
     /// `p`'s turn, whole.
-    pub(crate) fn turn_inspect(
-        &self,
-        p: &TurnInspectParams,
-        private: bool,
-    ) -> Result<TurnInspectResult> {
+    pub(crate) fn turn_inspect(&self, p: &TurnInspectParams) -> Result<TurnInspectResult> {
         let t0 = Instant::now();
         let (sid, tid) = (p.session_id.as_str(), p.turn_id.as_str());
         let session: crate::session::SessionRecord = self
@@ -138,11 +125,11 @@ impl Core {
             url: self.cfg.cockpit.turn_link(sid, tid).unwrap_or_default(),
             prev_turn,
             next_turn,
-            withheld: (!private).then(|| WITHHELD.to_string()),
-            data: session.data.filter(|_| private).map(|d| d.line()),
+            withheld: None,
+            data: session.data.map(|d| d.line()),
             ..TurnInspectResult::default()
         };
-        assemble(&mut out, rows, nodes, private);
+        assemble(&mut out, rows, nodes);
         out.ms = t0.elapsed().as_secs_f64() * 1e3;
         Ok(out)
     }
@@ -234,29 +221,6 @@ impl Core {
     }
 }
 
-/// A block as a surface that reads no private text sees it: its type and its
-/// length.
-fn shape_of(b: &Value) -> Value {
-    let len = |k: &str| {
-        b.get(k)
-            .and_then(Value::as_str)
-            .map_or(0, |s| s.chars().count())
-    };
-    match b.get("type").and_then(Value::as_str) {
-        Some("thinking") => json!({"type": "thinking", "chars": len("thinking")}),
-        Some("text") => json!({"type": "text", "chars": len("text")}),
-        Some("tool_use") => json!({"type": "tool_use", "id": b["id"], "name": b["name"]}),
-        other => json!({"type": other}),
-    }
-}
-
-/// A span's attributes name commands and paths: a surface that reads no
-/// private text gets the spans and their times alone.
-fn bare(s: &mut Span) {
-    s.attrs = Value::Null;
-    s.children.iter_mut().for_each(bare);
-}
-
 fn thinking_chars(blocks: &[Value]) -> u64 {
     blocks
         .iter()
@@ -280,7 +244,7 @@ struct Read {
 
 /// The turn's rows into the answer: its times, outcome, trace, route and
 /// compiles, and every row as the surface may see it.
-fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bool) -> Read {
+fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)]) -> Read {
     let mut r = Read {
         errors: 0,
         compiled: BTreeMap::new(),
@@ -308,14 +272,7 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
                 r.errors += 1;
             }
             "turn.trace" => {
-                out.trace = serde_json::from_value::<Span>(row.data.clone())
-                    .ok()
-                    .map(|mut t| {
-                        if !private {
-                            bare(&mut t);
-                        }
-                        t
-                    });
+                out.trace = serde_json::from_value::<Span>(row.data.clone()).ok();
             }
             "route.decided" => out.route = row.data.clone(),
             "context.compiled" => {
@@ -343,7 +300,7 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
                                 .unwrap_or_default()
                                 .to_string(),
                             model: row.data["model"].as_str().unwrap_or_default().to_string(),
-                            names: if private { names.collect() } else { vec![] },
+                            names: names.collect(),
                             count: row.data["count"].as_u64().unwrap_or(0),
                             substituted: row.data["substituted"].as_bool().unwrap_or(false),
                             correlation_id: row.data["correlation_id"].as_str().map(str::to_string),
@@ -357,11 +314,7 @@ fn read_rows(out: &mut TurnInspectResult, rows: &[(u64, LedgerRow)], private: bo
             position: *pos,
             at_ms: row.at_unix_ms,
             kind: row.kind.clone(),
-            data: if private {
-                row.data.clone()
-            } else {
-                Value::Null
-            },
+            data: row.data.clone(),
         });
     }
     r
@@ -380,7 +333,7 @@ struct Loops {
 }
 
 impl Loops {
-    fn answer(&mut self, out: &mut TurnInspectResult, n: &Node, private: bool) {
+    fn answer(&mut self, out: &mut TurnInspectResult, n: &Node) {
         let Body::AssistantMessage {
             blocks,
             model,
@@ -415,17 +368,13 @@ impl Loops {
             compilation_id: compilation_id.clone(),
             request_digest: request_digest.clone(),
             effort: effort.as_ref().map(|e| format!("{e:?}").to_lowercase()),
-            blocks: if private {
-                blocks.clone()
-            } else {
-                blocks.iter().map(shape_of).collect()
-            },
+            blocks: blocks.clone(),
             thinking_chars: thinking_chars(blocks),
             redacted: vec![],
         });
     }
 
-    fn call(&mut self, out: &mut TurnInspectResult, n: &Node, private: bool) {
+    fn call(&mut self, out: &mut TurnInspectResult, n: &Node) {
         let Body::ToolCall {
             tool_use_id,
             tool,
@@ -454,13 +403,13 @@ impl Loops {
             call_node: n.id.clone(),
             correlation_id: correlation_id.clone(),
             called_ms: n.created_at_ms,
-            input: if private { input.clone() } else { Value::Null },
-            gate: if private { gate.clone() } else { None },
+            input: input.clone(),
+            gate: gate.clone(),
             ..InspectCall::default()
         });
     }
 
-    fn result(&mut self, n: &Node, private: bool) {
+    fn result(&mut self, n: &Node) {
         let Body::ToolResult {
             tool_use_id,
             status,
@@ -489,11 +438,7 @@ impl Loops {
         c.resulted_ms = Some(n.created_at_ms);
         c.status = Some(format!("{status:?}").to_lowercase());
         c.is_error = *is_error;
-        c.content = if private {
-            content.clone()
-        } else {
-            String::new()
-        };
+        c.content = content.clone();
         c.bytes_total = *bytes_total;
         c.truncated = *truncated;
         c.full_ref = full_ref.clone();
@@ -504,7 +449,7 @@ impl Loops {
 }
 
 /// The nodes into the answer: the prompt, and each loop's answer and calls.
-fn read_nodes(out: &mut TurnInspectResult, nodes: &[(u64, Node)], private: bool) -> Loops {
+fn read_nodes(out: &mut TurnInspectResult, nodes: &[(u64, Node)]) -> Loops {
     let mut l = Loops::default();
     for (_, n) in nodes {
         match &n.body {
@@ -513,13 +458,13 @@ fn read_nodes(out: &mut TurnInspectResult, nodes: &[(u64, Node)], private: bool)
                     node_id: Some(n.id.clone()),
                     author: n.author.clone(),
                     at_ms: n.created_at_ms,
-                    text: if private { text.clone() } else { String::new() },
+                    text: text.clone(),
                     chars: text.chars().count() as u64,
                 };
             }
-            Body::AssistantMessage { .. } => l.answer(out, n, private),
-            Body::ToolCall { .. } => l.call(out, n, private),
-            Body::ToolResult { .. } => l.result(n, private),
+            Body::AssistantMessage { .. } => l.answer(out, n),
+            Body::ToolCall { .. } => l.call(out, n),
+            Body::ToolResult { .. } => l.result(n),
             _ => {}
         }
     }
@@ -531,9 +476,8 @@ pub(crate) fn assemble(
     out: &mut TurnInspectResult,
     rows: Vec<(u64, LedgerRow)>,
     nodes: Vec<(u64, Node)>,
-    private: bool,
 ) {
-    let read = read_rows(out, &rows, private);
+    let read = read_rows(out, &rows);
     if out.route.is_null() {
         out.route = read.started_on;
     }
@@ -546,7 +490,7 @@ pub(crate) fn assemble(
     if out.totals.wall_ms == 0 {
         out.totals.wall_ms = out.ended_ms.map_or(0, |e| e.saturating_sub(out.started_ms));
     }
-    let mut l = read_nodes(out, &nodes, private);
+    let mut l = read_nodes(out, &nodes);
     for (i, c) in read.compiled {
         l.loops.entry(i).or_default().compiled = Some(c);
     }

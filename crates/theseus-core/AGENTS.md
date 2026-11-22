@@ -256,8 +256,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and a guild channel the binding bound private (its own `private = true`, or, saying nothing, in a guild the bindings
   file trusts whole with its guild's `private = true`, theseus-rdqg); it gets everything. Shared: every other
   place; it gets the public tools (`places::public_tool`), the file tools only under `[places] public_paths`
-  (canonical roots, so a link out of a tree is outside it), and only the context files marked `readers = "public"`
-  (`context_files::withhold_shared`). A turn's class is `TurnRunner::class_of`: where its words go, which is its
+  (canonical roots, so a link out of a tree is outside it), and every context file whole: since 2026-11-22 a
+  place's class decides tools and publishing, never context (`readers = "public"` is only recorded). A turn's class is `TurnRunner::class_of`: where its words go, which is its
   session's place (a task's is its parent's, `outbox.target`), or, for a session whose place moved on, where its wakes
   and reports answer (`outbox.wake_target`); shared when that cannot be read. It is fixed in `TurnCtx.class` once the
   turn has taken its wakes and reports. The catalog (`ToolRuntime::definitions_for`) and the tools note
@@ -267,8 +267,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
   channel there `(in a trusted guild)` (`Core::trust_guilds`, `PlaceInfo.trusted_guild`). M6's recall draws in a
   shared place only on that place's own sessions (and the books, when built, will too). `session.history`, `session.list`
-  and `node.list` take the asking surface and withhold an imported session's words from one that reads no private text
-  (`Surface::reads_private`; `docs/design/imported-surface.md` is the rule). A new protocol method is classified into
+  and `node.list` give every surface the same words (2026-11-22: no surface is given sizes in place of text). A new protocol method is classified into
   `ALLOWED`, `JUDGED` or `NOT_FOR_MCP` (`mcp_server.rs`) before it lands, and the census in `mcp_server::tests` fails
   otherwise. Tests: `tests_places.rs`, `places::tests`.
   - **Ceilings** (step 38a, theseus-ext.3; `ceiling.rs`): the bindings file may give a place a ceiling, which
@@ -3433,10 +3432,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   approved, the same id goes on as the job. A question is told by its own view only (`quiet_here`), a wake by the
   conversation's `woke`. `seed.rs` seeds from what the execution board's seed read (no settled action), and `warm`
   fills jobs' commands and usual times (`eta.rs`: the last 16 durations per program key, median) after serving, in place:
-  a client applies by the position rule, so the next frame sends those views again (`stale`). `place.rs` is the place
-  rule: a connection that reads no private text names its roots, hears only a shared place's (or, for the Discord
-  binding alone, a conversation that speaks in a Discord place of any class: `rpc/work_board.rs::may_watch`, theseus-2j2ka;
-  it draws that place's board in that place), scrubbed, and cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
+  a client applies by the position rule, so the next frame sends those views again (`stale`). `place.rs`: any connection
+  watches any conversation (2026-11-22); one that reads no private text is still `guarded`, so what it hears is
+  scrubbed of secrets and it cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
   question's reminder (rule 2 of the policy) is made on the driver's tick (`WorkBoard::remind`, `settle.rs`). A task's
   view carries `WorkView.forum_url`, answered by a registry the Discord runtime sets (`Push::set_task_links`, kept
