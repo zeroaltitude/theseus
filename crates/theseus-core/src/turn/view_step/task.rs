@@ -31,6 +31,13 @@ pub(in crate::turn) fn brief(nodes: &[(u64, Stub)], turn: &str) -> Option<(Strin
     })
 }
 
+/// Whether `t` is a task's first turn, which its brief opened (a message written before the turn).
+pub(in crate::turn) fn brief_opens(t: &crate::turn::Turn<'_>) -> bool {
+    t.tc.task.is_some()
+        && (t.tc.store.transcript(t.tc.session_id))
+            .is_ok_and(|nodes| brief(&nodes, t.tc.turn_id).is_some())
+}
+
 /// The brief a task's first turn answers, read when `session` is a task's (none for any other session).
 pub(super) fn brief_of(
     store: &Store,

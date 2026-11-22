@@ -569,6 +569,14 @@ pub fn set_up(store: &Store, class: &Place, session: &str, call_id: &str) -> Opt
     exchange_presence(store, class, &ex)
 }
 
+/// The presence of the turn `turn_id`, which a turn no message opened continues (issue 44: it was
+/// interrupted, or its call is answered now): its exchange's, read as [`set_up`] reads one, at `class`.
+/// None when it has no exchange, or its ask no mark.
+pub fn continued(store: &Store, class: &Place, turn_id: &str) -> Option<Present> {
+    let ex = crate::exchange::exchange(store, turn_id).ok()??;
+    exchange_presence(store, class, &ex)
+}
+
 /// Whether the report of the task `task` (its session) may be written as the
 /// input of a turn of `delivery`, the session it reports to. Not when the
 /// place it reports to has moved since the task started, nor when the

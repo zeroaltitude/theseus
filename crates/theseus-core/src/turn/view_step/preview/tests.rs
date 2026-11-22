@@ -206,10 +206,11 @@ async fn a_preview_lays_the_pieces_the_next_turn_records() {
     );
 }
 
-/// A session whose earlier turn the ledger holds no exchange for says the turn would be the transcript's,
-/// and why; the preview writes no fallback row and no view record.
+/// A session whose earlier turn the ledger holds no exchange for is the view's all the same (that turn is
+/// out of its reach, issue 44): the preview counts it, says no fallback, and writes no fallback row and no
+/// view record.
 #[tokio::test]
-async fn a_place_with_unledgered_history_says_unledgered_history() {
+async fn a_place_with_unledgered_history_is_the_views_and_counts_it() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
@@ -218,7 +219,7 @@ async fn a_place_with_unledgered_history_says_unledgered_history() {
     let p = preview(&r.core, json!({"place": place(c, &sid)}))
         .await
         .unwrap();
-    assert_eq!(p.fallback.as_deref(), Some("unledgered_history"), "{p:?}");
+    assert_eq!(p.fallback, None, "{p:?}");
     assert_eq!((p.earlier.turns, p.earlier.no_exchange), (1, 1), "{p:?}");
     assert!(p.notes.iter().any(|n| n.contains("empty message")), "{p:?}");
     let said = theseus_protocol::view::preview_lines(&p);
