@@ -68,6 +68,7 @@ pub mod harness;
 pub mod history_tool;
 pub mod import;
 pub mod initiative;
+pub mod item_labels;
 pub(crate) mod job_model;
 pub mod jobs_left;
 pub mod judge;
@@ -402,6 +403,8 @@ mod tests_inbound;
 mod tests_initiative;
 #[cfg(test)]
 mod tests_injection_tiers;
+#[cfg(test)]
+mod tests_item_labels;
 #[cfg(test)]
 mod tests_job_ask;
 #[cfg(test)]

@@ -1569,16 +1569,33 @@ impl Core {
         p: theseus_protocol::NodeReachParams,
     ) -> Result<theseus_protocol::NodeReachResult, RpcFailure> {
         use crate::reach::Named;
-        if let Some(r) = crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
-            return Ok(r);
-        }
-        let id = match crate::reach::resolve(&self.store, &p.node_id)? {
-            Named::One(id) => id,
-            Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
-            Named::Refused(why) => return Err(RpcFailure::new(error_code::INVALID_PARAMS, why)),
+        let mut r = match crate::reach::reach(&self.store, &p.node_id, p.max_generations)? {
+            Some(r) => r,
+            None => {
+                let id = match crate::reach::resolve(&self.store, &p.node_id)? {
+                    Named::One(id) => id,
+                    Named::Unknown(why) => return Err(RpcFailure::new(error_code::NOT_FOUND, why)),
+                    Named::Refused(why) => {
+                        return Err(RpcFailure::new(error_code::INVALID_PARAMS, why))
+                    }
+                };
+                crate::reach::reach(&self.store, &id, p.max_generations)?.ok_or_else(|| {
+                    RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}"))
+                })?
+            }
         };
-        crate::reach::reach(&self.store, &id, p.max_generations)?
-            .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no node {id:?}")))
+        // What Jev says about the node itself, beside where it went (issue 44).
+        r.labels = Some(self.item_labels(&r.node_id)?);
+        Ok(r)
+    }
+
+    /// What Jev says about `node`, with its exchange's topics (`item_labels::of_node`).
+    pub(crate) fn item_labels(
+        &self,
+        node: &str,
+    ) -> anyhow::Result<theseus_protocol::ItemLabelsView> {
+        let o = self.runner.ontology.snapshot(&self.store).ok();
+        crate::item_labels::of_node(&self.store, o.as_deref(), node)
     }
 
     pub(super) fn action_confirm(
