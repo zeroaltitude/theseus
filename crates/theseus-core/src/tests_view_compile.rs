@@ -1009,12 +1009,13 @@ async fn a_self_loop_session_lays_its_own_place_only_and_an_ordinary_one_the_wid
     assert!(sent.contains("the heron is grey"), "the widest: {sent}");
 }
 
-/// Round 3, the self loop's scope against an ordinary session (the brief's second test): with the owner's DM
-/// recallable, an ordinary conversation's turn is laid it (the widest point of view), and a fixer's and an
-/// approver's turn asking the same are laid nothing of it. The ordinary one is a conversation, not a task: a
-/// task's first compile admits no recall note (`compiler::situation::admits`).
+/// Round 3, the self loop's scope against an ordinary task (the brief's second test), with one foreign-context
+/// fixture: the owner's DM, another session at another place, made recallable. An ordinary task's turn (a task
+/// of principal `operator`) and an ordinary conversation's are laid it (the widest point of view); a fixer's and
+/// an approver's turn asking the same are laid nothing of it. The task asks on its second turn: a task's first
+/// compile admits no recall note (`compiler::situation::admits`), so the DM is indexed after its first.
 #[tokio::test]
-async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_session_does() {
+async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_task_does() {
     use crate::tests_view_hand_backs::unmarked;
     const SECRET: &str = "the kelp vault code is 5519";
     let r = rig_with(|c| {
@@ -1029,11 +1030,15 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_s
     .unwrap();
     let dm = crate::tests_places::session(c, Some(&format!("dm:{}", crate::tests_places::OWNER)));
     turn_as(c, &dm, SECRET, true).await;
+    let parent = crate::tests_places::session(c, None);
+    let (task, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
+    unmarked(c, &task, "task: begin").await.unwrap();
     (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![dm.clone()]));
     let ordinary = crate::tests_places::session(c, None);
     let fixer = self_session(c, "self fix: kelp");
     let approver = self_session(c, "self approve: kelp");
     for (sid, asks) in [
+        (&task, "task: what is the kelp vault code?"),
         (&ordinary, "ordinary: what is the kelp vault code?"),
         (&fixer, "fixer: what is the kelp vault code?"),
         (&approver, "approver: what is the kelp vault code?"),
@@ -1041,13 +1046,130 @@ async fn a_fixer_and_an_approver_see_nothing_of_other_sessions_and_an_ordinary_s
         unmarked(c, sid, asks).await.unwrap();
     }
     let sent = |asks: &str| texts(&asked(&r, asks).pop().expect("its request"));
-    assert!(
-        sent("ordinary: what is").contains("5519"),
-        "the ordinary session: {}",
-        sent("ordinary: what is")
-    );
+    for asks in ["task: what is", "ordinary: what is"] {
+        let got = sent(asks);
+        assert!(got.contains("5519"), "{asks}: the widest: {got}");
+    }
     for asks in ["fixer: what is", "approver: what is"] {
         let got = sent(asks);
         assert!(!got.contains("5519"), "{asks}: another place's: {got}");
+    }
+}
+
+/// Round 3: a fork of a self-loop session keeps the run it was handed. Its turn lays the source's exchanges
+/// through the fork's point (handed material, as a brief is), none the source said after the point, and nothing
+/// of another session at the source's place.
+#[tokio::test]
+async fn a_fork_of_a_self_loop_session_lays_its_inherited_run_to_its_point_and_nothing_else_foreign(
+) {
+    use crate::tests_view_hand_backs::unmarked;
+    let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
+    let c = &r.core;
+    c.self_resume(
+        &theseus_protocol::rsi::SelfResumeParams::default(),
+        &crate::approval::Answerer::from("the CLI"),
+    )
+    .unwrap();
+    let desk = crate::tests_places::session(c, None);
+    turn_as(c, &desk, "desk: the heron is grey", true).await;
+    let fixer = self_session(c, "self fix: kelp");
+    for said in [
+        "fixer: FIRST-KELP",
+        "fixer: SECOND-KELP",
+        "fixer: THIRD-KELP",
+    ] {
+        unmarked(c, &fixer, said).await.unwrap();
+    }
+    // The point: the answer to the second message (the fourth of the source's nodes that are messages).
+    let said: Vec<String> = (c.store.session_nodes(&fixer).unwrap().into_iter())
+        .filter(|(_, n)| {
+            matches!(
+                n.body,
+                crate::node::Body::UserMessage { .. } | crate::node::Body::AssistantMessage { .. }
+            )
+        })
+        .map(|(_, n)| n.id)
+        .collect();
+    assert_eq!(said.len(), 6, "three messages and their answers: {said:?}");
+    let f = c
+        .session_fork(
+            theseus_protocol::SessionForkParams {
+                session: fixer.clone(),
+                at: said[3].clone(),
+                ..Default::default()
+            },
+            crate::approval::Surface::Cli,
+        )
+        .unwrap();
+    let source = crate::view_gate::Verified::of_session(&c.runner, &fixer);
+    let forked = crate::view_gate::Verified::of_session(&c.runner, &f.session_id);
+    assert!(source.own_place_only(), "the source is the self loop's");
+    assert!(forked.own_place_only(), "the fork keeps its source's scope");
+    unmarked(c, &f.session_id, "fork: what came before?")
+        .await
+        .unwrap();
+    let got = texts(
+        &asked(&r, "fork: what came before")
+            .pop()
+            .expect("its request"),
+    );
+    assert!(got.contains("FIRST-KELP"), "the handed run: {got}");
+    assert!(
+        got.contains("SECOND-KELP"),
+        "the handed run, through its point: {got}"
+    );
+    assert!(!got.contains("THIRD-KELP"), "nothing past the point: {got}");
+    assert!(
+        !got.contains("the heron is grey"),
+        "another session's: {got}"
+    );
+}
+
+/// Round 3: a scope that cannot be read never widens. A conversation whose execution the kernel does not hold
+/// reads as unread, and its census (the turn's own assembler, `view_built`) fails plainly. A turn of it does
+/// not reach that read: a missing execution is given an operator one before the turn runs (`turn.rs`), so the
+/// rig cannot fail a live turn's read.
+#[tokio::test]
+async fn a_scope_that_cannot_be_read_fails_the_assembly_and_widens_nothing() {
+    let r = rig_with(|_| {});
+    let c = &r.core;
+    let sid = crate::tests_places::session(c, None);
+    let mut rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    rec.execution_id = Some("exe_gone".into());
+    c.store.put_session(&sid, &rec).unwrap();
+    let v = crate::view_gate::Verified::of_preview(&c.runner, &sid, "local");
+    assert!(v.scope_unread(), "an execution the kernel does not hold");
+    let sent = r.requests().len();
+    let err = c
+        .context_census(&theseus_protocol::census::ContextCensusParams {
+            session_id: Some(sid.clone()),
+            place: None,
+            exact: false,
+        })
+        .err()
+        .expect("the census fails");
+    assert!(
+        format!("{err:#}").contains("cannot be decided"),
+        "plainly: {err:#}"
+    );
+    assert_eq!(r.requests().len(), sent, "nothing is sent");
+}
+
+/// Round 3: a self-principal task's census is assembled under the scope its live turn gets
+/// (`Verified::of_task` and `Verified::of_turn` read one discriminator), and an operator task's under none.
+#[tokio::test]
+async fn a_self_principal_tasks_census_has_its_live_turns_scope() {
+    let r = rig_with(|c| c.self_improve.mode = theseus_protocol::rsi::SelfMode::Act);
+    let c = &r.core;
+    let parent = crate::tests_places::session(c, None);
+    let worker = self_session(c, "self fix: census");
+    crate::tests_self_budget::make_task(c, &worker, &parent, crate::rsi::SELF_PRINCIPAL, None);
+    let (ordinary, _) = crate::tests_self_budget::principal_session(c, &parent, "operator", None);
+    for (sid, scoped) in [(&worker, true), (&ordinary, false)] {
+        let census = crate::view_gate::Verified::of_task(&c.runner, sid).expect("a task's");
+        let live = crate::view_gate::Verified::of_turn(&c.runner, sid, None);
+        assert_eq!(census.own_place_only(), scoped, "{sid}: the census");
+        assert_eq!(live.own_place_only(), scoped, "{sid}: its live turn");
+        assert_eq!(census.pov().anchor, live.pov().anchor, "{sid}: one place");
     }
 }
