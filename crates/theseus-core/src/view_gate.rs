@@ -507,8 +507,8 @@ pub enum Proof<'a> {
 }
 
 /// The proof of a turn no message opened: `found`, the narrowest presence of
-/// what set it up (`narrowest`); `known`, whether a wake, a task or a report
-/// set it up. A known set-up with no provenance is [`Proof::Deny`]; a turn
+/// what set it up (`narrowest`); `known`, whether a wake or a report set it
+/// up (a task's own turn is not yet: `turn::gate_step`). A known set-up with no provenance is [`Proof::Deny`]; a turn
 /// with no set-up at all (an input with no mark) keeps `SetUp`, as before.
 pub fn set_up_proof(known: bool, found: Option<Present>) -> Proof<'static> {
     match found {

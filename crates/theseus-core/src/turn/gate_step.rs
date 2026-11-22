@@ -50,9 +50,10 @@ impl TurnRunner {
                         &task.by,
                     ));
                 }
-                // A wake, a task or a report whose set-up cannot be proven
-                // reads nothing; an input with no mark stays as before.
-                let known = !t.set_ups.is_empty() || !t.woke_by.is_empty() || t.tc.task.is_some();
+                // A wake or a report whose set-up cannot be proven reads
+                // nothing; an input with no mark stays as before, and so,
+                // for now, does a task's own turn.
+                let known = !t.set_ups.is_empty() || !t.woke_by.is_empty();
                 view_gate::set_up_proof(known, view_gate::narrowest(set_ups))
             }
         };
