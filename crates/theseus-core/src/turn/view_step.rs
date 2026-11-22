@@ -320,7 +320,7 @@ impl TurnRunner {
             }
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
-        sessions.extend(gated.sessions.into_inner());
+        sessions.extend(gated.sessions.borrow().iter().cloned());
         sessions.sort();
         sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
