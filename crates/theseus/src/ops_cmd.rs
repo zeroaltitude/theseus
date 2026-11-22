@@ -16,13 +16,13 @@ use theseus_protocol::ops::{
 
 use crate::cmd::output;
 
-/// `theseus task rehome ID HOME`: a conversation is resolved as `task start --in` does;
-/// `thread:<slug>` goes as typed.
+/// `theseus task rehome ID HOME`: a conversation is resolved as `task start --in` does.
+/// `thread:<slug>` is refused: threads were retired on 2026-11-22.
 pub async fn rehome(conn: &mut Conn, json: bool, id: &str, home: &str) -> Result<()> {
-    let home = match home.starts_with("thread:") {
-        true => home.to_string(),
-        false => theseus_client::resolve::session(conn, home).await?,
-    };
+    if home.starts_with("thread:") {
+        bail!("threads are gone; name a conversation");
+    }
+    let home = theseus_client::resolve::session(conn, home).await?;
     let p = TaskRehomeParams {
         task: id.to_string(),
         home,
