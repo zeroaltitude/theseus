@@ -46,7 +46,7 @@ use serde::Deserialize;
 use theseus_protocol::{
     NodeReachResult, ReachCompilation, ReachDescendant, ReachExposure, ReachFork, ReachTotals,
 };
-use theseus_store::kinds;
+use theseus_store::{kinds, Store as _};
 
 use crate::compiler::Compilation;
 use crate::graph::{Edge, EdgeKind};
@@ -845,7 +845,6 @@ pub enum Named {
 /// walks its index's keys for the ending and reads no node but those that
 /// match, to name each one's session when there are several.
 pub fn resolve(store: &Store, name: &str) -> Result<Named> {
-    use theseus_store::Store as _;
     let n = name.trim().trim_start_matches('…');
     let (prefix, ending) = match n.split_once('·') {
         Some((p, e)) => (Some(format!("{p}_")), e),
