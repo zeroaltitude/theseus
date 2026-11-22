@@ -230,6 +230,16 @@ async fn restart_rig(
     target: Option<&str>,
     asked: &str,
 ) -> (Arc<crate::Core>, String, String) {
+    restart_rig_with(fake, target, asked, |_| {}).await
+}
+
+/// `restart_rig`, its config changed by `tweak` first.
+async fn restart_rig_with(
+    fake: Arc<crate::provider::FakeProvider>,
+    target: Option<&str>,
+    asked: &str,
+    tweak: impl FnOnce(&mut crate::Config),
+) -> (Arc<crate::Core>, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -239,6 +249,7 @@ async fn restart_rig(
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     view(&mut cfg);
+    tweak(&mut cfg);
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let c = crate::Core::build(crate::rpc::Parts::for_tests(cfg, fake, store)).unwrap();
     // The scratch directory lives as long as the test process: the store holds it open.
@@ -405,10 +416,12 @@ async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
         cut(),
         Scripted::text("Herons: nine."),
     ]));
-    let (c, dm, _) = restart_rig(
+    // The self loop on: a self session's call is reserved on its budget, which spends only then.
+    let (c, dm, _) = restart_rig_with(
         fake.clone(),
         Some(&format!("dm:{}", crate::tests_places::OWNER)),
         "dm: the vault word is plover",
+        |cfg| cfg.self_improve.mode = theseus_protocol::rsi::SelfMode::Act,
     )
     .await;
     assert!(answered(&c, &dm, "Noted."));
@@ -479,6 +492,13 @@ async fn a_displaced_sessions_plain_failure_is_posted_where_its_wake_answers() {
         None,
         "displaced: no target of its own"
     );
+    // The interrupted turn's own failure is not this run's: the resume's failure is the first of its run.
+    c.store
+        .update_session(&sid, |r: &mut crate::session::SessionRecord| {
+            r.failing = None;
+            Ok(vec![])
+        })
+        .unwrap();
     c.store
         .append(&[crate::exchange::exchange_record(&{
             let mut ex = crate::exchange::exchange(&c.store, &turn).unwrap().unwrap();
@@ -545,12 +565,19 @@ async fn a_crash_after_a_steer_keeps_another_places_words_out_of_the_resumed_req
         assert_eq!(res.output, "The board shows three ferries.");
         let sent: Vec<String> = (fake.requests()[before..].iter()).map(texts).collect();
         assert!(!sent.is_empty());
-        let laid = sent
-            .iter()
-            .any(|t| t.contains("spare key is under the blue heron"));
+        let at = |t: &String| t.find("spare key is under the blue heron");
+        let laid = sent.iter().find_map(|t| {
+            at(t).map(|i| {
+                t[i.saturating_sub(700)..]
+                    .chars()
+                    .take(900)
+                    .collect::<String>()
+            })
+        });
         assert_eq!(
-            laid, !steered,
-            "steered {steered}: another private place's words are laid only where the owner is alone: {sent:?}"
+            laid.is_some(),
+            !steered,
+            "steered {steered}: another private place's words are laid only where the owner is alone; where: {laid:?}"
         );
     }
 }

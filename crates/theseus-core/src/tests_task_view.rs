@@ -583,7 +583,22 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
     use crate::exchange::given::{given_record, Given};
     const BRIEF: &str = "find where the kestrel nests";
     const FACT: &str = "KESTREL NEST: grid 7Q behind the old mill";
-    let r = view_rig(|_, brief| (brief == BRIEF).then(|| Scripted::text(FACT)));
+    // The task waits two seconds on a wake before it answers, so its report lands after the channel turned:
+    // a report that lands while the parent's own turn runs is read by the parent's next turn at once.
+    let r = view_rig(|req, brief| {
+        (brief == BRIEF).then(|| match last_text(req).contains("look again") {
+            true => Scripted::text(FACT),
+            false if answers_a_call(req) => Scripted::text("Waiting on the wake."),
+            false => Scripted::tools(
+                "Looking.",
+                &[(
+                    "w_look",
+                    "wake_at",
+                    json!({"after": "2s", "note": "look again"}),
+                )],
+            ),
+        })
+    });
     let lab = "discord:channel:88";
     let bound = |private: bool| crate::places::BoundPlace {
         target: lab.into(),
@@ -607,21 +622,6 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
     let input = json!({"brief": BRIEF, "arrangement": arrangement, "fidelity_ack": true});
     crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
     let task = task_by_brief(&r.core, BRIEF);
-    let t0 = std::time::Instant::now();
-    loop {
-        let state = r.core.kernel.execution(&task.id).unwrap().unwrap().state;
-        let ended = (exchanges(&r.core, &task).iter()).any(|e| e.end_ms.is_some());
-        if ended && !matches!(state, ExecState::Queued | ExecState::Running) {
-            break;
-        }
-        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
-        assert!(
-            !waited,
-            "the task did not end: {}",
-            state_of(&r, &task, BRIEF)
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
     if kept {
         // The creating turn as a turn no message opened (a wake's): no ask, no message; its presence kept.
         let turn = (r.core.store.session_nodes(&parent).unwrap().into_iter())
@@ -648,6 +648,29 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
         r.core.runner.place_of(&parent),
         theseus_memory::recall::Place::Shared(_)
     ));
+    let t0 = std::time::Instant::now();
+    loop {
+        let state = r.core.kernel.execution(&task.id).unwrap().unwrap().state;
+        let ended = (exchanges(&r.core, &task).iter())
+            .filter(|e| e.end_ms.is_some())
+            .count()
+            >= 2;
+        if ended
+            && !matches!(
+                state,
+                ExecState::Queued | ExecState::Running | ExecState::Waiting
+            )
+        {
+            break;
+        }
+        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
+        assert!(
+            !waited,
+            "the task did not end: {}",
+            state_of(&r, &task, BRIEF)
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
     crate::test_support::turn(&r.core, &parent, "anything new?").await;
     let relayed: Vec<String> = (r.core.store.session_nodes(&parent).unwrap().into_iter())
         .filter_map(|(_, n)| match n.body {
