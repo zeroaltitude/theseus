@@ -383,6 +383,11 @@ impl crate::provider::Provider for Judging {
 
 /// A page read into `session`: a result marked as outside text.
 fn read_a_page(store: &crate::store::Store, session: &str) -> String {
+    read_a_page_in(store, session, None)
+}
+
+/// A page read into `session`, in the turn `turn` when one is named.
+fn read_a_page_in(store: &crate::store::Store, session: &str, turn: Option<&str>) -> String {
     let body = crate::node::Body::ToolResult {
         tool_use_id: "tu_page".into(),
         tool: "http.fetch".into(),
@@ -402,14 +407,21 @@ fn read_a_page(store: &crate::store::Store, session: &str) -> String {
         }),
         payload: None,
     };
-    let n = crate::node::Node::tool_result(session, None, None, body);
+    let n = crate::node::Node::tool_result(session, turn, None, body);
     store.append(&[n.record().unwrap()]).unwrap();
     n.id
 }
 
 fn judging_core() -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
+    judging_core_with(|_| {})
+}
+
+fn judging_core_with(
+    tweak: impl FnOnce(&mut crate::Config),
+) -> (tempfile::TempDir, Arc<crate::rpc::Core>, Arc<Judging>) {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = crate::Config::example();
+    tweak(&mut cfg);
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     let model = Arc::new(Judging {
@@ -1114,4 +1126,72 @@ async fn a_rollback_between_the_gate_and_the_lock_is_honoured() {
         receipt(&core.store, &node).unwrap().is_none(),
         "nothing spent"
     );
+}
+
+/// Review 2, item 2, through a real view-mode turn: the place's earlier
+/// exchange, in ANOTHER session of the same place, read a page. The view of
+/// the next session's turn lays that exchange, marked outside; that
+/// session's own transcript is clean. With a live pack and an acting
+/// `restricts`, his clean narrowing keeps its card as `outside`, and nothing
+/// changes. The control, the same without the page, applies. The turn's
+/// compilation really is the view's.
+#[tokio::test]
+async fn in_a_view_an_outside_piece_from_another_session_keeps_the_card() {
+    use crate::config::assembly::{Assembly, AssemblySetting};
+    for page in [true, false] {
+        let (_dir, core, model) =
+            judging_core_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
+        let before = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        let a = submit(&core, owner(), "hello", None).await;
+        if page {
+            read_a_page_in(&core.store, &a.session_id, Some(&a.turn_id));
+        }
+        let b = submit(&core, owner(), "good morning", None).await;
+        assert_ne!(a.session_id, b.session_id);
+        ladder_row(&core.store, "live");
+        let said = "make it the north side only";
+        let new = format!("{}; {said}", before.objective);
+        model.next(
+            &b.session_id,
+            vec![narrow(&new)],
+            Some((Operation::Restricts, true)),
+        );
+        let res = submit(&core, owner(), said, Some(&b.session_id)).await;
+        let ex = crate::exchange::exchange(&core.store, &res.turn_id).unwrap();
+        let viewed = core
+            .store
+            .session_nodes(&b.session_id)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, n)| n.turn_id.as_deref() == Some(res.turn_id.as_str()))
+            .filter_map(|(_, n)| match n.body {
+                crate::node::Body::AssistantMessage { compilation_id, .. } => compilation_id,
+                _ => None,
+            })
+            .any(|c| {
+                core.store.get_compilation(&c).unwrap().unwrap().strategy
+                    == crate::compiler::view::STRATEGY
+            });
+        assert!(viewed, "the turn was compiled as a view");
+        let nodes = strict_transcript(&core.store, &res.session_id).unwrap();
+        assert!(
+            !nodes.iter().any(crate::external::is_outside),
+            "this session's own transcript is clean"
+        );
+        let now = crate::task_graph::get(&core.store, TASK).unwrap().unwrap();
+        if page {
+            assert!(outside_admitted(
+                &core.store,
+                &res.session_id,
+                &res.turn_id,
+                ex.as_ref()
+            ));
+            assert_eq!(now.version, 1, "nothing changed");
+            let rows = proposed(&core);
+            assert_eq!(rows.len(), 1, "{rows:?}");
+            assert_eq!(rows[0]["card"], "outside");
+        } else {
+            assert_eq!(now.version, 2, "the control applies");
+        }
+    }
 }
