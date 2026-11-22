@@ -124,7 +124,8 @@ fn frozen(turn: &str, window: &[Node]) -> Frozen {
         window: (window.iter().enumerate())
             .map(|(i, n)| (i as u64 + 1, n.clone().into()))
             .collect(),
-        spoken: vec![],
+        stripped: Default::default(),
+        sessions: vec![],
         beside: Some(Frozen::block("s", turn, "beside", "waiting: one question")),
         memory_page: "# How your memory works".into(),
         record: None,
@@ -260,22 +261,64 @@ fn the_window_clears_on_its_own_numbers_and_the_clearing_holds() {
     );
 }
 
-/// An exchange the budgeter kept spoken shows its calls with their results as receipts, in that request
-/// only: the compilation it persists records no clearing of them.
+/// A window exchange kept spoken that ended in a result with no answer: its receipt is made once from the
+/// window alone, so the turn's own first answer never becomes its "after it you wrote", and the second call
+/// of the turn sends the receipt byte for byte as the first did.
 #[test]
-fn a_window_exchange_kept_spoken_shows_its_results_as_receipts() {
-    let window = exchange("t0", 5_000);
-    let mut f = frozen("t1", &window);
-    f.spoken = vec![window[2].id.clone()];
-    let c = run(&f, &[Node::user("s", Some("t1"), "cli", "now")], None);
-    let all = serde_json::to_string(&c.request.messages).unwrap();
+fn a_receipt_is_made_from_the_window_alone_and_never_changes() {
+    let mut window = exchange("t0", 5_000);
+    window.truncate(3); // ask, call, result: no answer after it
+    let f0 = frozen("t1", &window);
+    let spoken = std::collections::HashSet::from([window[2].id.clone()]);
+    let mut f = f0.clone();
+    f.window = view::receipted(f0.window, &spoken);
+    let mut own = vec![Node::user("s", Some("t1"), "cli", "now")];
+    let first = run(&f, &own, None);
+    let receipt = |c: &Compiled| serde_json::to_string(&c.request.messages[2]).unwrap();
+    assert!(receipt(&first).contains("[Result cleared to save context: fs_read ct0.rs"));
     assert!(
-        all.contains("[Result cleared to save context: fs_read ct0.rs"),
-        "{all}"
+        !receipt(&first).contains("After it you wrote"),
+        "{}",
+        receipt(&first)
     );
-    assert!(c.cleared.is_none(), "no pass ran");
-    assert!(
-        clearing::of(&c.compilation).is_empty(),
-        "nothing cleared is persisted"
+    f.compilation_id = Some(first.compilation.id.clone());
+    own.push(said(
+        "t1",
+        vec![
+            thinking(),
+            json!({"type": "text", "text": "this turn's answer"}),
+            read("c1"),
+        ],
+    ));
+    own.push(result("t1", "c1", "short"));
+    let second = run(&f, &own, Some(&first.compilation));
+    assert_eq!(
+        receipt(&second),
+        receipt(&first),
+        "the receipt never changes"
     );
+    let (a, b): (Vec<Value>, Vec<Value>) = (
+        first.request.messages.iter().map(unmarked).collect(),
+        second.request.messages.iter().map(unmarked).collect(),
+    );
+    assert_eq!(b[..a.len()], a[..]);
+}
+
+/// A reset (a seal since, a refused image under the thinking, a forced recompile) starts a new chain: the
+/// turn's own answers so far go without their thinking, and the cut answer a call replaces is not resent.
+#[test]
+fn a_reset_retires_the_turns_own_thinking() {
+    let mut f = frozen("t1", &exchange("t0", 10));
+    let mut own = vec![Node::user("s", Some("t1"), "cli", "now")];
+    own.push(said("t1", vec![thinking(), read("c1")]));
+    own.push(result("t1", "c1", "short"));
+    let kept = run(&f, &own, None);
+    assert!(serde_json::to_string(&kept.request.messages)
+        .unwrap()
+        .contains("\"thinking\""));
+    f.stripped.insert(own[1].id.clone());
+    let reset = run(&f, &own, None);
+    let all = serde_json::to_string(&reset.request.messages).unwrap();
+    assert!(!all.contains("\"thinking\""), "{all}");
+    assert!(all.contains("tool_use"), "its calls stay, paired");
 }

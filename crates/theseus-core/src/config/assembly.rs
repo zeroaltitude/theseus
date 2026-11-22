@@ -37,6 +37,16 @@ pub struct AssemblyByPlace {
 }
 
 impl AssemblySetting {
+    /// Whether any place is set to `view`.
+    pub fn any_view(&self) -> bool {
+        match self {
+            Self::All(a) => *a == Assembly::View,
+            Self::ByPlace(t) => {
+                t.default == Assembly::View || t.places.values().any(|a| *a == Assembly::View)
+            }
+        }
+    }
+
     /// The assembly for `place`.
     pub fn for_place(&self, place: &str) -> Assembly {
         match self {
@@ -69,5 +79,21 @@ mod tests {
         assert_eq!(by.assembly_for("local"), Assembly::Transcript);
         assert!(toml::from_str::<ContextConfig>("assembly = \"other\"").is_err());
         assert!(!context("assembly = \"view\"").is_empty());
+    }
+
+    /// A view reads the exchange ledger: a view with the ledger off is refused at load, saying why.
+    #[test]
+    fn a_view_with_the_ledger_off_is_refused() {
+        let err = context("ledger = false\nassembly = \"view\"")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("needs the ledger on"), "{err}");
+        let by = "ledger = false\n[assembly]\nplaces = { \"local\" = \"view\" }\n";
+        assert!(context(by).validate().is_err());
+        assert!(context("ledger = false\nassembly = \"transcript\"")
+            .validate()
+            .is_ok());
+        assert!(context("assembly = \"view\"").validate().is_ok());
     }
 }

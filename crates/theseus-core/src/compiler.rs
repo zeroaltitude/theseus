@@ -608,14 +608,29 @@ pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
 /// (theseus-8kk.1): so a membership change waits for the next recompile,
 /// and a guidance edit in play changes the system block, which recompiles.
 pub fn compile(input: CompileInput<'_>) -> Compiled {
-    let (appended, recompiled) = crate::tools_defer::forks(&input);
-    if input.spec.card.is_some() {
-        let appended = appended.unwrap_or_else(|| recompiled.clone());
-        let (a, r) = card::split(appended, recompiled);
-        return compile_with(input, &a, &r);
-    }
+    let (appended, recompiled) = prepared(&input);
     let appended = appended.as_deref().unwrap_or(&*recompiled);
     compile_with(input, appended, &recompiled)
+}
+
+/// The spec preparation every strategy runs before it renders: the spec an append renders and the one a
+/// recompile renders, with the walk's guidance composed into the third layer, the deferred tool set
+/// resolved (`tools_defer::forks`), and a thread card split into its recorded and current text
+/// (`card::split`). `None` for the first: the two are one spec. The prefix library's header is applied after
+/// (`prefix::applied`), on the spec a call renders.
+pub(crate) fn prepared<'a>(
+    input: &CompileInput<'a>,
+) -> (
+    Option<std::borrow::Cow<'a, RequestSpec>>,
+    std::borrow::Cow<'a, RequestSpec>,
+) {
+    let (appended, recompiled) = crate::tools_defer::forks(input);
+    if input.spec.card.is_none() {
+        return (appended, recompiled);
+    }
+    let appended = appended.unwrap_or_else(|| recompiled.clone());
+    let (a, r) = card::split(appended, recompiled);
+    (Some(a), r)
 }
 
 /// `compile`, with the spec an append renders and the one a recompile does.

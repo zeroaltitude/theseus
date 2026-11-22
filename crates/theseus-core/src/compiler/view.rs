@@ -26,8 +26,6 @@ use crate::stub::Stub;
 pub const STRATEGY: &str = "view";
 /// The compilation's `trigger`: every turn in a view place builds its own.
 pub const TRIGGER: &str = "view_turn";
-/// The reason a window result renders as a receipt because the budgeter kept its exchange spoken.
-const SPOKEN: &str = "spoken";
 /// The provider's most cache breakpoints in one request.
 const MAX_BREAKPOINTS: usize = 4;
 /// Tool output in the window that sets off a clearing pass, in tokens of results not yet cleared (design
@@ -46,8 +44,11 @@ pub struct Frozen {
     pub front: Vec<Node>,
     /// The window's nodes, oldest first, from every session that ran its exchanges.
     pub window: Vec<(u64, Stub)>,
-    /// The results of the window's exchanges the budgeter kept spoken: they render as receipts.
-    pub spoken: Vec<String>,
+    /// The turn's own answers whose thinking a reset retired (a seal since, a refused image under it, a
+    /// forced recompile): sent without it from then on.
+    pub stripped: HashSet<String>,
+    /// The sessions whose exchanges the view lays: re-checked against their seals before each call.
+    pub sessions: Vec<String>,
     /// The block beside the new message (waiting, in play, elsewhere lately, called).
     pub beside: Option<Node>,
     /// The memory page, at the end of the system part; empty for none.
@@ -83,21 +84,30 @@ fn with_page(spec: &RequestSpec, page: &str) -> Option<RequestSpec> {
 /// node ids its `includes`), a later call of the same turn appends to it. `input.nodes` is the session's
 /// transcript; the turn's own nodes are read from it by turn id.
 pub fn compile(input: CompileInput<'_>, frozen: &Frozen) -> Compiled {
-    let page = with_page(input.spec, &frozen.memory_page);
-    let spec = page.as_ref().unwrap_or(input.spec);
-    let entry = input.catalog.get(&spec.model);
-    let window = input.window_override.or(entry.map(|e| e.context_window));
     let current = input
         .current
         .filter(|c| frozen.compilation_id.as_deref() == Some(c.id.as_str()));
     let new_compilation = current.is_none();
+    // The transcript's spec preparation (`super::prepared`): the turn's first call renders the recompile's
+    // spec (the walk's guidance, the resolved tools, the card as it stands now), its later calls the append's,
+    // which keeps what the first recorded and adds what the turn loaded since.
+    let (appended, recompiled) = prepared(&input);
+    let chosen = match (new_compilation, appended.as_deref()) {
+        (false, Some(a)) => a,
+        _ => &*recompiled,
+    };
+    let applied = prefix::applied(chosen);
+    let page = with_page(&applied, &frozen.memory_page);
+    let spec = page.as_ref().unwrap_or(&*applied);
+    let entry = input.catalog.get(&spec.model);
+    let window = input.window_override.or(entry.map(|e| e.context_window));
     let mut compilation = current
         .cloned()
         .unwrap_or_else(|| made_now(&input, frozen, spec, window));
     let laid = laid(input.nodes, frozen);
     let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
     let made = |c: &Compilation| {
-        let split = split(c, &laid, &frozen.spoken);
+        let split = split(c, &laid);
         let rendered = render(spec, input.catalog, &split, &laid.0, &input);
         let counted = counted_part(&laid.0, &split, &rendered.request);
         let est = estimate(&rendered.request, rates, counted);
@@ -247,7 +257,10 @@ fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
     let own = nodes
         .iter()
         .filter(|(_, n)| n.turn_id.as_deref() == Some(turn) && n.kind != crate::stub::Kind::Recall)
-        .map(|(_, n)| n.clone());
+        .map(|(_, n)| match frozen.stripped.contains(&n.id) {
+            true => unthought(n),
+            false => n.clone(),
+        });
     let tail = frozen.beside.iter().cloned().map(Stub::from).chain(own);
     let as_of = prefix.len() as u64;
     let all = prefix.into_iter().chain(tail).enumerate();
@@ -256,32 +269,15 @@ fn laid(nodes: &[(u64, Stub)], frozen: &Frozen) -> (Vec<(u64, Stub)>, u64) {
 
 /// The compilation the laid nodes are split under: `c`, its prefix the first `as_of` of them, its thinking
 /// stripped (earlier turns' thinking is not carried).
-fn split(
-    c: &Compilation,
-    (nodes, as_of): &(Vec<(u64, Stub)>, u64),
-    spoken: &[String],
-) -> Compilation {
+fn split(c: &Compilation, (nodes, as_of): &(Vec<(u64, Stub)>, u64)) -> Compilation {
     let includes = nodes
         .iter()
         .take(*as_of as usize)
         .map(|(_, n)| n.id.clone())
         .collect();
-    // An exchange kept spoken shows its results as receipts, in this render only.
-    let mut budget = c.budget.clone();
-    if !spoken.is_empty() {
-        let b = budget.get_or_insert_with(Default::default);
-        b.dropped.extend(spoken.iter().map(|id| BudgetDrop {
-            node_id: Some(id.clone()),
-            range: None,
-            reason: SPOKEN.into(),
-            tokens: 0,
-            tier: clearing::TIER.into(),
-        }));
-    }
     Compilation {
         as_of: *as_of,
         includes,
-        budget,
         recall_id: None,
         inherits: None,
         manifest: Manifest {
@@ -301,7 +297,9 @@ fn render(
     nodes: &[(u64, Stub)],
     input: &CompileInput<'_>,
 ) -> Rendered {
-    let media = (input.blobs, input.hidden, None, input.sources);
+    // A cut answer this call replaces is left out, as the transcript leaves it (theseus-9p88).
+    let retrying = input.overflowed.and_then(|o| o.retrying.as_deref());
+    let media = (input.blobs, input.hidden, retrying, input.sources);
     let mut rendered = render_kept(spec, catalog, split, nodes, media, None);
     let first_tail = nodes
         .iter()
@@ -347,5 +345,74 @@ fn mark_front(rendered: &mut Rendered, first_tail: Option<&str>, spec: &RequestS
         if let Some(o) = req.system[i].as_object_mut() {
             o.remove("cache_control");
         }
+    }
+}
+
+/// An answer of the turn's own without its thinking: a reset retired it.
+fn unthought(n: &Stub) -> Stub {
+    let mut node = (**n).clone();
+    if let Body::AssistantMessage { blocks, .. } = &mut node.body {
+        blocks.retain(|b| !super::render::is_thinking(b));
+    }
+    Stub::from(node)
+}
+
+/// The window's nodes with the results of `spoken` exchanges as their receipts, made once, from the window
+/// alone, when the view is frozen: a receipt's "after it you wrote" is the next answer of its OWN exchange,
+/// or nothing, and never changes after it was first sent (a result with no answer after it never borrows
+/// this turn's first answer).
+pub fn receipted(window: Vec<(u64, Stub)>, spoken: &HashSet<String>) -> Vec<(u64, Stub)> {
+    let calls: std::collections::HashMap<String, (String, Value)> = (window.iter())
+        .filter_map(|(_, n)| match &n.body {
+            Body::AssistantMessage { blocks, .. } => Some(blocks.clone()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|b| b["type"] == "tool_use")
+        .filter_map(|b| {
+            let id = b["id"].as_str()?.to_string();
+            Some((id, (b["name"].as_str()?.to_string(), b["input"].clone())))
+        })
+        .collect();
+    let answer_after = |i: usize| -> Option<String> {
+        let turn = window[i].1.turn_id.clone();
+        (window[i + 1..].iter())
+            .take_while(|(_, n)| n.turn_id == turn)
+            .find_map(|(_, n)| match &n.body {
+                Body::AssistantMessage { blocks, .. } => {
+                    let t = crate::provider::text_of(blocks);
+                    (!t.trim().is_empty()).then_some(t)
+                }
+                _ => None,
+            })
+    };
+    let notes: Vec<Option<String>> = (0..window.len()).map(answer_after).collect();
+    window
+        .iter()
+        .enumerate()
+        .map(|(i, (p, n))| {
+            let Body::ToolResult { tool_use_id, .. } = &n.body else {
+                return (*p, n.clone());
+            };
+            if !spoken.contains(&n.id) {
+                return (*p, n.clone());
+            }
+            let (name, input) = calls.get(tool_use_id).cloned().unwrap_or_default();
+            let note = notes[i].as_deref().map(|t| short(t, 200));
+            let text = super::clearing::stub_noted(&name, &input, n, note.as_deref());
+            let mut node = (**n).clone();
+            if let Body::ToolResult { content, .. } = &mut node.body {
+                *content = text;
+            }
+            (*p, Stub::from(node))
+        })
+        .collect()
+}
+
+/// `s` cut at `max` characters, with an ellipsis when cut.
+fn short(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
     }
 }
