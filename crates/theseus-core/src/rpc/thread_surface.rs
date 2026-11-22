@@ -11,7 +11,6 @@
 
 use anyhow::{anyhow, bail};
 use theseus_protocol::threads::{place_of, surface_channel, ThreadInfo};
-use theseus_protocol::{error_code, TurnSubmitParams};
 
 use super::server::RpcFailure;
 use super::Core;
@@ -55,30 +54,6 @@ impl Core {
             store: &self.store,
         }
         .announce(f);
-    }
-
-    /// Where a thread turn's reply is posted when the Discord binding names
-    /// a place: the speaker's own DM or channel, never another (the core
-    /// judges the speaker as the owner, from a private place, when it
-    /// resolves the thread's session). None for any turn but a thread's.
-    pub(super) fn thread_answer_at(p: &TurnSubmitParams) -> Result<Option<String>, RpcFailure> {
-        let (Some(_), Some(s)) = (&p.thread, &p.speaking) else {
-            return Ok(None);
-        };
-        let Some(at) = s.answer_at.as_deref() else {
-            return Ok(None);
-        };
-        let own = [
-            format!("discord:dm:{}", s.discord.user_id),
-            format!("discord:channel:{}", s.discord.channel_id),
-        ];
-        match own.iter().any(|o| o == at) {
-            true => Ok(Some(at.to_string())),
-            false => Err(RpcFailure::new(
-                error_code::INVALID_PARAMS,
-                "a thread's reply can be posted only where the speaker spoke",
-            )),
-        }
     }
 
     /// Set a thread's surfaces: `add` joins and `remove` leaves, one edit and

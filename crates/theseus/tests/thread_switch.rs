@@ -1,8 +1,6 @@
 //! The current thread in a shell (theseus-j0yh): `thread switch` prints the line that
-//! sets `THESEUS_THREAD`, remembers the choice for the terminal in a small file,
-//! and `ask` reads only the environment, so a script that never set it asks the
-//! home conversation whatever a terminal chose. A reply made in a thread carries
-//! its tag.
+//! sets `THESEUS_THREAD` and remembers the choice for the terminal in a small file.
+//! `ask` sends no thread any more (threads are gone, 2026-11-22), and says so.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -133,44 +131,25 @@ fn switch_by_number_and_home_and_the_refusals() {
     }
 }
 
+/// Threads are gone (2026-11-22): `ask` sends no thread, whether one is named with `--thread` or
+/// exported in the shell, and says so in one line; an `ask` that names none says nothing of it.
 #[test]
-fn ask_uses_the_thread_only_when_the_shell_exported_it() {
-    // A terminal chose `pr`; a script without the variable asks home.
-    let dir = tempfile::tempdir().unwrap();
-    let state = dir.path().join("state");
-    let (sock, got) = daemon(dir.path());
-    let switched = run(&sock, &state, None, &["thread", "switch", "pr"]);
-    assert!(switched.status.success(), "{}", err(&switched));
-    drop(got);
-    let dir2 = tempfile::tempdir().unwrap();
-    let (sock2, got2) = daemon(dir2.path());
-    let o = run(&sock2, &state, None, &["ask", "--no-stream", "hello"]);
-    assert!(o.status.success(), "{}", err(&o));
-    let sent = got2.lock().unwrap().clone();
-    assert_eq!(sent[0]["method"], "turn.submit");
-    assert!(sent[0]["params"].get("thread").is_none(), "{}", sent[0]);
-
-    // The shell that exported it asks the thread, and the reply wears its tag.
-    let dir3 = tempfile::tempdir().unwrap();
-    let (sock3, got3) = daemon(dir3.path());
-    let o = run(&sock3, &state, Some("pr"), &["ask", "--no-stream", "hello"]);
-    assert!(o.status.success(), "{}", err(&o));
-    let sent = got3.lock().unwrap().clone();
-    assert_eq!(sent[0]["params"]["thread"], "pr");
-    assert!(sent[0]["params"]["session_id"].is_null());
-    assert!(err(&o).contains("→ ex-ai pr round"), "{}", err(&o));
-
-    // A named session wins over the variable: it continues that session.
-    let dir4 = tempfile::tempdir().unwrap();
-    let (sock4, got4) = daemon(dir4.path());
-    let o = run(
-        &sock4,
-        &state,
-        Some("pr"),
-        &["ask", "--no-stream", "-s", "ses_0000ff9e8d7", "hello"],
-    );
-    assert!(o.status.success(), "{}", err(&o));
-    let sent = got4.lock().unwrap().clone();
-    assert!(sent[0]["params"].get("thread").is_none(), "{}", sent[0]);
-    assert!(!err(&o).contains("→ ex-ai pr round"));
+fn ask_sends_no_thread_and_says_threads_are_gone() {
+    const GONE: &str = "threads are gone; this ran here";
+    let state = tempfile::tempdir().unwrap();
+    for (env, args) in [
+        (None, vec!["ask", "--no-stream", "--thread", "pr", "hello"]),
+        (Some("pr"), vec!["ask", "--no-stream", "hello"]),
+        (None, vec!["ask", "--no-stream", "hello"]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (sock, got) = daemon(dir.path());
+        let o = run(&sock, state.path(), env, &args);
+        assert!(o.status.success(), "{args:?}: {}", err(&o));
+        let sent = got.lock().unwrap().clone();
+        assert_eq!(sent[0]["method"], "turn.submit");
+        assert!(sent[0]["params"]["thread"].is_null(), "{}", sent[0]);
+        let named = env.is_some() || args.contains(&"--thread");
+        assert_eq!(err(&o).contains(GONE), named, "{args:?}: {}", err(&o));
+    }
 }

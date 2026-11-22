@@ -50,18 +50,6 @@ impl TurnRunner {
                 .collect();
             t.route.asker = author.to_string();
         }
-        // A message the router placed (theseus-rha2): its point was begun
-        // before the choice, and the row of its choice rides this turn's frame.
-        let begun = self
-            .threads
-            .route
-            .take_handoff(t.tc.session_id, text)
-            .and_then(|h| {
-                if let Some(row) = &h.row {
-                    t.record(&crate::fact::thread_route::ThreadRouted(row));
-                }
-                h.early
-            });
         if !self.judge.config().enabled {
             if !steered {
                 self.engage_start(t, text, false);
@@ -98,32 +86,29 @@ impl TurnRunner {
             && self.cfg.standing.capture
             && t.tc.task.is_none()
             && crate::capture::owner_alone(class, place.as_deref());
-        let early = match begun {
-            Some(early) => Some((early, Some((t.tc.session_id.to_string(), node.id.clone())))),
-            None => self
-                .judge
-                .inbound_early(Inbound {
-                    session_id: t.tc.session_id.into(),
-                    execution_id: t.tc.execution_id.into(),
-                    turn_id: t.tc.turn_id.into(),
-                    node_id: node.id.clone(),
-                    text: text.clone(),
-                    place_kind: place_kind(place.as_deref(), author, class),
-                    author: author_of(class).into(),
-                    kernel: self.kernel.clone(),
-                    route,
-                    chosen: t.target.chosen.clone(),
-                    task: t.tc.task.is_some(),
-                    own: super::defer_step::is_self(author),
-                    threads: Vec::new(),
-                    in_thread: !steered && self.scope_in_thread(t.tc.session_id),
-                    persona: self.persona_ctx(t.tc.session_id, class),
-                    capture,
-                    data_names: self.cfg.privacy.data_names(),
-                    attachments: attachments.clone(),
-                })
-                .map(|e| (e, None)),
-        };
+        let early = self
+            .judge
+            .inbound_early(Inbound {
+                session_id: t.tc.session_id.into(),
+                execution_id: t.tc.execution_id.into(),
+                turn_id: t.tc.turn_id.into(),
+                node_id: node.id.clone(),
+                text: text.clone(),
+                place_kind: place_kind(place.as_deref(), author, class),
+                author: author_of(class).into(),
+                kernel: self.kernel.clone(),
+                route,
+                chosen: t.target.chosen.clone(),
+                task: t.tc.task.is_some(),
+                own: super::defer_step::is_self(author),
+                threads: Vec::new(),
+                in_thread: !steered && self.scope_in_thread(t.tc.session_id),
+                persona: self.persona_ctx(t.tc.session_id, class),
+                capture,
+                data_names: self.cfg.privacy.data_names(),
+                attachments: attachments.clone(),
+            })
+            .map(|e| (e, None));
         // classify.v4's `scope` answer, for the place digest (theseus-98bz.9):
         // a steered message's is not the running turn's.
         let mut breaker_open = false;

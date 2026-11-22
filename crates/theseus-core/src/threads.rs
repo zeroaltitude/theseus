@@ -230,8 +230,6 @@ pub fn group_of(t: &ThreadInfo) -> theseus_protocol::ThreadGroup {
 pub struct Threads {
     board: RwLock<Option<Arc<Board>>>,
     writes: Mutex<()>,
-    /// What the router remembers (theseus-rha2).
-    pub route: crate::thread_flow::State,
     /// Told the board after each write or bind (the work board's feed,
     /// theseus-5i8i), set once.
     feed: std::sync::OnceLock<Feed>,

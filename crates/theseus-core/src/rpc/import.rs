@@ -137,8 +137,12 @@ impl Core {
         if name.starts_with("card.") {
             return self.rpc_card(name, params, conn).await;
         }
+        // Threads are gone (2026-11-22): a message is no longer moved into one.
         if name == method::THREAD_MOVE {
-            return super::server::reply(self.thread_move_message(parse(params)?, conn).await?);
+            return Err(RpcFailure::new(
+                error_code::METHOD_NOT_FOUND,
+                "thread.move is gone: threads were retired, and a message runs where it was written",
+            ));
         }
         if name.starts_with("thread.") {
             return self.rpc_threads(name, params, conn);
