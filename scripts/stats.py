@@ -346,9 +346,10 @@ def render(root, rows, old, sizes_from, installed):
     head, *parents = git(root, "log", "-1", "--abbrev=8", "--format=%h %p", "HEAD").split()
     merging = subprocess.run(["git", "-C", root, "rev-parse", "-q", "--verify", "--short=8", "MERGE_HEAD"],
                              capture_output=True, text=True).stdout.strip()
-    if merging:
+    if merging and len(parents) < 2:
         # A merge not yet committed (`git merge --no-commit`): its parents will be HEAD and MERGE_HEAD, and its own
-        # changes are staged, so only what is not yet staged is uncommitted.
+        # changes are staged, so only what is not yet staged is uncommitted. (A merge just made is HEAD itself, with
+        # its two parents, though git may still hold MERGE_HEAD while its post-merge hook runs.)
         at = f"the merge of {merging} into {head}"
         dirty = git(root, "diff", "--name-only", "--", ".", ":!STATS.md").strip()
     else:
