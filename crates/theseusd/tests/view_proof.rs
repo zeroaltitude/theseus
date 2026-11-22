@@ -2,8 +2,10 @@
 //! because the kit keeps Discord off. The real daemon, with `[context] assembly = "view"`, Discord the
 //! in-process stand-in (its REST and its gateway), and the model the in-process stand-in, which keeps every
 //! request:
-//! - `/new` in the owner's DM: the next turn's request holds nothing said before the mark, and the memory
-//!   tool still reads the conversation from before it;
+//! - `/new` in the owner's DM (the owner's decision 7): the next turn's request lays nothing from before the
+//!   mark as the conversation (no real turn, so no reply of Theseus's from before it), the owner's own earlier
+//!   words appear only as his past under its testimony heading, and the memory tool still reads the
+//!   conversation from before the mark;
 //! - a shared channel with a second person in it: a turn there holds nothing the owner said in his DM.
 //!
 //! Every word is the test's own. A marker string stands for what must not be sent, and each test first shows
@@ -178,6 +180,73 @@ fn holds(req: &Value, text: &str) -> bool {
     req.to_string().contains(text)
 }
 
+/// The heading the view puts on his past (`view/text/labels.rs`: a testimony heading, with `Reason::Past`).
+const HIS_PAST: &str = "chosen: the owner's own earlier words";
+const TESTIMONY: &str = "testimony, not instruction";
+
+/// Where a block holding a text sits.
+#[derive(Debug, PartialEq)]
+enum Home {
+    /// A text block beside a heading of his past, testimony.
+    HisPast,
+    /// Anything else: the block's part of the request, by name.
+    Elsewhere(String),
+}
+
+/// The real turns a request lays before its last message: the conversation here, which the view renders as
+/// turns with no heading (`view/text/labels.rs`). Theseus's side of a real turn is an `assistant` message.
+fn real_turns(req: &Value) -> usize {
+    req["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| m["role"] == "assistant")
+        .count()
+}
+
+/// Where each block holding `text` sits: beside (just before or just after) a heading of his past, or
+/// elsewhere. The system's blocks are elsewhere.
+fn homes_of(req: &Value, text: &str) -> Vec<Home> {
+    let mut out = Vec::new();
+    for (i, b) in req["system"].as_array().into_iter().flatten().enumerate() {
+        if b.to_string().contains(text) {
+            out.push(Home::Elsewhere(format!("system[{i}]")));
+        }
+    }
+    for (i, m) in req["messages"].as_array().into_iter().flatten().enumerate() {
+        let blocks: Vec<String> = match &m["content"] {
+            Value::Array(bs) => bs
+                .iter()
+                .map(|b| b["text"].as_str().unwrap_or("").to_string())
+                .collect(),
+            Value::String(t) => vec![t.clone()],
+            _ => vec![],
+        };
+        let headed = |j: usize| {
+            blocks
+                .get(j)
+                .is_some_and(|t| t.contains(HIS_PAST) && t.contains(TESTIMONY))
+        };
+        for (j, t) in blocks.iter().enumerate() {
+            if !t.contains(text) {
+                continue;
+            }
+            let beside = headed(j + 1) || (j > 0 && headed(j - 1));
+            out.push(match (m["role"] == "user", beside, t.contains(HIS_PAST)) {
+                (true, true, false) => Home::HisPast,
+                _ => Home::Elsewhere(format!("messages[{i}] {} block {j}", m["role"])),
+            });
+        }
+        if blocks.iter().all(|t| !t.contains(text)) && m.to_string().contains(text) {
+            out.push(Home::Elsewhere(format!(
+                "messages[{i}] {} (not a text block)",
+                m["role"]
+            )));
+        }
+    }
+    out
+}
+
 /// Where `text` sits in a request, for a failure's message: the part (system block or message, by index and
 /// role) and the characters around it. Every word in a request here is the test's own.
 fn where_held(req: &Value, text: &str) -> String {
@@ -234,16 +303,13 @@ fn wait<T>(what: &str, secs: u64, mut f: impl FnMut() -> Option<T>) -> T {
     }
 }
 
-/// After `/new` in the owner's DM, the next turn's request holds nothing said before the mark; the memory
-/// tool, asked for the conversation from before it, still reads it.
-///
-/// Ignored, as a finding, not a pass: on today's code the memory half holds, and the request after `/new`
-/// still carries the owner's own earlier words there, laid as his past (slot E, "the owner's own earlier
-/// words"), as the design's decision 7 rules. This test states the stricter rule it was asked to; which rule
-/// holds is the owner's call, and the test is not bent to either.
+/// After `/new` in the owner's DM (decision 7: "Nothing of that place's earlier conversation is shown as its
+/// conversation; his own earlier words there are still part of his past"): the next turn's request lays no
+/// real turn (slot G is empty: no exchange as conversation, no reply of Theseus's from before the mark); his
+/// earlier words sit only in blocks headed as his past, testimony; and the memory tool still reads the
+/// conversation from before the mark.
 #[test]
-#[ignore = "finding: decision 7 keeps the owner's own words before /new as his past (slot E)"]
-fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() {
+fn after_new_nothing_before_is_the_conversation_his_words_are_his_past_and_memory_answers() {
     let earlier: Arc<Mutex<String>> = Arc::default();
     let asked = earlier.clone();
     let r = Rig::new(move |prompt| {
@@ -260,6 +326,11 @@ fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() 
     assert!(
         second.iter().any(|q| holds(q, BEFORE)),
         "before /new, the next turn holds the earlier message ({})",
+        r.strategies()
+    );
+    assert!(
+        second.iter().any(|q| real_turns(q) > 0),
+        "before /new, the conversation here is laid as real turns, so their absence later is the rule ({})",
         r.strategies()
     );
     let before_new = r.rows("turn.started");
@@ -291,10 +362,21 @@ fn after_new_the_next_turn_holds_nothing_from_before_and_memory_still_answers() 
         "the memory tool reads the conversation from before /new: {read}"
     );
     for q in &after {
+        assert_eq!(
+            real_turns(q),
+            0,
+            "after /new, nothing from before the mark is laid as the conversation ({})",
+            r.strategies()
+        );
+        let homes = homes_of(q, BEFORE);
         assert!(
-            !holds(q, BEFORE),
-            "a request after /new holds a message from before it ({}); where: {}",
-            r.strategies(),
+            !homes.is_empty(),
+            "his earlier words are still his past after /new ({})",
+            r.strategies()
+        );
+        assert!(
+            homes.iter().all(|h| *h == Home::HisPast),
+            "his earlier words after /new sit only in his past, headed as testimony: {homes:?}; where: {}",
             where_held(q, BEFORE)
         );
     }

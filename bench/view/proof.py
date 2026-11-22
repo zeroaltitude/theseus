@@ -857,6 +857,25 @@ def writer_quiet(model: Model, timeout: float = WRITER_WAIT) -> None:
             return
 
 
+def extra_calls(mine: list[dict], line: str, steps: int) -> list[dict]:
+    """The tool-offering calls in a turn's span that the turn's script does not account for: any whose
+    opening text is not this turn's, and the turn's own beyond its `steps` (one for a turn with no script)."""
+    tools = [x for x in mine if x["tools"]]
+    own = [x for x in tools if line in turn_text(x["req"])]
+    return [x for x in tools if line not in turn_text(x["req"])] + own[steps:]
+
+
+def call_probe(x: dict, chars: int = 200) -> dict:
+    """What a call is, for `--debug`: its system text's first `chars` characters, its tool names, its opening
+    text's first `chars`, its step, its output cap and its tokens. The suite's own synthetic words."""
+    req = x["req"]
+    system = req.get("system")
+    text = system if isinstance(system, str) else " ".join(b.get("text", "") for b in system or [])
+    return {"system": " ".join(text.split())[:chars], "tools": [t.get("name", "") for t in req.get("tools") or []],
+            "opening": " ".join(turn_text(req).split())[:chars], "round": x["round"],
+            "max_tokens": x.get("max_tokens"), "tokens": x["counted"]}
+
+
 def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
              conversation=short_conversation, extra: dict | None = None) -> dict:
     """A conversation in one place. Per turn: its first request's tokens and the prefix it shares with the
@@ -882,9 +901,12 @@ def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
                 first = [x for x in mine if x["tools"] and x["round"] == 0 and line in turn_text(x["req"])]
                 off = [x for x in mine if not x["tools"]]
                 kinds = Counter(WRITER_KINDS.get(x.get("max_tokens"), "other") for x in off)
+                extra = extra_calls(mine, line, len(script.get(line) or [{}]))
                 per.append({"turn": i, "answered": answered(v), "req": first[0] if first else None,
                             "calls": sum(1 for x in mine if x["tools"]), "off_calls": len(off),
-                            "off_tokens": sum(x["counted"] for x in off), "off_kinds": dict(kinds)})
+                            "off_tokens": sum(x["counted"] for x in off), "off_kinds": dict(kinds),
+                            "extra_calls": len(extra), "extra_tokens": sum(x["counted"] for x in extra),
+                            **({"extra": [call_probe(x) for x in extra]} if DEBUG and extra else {})})
             started = [r for r in rows(d, "turn.started") if r.get("session_id") == s]
             by_turn: dict = {}
             for r in rows(d, "context.compiled"):
@@ -913,6 +935,8 @@ def cost_run(mode: str, bin_dir: Path, out: Path, n: int, name: str = "cost",
             "unshared_tokens": total - shared, "off_calls": sum(r["off_calls"] for r in table_rows),
             "off_tokens": sum(r["off_tokens"] for r in table_rows),
             "off_kinds": dict(sum((Counter(r["off_kinds"]) for r in table_rows), Counter())),
+            "extra_calls": sum(r["extra_calls"] for r in table_rows),
+            "extra_tokens": sum(r["extra_tokens"] for r in table_rows),
             "unanswered": sum(1 for r in table_rows if not r["answered"]),
             "strategies": seen["strategies"], "fallback": seen["fallback"]}
 
@@ -964,21 +988,73 @@ def long_table(runs: list[dict]) -> str:
     lines.append("")
     for r in runs:
         lines.append(f"{r['mode']}: sent {r['total_tokens']}, not shared {r['unshared_tokens']}, off-turn "
-                     f"{r['off_calls']} calls {r['off_tokens']} tokens {r['off_kinds']}, unanswered {r['unanswered']}, "
+                     f"{r['off_calls']} calls {r['off_tokens']} tokens {r['off_kinds']}, extra "
+                     f"{r.get('extra_calls', 0)} calls {r.get('extra_tokens', 0)} tokens, unanswered {r['unanswered']}, "
                      f"compilations {r['strategies']}, hand-backs {r['fallback'] or 0}")
     if len(runs) == 2 and runs[1]["total_tokens"]:
         a, b = runs
         ratio = lambda x, y: f"{x / y:.2f}" if y else "-"  # noqa: E731
         lines.append(f"ratio {a['mode']}/{b['mode']}: sent {ratio(a['total_tokens'], b['total_tokens'])}, not shared "
                      f"{ratio(a['unshared_tokens'], b['unshared_tokens'])}, sent + off-turn "
-                     f"{ratio(a['total_tokens'] + a['off_tokens'], b['total_tokens'] + b['off_tokens'])}")
+                     f"{ratio(a['total_tokens'] + a['off_tokens'], b['total_tokens'] + b['off_tokens'])}, all calls "
+                     f"{ratio(all_tokens(a), all_tokens(b))}")
+    if runs[0]["case"] in COLD:
+        lines += ["", cold_line(runs)]
     return "\n".join(lines)
+
+
+def all_tokens(r: dict) -> int:
+    """Every token the run sent: the turns' first requests, the calls off the turns, and the extra calls."""
+    return r["total_tokens"] + r["off_tokens"] + r.get("extra_tokens", 0)
+
+
+# A cold start: the first turn after the provider's cache has gone is written whole. Sonnet 5.5's cache-write
+# prices from the design (§16): $2.50 a million tokens for five minutes, $4 for an hour.
+COLD = {"cold_start_61"}
+WRITE_5M, WRITE_1H = 2.50, 4.00
+
+
+def cold_line(runs: list[dict]) -> str:
+    """The last turn's whole request, as the first turn after a lapse writes it, for each mode."""
+    parts = []
+    for r in runs:
+        x = r["rows"][-1]
+        t = x["tokens"] or 0
+        parts.append(f"{r['mode']} {t} tokens (${t * WRITE_5M / 1e6:.3f} at the 5-minute write, "
+                     f"${t * WRITE_1H / 1e6:.3f} at the 1-hour write; {x['tokens'] - x['shared_tokens'] if x['tokens'] else '-'}"
+                     f" not shared while cached)")
+    return f"cold start, turn {runs[0]['rows'][-1]['turn']} after a lapse (its whole request): " + "; ".join(parts)
+
+
+def expect_cut(results: list[dict], costs: list[dict], modes) -> list[str]:
+    """What keeps the cut from being accepted: in BOTH modes, a driven case that is not ok, any hand-back
+    (`context.view_fallback` row), any compilation whose strategy is not `view`, in a case or a cost run."""
+    bad = [f"mode {m}: not run" for m in MODES if m not in modes]
+    for r in results:
+        if r.get("not_driven"):
+            continue
+        cell = f"{r['case']} [{r['mode']}]"
+        if not r["ok"]:
+            bad.append(f"{cell}: FAILED {r.get('why')}")
+        if r.get("fallback"):
+            bad.append(f"{cell}: hand-back {r['fallback']}")
+        if set(r.get("strategies") or {}) - {"view"}:
+            bad.append(f"{cell}: compilations {r['strategies']}")
+    for c in costs:
+        cell = f"cost {c.get('case', 'cost')} [{c['mode']}]"
+        if c.get("fallback"):
+            bad.append(f"{cell}: hand-back {c['fallback']}")
+        if set(c.get("strategies") or {}) - {"view"}:
+            bad.append(f"{cell}: compilations {c['strategies']}")
+    return bad
 
 
 # name -> (the conversation, its turns, the case's own settings)
 LONG = {
     "long_120": (short_conversation, 120, {}),
     "tool_heavy_20": (tool_heavy, 20, {}),
+    # 60 turns, then the 61st: its whole request is what the first turn after a lapse writes.
+    "cold_start_61": (short_conversation, 61, {}),
 }
 LONG_NOT_DRIVEN = {
     "new_break": "skipped: the terminal has no /new (it is the chat's), and the kit keeps Discord off",
@@ -994,7 +1070,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cases", default="all", help="names, comma-separated, or all, or none")
     ap.add_argument("--cost-turns", type=int, default=30, help="0: no cost table")
     ap.add_argument("--cost-long", action="store_true",
-                    help="the long cost cases: 120 short turns in one place, and 20 tool-heavy turns")
+                    help="the long cost cases: 120 short turns in one place, 20 tool-heavy turns, and a cold start "
+                         "at turn 61")
+    ap.add_argument("--expect-cut", action="store_true",
+                    help="the cut's acceptance: exit nonzero unless, in both modes, every driven case is ok, no "
+                         "hand-back exists and every compilation is the view's")
     ap.add_argument("--debug", action="store_true",
                     help="a failing case's tool results and offered tools in proof.json (the suite's own words)")
     a = ap.parse_args(argv)
@@ -1014,21 +1094,32 @@ def main(argv: list[str] | None = None) -> int:
             results.append(r)
             print(f"[{mode}] {verdict_line(r)}", flush=True)
     report: dict = {"results": results}
+    costs: list[dict] = []
     if names:
         print("\n" + table(results, modes))
     if a.cost_turns:
         runs = [cost_run(m, Path(a.bin_dir), out, a.cost_turns) for m in modes]
         report["cost"] = runs
+        costs += runs
         print("\n" + cost_table(runs))
     if a.cost_long:
         report["cost_long"] = {}
         for name, (conv, n, extra) in LONG.items():
             runs = [cost_run(m, Path(a.bin_dir), out, n, name, conv, extra) for m in modes]
             report["cost_long"][name] = runs
+            costs += runs
             print("\n" + long_table(runs), flush=True)
         for name, why in LONG_NOT_DRIVEN.items():
             print(f"\n### {name}\n\n{why}")
+    if a.expect_cut:
+        bad = expect_cut(results, costs, modes)
+        report["expect_cut"] = bad
+        print("\n## The cut's acceptance (--expect-cut)\n")
+        print("\n".join(f"- {b}" for b in bad) if bad else "accepted: every driven case ok, no hand-back, "
+              "every compilation the view's, in both modes")
     (out / "proof.json").write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
+    if a.expect_cut and report["expect_cut"]:
+        return 2
     return 0 if all(r["ok"] or r.get("not_driven") for r in results) else 1
 
 

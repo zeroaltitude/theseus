@@ -252,6 +252,71 @@ class LongCost(unittest.TestCase):
         self.assertIn("ratio view/default: sent 1.00, not shared 1.00, sent + off-turn 1.00", t)
 
 
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class ExpectCut(unittest.TestCase):
+    def res(self, case, mode, ok=True, fallback=None, strategies=None, **kw):
+        return {"case": case, "mode": mode, "ok": ok, "why": "" if ok else "no answer",
+                "fallback": fallback or {}, "strategies": strategies or {"view": 2}, **kw}
+
+    def test_both_modes_all_view_is_accepted(self):
+        rs = [self.res("wake", m) for m in proof.MODES]
+        rs += [{"case": "new_mark", "mode": m, "ok": False, "not_driven": True} for m in proof.MODES]
+        costs = [{"case": "cost", "mode": m, "strategies": {"view": 34}, "fallback": {}} for m in proof.MODES]
+        self.assertEqual(proof.expect_cut(rs, costs, proof.MODES), [])
+
+    def test_every_offending_cell_is_named(self):
+        rs = [self.res("wake", "view"), self.res("wake", "default", strategies={"transcript": 2}),
+              self.res("task", "view", fallback={"continuation": 1}), self.res("fork", "default", ok=False)]
+        costs = [{"case": "long_120", "mode": "default", "strategies": {"ring": 1, "view": 3}, "fallback": {}}]
+        bad = proof.expect_cut(rs, costs, proof.MODES)
+        self.assertEqual(bad, ["wake [default]: compilations {'transcript': 2}",
+                               "task [view]: hand-back {'continuation': 1}",
+                               "fork [default]: FAILED no answer",
+                               "cost long_120 [default]: compilations {'ring': 1, 'view': 3}"])
+
+    def test_one_mode_alone_is_not_the_cut(self):
+        self.assertEqual(proof.expect_cut([self.res("wake", "view")], [], ("view",)), ["mode default: not run"])
+
+    def test_the_flag_exits_nonzero_on_an_offence_without_a_daemon(self):
+        """`--expect-cut` with no case and no cost run, in one mode: the other mode was not run, exit 2."""
+        out = Path(tempfile.mkdtemp(prefix="view-proof-flag-")) / "out"
+        self.addCleanup(shutil.rmtree, out.parent, True)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = proof.main(["--out", str(out), "--assembly", "view", "--cases", "none", "--cost-turns", "0",
+                               "--expect-cut"])
+        self.assertEqual(code, 2)
+        self.assertIn("- mode default: not run", buf.getvalue())
+        self.assertEqual(json.loads((out / "proof.json").read_text())["expect_cut"], ["mode default: not run"])
+
+
+@unittest.skipUnless(NEW_ENOUGH, "the suite reads TOML with tomllib: Python 3.11 or newer")
+class ExtraCalls(unittest.TestCase):
+    def call(self, text, rnd=0, tools=True, system="S" * 300):
+        req = {"system": [{"type": "text", "text": system}], "messages": [user(text)],
+               "tools": [{"name": "fs_list"}, {"name": "wake_at"}] if tools else []}
+        return {"req": req, "tools": tools, "round": rnd, "counted": 50, "max_tokens": 900}
+
+    def test_a_call_not_of_the_turn_and_a_call_past_its_script_are_extra(self):
+        mine = [self.call("Turn 20: x"), self.call("[something else]"), self.call("Turn 20: x", 1),
+                self.call("no tools", tools=False)]
+        self.assertEqual([proof.turn_text(x["req"]) for x in proof.extra_calls(mine, "Turn 20: x", 1)],
+                         ["[something else]", "Turn 20: x"])
+        self.assertEqual(proof.extra_calls(mine[:1] + mine[2:3], "Turn 20: x", 2), [])
+
+    def test_a_probe_says_the_system_text_the_tools_and_the_opening(self):
+        p = proof.call_probe(self.call("Turn 20: x"))
+        self.assertEqual(p["system"], "S" * 200)
+        self.assertEqual(p["tools"], ["fs_list", "wake_at"])
+        self.assertEqual((p["opening"], p["max_tokens"], p["tokens"]), ("Turn 20: x", 900, 50))
+
+    def test_the_cold_start_line_prices_the_whole_last_request(self):
+        rows = [{"turn": 61, "tokens": 16000, "shared_tokens": 14000}]
+        line = proof.cold_line([{"mode": "view", "rows": rows}, {"mode": "default", "rows": rows}])
+        self.assertIn("turn 61 after a lapse", line)
+        self.assertIn("view 16000 tokens ($0.040 at the 5-minute write, $0.064 at the 1-hour write; 2000 not shared", line)
+
+
 def built_bins() -> Path | None:
     d = ROOT / "target" / "debug"
     return d if all((d / b).is_file() for b in ("theseus", "theseusd")) else None

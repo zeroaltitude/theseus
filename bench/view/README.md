@@ -180,8 +180,16 @@ calls, the calls made OFF the turn (a call that offers no tools: the ladder's `d
 compaction's summary) with their tokens, and the turn's compilations by strategy. A `/new` break and a day
 change are not driven: the terminal has no `/new`, and the daemon reads the machine's clock.
 
+The cold start (`cold_start_61`, part of `--cost-long`): 60 short turns, then the 61st, whose whole request is what
+the first turn after the provider's cache has lapsed writes; it is priced at the design's cache-write prices.
+`--expect-cut` is the cut's acceptance: it exits 2 unless, in both modes, every driven case is ok, no hand-back
+exists and every compilation (cases and cost runs) is the view's, and it names each offending cell.
+`sh bench/view/proof-all.sh [out]` does the whole proof in one command on a machine that builds: the binaries,
+the daemon test below, then every case in both modes with every cost run under `--expect-cut`, ending with the
+case table, the cost summaries and the acceptance.
+
 `/new` and a shared place with a second person are driven in Rust instead, on the stand-in Discord:
-`crates/theseusd/tests/view_proof.rs` (`cargo nextest run -p theseusd --test view_proof --run-ignored all`).
+`crates/theseusd/tests/view_proof.rs` (`cargo nextest run -p theseusd --test view_proof`).
 
 **What the proof cannot tell.** The stand-in has no cache and no judgement: a shared prefix is what a cache
 could read, not what one did, and no answer's quality is measured. `/new` is the chat's and a second person is a
