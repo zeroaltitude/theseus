@@ -235,7 +235,7 @@ impl Core {
 }
 
 /// The record of an item, by its node (`item_labels::read`).
-type ItemOf = dyn Fn(&str) -> Option<crate::item_labels::ItemLabels>;
+type ItemOf<'a> = dyn Fn(&str) -> Option<crate::item_labels::ItemLabels> + 'a;
 
 /// The frame that removes `flag` from `rec`: the `content.removed` row, then
 /// the record. None, and nothing to write, when the session does not carry it.
@@ -246,7 +246,7 @@ fn removed(
     who: &Answerer,
     how: &str,
     correlation_id: Option<&str>,
-    (pack_of, item_of): (&dyn Fn(&str) -> String, &ItemOf),
+    (pack_of, item_of): (&dyn Fn(&str) -> String, &ItemOf<'_>),
 ) -> Result<Option<(UnlabelResult, Vec<NewRecord>)>> {
     let Some(mut flags) = rec.data.take() else {
         return Ok(None);
