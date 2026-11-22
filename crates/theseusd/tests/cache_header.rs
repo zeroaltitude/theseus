@@ -242,12 +242,11 @@ fn header_fields_of_a_task(req: &Value) -> Value {
     m
 }
 
+/// How a session's first request is picked: which user message is read, and what it must say.
+type Pick<'a> = (fn(&Value) -> String, &'a dyn Fn(&str) -> bool);
+
 /// The first request among `raw` whose `text` (its first or its last user message) `pick` takes.
-fn first_request(
-    raw: &[Vec<u8>],
-    what: &str,
-    (text, pick): (fn(&Value) -> String, &dyn Fn(&str) -> bool),
-) -> (Vec<u8>, Value) {
+fn first_request(raw: &[Vec<u8>], what: &str, (text, pick): Pick<'_>) -> (Vec<u8>, Value) {
     raw.iter()
         .map(|b| (b.clone(), parsed(b)))
         .find(|(_, v)| pick(&text(v)))
@@ -287,9 +286,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
             .cloned()
     });
     let raw = r.model.raw_requests();
-    let first = |what: &str, pick: (fn(&Value) -> String, &dyn Fn(&str) -> bool)| {
-        first_request(&raw, what, pick)
-    };
+    let first = |what: &str, pick: Pick<'_>| first_request(&raw, what, pick);
     let (a_raw, a) = first("the first session", (last_text, &|t| t.contains(START)));
     let (b_raw, b) = first("the second session", (last_text, &|t| t.contains(OTHER)));
     let (t_raw, t) = first("the task", (first_text, &|t| t.contains(BRIEF)));
