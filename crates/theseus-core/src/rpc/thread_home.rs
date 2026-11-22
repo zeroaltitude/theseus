@@ -35,11 +35,41 @@ use super::Core;
 use crate::approval::Answerer;
 use crate::fact;
 use crate::fact::thread::{ThreadSplit, ThreadUnsplit};
-use crate::moved::{self, MovedTo, SplitRecord};
+use crate::moved::{self, MovedTo};
 use crate::node::{Body, Node, Origin};
 use crate::session::SessionRecord;
 use crate::thread_join::{day, split_note};
 use crate::thread_split::{self, Chosen, Pick};
+
+/// The META key of a split's record, which `thread.unsplit` reads (moved here from `moved.rs` with the
+/// retired split, 2026-11-22: only this test-only writer reads it).
+pub(crate) fn split_key(id: &str) -> String {
+    format!("thread.split.{id}")
+}
+
+/// What a split left, for its undo.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SplitRecord {
+    pub id: String,
+    /// How the source was named, and the session it is.
+    pub from: String,
+    pub source_session: String,
+    /// The `Moved` node in the source.
+    pub moved_node: String,
+    /// The thread, its session, and whether the split opened it.
+    pub thread: String,
+    pub target_session: String,
+    pub opened: bool,
+    /// The brief and the arrangement written into the target's session.
+    pub target_nodes: Vec<String>,
+    pub moved: u32,
+    pub first: u64,
+    pub last: u64,
+    pub gist: String,
+    pub at_ms: u64,
+    #[serde(default)]
+    pub undone: bool,
+}
 
 /// What a split's source is, as named.
 struct Source {
@@ -770,8 +800,7 @@ impl Core {
         };
         let mut records = vec![
             node.record().map_err(invalid)?,
-            NewRecord::json(kinds::META, Some(&moved::split_key(&record.id)), &record)
-                .map_err(invalid)?,
+            NewRecord::json(kinds::META, Some(&split_key(&record.id)), &record).map_err(invalid)?,
         ];
         for id in &closed.moved {
             records.push(
@@ -869,7 +898,7 @@ impl Core {
         let id = p.split.trim();
         let rec: SplitRecord = self
             .store
-            .get_meta(&moved::split_key(id))
+            .get_meta(&split_key(id))
             .map_err(invalid)?
             .ok_or_else(|| {
                 RpcFailure::new(
@@ -980,7 +1009,7 @@ impl Core {
         let (who_s, via) = (who.who(), who.via());
         let mut records = vec![
             node.record()?,
-            NewRecord::json(kinds::META, Some(&moved::split_key(&rec.id)), &done)?,
+            NewRecord::json(kinds::META, Some(&split_key(&rec.id)), &done)?,
             fact::row(
                 &ThreadUnsplit {
                     split: &rec.id,

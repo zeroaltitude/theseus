@@ -65,12 +65,9 @@ impl TurnRunner {
         let Ok(nodes) = store.transcript(t.tc.session_id) else {
             return out;
         };
-        let moves = crate::moved::read(&nodes);
         out.extend(
             (nodes.iter())
-                .filter(|(_, n)| {
-                    n.kind != crate::stub::Kind::Recall && !moves.hidden.contains(&n.id)
-                })
+                .filter(|(_, n)| n.kind != crate::stub::Kind::Recall)
                 .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
                 .map(|(_, n)| n.id.clone()),
         );

@@ -1254,7 +1254,10 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     assert_eq!(nodes.len(), 2);
     assert_eq!(nodes[1].1.kind, crate::stub::Kind::Moved);
     assert_eq!(nodes[1].1.node(), std::sync::Arc::new(note));
-    assert_eq!(crate::moved::read(&nodes).hidden.len(), 1);
+    assert!(
+        matches!(&nodes[1].1.node().body, crate::node::Body::Moved { nodes, .. } if nodes.len() == 1),
+        "the moved record decodes with its range"
+    );
 }
 
 /// A message that records its surface (format 34) writes the code beside its
