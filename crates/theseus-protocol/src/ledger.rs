@@ -105,10 +105,8 @@ ledger_kinds! {
     ContextFileMissing = "context.file_missing",
     ContextOverflow = "context.overflow",
     ContextOverage = "context.overage",
-    ContextRecompileRequested = "context.recompile_requested",
     ContextRecompiled = "context.recompiled",
     ContextUnadmitted = "context.unadmitted",
-    ContextViewFallback = "context.view_fallback",
     DiscordBound = "discord.bound",
     DiscordCommand = "discord.command",
     DiscordConfirm = "discord.confirm",
@@ -558,6 +556,20 @@ pub struct LedgerTailResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Rows of the kinds the cut stopped writing (issue 44: `session.recompile`'s request, a view's hand-back)
+    /// still read: a row's kind is a string, and the registry no longer names them.
+    #[test]
+    fn rows_of_retired_kinds_still_read() {
+        for kind in ["context.recompile_requested", "context.view_fallback"] {
+            let old = format!(
+                r#"{{"position":41,"at_unix_ms":1790000000041,"kind":"{kind}","session_id":"ses_00000000000000000000000000000041","turn_id":null,"data":{{"strategy":"transcript","by":"the CLI"}}}}"#
+            );
+            let row: LedgerEntry = serde_json::from_str(&old).unwrap();
+            assert_eq!(row.kind, kind);
+            assert_eq!(LedgerKind::parse(kind), None);
+        }
+    }
 
     /// Each kind has one name, of a kind's form, and its name parses back to
     /// it; an old name parses to the kind it became, and an unknown one to

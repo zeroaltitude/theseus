@@ -1973,34 +1973,6 @@ async fn a_session_keeps_its_memory_across_a_restart() {
     assert_eq!(core.store.session_compilations(&sid).unwrap().len(), 1);
 }
 
-/// A provider whose calls, while `hold` is set, say they have begun and then
-/// wait at a gate: a test's way to act while a turn is inside its call.
-struct Gated {
-    fake: FakeProvider,
-    hold: std::sync::atomic::AtomicBool,
-    entered: tokio::sync::mpsc::UnboundedSender<()>,
-    gate: tokio::sync::Semaphore,
-}
-
-impl crate::provider::Provider for Gated {
-    fn name(&self) -> &str {
-        "fake"
-    }
-    fn stream_message<'a>(
-        &'a self,
-        req: &'a crate::provider::ProviderRequest,
-        on_delta: crate::provider::DeltaSink<'a>,
-    ) -> crate::provider::ProviderFuture<'a> {
-        Box::pin(async move {
-            if self.hold.load(std::sync::atomic::Ordering::SeqCst) {
-                let _ = self.entered.send(());
-                self.gate.acquire().await.unwrap().forget();
-            }
-            self.fake.stream_message(req, on_delta).await
-        })
-    }
-}
-
 /// One writer at a time per session record (theseus-xeo): a second write
 /// waits while another writer holds the record between its read and its
 /// write, then reads again, so both changes stand.

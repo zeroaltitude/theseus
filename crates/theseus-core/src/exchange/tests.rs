@@ -22,7 +22,8 @@ use crate::rpc::Core;
 struct Rig {
     core: Arc<Core>,
     fake: Arc<FakeProvider>,
-    dir: tempfile::TempDir,
+    /// Held for the rig's life: the store lives in it.
+    _dir: tempfile::TempDir,
 }
 
 fn rig(n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -44,7 +45,11 @@ fn rig_saying(replies: &[&str], tweak: impl FnOnce(&mut Config)) -> Rig {
     let script = replies.iter().map(|r| Scripted::text(r)).collect();
     let fake = Arc::new(FakeProvider::scripted(script));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
-    Rig { core, fake, dir }
+    Rig {
+        core,
+        fake,
+        _dir: dir,
+    }
 }
 
 /// One request on a connection that `client` names.
