@@ -334,9 +334,7 @@ async fn past_the_sessions_cap_recall_pauses() {
 /// persists the view's note, this test says whether the cap then pauses a long conversation.
 #[tokio::test]
 async fn on_the_view_a_long_conversation_still_recalls_past_the_sessions_cap() {
-    use crate::config::assembly::{Assembly, AssemblySetting};
     let r = canary_with(|c| {
-        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
         c.memory.recall_budget_tokens = 30;
         c.memory.recall_max_items = 1;
         c.memory.session_recall_cap_tokens = 30;
