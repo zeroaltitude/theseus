@@ -162,37 +162,6 @@ fn routed_thread_of(store: &crate::store::Store, turn: &str) -> Option<Option<St
     None
 }
 
-/// Where the exchange of turn `turn` in `session` lives now, by the owner
-/// a moving split recorded for each of its nodes (`moved.of.<node>`):
-/// `Ok(None)` where it ran (nothing moved it, or an unsplit put it back),
-/// `Ok(Some(slug))` in the thread a split took all of it to, `Err(())` when
-/// its nodes went different ways or an owner cannot be read.
-fn moved_owner(
-    store: &crate::store::Store,
-    session: &str,
-    turn: &str,
-) -> Result<Option<String>, ()> {
-    let nodes = store.session_nodes(session).map_err(|_| ())?;
-    let mut owner: Option<Option<String>> = None;
-    for (_, n) in nodes
-        .iter()
-        .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
-    {
-        let key = crate::moved::moved_of_key(&n.id);
-        let this = match store.get_meta::<Option<crate::moved::MovedTo>>(&key) {
-            Ok(Some(Some(m))) => Some(m.thread),
-            Ok(_) => None,
-            Err(_) => return Err(()),
-        };
-        match &owner {
-            None => owner = Some(this),
-            Some(o) if *o == this => {}
-            Some(_) => return Err(()),
-        }
-    }
-    Ok(owner.flatten())
-}
-
 /// The refusal of an address that cannot be honoured (issue 44): one plain
 /// line, as `turn.submit`'s answer, and no turn anywhere. Worded from
 /// `board`, the snapshot the gate decided on: a thread is named, and its
@@ -260,11 +229,10 @@ impl Core {
         }
         let class = self.runner.class_of(&home);
         let live = board.live(class);
-        let reply_thread = self.reply_thread(p, &board)?;
         let nameable = board.nameable(class);
         if live.is_empty() {
             return self
-                .addressed(p, (&home, None), (&*board, &[], &nameable), reply_thread)
+                .addressed(p, (&home, None), (&*board, &[], &nameable))
                 .map(|_| None);
         }
         let state = &self.runner.threads.route;
@@ -275,7 +243,7 @@ impl Core {
         let mut row = fresh_row(&home);
         let mut early: Option<Early> = None;
         let at = (home.as_str(), place.as_deref());
-        let addr = self.addressed(p, at, (&*board, &live, &nameable), reply_thread)?;
+        let addr = self.addressed(p, at, (&*board, &live, &nameable))?;
         let shown = addr
             .as_ref()
             .map(|a| self.refusal_shows(p, a, &board, &home));
@@ -368,17 +336,20 @@ impl Core {
     }
 
     /// What a message in `home` at `place` addresses among the `live`
-    /// threads, all read from `board`: a failed explicit address first, so it
-    /// never falls through to the place or the reply; then the place, the
-    /// words, the reply (`address`); then a reply to a thread that is no
-    /// longer live. Of the threads that are not live, only those the gate
-    /// lets this reader be told of are read at all (`told`).
+    /// threads, all read from `board`, in this order: a failed explicit
+    /// address, refused, so it never falls through to the place or the
+    /// reply; the place and the words (`address`); and only then the turn the
+    /// message replies to, which nothing reads before: a live thread's turn is
+    /// a reply address; a thread no longer live is refused when the gate lets
+    /// this reader be told of it, and otherwise, like a turn no record names,
+    /// is no address. Of the threads that are not live, only those the gate
+    /// lets this reader be told of are read at all (`told`), and a place that
+    /// may name none reads nothing of a reply.
     fn addressed(
         &self,
         p: &TurnSubmitParams,
         (home, place): (&str, Option<&str>),
         (board, live, nameable): (&Board, &[&ThreadInfo], &[&ThreadInfo]),
-        reply_thread: Option<String>,
     ) -> Result<Option<Address>, RpcFailure> {
         let told = || -> Vec<&ThreadInfo> {
             nameable
@@ -393,28 +364,40 @@ impl Core {
                 return Err(refused(board, &u, None));
             }
         }
-        let addressing = Addressing {
+        let words = Addressing {
             text: &p.input,
             place,
-            reply_thread: reply_thread.as_deref(),
+            reply_thread: None,
         };
-        if let Some(a) = address(&addressing, live) {
+        if let Some(a) = address(&words, live) {
             return Ok(Some(a));
         }
-        // A reply to a thread no longer live: refused when this reader may
-        // be told of it; else as a reply whose turn is unknown, at home.
-        let Some(slug) = reply_thread else {
+        let Some(turn) = p.in_reply_to.as_deref().filter(|_| !nameable.is_empty()) else {
             return Ok(None);
         };
+        let Some(slug) = self.reply_thread(turn) else {
+            return Ok(None);
+        };
+        let memory = &self.runner.threads.route;
+        if live.iter().any(|t| t.slug == slug) {
+            memory.thread_turn_known(turn, &slug);
+            return Ok(Some(Address::Reply(slug)));
+        }
+        // A thread no longer live: refused when this reader may be told of
+        // it; else no address, as a reply to a turn no record names, and
+        // nothing remembered of it.
         match told().into_iter().find(|t| t.slug == slug) {
-            Some(t) => Err(refused(
-                board,
-                &Unresolved {
-                    word: Some(t.title.clone()),
-                    slug: Some(slug),
-                },
-                None,
-            )),
+            Some(t) => {
+                memory.thread_turn_known(turn, &slug);
+                Err(refused(
+                    board,
+                    &Unresolved {
+                        word: Some(t.title.clone()),
+                        slug: Some(slug),
+                    },
+                    None,
+                ))
+            }
             None => Ok(None),
         }
     }
@@ -442,51 +425,27 @@ impl Core {
         }
     }
 
-    /// The thread of the turn a message replies to: the router's memory of
-    /// this run's turns first (a thread's or home), else the turn's
-    /// `thread.routed` row, the durable record a restart keeps
-    /// (`routed_thread_of`), which is then remembered either way. None: no
-    /// reply, a turn the records place at home, or one no record names (a turn
-    /// of a place without threads, or older than the rows read), which runs at
-    /// home as before. A thread's answer is checked, each time and never from
-    /// memory, against a moving split that took the exchange since
-    /// (`moved_owner`): it goes where its nodes are now, and a reply whose
-    /// nodes went different ways is refused with a line that names nothing.
-    fn reply_thread(
-        &self,
-        p: &TurnSubmitParams,
-        board: &Board,
-    ) -> Result<Option<String>, RpcFailure> {
-        let Some(turn) = p.in_reply_to.as_deref() else {
-            return Ok(None);
-        };
+    /// The thread turn `turn` ran in, as recorded: the router's memory of
+    /// this run's turns first, else the turn's `thread.routed` row, the
+    /// durable record a restart keeps (`routed_thread_of`). None: a turn at
+    /// home (remembered: a home turn names no thread), or one no record names
+    /// (a turn of a place without threads, or older than the rows read). A
+    /// thread's answer is remembered by the caller, only after the gate
+    /// (`addressed`). A turn a split moved since keeps the thread it ran in.
+    fn reply_thread(&self, turn: &str) -> Option<String> {
         let memory = &self.runner.threads.route;
-        let slug = match memory.thread_of_turn(turn) {
-            Some(slug) => slug,
-            None if memory.ran_at_home(turn) => return Ok(None),
-            None => match routed_thread_of(&self.store, turn) {
-                Some(Some(slug)) => {
-                    memory.turn_ran(turn, &slug);
-                    slug
-                }
-                Some(None) => {
-                    memory.home_ran(turn);
-                    return Ok(None);
-                }
-                None => return Ok(None),
-            },
-        };
-        let Some(session) = board.get(&slug).and_then(|t| t.session_id.clone()) else {
-            return Ok(Some(slug));
-        };
-        match moved_owner(&self.store, &session, turn) {
-            Ok(None) => Ok(Some(slug)),
-            Ok(Some(to)) => Ok(Some(to)),
-            Err(()) => Err(RpcFailure::new(
-                error_code::REFUSED,
-                "Not run: the message this replies to was moved, and not all to one place. \
-                 Send it again with a thread's name, or without one to talk here.",
-            )),
+        if let Some(slug) = memory.thread_of_turn(turn) {
+            return Some(slug);
+        }
+        if memory.ran_at_home(turn) {
+            return None;
+        }
+        match routed_thread_of(&self.store, turn)? {
+            Some(slug) => Some(slug),
+            None => {
+                memory.home_ran(turn);
+                None
+            }
         }
     }
 

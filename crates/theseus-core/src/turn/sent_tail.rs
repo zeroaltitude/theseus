@@ -19,23 +19,12 @@
 //! no longer renders as it did (a recompile, a ring's cut, a compaction)
 //! is let go, and so is the lot when a recompile strips the thinking, which
 //! is what needed them.
-//!
-//! A kept tail is admitted again before it is sent again (issue 44, the
-//! gate, `docs/design/view-gate.md`): it is put back only under the presence
-//! it was made for, while no thread is held from its reader that was not
-//! then (an unreadable board holds every one), and while nothing has moved
-//! into a thread or changed a thread's binding since (`Store::moves`). This
-//! is decided before the request is compiled ([`SentTails::fresh`]): a tail
-//! the chain was built on that may not be sent again starts a new chain, its
-//! thinking stripped, so the first request sent is one the provider's
-//! binding accepts.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use theseus_memory::gate::Present;
 
 use crate::compiler::Compiled;
 use crate::provider::binding::unmarked;
@@ -55,31 +44,6 @@ struct Sent {
     key: String,
     anchor: String,
     blocks: Vec<Value>,
-    /// Who it was made for, the threads held from that reader, and the
-    /// store's moves, when it was made.
-    sealed: Under,
-}
-
-/// What a tail is made under, read before the request it rides is compiled:
-/// where it is said (`key`), who is present (`view_gate::presence_key`), the
-/// threads held from that reader (`view_gate::held_threads`; none when the
-/// threads do not wholly read), and the store's moves (`Store::moves`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct Under {
-    pub key: String,
-    pub presence: Option<(Present, String)>,
-    pub held: Option<BTreeSet<String>>,
-    pub moves: u64,
-}
-
-/// Whether the tail `s` may be sent again under `now`: the same presence,
-/// no thread held now that was not then, threads that read, and nothing
-/// moved or rebound since.
-fn admissible(s: &Sent, now: &Under) -> bool {
-    let then = s.sealed.held.clone().unwrap_or_default();
-    s.sealed.presence == now.presence
-        && s.sealed.moves == now.moves
-        && now.held.as_ref().is_some_and(|h| h.is_subset(&then))
 }
 
 #[derive(Default)]
@@ -102,7 +66,6 @@ pub(super) struct Begun {
     blocks: usize,
     anchor: String,
     kept: Vec<Sent>,
-    under: Under,
 }
 
 fn anchor(message: &Value) -> String {
@@ -140,26 +103,20 @@ fn counted(compiled: &mut Compiled, n: u64) {
 /// its message rendered as, not by its place (routing may have moved a message). Only the tails
 /// sent to `key` go back (`None`: the newest tail's own key, for a request no turn is making yet);
 /// the rest stay in the list as they were sent. Nothing goes back on a request a recompile
-/// stripped the thinking from. A tail sent to `key` that is not admissible under `now` is let go
-/// (the caller has started a new chain where one was: `SentTails::fresh`). Returns the list and
-/// the place in it of the latest tail put back.
+/// stripped the thinking from. Returns the list and the place in it of the latest tail put back.
 /// The one function a turn's request and every other request of a conversation share.
 fn put_back(
     compiled: &mut Compiled,
     held: Vec<Sent>,
-    (key, now): (Option<&str>, &Under),
+    key: Option<&str>,
     stripped: bool,
 ) -> (Vec<Sent>, Option<usize>) {
-    let key = key
-        .or_else(|| held.last().map(|s| s.key.as_str()))
-        .map(str::to_string);
-    let held: Vec<Sent> = held
-        .into_iter()
-        .filter(|s| Some(&s.key) != key.as_ref() || admissible(s, now))
-        .collect();
     let Some(last) = compiled.request.messages.len().checked_sub(1) else {
         return (held, None);
     };
+    let key = key
+        .or_else(|| held.last().map(|s| s.key.as_str()))
+        .map(str::to_string);
     let mut kept = Vec::new();
     let anchors: Vec<String> = match held.is_empty() || stripped {
         true => Vec::new(),
@@ -191,69 +148,25 @@ fn put_back(
 }
 
 impl SentTails {
-    /// Whether a request of `session` made under `now` must start a new chain: a tail it would
-    /// put back (sent to `now.key`) may not be sent again. Asked before the request is compiled,
-    /// so the compile strips the thinking those tails were under.
-    pub(super) fn fresh(&self, session: &str, now: &Under) -> bool {
-        let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        h.by_session
-            .get(session)
-            .is_some_and(|v| v.iter().any(|s| s.key == now.key && !admissible(s, now)))
-    }
-
     /// The tails a conversation's earlier requests sent, put back on a request made for it
     /// outside a turn (the keep-warm read), so that it is the prefix the next turn
     /// sends: byte for byte what `begin` puts back, for the key the newest tail was sent to.
-    /// False, and nothing put back, when the newest tail may not be sent again under `now` (its
-    /// key taken as the newest's): the read has no repeat, so it sends nothing, and it never
-    /// falls back to an older tail. What may not be sent again is let go from the kept tails.
-    pub(crate) fn warm(&self, session: &str, now: &Under, compiled: &mut Compiled) -> bool {
+    /// Nothing is kept or changed here.
+    pub(crate) fn warm(&self, session: &str, compiled: &mut Compiled) {
         let held = {
-            let mut h = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(v) = h.by_session.get_mut(session) else {
-                return true;
-            };
-            let newest = v.last().map(|s| Under {
-                key: s.key.clone(),
-                ..now.clone()
-            });
-            let Some(newest) = newest else {
-                return true;
-            };
-            let ok = v.last().is_some_and(|s| admissible(s, &newest));
-            v.retain(|s| {
-                admissible(
-                    s,
-                    &Under {
-                        key: s.key.clone(),
-                        ..now.clone()
-                    },
-                )
-            });
-            if !ok {
-                return false;
-            }
-            v.clone()
+            let h = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            h.by_session.get(session).cloned().unwrap_or_default()
         };
         let stripped = compiled.new_compilation && compiled.compilation.manifest.strip_thinking;
-        let key = held.last().map(|s| s.key.clone());
-        let now = Under {
-            key: key.clone().unwrap_or_default(),
-            ..now.clone()
-        };
-        put_back(compiled, held, (key.as_deref(), &now), stripped);
-        true
+        put_back(compiled, held, None, stripped);
     }
 
     /// Put back the tails the session's earlier requests sent, on the
-    /// messages that carried them, before this request's own is attached:
-    /// those sent to `now.key` and admissible under `now`, which this
-    /// request's own tail keeps.
+    /// messages that carried them, before this request's own is attached.
     pub(super) fn begin(
         &self,
         session: &str,
-        turn: &str,
-        now: Under,
+        (turn, key): (&str, &str),
         compiled: &mut Compiled,
     ) -> Option<Begun> {
         let last = compiled.request.messages.len().checked_sub(1)?;
@@ -264,18 +177,17 @@ impl SentTails {
             h.recent.push_back(session.to_string());
             h.by_session.get(session).cloned().unwrap_or_default()
         };
-        let (kept, here) = put_back(compiled, held, (Some(&now.key), &now), stripped);
+        let (kept, here) = put_back(compiled, held, Some(key), stripped);
         let m = &mut compiled.request.messages[last];
         let anchor = anchor(m);
         let blocks = blocks_of(m).map_or(0, |b| b.len());
         Some(Begun {
             turn: turn.to_string(),
-            key: now.key.clone(),
+            key: key.to_string(),
             here,
             blocks,
             anchor,
             kept,
-            under: now,
         })
     }
 
@@ -289,7 +201,6 @@ impl SentTails {
             blocks,
             anchor,
             mut kept,
-            under,
         }) = begun
         else {
             return;
@@ -324,7 +235,6 @@ impl SentTails {
                     key,
                     anchor,
                     blocks: fresh,
-                    sealed: under,
                 });
             }
         }

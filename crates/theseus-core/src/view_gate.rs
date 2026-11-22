@@ -38,7 +38,7 @@
 //! registry test (`tests_view_gate::no_new_decision_by_place_outside_the_gate`)
 //! names each file's count and fails on a new one.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -322,12 +322,6 @@ pub fn node_seal(
     if own != Seal::Clear {
         return own;
     }
-    moved_seal(store, board, asker, node)
-}
-
-/// The seal of the thread a split or a claim moved `node` into, for a reader
-/// in `asker`; clear when it was not moved.
-fn moved_seal(store: &Store, board: &Board, asker: Option<&str>, node: &str) -> Seal {
     match store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)) {
         Ok(Some(Some(m))) => seal_for(store, board, asker, &m.thread),
         Ok(_) => Seal::Clear,
@@ -337,25 +331,6 @@ fn moved_seal(store: &Store, board: &Board, asker: Option<&str>, node: &str) -> 
             Seal::Unread
         }
     }
-}
-
-/// Whether a reader in `asker` may be shown the title of `session`, whose
-/// own seal it may read: a title is made from the session's first inputs,
-/// so not when any of its messages was moved into a thread held from it
-/// (`moved_seal`), nor when its messages or the threads cannot be read.
-pub fn title_shown(runner: &TurnRunner, asker: Option<&str>, session: &str) -> bool {
-    let Some(b) = board(runner, "a session's title") else {
-        return false;
-    };
-    let Ok(nodes) = runner.store.session_nodes(session) else {
-        return false;
-    };
-    nodes.iter().all(|(_, n)| match &n.body {
-        Body::UserMessage { .. } | Body::AssistantMessage { .. } => {
-            moved_seal(&runner.store, &b, asker, &n.id) == Seal::Clear
-        }
-        _ => true,
-    })
 }
 
 /// The nodes of `nodes` a reader in `asker` may read for their seal (by
@@ -666,84 +641,23 @@ pub fn readmit_sources(
     });
 }
 
-/// The threads a reader in `asker` may not be shown now for their seal: every
-/// sealed or seal-pending thread but its own, and every one that cannot be
-/// read. A kept tail is sent again only where no thread joined this since it
-/// was made (`turn::sent_tail`). None when the threads cannot be read, wholly
-/// or in part (a thread record or a binding that does not read, or the
-/// asker's own thread that cannot be proven): then nothing kept is sent again.
-pub fn held_threads(runner: &TurnRunner, asker: &str) -> Option<BTreeSet<String>> {
-    let b = board(runner, "kept tails")?;
-    if b.any_unread() {
-        return None;
-    }
-    let own = thread_of(&runner.store, &b, asker, 0).ok()?;
-    let held = b
-        .all()
-        .filter(|t| held_from(&b, own.as_deref(), &t.slug))
-        .map(|t| t.slug.clone())
-        .collect();
-    Some(held)
-}
-
-/// Whether thread `slug` is held from a reader whose own thread is `own`:
-/// sealed, seal-pending or unread, and not its own.
-fn held_from(board: &Board, own: Option<&str>, slug: &str) -> bool {
-    match thread_seal(board, slug) {
-        Seal::Clear => false,
-        Seal::Held => own != Some(slug),
-        Seal::Unread => true,
-    }
-}
-
-/// What a kept tail of `session` made or sent now is made under
-/// (`turn::sent_tail`): said at `key`, its turn's presence, the threads held
-/// from it, and the store's moves, each read before the request is compiled.
-pub(crate) fn tail_under(runner: &TurnRunner, session: &str, key: String) -> crate::turn::Under {
-    let moves = runner.store.moves();
-    crate::turn::Under {
-        key,
-        presence: presence_key(runner, session),
-        held: held_threads(runner, session),
-        moves,
-    }
-}
-
-/// The presence of `session`'s turn as a kept tail's reuse key holds it
-/// (`turn::sent_tail`): who is present and where the turn arrived. A tail
-/// made under one is not sent again under another.
-pub fn presence_key(runner: &TurnRunner, session: &str) -> Option<(Present, String)> {
-    runner.presence.get(session).map(|a| (a.present, a.place))
-}
-
 /// The threads of a place digest a turn of `session` may be shown: only
 /// where the owner is alone does it name other threads (they are other
-/// places); otherwise its own thread `here` alone. A thread held from a turn
-/// that is not the owner alone is neither named nor counted, whatever the
-/// ledger says: a count says it exists. The owner alone is told how many
-/// (the digest's own rule); none at all when the threads cannot be read.
-/// With the ledger off, the rest as before.
+/// places); otherwise its own thread `here` alone. With the ledger off, as
+/// before.
 pub fn digest_threads<'b>(
     runner: &TurnRunner,
     session: &str,
     here: &str,
     live: Vec<&'b theseus_protocol::threads::ThreadInfo>,
 ) -> Vec<&'b theseus_protocol::threads::ThreadInfo> {
-    let Some(b) = board(runner, "the place digest") else {
-        return Vec::new();
-    };
+    if !runner.cfg.context.ledger_on() {
+        return live;
+    }
     let alone = runner
         .presence
         .get(session)
         .is_some_and(|a| a.present == Present::OwnerAlone);
-    let own = thread_of(&runner.store, &b, session, 0).ok().flatten();
-    let live: Vec<_> = live
-        .into_iter()
-        .filter(|t| alone || !held_from(&b, own.as_deref(), &t.slug))
-        .collect();
-    if !runner.cfg.context.ledger_on() {
-        return live;
-    }
     live.into_iter()
         .filter(|t| alone || t.slug == here)
         .collect()
@@ -911,18 +825,17 @@ impl Verified {
     }
 
     /// The point of view a next turn in `session` at `place` would get, for a preview of its view (no turn
-    /// runs): today's class of `session`'s place, and a message typed there by the owner in person
-    /// (`in_person`) or by an agent's process, read by the rule a turn's mark is read by
-    /// ([`present_of_mark`]). A channel is never the owner alone; an agent's process is never the owner.
-    pub fn of_preview(runner: &TurnRunner, session: &str, place: &str, in_person: bool) -> Self {
-        struct One(bool);
-        impl OwnerMarks for One {
+    /// runs): today's class of `session`'s place, and a message typed there by the owner in person, read by
+    /// the rule a turn's mark is read by ([`present_of_mark`]). A channel is never the owner alone.
+    pub fn of_preview(runner: &TurnRunner, session: &str, place: &str) -> Self {
+        struct InPerson;
+        impl OwnerMarks for InPerson {
             fn in_person(&self, _: &str) -> Result<Option<bool>> {
-                Ok(Some(self.0))
+                Ok(Some(true))
             }
         }
         let today = runner.place_of(session);
-        let present = present(&today, Some(place), Input::Message(""), &One(in_person));
+        let present = present(&today, Some(place), Input::Message(""), &InPerson);
         Verified(PointOfView {
             anchor: place.into(),
             place: today,

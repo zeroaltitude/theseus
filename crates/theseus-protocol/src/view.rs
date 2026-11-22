@@ -186,7 +186,7 @@ pub struct ViewPreviewParams {
     pub message: Option<String>,
     /// Each piece's text as well: the owner's own terminal only.
     pub text: bool,
-    /// The job's session when the CLI runs inside a Theseus job: that agent's turn, of its own place only.
+    /// The job's session when the CLI runs inside a Theseus job (`THESEUS_SESSION`): refused then.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub from_job: Option<String>,
@@ -204,8 +204,8 @@ pub struct ViewBudget {
     pub here_allowance: u64,
 }
 
-/// The earlier turns of the place's sessions (those the gate lets this reader count): how many, how many
-/// the ledger holds no exchange for, and how many whose exchange names another place.
+/// The earlier turns of the place's sessions, counted from what the gate admits to this reader alone: how
+/// many, and how many the ledger holds no exchange for. Another place's exchanges are not counted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default)]
@@ -213,7 +213,6 @@ pub struct ViewEarlier {
     pub sessions: u64,
     pub turns: u64,
     pub no_exchange: u64,
-    pub other_place: u64,
 }
 
 /// What a place's next turn would be shown.
@@ -224,8 +223,10 @@ pub struct ViewPreviewResult {
     pub place: String,
     /// The session whose next turn it is.
     pub session: String,
-    /// `owner` (the owner in person, at that place) or `agent` (an agent's turn there: no text).
+    /// `owner`: the owner in person, at that place (the one reader a preview has).
     pub reader: String,
+    /// The place's `[context] assembly` today: `view` or `transcript`.
+    pub assembly: String,
     /// The view, as this reader may see it; none when the floor did not fit (`overflow`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -253,19 +254,24 @@ pub struct ViewPreviewResult {
 /// A preview in plain lines.
 pub fn preview_lines(r: &ViewPreviewResult) -> String {
     use std::fmt::Write;
-    let who = match r.reader.as_str() {
-        "agent" => "an agent's turn there (its own place alone; no text)",
-        _ => "the owner in person there",
-    };
     let mut out = format!(
-        "preview of {}'s next turn, as {who}: session {}\n",
+        "preview of a hypothetical next turn at {}, opened by your message in person: session {}\n",
         r.place, r.session
     );
-    let _ = writeln!(
-        out,
-        "  falls back to the transcript: {}",
-        r.fallback.as_deref().unwrap_or("no, it takes the view")
-    );
+    let checked = "unledgered history and the floor's fit";
+    let verdict = match (r.assembly.as_str(), r.fallback.as_deref()) {
+        ("view", Some(why)) => format!("it would fall back to the transcript: {why}"),
+        ("view", None) => format!("it would take the view: the checks made pass ({checked})"),
+        (set, Some(why)) => format!(
+            "the place is set to {set}: its turn is the transcript's; switched to view, it would fall \
+             back: {why}"
+        ),
+        (set, None) => format!(
+            "the place is set to {set}: its turn is the transcript's; switched to view, the checks made \
+             pass ({checked})"
+        ),
+    };
+    let _ = writeln!(out, "  {verdict}");
     if let Some(o) = &r.overflow {
         let _ = writeln!(out, "  overflow: {o}");
     }
@@ -296,8 +302,8 @@ pub fn preview_lines(r: &ViewPreviewResult) -> String {
     let e = &r.earlier;
     let _ = writeln!(
         out,
-        "  earlier turns: {} in {} sessions, {} with no exchange, {} with another place",
-        e.turns, e.sessions, e.no_exchange, e.other_place
+        "  earlier turns here: {} in {} sessions, {} with no exchange",
+        e.turns, e.sessions, e.no_exchange
     );
     for n in &r.notes {
         let _ = writeln!(out, "  ({n})");

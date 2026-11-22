@@ -45,29 +45,6 @@ impl TurnRunner {
         self.prefix_spec(spec, at)
     }
 
-    /// What this request's kept tails are made and put back under (`sent_tail`), read before
-    /// it is compiled. What a tail says is said to a place, a surface, and where the session and
-    /// the turn's reply speak; and (issue 44, the gate) to who is present, under the threads held
-    /// from them and the store's moves. `strip` as given, or, when a tail the chain was built on
-    /// may not be sent again, a new chain: its thinking stripped.
-    fn tail_under(
-        &self,
-        t: &Turn<'_>,
-        strip: Option<&'static str>,
-    ) -> (super::Under, Option<&'static str>) {
-        let sid = t.tc.session_id;
-        let key = format!(
-            "{:?}|{:?}|{:?}|{:?}",
-            t.tc.place().class,
-            t.standing.surface,
-            self.outbox.speaks_at(sid).ok().flatten(),
-            t.answer_at
-        );
-        let under = crate::view_gate::tail_under(self, sid, key);
-        let fresh = strip.is_none() && self.tails.fresh(sid, &under);
-        (under, strip.or(fresh.then_some("tail_let_go")))
-    }
-
     /// The request's last block, in its order: the task view, the wakes and
     /// routines, the surface's standing records, the persona line, then the
     /// project's slice.
@@ -161,7 +138,6 @@ impl TurnRunner {
         // and what its request carries decides what rides the plan frame
         // (theseus-fpm2).
         let (nodes, sources) = self.recall_carried(t, nodes);
-        let (under, strip) = self.tail_under(t, strip);
         // A big old attachment is a stub at a cold rewrite, and in the warm
         // window after it (theseus-ezeg): decided at the turn's first compile.
         let cold = (i == 0).then(|| self.cold_now(sid, session, spec));
@@ -205,7 +181,16 @@ impl TurnRunner {
         ph.mark("compile");
         // The earlier requests' tails go back where they were sent, before
         // this one's own is attached (`sent_tail`).
-        t.tail = self.tails.begin(sid, t.tc.turn_id, under, &mut compiled);
+        // What a tail says is said to a place, a surface, and where the session and the turn's
+        // reply speak: it is put back on a request for the same.
+        let key = format!(
+            "{:?}|{:?}|{:?}|{:?}",
+            t.tc.place().class,
+            t.standing.surface,
+            self.outbox.speaks_at(sid).ok().flatten(),
+            t.answer_at
+        );
+        t.tail = self.tails.begin(sid, (t.tc.turn_id, &key), &mut compiled);
         compiled.prefix = picked.filter(|p| {
             compiled.new_compilation
                 && compiled.compilation.manifest.prefix.as_ref() == Some(&p.plan.used)

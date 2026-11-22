@@ -242,8 +242,7 @@ async fn labels_of(
 /// The sessions this harness held in `span`, newest first: those with a
 /// turn, whose time from their start to their last activity meets it.
 /// A sealed thread's sessions (or one whose seal is proposed) are left out,
-/// as they are by id, and a channel bound private lists only its own; a
-/// title made from a message moved into a held thread is not shown.
+/// as they are by id, and a channel bound private lists only its own.
 pub(super) async fn own_sessions(
     core: &Arc<Core>,
     asker: &str,
@@ -268,18 +267,6 @@ pub(super) async fn own_sessions(
             && places.may_read(runner, &r.session_id)
     });
     all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms.max(r.created_at_unix_ms)));
-    // A title is made from a session's first inputs: one of a session with a
-    // message moved into a thread held from the asker is not shown, as the
-    // session's own read does not show it (the gate's `title_shown`).
-    let (c, who) = (core.clone(), asker.to_string());
-    let ids: Vec<String> = all.iter().map(|r| r.session_id.clone()).collect();
-    let untitled: std::collections::HashSet<String> = tokio::task::spawn_blocking(move || {
-        ids.into_iter()
-            .filter(|id| !crate::view_gate::title_shown(&c.runner, Some(&who), id))
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())?;
     Ok(all
         .into_iter()
         .map(|r| Item {
@@ -292,13 +279,10 @@ pub(super) async fn own_sessions(
                 r.label.as_deref().unwrap_or(r.kind.as_str()),
                 crate::narrative::count(r.turns, "turn", "turns")
             ),
-            text: match untitled.contains(&r.session_id) {
-                true => String::new(),
-                false => r.title.unwrap_or_default(),
-            },
             session_id: r.session_id,
             sensitivity: None,
             book: None,
+            text: r.title.unwrap_or_default(),
             ..Item::default()
         })
         .collect())

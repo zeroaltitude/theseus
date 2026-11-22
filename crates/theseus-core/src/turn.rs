@@ -120,7 +120,6 @@ mod route_step;
 mod self_budget_step;
 pub use self_budget_step::SELF_BUDGET_CLASS;
 pub(crate) mod sent_tail;
-pub(crate) use sent_tail::Under;
 mod settle;
 pub(crate) mod situation_step;
 mod spec_step;
