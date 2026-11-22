@@ -147,6 +147,11 @@ impl Board {
         let _ = self.core.set(Arc::downgrade(core));
     }
 
+    /// The core, once built and while it lives.
+    pub fn core(&self) -> Option<Arc<Core>> {
+        self.core.get()?.upgrade()
+    }
+
     /// `turn`'s use before this call, and this call counted. Past [`TURNS_KEPT`] turns, only turns `done`
     /// says have finished are let go: a running turn's counts are never dropped.
     pub fn count(&self, turn: &str, what: Count, done: &dyn Fn(&str) -> bool) -> Use {

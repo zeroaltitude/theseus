@@ -58,7 +58,14 @@ impl TurnRunner {
         // owner's own message where he is not alone (`judge::leans_on`).
         if let Some(m) = &mark {
             if crate::judge::leans_on::asked_of(m, asking.present()) {
-                self.judge.at_leans_on(sid, t.tc.turn_id, &m.node);
+                let history = self.tools.history.clone();
+                let (turn, node) = (t.tc.turn_id.to_string(), m.node.clone());
+                let then = Box::new(move |answer: Option<String>| {
+                    if let Some(core) = history.core() {
+                        tokio::spawn(crate::release_card::after_trigger(core, turn, node, answer));
+                    }
+                });
+                self.judge.at_leans_on(sid, t.tc.turn_id, &m.node, then);
             }
         }
     }

@@ -15,9 +15,12 @@
 //!   the shadow budget, the call and the record are the spawned task's, as
 //!   `memory.v1`'s are. Nothing acts on the answer: the pack is not in
 //!   `WIRED`, so its line is shadow until the owner promotes it
-//!   (`theseus packs promote leans_on.v1`), and the company turn is the same
+//!   (`theseus packs promote leans_on.v1 --live`), and the company turn is the same
 //!   turn, byte for byte, whatever it answers. Its row is the sink's
 //!   `judge.call`, scoped `judge:leans_on`.
+//! - **Then the look.** Once judged, its answer is handed to the release
+//!   card's look (`release_card::after_trigger`), in the same spawned task's
+//!   wake, never the turn's.
 
 use std::sync::{Arc, Weak};
 
@@ -32,6 +35,10 @@ use crate::node::{Body, Node, Origin};
 
 /// The pack.
 pub const PACK: &str = "leans_on.v1";
+
+/// What follows a judgment of the trigger, in its own task: handed the option its answer runs (none when it
+/// failed). The release card's look (`release_card::after_trigger`).
+pub type Then = Box<dyn FnOnce(Option<String>) + Send + 'static>;
 
 /// Whether the trigger is asked of a message of `mark`, at a turn whose
 /// presence is `present`: the owner's own message, where he is not alone.
@@ -81,8 +88,9 @@ fn line_of(n: &Node) -> Option<HereLine> {
 
 impl JudgeService {
     /// The trigger, in shadow, in a task of its own, for the message `node`
-    /// that opened `turn_id` of `session`. Returns at once, whatever Jev does.
-    pub fn at_leans_on(&self, session: &str, turn_id: &str, node: &str) {
+    /// that opened `turn_id` of `session`; `then` is handed its answer once it
+    /// is judged. Returns at once, whatever Jev does.
+    pub fn at_leans_on(&self, session: &str, turn_id: &str, node: &str, then: Then) {
         if !self.pack_on(PACK) {
             return;
         }
@@ -93,7 +101,7 @@ impl JudgeService {
             return;
         };
         let at = (session.to_string(), turn_id.to_string(), node.to_string());
-        rt.spawn(judge_leans_on(self.me.clone(), pack, at));
+        rt.spawn(judge_leans_on(self.me.clone(), pack, at, then));
     }
 
     /// The blocking half: the session's read, the state, its blob, and the
@@ -137,7 +145,12 @@ impl JudgeService {
 
 /// One trigger's judgment, in its own task; the service is held only around
 /// the blocking half, never across the call.
-async fn judge_leans_on(me: Weak<JudgeService>, pack: Arc<Pack>, at: (String, String, String)) {
+async fn judge_leans_on(
+    me: Weak<JudgeService>,
+    pack: Arc<Pack>,
+    at: (String, String, String),
+    then: Then,
+) {
     let today = spend::local_day(theseus_protocol::now_unix_ms());
     let Some(svc) = me.upgrade() else { return };
     let prepared = tokio::task::spawn_blocking(move || svc.prepare_leans_on(pack, &at))
@@ -167,6 +180,16 @@ async fn judge_leans_on(me: Weak<JudgeService>, pack: Arc<Pack>, at: (String, St
         let spent = j.cost_micros.unwrap_or(if unknown { need } else { 0 });
         svc.budget.settle(&today, need, spent, called, failed);
     }
+    then(answer_of(&judgments));
+}
+
+/// The option the trigger's answer runs (`AnswerRecord::ran`), when it was answered.
+fn answer_of(judgments: &[theseus_judge::Judgment]) -> Option<String> {
+    let j = judgments.first()?;
+    if !matches!(j.outcome, Outcome::Answered) {
+        return None;
+    }
+    j.answers.first()?.ran().map(str::to_string)
 }
 
 #[cfg(test)]
