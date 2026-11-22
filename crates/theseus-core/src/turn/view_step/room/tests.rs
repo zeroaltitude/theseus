@@ -1,5 +1,5 @@
 //! The view makes its own room (`room.rs`): its steps and the provider's stated window, and real turns in a
-//! place set to `view` (`AssemblySetting::All(Assembly::View)`) on a small window, with a scripted model that
+//! place (every place is the view) on a small window, with a scripted model that
 //! reads large logs one a loop, each answer thinking first.
 
 use std::sync::Arc;
@@ -620,7 +620,6 @@ async fn a_turn_that_lowered_slot_g_then_needs_clearing_still_answers() {
 async fn after_a_head_cut_the_next_short_message_answers_with_the_old_result_as_its_receipt() {
     let r = crate::tests_places::rig_setup_scripted(
         |c| {
-            c.context.assembly = Some(AssemblySetting::All(Assembly::View));
             c.context.working_window_tokens = Some(40_000);
             c.catalog.insert(
                 "claude-sonnet-5-5".into(),
