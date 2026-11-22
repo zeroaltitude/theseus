@@ -1466,11 +1466,13 @@ mod tests {
     /// A reply's call never takes a permit kept back for the inputs; an input's call is as at the base.
     #[test]
     fn a_reply_batch_waits_on_an_ordinary_permit() {
-        let t = Duration::from_secs(5);
+        // Named `total`, as every dispatch in this directory's source must be
+        // (`tests_judge_budget::every_short_judge_dispatch_has_a_reason…` reads it).
+        let total = Duration::from_secs(5);
         let replies = [item("r1", ItemKind::Reply), item("r2", ItemKind::Reply)];
-        assert_eq!(urgency_of(&replies, t), Urgency::live(t));
+        assert_eq!(urgency_of(&replies, total), Urgency::live(total));
         let inputs = [item("i1", ItemKind::ToolResult)];
-        assert_eq!(urgency_of(&inputs, t), Urgency::awaited(t));
+        assert_eq!(urgency_of(&inputs, total), Urgency::awaited(total));
     }
 
     /// **A reply's share**: a reply is asked while the day's spend is under half its allowance, and not at
