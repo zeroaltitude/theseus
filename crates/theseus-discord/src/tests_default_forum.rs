@@ -612,6 +612,41 @@ async fn every_task_gets_one_post_across_four_kinds_of_place() {
     open_gate(&r);
 }
 
+/// A task whose post is its index card (a private channel with task threads
+/// off) has its report's first line name that post (theseus-90qqy).
+#[tokio::test]
+async fn an_index_card_tasks_report_names_its_post() {
+    let r = rig(
+        vec![start(&[BUOY]), Scripted::text("Started.")],
+        |dir| vec![(BUOY, [vec![gate(dir)], answers("Buoy painted.")].concat())],
+        &bindings(true, "task_threads = false\n"),
+        |_| {},
+        |_| {},
+    )
+    .await;
+    let forum = forum_up(&r).await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "its index card", || {
+        post_with(&r, forum, "Buoy-paint").is_some()
+    })
+    .await;
+    let post = post_with(&r, forum, "Buoy-paint").unwrap();
+    open_gate(&r);
+    until(&r, "the report in #lab", || {
+        r.posted(LAB)
+            .iter()
+            .any(|m| m.content.contains("finished") && m.content.contains("Buoy painted."))
+    })
+    .await;
+    let report = r
+        .posted(LAB)
+        .into_iter()
+        .find(|m| m.content.contains("finished"))
+        .unwrap();
+    let first = report.content.lines().next().unwrap_or_default();
+    assert!(first.contains(&format!("<#{}>", post.id)), "{first}");
+}
+
 /// A private channel with task threads off has no thread: its task's post is
 /// an index card, which an archived post still takes its last tag on.
 #[tokio::test]

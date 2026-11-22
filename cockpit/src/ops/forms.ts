@@ -125,6 +125,11 @@ function progressIn(ix: Index, id: string): Progress {
   return { n, m, counts, failed, summary: parts.join(' · '), needs: counts.needs }
 }
 
+/** A conversation anchor's plan line on its Graph card: its progress, when its plan has work in it; none otherwise. */
+export function anchorPlan(kind: string, p: Progress | undefined): Progress | undefined {
+  return kind === 'conversation' && p && p.m > 0 ? p : undefined
+}
+
 /** A plan row's progress, from the work set's rows alone: its *n of m* and the buckets of what is open, over its whole
  *  subtree, each leaf once. */
 export function progressOf(rows: readonly OpsRow[], planId: string): Progress {

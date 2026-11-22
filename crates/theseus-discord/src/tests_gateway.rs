@@ -135,9 +135,23 @@ impl Rig {
         more: &[String],
         tweak: impl FnOnce(&mut Config),
     ) -> Self {
+        Self::start_seeded(fake, model, bindings, more, tweak, |_| {}).await
+    }
+
+    /// The same, with `seed` given the core before the binding starts: what
+    /// an older run left in the store.
+    pub(crate) async fn start_seeded(
+        fake: Arc<FakeDiscord>,
+        model: impl FnOnce(&Path, Arc<FakeDiscord>) -> Arc<dyn Provider>,
+        bindings: &str,
+        more: &[String],
+        tweak: impl FnOnce(&mut Config),
+        seed: impl FnOnce(&Arc<Core>),
+    ) -> Self {
         let began = Instant::now();
         let dir = tempfile::tempdir().unwrap();
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
+        seed(&core);
         if OPEN_AT_BIND.with(std::cell::Cell::get) {
             crate::runtime::open_at_bind(&core);
         }
@@ -1081,6 +1095,7 @@ pub(crate) fn injection_jev() -> theseus_judge::fake::FakeJev {
 
 mod ask;
 mod asked;
+mod bound_before;
 mod calendar;
 mod card_question;
 mod cards;
