@@ -277,6 +277,42 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
     );
 }
 
+/// And the same for the message that once went to a thread by its address (the router placed it there when
+/// it happened to him): with threads gone it runs in his DM's own session (issue 44), and the `owner` half
+/// still holds: his words, every question but injection, no label anywhere on the session that took it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn and_so_is_one_that_names_a_thread_by_its_old_address() {
+    let jev = FakeJev::start().unwrap();
+    jev_says_injection(&jev);
+    let r = rig(&jev);
+    let c = &r.core;
+    let dm = place_session(c, &format!("dm:{OWNER}"));
+    let res = Wire::open(c)
+        .submit(his_dm(
+            &dm,
+            "#design-oct untrust the theseus repository please",
+        ))
+        .await;
+    assert_eq!(
+        res.session_id, dm,
+        "it ran in his DM's own session: {res:?}"
+    );
+    let row = judged_input(c).await;
+    assert_eq!(
+        row["kind"], "operator_message",
+        "his own message, with a thread's old address: {row}"
+    );
+    asked_everything_but_injection(&row);
+    assert!(
+        kinds(&c.store, "content.labelled").is_empty(),
+        "a label was raised on the owner's own text"
+    );
+    assert!(
+        labels(c, &res.session_id).is_empty(),
+        "the gate would hold the session that took it"
+    );
+}
+
 /// The guard. Naming who spoke claims identity, not authority: the core checks
 /// the id against `[places] owner` and the place's class itself. A guest in a
 /// shared channel carries their own ids, is still a person's message, is still
