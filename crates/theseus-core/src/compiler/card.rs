@@ -5,9 +5,9 @@
 //! before it stay the same bytes in every thread (`layers`). It is a
 //! **snapshot**: taken when the compilation is made, kept with it (a META
 //! record, `thread.card.<compilation id>`, written in the compilation's own
-//! frame), and rendered unchanged by every request that appends to that
-//! compilation. `thread.note` and an edit of the thread change the card the
-//! next recompile takes, never the prefix a request replays in between.
+//! frame), and rendered unchanged by every later call of the turn that made
+//! it. `thread.note` and an edit of the thread change the card the next
+//! turn's view takes, never a request inside a turn.
 
 use serde_json::{json, Value};
 use theseus_protocol::threads::ThreadInfo;
