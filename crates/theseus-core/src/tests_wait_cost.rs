@@ -571,10 +571,13 @@ async fn a_five_minute_job_costs_fewer_calls_and_dollars_with_the_longer_wait() 
     let [b5, a5, b20, a20] = &got[..] else {
         unreachable!()
     };
+    // Fewer calls with the longer wait. Its dollars were fewer too only while the wait kept the cache warm:
+    // since nothing is sent again (issue 44, 2026-11-22) a wait past the five-minute cache leaves the next
+    // call to write it whole, so the longer wait costs more here (measured: $0.2257 against $0.1414 for the
+    // five-minute job, $0.3364 against $0.2212 for the twenty-minute one). That is the stated cost of the
+    // deletion, not asserted either way.
     assert!(a5.calls * 2 < b5.calls, "{out}");
-    assert!(a5.micros < b5.micros, "{out}");
     assert!(a20.calls * 4 < b20.calls, "{out}");
-    assert!(a20.micros < b20.micros, "{out}");
     assert_eq!(b5.reads + b20.reads, 0, "the old wait never reads");
     assert_eq!(
         a5.reads + a20.reads,

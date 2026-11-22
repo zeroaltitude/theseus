@@ -22,6 +22,8 @@ const EVERY: &str = "[model]\n\
                      threads_keep_warm_hours = 4\n\
                      stub_min_tokens = 20000\n\
                      stub_after_turns = 3\n\
+                     keep_warm_every_minutes = 55\n\
+                     keep_warm_minutes = 50\n\
                      [threads]\n\
                      keep_warm_hours = 2\n\
                      working_tokens = 60000\n\
