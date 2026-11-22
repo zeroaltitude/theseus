@@ -166,6 +166,11 @@ class Settings(unittest.TestCase):
         health = {"keep_warm_hours": 3, "warnings": ["[cache] keep_warm_hours is retired"], "n": {"x": ["stub"]}}
         self.assertEqual(sorted(proof.string_values(health)), ["[cache] keep_warm_hours is retired", "stub"])
 
+    def test_a_retired_key_is_named_by_its_dotted_or_its_own_unmistakable_name(self):
+        self.assertTrue(proof.named("cache.keep_warm_hours", "[cache] keep_warm_hours is retired"))
+        self.assertTrue(proof.named("context.ledger", "context.ledger is ignored"))
+        self.assertFalse(proof.named("context.ledger", "the ledger holds 12 rows"))
+
     def test_the_retired_keys_are_the_cuts_list(self):
         """X-DECISIONS and the map's §6.8: every key the cut retires is in the settings file the case writes."""
         want = {"context.kept_mb", "context.ledger", "memory.summary_profile", "cache.keep_warm_hours",

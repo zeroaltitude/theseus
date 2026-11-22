@@ -678,6 +678,13 @@ def string_values(v) -> list[str]:
     return [v] if isinstance(v, str) else []
 
 
+def named(key: str, said: str) -> bool:
+    """Whether `said` names the retired `key`: its dotted name, or its own name when that cannot be a plain
+    word (`kept_mb`, never `ledger`, which health says of other things)."""
+    leaf = key.rsplit(".", 1)[-1]
+    return key in said or ("_" in leaf and leaf in said)
+
+
 def retired_keys(c: Case):
     """The daemon starts on a settings file naming every retired key, and answers. Its start-up warning goes to
     stderr, which the kit discards; what CAN be read is `health`: how many of the retired keys a string in it
@@ -689,7 +696,7 @@ def retired_keys(c: Case):
     said = " ".join(string_values(c.d.json("health")))
     keys = leaf_keys(RETIRED)
     c.state["retired_keys"] = len(keys)
-    c.state["retired_named_in_health"] = sum(1 for k in keys if k.rsplit(".", 1)[-1] in said)
+    c.state["retired_named_in_health"] = sum(1 for k in keys if named(k, said))
     if c.state["retired_named_in_health"] < len(keys):
         return True, f"health names {c.state['retired_named_in_health']} of {len(keys)} retired keys"
     return True, ""
