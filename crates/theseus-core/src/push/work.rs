@@ -31,7 +31,6 @@ mod horizon;
 mod place;
 mod progress;
 mod system;
-mod threads;
 mod views;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -217,8 +216,6 @@ pub struct Out {
     /// Ids that left the board, with the root each was under.
     pub gone: Vec<(String, String)>,
     pub notices: Vec<Notice>,
-    /// The thread groups that changed (a thread's write, its session's bind).
-    pub threads: Vec<theseus_protocol::ThreadGroup>,
 }
 
 /// Where a task's forum post or thread is, by its view's id: set once by the
@@ -272,10 +269,6 @@ pub(super) struct WorkBoard {
     fired: VecDeque<(u64, LedgerRow)>,
     fired_evicted: u64,
     rules: Rules,
-    /// The threads' groups by slug, and the thread each session serves
-    /// (`threads.rs`).
-    thread_groups: std::collections::BTreeMap<String, theseus_protocol::ThreadGroup>,
-    thread_of: HashMap<String, String>,
     /// Routines and watches by their wake's id (`horizon.rs`).
     routines: HashMap<String, horizon::RoutineIn>,
     watches: HashMap<String, horizon::WatchIn>,
@@ -455,7 +448,6 @@ impl WorkBoard {
             views: vec![v.clone()],
             gone: Vec::new(),
             notices: Vec::new(),
-            threads: Vec::new(),
         })
     }
 

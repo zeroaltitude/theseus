@@ -9,9 +9,8 @@ use std::path::PathBuf;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::json;
 use theseus_protocol::notices::{policy, Notice, Rules};
-use theseus_protocol::threads::ThreadState;
 use theseus_protocol::work::*;
-use theseus_protocol::{utc_hm, Attention, Level, ThreadGroup};
+use theseus_protocol::{utc_hm, Attention, Level};
 
 const AT: u64 = 1_790_015_160_000;
 
@@ -155,7 +154,6 @@ fn whole(id: &str, kind: WorkKind, state: WorkState, title: &str) -> WorkView {
         dismissed: false,
         read: false,
         retry_of: None,
-        thread: None,
         purpose: None,
         next_at_ms: None,
         series: None,
@@ -324,34 +322,9 @@ fn the_work_watch_shapes() {
         "watch_result",
         &WorkWatchResult {
             position: 4_096,
-            views: vec![conversation.clone(), task.clone()],
+            views: vec![conversation, task],
             total: 12,
             threads: vec![],
-        },
-    );
-    // A thread's work carries its thread, and the board its groups.
-    let mut threaded = conversation;
-    threaded.thread = Some("pr-round".into());
-    let mut threaded_task = task;
-    threaded_task.thread = Some("pr-round".into());
-    wire(
-        "watch_result_threads",
-        &WorkWatchResult {
-            position: 4_096,
-            views: vec![threaded, threaded_task],
-            total: 12,
-            threads: vec![ThreadGroup {
-                slug: "pr-round".into(),
-                title: "PR round".into(),
-                state: ThreadState::Active,
-                persona: Some("maren".into()),
-                sealed: true,
-                seal_pending: Some("the harbour notes are private".into()),
-                session_id: Some("ses_q7f3k2".into()),
-                last_active_ms: AT,
-                context_tokens: Some(41_000),
-                today_usd: Some(1.2),
-            }],
         },
     );
     let job = whole(

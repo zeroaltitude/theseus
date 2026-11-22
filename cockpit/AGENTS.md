@@ -87,25 +87,21 @@ build.
   Pure half `src/lib/agenda.ts` (the window by local midnights, so a DST day is 23 or 25 hours and a mark still sits at its
   wall-clock hour; the layout; the verbs; the table's rows; `wakeFacts`; `page`), tested by `test/agenda.test.ts`. It
   reads `work.agenda` and `wake.list` (`src/lib/agendawatch.ts`) once per window and again only when `work.changed`
-  touches a wake, routine, watch, project or deferred task (`touchesFuture`), the board's views from the one `work.watch`
-  the Threads views keep, and each routine's `routine.runs` when its signature changes: the page polls nothing (a test
+  touches a wake, routine, watch, project or deferred task (`touchesFuture`), the board's views from the page's one
+  `work.watch`, and each routine's `routine.runs` when its signature changes: the page polls nothing (a test
   reads its files for a timer). A window the daemon's 200-line cap does not fill is one read; a busier one (a routine
   every five minutes) is read on from where its lines stopped, at most 12 reads. It shows the present only.
-- Threads on the work board (theseus-5i8i): the list is the Operations page's Threads lens (`src/ops/ThreadsLens.tsx`;
-  `/threads` redirects there): each live thread as a group, its open tasks, questions and wakes under it, needs you
-  first, a seal waiting as a red line. `/threads/:slug` (`src/views/Threads.tsx` over `src/ops/ThreadPanel.tsx`): the thread's
-  goal, card, working set, `parent`/`split_from`/`merged_into` links, recent turns by `session.history`, and its open
-  work). One `work.watch` while a Threads view is mounted (`src/lib/threadwatch.ts`), kept by the position rule in the pure
-  `src/lib/threadboard.ts` (the grouping and counting rules of `theseus_protocol::group`, tested by
-  `test/threadboard.test.ts`). Under the time machine the list is `foldThreads` over the ledger's `thread.*` rows (state
-  and title as of the moment); the work under a thread is the present's and the view says so.
+- Threads are gone from the cockpit (p17, the owner's decision of 2026-11-22): no Threads page, lens, picker, panel
+  or sheets, no thread chip, no thread lanes on the Graph and no seal in the queue. `/threads` and `/threads/:slug`
+  open the Board. The board's views come from the page's one `work.watch` (`src/lib/workwatch.ts`'s `useWorkBoard`),
+  kept by the position rule in the pure `src/lib/workboard.ts` (`test/workboard.test.ts`).
 - **Operations** (theseus-jid7t.3): `src/views/Ops.tsx` at `/ops`, the rail's second item after the Ship (which stays
-  the landing view). `/agenda`, `/tasks` and `/threads` redirect to its Timeline, Board and Threads lenses with their
-  query kept (`redirectOf`); `/threads/:slug` stays a page. Its pure halves are `src/ops/*.ts`, each tested by a
+  the landing view). `/agenda`, `/tasks` and `/threads` redirect to its Timeline, Board and Board lenses with their
+  query kept (`redirectOf`). Its pure halves are `src/ops/*.ts`, each tested by a
   `test/ops-*.test.ts` over the invented board in `test/ops-fixtures.ts`.
-  - **The address** (`ops/address.ts`): `lens` (`graph` · `board` · `timeline` · `threads`, board by default), `sel`
-    (a row's `ses_`/`act_`/`wak_` id, a thread's slug, a mark's key, or a queue item's key, `q:act_…`, `f:exe_…`,
-    `s:<slug>`, `h:ses_…`, `a:<ask>`), `f` (the chips, `key:value` pairs), `q`, `w`, `join` and `redact` (parsed and
+  - **The address** (`ops/address.ts`): `lens` (`graph` · `board` · `timeline` · `tasks`, board by default), `sel`
+    (a row's `ses_`/`act_`/`wak_` id, a mark's key, or a queue item's key, `q:act_…`, `f:exe_…`,
+    `h:ses_…`, `a:<ask>`), `f` (the chips, `key:value` pairs), `q`, `w`, `join` and `redact` (parsed and
     carried; later rows give them meaning), and `do=answer` (a deep link opens the item's answer). Keys the page does
     not own (`task`, `table`) are kept. A link reopens exactly what was on screen.
   - **The regions**: the command bar (`ops/CommandBar.tsx`: counters that are filters, with their hour's sparkline and
@@ -127,7 +123,7 @@ build.
     are its deck and its transcript, and `on Discord` (its forum post, else its thread) when its view carries `forum_url`,
     which the daemon fills from a registry the Discord runtime sets; absent, nothing is drawn.
   - **The lenses**: the Board (`ops/BoardLens.tsx` over `ops/board.ts`: five columns over `taskboard.ts`'s `rowsOf`,
-    with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
+    with conversations, jobs, and what is due today); the Tasks tab (`ops/TasksTab.tsx`); the Timeline lens (below);
     and the Graph lens (`ops/GraphLens.tsx`, below).
   - **It reads, it does not poll**: the one `work.watch`, `task.list`, `confirm.list` and `session.list` on their
     pushes, and the ledger's one copy for today's spend. `test/ops-page.test.ts` fails a timer or a refetch interval.
@@ -140,8 +136,8 @@ build.
     elsewhere, `a`/`e` take the card's grant when offered, `l` follows on a job row. The handler listens in the
     capture phase, ahead of the shell's: a `g` sequence the page claims (`g g/b/t/h/m`) is the page's, another (`g f`)
     goes on to the shell. A new key is a row of `KEYS` and a handler; the tests check both.
-  - **The parity table** (`ops/parity.ts`, `test/ops-parity.test.ts`): every datum and act of the old Agenda, Tasks,
-    Threads and Actions pages and of the TUI's board, with its home (`here`, `stays`, or `pending: ops-act|graph|
+  - **The parity table** (`ops/parity.ts`, `test/ops-parity.test.ts`): every datum and act of the old Agenda, Tasks
+    and Actions pages and of the TUI's board, with its home (`here`, `stays`, or `pending: ops-act|graph|
     timeline` for 1e and herdr only), the source that renders it, and for each card the fact function
     (`ops/facts.ts`) that must make every field the old component showed and the card that must draw it as
     `f.<field>`. A field added to a card goes into its fact function and its row's `fields`; a row a later lens takes
@@ -182,9 +178,9 @@ build.
     Record, Standing, a job's command and eta), **Live** (`ops/Live.tsx` over `ops/live.ts`: the session's narrative, the model's
     words from the push, and a followed job's output, which `ops/jobout.ts` drives by the pure `ops/follow.ts` machine: `work.peek`,
     then `action.output`, and `action.unfollow` on leaving the selection, switching lens or unmounting, never twice), the **Join
-    pane** (`ops/JoinPane.tsx`, the address's `join`: `ses_…` a session, else a thread's slug; the deck's `Transcript` and drafts,
+    pane** (`ops/JoinPane.tsx`, the address's `join`: a session's `ses_…`; the deck's `Transcript` and drafts,
     and the composer is the pure state `ops/composer.ts`: ⏎ steers a running turn, ⌘⏎ holds the message until `turn.ended`, esc
-    drops it, ⇧⇥ cycles the mode, `/t ` opens the thread picker, a thread with no session opens one on its first message), the
+    drops it, ⇧⇥ cycles the mode), the
     **model menu** `m` and **mode menu** `M` (`ops/ModelMenu.tsx` over `ops/menus.ts`: "this turn only" is `turn.submit
     { profile }`, "from now on" is the sticky `session.profile` with a revert chip on the header and the toast's Undo; the
     daemon's `refused` is shown in its words and changes nothing), the **dock** (`ops/Dock.tsx`, `\` folds it, ␣ pauses while it
@@ -194,7 +190,7 @@ build.
     `paletteStore.ts`: the page publishes a feed while mounted and the shell's ⌘K shows the verbs over a scope, one, all visible or
     the selection, ⇥ cycling, and every entity; the selection scope is ops-graph's, passed at the one `// ops-graph: the selection
     scope` line in `Ops.tsx`), the right-click menu (`ops/VerbMenu.tsx`), and sheets for the acts that need words (`ops/Sheet.tsx`:
-    New task, the thread verbs, re-home, reschedule; no `window.prompt` is left in `src/ops/`).
+    New task, re-home, reschedule; no `window.prompt` is left in `src/ops/`).
   - **The verb table** (`ops/verbs.ts`) is the one list of acts: verb, kinds, method, posture (`do`, `arm`, `ask`, `floor`), and
     whether one more call undoes it. The inspector, the palette and the right-click menu read it, and `test/ops-verbs.test.ts` pins
     each row to the owner's table, each method to the protocol's, and each acting key of `keys.ts` to a verb (`KEY_VERB`). Every
@@ -213,13 +209,13 @@ build.
     dock has focus (the `dock` context outranks the rest), so ops-graph's ␣ is free elsewhere; every act is `useOpsAct`'s `act` (a
     confirmed call) or `post` (the call with its answer, for a refusal in the daemon's words and an Undo).
   - **The Graph lens** (theseus-jid7t.4; `ops/GraphLens.tsx` and `ops/GraphNode.tsx` over the pure `ops/graph.ts`,
-    `test/ops-graph.test.ts`): a lane per live thread (needs-you first, a home lane for the rest), each conversation its
-    lane's anchor, columns by depth and rows by start time; a node's id is a row's (`ses_` for a conversation or a
-    task), so `?sel=`, the Board and the selection name the same thing. **Positions are sticky by id**: `opsLayout`
-    takes the last layout (`keeper()` holds it), every placed node keeps its slot, a new node takes the next free row
-    of its column, a node that leaves leaves a hole, and a lane's band keeps a spare row, so a live change moves no
-    other node; a new lane goes below, and only "tidy" lays it out afresh. Ended work older than an hour folds into
-    one "✓ N done" per lane (it opens on a click); past `NODE_CAP` (400) subtrees fold, deepest and oldest first, into
+    `test/ops-graph.test.ts`): one lane, the home lane, holds all work (the per-thread lanes went with threads); each
+    conversation is an anchor at the left, columns by depth and rows by start time; a node's id is a row's (`ses_` for a
+    conversation or a task), so `?sel=`, the Board and the selection name the same thing. **Positions are sticky by
+    id**: `opsLayout` takes the last layout (`keeper()` holds it), every placed node keeps its slot, a new node takes the
+    next free row of its column, a node that leaves leaves a hole, and the band keeps a spare row, so a live change
+    moves no other node; only "tidy" lays it out afresh. Ended work older than an hour folds into one "✓ N done" (it
+    opens on a click); past `NODE_CAP` (400) subtrees fold, deepest and oldest first, into
     "+N folded", never one that holds something that needs the owner. Filters and the search fade nodes, never
     remove them. A running edge flows under stir's rule and stops in Calm (`index.css`'s `ops-flow`).
   - **The selection and the bulk acts** (`ops/selection.ts`, `test/ops-selection.test.ts`): a set of ids in memory
@@ -231,7 +227,7 @@ build.
     decision 4**: only tool approvals that are not `floor`, not a budget ask or a task change, and whose `may_answer`
     is not false (`bulkApprovable`), each listed in a review sheet with a box, all ticked; a floor approval is listed
     as "asks one by one" and never sent. Drag (`ops/rehome.ts`'s `dropOf`, `ops/DropLayer.tsx`): a task onto a
-    conversation, a lane or the tray's thread re-homes it (`task.rehome`, asks, naming who the budget stays charged
+    conversation re-homes it (`task.rehome`, asks, naming who the budget stays charged
     to); a task or a conversation onto a project attaches it (`project.attach`); every refusal shows on the cursor.
   - **Follow-ups** (p2f-ops-ui; theseus-i08xr, n17am): **the calendar read** reads only where it is shown (`readSpans`'s
     `coming` flag, from `comingShows` in `ops/regions.ts`: outside the Timeline, nothing while the queue is a tab) and a
@@ -241,8 +237,8 @@ build.
     `turn.submit` (`askCalls`); a refused hold sends no turn. **The Graph's keys** `j k h l` walk its nodes (`stepNode`
     over the lens's last layout, handed up by a ref; left from column 0 goes to the queue); a `+N folded` node opens its
     subtree (`opened` in `LayoutOpts`) while the 400 cap holds, folding other subtrees, or folding back with "could not
-    open" (`Graph.cantOpen`); "tidy" forgets the openings. Under `?redact=1` a private or sensitive node or lane is drawn
-    by `shownTitle` (its kind and short id, "a <mark> thread"). Only a node with a row is picked; a right-click opens
+    open" (`Graph.cantOpen`); "tidy" forgets the openings. Under `?redact=1` a private or sensitive node is drawn
+    by `shownTitle` (its kind and short id). Only a node with a row is picked; a right-click opens
     the page's one `VerbMenu`; the palette opens over the selection while cards are picked.
   - **Leftovers** (theseus-vhtuv): the calendar hook's answer drops to `EMPTY` when it has no span (`heldRead`, `ops/calendarread.ts`); `layout()` decides an opening in its one cap step (`cantOpen` only when the opening is the cause); a refused Ask hold is said as a toast, and the deck mounts the same `<Toast />`.
 - The time machine: `src/components/TimeMachine.tsx` (the ship's log, at every page's foot), `src/lib/history.ts`

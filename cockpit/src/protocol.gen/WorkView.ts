@@ -137,12 +137,6 @@ read?: boolean,
  */
 retry_of?: string, 
 /**
- * The thread (`threads::ThreadInfo.slug`) the view's tree belongs to:
- * the thread whose session is the view's root conversation (theseus-5i8i).
- * Absent for work that is in none; a wire field, not a stored one.
- */
-thread?: string, 
-/**
  * Where the task's forum post (else its Discord thread) is, as an address
  * the owner can open (`https://discord.com/channels/<guild>/<post>`).
  * Absent when no post or thread is known: a daemon with no Discord binding,

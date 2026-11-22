@@ -7,7 +7,7 @@
 //! per place kind starts from `tools_defer::defaults` and is learned from the
 //! ledger's use: a family used in at least `load_share` of a place kind's turns
 //! over the last `window_days` loads, and one unused for `hide_after_days`
-//! hides. It is recomputed only where the conversation recompiles anyway.
+//! hides. It is recomputed at a turn's first call, never inside a turn.
 
 use serde::{Deserialize, Serialize};
 

@@ -21,10 +21,6 @@ pub(super) const OWN: &[&str] = &[
     method::EXCHANGE_REPORT,
     method::EXCHANGE_REBUILD,
     method::EXCHANGE_LADDER,
-    method::EXCHANGE_OFFER,
-    method::EXCHANGE_RELEASE,
-    method::EXCHANGE_RELEASES,
-    method::EXCHANGE_WITHDRAW,
 ];
 
 impl Core {
@@ -43,7 +39,7 @@ impl Core {
         (home, place): (&str, String),
         runs_in: &str,
     ) -> Option<OwnerMark> {
-        if !self.cfg.context.ledger_on() || p.prompt.is_some() {
+        if p.prompt.is_some() {
             return None;
         }
         let discord = p.speaking.as_ref().map(|s| s.discord.clone());
@@ -81,6 +77,9 @@ impl Core {
         params: Value,
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
+        // Kept on 2026-11-22: an act gate, not a read's. Two of these three
+        // methods act (`exchange.rebuild` writes records, `exchange.ladder`
+        // spends on model calls), and the surface rule is their input.
         if !conn.surface.reads_private() {
             return Err(RpcFailure::new(
                 error_code::REFUSED,
@@ -153,10 +152,6 @@ impl Core {
                     stopped: b.stopped,
                 })
             }
-            method::EXCHANGE_OFFER
-            | method::EXCHANGE_RELEASE
-            | method::EXCHANGE_RELEASES
-            | method::EXCHANGE_WITHDRAW => return self.rpc_release(name, params, conn),
             other => {
                 return Err(RpcFailure::new(
                     error_code::METHOD_NOT_FOUND,
@@ -165,80 +160,5 @@ impl Core {
             }
         };
         out.map_err(|e| RpcFailure::invalid(e.into()))
-    }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OfferParams {
-    /// A message of the owner's, by its node.
-    message: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReleaseParams {
-    /// The message, by its node.
-    message: String,
-    /// The digest of its words as the owner was shown them (`exchange.offer`).
-    digest: String,
-    /// The place it is released to, as the ledger names places.
-    to: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WithdrawParams {
-    id: String,
-}
-
-impl Core {
-    /// The release methods (`crate::release`): the owner in person, by the proof his other acts ask, before
-    /// anything is read; an agent's process, the MCP server and an unnamed connection are refused.
-    fn rpc_release(&self, name: &str, params: Value, conn: Conn<'_>) -> Result<Value, RpcFailure> {
-        let who = conn.answerer(None, None);
-        if let Err(why) = crate::places::owner_in_person_of(
-            &who,
-            &self.runner.place_rule,
-            &self.cfg,
-            "a message of a private conversation is released by the owner alone",
-            "",
-        ) {
-            return Err(RpcFailure::new(
-                error_code::REFUSED,
-                format!("refused: {why}"),
-            ));
-        }
-        self.release_act(name, params, conn.surface.as_str())
-            .map_err(|e| RpcFailure::new(error_code::REFUSED, format!("{e:#}")))
-    }
-
-    fn release_act(&self, name: &str, params: Value, surface: &str) -> anyhow::Result<Value> {
-        Ok(match name {
-            method::EXCHANGE_OFFER => {
-                // Exactly what a release of this message would show, and its digest to release it by.
-                let p: OfferParams = serde_json::from_value(params)?;
-                let piece = crate::release::piece(self, &p.message)?;
-                serde_json::json!({"message": piece.node, "from": piece.from, "words": piece.text,
-                                   "digest": piece.digest, "label": crate::release::LABEL})
-            }
-            method::EXCHANGE_RELEASE => {
-                let p: ReleaseParams = serde_json::from_value(params)?;
-                let r = crate::release::grant(self, &p.message, &p.digest, &p.to, surface)?;
-                serde_json::json!({"release": r, "label": crate::release::LABEL})
-            }
-            method::EXCHANGE_WITHDRAW => {
-                let p: WithdrawParams = serde_json::from_value(params)?;
-                let e = crate::release::withdraw(&self.store, &p.id, surface)?;
-                serde_json::json!({"ended": e, "note": crate::release::UNSENT})
-            }
-            _ => {
-                let rows: Vec<Value> = crate::release::all(&self.store)?
-                    .into_iter()
-                    .map(|(r, end)| serde_json::json!({"release": r, "ended": end}))
-                    .collect();
-                serde_json::json!({"releases": rows})
-            }
-        })
     }
 }

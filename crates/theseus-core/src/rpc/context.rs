@@ -11,8 +11,8 @@
 //!   have given (the files are peeked). On the blocking pool: it reads the
 //!   session's compiles and recall nodes through the store's index, a page
 //!   each.
-//! - **Text to a private place only**, as `import.sessions` gives it: any
-//!   other surface reads the sizes, the digests and the labels.
+//! - **Text to every surface** (2026-11-22): no surface is given sizes and
+//!   labels in place of text.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -29,8 +29,7 @@ use theseus_protocol::{error_code, CompilationInfo, ContextCompiled, LedgerKind,
 use theseus_store::pages::ledger_kind_session;
 use theseus_store::{kinds, Page, Store as _};
 
-use super::import::WITHHELD;
-use super::server::{parse, Conn, RpcFailure};
+use super::server::{parse, RpcFailure};
 use super::Core;
 use crate::catalog::TokenRates;
 use crate::compiler::{manifest_for, Compilation, Manifest};
@@ -57,22 +56,17 @@ impl Core {
         self: Arc<Self>,
         name: &str,
         params: Value,
-        conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
-        let private = conn.surface.reads_private();
         if name == theseus_protocol::method::CONTEXT_CENSUS {
-            let mut r = self
+            let r = self
                 .context_census_exact(parse(params)?)
                 .await
                 .map_err(RpcFailure::invalid)?;
-            if !private {
-                crate::census::withhold_names(&mut r);
-            }
             return serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()));
         }
         let p: ContextExplainParams = parse(params)?;
         let core = self.clone();
-        let r = tokio::task::spawn_blocking(move || core.context_explain(&p, private))
+        let r = tokio::task::spawn_blocking(move || core.context_explain(&p, true))
             .await
             .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))?
             .map_err(RpcFailure::invalid)?;
@@ -80,10 +74,12 @@ impl Core {
     }
 
     /// What `p`'s turn saw (its session's latest, by default), part by part.
+    /// `_private` is no longer read (every surface is given the text); it
+    /// stays for its callers until the sweep.
     pub(crate) fn context_explain(
         &self,
         p: &ContextExplainParams,
-        private: bool,
+        _private: bool,
     ) -> Result<ContextExplainResult> {
         let t0 = Instant::now();
         let sid = p.session_id.as_str();
@@ -91,12 +87,16 @@ impl Core {
             .store
             .get_session(sid)?
             .ok_or_else(|| anyhow!("no session is named {sid}"))?;
-        let mut out = blank(sid, &rec, private);
+        let mut out = blank(sid, &rec);
         // An imported session takes no turn: its episode, and no parts.
         if let Some(imp) = rec.imported.as_deref() {
             out.class = PlaceClass::Private.as_str().to_string();
             out.place = crate::import::place_name(&self.store, sid);
-            out.imported = Some(episode_shown(sid, rec.title.as_deref(), imp, private));
+            out.imported = Some(crate::import::catalog::episode_of(
+                sid,
+                rec.title.as_deref(),
+                imp,
+            ));
             out.ms = t0.elapsed().as_secs_f64() * 1e3;
             return Ok(out);
         }
@@ -124,7 +124,7 @@ impl Core {
             bail!("{sid} has no compile of turn {t} among its newest {COMPILES}");
         }
         if let Some(d) = detoured {
-            self.detour_of(&mut out, d, private)?;
+            self.detour_of(&mut out, d)?;
             out.ms = t0.elapsed().as_secs_f64() * 1e3;
             return Ok(out);
         }
@@ -140,9 +140,8 @@ impl Core {
         out.compilation = compilation
             .as_ref()
             .map(|c| info_of(c, rec.compilation_id.as_deref()));
-        self.system_of(&mut out, &rec, compilation.as_ref(), private);
-        let recall =
-            self.recall_parts(sid, out.turn_id.as_deref(), compilation.as_ref(), private)?;
+        self.system_of(&mut out, &rec, compilation.as_ref());
+        let recall = self.recall_parts(sid, out.turn_id.as_deref(), compilation.as_ref())?;
         let before: u64 = out.parts.iter().map(|p| p.tokens).sum::<u64>()
             + recall.iter().map(|p| p.tokens).sum::<u64>();
         out.parts.extend(recall);
@@ -164,10 +163,10 @@ impl Core {
         }
         out.compiled = compiled;
         if let Some(t) = out.turn_id.clone() {
-            out.recalls = self.turn_recalls(sid, &t, private)?;
+            out.recalls = self.turn_recalls(sid, &t)?;
             out.noted = self.noted_times(&out.recalls);
         }
-        out.sources = self.sources_of(&out, private);
+        out.sources = self.sources_of(&out);
         out.ms = t0.elapsed().as_secs_f64() * 1e3;
         Ok(out)
     }
@@ -179,7 +178,6 @@ impl Core {
         out: &mut ContextExplainResult,
         rec: &SessionRecord,
         compilation: Option<&Compilation>,
-        private: bool,
     ) {
         let sid = rec.session_id.as_str();
         let (live, _) = self.live_profile();
@@ -212,7 +210,6 @@ impl Core {
                     &now,
                     then,
                     TokenRates::of(&target.model),
-                    private,
                 );
             }
         }
@@ -247,12 +244,7 @@ impl Core {
 
     /// A detoured turn's answer into `out`: the profile and model it ran on
     /// (its own, not the session's), and the parts its request had.
-    fn detour_of(
-        &self,
-        out: &mut ContextExplainResult,
-        d: ContextDetoured,
-        private: bool,
-    ) -> Result<()> {
+    fn detour_of(&self, out: &mut ContextExplainResult, d: ContextDetoured) -> Result<()> {
         out.turn_id = Some(d.turn_id.clone());
         out.window = self.catalog.get(&d.model).map(|e| e.context_window);
         out.parts = d
@@ -265,9 +257,9 @@ impl Core {
                 ..ContextPart::default()
             })
             .collect();
-        out.recalls = self.turn_recalls(&d.session_id, &d.turn_id, private)?;
+        out.recalls = self.turn_recalls(&d.session_id, &d.turn_id)?;
         out.noted = self.noted_times(&out.recalls);
-        out.sources = self.sources_of(out, private);
+        out.sources = self.sources_of(out);
         out.detour = Some(ContextDetour {
             kind: d.kind,
             profile: d.profile.clone(),
@@ -285,7 +277,6 @@ impl Core {
         sid: &str,
         turn: Option<&str>,
         compilation: Option<&Compilation>,
-        private: bool,
     ) -> Result<Vec<ContextPart>> {
         let mut nodes = Vec::new();
         if let Some(rid) = compilation.and_then(|c| c.recall_id.as_deref()) {
@@ -312,22 +303,15 @@ impl Core {
                 continue;
             };
             for item in items {
-                let shown = match (private, self.store.get_node(&item.node_id)?) {
-                    (true, Some((_, src))) => {
-                        let text = crate::recall::text_of(&src);
-                        let (a, b) = (item.chunk.0 as usize, item.chunk.1 as usize);
-                        text.get(a.min(text.len())..b.min(text.len()))
-                            .map(|t| format!("{}\n{t}", item.header))
-                    }
-                    _ => None,
-                };
+                let shown = self.store.get_node(&item.node_id)?.and_then(|(_, src)| {
+                    let text = crate::recall::text_of(&src);
+                    let (a, b) = (item.chunk.0 as usize, item.chunk.1 as usize);
+                    text.get(a.min(text.len())..b.min(text.len()))
+                        .map(|t| format!("{}\n{t}", item.header))
+                });
                 out.push(ContextPart {
                     block: "recall".into(),
-                    name: if private {
-                        item.header.clone()
-                    } else {
-                        item.node_id.clone()
-                    },
+                    name: item.header.clone(),
                     bytes: u64::from(item.chunk.1.saturating_sub(item.chunk.0))
                         + item.header.len() as u64,
                     tokens: item.tokens,
@@ -345,9 +329,9 @@ impl Core {
         Ok(out)
     }
 
-    /// The turn's recall manifests, each admitted node's excerpt filled to a
-    /// private place, as `memory.recalls` fills them.
-    fn turn_recalls(&self, sid: &str, turn: &str, private: bool) -> Result<Vec<RecallManifest>> {
+    /// The turn's recall manifests, each admitted node's excerpt filled, as
+    /// `memory.recalls` fills them.
+    fn turn_recalls(&self, sid: &str, turn: &str) -> Result<Vec<RecallManifest>> {
         let item_tokens = self.runner.memory.cfg().params().item_tokens;
         let mut out = Vec::new();
         for r in self
@@ -363,13 +347,11 @@ impl Core {
             };
             for item in &mut m.admitted {
                 item.text = None;
-                if private {
-                    if let Some((_, n)) = self.store.get_node(&item.node_id)? {
-                        item.text = Some(theseus_memory::recall::excerpt(
-                            &crate::recall::text_of(&n),
-                            item_tokens,
-                        ));
-                    }
+                if let Some((_, n)) = self.store.get_node(&item.node_id)? {
+                    item.text = Some(theseus_memory::recall::excerpt(
+                        &crate::recall::text_of(&n),
+                        item_tokens,
+                    ));
                 }
             }
             out.push(m);
@@ -391,11 +373,7 @@ impl Core {
 
     /// Each session a recall drew on: its place by name, and an imported
     /// one's episode.
-    fn sources_of(
-        &self,
-        out: &ContextExplainResult,
-        private: bool,
-    ) -> BTreeMap<String, ContextSource> {
+    fn sources_of(&self, out: &ContextExplainResult) -> BTreeMap<String, ContextSource> {
         let mut ids: Vec<&str> = out
             .recalls
             .iter()
@@ -409,17 +387,13 @@ impl Core {
             let imported = rec.as_ref().and_then(|r| {
                 r.imported
                     .as_deref()
-                    .map(|i| episode_shown(s, r.title.as_deref(), i, private))
+                    .map(|i| crate::import::catalog::episode_of(s, r.title.as_deref(), i))
             });
             map.insert(
                 s.to_string(),
                 ContextSource {
-                    place: if private {
-                        self.runner.place_name(s)
-                    } else {
-                        String::new()
-                    },
-                    title: rec.and_then(|r| r.title).filter(|_| private),
+                    place: self.runner.place_name(s),
+                    title: rec.and_then(|r| r.title),
                     imported,
                 },
             );
@@ -460,10 +434,10 @@ fn conversation_tokens(
 }
 
 /// An answer with nothing found yet: the session's own fields.
-fn blank(sid: &str, rec: &SessionRecord, private: bool) -> ContextExplainResult {
+fn blank(sid: &str, rec: &SessionRecord) -> ContextExplainResult {
     ContextExplainResult {
         session_id: sid.to_string(),
-        title: rec.title.clone().filter(|_| private),
+        title: rec.title.clone(),
         kind: rec.kind.as_str().to_string(),
         class: String::new(),
         place: String::new(),
@@ -484,25 +458,9 @@ fn blank(sid: &str, rec: &SessionRecord, private: bool) -> ContextExplainResult 
         recalls: Vec::new(),
         noted: BTreeMap::new(),
         sources: BTreeMap::new(),
-        withheld: (!private).then(|| WITHHELD.to_string()),
+        withheld: None,
         ms: 0.0,
     }
-}
-
-/// An imported session's episode, its text kept from a place that is not
-/// private.
-fn episode_shown(
-    sid: &str,
-    title: Option<&str>,
-    imp: &crate::import::ImportedFrom,
-    private: bool,
-) -> theseus_protocol::import::ImportedEpisode {
-    let mut ep = crate::import::catalog::episode_of(sid, title, imp);
-    if !private {
-        ep.title = None;
-        ep.place_name = None;
-    }
-    ep
 }
 
 /// The system's parts and the tools, each against the turn's manifest.
@@ -511,9 +469,8 @@ fn system_parts(
     now: &Manifest,
     then: Option<&Manifest>,
     rates: TokenRates,
-    private: bool,
 ) -> Vec<ContextPart> {
-    let text = |t: &str| private.then(|| t.to_string());
+    let text = |t: &str| Some(t.to_string());
     let word = |same: bool| if same { "same" } else { "changed" };
     let mut out = Vec::new();
     for (name, t) in &built.header {

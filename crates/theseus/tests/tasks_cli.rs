@@ -268,13 +268,11 @@ fn watch_says_each_task_event_and_is_a_screen() {
 }
 
 /// `theseus tasks --watch` (the old `theseus work`, theseus-6kgp8): it keeps the connection, tells the daemon a
-/// person is looking, and prints what the work board showed: the thread's group, the job's id for `peek`
-/// and `attach`, a line for the job's change and the thread's.
+/// person is looking, and prints what the work board showed: the job's id for `peek` and `attach`, and a
+/// line for the job's change.
 #[test]
-fn work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids() {
+fn work_is_tasks_watch_and_keeps_the_job_ids() {
     let mut views = board();
-    views[0]["thread"] = json!("regatta");
-    views[2]["thread"] = json!("regatta");
     let job = |position: u64, at: u64, last: &str| {
         view(json!({
             "id": "act_job_c0ffee", "kind": "job", "parent": "exe_tide", "title": "cargo build",
@@ -285,16 +283,8 @@ fn work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids() {
         }))
     };
     views.push(job(10, ago(2_000), "Compiling theseus"));
-    let snap = json!({"position": 10, "views": views, "total": 1, "threads": [
-        {"slug": "regatta", "title": "Regatta thread", "state": "active", "session_id": "ses_conv",
-         "last_active_ms": ago(60_000)}]});
-    let moved = json!({"slug": "regatta", "title": "Regatta thread, renamed", "state": "active",
-        "session_id": "ses_conv", "last_active_ms": ago(1_000)});
-    let after = {
-        let mut n = changed(vec![job(12, now_ms(), "Finished dev profile")], 12);
-        n["params"]["threads"] = json!([moved]);
-        n
-    };
+    let snap = json!({"position": 10, "views": views, "total": 1});
+    let after = changed(vec![job(12, now_ms(), "Finished dev profile")], 12);
     let (out, _, asked) = run(
         &["tasks", "--watch"],
         vec![("work.watch", snap)],
@@ -306,18 +296,12 @@ fn work_is_tasks_watch_and_keeps_the_threads_and_the_job_ids() {
         json!(true),
         "work watches: {asked:?}"
     );
-    assert!(out.starts_with("Threads: 1 live"), "{out}");
-    assert!(out.contains("Regatta thread"), "{out}");
     assert!(
         out.contains("Jobs (theseus peek JOB · theseus attach JOB):\n  c0ffee  ◐ cargo build"),
         "{out}"
     );
     assert!(out.contains("@12 job c0ffee"), "{out}");
     assert!(out.contains("› Finished dev profile"), "{out}");
-    assert!(
-        out.contains("@12 ") && out.contains("Regatta thread, renamed"),
-        "{out}"
-    );
 }
 
 // ---- finding a task later (theseus-ypnxt.1) -------------------------------------------------

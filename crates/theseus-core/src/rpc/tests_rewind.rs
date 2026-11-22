@@ -386,17 +386,29 @@ async fn the_fork_holds_the_conversation_up_to_the_node_before_the_message() {
     assert_eq!(fc.points[0].files.len(), 1);
 }
 
+/// Any surface reads a session's changes (2026-11-22); a restore, an act, is
+/// still refused to a surface that reads no private text.
 #[tokio::test]
-async fn a_surface_that_reads_no_private_text_is_refused() {
+async fn any_surface_reads_the_changes_and_a_restore_keeps_its_surface_rule() {
     let r = two_messages().await;
-    let resp = call(
+    let discord = || Client::new("discord", Surface::Discord);
+    let read = call(
         &r.core,
-        Client::new("discord", Surface::Discord),
+        discord(),
         "files.changes",
         json!({"session_id": r.sid}),
     )
     .await;
-    assert_eq!(resp.error.unwrap().code, error_code::REFUSED);
+    assert!(read.error.is_none(), "{:?}", read.error);
+    let since = changes(&r).await.points[0].node_id.clone();
+    let act = call(
+        &r.core,
+        discord(),
+        "files.restore",
+        json!({"session_id": r.sid, "since_node": since, "dry_run": true}),
+    )
+    .await;
+    assert_eq!(act.error.unwrap().code, error_code::REFUSED);
 }
 
 #[tokio::test]

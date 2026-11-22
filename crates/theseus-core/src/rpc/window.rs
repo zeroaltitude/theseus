@@ -9,24 +9,21 @@
 //! - **Narrowed to a session and its tasks.** The scope is the session, and
 //!   each task session below it as far down as tasks go, found from the
 //!   kernel's task executions (`Kernel::tasks`).
-//! - **Scrubbed and private.** Every string in a row's data passes the
-//!   scrubber, as a tool's output does before history shows it. A surface
-//!   that reads no private text (`Surface::reads_private`) must name a
-//!   session and gets that session's rows and its tasks' alone, and the
-//!   daemon's own rows (its starts and stops, which hold no session's text).
+//! - **Scrubbed.** Every string in a row's data passes the secrets'
+//!   scrubber, as a tool's output does before history shows it, for every
+//!   surface. Any surface may read the whole window (2026-11-22).
 
 use std::collections::HashSet;
 
 use serde_json::Value;
 use theseus_protocol::{
-    error_code, method, LedgerEntry, LedgerWindowParams, LedgerWindowResult, POSTMORTEM_KINDS,
+    method, LedgerEntry, LedgerWindowParams, LedgerWindowResult, POSTMORTEM_KINDS,
 };
 use theseus_store::pages::{ledger_kind, ledger_session};
 use theseus_store::{kinds, Page};
 
-use super::server::{parse, reply, Conn, RpcFailure};
+use super::server::{parse, reply, RpcFailure};
 use super::Core;
-use crate::approval::Surface;
 use crate::ledger::LedgerRow;
 use crate::scrub::Scrubber;
 use crate::session::SessionRecord;
@@ -47,14 +44,9 @@ const DAEMON_KINDS: &[&str] = &[
 ];
 
 impl Core {
-    pub(super) fn ledger_reads(
-        &self,
-        name: &str,
-        params: Value,
-        conn: Conn<'_>,
-    ) -> Result<Value, RpcFailure> {
+    pub(super) fn ledger_reads(&self, name: &str, params: Value) -> Result<Value, RpcFailure> {
         match name {
-            method::LEDGER_WINDOW => reply(self.ledger_window(parse(params)?, conn.surface)?),
+            method::LEDGER_WINDOW => reply(self.ledger_window(parse(params)?)?),
             _ => reply(self.ledger_tail(parse(params)?)?),
         }
     }
@@ -62,19 +54,8 @@ impl Core {
     pub(super) fn ledger_window(
         &self,
         p: LedgerWindowParams,
-        surface: Surface,
     ) -> Result<LedgerWindowResult, RpcFailure> {
-        let private = surface.reads_private();
         let named = p.session_id.as_deref().map(session_of);
-        if named.is_none() && !private {
-            return Err(RpcFailure::new(
-                error_code::INVALID_PARAMS,
-                format!(
-                    "{} reads no private text: name the session (or task) the postmortem is for",
-                    surface.name()
-                ),
-            ));
-        }
         let scope = match &named {
             Some(sid) => {
                 self.session_exists(sid)?;
@@ -109,7 +90,7 @@ impl Core {
             let Some(got) = self.store.ledger_page(&page)? else {
                 return Ok(LedgerWindowResult {
                     building: true,
-                    shared: !private,
+                    shared: false,
                     now_ms: theseus_protocol::now_unix_ms(),
                     ..Default::default()
                 });
@@ -134,14 +115,14 @@ impl Core {
                 rows.push(entry(r.position, row, &self.tools.scrubber));
                 if rows.len() == limit {
                     // The rest of this raw page is read again from here.
-                    return Ok(window_page(rows, after, scope, !private));
+                    return Ok(window_page(rows, after, scope));
                 }
             }
             if !got.more {
                 break;
             }
         }
-        Ok(window_page(rows, None, scope, !private))
+        Ok(window_page(rows, None, scope))
     }
 
     /// `sid` and every task session below it, by the kernel's task
@@ -177,14 +158,13 @@ fn window_page(
     rows: Vec<LedgerEntry>,
     next: Option<u64>,
     scope: Option<Vec<String>>,
-    shared: bool,
 ) -> LedgerWindowResult {
     LedgerWindowResult {
         rows,
         next,
         scope: scope.unwrap_or_default(),
         building: false,
-        shared,
+        shared: false,
         now_ms: theseus_protocol::now_unix_ms(),
     }
 }

@@ -450,7 +450,6 @@ fn view_of(f: &Face, created_ms: u64, now_ms: u64) -> WorkView {
         read: false,
         retry_of: None,
         forecast: None,
-        thread: None,
         purpose: None,
         next_at_ms: f.due_ms,
         series: None,

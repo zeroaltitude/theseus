@@ -28,7 +28,7 @@
 //!   operator removes it like any other, and nothing overrides him
 //!   (theseus-gyjyo.4). Nothing reads a request for a name any more.
 //! - **Labels are durable.** They live on `SessionRecord.data`, survive
-//!   compaction and restart, and only the operator removes one
+//!   every turn and a restart, and only the operator removes one
 //!   (`content.unlabel`, `theseus content remove`, the one Discord message,
 //!   and, since theseus-emqbm, the link every reply's footer carries for each
 //!   label the session holds: [`footer_labels`], which is the way off a label

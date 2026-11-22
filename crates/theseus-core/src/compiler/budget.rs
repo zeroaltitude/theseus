@@ -13,7 +13,7 @@ pub(super) fn request_budget(w: u64, spec: &RequestSpec) -> u64 {
 }
 
 /// A compilation's report: its limit (0 with no window known), what the
-/// request is estimated at, the ring's cut, and an overage when the
+/// request is estimated at, what it left out, and an overage when the
 /// estimate's upper bound still passes the limit.
 pub(super) fn budget_report(
     limit: Option<u64>,
@@ -22,7 +22,8 @@ pub(super) fn budget_report(
 ) -> BudgetReport {
     let overage = limit.filter(|l| est.upper > *l).map(|l| BudgetOverage {
         tokens: est.upper - l,
-        why: "the request's estimate passes the window with every turn the ring may drop gone"
+        why: "the request's estimate passes the window with every earlier turn left out and every old \
+              result cleared"
             .into(),
     });
     BudgetReport {

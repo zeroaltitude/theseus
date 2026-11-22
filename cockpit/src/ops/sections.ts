@@ -122,7 +122,7 @@ export interface StepView {
   glyph: string
   stateWord: string
   short: string
-  /** thread › plan › … above the row, nearest last; each a row the breadcrumb selects, or only words. */
+  /** plan › … above the row, nearest last; each a row the breadcrumb selects, or only words. */
   crumbs: Array<{ id?: string; title: string }>
   /** A plan's closed children against all of them. */
   progress?: { n: number; m: number }
@@ -146,7 +146,6 @@ export function stepView(r: OpsRow, rows: readonly OpsRow[], now: number): StepV
   const seen = new Set<string>([r.id])
   let up = rowOf(r.parent)
   for (let i = 0; up && !seen.has(up.id) && i < 16; i++) { seen.add(up.id); crumbs.unshift({ id: up.id, title: up.title }); up = rowOf(up.parent) }
-  if (r.thread) crumbs.unshift({ title: r.thread })
   const kids = rows.filter((c) => c.id !== r.id && (c.parent === r.id || (r.recordId != null && c.record?.parent === r.recordId)))
   const closed = (c: OpsRow) => c.bucket === 'ended'
   const rec = r.record

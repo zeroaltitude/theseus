@@ -64,6 +64,8 @@ Every kind picks one of the closed composition rules, so no kind can exist witho
 
 ### 4.2 Continuation strategies
 
+_(Removed 2026-11-22, issue 44: none of the four strategies below builds a request any more. The **view** builds every turn's request afresh from the store, as the conversation's place may see it (`docs/design/context-point-of-view.md`, `docs/design/view-compile.md`); the ring, compaction and its summary call, and the assembled prefix went with the transcript. Compilations stored under these strategies, and old `Summary` nodes, still decode and read. The settings that tuned them are retired keys: a settings file naming one still loads, with one warning line, and `theseus health` lists it. The list below is kept as the record of what was built.)_
+
 1. **Transcript**: root → current. Always correct, always cheap.
 2. **Ring**: transcript truncated from the front at the token boundary. Zero model cost.
 3. **Compaction root**: summarize the range the ring would leave out into a `Summary` and re-root. One cheap call; the raw range stays in the graph and reachable. _(Built 2026-10-04, step 30c; Part III Item 131: where the ring would cut, `[memory] summary_profile` summarizes the dropped range into a `Summary`, by default `session`, the turn's own profile, provider and model, so no second provider reads the session (the owner's decision 3, until Jev routes it). The call is a kernel action, reserved and settled at its real cost, and a second compaction folds the first summary in. Every failure (no provider, an unpriced model, the spend limit, a failed call, a summary that would not fit) falls back to the ring, and the row says why.)_ _(Since 2026-10-06, theseus-6fn.8; Part III Item 210: the summary's call is reserved on the input estimate's upper bound, so a provider counting the input over the estimate cannot settle past the reservation (live: 1,608 µ$ reserved where main reserved 1,435, against 1,483 settled). A turn's own call still reserves on the estimate's tokens (theseus-ps9i).)_
@@ -81,7 +83,7 @@ Graph selection yields node ids; the **compiler** turns them into a valid provid
 
 **Thinking goes back only to its own provider** (theseus-kol; built 2026-09-30). Thinking is replayed byte for byte, and only to the provider that wrote it.
 - An assistant message another provider wrote is rendered without its thinking blocks, wherever it sits, since a signature is its own provider's to verify (Anthropic refused GLM's with a 400).
-- Every recompile strips the prefix's thinking: a system, tools, model, or provider change, a ring, fresh, or transcript. The earlier model's reasoning goes; its text, calls, and results stay.
+- Thinking is carried only within a turn (since 2026-11-22): the view sends no earlier turn's thinking, and a new chain inside a turn (a system, tools, model or provider change, a refused image, a seal) strips its own. The earlier reasoning goes; its text, calls, and results stay.
 - Within one provider, a message keeps its thinking byte for byte, a tool loop's last message included, as the provider requires. The rule compares providers, not models, since a node records the model that served it, which can differ from the one asked for. A model change is caught at the compilation, whose manifest records the model asked for.
 
 **Context files** (2026-09-29; theseus-58a, 76e7d35, a29e9f7; two levels since theseus-c48, 68cb127). The config names files that the compiler puts into the system block, in two levels. In the owner's words: "Context files by persona with a system/default level", and "the Jev will classify which persona is in play, based on a dynamic, growing ontology of personas. Pre-jev, it will always pick the system/default persona."
@@ -144,6 +146,8 @@ came with it, and a tool result may carry an image.
 
 ### 4.4a When a session is recompiled
 
+_(Removed 2026-11-22, issue 44: there is no append-or-recompile question any more. Each turn's first call is a new compilation of strategy `view`, frozen for the turn, so the turn's later calls append to it; the next turn builds afresh. `session.recompile`, its CLI verb and plan mode's recompile are gone; a change of a context file, a membership or the tools reaches the next turn by itself. Old compilations, whatever their strategy, still decode, and a session may still point at one until its first view turn. The section below is the record of the old rule.)_
+
 Compiling every turn from scratch would be wrong twice over: it burns a prompt-cache miss on every turn, and it discards the plain fact that most turns in a live thread are simply the next thing said. So a session's context has two parts:
 
 - a **compilation**: the prefix, produced by the compiler from the session's roots at some as-of position, persisted as a `Compilation` node (root kind) with its manifest. A compaction root (§4.2) is one kind of compilation; an assembled context is another.
@@ -163,7 +167,7 @@ Recompilation never loses anything. The old compilation, the tail, and the new c
 
 - **What is counted.** From a compilation's second call on, the estimate counts on the provider. The session's latest answer came from this compilation's last request, whose input the provider counted (input, cache reads, and cache writes), and the answer re-enters the next request at its own output tokens. Only what was written since is estimated.
 - **What is estimated.** The new part is estimated from its bytes by class, at the catalog's `bytes_per_token`: JSON (tool schemas, tool inputs, tool results) and text, plus a few tokens of framing per message and block, and 15 per tool call id. A request with nothing counted (a new session, a recompile, the ring's candidates) is estimated from bytes whole.
-- **The ring.** Overflow rings when the counted part plus the estimated part × 1.4 passes the window, less the output cap and 4,096 tokens of headroom. It then drops leading turns at a user message until the estimate is under 60 % of that.
+- **The ring** _(removed 2026-11-22: a view turn over its budget clears its own old results, lowers its window's allowance, and takes a provider's stated maximum as the window, `turn/view_step/room.rs`; only a floor that cannot fit fails the turn, with the overage's words)_. Overflow rang when the counted part plus the estimated part × 1.4 passes the window, less the output cap and 4,096 tokens of headroom. It then drops leading turns at a user message until the estimate is under 60 % of that.
 - **What is kept.** Nothing is stored for it: the counts are on the answers' nodes, so a restart changes nothing. Every `context.compiled` row carries the estimate: its method, both parts, the bound, the request's JSON bytes (a fourth of them was the estimate before), and its bytes by class.
 
 - **The provider's word** (theseus-9p88; Part III Item 34). A request the provider says passed the window rings
@@ -180,6 +184,8 @@ Recompilation never loses anything. The old compilation, the tail, and the new c
   the same refusal with both numbers unknown (theseus-kucs). _(Since 2026-10-04, step 30c; Part III Item 131: where the ring would cut, a compaction summarizes the dropped range first (§4.2), and the ring is its fallback. When the ring's last cut still has an overage, or a request has nothing to drop, the turn fails before any call with `context_overage`, naming the model, the window, the estimate and its upper bound, the limit and how far over, with a `context.overage` row, and the session waits on its next message as for `context_window`. Both classes stay: `context_window` is the provider's verdict after a send, `context_overage` the estimate's before one.)_
 
 ### 4.4b How sessions persist across runtime restarts
+
+_(Since 2026-11-22 a session's next turn after a restart builds its view afresh from the store, as every turn does; the paragraphs below on loading and re-rendering the current compilation describe the transcript, which was removed.)_
 
 A session is **durable by reference**, and that is the whole plan. Suppose a thousand sessions each hold a custom-selected context. Nothing about those thousand contexts is held in runtime memory that matters; each resolves in the store to a persisted **lineage**.
 
@@ -210,6 +216,8 @@ _(As built in 19a, Part III Item 61: what a compilation was compiled for, its au
 **Consequences for storage.** Rendered compilation caches are the first thing tiering demotes, since they are rebuildable; selections and manifests are records and stay durable like everything else. Redaction (§5.6) of a node included by a compilation marks that compilation dirty, which is a deterministic recompile trigger (§4.4a), and restore applies tombstones before any rendered cache is trusted.
 
 ### 4.5 Prompt caching layout
+
+_(Since 2026-11-22 the order on the wire is the view's: the system part as below, with the memory page after the session's block; then the view's fixed blocks and ladder; then the window of the place's exchanges, with a cache mark at its end so the next turn reads it from the cache; then the block beside the message, the message, and the turn's own calls (`docs/design/view-compile.md`). There is no transcript prefix and no compaction root. The rules a breakpoint follows below still hold.)_
 
 Most stable first: persona and role hints; tool schemas; frozen transcript prefix from root to the last compaction; cache breakpoint; dynamic assembly; recent tail and new message. Compaction roots keep the prefix small and stable by construction. `continue.v1` receives cache state so it can prefer appending on hot conversations, and a recompile is scheduled at a natural boundary (after a tool loop closes, not mid-loop) whenever the trigger allows deferral. The system leads the prefix, in two blocks (theseus-ev1; built 2026-10-01, Part III A4 Item 29). The first, the **header**, holds the built-in persona, the tools note, and the profile's `system`. Every session of a profile and their tasks share its bytes, and nothing retractable goes in it (Appendix F). The second holds the context files, the system level's, then the persona's (§4.4). Each block carries a cache breakpoint, and the conversation's is the request's top-level automatic one: 3 of the provider's 4. An edited file, or a persona that Jev switches, rewrites the second block and what follows, while the tools and the header still read from the cache.
 

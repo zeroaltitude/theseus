@@ -1,28 +1,14 @@
-//! The context compiler, simplest form (spec §4.4, §4.4a, Part II P5).
+//! The context compiler's shared pieces (spec §4.4, §4.4a, Part II P5): the compilation record and its
+//! manifest, the request spec, the estimate, the render and the spec preparation. Every request is the view's
+//! (`compiler::view`, issue 44): the old way of building one from a session's transcript, deciding append
+//! or recompile, is gone, and a compilation it made still decodes (a session may still point at one).
 //!
-//! A session's context is a **compilation** (a prefix: an ordered selection of
-//! node ids, frozen with a manifest) plus an **append tail** (every node the
-//! session wrote after the compilation's as-of position, in order, unselected).
-//! Each loop asks one question: append, or recompile? M3 answers it with
-//! deterministic triggers only (no Jev): a new session, a model or provider
-//! change, a system prompt change, a tool set change, or an operator's manual
-//! request. This is the transcript's compile; what still takes it (a place
-//! set to `transcript` or with the ledger off, a view turn that declined,
-//! keep-warm between turns, the census of a fresh session, a task or a
-//! split's dry run) goes with the lanes that remove those. Nothing in it makes
-//! room past the window but the clearing pass.
-//!
-//! The renderer is deterministic and append-only: the same nodes and the same
-//! manifest produce the same bytes, and a later request's messages begin with
-//! the earlier request's messages unchanged. That is what keeps the provider's
-//! prompt cache warm and what the preserved-thinking rules require. A recompile
-//! that changes the model, the provider, the system prompt, or the tool set is
-//! the one place thinking blocks are stripped from the
-//! prefix (a boundary the provider documents as safe). A thinking block's
-//! signature is for the provider and model that wrote it, and another provider
-//! refuses it (400, "Invalid signature in thinking block": GLM's sent to
-//! Anthropic, theseus-kol), so a model change strips them too; and an assistant
-//! message another provider wrote never carries its thinking, wherever it sits.
+//! The renderer is deterministic: the same nodes and the same manifest produce the same bytes, and within a
+//! chain a later request's messages begin with the earlier request's unchanged. That is what keeps the
+//! provider's prompt cache warm and what the preserved-thinking rules require. A thinking block's signature is
+//! for the provider and model that wrote it, and another provider refuses it (400, "Invalid signature in
+//! thinking block": GLM's sent to Anthropic, theseus-kol), so an assistant message another provider or model
+//! wrote never carries its thinking, wherever it sits.
 
 use std::sync::Arc;
 
@@ -142,12 +128,12 @@ pub struct Compilation {
     pub schema: u16,
     pub session_id: String,
     pub created_at_ms: u64,
-    /// Why it was made: `new_session`, `model_changed`, `system_changed`,
-    /// `tools_changed` (joined with `+`), `overflow`, `manual_fresh`, `manual_transcript`.
+    /// Why it was made: a view chain's (`compiler::view`); an old store also holds the transcript's
+    /// (`new_session`, `model_changed`, `system_changed`, `tools_changed`, `overflow`, `manual_fresh`,
+    /// `manual_transcript`, ...), which nothing makes now.
     pub trigger: String,
-    /// `transcript` (everything so far), `fresh` (nothing), `view` (a view turn's chain); an old store
-    /// also holds `ring` (leading turns dropped) and `compaction` (a summary of them in their place, 30c),
-    /// which nothing makes now.
+    /// `view` (a view turn's chain); an old store also holds `transcript`, `fresh`, `ring`, `compaction`
+    /// and `cold_resume`, which nothing makes now.
     pub strategy: String,
     /// WAL position the selection was made at: later nodes are the tail.
     pub as_of: u64,
@@ -560,17 +546,6 @@ pub(crate) fn renderable(n: &(impl crate::stub::Shaped + ?Sized)) -> bool {
     n.kind() != crate::stub::Kind::ToolCall
 }
 
-/// Compile a loop's request. With an ontology walk, the spec an append
-/// renders carries the guidance of the memberships the current manifest
-/// recorded, and the one a recompile renders that of the current ones
-/// (theseus-8kk.1): so a membership change waits for the next recompile,
-/// and a guidance edit in play changes the system block, which recompiles.
-pub fn compile(input: CompileInput<'_>) -> Compiled {
-    let (appended, recompiled) = prepared(&input);
-    let appended = appended.as_deref().unwrap_or(&*recompiled);
-    compile_with(input, appended, &recompiled)
-}
-
 /// The spec preparation every strategy runs before it renders: the spec an append renders and the one a
 /// recompile renders, with the walk's guidance composed into the third layer, the deferred tool set
 /// resolved (`tools_defer::forks`), and a thread card split into its recorded and current text
@@ -589,274 +564,6 @@ pub(crate) fn prepared<'a>(
     let appended = appended.unwrap_or_else(|| recompiled.clone());
     let (a, r) = card::split(appended, recompiled);
     (Some(a), r)
-}
-
-/// `compile`, with the spec an append renders and the one a recompile does. It appends while nothing changed
-/// under its prefix, else makes a new compilation of every renderable node, then clears old results past the
-/// clearing line. Nothing else makes room: a request past the window carries its overage, and the turn fails
-/// on it (`turn::overage`).
-#[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-fn compile_with(
-    input: CompileInput<'_>,
-    appended: &RequestSpec,
-    recompiled: &RequestSpec,
-) -> Compiled {
-    let mut ph = phases::Phases::new("compile");
-    // The prefix library's header in the third layer (theseus-rr15).
-    let (a, r) = (
-        prefix::applied(appended),
-        (!std::ptr::eq(appended, recompiled)).then(|| prefix::applied(recompiled)),
-    );
-    let (appended, recompiled) = (&*a, r.as_deref().unwrap_or(&*a));
-    let entry = input.catalog.get(&appended.model);
-    let window = window_of(&input, entry);
-    let moves = crate::moved::read(input.nodes);
-    let decided = decided(
-        &input,
-        &manifest_for(appended, input.catalog, window, false),
-        &moves,
-    );
-    // A recompile renders the walk's current memberships.
-    let now_manifest = manifest_for(
-        if decided.is_some() {
-            recompiled
-        } else {
-            appended
-        },
-        input.catalog,
-        window,
-        false,
-    );
-    let mut spec = if decided.is_some() {
-        recompiled
-    } else {
-        appended
-    };
-    // Past an old session's summary, it stands for its range (30c).
-    let all_renderable: Vec<_> = summary::visible(input.nodes)
-        .into_iter()
-        .filter(|(_, n)| moves.shows(n))
-        .collect();
-    let make = maker(&input);
-    let mut compilation = match decided {
-        None => input
-            .current
-            .cloned()
-            .expect("append requires a current compilation"),
-        Some((trigger, strategy, strip)) => {
-            let includes = included(&all_renderable, strategy);
-            make(trigger, strategy, strip, includes, &now_manifest)
-        }
-    };
-    let mut new_compilation = input.current.is_none_or(|c| c.id != compilation.id);
-    let mut trigger = new_compilation.then(|| compilation.trigger.clone());
-    let media = (
-        input.blobs,
-        input.hidden,
-        input.overflowed.and_then(|o| o.retrying.as_deref()),
-        input.sources,
-    );
-    ph.mark("decide");
-    let mut rendered = render_request(spec, input.catalog, &compilation, input.nodes, media);
-    ph.mark("render");
-    let rates = entry.map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
-    let counted = counted_part(input.nodes, &compilation, &rendered.request);
-    let mut est = estimate(&rendered.request, rates, counted);
-    ph.mark("estimate");
-    // Old results cleared (`clearing`): a new compilation, made from the
-    // recompile's spec and manifest.
-    let mut cleared = None;
-    if let Some(w) = window {
-        let b = match std::ptr::eq(spec, recompiled) {
-            true => now_manifest,
-            false => manifest_for(recompiled, input.catalog, window, false),
-        };
-        let at = clearing::At {
-            spec: recompiled,
-            base: &b,
-            budget: request_budget(w, spec),
-            rates,
-            new: new_compilation,
-        };
-        let seen = (&compilation, &rendered.request, &est);
-        if let Some(m) = clearing::clear(&input, &at, seen, &make) {
-            (compilation, rendered, est) = (m.compilation, m.rendered, m.est);
-            (cleared, spec, new_compilation) = (Some(m.pass), recompiled, true);
-            trigger = Some(compilation.trigger.clone());
-        }
-        ph.mark("clear");
-    }
-    let withheld = spec
-        .context_files
-        .iter()
-        .filter(|f| f.withheld.is_some())
-        .count();
-    let Rendered {
-        request,
-        prefix_nodes,
-        tail_nodes,
-        repairs,
-        tail_from: _,
-    } = rendered;
-    let messages = request.messages.len();
-    let digest = request.digest();
-    est.bytes = request.json_bytes();
-    let budget = budget_of(
-        &input,
-        &compilation,
-        &est,
-        window.map(|w| request_budget(w, spec)),
-    );
-    let first = input.current.is_none();
-    let situation = situation::settle(input.situation, first, new_compilation, trigger.as_deref());
-    if new_compilation {
-        compilation.budget = Some(budget.clone());
-        compilation.situation = Some(situation.clone());
-    }
-    ph.mark("report");
-    ph.log(input.nodes, &format!(", {} messages", messages));
-    Compiled {
-        budget,
-        request,
-        compilation,
-        new_compilation,
-        trigger,
-        prefix_nodes,
-        tail_nodes,
-        messages,
-        est_tokens: est.tokens,
-        estimate: est,
-        digest,
-        repairs,
-        cache: cache_layout(spec, input.catalog),
-        withheld: withheld as u64,
-        situation,
-        cleared,
-        card: spec.card.as_ref().map(|c| c.shown.clone()),
-        prefix: None,
-    }
-}
-
-/// The window a compile measures by: the override, else the catalog's. The provider's word on the window
-/// beats the catalog's when it is smaller (theseus-9p88): a catalog that overstates a window would let every
-/// request past it.
-fn window_of(
-    input: &CompileInput<'_>,
-    entry: Option<&crate::catalog::CatalogEntry>,
-) -> Option<u64> {
-    let window = input.window_override.or(entry.map(|e| e.context_window));
-    match (window, input.overflowed.and_then(|o| o.maximum)) {
-        (Some(w), Some(m)) => Some(w.min(m)),
-        (w, m) => w.or(m),
-    }
-}
-
-/// How a compile makes a new compilation of `input`'s session (`clearing::Make`).
-fn maker<'a>(
-    input: &CompileInput<'a>,
-) -> impl Fn(String, &str, bool, Vec<String>, &Manifest) -> Compilation + 'a {
-    let (session_id, as_of) = (input.session_id, input.last_position);
-    let (current, assembled) = (input.current, input.assembled);
-    move |trigger: String, strategy: &str, strip: bool, includes: Vec<String>, base: &Manifest| {
-        Compilation {
-            id: crate::new_id("cmp"),
-            schema: COMPILATION_SCHEMA,
-            session_id: session_id.into(),
-            created_at_ms: theseus_protocol::now_unix_ms(),
-            trigger,
-            strategy: strategy.into(),
-            as_of,
-            includes,
-            derived_from: current.map(|c| c.id.clone()),
-            manifest: Manifest {
-                strip_thinking: strip,
-                ..base.clone()
-            },
-            budget: None,
-            recall_id: assembled.map(str::to_string),
-            situation: None,
-            inherits: None,
-        }
-    }
-}
-
-/// A new compilation's prefix: every renderable node; for `fresh`, from the latest operator message on, the
-/// request that triggered it plus any tool traffic it started.
-fn included(all: &[&(u64, crate::stub::Stub)], strategy: &str) -> Vec<String> {
-    let from = match strategy {
-        "fresh" => all
-            .iter()
-            .rposition(|(_, n)| n.kind == crate::stub::Kind::UserMessage)
-            .unwrap_or(all.len()),
-        _ => 0,
-    };
-    all[from..].iter().map(|(_, n)| n.id.clone()).collect()
-}
-
-/// What a compile fitted and left out: the results it renders cleared stay in its report (theseus-3ki0). A
-/// request the provider said passed the window, where nothing here makes room, keeps an overage by its word,
-/// so the turn fails on it rather than sending the same request again.
-fn budget_of(
-    input: &CompileInput<'_>,
-    c: &Compilation,
-    est: &Estimate,
-    limit: Option<u64>,
-) -> BudgetReport {
-    let drops = clearing::drops(c.budget.as_ref()).cloned();
-    let mut budget = budget_report(limit, est, drops);
-    if let (None, Some(o)) = (&budget.overage, input.overflowed) {
-        let over = o.counted.unwrap_or(est.upper);
-        budget.overage = Some(theseus_protocol::memory::BudgetOverage {
-            tokens: over.saturating_sub(budget.limit_tokens).max(1),
-            why: "the provider said the request passes the model's window".into(),
-        });
-    }
-    budget
-}
-
-/// Append or recompile: `None` appends to the current compilation; else the new one's trigger, strategy
-/// and whether it strips the prefix's thinking. A system, tool, model or provider change invalidates the
-/// prefix's thinking blocks: a system or tool change the context they were thought in, and a model or
-/// provider change their signatures (theseus-kol). The earlier model's reasoning goes; its text, calls and
-/// results stay.
-fn decided(
-    input: &CompileInput<'_>,
-    now: &Manifest,
-    moves: &crate::moved::Moves,
-) -> Option<(String, &'static str, bool)> {
-    let decided = match (input.current, input.force) {
-        (_, true) => Some(("manual_transcript".into(), "transcript", true)),
-        (None, false) => Some(("new_session".into(), "transcript", false)),
-        (Some(c), false) => {
-            let m = &c.manifest;
-            let mut t: Vec<&str> = Vec::new();
-            if m.provider != now.provider || m.model != now.model {
-                t.push("model_changed");
-            }
-            if m.system_digest != now.system_digest {
-                t.push("system_changed");
-            }
-            if m.tools_digest != now.tools_digest {
-                t.push("tools_changed");
-            }
-            (!t.is_empty()).then(|| (t.join("+"), "transcript", true))
-        }
-    };
-    if decided.is_some() {
-        return decided;
-    }
-    // A refused image that sat before an answer now renders as its line
-    // (theseus-0s4): the history under that answer's thinking changed, so the
-    // thinking goes, as for any other change under it.
-    if let Some(why) = input.strip {
-        return Some((why.to_string(), "transcript", true));
-    }
-    // A range the session moved to a thread stays out of a recompile, one
-    // line in its place (theseus-q9b85); a frozen compilation that holds
-    // what has moved, or lacks what came back, recompiles once.
-    (input.current)
-        .filter(|c| moves.stale(c))
-        .map(|_| ("moved".into(), "transcript", true))
 }
 
 /// Render a compilation plus its tail into a provider request. `media` is

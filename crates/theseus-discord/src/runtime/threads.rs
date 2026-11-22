@@ -867,8 +867,7 @@ impl Place {
         let s = &self.shared;
         let threads = self.kind == "channel"
             && s.task_threads.enabled(channel)
-            && !s.task_threads.is_thread(channel)
-            && s.threads.slug_of(channel).is_none();
+            && !s.task_threads.is_thread(channel);
         let homed = self.forum_homes();
         // A DM has no threads, but its tasks may have channels, and posts.
         let wants = (threads || homed || (self.kind == "dm" && s.channels_wanted(&self.target)))
