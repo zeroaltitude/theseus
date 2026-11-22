@@ -1187,3 +1187,36 @@ async fn a_shown_exchange_removed_between_two_calls_is_held() {
         texts(&calls[1])
     );
 }
+
+/// Round 2, item 1, its size half: a size repair's recompile comes back to the size check, and the request
+/// that goes out lays what the first compile laid (a recalled source).
+#[tokio::test]
+async fn a_size_repair_comes_back_to_the_size_check() {
+    const SECRET: &str = "the kelp vault code is 5519";
+    const ASKS: &str = "what is the vault code now?";
+    let thread = std::cell::RefCell::new(String::new());
+    let r = crate::tests_places::rig_setup_scripted(
+        |c| {
+            c.memory.mode = crate::config::MemoryMode::Live;
+            c.threads.enabled = true;
+        },
+        |s| *thread.borrow_mut() = kelp(s, false),
+        |q| match last_user(q).contains(ASKS) && !q.tools.is_empty() {
+            true => crate::provider::Scripted::text("Done."),
+            false => crate::provider::Scripted::text("Hello."),
+        },
+    );
+    let c = &r.core;
+    let source = thread.into_inner();
+    turn_as(c, &source, SECRET, true).await;
+    (c.runner.memory).set_ask(crate::tests_private_view::index_of(c, vec![source]));
+    let sid = session_in(c, None, &r.root);
+    crate::turn::view_step::force_resize(&sid);
+    turn_as(c, &sid, ASKS, true).await;
+    let sent: Vec<ProviderRequest> = (r.requests().into_iter())
+        .filter(|q| !q.tools.is_empty() && texts(q).contains(ASKS))
+        .collect();
+    assert_eq!(sent.len(), 1, "one call");
+    let text = texts(&sent[0]);
+    assert!(text.contains("5519"), "the repair lays the source: {text}");
+}

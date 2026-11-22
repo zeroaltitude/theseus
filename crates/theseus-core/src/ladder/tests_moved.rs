@@ -45,22 +45,6 @@ fn shown(_: &str) -> bool {
     false
 }
 
-/// `2N` exchanges, the oldest `N` folded (by the fake writer); the turns.
-pub(crate) async fn folded(s: &Store) -> Vec<String> {
-    let turns = history(s, 2 * N as u64);
-    let w = Fake::default();
-    let purse = DayPurse::new(s, None, false);
-    let step = Step {
-        writer: &w,
-        flags: &NoFlags,
-        hidden: &shown,
-        purse: &purse,
-    };
-    let out = read::fold_step(s, PLACE, None, &step).await.unwrap();
-    assert_eq!(out.made.len(), 1, "{:?}", out.failed);
-    turns
-}
-
 #[tokio::test]
 async fn a_moved_message_gets_no_did_line_from_its_words() {
     let (_d, s) = store();

@@ -9,9 +9,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::provider::{ProviderError, Scripted};
-use crate::tests_places::{
-    answers_a_call, last_user, rig_setup_scripted, rig_with, session, Rig, LAB,
-};
+use crate::tests_places::{answers_a_call, last_user, rig_setup_scripted, rig_with, session, LAB};
 use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{fallbacks, legal, submit, texts};
 

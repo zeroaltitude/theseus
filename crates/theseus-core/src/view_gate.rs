@@ -8,8 +8,6 @@
 //! message in person at a surface he can be alone at, which a task's objective change requires. It lives
 //! beside its user, `task_graph::words::present_in_person`; [`present`] passes through to it.
 
-use std::collections::BTreeMap;
-
 use anyhow::Result;
 use theseus_memory::gate::{self as rule, Denied, Marks, PointOfView, Present, Seal, Veil};
 use theseus_memory::recall::Place;
@@ -180,17 +178,6 @@ pub fn seal_of(_runner: &TurnRunner, _asker: Option<&str>, _session: &str) -> Se
     Seal::Clear
 }
 
-fn board(runner: &TurnRunner, what: &str) -> Option<std::sync::Arc<Board>> {
-    match runner.threads.all(&runner.store) {
-        Ok(b) => Some(b),
-        Err(e) => {
-            tracing::warn!(what, error = %format!("{e:#}"),
-                "the threads cannot be read: what they may seal is held out");
-            None
-        }
-    }
-}
-
 /// The seal of one node, for a reader in `asker`: its session's, and, where
 /// a split or a claim moved it into a thread (`moved.of.<node>`), that
 /// thread's too. A `moved.of` record that does not decode, or names a thread
@@ -206,67 +193,25 @@ pub fn node_seal(
     Seal::Clear
 }
 
-/// The nodes of `nodes` a reader in `asker` may read for their seal (by
-/// session and by node, `node_seal`): what a read by id or by session shows.
+/// The nodes of `nodes` a reader in `asker` may read: every one (anything goes, 2026-11-22). A pass-through
+/// until its callers go (the sweep).
 pub fn readable_nodes<T>(
-    runner: &TurnRunner,
-    asker: Option<&str>,
+    _runner: &TurnRunner,
+    _asker: Option<&str>,
     nodes: Vec<T>,
-    of: impl Fn(&T) -> (&str, &str),
+    _of: impl Fn(&T) -> (&str, &str),
 ) -> Vec<T> {
-    let Some(b) = board(runner, "a read of nodes") else {
-        return Vec::new();
-    };
     nodes
-        .into_iter()
-        .filter(|n| {
-            let (session, node) = of(n);
-            node_seal(&runner.store, &b, asker, session, node) == Seal::Clear
-        })
-        .collect()
 }
 
-/// Take out of the index's hits every one a reader in `asker` may not draw
-/// on for its seal, by session and by node, before anything ranks it,
-/// reranks it, or sends it to a model: whatever `[threads] enabled` says,
-/// and whatever the thread lens would say. What was taken out, as `sealed`
-/// drops (ids and scores, never text), for the recall's manifest to say.
+/// What of the index's hits a reader in `asker` may not draw on for a seal: nothing (anything goes,
+/// 2026-11-22). A pass-through until its callers go (the sweep).
 pub fn seal_out(
-    runner: &TurnRunner,
-    asker: Option<&str>,
-    answer: &mut Answer,
+    _runner: &TurnRunner,
+    _asker: Option<&str>,
+    _answer: &mut Answer,
 ) -> Vec<theseus_protocol::memory::RecallDrop> {
-    let Answer::Hits(r) = answer else {
-        return Vec::new();
-    };
-    let board = board(runner, "recall's hits");
-    let mut by_session: BTreeMap<String, Seal> = BTreeMap::new();
-    let mut out = Vec::new();
-    r.hits.retain(|h| {
-        let clear = board.as_ref().is_some_and(|b| {
-            let session = *by_session
-                .entry(h.session_id.clone())
-                .or_insert_with(|| seal_of(runner, asker, &h.session_id));
-            session == Seal::Clear
-                && node_seal(&runner.store, b, asker, &h.session_id, &h.node_id) == Seal::Clear
-        });
-        if !clear {
-            out.push(theseus_protocol::memory::RecallDrop {
-                node_id: h.node_id.clone(),
-                chunk: h.chunk,
-                session_id: h.session_id.clone(),
-                reason: "sealed".into(),
-                fused: h.fused,
-                tokens: 0,
-                retention: None,
-                own_top: None,
-                share: None,
-                paid: None,
-            });
-        }
-        clear
-    });
-    out
+    Vec::new()
 }
 
 /// `seal_out`'s drops, said in a recall's manifest as `sealed`.
@@ -307,29 +252,13 @@ pub fn withheld_report(short: &str) -> String {
     )
 }
 
-/// The sources of earlier `Recall` nodes a turn of `asker` may still be
-/// shown, under its presence and the seals as they are now: a note admitted
-/// when the owner was alone does not ride into an agent's turn, nor one
-/// whose thread was sealed since. A source taken out renders as one that
-/// could not be read, with no text.
+/// The sources of earlier `Recall` nodes a turn of `asker` may still be shown: every one (anything goes,
+/// 2026-11-22). A pass-through until its callers go (the sweep).
 pub fn readmit_sources(
-    runner: &TurnRunner,
-    asker: &str,
-    sources: &mut crate::recall::render::Sources,
+    _runner: &TurnRunner,
+    _asker: &str,
+    _sources: &mut crate::recall::render::Sources,
 ) {
-    if sources.is_empty() {
-        return;
-    }
-    let places = RecallPlaces::of(runner, Some(asker));
-    let here = places.asker(runner.place_of(asker));
-    let board = board(runner, "earlier recalls");
-    sources.retain(|_, n| {
-        let Some(b) = &board else {
-            return false;
-        };
-        here.may_draw_on(&places.of_session(runner, &n.session_id))
-            && node_seal(&runner.store, b, Some(asker), &n.session_id, &n.id) == Seal::Clear
-    });
 }
 
 /// The threads of a place digest a turn of `session` may be shown: every one (anything goes,
@@ -343,36 +272,14 @@ pub fn digest_threads<'b>(
     live
 }
 
-/// The standing records, of `(id, source)`, a turn of `asker` may not be
-/// shown: each kept from a message (`capture:<node>`) of a conversation the
-/// gate does not admit for it, or whose message cannot be read. A record
-/// from no conversation (the owner's own surfaces) is source-free.
+/// The standing records, of `(id, source)`, a turn of `asker` may not be shown: none (anything goes,
+/// 2026-11-22). A pass-through until its caller goes (the sweep).
 pub fn standing_held<'r>(
-    runner: &TurnRunner,
-    asker: &str,
-    records: impl Iterator<Item = (&'r str, &'r str)>,
+    _runner: &TurnRunner,
+    _asker: &str,
+    _records: impl Iterator<Item = (&'r str, &'r str)>,
 ) -> std::collections::HashSet<String> {
-    let places = RecallPlaces::of(runner, Some(asker));
-    let board = board(runner, "standing records");
-    records
-        .filter(|(_, source)| {
-            let Some(node) = source.strip_prefix("capture:") else {
-                return false;
-            };
-            let Ok(Some((_, n))) = runner.store.get_node(node) else {
-                return true;
-            };
-            if n.session_id == asker {
-                return false;
-            }
-            let Some(b) = &board else {
-                return true;
-            };
-            !places.may_read(runner, &n.session_id)
-                || node_seal(&runner.store, b, Some(asker), &n.session_id, &n.id) != Seal::Clear
-        })
-        .map(|(id, _)| id.to_string())
-        .collect()
+    std::collections::HashSet::new()
 }
 
 /// How recall reads places for one asker. Narrowed to one place, the asker
