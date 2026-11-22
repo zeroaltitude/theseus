@@ -129,24 +129,36 @@ fn rig(
     binding: Option<Binding>,
     window: u64,
 ) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("work");
-    std::fs::create_dir_all(root.join("logs")).unwrap();
     let mut script: Vec<Scripted> = (0..calls).map(reads).collect();
-    for k in 0..calls {
-        let name = format!("logs/keeper-{k:03}.txt");
-        std::fs::write(root.join(name), log(k)).unwrap();
-    }
     if let Some((at, s)) = extra {
         script.insert(at, s);
     }
     script.push(Scripted::text(DONE));
+    rig_answering(calls, script, binding, window)
+}
+
+/// [`rig`]'s core with `calls` logs to read, its model answering `script` in order, and an ordinary tail
+/// on every request (the date and the git line).
+fn rig_answering(
+    calls: usize,
+    script: Vec<Scripted>,
+    binding: Option<Binding>,
+    window: u64,
+) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    std::fs::create_dir_all(root.join("logs")).unwrap();
+    for k in 0..calls {
+        let name = format!("logs/keeper-{k:03}.txt");
+        std::fs::write(root.join(name), log(k)).unwrap();
+    }
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     let root = root.canonicalize().unwrap();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.context.assembly = Some(AssemblySetting::All(Assembly::View));
+    cfg.project.tail_facts = Some(true);
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {
@@ -171,7 +183,12 @@ fn rig(
 async fn turn(core: &Arc<Core>) -> anyhow::Result<TurnSubmitResult> {
     let rec = SessionRecord::new(SessionKind::Conversation, None);
     core.store.put_session(&rec.session_id, &rec).unwrap();
-    let sid = rec.session_id.clone();
+    turn_in(core, &rec.session_id, ASK).await
+}
+
+/// A turn of `sid` asking `input`.
+async fn turn_in(core: &Arc<Core>, sid: &str, input: &str) -> anyhow::Result<TurnSubmitResult> {
+    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
     let (live, _) = core.live_profile();
     let target = core.runner.resolve_target(&live, None, None, None).unwrap();
     core.runner
@@ -179,9 +196,9 @@ async fn turn(core: &Arc<Core>) -> anyhow::Result<TurnSubmitResult> {
             prompt: None,
             surface: None,
             session: rec,
-            input: Some(ASK.into()),
+            input: Some(input.into()),
             target,
-            sink: EventSink::new(core.bus.clone(), &sid, None),
+            sink: EventSink::new(core.bus.clone(), sid, None),
             author: "test".into(),
             recompile: None,
             attachments: vec![],
@@ -190,6 +207,19 @@ async fn turn(core: &Arc<Core>) -> anyhow::Result<TurnSubmitResult> {
             answer_at: None,
         })
         .await
+}
+
+/// Every request the provider was sent is within the limit the turn compiles against, as sent (its tails
+/// included): the window less the reply's room and the compiler's headroom.
+fn every_send_within(r: &Rig, window: u64) {
+    let limit = window - u64::from(OUTPUT) - 4_096;
+    for (i, q) in asked(r).iter().enumerate() {
+        let tokens = q.estimate_tokens();
+        assert!(
+            tokens <= limit,
+            "request {i} was sent at {tokens} tokens over {limit}"
+        );
+    }
 }
 
 /// The turn's own requests (a request with tools), in the order sent.
@@ -273,6 +303,7 @@ async fn a_turn_of_many_large_results_makes_its_own_room_and_answers() {
             .any(|m| m.made >= 1 && m.cleared >= 1 && m.keep.is_some()),
         "the view's record says what was cleared: {made:?}"
     );
+    every_send_within(&r, WINDOW);
     // Within the window as the compiler counts: every compilation the turn made fits its limit.
     let comps = r.core.store.session_compilations(&res.session_id).unwrap();
     for c in comps.iter().filter_map(|c| c.budget.as_ref()) {
@@ -315,4 +346,49 @@ async fn a_refusal_for_size_is_retried_under_the_providers_number_and_succeeds()
         made.iter().any(|m| m.window.is_some_and(|w| w <= 70_000)),
         "the record says the provider's window: {made:?}"
     );
+    every_send_within(&r, 200_000);
+}
+
+/// A conversation of four earlier exchanges, an ordinary tail on every request, and a first bare size
+/// refusal (no numbers) of the fifth turn: the retry is measured as it is sent, it is strictly smaller than
+/// the refused request (the window's oldest exchange, past the floor, goes), and it answers on one retry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_bare_refusal_after_four_exchanges_shrinks_and_answers_on_one_retry() {
+    let mut script: Vec<Scripted> = (0..4)
+        .map(|k| Scripted::text(&format!("Noted, {k}.")))
+        .collect();
+    script.push(Scripted::Fail(ProviderError::InvalidRequest {
+        status: 400,
+        message: "invalid_request_error: prompt is too long".into(),
+    }));
+    script.push(Scripted::text(DONE));
+    let r = rig_answering(0, script, None, WINDOW);
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    let sid = rec.session_id;
+    for k in 0..4 {
+        let said = format!("earlier ({k}): {}", LINE.repeat(40));
+        turn_in(&r.core, &sid, &said)
+            .await
+            .expect("an earlier turn");
+    }
+    let res = turn_in(&r.core, &sid, ASK).await.expect("the turn answers");
+    assert_eq!(res.output, DONE, "{res:?}");
+    let sent = asked(&r);
+    assert_eq!(
+        sent.len(),
+        6,
+        "four turns, the refused call and its one retry"
+    );
+    let (refused, retry) = (&sent[4], &sent[5]);
+    assert!(
+        retry.estimate_tokens() < refused.estimate_tokens(),
+        "the retry as sent is smaller"
+    );
+    assert!(
+        texts(refused).contains("earlier (0)"),
+        "the oldest exchange was laid"
+    );
+    assert!(!texts(retry).contains("earlier (0)"), "and made room for");
+    assert!(crate::test_support::rows(&r.core, "context.overage").is_empty());
 }
