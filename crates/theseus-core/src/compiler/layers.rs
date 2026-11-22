@@ -18,8 +18,7 @@
 //! messages' tail, so two sessions on a profile and a place class render
 //! layers 1 and 2 byte for byte, and layer 3 when they share categories. A
 //! layer is marked only when its prefix can reach the model's caching
-//! minimum. The layers' text is rendered here and nowhere else; the prefix
-//! library (row T13) builds on this module.
+//! minimum. The layers' text is rendered here and nowhere else.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

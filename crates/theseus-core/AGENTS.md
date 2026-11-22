@@ -688,7 +688,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   no reuse can hold another stream's guidance; the A1 vs A1n gap was a router decision (a new stream's first
   message held in the sticky thread). Tests:
   `theseus-memory/src/tests_threads.rs`, `rpc/tests_thread_mix.rs`. **The cross judge and seals: removed 2026-11-22** (anything goes; issue 44). No turn asks
-  `recall_cross.v1` (`turn/cross_step.rs` is gone; `judge/cross.rs` and its pack stay registered until the sweep), and
+  `recall_cross.v1` (`turn/cross_step.rs` and `judge/cross.rs` are gone; its pack is retired, `packs/retired/recall_cross.v1.toml`), and
   `[threads] cross_recall_bar`, `cross_recall_judge` and `cross_recall_judge_k` are retired keys. A seal keeps nothing out
   of a request: the gate reads only whether a piece's place is known (`theseus-memory/src/gate.rs`, `check`).
   `thread.seal`, `.unseal` and `.seal_dismiss` answer no method; `rpc/thread_seal.rs` keeps its writers as test fixtures
