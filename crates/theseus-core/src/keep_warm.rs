@@ -433,6 +433,11 @@ impl TurnRunner {
         if rec.kind == SessionKind::Task || rec.imported.is_some() || rec.retired.is_some() {
             return forget("a task, an imported or a retired session");
         }
+        // A conversation's request is built afresh each turn by the view (issue 44): there is no transcript
+        // prefix to keep warm between turns. The rest goes with keep-warm between turns.
+        if rec.kind == SessionKind::Conversation {
+            return forget("its request is built afresh each turn by the view");
+        }
         let place = self.view_of(sid);
         if place.class != PlaceClass::Private {
             return forget("a shared place");

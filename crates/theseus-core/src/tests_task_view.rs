@@ -10,7 +10,6 @@ use serde_json::{json, Value};
 use theseus_kernel::{ExecState, Execution};
 
 use crate::bus::EventSink;
-use crate::config::assembly::{Assembly, AssemblySetting};
 use crate::exchange::{exchange, Exchange, Opener};
 use crate::node::Body;
 use crate::provider::{ProviderRequest, Scripted};
@@ -93,7 +92,7 @@ fn view_rig(
             }
             Scripted::text("Noted.")
         },
-        |c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)),
+        |_| {},
     )
 }
 
@@ -377,7 +376,6 @@ async fn agents_turn(core: &Arc<Core>, sid: &str, input: &str) {
             target,
             sink,
             author: "test".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

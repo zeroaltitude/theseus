@@ -439,7 +439,6 @@ async fn turn_as(c: &std::sync::Arc<crate::Core>, sid: &str, input: &str, in_per
             target,
             sink,
             author: "cli".into(),
-            recompile: None,
             attachments: vec![],
             arrived: None,
             reply_to: None,

@@ -16,8 +16,6 @@ use crate::tests_places::{
 use crate::tests_private_view::session_in;
 use crate::tests_view_compile::{fallbacks, legal, submit, texts};
 
-fn view(c: &mut crate::Config) {}
-
 /// The `context.compiled` rows of `sid`, oldest first: (turn, strategy).
 fn compiled(c: &crate::Core, sid: &str) -> Vec<(String, String)> {
     (crate::test_support::rows(c, "context.compiled").into_iter())
@@ -130,7 +128,6 @@ async fn a_continuation_after_a_jobs_end_takes_the_view_and_answers() {
     const ENDED: &str = "a background job this conversation started has ended";
     let r = rig_setup_scripted(
         |c| {
-            view(c);
             c.tools.proc_sync_secs = 1;
         },
         |_| {},
@@ -337,7 +334,6 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    view(&mut cfg);
     let fake = Arc::new(crate::provider::FakeProvider::scripted(vec![
         Scripted::Fail(ProviderError::Api {
             status: 418,

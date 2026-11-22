@@ -7,11 +7,10 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_protocol::{method, SessionKind};
+use theseus_protocol::method;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::approval::{Client, Surface};
-use crate::session::SessionRecord;
 use crate::Core;
 
 struct Rig {

@@ -331,7 +331,7 @@ async fn a_view_place_is_not_kept_warm() {
     use crate::keep_warm::Outcome;
     use crate::tests_keep_warm::{build, one_hour, reads, session, turn};
     let dir = tempfile::tempdir().unwrap();
-    let mut c = one_hour(24);
+    let c = one_hour(24);
     let (core, fake) = build(dir.path(), c);
     let live = core.live_profile().0;
     let sid = session(&core, theseus_protocol::SessionKind::Conversation, None);
