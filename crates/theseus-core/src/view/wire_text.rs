@@ -9,9 +9,12 @@
 //! (`super::sources_store::Sessions::texts`). A piece with no text read is left out of the text; it stays in
 //! the view, so the view's record still says it was chosen.
 
+use std::collections::BTreeSet;
+
 use super::budget::View;
 use super::fold::FoldNode;
 use super::render::{MarkedBlock, Renderer, RequestParts};
+use super::sources_recall;
 use super::sources_store::author_of;
 use super::text::forms::{self, Said, Voice};
 use super::text::labels::{self, Origin};
@@ -23,6 +26,7 @@ use crate::ladder::did;
 use crate::node::Node;
 use crate::recall::stamp::ZoneAt;
 use crate::store::Store;
+use crate::stub::Stub;
 
 /// The renderer over `store`, its times said in `zone`.
 pub struct TextRenderer<'a> {
@@ -53,16 +57,20 @@ fn part(slot: Slot) -> Part {
 impl TextRenderer<'_> {
     /// The nodes of exchange `turn`, in order, from the session that ran it.
     fn exchange_nodes(&self, turn: &str) -> anyhow::Result<Vec<Node>> {
+        let nodes = self.exchange_stubs(turn)?;
+        Ok(nodes.into_iter().map(|(_, n)| (*n).clone()).collect())
+    }
+
+    fn exchange_stubs(&self, turn: &str) -> anyhow::Result<Vec<(u64, Stub)>> {
         let Some(ex) = exchange::exchange(self.store, turn)? else {
             return Ok(Vec::new());
         };
-        let nodes = match self.sessions {
+        Ok(match self.sessions {
             Some(s) => s.exchange(self.store, &ex.session_id, turn)?,
             None => (self.store.transcript(&ex.session_id)?.into_iter())
                 .filter(|(_, n)| n.turn_id.as_deref() == Some(turn))
                 .collect(),
-        };
-        Ok(nodes.into_iter().map(|(_, n)| (*n).clone()).collect())
+        })
     }
 
     /// A piece's marked blocks: an exchange's parts each labelled by its own provenance
@@ -72,10 +80,12 @@ impl TextRenderer<'_> {
             Space::Exchanges { .. } => {}
             Space::Task { task } => return self.task_card(p, task, pov),
             Space::Card { .. } | Space::Waiting { .. } | Space::Facts { .. } => {
-                return Ok(self.read_text(p, form, pov))
+                return Ok(self.read_text(p, form, pov, labels::block))
             }
             // A recalled item is laid whole, as its `Recall` note renders it, or not at all.
-            Space::Recalled { .. } => return Ok(self.read_text(p, Form::Whole, pov)),
+            Space::Recalled { .. } => {
+                return Ok(self.read_text(p, Form::Whole, pov, sources_recall::block))
+            }
             _ => return Ok(Vec::new()),
         }
         let place = p.marks.place.as_deref().unwrap_or("an unknown place");
@@ -142,7 +152,7 @@ impl TextRenderer<'_> {
 
     /// A piece whose text the turn's sources read (a card, a waiting line, the facts about the person), as
     /// one block of its own provenance: whole, or its first line alone in the line form.
-    fn read_text(&self, p: &Piece, form: Form, pov: &PointOfView) -> Vec<MarkedBlock> {
+    fn read_text(&self, p: &Piece, form: Form, pov: &PointOfView, lay: Lay) -> Vec<MarkedBlock> {
         let read = self
             .sessions
             .and_then(|s| s.texts.borrow().get(&p.range.space).cloned());
@@ -158,7 +168,7 @@ impl TextRenderer<'_> {
             at_ms: p.range.last.at_ms,
             source: None,
         };
-        vec![labels::block(p, pov, &origin, &text, self.zone)]
+        vec![lay(p, pov, &origin, &text, self.zone)]
     }
 
     /// The ladder's nodes as fold blocks, oldest first, the person's words read from the store.
@@ -227,9 +237,30 @@ fn beside(blocks: Vec<MarkedBlock>) -> Option<MarkedBlock> {
     })
 }
 
+/// How a piece of one provenance becomes its block: `labels::block`, or a recalled item's own.
+type Lay = fn(&Piece, &PointOfView, &Origin<'_>, &str, ZoneAt<'_>) -> MarkedBlock;
+
 impl Renderer for TextRenderer<'_> {
     fn memory_page(&self) -> (u32, &'static str) {
         page::memory_page()
+    }
+
+    /// Every node an exchange shown here lays with its words, in the form it is laid
+    /// (`sources_recall::carries`): a window's, a fork's inherited one, or another slot's.
+    fn carried(&self, view: &View) -> anyhow::Result<BTreeSet<String>> {
+        let mut out = BTreeSet::new();
+        for s in
+            (view.shown.iter()).filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
+        {
+            for turn in [&s.piece.range.first.id, &s.piece.range.last.id] {
+                let laid = self.exchange_stubs(turn)?.into_iter();
+                out.extend(
+                    laid.filter(|(_, n)| sources_recall::carries(s.form, n.kind))
+                        .map(|(_, n)| n.id),
+                );
+            }
+        }
+        Ok(out)
     }
 
     fn render(&self, view: &View, _: &dyn Snapshot) -> anyhow::Result<RequestParts> {
@@ -244,6 +275,7 @@ impl Renderer for TextRenderer<'_> {
             to.extend(self.blocks(p, s.form, &view.pov)?);
         }
         recall_preamble(&mut moving);
+        recall_left_out(&mut moving, view);
         let (version, _) = page::memory_page();
         Ok(RequestParts {
             memory_page: version,
@@ -269,6 +301,42 @@ fn recall_preamble(moving: &mut Vec<MarkedBlock>) {
             label: Label::Testimony,
             heading: String::new(),
             text: crate::recall::render::preamble(n),
+            sources: Vec::new(),
+            handle: None,
+        },
+    );
+}
+
+/// What the budget cut of slot H, said where its items end (issue 44): `[N more of what search recalled,
+/// about T tokens, left out; open HANDLE]` (`blocks::residue_line`), the handle the newest item cut. With
+/// every item cut, the line alone, and no preamble. A passage set aside as already in the window is not
+/// counted: it is there.
+fn recall_left_out(moving: &mut Vec<MarkedBlock>, view: &View) {
+    use super::budget::DropWhy;
+    use super::select::Band;
+    let Some(r) = view.residue.iter().find(|r| r.band == Band::Recall) else {
+        return;
+    };
+    let Some(cut) = (view.dropped.iter())
+        .find(|d| d.band == Band::Recall && !matches!(d.why, DropWhy::Merged | DropWhy::InWindow))
+    else {
+        return;
+    };
+    let Some(text) = blocks::residue_line(r, &cut.handle) else {
+        return;
+    };
+    let recalled =
+        |b: &MarkedBlock| (b.sources.iter()).any(|r| matches!(r.space, Space::Recalled { .. }));
+    let at = moving
+        .iter()
+        .rposition(recalled)
+        .map_or(moving.len(), |i| i + 1);
+    moving.insert(
+        at,
+        MarkedBlock {
+            label: Label::Testimony,
+            heading: String::new(),
+            text,
             sources: Vec::new(),
             handle: None,
         },
