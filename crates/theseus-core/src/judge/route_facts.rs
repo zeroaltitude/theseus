@@ -3,8 +3,9 @@
 //! from its nodes.
 //!
 //! `restricted_models` is always `allowed`: no model is kept off a session
-//! for its origin since 2026-11-21. The key stays in the state until a route
-//! pack version drops it, so the live pack's state keeps its shape.
+//! for its origin since 2026-11-21, and the switch's price reads every
+//! candidate. The key stays in the state until a route pack version drops it,
+//! so the live pack's state keeps its shape.
 //!
 //! Nothing here asks Jev to compute: the hour is read from the instant given,
 //! so a test passes the instant and no clock is mocked.
@@ -40,7 +41,7 @@ pub(crate) fn facts_of(before: &[Node], task: bool, now_ms: u64) -> RouteFacts {
     // What a switch would cost this message, and which model the cheaper one
     // is, is the catalog's arithmetic at this hour's prices, not Jev's
     // (theseus-h66v4.1, theseus-h66v4.8).
-    let switch = switch_cost(builtin(), last, est, period, RestrictedModels::Allowed);
+    let switch = switch_cost(builtin(), last, est, period);
     RouteFacts {
         price_period: period,
         restricted_models: RestrictedModels::Allowed,

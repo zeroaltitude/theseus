@@ -46,7 +46,7 @@
 //! replay case recorded before then may say `not_allowed`, and for it a model
 //! of restricted origin is no candidate, as the case was recorded.
 
-use theseus_judge::builders::{PricePeriod, RestrictedModels, SwitchCost};
+use theseus_judge::builders::{PricePeriod, SwitchCost};
 
 use super::Catalog;
 // The models a switch is weighed against: the route pack's `model` options and
@@ -97,7 +97,7 @@ fn named(option: &str, off_peak: bool) -> Box<str> {
 }
 
 /// What switching costs `prefix_tokens` of resident prefix, from the `current`
-/// warm model, at `period`'s prices and under `restricted`: `about_the_same`
+/// warm model, at `period`'s prices (every candidate, whatever its origin, since 2026-11-21): `about_the_same`
 /// and no name where none is warm, or the catalog does not price it, or no
 /// other candidate is left to price.
 pub fn switch_cost(
@@ -105,7 +105,6 @@ pub fn switch_cost(
     current: Option<&str>,
     prefix_tokens: u64,
     period: PricePeriod,
-    restricted: RestrictedModels,
 ) -> Switch {
     let same = Switch {
         cost: SwitchCost::AboutTheSame,
@@ -125,13 +124,6 @@ pub fn switch_cost(
         .filter(|(_, m)| *m != current)
         .filter_map(|(option, m)| {
             let e = catalog.get(m)?;
-            let restricted_origin = matches!(
-                e.origin,
-                super::ModelOrigin::Cn | super::ModelOrigin::Unknown
-            );
-            if restricted_origin && restricted == RestrictedModels::NotAllowed {
-                return None;
-            }
             Some((
                 *option,
                 e.input_price_in(prefix_tokens, period),
