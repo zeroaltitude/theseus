@@ -1,6 +1,7 @@
 //! `[context] assembly` (issue 44): how a request's context is assembled, `"transcript"` (as built) or
 //! `"view"` (`crate::view`). One value for every place, or a default and values by place. Absent:
-//! `"view"` everywhere. Read only by `ContextConfig::assembly_for`.
+//! `"view"` everywhere (the transcript where `[context] ledger = false`). Read only by
+//! `ContextConfig::assembly_for`.
 
 use std::collections::BTreeMap;
 
@@ -79,6 +80,21 @@ mod tests {
         assert_eq!(by.assembly_for("local"), Assembly::Transcript);
         assert!(toml::from_str::<ContextConfig>("assembly = \"other\"").is_err());
         assert!(!context("assembly = \"view\"").is_empty());
+    }
+
+    /// With no `assembly` and the ledger off, a place stays on the transcript: the view it would default
+    /// to reads the ledger, and would show such a place no conversation at all.
+    #[test]
+    fn no_assembly_with_the_ledger_off_is_the_transcript() {
+        assert_eq!(
+            context("ledger = false").assembly_for("local"),
+            Assembly::Transcript
+        );
+        assert_eq!(
+            context("ledger = true").assembly_for("local"),
+            Assembly::View
+        );
+        assert!(context("ledger = false").validate().is_ok());
     }
 
     /// A view reads the exchange ledger: a view with the ledger off is refused at load, saying why.
