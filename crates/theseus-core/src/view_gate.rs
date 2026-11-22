@@ -13,6 +13,7 @@ use theseus_memory::gate::{self as rule, Denied, Marks, PointOfView, Present, Se
 use theseus_memory::recall::Place;
 
 use crate::session::SessionRecord;
+use crate::store::Store;
 use crate::turn::TurnRunner;
 
 /// What the gate names an imported session's place: the owner's own history,

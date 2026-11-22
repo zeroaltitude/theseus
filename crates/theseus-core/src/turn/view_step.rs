@@ -351,6 +351,31 @@ const CALL_HEADROOM: u64 = 4_096;
 /// How many times one call is compiled again when something its view laid was removed under it.
 const VIEW_REASSEMBLIES: u32 = 2;
 
+/// A test's seam: what runs at the start of the next `env_tail` of a session (after the view's assembly,
+/// before the call is sent), once.
+#[cfg(test)]
+type EnvHook = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static AT_ENV_TAIL: std::sync::Mutex<Vec<(String, EnvHook)>> = std::sync::Mutex::new(Vec::new());
+
+/// Run `f` at the next `env_tail` of `session`.
+#[cfg(test)]
+pub(crate) fn env_tail_hook(session: &str, f: EnvHook) {
+    AT_ENV_TAIL.lock().unwrap().push((session.to_string(), f));
+}
+
+#[cfg(test)]
+pub(super) fn at_env_tail(session: &str) {
+    let hook = {
+        let mut hooks = AT_ENV_TAIL.lock().unwrap();
+        (hooks.iter().position(|(s, _)| s == session)).map(|i| hooks.remove(i).1)
+    };
+    if let Some(f) = hook {
+        f();
+    }
+}
+
 /// What one view is assembled for: a turn's (`view_freeze`), or a preview's of a place's next turn.
 pub(super) struct Asked<'a> {
     pub store: &'a Store,
