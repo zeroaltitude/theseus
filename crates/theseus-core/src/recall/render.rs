@@ -185,8 +185,8 @@ pub fn persona_mark(name: &str, n: &Node, position: u64) -> String {
     format!("[from {name}, {}, @{position}]", utc_day(n.created_at_ms))
 }
 
-/// `2026-09-30`: a source's day (UTC), as a thread's citations name it
-/// (the mark above and `thread.read`'s hits).
+/// `2026-09-30`: a source's day (UTC), as a citation names it (the mark
+/// above).
 pub fn utc_day(ms: u64) -> String {
     let (y, m, d) = crate::wake::civil_from_days((ms / 1000 / 86_400) as i64);
     format!("{y:04}-{m:02}-{d:02}")

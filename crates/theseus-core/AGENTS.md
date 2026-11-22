@@ -715,7 +715,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   judge nothing (`tests_cross_judge::no_call_when_the_digest_fired`, which also asserts a drop above the bar, so it
   cannot pass with nothing to guard). Tests: `rpc/tests_cross_judge.rs`. A sealed thread's notes, or one with a seal
   proposed (`seal_pending`), are dropped as `sealed` for every session but its own, whatever the message names, the
-  rerank and `thread.read`-less lookups included (`memory.lookup`'s words ask with the seal and no distance). The
+  rerank and the lookups included (`memory.lookup`'s words ask with the seal and no distance). The
   `Recall` item of another thread's note begins its frozen header `[from thread «title», day, @pos]`
   (`render::thread_mark`). `rpc/thread_seal.rs`: `thread.seal` (+`redirect`: a harness note in each session the
   notes had crossed into, found from the `derived_from` edges, via `recall`, of `Recall` nodes), `thread.unseal`,
@@ -725,9 +725,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `seal_pending`, writes `thread.seal_proposed` and posts a `seal_card` to the owner's DM, Discord's Seal this thread /
   Not needed), and the owner's own seal, `chat.seal_thread` (a tool) or `/thread seal`.
   `thread.new { sealed, split_from }`: a split from a sealed thread starts sealed; a task's session is its parent's
-  thread; `threads::merged_seal` is the rule for a merge. `thread_read.rs`: the model tool `thread.read {thread,
-  query?}` (private places; the card and the top hits, cited by thread and position; `gate` raises it to `approve`
-  when the thread is sealed or proposed). Tests: `rpc/tests_thread_recall.rs`, theseus-memory's `tests_threads.rs`.
+  thread; `threads::merged_seal` is the rule for a merge. The model tool `thread.read` is gone (issue 46): the model
+  looks back with `context.history`, and an old thread's records stay readable (`thread list`, `thread show`).
+  Tests: `rpc/tests_thread_recall.rs`.
 
 - **The thread router** (theseus-rha2; the owner, 2026-11-21: by address only): a message in a place with live threads
   runs in a thread only by its address (`thread_route::address`, certain, no judge): the place a thread alone lists, an
@@ -1704,7 +1704,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (4) **Recall's category term**: `CategoryScene` (private places only, the held snapshot, `[ontology] recall_boost`
     0.25, 0 off) reads the stored memberships, the thread (`ThreadScene::of`) and the project of the asker and of each
     candidate's session, and hands the pure pipeline a `theseus_memory::CategoryBoost` (project and thread weight 1, topic
-    0.6, the rest 0.3). Ambient turn recall only: the model's lookups, `thread.read` and a shared place have none. Tests:
+    0.6, the rest 0.3). Ambient turn recall only: the model's lookups and a shared place have none. Tests:
     `tests_onto.rs`, `tests_category.rs` (memory), `tests_manifest.rs`.
   - **People from text** (theseus-wy7y, `judge/people/`): `people.v1`, live (`WIRED`), at the same exchange end as
     `categorize.v1` (`live.rs`: private places only, never a task's, `categorize::due` over the records after its own

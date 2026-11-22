@@ -40,6 +40,8 @@ const EVERY: &str = "[model]\n\
                      resume_keep_turns = 20\n\
                      home_warn_percent = 50\n\
                      seal_recommend = false\n\
+                     [policy.tools]\n\
+                     \"thread.read\" = \"open\"\n\
                      [profiles.quick]\n\
                      provider = \"anthropic\"\n\
                      model = \"claude-haiku-5-5\"\n\

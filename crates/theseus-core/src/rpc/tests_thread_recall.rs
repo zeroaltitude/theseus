@@ -1,11 +1,10 @@
 //! Threads in recall (theseus-f2g0) through the whole core: a note from
-//! another thread names its thread, and `thread.read` cites a thread's notes.
+//! another thread names its thread.
 //! The distance and the seal are gone (p17: anything goes); the helpers here
 //! still serve the other thread tests.
 
 use std::sync::Arc;
 
-use serde_json::json;
 use theseus_protocol::index::{IndexHit, IndexQueryResult, IndexSourceRank};
 use theseus_protocol::threads::ThreadNewParams;
 
@@ -164,39 +163,4 @@ fn day_of(c: &Core, node: &str) -> String {
     let (_, n) = c.store.get_node(node).unwrap().unwrap();
     let (y, m, d) = crate::wake::civil_from_days((n.created_at_ms / 1000 / 86_400) as i64);
     format!("{y:04}-{m:02}-{d:02}")
-}
-
-/// `thread.read` with a query gives the thread's card and its top notes,
-/// each cited by thread and position.
-#[tokio::test]
-async fn a_read_with_a_query_cites_the_threads_notes() {
-    let r = canary();
-    let c = &r.core;
-    new_thread(c, "security-fix", "security fix");
-    let fix = thread_session(c, "security-fix");
-    let id = say(c, &fix, "The staging proxy listens on port 8443.");
-    let asker = session(c, None, &[]);
-    // Called past any turn: as from a turn of the owner's in person (issue 44).
-    crate::view_gate::seat_owner(&c.runner, &asker);
-    c.runner
-        .memory
-        .set_ask(scored(c, vec![(fix.clone(), 0, 0.04)]));
-    let out = crate::thread_read::call(
-        c.clone(),
-        &asker,
-        json!({"thread": "Security Fix", "query": "staging proxy port"}),
-    )
-    .await
-    .unwrap();
-    assert!(
-        out.text
-            .contains("Thread «security fix» (security-fix, active)"),
-        "{}",
-        out.text
-    );
-    let (position, _) = c.store.get_node(&id).unwrap().unwrap();
-    let cite = format!("[thread «security fix», {}, @{position}]", day_of(c, &id));
-    assert!(out.text.contains(&cite), "{}", out.text);
-    assert!(out.text.contains("port 8443"), "{}", out.text);
-    assert_eq!(out.meta["shown"], 1);
 }

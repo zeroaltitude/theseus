@@ -253,7 +253,7 @@ pub(crate) struct Offered {
 }
 
 /// What the chat acts reach: the core, given once it is built
-/// ([`Board::attach`], as `thread_read::Board` is given one), the messages
+/// ([`Board::attach`], as `history_tool::Board` is given one), the messages
 /// heard at `turn.submit`, and what each session's current turn was offered.
 #[derive(Default)]
 pub struct Board {

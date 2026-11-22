@@ -34,7 +34,6 @@ const PLAIN: &[&str] = &[
     "self",
     "tasks",
     "reminders",
-    "threads",
     "web",
     "memory",
     "files",

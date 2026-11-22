@@ -63,7 +63,6 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "routines",
         "routines that run on a schedule, and watches that tell you when something changes",
     ),
-    ("threads", "read another thread of the conversation"),
     (
         HISTORY,
         "read further back through this place's history, one line an exchange, and open one",
@@ -194,7 +193,6 @@ pub fn of_wire(wire: &str) -> String {
             "task" => "tasks",
             "wake" => "reminders",
             "routine" | "watch" => "routines",
-            "thread" => "threads",
             "project" => "projects",
             "plan" => "plan",
             "term" => "terminals",
@@ -350,11 +348,10 @@ impl PlaceKind {
             // to and reading other places is deferred (theseus-to0xw): a
             // direct message answers in itself, and the family is 855 tokens
             // of the DM's 15,000 budget; a search loads it, and the ledger's
-            // use puts it back where a DM calls it in 1 of 10 turns. Routines,
-            // watches and threads are deferred the same way (2026-10-15, the
-            // owner's "Go for it!"): `routine_create`, `watch` and
-            // `thread_read` had no call in 30 days across every session
-            // (install #30's census), 1,167 tokens of the DM's request.
+            // use puts it back where a DM calls it in 1 of 10 turns. Routines
+            // and watches are deferred the same way (2026-10-15, the owner's
+            // "Go for it!"): `routine_create` and `watch` had no call in 30
+            // days across every session (install #30's census).
             //
             // The tasks themselves are deferred there (theseus-rwpbg.3, the owner's rule of
             // 2026-10-14): `task_create`, `task_update`, `task_close`, `task_claim` and
@@ -403,7 +400,6 @@ mod tests {
             ("routine_create", "routines"),
             ("watch", "routines"),
             ("project_attach", "projects"),
-            ("thread_read", "threads"),
             ("term_open", "terminals"),
             ("lsp_definition", "code"),
             ("channel_post", "channels"),

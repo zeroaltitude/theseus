@@ -502,18 +502,18 @@ async fn a_search_that_found_the_tool_lets_the_call_through_and_is_counted() {
 
 #[tokio::test]
 async fn the_ledgers_calls_promote_a_family_the_next_conversation_loads() {
-    // The ledger shows threads called in most CLI turns: the selector
+    // The ledger shows projects called in most CLI turns: the selector
     // loads it, without a hand-tuned list. (A search alone would not: theseus-buz3h.)
     let r = rig();
     for i in 0..12u64 {
         r.core.runner.tools.defer.apply_used(
             theseus_protocol::now_unix_ms() - 3 * 86_400_000 + i,
-            &json!({"place": "cli", "loaded": ["files"], "used": ["threads"], "searched": [], "unused": []}),
+            &json!({"place": "cli", "loaded": ["files"], "used": ["projects"], "searched": [], "unused": []}),
         );
     }
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
-    assert!(!deferred(&r.requests()[0], "thread_read"));
+    assert!(!deferred(&r.requests()[0], "project_attach"));
 }
 
 #[tokio::test]
@@ -778,9 +778,9 @@ async fn a_model_that_never_calls_tools_find_reaches_a_small_family_the_message_
     assert!(r.requests().iter().all(|q| tool_bytes(q) == first));
 }
 
-/// install #30's live check (theseus-ezad2): asked "Call the thread_read tool once", Haiku on the owner's cli
+/// install #30's live check (theseus-ezad2): asked to call one deferred tool by name, Haiku on the owner's cli
 /// found nothing loaded, because the place's tools were already over its budget and no family could be added.
-/// With the language servers on (the owner's config) and deferred, the threads family fits and is offered.
+/// With the language servers on (the owner's config) and deferred, the named tool's family fits and is offered.
 #[tokio::test]
 async fn on_the_owners_cli_a_model_without_tool_search_reaches_a_tool_the_message_names() {
     let r = rig_deferring(
@@ -798,18 +798,18 @@ async fn on_the_owners_cli_a_model_without_tool_search_reaches_a_tool_the_messag
             if answers_a_call(req) {
                 return Scripted::text("Done.");
             }
-            if last_user(req).contains("thread_read")
-                && offered(req).contains(&"thread_read".to_string())
+            if last_user(req).contains("project_attach")
+                && offered(req).contains(&"project_attach".to_string())
             {
-                return Scripted::tools("", &[("t1", "thread_read", json!({}))]);
+                return Scripted::tools("", &[("t1", "project_attach", json!({}))]);
             }
             Scripted::text("No such tool is loaded here.")
         },
     );
     let sid = session(&r.core, None);
-    let res = say(&r.core, &sid, "Call the thread_read tool once").await;
+    let res = say(&r.core, &sid, "Call the project_attach tool once").await;
     let names = offered(&r.requests()[0]);
-    assert!(names.contains(&"thread_read".to_string()), "{names:?}");
+    assert!(names.contains(&"project_attach".to_string()), "{names:?}");
     assert!(
         !names.iter().any(|n| n.starts_with("lsp_")),
         "the language servers are deferred: {names:?}"
