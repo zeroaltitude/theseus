@@ -231,7 +231,7 @@ pub(crate) fn drops(b: Option<&BudgetReport>) -> impl Iterator<Item = &BudgetDro
 
 /// The tokens of the results among `shown` that a pass could clear or keep:
 /// not late, not cleared already, by `pass`'s own estimate.
-fn live_tokens(shown: &[(u64, &Node)], already: &HashSet<&str>, per_byte: f64) -> u64 {
+pub(super) fn live_tokens(shown: &[(u64, &Node)], already: &HashSet<&str>, per_byte: f64) -> u64 {
     shown
         .iter()
         .filter_map(|(_, n)| result_tokens(n, already, per_byte))

@@ -18,11 +18,18 @@
 //!   the turn's next frame.
 //! - **While routing decides** (theseus-n7nc): the row waits for the route
 //!   (`recall_routed`), and is recorded once it is known.
-//! - **What the request carried**: every request carries the turn's pending
-//!   node, so it rides the plan frame. (Two gates once withheld it, writing a
-//!   `recall.withheld` row: the small-talk bar, retired by issue 44, and a
-//!   request bound for a model of restricted origin, deleted on 2026-11-21.
-//!   Old rows of that kind still read.)
+//! - **Only what the request carried** (theseus-fpm2): the node rides the plan
+//!   frame only when the compile the call used rendered it (`carries`, read by
+//!   `recall_view` and recorded as `Recalled::withheld`). A place set to `view`
+//!   carries none (issue 44): its recall reaches the model as a selector's
+//!   piece beside the message, so no note is written into the session. The
+//!   withholding writes a `recall.withheld` row (`recall_dropped`, scoped with
+//!   the recall's other rows, why `view`) carrying the `recall_id` of the
+//!   `recall.ran` row that admitted the notes and how many it admitted, so a
+//!   reader can tell "withheld" from "nothing matched" (theseus-ectzg). A
+//!   compile that withheld the node reports no budget drops of its pack
+//!   (`recall_compiled`). (Two earlier gates, the small-talk bar and a model
+//!   of restricted origin, are gone; their old rows still read.)
 
 use std::collections::BTreeSet;
 
@@ -33,7 +40,7 @@ use super::{Turn, TurnRunner};
 use crate::compiler::Compiled;
 use crate::config::memory::{Assigned, MemoryArm};
 use crate::config::MemoryMode;
-use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow};
+use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow, RecallWithheld};
 use crate::graph::{Edge, EdgeKind, VIA_RECALL};
 use crate::node::{Body, Node, RecalledRef};
 use crate::recall::render::{self, Sources};
@@ -67,6 +74,10 @@ pub(crate) struct Recalled {
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
+    /// Why the last compile withheld the pending node from its request
+    /// ([`VIEW`]): nothing of it rides the plan frame. `None` until a compile
+    /// says otherwise, so a path that compiles nothing behaves as it did.
+    pub withheld: Option<&'static str>,
 }
 
 impl Recalled {
@@ -82,6 +93,10 @@ impl Recalled {
 /// The position a pending `Recall` node renders at: after every node, as
 /// the plan frame will write it.
 const PENDING: u64 = u64::MAX;
+
+/// A `recall.withheld` row's `why`: the turn's place is set to `view` (issue 44), where recall is a
+/// selector's result in the block beside the message and no note is written into the session.
+pub(super) const VIEW: &str = "view";
 
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and
@@ -608,11 +623,76 @@ impl TurnRunner {
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
+    /// Why this turn's request does not carry its pending `Recall` node, when it does not:
+    /// [`VIEW`] in a place set to `view`, whose recall reaches the model as a selector's piece
+    /// beside the message (issue 44). `None` when it carries it.
+    fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
+        (self.assembly_here(t) == crate::config::assembly::Assembly::View).then_some(VIEW)
+    }
+
+    /// The compile withheld the pending node, so the turn recalled nothing:
+    /// no record rides the plan frame, and the footer, the citations and the
+    /// next turn's render have nothing to count (theseus-fpm2). The node was
+    /// never written.
+    pub(super) fn recall_dropped(t: &mut Turn<'_>, why: &str) -> Vec<NewRecord> {
+        // A turn with no pending recall withheld nothing: no node was built.
+        let record = match t.recall.recall_id.is_empty() {
+            true => Vec::new(),
+            false => Self::withheld_row(t, why),
+        };
+        t.recall.rides.clear();
+        t.recall.items.clear();
+        t.recall.recall_id.clear();
+        t.recall.count = 0;
+        record
+    }
+
+    /// The `recall.withheld` row for the recall the compile did not carry,
+    /// scoped with the turn's other recall rows.
+    fn withheld_row(t: &Turn<'_>, why: &str) -> Vec<NewRecord> {
+        // The join key is the manifest's `recall_id`, which the node's body
+        // holds; the node's own id (never written) rides beside it.
+        let recall_id = match t.recall.pending.as_ref().map(|n| &n.body) {
+            Some(Body::Recall { recall_id, .. }) => recall_id.as_str(),
+            _ => "",
+        };
+        let row = RecallWithheld {
+            recall_id,
+            node_id: &t.recall.recall_id,
+            admitted: t.recall.count,
+            profile: &t.target.profile,
+            why,
+        };
+        match t.tc.rec().row(&row) {
+            Ok(r) => vec![r.scoped(&scope(t.tc.session_id))],
+            Err(e) => {
+                tracing::warn!(error = %e, "recall: its withholding row cannot be encoded");
+                Vec::new()
+            }
+        }
+    }
+
+    /// [`Self::recall_view`] for the turn's own compile, which also records
+    /// whether this request carries the pending node (theseus-fpm2). A later
+    /// compile of the same loop, which a route's switch makes, overwrites it,
+    /// so the call reads the compile it used. A compaction's nested compile
+    /// renders the same view and leaves the record alone.
+    pub(super) fn recall_carried(
+        &self,
+        t: &mut Turn<'_>,
+        nodes: Transcript,
+    ) -> (Transcript, Sources) {
+        t.recall.withheld = self.carries(t);
+        self.recall_view(t, nodes)
+    }
+
     /// The transcript a loop compiles, with the turn's pending `Recall` node
-    /// after every node, and the sources its recalls render.
+    /// after every node (unless the turn withholds it, [`Self::carries`]), and
+    /// the sources its recalls render.
     pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
         let mut nodes = nodes;
-        if let Some(n) = t.recall.pending.as_ref() {
+        let carried = self.carries(t).is_none();
+        if let Some(n) = t.recall.pending.as_ref().filter(|_| carried) {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {
                 nodes.push((PENDING, n.clone().into()));
@@ -642,6 +722,12 @@ impl TurnRunner {
             return;
         };
         compiled.compilation.includes.retain(|id| *id != n.id);
+        // A request that withheld the node carried nothing of the pack's, so
+        // it dropped nothing for budget. The drops stay held: a later compile
+        // of the loop (a route's switch) may carry the node (theseus-ectzg).
+        if t.recall.withheld.is_some() {
+            return;
+        }
         // While routing decides, this compile may be discarded for a switch's:
         // the drops stay for the compile the call uses (theseus-3urn), and
         // `keep_first` lets them go once it is this one.
