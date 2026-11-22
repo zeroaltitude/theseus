@@ -18,7 +18,7 @@ mod room;
 pub(super) mod task;
 
 #[cfg(test)]
-pub(crate) use super::exchange_step::route_unreadable;
+pub(crate) use super::exchange_step::{route_readable, route_unreadable};
 #[cfg(test)]
 pub(crate) use failed::fail_next_assembly;
 pub(in crate::turn) use failed::ViewFailed;
@@ -73,9 +73,9 @@ impl TurnRunner {
     }
 
     /// This loop's compile: in a place set to `view`, from the turn's view (assembled on its first call);
-    /// else, and for a view turn over its budget (`Fallback`), the transcript's, with a summary where the
-    /// ring would cut (30c). A view that cannot be assembled soundly fails the turn plainly (`ViewFailed`):
-    /// never a partial view. The view's record is kept with the compilation it was built for, once.
+    /// else the transcript's, with a summary where the ring would cut (30c). A view that cannot be
+    /// assembled soundly fails the turn plainly (`ViewFailed`): never a partial view, and no hand-back.
+    /// The view's record is kept with the compilation it was built for, once.
     pub(super) async fn compile_here(
         &self,
         t: &mut Turn<'_>,
@@ -118,7 +118,8 @@ impl TurnRunner {
     }
 
     /// One call of a view turn, or why this turn is the transcript's (`None`: decided before); a turn whose
-    /// place could not be read fails (`ViewFailed::Place`).
+    /// place could not be read fails (`ViewFailed::Place`), as does one that cannot resume what it continues
+    /// (`ViewFailed::Resume`, `ResumeHere`: `resume_step`).
     fn view_compile(
         &self,
         t: &mut Turn<'_>,
@@ -132,6 +133,9 @@ impl TurnRunner {
         if held.is_none() {
             if t.exchange.place_unread() {
                 return Err(ViewFailed::Place.into());
+            }
+            if let Some(why) = t.exchange.unresumable() {
+                return Err(ViewFailed::from(why).into());
             }
         } else if self.view_revoked(t) || self.view_moved(t) {
             // A source sealed since, or a presence that changed (a steer narrowed it): reassembled under
