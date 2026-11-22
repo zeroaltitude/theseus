@@ -58,6 +58,11 @@ sys.stderr.write(fx.get('daemon_stderr', '') + '\\n')
 sys.stderr.flush()
 if fx.get('daemon') == 'exit':
     sys.exit(7)
+if fx.get('daemon') == 'spawn_and_exit':
+    import subprocess
+    sleeper = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])  # in this group
+    open(os.path.join(d, 'sleeper.pid'), 'w').write(str(sleeper.pid))
+    sys.exit(0)
 while True:
     time.sleep(0.2)
 """
@@ -486,6 +491,8 @@ class FakeDaemon(unittest.TestCase):
         first = self.stderr.getvalue().splitlines()[0]
         self.assertIn(str((out / "daemon").resolve()), first)
         self.assertTrue(first.startswith("view kit: scratch directory "))
+        self.assertIn("store copy, state/, is removed", first)
+        self.assertIn("the directory itself stays", first)
 
     def test_a_hanging_shutdown_still_ends_the_daemon_removes_the_copy_and_restores_the_handler(self):
         f = fixture(True)
@@ -501,6 +508,61 @@ class FakeDaemon(unittest.TestCase):
         self.assertFalse(state.exists())
         self.assertEqual(signal.getsignal(signal.SIGTERM), before)
         self.assertFalse(scratch.drive.processes_naming(self.tmp / "o" / "daemon" / "state"))
+
+
+    # ---- round 4
+
+    def test_a_daemon_that_leaves_a_child_and_exits_has_its_group_killed(self):
+        f = fixture(True)
+        f["daemon"] = "spawn_and_exit"
+        f["health"] = "never"
+        self.fx(f)
+        with self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env):
+                pass
+        self.assertTrue(str(e.exception).startswith("E_DAEMON_EXIT"))
+        sleeper = int((self.tmp / "o" / "daemon" / "sleeper.pid").read_text())
+        for _ in range(100):  # killed by the group signal; its new parent reaps it
+            try:
+                os.kill(sleeper, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(sleeper, signal.SIGKILL)
+            self.fail("the daemon's child outlived the teardown")
+        self.assertFalse((self.tmp / "o" / "daemon" / "state").exists())
+
+    def test_a_reap_that_fails_after_the_kill_is_a_cleanup_failure_once_the_rest_is_done(self):
+        import subprocess
+        before = signal.getsignal(signal.SIGTERM)
+        with self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+                pid, state = d.proc.pid, d.state
+                d.proc.wait = unittest.mock.Mock(side_effect=subprocess.TimeoutExpired("x", 1))
+        self.assertEqual(str(e.exception), f"E_CLEANUP {(self.tmp / 'o' / 'daemon').resolve()} pid {pid}")
+        self.assertFalse(state.exists())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+        with contextlib.suppress(ChildProcessError):  # reap what the injected failure left (subprocess may have)
+            os.waitpid(pid, 0)
+
+    def test_a_kill_refused_is_a_cleanup_failure_and_a_child_reaped_early_is_never_signalled(self):
+        before = signal.getsignal(signal.SIGTERM)
+        with unittest.mock.patch.object(scratch.os, "killpg", side_effect=PermissionError()), \
+                self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o", store=self.store, env=self.env) as d:
+                pid = d.proc.pid
+        self.assertEqual(str(e.exception), f"E_CLEANUP {(self.tmp / 'o' / 'daemon').resolve()} pid {pid}")
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
+        with unittest.mock.patch.object(scratch.os, "killpg") as killpg, self.assertRaises(scratch.Failed) as e:
+            with scratch.Scratch(self.bins, self.tmp / "o2", store=self.store, env=self.env) as d:
+                pid, state = d.proc.pid, d.state
+                d.proc.terminate()
+                d.proc.wait()  # reaped: its group id may be anyone's now
+        killpg.assert_not_called()
+        self.assertEqual(str(e.exception), f"E_CLEANUP {(self.tmp / 'o2' / 'daemon').resolve()} pid {pid}")
+        self.assertFalse(state.exists())
+        self.assertEqual(signal.getsignal(signal.SIGTERM), before)
 
 
 class SSE(BaseHTTPRequestHandler):
