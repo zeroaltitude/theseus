@@ -194,7 +194,9 @@ async fn a_turn_resumed_after_an_interruption_takes_the_view() {
         }
     });
     let c = &r.core;
-    let sid = session_in(c, None, &r.root);
+    // A session at the terminal with no directory: the test's mark names the terminal so (`turn.submit`'s
+    // names the session's directory), and the resumed turn's place is the same.
+    let sid = session(c, None);
     let _ = submit(c, &sid, "when is high tide at the harbour?").await;
     // Queued for a continuation, as the kernel queues an interrupted execution; the driver takes it.
     let rec: crate::session::SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
@@ -316,7 +318,8 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
     let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
     // No driver runs here: the resume below is the one a restart's driver makes.
     let c = crate::Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
-    let sid = session_in(&c, None, &root);
+    // At the terminal with no directory, as above: the mark's place and the resumed turn's are one.
+    let sid = session(&c, None);
     let _ = submit(&c, &sid, ASKED).await;
     let turn = (c.store.session_nodes(&sid).unwrap().into_iter())
         .find(|(_, n)| matches!(n.body, crate::node::Body::UserMessage { .. }))
@@ -341,15 +344,6 @@ async fn a_turn_resumed_after_a_restart_shows_the_cut_exchange_in_its_window() {
         .find(|q| !q.tools.is_empty())
         .unwrap();
     legal(&q);
-    for (i, m) in q.messages.iter().enumerate() {
-        let t = m.to_string();
-        eprintln!("DIAG msg {i} {}: {}", m["role"], t.chars().take(150).collect::<String>());
-    }
-    let p = c.runner.presence.get(&sid).unwrap();
-    eprintln!("DIAG presence {:?} at {}", p.present(), p.place());
-    eprintln!("DIAG cut place {} ask {:?}", ex.place, ex.ask);
-    let mark = crate::exchange::mark(&c.store, ex.ask.as_deref().unwrap_or_default());
-    eprintln!("DIAG mark {:?}", mark.map(|m| m.map(|m| (m.place, m.in_person))));
     assert!(texts(&q).contains(RESUMES), "{}", texts(&q));
     assert!(
         texts(&q).contains(ASKED),
