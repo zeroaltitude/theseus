@@ -34,13 +34,14 @@ impl Fork {
     /// The fork of `session`'s turn and its permit, for the point of view `verified`. A session that is no
     /// fork inherits nothing; nor does a fork whose inherited run cannot be read (nothing of it is shown, and
     /// the reason is logged).
-    pub fn permit(store: &Store, session: &str, _turn: &str, verified: Verified) -> (Self, Permit) {
+    pub fn permit(store: &Store, session: &str, turn: &str, verified: Verified) -> (Self, Permit) {
         let inherited = inherited(store, session).unwrap_or_else(|e| {
             tracing::warn!(session, error = %format!("{e:#}"),
                 "a fork's inherited run cannot be read; its window holds its place's exchanges alone");
             Vec::new()
         });
-        (Self { inherited }, Permit::of(verified))
+        let permit = Permit::scoped(store, session, turn, &verified);
+        (Self { inherited }, permit)
     }
 
     /// The ladder the view reads: the store's, with the inherited run among its window's candidates.
