@@ -392,15 +392,7 @@ impl TurnRunner {
         };
         let (window, mut sessions) = window_of((store, &read), &a, &pov, turn, renderer.zone)?;
         sessions.extend(gated.sessions.borrow().iter().cloned());
-        // Every exchange it lays or folds: their messages' node seals are asked again before each call.
-        let mut exchanges: Vec<String> = (window.iter())
-            .filter_map(|(_, n)| n.turn_id.clone())
-            .filter(|t| t != turn)
-            .chain(gated.exchanges.borrow().iter().cloned())
-            .chain(shown_exchanges(&a))
-            .collect();
-        exchanges.sort();
-        exchanges.dedup();
+        let exchanges = laid_exchanges(&window, turn, &gated.exchanges.borrow(), &a);
         sessions.sort();
         sessions.dedup();
         let folds = renderer.ladder(&pov, &shown_nodes(&a))?;
@@ -603,17 +595,32 @@ impl crate::view::fold::Ladder for GatedLadder<'_> {
     }
 }
 
-/// The exchanges the view's shown pieces stand for, by the ends of their ranges.
-fn shown_exchanges(a: &Assembled) -> Vec<String> {
-    (a.view.shown.iter())
+/// Every exchange a view lays or folds, once each: the window's (but `turn`'s own), the kept folds'
+/// constituents, and the ends of every shown exchange piece's range. Their messages' node seals are asked
+/// again before each call.
+fn laid_exchanges(
+    window: &[(u64, Stub)],
+    turn: &str,
+    folded: &[String],
+    a: &Assembled,
+) -> Vec<String> {
+    let shown = (a.view.shown.iter())
         .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }))
         .flat_map(|s| {
             [
                 s.piece.range.first.id.clone(),
                 s.piece.range.last.id.clone(),
             ]
-        })
-        .collect()
+        });
+    let mut out: Vec<String> = (window.iter())
+        .filter_map(|(_, n)| n.turn_id.clone())
+        .filter(|t| t != turn)
+        .chain(folded.iter().cloned())
+        .chain(shown)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Whether a person's message, a wake or a report of the turn's own opened it (they are written as the

@@ -1256,7 +1256,7 @@ async fn the_owners_inspection_withholds_a_message_moved_into_a_sealed_thread() 
     let source = crate::view::record::source::GateSource {
         runner: &c.runner,
         pov: theseus_memory::gate::PointOfView {
-            anchor: ex.place.clone(),
+            anchor: ex.place,
             place: theseus_memory::recall::Place::Private,
             present: theseus_memory::gate::Present::OwnerAlone,
         },

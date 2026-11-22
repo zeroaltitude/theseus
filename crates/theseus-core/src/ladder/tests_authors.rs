@@ -143,7 +143,7 @@ async fn an_older_summarys_account_is_withheld_where_it_could_credit_another_to_
         id: "fld_old".into(),
         place: CHANNEL.into(),
         level: 1,
-        exchanges: vec![turn.clone()],
+        exchanges: vec![turn],
         first_ms: ex.start_ms,
         last_ms: ex.start_ms,
         his: vec![super::fold::HisLine {
