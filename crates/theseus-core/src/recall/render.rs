@@ -51,7 +51,11 @@ pub fn render(items: &[RecalledRef], sources: &Sources) -> String {
 /// lays each recalled item with this (`view::sources_store`).
 pub fn item(r: &RecalledRef, source: Option<&Node>) -> String {
     match source.and_then(|n| shown(n, r.chunk)) {
-        Some(text) => format!("{}\n    \"{}\"", r.header, text.replace('\n', "\n    ")),
+        Some(text) => format!(
+            "{}\n    \"{}\"",
+            super::evidence::untitled(&r.header, &r.session_id),
+            text.replace('\n', "\n    ")
+        ),
         None => format!("(its source, {}, cannot be read)", r.node_id),
     }
 }

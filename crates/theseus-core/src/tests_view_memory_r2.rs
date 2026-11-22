@@ -190,21 +190,22 @@ async fn a_listing_three_back() -> (crate::tests_places::Rig, String, String, St
 }
 
 /// The listing's exchange, third newest and laid with its tool results whole (ample room), and its result
-/// recalled too: the result is in the request once.
+/// recalled too: the result is in the request twice, the window's and slot H's. A result is never counted as
+/// carried (clearing could make the window's a receipt after the set-aside); twice is acceptable, zero is not.
 #[tokio::test]
-async fn a_floor_exchanges_result_laid_whole_and_recalled_is_laid_once() {
+async fn a_floor_exchanges_result_laid_whole_and_recalled_is_never_lost() {
     let (r, old, _, _) = a_listing_three_back().await;
     let c = &r.core;
     c.runner.memory.set_ask(index_of(c, vec![old]));
     let new = session_in(c, None, &r.root);
     turn(c, &new, ASKED).await;
     let sent = texts(&last_call(&r));
-    assert_eq!(sent.matches(LISTED).count(), 1, "{sent}");
+    assert_eq!(sent.matches(LISTED).count(), 2, "{sent}");
 }
 
-/// Slot H's backstop over the exchanges as laid, read from the store: the listing's exchange laid spoken
-/// (its result's body cut to a receipt) does not cover the recalled result, which stays; laid whole, it
-/// does, and the recalled result is set aside as in the window, not counted as left out.
+/// Slot H's backstop over the exchanges as laid, read from the store: the listing's exchange, laid spoken (its
+/// result's body cut to a receipt) or whole, never covers the recalled result, which stays in slot H; nothing
+/// is set aside and nothing is counted as left out.
 #[tokio::test]
 async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
     let (r, old, listed, result) = a_listing_three_back().await;
@@ -257,7 +258,7 @@ async fn a_result_the_window_lays_only_as_a_receipt_stays_in_slot_h() {
         sessions: None,
         zone: &crate::recall::stamp::system,
     };
-    for (form, kept) in [(Form::Spoken, true), (Form::Whole, false)] {
+    for (form, kept) in [(Form::Spoken, true), (Form::Whole, true)] {
         let laid = piece(
             Space::Exchanges {
                 place: place.clone(),

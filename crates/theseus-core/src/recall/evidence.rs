@@ -41,6 +41,18 @@ pub fn evidence(n: &Node) -> String {
     }
 }
 
+/// A stored header as it is emitted (issue 44): one an older factory froze with its session's title
+/// (`session <short id> "<title>"`, `one_line` keeping any quote mark out of the title) is cut after
+/// `session <short id>`, the rest dropped. Any other header is as it was stored. No other parsing, and no
+/// stored note is rewritten.
+pub fn untitled<'a>(header: &'a str, session: &str) -> &'a str {
+    let old = format!("session {} \"", short(session));
+    match header.find(&old) {
+        Some(at) => &header[..at + old.len() - " \"".len()],
+        None => header,
+    }
+}
+
 /// The last six characters of a session's id, without its `ses_`.
 pub fn short(id: &str) -> &str {
     let id = id.strip_prefix("ses_").unwrap_or(id);
@@ -138,5 +150,35 @@ mod tests {
         );
         // The same inputs, the same bytes.
         assert_eq!(evidence(&call), evidence(&call));
+    }
+
+    /// A header frozen before the title went (issue 44) is emitted cut after its session's short id: the
+    /// title's words are in no rendered text, what came before them is; a header of today is as stored.
+    #[test]
+    fn an_old_frozen_header_is_emitted_without_its_title() {
+        let header = "[m:a1b2c3] a message from the owner in local, said Sun 2026-11-22 08:00 MST \
+                      (as of @7), session cd34ef \"KESTREL-MARKER plans\", volatile: as of 2026-11-22";
+        let r = crate::node::RecalledRef {
+            node_id: "msg_a1b2c3".into(),
+            session_id: "ses_ab12cd34ef".into(),
+            position: 7,
+            chunk: (0, 9),
+            header: header.into(),
+            tokens: 3,
+        };
+        let said = Node::user("ses_ab12cd34ef", None, "cli", "the words");
+        let shown = crate::recall::render::item(&r, Some(&said));
+        assert!(!shown.contains("KESTREL-MARKER"), "{shown}");
+        assert!(
+            shown.starts_with("[m:a1b2c3] a message from the owner in local, said Sun 2026-11-22 08:00 MST (as of @7), session cd34ef\n"),
+            "{shown}"
+        );
+        let today = "[m:a1b2c3] a message, session cd34ef, volatile: as of 2026-11-22";
+        assert_eq!(untitled(today, "ses_ab12cd34ef"), today);
+        assert_eq!(
+            untitled(header, "ses_99ff00aa11"),
+            header,
+            "another session's id cuts nothing"
+        );
     }
 }

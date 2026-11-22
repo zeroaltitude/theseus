@@ -312,24 +312,25 @@ impl Core {
                 continue;
             };
             for item in items {
+                let header = crate::recall::evidence::untitled(&item.header, &item.session_id);
                 let shown = match (private, self.store.get_node(&item.node_id)?) {
                     (true, Some((_, src))) => {
                         let text = crate::recall::text_of(&src);
                         let (a, b) = (item.chunk.0 as usize, item.chunk.1 as usize);
                         text.get(a.min(text.len())..b.min(text.len()))
-                            .map(|t| format!("{}\n{t}", item.header))
+                            .map(|t| format!("{header}\n{t}"))
                     }
                     _ => None,
                 };
                 out.push(ContextPart {
                     block: "recall".into(),
                     name: if private {
-                        item.header.clone()
+                        header.to_string()
                     } else {
                         item.node_id.clone()
                     },
                     bytes: u64::from(item.chunk.1.saturating_sub(item.chunk.0))
-                        + item.header.len() as u64,
+                        + header.len() as u64,
                     tokens: item.tokens,
                     digest: None,
                     then: None,
