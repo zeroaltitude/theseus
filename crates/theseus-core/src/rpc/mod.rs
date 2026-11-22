@@ -120,12 +120,9 @@ mod task_pause;
 mod task_rehome;
 mod task_reschedule;
 pub(crate) mod task_start;
-mod thread_flow;
-mod thread_grow;
 mod thread_home;
 mod thread_join;
 mod thread_link;
-mod thread_move;
 pub(crate) mod thread_seal;
 mod thread_surface;
 mod threads;
@@ -226,11 +223,7 @@ mod tests_submit_deadline;
 #[cfg(test)]
 mod tests_surface;
 #[cfg(test)]
-mod tests_thread_bench;
-#[cfg(test)]
 mod tests_thread_context;
-#[cfg(test)]
-mod tests_thread_grow;
 #[cfg(test)]
 mod tests_thread_home;
 #[cfg(test)]
@@ -239,8 +232,6 @@ mod tests_thread_join;
 mod tests_thread_link;
 #[cfg(test)]
 mod tests_thread_recall;
-#[cfg(test)]
-mod tests_thread_route;
 #[cfg(test)]
 mod tests_thread_surface;
 #[cfg(test)]

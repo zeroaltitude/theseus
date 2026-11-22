@@ -876,8 +876,7 @@ struct AskArgs {
     /// Continue an existing session instead of opening a new one.
     #[arg(long, short)]
     session: Option<String>,
-    /// Run in this thread's session, opened at its first message: the slug
-    /// `theseus thread list` shows.
+    /// Accepted and ignored: threads are gone, and the turn runs here (it says so).
     #[arg(long, value_name = "SLUG", conflicts_with = "session")]
     thread: Option<String>,
     /// Profile for this turn (default: the live profile).

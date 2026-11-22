@@ -720,13 +720,6 @@ impl Core {
         self.thread_session_of(slug, target, "discord")
     }
 
-    /// `thread_session`, the owner already judged: the router's own call, for a
-    /// message in a private place (the board offers a shared place none), and a
-    /// move's, which judged its presser (theseus-rha2).
-    pub(super) fn thread_session_open(&self, slug: &str) -> Result<SessionRecord, RpcFailure> {
-        self.thread_session_of(slug, "the owner", "the thread router")
-    }
-
     fn thread_session_of(
         &self,
         slug: &str,
