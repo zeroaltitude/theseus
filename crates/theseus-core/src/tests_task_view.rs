@@ -580,7 +580,6 @@ async fn a_report_into_a_channel_that_became_shared_is_a_notice_whoever_set_it_u
 }
 
 async fn report_after_the_channel_turned_shared(kept: bool) {
-    use crate::exchange::given::{given_record, Given};
     const BRIEF: &str = "find where the kestrel nests";
     const FACT: &str = "KESTREL NEST: grid 7Q behind the old mill";
     // The task waits two seconds on a wake before it answers, so its report lands after the channel turned:
@@ -623,24 +622,7 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
     crate::test_support::turn(&r.core, &parent, &format!("CREATE {input}")).await;
     let task = task_by_brief(&r.core, BRIEF);
     if kept {
-        // The creating turn as a turn no message opened (a wake's): no ask, no message; its presence kept.
-        let turn = (r.core.store.session_nodes(&parent).unwrap().into_iter())
-            .find_map(|(_, n)| match &n.body {
-                Body::ToolCall { tool_use_id, .. } if tool_use_id == "t_task" => n.turn_id.clone(),
-                _ => None,
-            })
-            .expect("the turn that started the task");
-        let mut ex = exchange(&r.core.store, &turn).unwrap().unwrap();
-        (ex.ask, ex.opened_by) = (None, Opener::Wake);
-        ex.messages.clear();
-        let given = Given::new(&turn, theseus_memory::gate::Present::PrivateChannel, None);
-        r.core
-            .store
-            .append(&[
-                crate::exchange::exchange_record(&ex).unwrap(),
-                given_record(&given).unwrap(),
-            ])
-            .unwrap();
+        as_a_wakes(&r.core, &parent);
     }
     // The same target, now shared.
     r.core.bind_places(vec![bound(false)]);
@@ -648,29 +630,7 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
         r.core.runner.place_of(&parent),
         theseus_memory::recall::Place::Shared(_)
     ));
-    let t0 = std::time::Instant::now();
-    loop {
-        let state = r.core.kernel.execution(&task.id).unwrap().unwrap().state;
-        let ended = (exchanges(&r.core, &task).iter())
-            .filter(|e| e.end_ms.is_some())
-            .count()
-            >= 2;
-        if ended
-            && !matches!(
-                state,
-                ExecState::Queued | ExecState::Running | ExecState::Waiting
-            )
-        {
-            break;
-        }
-        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
-        assert!(
-            !waited,
-            "the task did not end: {}",
-            state_of(&r, &task, BRIEF)
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
+    reported(&r, &task, BRIEF).await;
     crate::test_support::turn(&r.core, &parent, "anything new?").await;
     let relayed: Vec<String> = (r.core.store.session_nodes(&parent).unwrap().into_iter())
         .filter_map(|(_, n)| match n.body {
@@ -704,4 +664,54 @@ async fn report_after_the_channel_turned_shared(kept: bool) {
         parents.iter().all(|q| !user_text(q).contains(FACT)),
         "the shared channel's requests hold none of it (kept: {kept})"
     );
+}
+
+/// The turn of `parent` that started the task (its call `t_task`) rewritten as a turn no message opened (a
+/// wake's): no ask, no message; the gate's presence kept for it (`exchange::given`).
+fn as_a_wakes(core: &Arc<Core>, parent: &str) {
+    use crate::exchange::given::{given_record, Given};
+    // The creating turn as a turn no message opened (a wake's): no ask, no message; its presence kept.
+    let turn = (core.store.session_nodes(parent).unwrap().into_iter())
+        .find_map(|(_, n)| match &n.body {
+            Body::ToolCall { tool_use_id, .. } if tool_use_id == "t_task" => n.turn_id.clone(),
+            _ => None,
+        })
+        .expect("the turn that started the task");
+    let mut ex = exchange(&core.store, &turn).unwrap().unwrap();
+    (ex.ask, ex.opened_by) = (None, Opener::Wake);
+    ex.messages.clear();
+    let given = Given::new(&turn, theseus_memory::gate::Present::PrivateChannel, None);
+    core.store
+        .append(&[
+            crate::exchange::exchange_record(&ex).unwrap(),
+            given_record(&given).unwrap(),
+        ])
+        .unwrap();
+}
+
+/// Wait until `task` (brief `brief`) has ended its second exchange and stopped: its report is waiting.
+async fn reported(r: &Rig, task: &Execution, brief: &str) {
+    let t0 = std::time::Instant::now();
+    loop {
+        let state = r.core.kernel.execution(&task.id).unwrap().unwrap().state;
+        let ended = (exchanges(&r.core, task).iter())
+            .filter(|e| e.end_ms.is_some())
+            .count()
+            >= 2;
+        if ended
+            && !matches!(
+                state,
+                ExecState::Queued | ExecState::Running | ExecState::Waiting
+            )
+        {
+            break;
+        }
+        let waited = t0.elapsed() > std::time::Duration::from_secs(30);
+        assert!(
+            !waited,
+            "the task did not end: {}",
+            state_of(r, task, brief)
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
 }
