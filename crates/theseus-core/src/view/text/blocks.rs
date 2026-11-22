@@ -57,6 +57,15 @@ pub fn fold_block_by(
         false => node.account.clone(),
     };
     let all_his = (words.iter()).all(|(a, w)| w.is_none() || matches!(a, Author::His { .. }));
+    // A summary written before its writer was told each message's author may credit another's words, or an
+    // unknown author's, to the owner: its title and account are withheld unless every message it stands for
+    // is shown here as his (a first-level node lists them all). Its excerpts stay, each by its own mark.
+    let unauthored = node
+        .writer
+        .version
+        .parse::<u32>()
+        .map_or(true, |v| v < crate::ladder::writer::AUTHORSHIP_SINCE)
+        && (node.level > 1 || !all_his);
     let mut lines = vec![match all_his {
         true => "the owner's words in them, word for word (selected):".to_string(),
         false => "the words in them, word for word (selected), each by its author:".to_string(),
@@ -79,9 +88,14 @@ pub fn fold_block_by(
             crate::narrative::thousands(u64::from(node.his_counted))
         ));
     }
-    lines.push(format!("what Theseus did: {account}"));
+    match unauthored {
+        true => lines.push(
+            "what Theseus did: (written before authorship was recorded; not shown)".to_string(),
+        ),
+        false => lines.push(format!("what Theseus did: {account}")),
+    }
     lines.push(format!("(open {})", node.handle.0));
-    let title = match node.title.trim().is_empty() {
+    let title = match unauthored || node.title.trim().is_empty() {
         true => String::new(),
         false => format!("{}: ", literal(node.title.trim(), 120)),
     };
