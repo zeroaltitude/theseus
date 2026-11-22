@@ -1085,14 +1085,13 @@ async fn a_late_decline_readmits_the_kept_recall_item_by_item() {
                 0 => crate::provider::Scripted::text("Hello."),
                 1 => {
                     // After the view's first call: the recalled source's thread is sealed, and the call
-                    // is refused for its size. Since the cut the view makes room and calls again under the
-                    // provider's maximum (`view_step::room`), reassembled under the gate of now.
+                    // is refused for its size. Since the cut the view makes room and calls again, smaller
+                    // (`view_step::room`), reassembled under the gate of now.
                     seal_kelp(held.get().unwrap());
                     crate::provider::Scripted::Fail(
                         crate::provider::ProviderError::InvalidRequest {
                             status: 400,
-                            message: "invalid_request_error: prompt is too long: 200000 maximum"
-                                .into(),
+                            message: "invalid_request_error: prompt is too long".into(),
                         },
                     )
                 }
@@ -1167,14 +1166,12 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                             true => crate::view_gate::steered(&c.runner, at.get().unwrap(), None),
                             false => seal_kelp(c),
                         }
-                        // Refused for its size: the view makes room and calls again under the
-                        // provider's maximum, reassembled under the gate of now (`view_step::room`).
+                        // Refused for its size: the view makes room and calls again, smaller,
+                        // reassembled under the gate of now (`view_step::room`).
                         crate::provider::Scripted::Fail(
                             crate::provider::ProviderError::InvalidRequest {
                                 status: 400,
-                                message:
-                                    "invalid_request_error: prompt is too long: 200000 maximum"
-                                        .into(),
+                                message: "invalid_request_error: prompt is too long".into(),
                             },
                         )
                     }
