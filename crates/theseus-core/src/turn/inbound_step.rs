@@ -9,16 +9,6 @@ use crate::judge::inbound::{author_of, place_kind, Inbound};
 use crate::node::{AttachmentContent, Body, Node, Origin};
 
 impl TurnRunner {
-    /// A turn's id: the router's, minted when it began this message's inbound
-    /// judgment early (theseus-rha2), else a new one (out of `run_inner_body`,
-    /// within clippy's 100 lines).
-    pub(super) fn turn_id_for(&self, sid: &str) -> String {
-        self.threads
-            .route
-            .turn_id(sid)
-            .unwrap_or_else(|| crate::new_id("turn"))
-    }
-
     /// `node` is this turn's input, written; `author` the client that sent
     /// it (`sock#3`, `web#1`, or the binding's person). With the judge off,
     /// nothing is read.

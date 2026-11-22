@@ -1656,7 +1656,7 @@ impl TurnRunner {
             session.failing = None;
         }
         let sid = session.session_id.clone();
-        let turn_id = self.turn_id_for(&sid);
+        let turn_id = crate::new_id("turn");
         let task_of = session.task.clone();
         let place = self.view_of(&sid);
         let dir = session.dir.clone();
