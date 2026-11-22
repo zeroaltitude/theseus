@@ -1,14 +1,12 @@
 //! A message goes to a thread by its address (theseus-rha2; the owner,
 //! 2026-11-21: an unaddressed message stays in the place's own conversation).
-//! These are the wire shapes: how a turn was placed
-//! (`TurnSubmitResult.thread`), and a move afterwards (`thread.move`). The
-//! router itself is the core's `thread_route`. `RouteHow` keeps the values
+//! These are the wire shapes of how a turn was placed
+//! (`TurnSubmitResult.thread`), read from an older daemon and its rows; the
+//! move afterwards (`thread.move`) went with the threads (issue 44). `RouteHow` keeps the values
 //! the router wrote while it guessed (`Quiet`, `Visible`, `Guess`, `Asked`,
 //! `NewThread`), so rows and results of an earlier build still read.
 
 use serde::{Deserialize, Serialize};
-
-use crate::DiscordOrigin;
 
 /// How a message found its thread. Everything but `Quiet` and `Home` shows
 /// in the reply's tag.
