@@ -150,7 +150,7 @@ async fn a_homes_moved_range_leaves_its_next_request_for_one_line_and_the_thread
     );
     let at = home.find(line).unwrap();
     assert!(
-        home.find("Answer 2 marker-2").unwrap() < at && at < home.find("Question 7 about").unwrap()
+        home.find("Question 2 about").unwrap() < at && at < home.find("Question 7 about").unwrap()
     );
 
     let tsid = c
