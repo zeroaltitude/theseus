@@ -87,7 +87,8 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the notice and clears its buttons. `judge.noticed` draws nothing in a place.
 - **Seal cards and `/move`: removed 2026-11-22** (threads are not containers; anything goes). `runtime/seal.rs` and
   `runtime/thread_move.rs` are gone: there is no Seal this thread / Not needed card and no `/move`. An old `seal_card`
-  or `link_card` a store still holds is posted as a plain note to the owner's DM (`courier.rs`).
+  or `link_card` a store still holds goes out as an ordinary note through `jev_post`, normally to the owner's DM
+  (`courier.rs`), with no Seal or Not needed buttons.
 - **A question with options** (theseus-j7cje; `render/ask.rs`, `runtime/ask.rs`, `courier/ask.rs`): the card of an `owner_ask` question
   draws its options numbered with one button each (`Buttons::Ask`, `ask:<n>:<question id>`, five to a row), and a press is
   `work.answer` as the presser, which the core judges; "something else" takes words, so it is answered from the CLI.

@@ -706,7 +706,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `recall_cross.v1` (`turn/cross_step.rs` is gone; `judge/cross.rs` and its pack stay registered until the sweep), and
   `[threads] cross_recall_bar`, `cross_recall_judge` and `cross_recall_judge_k` are retired keys. A seal keeps nothing out
   of a request: the gate reads only whether a piece's place is known (`theseus-memory/src/gate.rs`, `check`).
-  `thread.seal`, `.unseal` and `.seal_dismiss` answer no method; `rpc/thread_seal.rs` keeps its writers as test fixtures
+  `thread.seal`, `.unseal` and `.seal_dismiss` are refused (`rpc/threads.rs`); `rpc/thread_seal.rs` keeps its writers as test fixtures
   until the sweep, and old `thread.sealed` rows still decode. **The place digest** (theseus-98bz.9; `[threads]
   place_digest`, `compiler::place_digest`, `turn/digest_step.rs`) is still wired: `classify.v4`'s `scope` answered
   `place` gives that turn's request a digest of the place's other live threads. Tests: `rpc/tests_place_digest.rs`.
@@ -715,7 +715,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `rpc/tests_thread_recall.rs`.
 
 - **The thread router, moves, working-set growth and the bench's clock: removed 2026-11-22** (threads are not
-  containers). No message runs in a thread's own session; `thread_route.rs`, `rpc/thread_flow.rs`,
+  containers). There is no thread-based routing: no message is sent to a thread's session by its address (an old
+  session can still be opened by its ordinary session id); `thread_route.rs`, `rpc/thread_flow.rs`,
   `rpc/thread_move.rs` and `thread_grow.rs` are gone with their tests, and `[threads] working_set_grows` and
   `bench_clock` are retired keys. `/move` and `chat.move_to_thread` move nothing (`chat_move_to_thread` survives only as
   a name the deferral step knows, `turn/defer_step.rs`).

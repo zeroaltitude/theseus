@@ -224,7 +224,7 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   `routine_line`, `routine_answers`), sent as `wake.noticed` with a routine purpose.
   `slug_of_place`; since theseus-sjzm also `Speaking` (`turn.submit`'s `speaking`: the Discord origin of a thread turn, and `answer_at`), `ThreadChanged` (the `thread.changed` notification) and `channel_surface`/`surface_channel` (`discord:channel:<id>`). `turn.submit`'s `thread` is in `submit.rs`.
   `slug_of_place`. `turn.submit`'s `thread` is in `submit.rs`. Since theseus-f2g0, kept only so old records and
-  clients still decode (the core answers none of these methods since 2026-11-22): `thread.seal` (`ThreadSealParams`,
+  clients still decode (the core refuses these methods since 2026-11-22): `thread.seal` (`ThreadSealParams`,
   `ThreadSealResult`, `ThreadCrossed`, `crossed_words`), `thread.unseal`, `thread.seal_dismiss`, and
   `ThreadNewParams.sealed`/`split_from`.
 - `own_bench.rs` (own-benchmark, theseus-pw1q.12): `turn.replay`'s params and result (`TurnReplayParams`, `TurnReplayResult`,
