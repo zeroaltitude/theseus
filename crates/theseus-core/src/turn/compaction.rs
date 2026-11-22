@@ -14,10 +14,8 @@
 //!   did. When the profile is `off` nothing here runs; when the call cannot
 //!   run, fails, or its summary would not fit, the ring runs as before and
 //!   the row says why.
-//! - **The core overage** (`context_overage`): when even the newest exchange
-//!   alone passes the window by the estimate, the turn fails before any
-//!   call, with the window, the estimate, and the overage, and nothing
-//!   retries it (`session::Failing`): the same request would not fit again.
+//!
+//! The core overage, which any request may meet, is `turn::overage`.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -32,17 +30,13 @@ use theseus_protocol::memory::{BudgetDrop, BudgetRange};
 
 pub(crate) mod gate;
 
-use super::{Failure, Target, Turn, TurnRunner};
+use super::{Target, Turn, TurnRunner};
 use crate::catalog::ThinkingMode;
 use crate::compiler::{self, compaction, CompileInput, Compiled};
 use crate::config::memory::SUMMARY_SESSION;
-use crate::fact::compaction::{overage_words, Compacted, Overage};
+use crate::fact::compaction::Compacted;
 use crate::node::{Body, Node};
 use crate::provider::{ProviderError, ProviderRequest};
-
-/// The failure class of a turn whose newest exchange alone does not fit the
-/// model's window, by the estimate, before anything is sent (30c).
-pub const OVERAGE_CLASS: &str = "context_overage";
 
 /// The most a summary may be, in output tokens: its profile's cap, at most
 /// this.
@@ -541,32 +535,6 @@ impl TurnRunner {
             recalls: range.recalls.iter().map(|n| recall_drop(n)).collect(),
         };
         Ok(Ok((summary, done)))
-    }
-
-    /// The core overage: the compile kept only the newest exchange (or had
-    /// nothing to drop), and its estimate still passes the window. The turn
-    /// fails before any call.
-    pub(super) fn overage(t: &mut Turn<'_>, compiled: &Compiled, i: u32) -> Option<Failure> {
-        compiled.budget.overage.as_ref()?;
-        let model = t.target.model.clone();
-        let window = compiled.compilation.manifest.context_window;
-        let o = Overage {
-            model: &model,
-            window,
-            estimate: compiled.estimate.tokens,
-            upper: compiled.estimate.upper,
-            budget: &compiled.budget,
-            loop_index: i,
-        };
-        let message = overage_words(&o);
-        t.record(&o);
-        Some(Failure {
-            class: OVERAGE_CLASS.into(),
-            transient: false,
-            usage_unknown: false,
-            reason: format!("{OVERAGE_CLASS}: {message}"),
-            source: anyhow::anyhow!("{message} Send something smaller, or start a new session."),
-        })
     }
 }
 

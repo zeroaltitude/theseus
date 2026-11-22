@@ -385,38 +385,30 @@ fn the_chains_card_is_frozen_and_recorded() {
     );
 }
 
-/// A provider-discovered overflow (`input.overflowed`) is the view's to decline, not to retry at its own
-/// reading of the window: the turn step holds the decline (`over_budget`) and the transcript's ring uses
-/// the provider's numbers.
+/// A turn that made room (`Frozen::room.keep`, `turn::view_step::room`) clears its own old results at a new
+/// chain whatever the line: far under the clearing line, the older result becomes its stand-in and the
+/// newest, after the last answer, stays whole; without the room, nothing is cleared.
 #[test]
-fn a_provider_overflow_is_a_decline() {
-    let nodes: Vec<(u64, crate::stub::Stub)> = vec![];
-    let s = spec();
-    let over = Overflowed {
-        counted: Some(210_000),
-        estimated: 150_000,
-        maximum: Some(200_000),
-        retrying: None,
-    };
-    let mut input = CompileInput {
-        session_id: "s",
-        current: None,
-        nodes: &nodes,
-        last_position: 0,
-        spec: &s,
-        catalog: &Catalog::builtin(),
-        force: None,
-        window_override: None,
-        blobs: None,
-        hidden: &[],
-        strip: None,
-        overflowed: None,
-        sources: &Default::default(),
-        assembled: None,
-        situation: &situation::Situation::Continuation,
-        kept: None,
-    };
-    assert!(!view::provider_overflowed(&input));
-    input.overflowed = Some(&over);
-    assert!(view::provider_overflowed(&input));
+fn a_turn_that_made_room_clears_its_old_results_whatever_the_line() {
+    let own = vec![
+        Node::user("s", Some("t9"), "cli", "read both"),
+        said("t9", vec![thinking(), read("old")]),
+        result("t9", "old", &"o".repeat(5_000)),
+        said("t9", vec![thinking(), read("new")]),
+        result("t9", "new", &"n".repeat(5_000)),
+    ];
+    let mut f = frozen("t9", &[]);
+    let plain = run(&f, &own, None);
+    assert!(plain.cleared.is_none(), "under the line, no pass");
+    f.room.keep = Some(0);
+    let roomy = run(&f, &own, None);
+    let pass = roomy.cleared.expect("a pass ran");
+    assert_eq!(pass.results, 1, "{pass:?}");
+    assert!(roomy.est_tokens < plain.est_tokens);
+    let all = serde_json::to_string(&roomy.request.messages).unwrap();
+    assert!(
+        all.contains("[Result cleared to save context: fs_read old.rs"),
+        "the older result is its stand-in"
+    );
+    assert!(all.contains(&"n".repeat(5_000)), "the newest stays whole");
 }

@@ -48,8 +48,10 @@ impl TurnRunner {
                 recalled: Vec::new(),
                 items: Vec::new(),
                 message: Some(String::new()),
+                items: Vec::new(),
             },
             input.spec,
+            &self.view_budget(input.spec),
         )?;
         if let Err(Overflow::Floor { tokens, room, .. }) = &built.assembled {
             anyhow::bail!(
