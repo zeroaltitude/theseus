@@ -78,12 +78,14 @@ impl TurnRunner {
             .map(|e| e.map(|e| e.place))
             .collect();
         t.exchange.set_continues(turns);
-        let first = places.first().cloned().flatten();
-        let Some(first) = first.filter(|_| places.iter().all(Option::is_some)) else {
-            t.exchange.cannot_resume(Unresumable::Unread);
+        // A continued turn with no exchange (a fault before its frame) gives no place to compare: the turn
+        // answers at its session's own place, under the presence it can prove, the unknown one when none
+        // (the conductor's decision 9): only its own session's words there.
+        let known: Vec<&String> = places.iter().flatten().collect();
+        let Some(first) = known.first().map(|p| (*p).clone()) else {
             return read;
         };
-        if places.iter().any(|p| p.as_deref() != Some(first.as_str())) {
+        if known.iter().any(|p| **p != first) {
             t.exchange.cannot_resume(Unresumable::Elsewhere);
             return read;
         }
