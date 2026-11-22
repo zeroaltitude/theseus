@@ -892,8 +892,11 @@ fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
         wakes["wakes"].to_string().contains("own check-in"),
         "{wakes}"
     );
-    // The conversation goes on: its next message is answered.
-    assert_eq!(r.ask(&sid, "Hello again")["output"], "Done.");
+    // The conversation goes on: its next message is answered. "Hello again" matches no phrase of this rig's
+    // script, so the stand-in answers it with no call ("Nothing to do."): it is a prompt, not the answer to a
+    // call, whatever results the window lays before it (issue 44). The old stand-in said "Done." here only
+    // because a result stood earlier in the same user message.
+    assert_eq!(r.ask(&sid, "Hello again")["output"], "Nothing to do.");
     // Again: nothing more to cancel.
     let again = r
         .call(
