@@ -11,6 +11,8 @@
 //! - **Labels, not veils**: a hit carries its sensitivity (`personal`,
 //!   `partner-confidential`, or labels unread) beside its text; `veiled` is
 //!   always false.
+//! - **The vault's values are substituted** in every reply's strings (`Exits::text`), as a provider
+//!   request's are: no provider call is on this path to do it.
 //! - **Citations**: the node's id, its WAL position, its session and its
 //!   as-of minute in the daemon's zone. A client quotes them back.
 
@@ -73,6 +75,31 @@ pub(crate) async fn search(
     core: &Arc<Core>,
     p: &MemoryLookupParams,
 ) -> Result<MemoryLookupResult, String> {
+    searched(core, p).await.map(|r| substituted(core, r))
+}
+
+/// The reply with the vault's values substituted in every string a client reads (review G-R2): no provider
+/// call is on this path, so the exits' own substitution (`Exits::text`, under the owner's `redact_outbound`)
+/// runs here. Citations, paging and the stored text are as they were.
+fn substituted(core: &Core, mut r: MemoryLookupResult) -> MemoryLookupResult {
+    let sub = |s: &mut String| {
+        let out = core.exits.text(s).0.into_owned();
+        *s = out;
+    };
+    for h in &mut r.hits {
+        sub(&mut h.text);
+        sub(&mut h.harness);
+        for s in [&mut h.book, &mut h.sensitivity].into_iter().flatten() {
+            sub(s);
+        }
+    }
+    if let Some(s) = r.left_out.as_mut() {
+        sub(s);
+    }
+    r
+}
+
+async fn searched(core: &Arc<Core>, p: &MemoryLookupParams) -> Result<MemoryLookupResult, String> {
     let Some(words) = some(&p.words) else {
         return Err("memory_search needs words: what to find, as you would say it".into());
     };
@@ -179,11 +206,12 @@ pub(crate) async fn get(
     core: &Arc<Core>,
     p: &MemoryLookupParams,
 ) -> Result<MemoryLookupResult, String> {
-    match (some(&p.id), some(&p.session)) {
+    let read = match (some(&p.id), some(&p.session)) {
         (Some(id), None) => by_id(core, id, p).await,
         (None, Some(session)) => by_session(core, session, p).await,
         _ => Err("memory_get takes an id (a citation's node_id) or a session, not both".into()),
-    }
+    };
+    read.map(|r| substituted(core, r))
 }
 
 async fn by_id(
