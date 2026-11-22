@@ -305,9 +305,7 @@ impl MemoryConfig {
     /// The keys the trim of unused modes retired (issue 44) that this
     /// section sets: what [`crate::Config::parse`] warns of, once.
     pub fn trimmed(&self) -> Vec<String> {
-        let keys = [
-            ("small_talk_bar", self.small_talk_bar.is_some()),
-        ];
+        let keys = [("small_talk_bar", self.small_talk_bar.is_some())];
         (keys.iter())
             .filter(|(_, set)| *set)
             .map(|(k, _)| format!("memory.{k}"))

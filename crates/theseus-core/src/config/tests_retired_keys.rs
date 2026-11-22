@@ -122,13 +122,21 @@ fn the_keys_something_still_reads_are_live() {
 fn an_old_name_of_a_retired_key_is_retired_with_it() {
     let (cfg, warnings) =
         parse("[model]\nkeep_warm_hours = 12\n[threads]\nkeep_warm_hours = 2\n").unwrap();
-    assert_eq!(names(&cfg), ["model.keep_warm_hours", "threads.keep_warm_hours"]);
+    assert_eq!(
+        names(&cfg),
+        ["model.keep_warm_hours", "threads.keep_warm_hours"]
+    );
     assert!(
-        warnings.iter().any(|w| w.starts_with("model.keep_warm_hours is retired: ")),
+        warnings
+            .iter()
+            .any(|w| w.starts_with("model.keep_warm_hours is retired: ")),
         "{warnings:?}"
     );
     let e = parse("[cache]\nkeep_warm_minutes = 50\n").unwrap_err();
-    assert!(format!("{e:#}").contains("keep_warm_every_minutes"), "{e:#}");
+    assert!(
+        format!("{e:#}").contains("keep_warm_every_minutes"),
+        "{e:#}"
+    );
 }
 
 /// A key no build ever had still fails the load, in the sections that held

@@ -335,8 +335,13 @@ mod tests {
         let bad = "resume_keep_turns = 0";
         assert!(crate::Config::parse(&format!("{secrets}\n[threads]\n{bad}\n")).is_err());
         // The cold resume's sizes are retired (issue 44): any value loads, ignored and named.
-        for retired in ["working_tokens = 10", "working_percent = 0", "working_percent = 101"] {
-            let (c, _) = crate::Config::parse(&format!("{secrets}\n[threads]\n{retired}\n")).unwrap();
+        for retired in [
+            "working_tokens = 10",
+            "working_percent = 0",
+            "working_percent = 101",
+        ] {
+            let (c, _) =
+                crate::Config::parse(&format!("{secrets}\n[threads]\n{retired}\n")).unwrap();
             assert_eq!(c.ignored_keys.len(), 1, "{retired}");
         }
         assert!(crate::Config::from_toml("[threads]\nbogus = 1\n").is_err());

@@ -71,8 +71,6 @@ impl ContextConfig {
         Ok(())
     }
 
-    }
-
     /// The window a request compiles against: the model's (`catalog`),
     /// lowered by `working_window_tokens`. `None`: no lower window is set,
     /// so the compiler reads the catalog's own.
