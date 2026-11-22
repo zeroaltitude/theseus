@@ -15,6 +15,7 @@ use theseus_protocol::view::{
 };
 
 use super::{unledgered, Asked, Built, Fallback, RequestSpec, TurnRunner};
+use crate::ladder::view::StoreLadder;
 use crate::session::SessionRecord;
 use crate::stub::Kind;
 use crate::view::record::show::{name, PieceText, Reader};
@@ -22,6 +23,9 @@ use crate::view::record::source::GateSource;
 use crate::view::record::ViewRecord;
 use crate::view_gate::{place_name, seal_of, Verified};
 use theseus_memory::gate::{Present, Seal};
+
+/// How many of a place's newest exchanges are read to find its sessions.
+const PLACE_WINDOW: usize = 200;
 
 /// The turn id a preview's pieces are made under: no turn has it.
 const PREVIEW_TURN: &str = "preview";
@@ -39,13 +43,25 @@ pub struct Preview<'a> {
 }
 
 impl TurnRunner {
-    /// The sessions of `place`, newest first: a turn's own (no task, not imported) whose place the gate
-    /// reads as `place` today.
+    /// The sessions of `place`, newest first: a turn's own (no task, not imported) that ran an exchange
+    /// the place's window reads (so history adopted into the ledger counts with no change here), or whose
+    /// place the gate reads as `place` today; and none the gate holds for the owner's look (sealed, seal
+    /// pending, unreadable), which lifts no seal.
     pub fn place_sessions(&self, place: &str) -> anyhow::Result<Vec<SessionRecord>> {
+        use crate::view::fold::Ladder;
+        let ran: HashSet<String> = (StoreLadder(&self.store).read(place, PLACE_WINDOW, None)?)
+            .window
+            .into_iter()
+            .map(|e| e.session_id)
+            .collect();
         let mut all: Vec<SessionRecord> = (self.store.list_sessions::<SessionRecord>()?)
             .into_iter()
             .filter(|r| r.imported.is_none() && r.task.is_none())
-            .filter(|r| place_name(self, &r.session_id).as_deref() == Some(place))
+            .filter(|r| {
+                ran.contains(&r.session_id)
+                    || place_name(self, &r.session_id).as_deref() == Some(place)
+            })
+            .filter(|r| seal_of(self, None, &r.session_id) == Seal::Clear)
             .collect();
         all.sort_by_key(|r| std::cmp::Reverse(r.last_active_ms));
         Ok(all)

@@ -119,8 +119,12 @@ async fn a_preview_lays_the_pieces_the_next_turn_records() {
     let sid = session_in(c, None, &r.root);
     turn(c, &sid, "first: the tide").await;
     turn(c, &sid, "second: the moon").await;
-    fold_over(c, &turns_of(c, &sid)[0]);
-    let at = place(c, &sid);
+    let first = turns_of(c, &sid).remove(0);
+    fold_over(c, &first);
+    // The place as the ledger names it, which the window reads.
+    let at = (crate::exchange::exchange(&c.store, &first).unwrap())
+        .unwrap()
+        .place;
     let p = preview(&r.core, json!({"place": at, "message": "third: and now"}))
         .await
         .unwrap();

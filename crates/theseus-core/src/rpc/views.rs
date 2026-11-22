@@ -149,7 +149,9 @@ impl Core {
         // An agent's process: its own place alone, never the owner's look.
         let owner = match p.from_job.as_deref() {
             Some(job) => {
-                if crate::view_gate::place_name(&self.runner, job).as_deref() != Some(&p.place) {
+                let own = (self.runner.place_sessions(&p.place))
+                    .is_ok_and(|all| all.iter().any(|r| r.session_id == job));
+                if !own {
                     return refuse("an agent's preview is of its own place alone".into());
                 }
                 false
