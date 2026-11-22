@@ -59,7 +59,7 @@ async fn a_bare_history_call_begins_where_the_views_window_does() {
     let r = view_rig();
     let c = &r.core;
     let sid = session_in(c, None, &r.root);
-    let mut turns = Vec::new();
+    let mut turns: Vec<String> = Vec::new();
     for i in 0..10 {
         if i == 6 {
             let ex = exchange::exchange(&c.store, &turns[5]).unwrap().unwrap();
