@@ -324,7 +324,6 @@ fn the_work_watch_shapes() {
             position: 4_096,
             views: vec![conversation, task],
             total: 12,
-            threads: vec![],
         },
     );
     let job = whole(
@@ -338,7 +337,6 @@ fn the_work_watch_shapes() {
         at_ms: AT,
         views: vec![job],
         gone: vec!["act_a0b1c2".into()],
-        threads: vec![],
     };
     wire("changed", &changed);
     assert_eq!(

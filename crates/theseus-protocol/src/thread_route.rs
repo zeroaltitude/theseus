@@ -80,39 +80,6 @@ impl ThreadTag {
     }
 }
 
-/// "That was for the security fix": `thread.move`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ThreadMoveParams {
-    /// The place's session, or the thread session the message was routed to.
-    pub session_id: String,
-    /// A thread's slug, or `home`.
-    pub to: String,
-    /// The turn to move; none: the last unaddressed message routed in this
-    /// place.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub author: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub discord: Option<DiscordOrigin>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-pub struct ThreadMoveResult {
-    /// Where the message had been routed (a slug or `home`) and where it went.
-    pub from: String,
-    pub to: String,
-    /// The turn that ran it again in the right thread.
-    pub turn_id: String,
-    /// The note left in the wrong thread, when it had a session of its own.
-    pub redirected: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

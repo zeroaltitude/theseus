@@ -104,7 +104,6 @@ pub(super) fn push(r: &Rig, position: u64, views: Vec<WorkView>) {
         at_ms: T0,
         views,
         gone: vec![],
-        threads: vec![],
     }));
 }
 

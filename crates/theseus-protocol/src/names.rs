@@ -330,8 +330,6 @@ pub mod notify {
         /// The work board's frame (theseus-hkx30): `work_watch::WorkChanged`, to
         /// every `work.watch` subscriber; and the policy's `notices::Notice`.
         WORK_CHANGED = "work.changed", WORK_NOTICE = "work.notice",
-        /// A thread changed (theseus-sjzm, `threads::ThreadChanged`).
-        THREAD_CHANGED = "thread.changed",
         /// A followed job's output (`job_follow.rs`): a chunk from a byte to the connection that asked, then its end.
         ACTION_OUTPUT_CHUNK = "action.output.chunk", ACTION_OUTPUT_END = "action.output.end",
         /// Self-improvement's switch moved (theseus-pw1q.19): `rsi::SelfChanged`, to every connection that watches

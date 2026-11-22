@@ -562,7 +562,7 @@ fn thread_session(core: &Arc<Core>, slug: &str, channel: Option<u64>) -> String 
         core.outbox
             .show_at(
                 &rec.session_id,
-                Some(&theseus_protocol::threads::channel_surface(c)),
+                Some(&format!("discord:channel:{c}")),
             )
             .unwrap();
     }
@@ -576,7 +576,7 @@ fn bind_private(r: &Rig, channel: u64) {
         .runner
         .place_rule
         .bind_one(crate::places::BoundPlace {
-            target: theseus_protocol::threads::channel_surface(channel),
+            target: format!("discord:channel:{channel}"),
             name: "the thread channel".into(),
             private: true,
             guild: Some("7".into()),

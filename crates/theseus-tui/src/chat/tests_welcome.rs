@@ -219,7 +219,6 @@ async fn a_question_of_its_own_is_seen_by_its_tasks_mark() {
         at_ms: T0,
         views: vec![q],
         gone: vec![],
-        threads: vec![],
     }));
     r.settle().await;
     let mark = r.bytes();
