@@ -104,8 +104,11 @@ matched against that table (a qualified name, or an alias one live admitted thin
 nothing), and its qualified numbered items are the ones the exchange's own naming told the turn
 (`names::items::WAIT` bounds the wait); an unscoped item is a candidate and brings no card. Words the owner's
 mark proves his may name any admitted thing; another person's, or unmarked words (an agent's process, an
-import, a rebuilt exchange), name nothing private and no item; a tool's result is never matched; text quoted
-inside his own typed message counts as his message. A card keeps each excerpt's author: words not his are
+import, a rebuilt exchange), name nothing private and no item. Words in play that are not his in a private
+place (anyone's in company, his included) name only from that place's own namespace: the things the turn's
+gate admits AND that are of that place, built before any alias is resolved, so nothing their audience could
+not read is named or makes an alias ambiguous. A tool's result is never matched; text quoted inside his own
+typed message counts as his message (so an ordinary alias in pasted prose may call a card for him alone). A card keeps each excerpt's author: words not his are
 outside text inside it. A matched thing brings its card
 (`names::card`, every part admitted first): its title, what it is, its current facts, its open tasks and its
 newest exchanges, as one piece of slot H. What is in play (slot D) is the things the person's words name in the
@@ -120,5 +123,9 @@ filing. Its role line is not laid: no reader clears an operator's or an import's
 rules. Each text is read once for the turn and laid by the renderer as one block of its own provenance. A card
 and a waiting line carry the sessions they were read from (ids); the view's record re-checks them against
 today's seals before it shows or counts the piece (kind `card`, `waiting`), to the owner alone, and shows no
-residue count for those bands.
+residue count for those bands. That provenance is the sessions and the exchanges read; a record with none
+(written before it was kept) is unproven and neither shown nor counted. Before it shows a card, and before a
+frozen view's every later call, each exchange a card read is asked again of today's moves (a fresh
+`view_gate::Moved`): a message moved since into a thread not proven clear revokes it. A card asks the gate only
+of the standing records its own facts need (its scope's, and those that end one of them).
 

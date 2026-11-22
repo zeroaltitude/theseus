@@ -235,22 +235,19 @@ impl Admits for ViewAdmits<'_> {
     }
 
     fn thing(&self, s: Source<'_>) -> bool {
-        let (key, session, marks) = match s {
+        let key = key_of(s);
+        let (session, marks) = match s {
             // A line of work with no session of its own has no place to be read from: no name.
             Source::Line(th) => match &th.session_id {
-                Some(sid) => (
-                    format!("thread:{}", th.slug),
-                    Some(sid.clone()),
-                    self.homes.marks(sid),
-                ),
+                Some(sid) => (Some(sid.clone()), self.homes.marks(sid)),
                 None => return false,
             },
             Source::Task(t) => {
                 let home = self.home(t);
                 let marks = self.homes.marks(&home);
-                (format!("task:{}", t.id), Some(home), marks)
+                (Some(home), marks)
             }
-            Source::Topic(c) => (c.id.to_string(), None, filing()),
+            Source::Topic(_) => (None, filing()),
         };
         let now = self.pov.now_ms;
         let ok = match &session {
@@ -273,6 +270,48 @@ impl Admits for ViewAdmits<'_> {
     }
 }
 
+/// A thing's key, as the names table holds it.
+fn key_of(s: Source<'_>) -> String {
+    match s {
+        Source::Line(th) => format!("thread:{}", th.slug),
+        Source::Task(t) => format!("task:{}", t.id),
+        Source::Topic(c) => c.id.to_string(),
+    }
+}
+
+/// The namespace of words said in `place` by someone other than the owner alone: a thing is in it only
+/// when the turn's gate admits it AND it is of that place, so those words name only what their own audience
+/// could read, and nothing outside it makes an alias ambiguous. It reads nothing but things.
+struct Within<'a> {
+    inner: &'a ViewAdmits<'a>,
+    place: &'a str,
+}
+
+impl Admits for Within<'_> {
+    fn fact(&self, _: &StandingRecord) -> bool {
+        false
+    }
+
+    fn exchange(&self, _: &Exchange) -> bool {
+        false
+    }
+
+    fn thing(&self, s: Source<'_>) -> bool {
+        self.inner.thing(s)
+            && (self.inner.marks_of(&key_of(s)))
+                .is_some_and(|m| m.place.as_deref() == Some(self.place))
+    }
+}
+
+/// The things `text` names in `table`: a qualified name, or an alias one live thing of it holds.
+/// Candidates (an alias several hold) name nothing.
+fn matched(table: &Table, text: &str) -> Vec<String> {
+    (table.find(text).into_iter())
+        .filter(|f| matches!(f.how, How::Qualified | How::Unique))
+        .flat_map(|f| f.things)
+        .collect()
+}
+
 /// The named things of one turn: its table, its message's numbered items, and the cards read, each once.
 pub struct Called<'a> {
     pub core: std::sync::Arc<crate::rpc::Core>,
@@ -282,6 +321,8 @@ pub struct Called<'a> {
     items: Vec<String>,
     /// Each text read, by its space; the renderer lays it (`wire_text`).
     texts: &'a RefCell<BTreeMap<Space, String>>,
+    /// The namespace of each place whose words in play were not the owner's alone ([`Within`]).
+    within: RefCell<BTreeMap<String, Table>>,
 }
 
 impl<'a> Called<'a> {
@@ -299,6 +340,7 @@ impl<'a> Called<'a> {
             table,
             items,
             texts,
+            within: RefCell::default(),
         })
     }
 
@@ -315,11 +357,23 @@ impl<'a> Called<'a> {
                 .marks_of(k)
                 .is_some_and(|m| m.audience != Audience::Private)
         };
-        (self.table.find(text).into_iter())
-            .filter(|f| matches!(f.how, How::Qualified | How::Unique))
-            .flat_map(|f| f.things)
+        matched(&self.table, text)
+            .into_iter()
             .filter(public)
             .collect()
+    }
+
+    /// The things words said in `place` name in that place's own namespace ([`Within`]), built once.
+    fn found_in(&self, place: &str, text: &str) -> anyhow::Result<Vec<String>> {
+        if !self.within.borrow().contains_key(place) {
+            let gate = Within {
+                inner: &self.admits,
+                place,
+            };
+            let table = table::build_for(&self.core, &gate)?;
+            self.within.borrow_mut().insert(place.to_string(), table);
+        }
+        Ok(matched(&self.within.borrow()[place], text))
     }
 
     /// `thing`'s card as the gate admits it, read once, with the sessions it was read from: a thing of the
@@ -387,8 +441,13 @@ impl Things for Called<'_> {
         let Some((_, node)) = self.store().get_node(ask)? else {
             return Ok(Vec::new());
         };
-        let his = ex.person.as_deref() == Some(OWNER);
-        Ok(self.found(&crate::recall::text_of(&node), his))
+        let words = crate::recall::text_of(&node);
+        // His words in a private place name from the turn's whole table; anyone's words elsewhere (his in
+        // company included) only from what that place's audience could read.
+        match ex.person.as_deref() == Some(OWNER) && ex.private {
+            true => Ok(self.found(&words, true)),
+            false => self.found_in(&ex.place, &words),
+        }
     }
 
     fn card(&self, thing: &str) -> anyhow::Result<Vec<Ref>> {
@@ -533,5 +592,61 @@ mod tests {
             ..clear()
         };
         assert_eq!(admits(unknown_now, &dm("discord:dm:42")), (false, false));
+    }
+
+    /// KEY: words said in a place by someone other than the owner alone name only things of that place:
+    /// a task the turn's own gate admits (the owner alone, from a shared channel elsewhere) is outside
+    /// their namespace, and inside the namespace of its own place.
+    #[test]
+    fn another_speakers_namespace_holds_only_things_of_their_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("store")).unwrap();
+        let permit = Permit::of(Verified::for_tests(rule::PointOfView {
+            anchor: "local".into(),
+            place: theseus_memory::recall::Place::Private,
+            present: rule::Present::OwnerAlone,
+        }));
+        let pov = PointOfView {
+            anchor: Anchor::Place("local".into()),
+            person: Some(OWNER.into()),
+            present: Present::OwnerAlone,
+            at_hand: None,
+            now_ms: 9_000,
+        };
+        let moved = Moved::of(&store, None, None);
+        let depends = RefCell::default();
+        let channel = Now(Marks {
+            audience: Audience::Shared,
+            ..private("discord:channel:9")
+        });
+        let task = TaskRecord {
+            id: "tsk_1".into(),
+            title: "Chart the outer harbour".into(),
+            session: Some("ses_9".into()),
+            ..Default::default()
+        };
+        let a = ViewAdmits::new(
+            (&permit, &pov),
+            (&store, &channel, &moved),
+            vec![task.clone()],
+            &depends,
+        );
+        assert!(
+            a.thing(Source::Task(&task)),
+            "the turn's own gate admits it"
+        );
+        let desk = Within {
+            inner: &a,
+            place: "local",
+        };
+        assert!(
+            !desk.thing(Source::Task(&task)),
+            "not of the place it was said in"
+        );
+        let there = Within {
+            inner: &a,
+            place: "discord:channel:9",
+        };
+        assert!(there.thing(Source::Task(&task)), "of its own place");
     }
 }
