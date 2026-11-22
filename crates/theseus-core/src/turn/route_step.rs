@@ -1041,6 +1041,7 @@ impl TurnRunner {
         {
             Self::keep_blocks(t, &mut compiled);
             Self::persist_compilation(t.tc.store, &compiled, session, t.tc.turn_id)?;
+            super::view_step::kept::record_kept(t, &compiled);
         }
         if let Some(d) = t.route.deferred.take() {
             Self::compiled_rows(t, &d.summary, &compiled, spec, (d.c0, d.c1), i);
