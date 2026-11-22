@@ -321,16 +321,41 @@ async fn the_time_line_is_history_and_the_cached_prefix_holds() {
     // The CPU fact sits in the session's system block, the same every loop.
     let system = serde_json::to_string(&reqs[0].system).unwrap();
     assert!(system.contains("CPUs available to commands: "), "{system}");
-    // No deadline: no line.
-    let (_, _) = r.turn(None).await;
+    // No deadline: no line of its own. On the view the place's window may
+    // lay the first turn's exchange, its line with it (history, as the test's
+    // name says); the second turn writes none and is told no other.
+    let (sid2, _) = r.turn(None).await;
     let reqs = r.requests();
     assert_eq!(reqs.len(), 4);
+    let clock = crate::turn::clock_step::CLOCK_AUTHOR;
     assert!(
-        !messages(&reqs[2]).contains("left of this turn"),
-        "{}",
-        messages(&reqs[2])
+        r.core
+            .store
+            .session_nodes(&sid2)
+            .unwrap()
+            .iter()
+            .all(|(_, n)| n.author.as_deref() != Some(clock)),
+        "a turn with no deadline writes no time line"
     );
-    assert!(!messages(&reqs[3]).contains("left of this turn"));
+    for req in &reqs[2..] {
+        let m = messages(req);
+        assert_eq!(
+            m.matches("left of this turn").count(),
+            m.matches(line).count(),
+            "no line but the first turn's own: {m}"
+        );
+    }
+    // And its cached prefix holds from its first call to its second.
+    assert_eq!(
+        serde_json::to_string(&(&reqs[2].system, &reqs[2].tools)).unwrap(),
+        serde_json::to_string(&(&reqs[3].system, &reqs[3].tools)).unwrap()
+    );
+    let (a, b) = (&reqs[2].messages, &reqs[3].messages);
+    assert!(a.len() < b.len());
+    assert_eq!(
+        serde_json::to_string(&a[..a.len() - 1]).unwrap(),
+        serde_json::to_string(&b[..a.len() - 1]).unwrap()
+    );
 }
 
 /// A command in `root` that prints about 2.7 KB (a tool result of the size
