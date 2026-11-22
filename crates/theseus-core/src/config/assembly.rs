@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum Assembly {
     /// Today's compiled transcript.
-    #[default]
     Transcript,
     /// The view: slots, a gate and one budget.
+    #[default]
     View,
 }
 

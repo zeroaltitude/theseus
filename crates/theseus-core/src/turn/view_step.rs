@@ -52,7 +52,7 @@ impl TurnRunner {
     /// How this turn's requests are assembled: `[context] assembly` for its place. With no such setting,
     /// the transcript, and nothing is read.
     pub(super) fn assembly_here(&self, t: &Turn<'_>) -> Assembly {
-        if self.cfg.context.assembly.is_none() || t.tc.task.is_some() {
+        if t.tc.task.is_some() {
             return Assembly::Transcript;
         }
         self.cfg.context.assembly_for(&self.place_here(t))
