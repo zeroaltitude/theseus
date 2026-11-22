@@ -336,6 +336,8 @@ impl TurnRunner {
             beside: a.parts.beside.as_ref().map(block),
             memory_page,
             record: Some(a.view),
+            card: None,
+            declined: false,
         });
         Ok(())
     }
