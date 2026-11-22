@@ -71,7 +71,7 @@ ANTHROPIC_API_KEY=... python3 bench/view/yardstick.py --store /tmp/state-copy --
 ```
 
 For each of the place's last `--turns` exchanges, the judge (`--model`, Haiku 5.5 unless named) reads up to
-`--back` exchanges before it, one line each (the person's words), 24 to a request, each request starting 12 lines
+`--back` exchanges before it, one line each (the person's words, cut at 480 characters), 24 to a request, each request starting 12 lines
 after the last, so every line is judged twice; its higher score is kept. The comparison counts, per turn and in
 sum, the lines the judge marked helpful that the rules held (`both`), that they did not (`judge_only`: what the
 rules miss), and the reverse. On a store the rules are the transcript's; on the cases (`--cases`, with a

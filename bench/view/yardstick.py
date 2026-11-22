@@ -25,8 +25,9 @@ judge in overlapping windows of `WINDOW` (24), each starting half a window
 after the last and the first starting half a window before the first line,
 so every line is judged twice, with different neighbours; its higher score
 is kept. A line scores 2 (helps), 1 (might) or 0. A line is the person's
-words in that exchange; the `did` line the design adds beside it is not read
-by this build (the history does not carry it).
+words in that exchange, cut at `LINE_CHARS` (the message at
+`MESSAGE_CHARS`); the `did` line the design adds beside it is not read by
+this build (the history does not carry it).
 
 **The rules' selection**: with `--cases`, a strategy's `held` file
 (`cases.py build` writes one per strategy) or, without one, the transcript's
@@ -62,6 +63,10 @@ import cases as vc  # noqa: E402
 from generate import PRICES  # noqa: E402
 
 WINDOW = 24
+# A line's and the message's length cut, in characters: 24 lines of LINE_CHARS keep a request near the design's
+# 3,000 tokens; a pasted page is judged by its head.
+LINE_CHARS = 480
+MESSAGE_CHARS = 2000
 MAX_OUT = 400  # bench/personality's judge.ask asks for at most this many output tokens
 BYTES_PER_TOKEN = 3.6
 DEFAULT_MODEL = "claude-haiku-5-5"
@@ -95,8 +100,8 @@ def windows(n: int, size: int = WINDOW) -> list[range]:
 
 
 def prompt(message: str, lines: list[str]) -> str:
-    body = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(lines))
-    return f"MESSAGE:\n{message}\n\nLINES:\n{body}\n\nScore every line."
+    body = "\n".join(f"{i + 1}. {' '.join(t.split())[:LINE_CHARS]}" for i, t in enumerate(lines))
+    return f"MESSAGE:\n{message[:MESSAGE_CHARS]}\n\nLINES:\n{body}\n\nScore every line."
 
 
 def tokens(text: str) -> int:
