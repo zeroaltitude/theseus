@@ -207,7 +207,11 @@ async fn a_sessions_next_request_lays_its_exchange_in_the_window() {
         sent.contains("Where is the harbour?"),
         "the question: {sent}"
     );
-    assert!(sent.contains("Aye."), "and the answer: {sent}");
+    assert_eq!(
+        sent.matches("Aye.").count(),
+        1,
+        "and the answer, once: {sent}"
+    );
 }
 
 /// Tools are counted in the ledger by what was planned, with the last call's time.

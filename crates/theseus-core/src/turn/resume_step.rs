@@ -63,7 +63,7 @@ impl TurnRunner {
     /// or when that place cannot be read, the turn is marked unresumable, and `read` is kept.
     pub(super) fn resumed_place(&self, t: &mut Turn<'_>, read: Option<String>) -> Option<String> {
         let opened = t.exchange.mark().is_some() || t.exchange.occasion().is_none();
-        if opened || t.tc.task.is_some() || !self.cfg.context.ledger_on() {
+        if opened || t.tc.task.is_some() {
             return read;
         }
         let turns = self.continued_turns(t);

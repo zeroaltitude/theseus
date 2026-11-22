@@ -202,10 +202,8 @@ impl TurnRunner {
 
     /// What a turn no person's message opened was given by the gate, kept beside its exchange so a turn
     /// that continues it reads it (`exchange::given`), in the turn's frame.
-    pub(super) fn exchange_given(&self, t: &Turn<'_>, given: &crate::exchange::given::Given) {
-        if self.ledger_on(t) {
-            defer(t, crate::exchange::given::given_record(given).ok());
-        }
+    pub(super) fn exchange_given(t: &Turn<'_>, given: &crate::exchange::given::Given) {
+        defer(t, crate::exchange::given::given_record(given).ok());
     }
 
     /// The index's things in `text`, named off the turn's path: the task

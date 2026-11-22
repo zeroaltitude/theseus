@@ -196,11 +196,8 @@ impl TurnRunner {
         arm: MemoryArm,
         message: &str,
     ) -> Scene<'a> {
-        // A view turn counts only what its view lays (issue 44); the transcript, all it carries.
-        let in_context = match self.on_transcript() {
-            false => Self::view_in_context(t),
-            true => Self::in_context(t),
-        };
+        // A turn counts only what its view lays (issue 44).
+        let in_context = Self::view_in_context(t);
         let labeled = self
             .memory
             .labeled(&self.store)
@@ -244,33 +241,6 @@ impl TurnRunner {
             persona: self.persona_scene(t.target.persona.as_deref()),
             category,
         }
-    }
-
-    /// The nodes the turn's request carries, and the sources of the recalls
-    /// among them.
-    fn in_context(t: &Turn<'_>) -> BTreeSet<String> {
-        let mut in_context = BTreeSet::new();
-        if let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) {
-            // An assembled section's context is what its prefix keeps: past
-            // an old session's summary, the summarized range is out of it (30c).
-            let floor = crate::compiler::summary::floor(&nodes).map(|(_, last)| last);
-            let after = floor.filter(|_| t.recall.assembled).unwrap_or(0);
-            // A range a split moved is out of the compile, so recall may bring it back.
-            let moves = crate::moved::read(&nodes);
-            for (_, n) in nodes
-                .iter()
-                .filter(|(p, n)| *p > after && !moves.hidden.contains(&n.id))
-            {
-                in_context.insert(n.id.clone());
-                if n.kind != crate::stub::Kind::Recall {
-                    continue;
-                }
-                if let Body::Recall { items, .. } = &n.body {
-                    in_context.extend(items.iter().map(|r| r.node_id.clone()));
-                }
-            }
-        }
-        in_context
     }
 
     /// Read the index's answer (never past its deadline), run the pipeline,

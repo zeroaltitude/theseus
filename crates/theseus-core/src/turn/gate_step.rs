@@ -64,7 +64,7 @@ impl TurnRunner {
         if mark.is_none() && unopened {
             let continues = (t.exchange.continues()).and_then(|c| c.first().cloned().flatten());
             let given = Given::new(t.tc.turn_id, asking.present(), continues);
-            self.exchange_given(t, &given);
+            Self::exchange_given(t, &given);
         }
     }
 

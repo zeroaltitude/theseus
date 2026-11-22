@@ -1,11 +1,10 @@
 //! An old session's `Summary` nodes (M6 step 30c, retired): compaction, which wrote them where the ring
 //! would drop a session's leading turns, is gone, and nothing writes a summary now. A store still holds
 //! them, so they are still read: a summary an old exchange holds renders first in its request's prefix, as
-//! testimony under its frozen header (in a tail it renders nothing), and the session's latest summary still
-//! names the range it stood for (`floor`), which recall reads.
+//! testimony under its frozen header (in a tail it renders nothing).
 
 use crate::node::Node;
-use crate::stub::{Kind, Shaped, Stub};
+use crate::stub::{Kind, Shaped};
 
 /// What a summary renders: its header, then its text.
 pub fn rendered(header: &str, text: &str) -> String {
@@ -14,15 +13,6 @@ pub fn rendered(header: &str, text: &str) -> String {
 
 pub(crate) fn is_summary(n: &(impl Shaped + ?Sized)) -> bool {
     n.kind() == Kind::Summary
-}
-
-/// The session's latest summary, with its position, and the position of
-/// the last node of its range: read from the stubs, so it decodes nothing.
-pub fn floor(nodes: &[(u64, Stub)]) -> Option<(&(u64, Stub), u64)> {
-    nodes
-        .iter()
-        .rev()
-        .find_map(|e| e.1.summary_last.map(|last| (e, last)))
 }
 
 /// A prefix's nodes in the assembled order (30c): its recall section
