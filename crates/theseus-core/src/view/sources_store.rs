@@ -87,6 +87,9 @@ pub struct StoreSources<'a> {
     /// exchange was moved into a thread not proven clear, which holds the exchange out whole.
     pub moved: &'a dyn Fn(&exchange::Exchange) -> bool,
     pub sessions: &'a Sessions,
+    /// The asking turn: its own exchange, open while it runs, is its tail and never a piece of the view (it
+    /// is not laid in the window, so it is not charged to the budget either).
+    pub own: Option<&'a str>,
 }
 
 /// Who wrote a person's message, by its node's mark: the owner's mark is his; a chat author's proof is
@@ -111,6 +114,9 @@ fn json_tokens(v: &serde_json::Value) -> u64 {
 
 impl Exchanges for StoreSources<'_> {
     fn facts(&self, turn_id: &str) -> anyhow::Result<Option<ExchangeFacts>> {
+        if self.own == Some(turn_id) {
+            return Ok(None);
+        }
         if let Some(f) = self.sessions.facts.borrow().get(turn_id) {
             return Ok(f.clone());
         }

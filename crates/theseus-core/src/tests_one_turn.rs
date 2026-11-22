@@ -55,6 +55,16 @@ fn config(root: &Path, state: &Path, window: u64, working: Option<u64>) -> Confi
 /// A core whose model reads `calls` logs of `chars` characters each, one
 /// call a loop, then answers; its window `window`, lowered to `working`.
 fn rig(calls: usize, chars: usize, window: u64, working: Option<u64>) -> Rig {
+    rig_tweaked(calls, chars, (window, working), |_| {})
+}
+
+/// [`rig`], with `tweak` applied to its settings last.
+fn rig_tweaked(
+    calls: usize,
+    chars: usize,
+    (window, working): (u64, Option<u64>),
+    tweak: impl FnOnce(&mut Config),
+) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(root.join("logs")).unwrap();
@@ -72,7 +82,8 @@ fn rig(calls: usize, chars: usize, window: u64, working: Option<u64>) -> Rig {
     script.push(Scripted::text("All the logs agree with the tide table."));
     let model = Arc::new(FakeProvider::scripted(script));
     let glm = Arc::new(FakeProvider::scripted(vec![]));
-    let cfg = config(&root.canonicalize().unwrap(), dir.path(), window, working);
+    let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), window, working);
+    tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
     parts.providers.insert("zai".into(), glm.clone());
@@ -220,6 +231,39 @@ async fn a_single_instruction_reads_300_large_results_without_an_overage() {
     let last = sent.last().unwrap();
     let text = last.messages[0]["content"][1]["text"].as_str().unwrap();
     assert!(text.starts_with("[Summary of "), "{text}");
+}
+
+/// The same 300 large results on the view (issue 44): no ring and no compaction, the view's own room
+/// (clearing, then what else it can make): the turn ends with the model's answer, no overage, the
+/// instruction in every request, every call closed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_single_instruction_reads_300_large_results_on_the_view() {
+    use crate::config::assembly::{Assembly, AssemblySetting};
+    let r = rig_tweaked(300, 2_500, (84_000, None), |c| {
+        c.context.assembly = Some(AssemblySetting::All(Assembly::View));
+    });
+    let (_, result) = turn(&r.core, INSTRUCTION).await;
+    let result = result.expect("the turn ends as its model ends it");
+    assert!(result
+        .output
+        .ends_with("All the logs agree with the tide table."));
+    assert!(rows(&r.core, "context.overage").is_empty());
+    assert!(
+        !rows(&r.core, "context.cleared").is_empty(),
+        "a clearing pass"
+    );
+    let sent: Vec<ProviderRequest> = (r.model.requests().into_iter())
+        .filter(|q| !q.tools.is_empty())
+        .collect();
+    assert_eq!(sent.len(), 301);
+    for (k, q) in sent.iter().enumerate() {
+        let all = serde_json::to_string(&q.messages).unwrap();
+        assert!(
+            all.contains(INSTRUCTION),
+            "request {k} holds the instruction"
+        );
+        closed(q).unwrap_or_else(|e| panic!("request {k}: {e}"));
+    }
 }
 
 /// `[context] working_window_tokens` lowers the window: the same turn on a
