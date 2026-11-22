@@ -105,6 +105,21 @@ async fn a_retired_familys_records_are_still_listed_and_reported() {
             ..PackModeRow::default()
         })
         .unwrap();
+    // And the cross judge's, retired with its service (XD3): its day brake still reads the row.
+    c.runner
+        .judge
+        .ladder()
+        .write(PackModeRow {
+            pack: "recall_cross.v1".into(),
+            mode: Rung::Live.as_str().into(),
+            from: Rung::Shadow.as_str().into(),
+            who: "owner".into(),
+            by: "owner".into(),
+            via: "promote".into(),
+            why: "an older build's row".into(),
+            ..PackModeRow::default()
+        })
+        .unwrap();
     drop(c);
     // The upgrade: a fresh start on the store.
     let c = core_at(dir.path());
@@ -130,6 +145,8 @@ async fn a_retired_familys_records_are_still_listed_and_reported() {
     // The mode row is on the ladder after the restart.
     let rows = c.runner.judge.ladder().rows_of("role.v1");
     assert_eq!(rows.len(), 1, "{rows:?}");
+    let cross = c.runner.judge.ladder().rows_of("recall_cross.v1");
+    assert_eq!(cross.len(), 1, "{cross:?}");
     // And nothing can run them.
     assert!(theseus_judge::pack::by_name("role.v1").is_none());
     assert!(theseus_judge::pack::by_name("continue.v1").is_none());
