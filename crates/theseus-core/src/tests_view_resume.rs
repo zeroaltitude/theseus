@@ -442,7 +442,7 @@ async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
     // Its opening, as the self loop runs one: no arrival mark.
     let (live, _) = c.live_profile();
     let target = c.runner.resolve_target(&live, None, None, None).unwrap();
-    let _ = c
+    let first = c
         .runner
         .run(crate::turn::TurnRequest {
             prompt: None,
@@ -459,6 +459,24 @@ async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
             answer_at: None,
         })
         .await;
+    let opened: Vec<String> = (c.store.session_nodes(&sid).unwrap().iter())
+        .map(|(_, n)| {
+            format!("{:?} {:?}", n.turn_id, n.body)
+                .chars()
+                .take(160)
+                .collect()
+        })
+        .collect();
+    assert!(
+        first
+            .as_ref()
+            .is_err_and(|e| format!("{e:#}").contains("cut")),
+        "the opening's call was cut: {:?}; {opened:#?}",
+        first
+            .as_ref()
+            .map(|r| r.output.clone())
+            .map_err(|e| format!("{e:#}"))
+    );
     let before = fake.requests().len();
     let done = resume(&c, &sid).await.expect("the worker's resume runs");
     let said: Vec<String> = (c.store.session_nodes(&sid).unwrap().iter())
@@ -470,7 +488,11 @@ async fn a_self_workers_resume_reaches_its_own_history_and_nothing_else() {
         })
         .collect();
     let sent = &fake.requests()[before..];
-    assert!(!sent.is_empty(), "the resume made its call");
+    assert!(
+        !sent.is_empty(),
+        "the resume made its call ({:?}): {said:#?}",
+        done.output
+    );
     for q in sent {
         legal(q);
         let t = texts(q);

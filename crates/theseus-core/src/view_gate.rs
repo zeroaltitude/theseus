@@ -520,15 +520,28 @@ pub fn steered(runner: &TurnRunner, session: &str, mark: Option<&OwnerMark>) {
 }
 
 /// The exchange of the turn of `session` that made the call `call_id` (a
-/// `wake.at` or a `task.create`).
+/// `wake.at` or a `task.create`), by its tool-use id.
 fn set_up_exchange(
     store: &Store,
     session: &str,
     call_id: &str,
 ) -> Option<crate::exchange::Exchange> {
+    call_exchange(store, session, |id, _| id == call_id)
+}
+
+/// The exchange of the turn of `session` whose call `is(tool_use_id, action id)` names.
+fn call_exchange(
+    store: &Store,
+    session: &str,
+    is: impl Fn(&str, Option<&str>) -> bool,
+) -> Option<crate::exchange::Exchange> {
     let nodes = store.session_nodes(session).ok()?;
     let turn = nodes.iter().find_map(|(_, n)| match &n.body {
-        Body::ToolCall { tool_use_id, .. } if tool_use_id == call_id => n.turn_id.clone(),
+        Body::ToolCall {
+            tool_use_id,
+            correlation_id,
+            ..
+        } if is(tool_use_id, correlation_id.as_deref()) => n.turn_id.clone(),
         _ => None,
     })?;
     crate::exchange::exchange(store, &turn).ok()?
@@ -630,7 +643,10 @@ pub fn report_shown(runner: &TurnRunner, delivery: &str, task: &str) -> bool {
     if now != of.target {
         return false;
     }
-    let Some(ex) = set_up_exchange(&runner.store, &of.parent_session, &of.by) else {
+    // The task's record names the call that opened it by its action's id (`TaskOf::by`); an older test's or
+    // record's, by its tool-use id.
+    let by = |id: &str, action: Option<&str>| id == of.by || action == Some(of.by.as_str());
+    let Some(ex) = call_exchange(&runner.store, &of.parent_session, by) else {
         // No proof of what started it: as before, where it has not moved.
         return true;
     };
