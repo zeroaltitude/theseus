@@ -439,38 +439,6 @@ async fn a_turn_whose_request_carried_its_recall_writes_one_recall_node() {
     );
 }
 
-/// A place set to `view` withholds the turn's recall node (issue 44): its recall reaches the model as a
-/// selector's piece beside the message, so no `Recall` node is written, the reply counts none, and a
-/// `recall.withheld` row says why (`view`), joined to the admission it dropped (theseus-ectzg). The
-/// recall itself ran and admitted the note, so an empty index cannot pass.
-#[tokio::test]
-async fn a_view_place_withholds_its_recall_node_with_a_row_that_says_view() {
-    use crate::config::assembly::{Assembly, AssemblySetting};
-    let r = canary_with(|c| c.context.assembly = Some(AssemblySetting::All(Assembly::View)));
-    let c = &r.core;
-    let a = session(c, None, &[HERON]);
-    let b = session(c, None, &[]);
-    c.runner.memory.set_ask(index_of(c, vec![]));
-    turn(c, &b, "warm up").await;
-    c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
-    let res = turn(c, &b, "Where does the grey heron nest?").await;
-    let m = recalls(c, &b).pop().expect("a recall.ran row");
-    assert_eq!(admitted(&m).len(), 1, "recall admitted the note");
-    assert!(
-        recall_nodes(c, &b).is_empty(),
-        "no `Recall` node in a view place"
-    );
-    assert_eq!(res.recalled, 0, "and the reply counts none");
-    let withheld = rows(c, &b, "recall.withheld");
-    assert_eq!(withheld.len(), 1, "one withholding row: {withheld:?}");
-    assert_eq!(withheld[0].data["why"], "view");
-    assert_eq!(withheld[0].data["recall_id"], m.recall_id.as_str());
-    assert_eq!(
-        withheld[0].data["admitted"], 1,
-        "the notes the request did not carry"
-    );
-}
-
 /// A compile whose request carries the recall node folds the pack's budget
 /// drop into its report (theseus-ectzg, fpm2 F1 limit (i)): recall's pack has
 /// room for one of two notes, drops the other for its budget, and the

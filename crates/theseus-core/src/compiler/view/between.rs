@@ -9,12 +9,16 @@ use std::collections::HashSet;
 use crate::stub::{Kind, Stub};
 
 /// The ids of the notes of `nodes` (a session's, in order) that `turn` sends: a person's or the harness's
-/// message with no turn, after the session's last node of another turn, not moved away.
+/// message with no turn, after the session's last node of another turn, not moved away. Before a session's
+/// first turn there are none: what precedes it is its opening (a task's brief and pieces), which the view
+/// lays as the window's head (`turn::view_step::task`).
 pub(super) fn notes(nodes: &[(u64, Stub)], turn: &str) -> HashSet<String> {
-    let since = nodes
-        .iter()
-        .rposition(|(_, n)| n.turn_id.as_deref().is_some_and(|t| t != turn))
-        .map_or(0, |i| i + 1);
+    let Some(last) =
+        (nodes.iter()).rposition(|(_, n)| n.turn_id.as_deref().is_some_and(|t| t != turn))
+    else {
+        return HashSet::new();
+    };
+    let since = last + 1;
     let moves = crate::moved::read(nodes);
     nodes[since..]
         .iter()

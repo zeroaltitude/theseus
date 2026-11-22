@@ -585,15 +585,6 @@ impl TurnRunner {
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
-    /// Why this turn's request does not carry its pending `Recall` node, when it does not:
-    /// [`VIEW`] in a place set to `view`, whose recall reaches the model as a selector's piece
-    /// beside the message (issue 44). `None` when it carries it, a view turn that declined to the
-    /// transcript's included (it is the transcript's turn in full).
-    pub(super) fn carries(&self, t: &Turn<'_>) -> Option<&'static str> {
-        let view = self.assembly_here(t) == crate::config::assembly::Assembly::View;
-        (view && !Self::view_declined_here(t)).then_some(VIEW)
-    }
-
     /// A view call withheld the pending recall at dispatch: keep it, never persisted, for a decline of
     /// this turn to the transcript. Once: the first view dispatch keeps it.
     pub(super) fn recall_kept_for_view(t: &mut Turn<'_>) {
@@ -712,17 +703,19 @@ impl TurnRunner {
         t: &mut Turn<'_>,
         nodes: Transcript,
     ) -> (Transcript, Sources) {
-        t.recall.withheld = self.carries(t);
+        // Every turn carries its pending node, a view turn's included (issue 44, issue 46): the node,
+        // its edges and its rows ride the plan frame, so the reply's count, its citations, reach and
+        // retraction see what the turn recalled. The view lays the items beside the message and keeps
+        // the node itself out of the window and out of the turn's own tail.
+        t.recall.withheld = None;
         self.recall_view(t, nodes)
     }
 
     /// The transcript a loop compiles, with the turn's pending `Recall` node
-    /// after every node (unless the turn withholds it, [`Self::carries`]), and
-    /// the sources its recalls render.
+    /// after every node, and the sources its recalls render.
     pub(super) fn recall_view(&self, t: &Turn<'_>, nodes: Transcript) -> (Transcript, Sources) {
         let mut nodes = nodes;
-        let carried = self.carries(t).is_none();
-        if let Some(n) = t.recall.pending.as_ref().filter(|_| carried) {
+        if let Some(n) = t.recall.pending.as_ref() {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {
                 nodes.push((PENDING, n.clone().into()));
