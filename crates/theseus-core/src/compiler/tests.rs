@@ -101,10 +101,6 @@ fn result(id: &str, content: &str, status: ResultStatus, late: bool) -> Node {
     )
 }
 
-fn thinking() -> Value {
-    json!({"type": "thinking", "thinking": "", "signature": "sig"})
-}
-
 fn run(
     nodes: &[(u64, Node)],
     current: Option<&Compilation>,
