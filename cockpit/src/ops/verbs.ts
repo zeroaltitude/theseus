@@ -8,7 +8,7 @@
 export type Posture = 'do' | 'arm' | 'ask' | 'floor'
 
 /** What a verb can be done to. */
-export type Kind = 'session' | 'conversation' | 'task' | 'thread' | 'routine' | 'wake' | 'watch' | 'job' | 'project' | 'question' | 'daemon'
+export type Kind = 'session' | 'conversation' | 'task' | 'routine' | 'wake' | 'watch' | 'job' | 'project' | 'question' | 'daemon'
 
 export interface VerbDef {
   id: string
@@ -23,17 +23,16 @@ export interface VerbDef {
   running?: boolean
 }
 
-const ANY: readonly Kind[] = ['session', 'conversation', 'task', 'thread', 'routine', 'wake', 'watch', 'job', 'project', 'question']
+const ANY: readonly Kind[] = ['session', 'conversation', 'task', 'routine', 'wake', 'watch', 'job', 'project', 'question']
 const SESSIONISH: readonly Kind[] = ['session', 'conversation', 'task']
 
 export const VERBS: readonly VerbDef[] = [
-  { id: 'open', label: 'Open the deck', on: ['session', 'conversation', 'task', 'thread'], methods: ['nav'], posture: 'do' },
-  { id: 'inspect', label: 'Inspect', on: ANY, methods: ['session.history', 'node.list', 'turn.inspect', 'work.peek', 'thread.show', 'task.list'], posture: 'do' },
-  { id: 'join', label: 'Join and chat', on: ['session', 'conversation', 'task', 'thread'], methods: ['turn.submit'], posture: 'do' },
+  { id: 'open', label: 'Open the deck', on: ['session', 'conversation', 'task'], methods: ['nav'], posture: 'do' },
+  { id: 'inspect', label: 'Inspect', on: ANY, methods: ['session.history', 'node.list', 'turn.inspect', 'work.peek', 'task.list'], posture: 'do' },
+  { id: 'join', label: 'Join and chat', on: ['session', 'conversation', 'task'], methods: ['turn.submit'], posture: 'do' },
   { id: 'steer', label: 'Steer the running turn', on: SESSIONISH, methods: ['turn.submit'], posture: 'do', running: true },
   { id: 'queue', label: 'Queue after the turn', on: ['session', 'conversation'], methods: ['turn.submit'], posture: 'do', running: true },
   { id: 'task_pause', label: 'Pause or resume the task', on: ['task'], methods: ['task.pause', 'task.resume'], posture: 'do', undo: true },
-  { id: 'thread_pause', label: 'Pause, resume, done or reopen the thread', on: ['thread'], methods: ['thread.pause', 'thread.resume', 'thread.done', 'thread.reopen'], posture: 'do' },
   { id: 'routine_pause', label: 'Pause or resume the routine', on: ['routine'], methods: ['routine.pause', 'routine.resume'], posture: 'do' },
   { id: 'routine_skip', label: 'Skip the routine’s next run', on: ['routine'], methods: ['routine.skip'], posture: 'ask' },
   { id: 'routine_run', label: 'Run the routine now', on: ['routine'], methods: ['routine.run_now'], posture: 'ask' },
@@ -52,12 +51,6 @@ export const VERBS: readonly VerbDef[] = [
   { id: 'retry', label: 'Retry the failed task', on: ['task'], methods: ['task.retry'], posture: 'do' },
   { id: 'dismiss', label: 'Dismiss the failure', on: ['task', 'conversation', 'job'], methods: ['execution.dismiss'], posture: 'do' },
   { id: 'new_task', label: 'Start a task', on: ['daemon', ...SESSIONISH], methods: ['task.start'], posture: 'do' },
-  { id: 'thread_new', label: 'New thread', on: ['thread'], methods: ['thread.new'], posture: 'do' },
-  { id: 'thread_edit', label: 'Edit the thread', on: ['thread'], methods: ['thread.edit'], posture: 'do' },
-  { id: 'thread_seal', label: 'Seal or unseal the thread', on: ['thread'], methods: ['thread.seal', 'thread.unseal'], posture: 'ask' },
-  { id: 'thread_merge', label: 'Merge or split the thread', on: ['thread'], methods: ['thread.merge', 'thread.split'], posture: 'ask' },
-  { id: 'thread_link', label: 'Link the thread', on: ['thread'], methods: ['thread.link'], posture: 'do' },
-  { id: 'thread_move', label: 'Move a misrouted message', on: ['thread'], methods: ['thread.move'], posture: 'do' },
   { id: 'attach', label: 'Attach to a project', on: ['task', 'conversation'], methods: ['project.attach'], posture: 'do' },
   { id: 'mode', label: 'Set the mode', on: ['session', 'conversation'], methods: ['session.mode'], posture: 'do' },
   { id: 'mode_auto', label: 'Set the mode to Auto', on: ['session', 'conversation'], methods: ['session.mode'], posture: 'ask' },

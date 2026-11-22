@@ -149,7 +149,7 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'A number that is not what you expect is the reason to look further. Needs you above zero means something is stopped until you answer it.'),
   'simple.ops.needs': e(
     'List everything that is waiting for you, the longest waiting first.',
-    'One row is one thing to answer: an approval, a budget question, a choice, a failure, a seal, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. The number at the top counts pieces of work, so it is the same as the number above; when one piece of work holds two questions the rows are one more, and the heading says how many there are to answer. Click a row to open it on the right, with its answers.',
+    'One row is one thing to answer: an approval, a budget question, a choice, a failure, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. The number at the top counts pieces of work, so it is the same as the number above; when one piece of work holds two questions the rows are one more, and the heading says how many there are to answer. Click a row to open it on the right, with its answers.',
     'Work behind one of these does not move until you answer. Clearing this list is the most useful thing you can do on this page.'),
   'simple.ops.flight': e(
     'Show what Theseus is working on right now.',
@@ -215,32 +215,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Show the wake-ups Theseus has set for itself and for you, with a way to pause or cancel each.',
     'One row per wake: the note it will act on, its short id, the session or task it belongs to, its state, when it is due and how long from now, and a series when it repeats. Pause holds it; Cancel removes it.',
     'A wake that never fires, or one that fires too often, explains a session that is silent when it should work, or busy when it should rest.'),
-
-  // ---- the Threads (theseus-5i8i)
-  'threads.list': e(
-    'Show each live thread as one group, with what is open under it and what waits on you.',
-    'A header is the thread: its title (a lock when the owner has sealed it), its state, whether its cache is warm or cold, how many things need you, then its last activity, context size and dollars today. Under it are its open plans, steps, questions and wakes; click one to open its session. A seal waiting on you is the red line. A paused thread keeps its count but leaves the board’s.',
-    'A thread that needs you is where to go first. A cold thread with a large context costs more to wake than a warm one, so a message there is worth batching.'),
-  'threads.thread': e(
-    'Say what one thread is, where it stands, and where it came from.',
-    'The title is the thread’s; its goal, topics and standing follow. The size of its context and today’s dollars come from its session. “Under”, “Split from” and “Merged into” link to the threads it came from or went into.',
-    'It tells you whether a thread is cheap to continue, and which thread to open when one has been split or merged.'),
-  'threads.card': e(
-    'Show the thread’s card: where it stands, in a few lines.',
-    'Each line is one fact the thread keeps. The card is written by the thread’s own work and by you; the model reads it at the head of the thread’s messages.',
-    'If the card is wrong the thread will start from the wrong place. Edit it with `theseus thread edit`.'),
-  'threads.workingset': e(
-    'Show what the thread touches: roots, repos, branches, references, files and hosts.',
-    'Each line is one kind of thing and the names the thread holds. Nothing is guessed: these are the record’s own.',
-    'The router and the context read the working set to decide what belongs to this thread; a missing repo here is a message sent to the wrong thread.'),
-  'threads.work': e(
-    'List the thread’s open plans, steps, questions and wakes.',
-    'The mark is its attention: ● needs you, ◐ working, ○ ready. Click one to open its conversation.',
-    'A question here is waiting on you; a step or a task that has failed stays until someone looks.'),
-  'threads.turns': e(
-    'Show the last few messages of the thread’s session.',
-    'Oldest first, newest last: what you said and what Theseus answered, with when.',
-    'A quick way to see where the thread stopped without opening its session.'),
 
   // ---- the Bridge
   'bridge.latency': e(
@@ -324,20 +298,20 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Five columns: Needs you (the longest waiting first), Working, Paused·queued, Scheduled (deferred starts, wakes and routine runs due today; its counter reads “scheduled today”) and Done (today, then older, fifty at a time). A card is a plan, a step, a task, a conversation, a job or a wake, with its progress line, its place (where it came from) and the model it runs on. A step not yet started is to do and has no column. j and k move along a column, h and l across.',
     'It is the one place that says whether a piece of work is still going. A task waiting on a long command is working, and a paused one is held until you resume it.'),
   'ops.graph': e(
-    'Show how the work hangs together: which thread holds which plans and steps, and which task is carrying out which.',
-    'Each thread is a swimlane with its head card, and everything it started hangs in it; Home is the lane for work that belongs to no thread. A plan is a card with a fold and “n of m” done; a step is a card with a checkbox glyph; a task is a badge strip on the step or plan it carries out; a job is a pill. A colour says the state: needs you, working, to do, paused·queued, scheduled today, at rest or done.',
+    'Show how the work hangs together: which conversation started which plans and steps, and which task is carrying out which.',
+    'The work sits in one swimlane: each conversation is a card at the left, and everything it started hangs from it. A plan is a card with a fold and “n of m” done; a step is a card with a checkbox glyph; a task is a badge strip on the step or plan it carries out; a job is a pill. A colour says the state: needs you, working, to do, paused·queued, scheduled today, at rest or done.',
     'It shows why something is running and what it is part of. A plan stuck at 2 of 5 points at the step that holds it, and a task nobody remembers starting sits on the card it belongs to.'),
   'ops.words': e(
-    'Say what the page’s words mean: conversation, thread, plan, step, task and job.',
-    'A conversation is where you talk with Theseus in one place (a DM, the CLI, a channel, the cockpit), one turn at a time. A thread is a named line of work with its own conversation. A plan is work broken into parts, with steps and smaller plans in it. A step is one piece of work, checked off when done. A task is an agent Theseus starts to carry out a step or a plan on its own, with its own budget. A job is a command run for a turn or a task, such as a build or a test run.',
+    'Say what the page’s words mean: conversation, plan, step, task and job.',
+    'A conversation is where you talk with Theseus in one place (a DM, the CLI, a channel, the cockpit), one turn at a time. A plan is work broken into parts, with steps and smaller plans in it. A step is one piece of work, checked off when done. A task is an agent Theseus starts to carry out a step or a plan on its own, with its own budget. A job is a command run for a turn or a task, such as a build or a test run.',
     'A task is only ever the running agent: what is stored and shown as work to do is a plan or a step. Also: a turn is one run of the model from a message to its reply, an ask is anything waiting on your answer, and a wake is a time Theseus starts work by itself.'),
   'ops.queue': e(
     'List everything that waits on you, in one place, the longest waiting first.',
-    'Each card is one thing to answer: an approval, a budget, a change to a step’s goal, a question, a failure, a seal, or a message waiting for its thread. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, n, 1 to 6, r and d answer the one under the cursor.',
+    'Each card is one thing to answer: an approval, a budget, a change to a step’s goal, a question or a failure. Its glyph and word say which; the bar under its top says how much of its time is left. Tab moves to the next; Enter lays out the whole card; y, n, 1 to 6, r and d answer the one under the cursor.',
     'A question that waits holds its work. A new one slides in where its age puts it, so the cursor never jumps away from what you are reading.'),
   'ops.inspector': e(
     'Show the selection whole: its facts, its questions and its verbs.',
-    'A plan, step, task, job or conversation shows every field the Board has for it, its questions answered in place, and its verbs (pause, stop, cancel). A thread shows its goal, card, working set, open work and recent turns with its verbs. A queue item shows its full question.',
+    'A plan, step, task, job or conversation shows every field the Board has for it, its questions answered in place, and its verbs (pause, stop, cancel). A queue item shows its full question.',
     'It is where you act on one thing without leaving the page: every verb is one call to the daemon, as the same act from any other surface.'),
   'tasks.new': e(
     'Start a task from the page: an agent that carries out a piece of work on its own.',

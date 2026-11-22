@@ -50,7 +50,7 @@ const queries = new QueryClient({
 })
 bindPush(queries)
 
-/** The Agenda's, Tasks' and Threads' old addresses: their Operations lens, the query kept (the owner's decision 1). */
+/** The Agenda's, Tasks' and Threads' old addresses: an Operations lens, the query kept (the owner's decision 1). */
 function ToOps() {
   const l = useLocation()
   return <Navigate to={redirectOf(l.pathname, l.search) ?? '/ops'} replace />
@@ -96,9 +96,9 @@ const router = createBrowserRouter(
             { path: 'fleet', element: wrap(<Fleet />) },
             // Operations (theseus-jid7t.3): the needs-you queue, the lenses and the inspector. The route loads its chunk.
             { path: 'ops', lazy: async () => ({ Component: (await import('./views/Ops')).default }) },
-            // The threads on the work board (theseus-5i8i) are the Threads lens now; one thread's view stays a page.
+            // The Threads page and its thread pages are gone; their old addresses open the Board.
             { path: 'threads', element: <ToOps /> },
-            { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
+            { path: 'threads/:slug', element: <ToOps /> },
             // The Tasks and Agenda pages are the Board and Timeline lenses now (theseus-jid7t.3).
             { path: 'tasks', element: <ToOps /> },
             { path: 'agenda', element: <ToOps /> },

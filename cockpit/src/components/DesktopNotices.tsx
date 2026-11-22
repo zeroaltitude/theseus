@@ -5,13 +5,13 @@ import { useEffect, useRef } from 'react'
 import { useMatch, useNavigate } from 'react-router'
 import type { WakeNoticed, WorkNotice } from '@protocol'
 import { client } from '@/lib/rpc'
-import { useThreadBoard } from '@/lib/threadwatch'
+import { useWorkBoard } from '@/lib/workwatch'
 import { deliver, reminderNotice, tagOf } from '@/lib/notices'
 import { noticeTarget } from '@/lib/taskboard'
 
 export function DesktopNotices() {
   // The page's `work.watch`: the daemon pushes the board's notices on it.
-  useThreadBoard()
+  useWorkBoard()
   const nav = useNavigate()
   const open = useRef(nav)
   useEffect(() => { open.current = nav }, [nav])

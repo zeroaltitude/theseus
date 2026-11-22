@@ -433,32 +433,13 @@ async fn the_owners_own_dm_is_the_operators_words_and_is_never_asked_the_injecti
     );
 }
 
-/// And the same when the message is placed in a thread, which is what happened
-/// to him (by the router's guess then; by its address now): his turn ran in
-/// `theseus-design-oct`'s session, not his DM's. A thread's virtual place is
-/// private unconditionally (`places::class_alone`, theseus-nhew), so the place
-/// half was never the problem — but the `owner` half has to survive the move too.
+/// And the same when the message names a thread, which is what happened to him
+/// (his turn ran in `theseus-design-oct`'s session then). Threads are gone: the
+/// message runs here, and the `owner` half still holds for his own words.
 #[tokio::test]
 async fn and_so_is_one_the_router_places_in_a_thread() {
     let jev = jev_of_the_incident();
     let r = judged_rig(&jev).await;
-    let cli = theseus_core::approval::Answerer {
-        label: "the CLI".into(),
-        surface: theseus_core::approval::Surface::Cli,
-        discord: None,
-        agent: None,
-    };
-    r.core
-        .thread_new(
-            &theseus_protocol::threads::ThreadNewParams {
-                slug: "design-oct".into(),
-                title: Some("design oct".into()),
-                goal: Some("An ARCHIVE of October design talk".into()),
-                ..Default::default()
-            },
-            cli,
-        )
-        .unwrap();
     r.say(
         (ANA, "ana"),
         None,
@@ -466,9 +447,6 @@ async fn and_so_is_one_the_router_places_in_a_thread() {
     );
     r.until("his message judged", || !asked_of_a_message(&r).is_empty())
         .await;
-    let routed = r.ledger("thread.routed");
-    assert_eq!(routed.len(), 1, "the router placed it: {routed:?}");
-    assert_eq!(routed[0]["to"], "design-oct", "{:?}", routed[0]);
     let row = asked_of_a_message(&r).remove(0);
     assert_eq!(
         row["kind"], "operator_message",

@@ -140,10 +140,10 @@ export function verbEntries(targets: readonly OpsTarget[], cx: Ctx): Entry[] {
  *  any order, so one value holds both. */
 export const searchValue = (verb: string, target: string): string => `${verb} ${target} ${target} ${verb}`.toLowerCase()
 
-/** Something the palette can fly to: a session, task, thread, routine, wake, project or profile. */
+/** Something the palette can fly to: a session, task, routine, wake, project or profile. */
 export interface Entity {
   id: string
-  kind: 'session' | 'task' | 'thread' | 'routine' | 'wake' | 'job' | 'project' | 'profile' | 'watch'
+  kind: 'session' | 'task' | 'routine' | 'wake' | 'job' | 'project' | 'profile' | 'watch'
   label: string
   hint: string
   /** What choosing it does to the address: select this (`sel`), filter by this model, or open a lens (a watch's is the
@@ -164,14 +164,13 @@ export function watchEntity(w: WatchRow): Entity {
 }
 
 /** Every entity the page holds, in the order the palette lists them. */
-export function entitiesOf(rows: readonly OpsRow[], threads: ReadonlyArray<{ slug: string; title: string }>, records: readonly TaskRecord[], profiles: readonly ProfileInfo[], watches: readonly WatchRow[] = []): Entity[] {
+export function entitiesOf(rows: readonly OpsRow[], records: readonly TaskRecord[], profiles: readonly ProfileInfo[], watches: readonly WatchRow[] = []): Entity[] {
   const out: Entity[] = []
   for (const r of rows) {
     if (r.kind === 'step' || r.kind === 'ask') continue // a step or an ask is no entity the palette goes to
     const kind = r.kind === 'conversation' ? 'session' : r.kind
     out.push({ id: r.id, kind, label: r.title, hint: `${kind} · ${r.state ?? r.column}${r.data && r.data !== 'open' ? ` · ${r.data}` : ''}`, go: { sel: r.id } })
   }
-  for (const t of threads) out.push({ id: t.slug, kind: 'thread', label: t.title, hint: `thread · ${t.slug}`, go: { sel: t.slug } })
   for (const t of records.filter((x) => x.kind === 'project')) out.push({ id: t.id, kind: 'project', label: t.title, hint: 'project', go: { sel: t.session ?? t.id } })
   for (const p of profiles) out.push({ id: p.name, kind: 'profile', label: p.name, hint: `profile · ${p.model} · ${p.origin ?? 'unknown'}`, go: { model: p.name } })
   for (const w of watches) out.push(watchEntity(w))

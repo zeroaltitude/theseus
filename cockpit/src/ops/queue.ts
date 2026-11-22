@@ -1,6 +1,6 @@
 // The needs-you queue (theseus-jid7t.3): one list of everything waiting on the owner, the longest waiting first (the
 // TUI's tab order), each item answered in place. Pure: `npm test` runs it (test/ops-queue.test.ts). The page passes in
-// what it already holds: `confirm.list`'s questions, the work board's views, the task records and the thread groups.
+// what it already holds: `confirm.list`'s questions, the work board's views and the task records.
 //
 // - A tool approval, a budget ask and a task change are `confirm.list`'s; each is one card, answered by `work.answer`.
 // - A task change proposed and not yet in the list (its record's `proposal`) is a change too, by its card's id.
@@ -8,13 +8,12 @@
 //   question as its confirm, so it is not listed twice.
 // - A failure is a task's or conversation's view that failed and still asks for someone (`execution.dismiss` clears
 //   it): retry, dismiss or open. Under the time machine it is an execution that ended failed, blocked or out of budget.
-// - A seal recommended and not yet answered.
 // The cursor is an item's key, never an index: a new item slides in where its age puts it and the cursor stays on the
 // item it was on (`keepCursor`).
-import type { ConfirmRequest, ExecutionInfo, TaskRecord, ThreadGroup, WorkView } from '@protocol'
+import type { ConfirmRequest, ExecutionInfo, TaskRecord, WorkView } from '@protocol'
 import { deadlineOf } from '../lib/heldquestion.ts'
 
-export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure' | 'seal'
+export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure'
 
 export interface QueueItem {
   key: string
@@ -23,7 +22,7 @@ export interface QueueItem {
   since: number
   /** The verb and what it does, in a phrase. */
   title: string
-  /** Whose it is: the session, task or thread it belongs to. */
+  /** Whose it is: the session or task it belongs to. */
   owner: string
   sessionId?: string
   /** When a question that expires does (epoch ms). None for a held call: its `expires_at_ms` is its first notice's time, not a deadline (`deadlineOf`, theseus-lrc3m). */
@@ -31,7 +30,6 @@ export interface QueueItem {
   confirm?: ConfirmRequest
   view?: WorkView
   execution?: ExecutionInfo
-  thread?: ThreadGroup
   proposal?: { record: TaskRecord }
 }
 
@@ -39,7 +37,6 @@ export interface QueueInput {
   confirms: readonly ConfirmRequest[]
   views: readonly WorkView[]
   records?: readonly TaskRecord[]
-  groups?: readonly ThreadGroup[]
   /** Under the time machine: the executions as they stood (the board holds no views then). */
   executions?: readonly ExecutionInfo[]
   /** The time machine shows the past (`world != null`). Absent, it is guessed from the views, as before the page passed it. */
@@ -114,16 +111,11 @@ export function queueOf(q: QueueInput): QueueItem[] {
       })
     }
   }
-  for (const g of q.groups ?? []) {
-    if (!g.seal_pending) continue
-    out.push({ key: `s:${g.slug}`, kind: 'seal', since: g.last_active_ms, owner: g.title, title: `Seal it: ${g.seal_pending}`, sessionId: g.session_id, thread: g })
-  }
   return out.sort((a, b) => a.since - b.since || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }
 
 /** The ids a card may be named by that an item belongs to, most specific first: what the item is about (its question's
- *  parent, its failed execution, its proposed record, its approval's execution or task), then its session, which a
- *  seal names as its thread's head. The Board's one work set maps each item to the first card these name (theseus-odj0m);
+ *  parent, its failed execution, its proposed record, its approval's execution or task), then its session. The Board's one work set maps each item to the first card these name (theseus-odj0m);
  *  an item no card is named by is a row of its own. */
 export function askKeysOf(i: QueueItem): string[] {
   const keys = [i.view?.parent, i.proposal?.record.id, i.confirm?.task?.task_id, i.sessionId, i.view?.id, i.confirm?.execution_id, i.execution?.execution_id]
@@ -175,10 +167,10 @@ export function comingUp(views: readonly WorkView[], now: number, within = 3 * 3
     .sort((a, b) => (a.next_at_ms ?? 0) - (b.next_at_ms ?? 0) || (a.id < b.id ? -1 : 1))
 }
 
-/** The item a selection names: by its key, its question, its view, its session or its thread. */
+/** The item a selection names: by its key, its question, its view or its session. */
 export function itemFor(items: readonly QueueItem[], sel: string | null): QueueItem | undefined {
   if (!sel) return undefined
-  return items.find((i) => i.key === sel || i.key.slice(2) === sel || i.view?.id === sel || i.thread?.slug === sel)
+  return items.find((i) => i.key === sel || i.key.slice(2) === sel || i.view?.id === sel)
     ?? items.find((i) => i.sessionId === sel)
 }
 
@@ -190,7 +182,7 @@ export type Answer =
   | { verb: 'approve' | 'grant' }
   | { verb: 'decline'; note?: string }
   | { verb: 'choice'; n: number; note?: string }
-  | { verb: 'retry' | 'dismiss' | 'seal' | 'seal_dismiss' }
+  | { verb: 'retry' | 'dismiss' }
 
 /** One answer to an item as the one protocol call that makes it, with the question to confirm first where the page
  *  asks one; null when the item has no such answer (a retry of a conversation). Every question is `work.answer`, as every surface answers it. */
@@ -221,9 +213,5 @@ export function answerOf(i: QueueItem, a: Answer): { method: string; params: Rec
       const exe = i.view?.id ?? i.execution?.execution_id
       return i.kind === 'failure' && exe ? { method: 'execution.dismiss', params: { execution_id: exe } } : null
     }
-    case 'seal':
-      return i.thread ? { method: 'thread.seal', params: { slug: i.thread.slug, reason: i.thread.seal_pending }, ask: `Seal ${i.thread.title}? Its notes stop reaching any other thread’s recall.` } : null
-    case 'seal_dismiss':
-      return i.thread ? { method: 'thread.seal_dismiss', params: { slug: i.thread.slug } } : null
   }
 }

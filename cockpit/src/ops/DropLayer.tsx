@@ -20,8 +20,8 @@ export interface DragDrop {
   layer: ReactNode
 }
 
-/** The drop's hand. `targetOf` reads a `data-drop` key (`conversation:ses_…`, `lane:<slug>`, `project:tsk_…`); `tray`
- *  is the threads' lanes and the projects, offered as chips while a drag is on (the Board has no lanes). */
+/** The drop's hand. `targetOf` reads a `data-drop` key (`conversation:ses_…`, `project:tsk_…`); `tray` is the
+ *  projects, offered as chips while a drag is on. */
 export function useDragDrop(targetOf: (key: string) => DropTarget | null, tray: readonly DropTarget[], onResults: (r: RunResult[]) => void): DragDrop {
   const { send, settle, past } = useOpsAct()
   const src = useRef<DragItem | null>(null)
@@ -44,7 +44,7 @@ export function useDragDrop(targetOf: (key: string) => DropTarget | null, tray: 
     const s = src.current
     if (!s) return false
     const t = targetIn(el)
-    if (!t) { setHint({ x, y, words: s.kind === 'task' ? 'drop on a conversation, a thread’s lane or a project' : 'drop on a project', ok: false, key: 'none' }); return false }
+    if (!t) { setHint({ x, y, words: s.kind === 'task' ? 'drop on a conversation or a project' : 'drop on a project', ok: false, key: 'none' }); return false }
     const d = dropOf(s, t, past)
     setHint({ x, y, words: 'refused' in d ? d.refused : d.posture === 'ask' ? `re-home to ${t.title}` : d.words, ok: !('refused' in d), key: dropKey(t) })
     return !('refused' in d)
@@ -67,7 +67,7 @@ export function useDragDrop(targetOf: (key: string) => DropTarget | null, tray: 
     const on = (e: DragEvent) => { if (hover(e.currentTarget, e.clientX, e.clientY)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } }
     return (
       <span key={key} data-drop={key} onDragOver={on} onDrop={(e) => { e.preventDefault(); drop(e.currentTarget) }}
-        className="rounded-full px-2.5 py-1 text-[11.5px] text-ink ring-1 ring-line-strong hover:bg-white/5">{t.kind === 'lane' ? `thread · ${t.title}` : `◈ ${t.title}`}</span>
+        className="rounded-full px-2.5 py-1 text-[11.5px] text-ink ring-1 ring-line-strong hover:bg-white/5">◈ {t.title}</span>
     )
   }
   const layer = (
