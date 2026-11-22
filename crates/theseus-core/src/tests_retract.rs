@@ -314,10 +314,7 @@ async fn the_live_sessions_next_turn_carries_the_note_once() {
     let c = &r.core;
     let (_, x) = plant(c);
     let a = asker(c, "What port does the Kestrel relay use?").await;
-    // s asks at another place: a window lays its own place's exchanges, so a's (with its correction note)
-    // is not in s's request, and what s gets of the correction is only what is s's own.
-    let s = session(c, Some(DM), &[]);
-    turn(c, &s, "Which port is the Kestrel relay on, again?").await;
+    let s = asker(c, "Which port is the Kestrel relay on, again?").await;
     let (_, a_rcl) = recall_of(c, &a);
     let (_, s_rcl) = recall_of(c, &s);
     used(c, &a, &a_rcl, &x, true);
@@ -340,7 +337,17 @@ async fn the_live_sessions_next_turn_carries_the_note_once() {
     assert_eq!(noted[0].data["node_id"], x);
 
     turn(c, &s, "And its log path?").await;
-    assert_eq!(in_last_request(&r, "Correction:"), 0);
+    // Anything goes (2026-11-22): nothing is withheld by place, so s's request lays a's exchange, the
+    // correction note in it, once. The note is still a's alone: none is written for s.
+    assert_eq!(in_last_request(&r, "Correction:"), 1);
+    let s_noted = rows(c, LedgerKind::FactCorrected)
+        .into_iter()
+        .filter(|r| r.session_id.as_deref() == Some(s.as_str()))
+        .count();
+    assert_eq!(
+        s_noted, 0,
+        "a session that only saw the fact gets no correction note"
+    );
 }
 
 /// A second retraction writes nothing and answers the first one's table.
