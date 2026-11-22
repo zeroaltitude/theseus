@@ -1,11 +1,13 @@
 // The nouns' forms on the Graph and the Board (theseus-hl0r1): the step's glyph, a plan's progress, the task as a badge,
 // escalation in place, folds and the cap, and the counter filter through them. Pure: rows in, data out.
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TaskRecord, WorkView } from '../src/protocol.gen/index.ts'
 import { boardRows, type OpsRow } from '../src/ops/board.ts'
-import { anchorPlan, formsOf, progressOf, stepLook, STEP_GLYPH, type StepWord } from '../src/ops/forms.ts'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { formsOf, progressOf, stepLook, STEP_GLYPH, type Progress, type StepWord } from '../src/ops/forms.ts'
+import { PlanLine } from '../src/ops/planLine.ts'
 import { HOME, layoutRows, NODE_CAP, type Graph } from '../src/ops/graph.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { confirm, NOW, record, view } from './ops-fixtures.ts'
@@ -201,14 +203,16 @@ test('the counter filter through the forms: a collapsed plan holding a kept card
 test('a conversation anchor draws its plan line on its card; a task, or a plan with no work, draws none', () => {
   const g = lay(rowsOfFixture())
   const home = node(g, 'ses_home')!
-  const p = anchorPlan(home.kind, home.form!.progress)!
-  assert.ok(p && p.m > 0, 'the anchor has its plan')
-  assert.equal(anchorPlan('task', home.form!.progress), undefined, 'a task card has no plan line')
-  assert.equal(anchorPlan('conversation', { ...p, n: 0, m: 0 }), undefined, 'an empty plan draws nothing')
-  // The card renders that line for any conversation, not only a thread's own one (issue 44): the plan's n/m and summary.
-  const card = readFileSync(new URL('../src/ops/GraphNode.tsx', import.meta.url), 'utf8')
-  assert.match(card, /const plan = anchorPlan\(n\.kind, f\?\.progress\)/)
-  assert.match(card, /\{plan && <div [^>]*title=\{plan\.summary\}>plan <span className="text-ok">\{plan\.n\}\/\{plan\.m\}<\/span> · \{plan\.summary\}<\/div>\}/)
+  const p = home.form!.progress!
+  assert.ok(p.m > 0, 'the fixture\u2019s anchor has a plan')
+  // The card's line as React renders it (issue 44: any conversation, not only a thread's own one).
+  const html = (kind: string, progress?: Progress) => renderToStaticMarkup(createElement(PlanLine, { kind, progress }))
+  const drawn = html('conversation', p)
+  assert.equal(drawn.replace(/<[^>]+>/g, ''), `plan ${p.n}/${p.m} · ${p.summary}`, drawn)
+  assert.ok(drawn.includes(`<span class="text-ok">${p.n}/${p.m}</span>`), drawn)
+  assert.equal(html('task', p), '', 'a task card has no plan line')
+  assert.equal(html('conversation', { ...p, n: 0, m: 0 }), '', 'an empty plan draws nothing')
+  assert.equal(html('conversation'), '', 'no plan, no line')
 })
 
 test('a conversation is an anchor; a loose ask and a task with no record keep their forms', () => {

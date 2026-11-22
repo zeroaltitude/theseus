@@ -14,7 +14,8 @@ import { clock, cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
 import { bucketGlyph, bucketOfNode, bucketTone, FADED, FILTERED_OUT, isEndedState, look } from './state'
 import { masked, NODE_W, shownTitle, type GLane, type GNode } from './graph'
-import { anchorPlan, STEP_WORDS, toneVar, type Badge, type Progress } from './forms'
+import { STEP_WORDS, toneVar, type Badge, type Progress } from './forms'
+import { PlanLine } from './planLine'
 import { PlanBar } from './BoardLens'
 
 export interface NodeData extends Record<string, unknown> {
@@ -130,7 +131,6 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
   const line = v && !masked(n, !!d.redact) && !isEndedState(v.state) ? progressLine(v, now) : undefined
   const title = shownTitle(n, !!d.redact)
   const shortId = n.kind === 'step' || step ? taskShort(n.record?.id ?? n.id) : row?.short ?? n.id.slice(-6)
-  const plan = anchorPlan(n.kind, f?.progress)
   return (
     <div data-drop={conv && row?.sessionId ? `conversation:${row.sessionId}` : undefined} data-node={n.id} data-form={f?.form}
       className={cn('rounded-lg bg-hull/95 px-2.5 py-2 backdrop-blur transition-opacity', n.fresh && 'ops-fade-in', d.dim && FILTERED_OUT, faded && FADED, conv && 'bg-[#0d2036]/95')}
@@ -146,7 +146,7 @@ function Work({ data: d }: NodeProps<Node<NodeData>>) {
         {d.onFoldBack && <button type="button" onClick={(e) => { e.stopPropagation(); d.onFoldBack?.() }} className="nodrag rounded px-1 text-[10px] text-ink-dim ring-1 ring-line hover:text-ink" title="fold its subtree again">fold</button>}
       </div>
       <div className={cn('mt-1 line-clamp-2 leading-snug text-ink', conv ? 'font-display text-[13px] font-bold tracking-[0.02em]' : 'text-[12px] font-medium')} title={title}>{title}</div>
-      {plan && <div className="num mt-0.5 text-[10.5px] text-ink-dim" title={plan.summary}>plan <span className="text-ok">{plan.n}/{plan.m}</span> · {plan.summary}</div>}
+      <PlanLine kind={n.kind} progress={f?.progress} />
       {line && !f?.badge && <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim" title={line}>{line}</div>}
       {f?.badge ? <BadgeStrip b={f.badge} hide={!!d.redact && locked(n.data)} redact={d.redact} /> : <Spend d={d} />}
       {n.needs && <div className="num mt-1.5 rounded bg-wait/10 px-1.5 py-0.5 text-[10px] text-wait ring-1 ring-wait/30">needs you · {keysOf(d)}</div>}
