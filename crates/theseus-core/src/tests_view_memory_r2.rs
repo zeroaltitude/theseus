@@ -466,20 +466,56 @@ async fn a_clear_reply_of_an_exchange_the_window_withholds_is_laid_in_slot_h() {
     turn(c, &old, ASK).await;
     move_into_kelp(c, "7741");
     c.runner.memory.set_ask(index_of(c, vec![old]));
+    let before = r.requests().len();
     let new = session_in(c, None, &r.root);
     turn(c, &new, ASKED).await;
-    let q = last_call(&r);
-    let sent = texts(&q);
+    let sent = texts(&last_call(&r));
     assert_eq!(sent.matches(REPLY).count(), 1, "{sent}");
-    // The moved message is laid as no passage and no turn. Recall's own item header still names the
-    // reply's session by a title made of that message (`recall::evidence`): reported, not this lane's.
-    let passage = format!("\n    \"{ASK}\"");
-    for (role, text) in blocks_with(&q, ASK) {
+    // No request of the turn holds the moved message's words anywhere: not as a passage, not as a turn,
+    // and not in a recalled item's header, which names its session by id, place and time, never by a
+    // title made of its first message (issue 44).
+    let turns = &r.requests()[before..];
+    assert!(!turns.is_empty());
+    for q in turns {
+        let all = serde_json::to_string(q).unwrap();
         assert!(
-            role == "user" && !text.contains(&passage) && text != ASK,
-            "{text}"
+            !all.contains("7741") && !all.contains("embargoed figure"),
+            "{all}"
         );
     }
+}
+
+/// A plain recalled item still names its session in its header: its id, its place and when it was said;
+/// and no title, though the session has one made of its first message.
+#[tokio::test]
+async fn a_recalled_items_header_names_its_session_by_id_place_and_time() {
+    const FIRST: &str = "the Hollowmere orchard gate code is kept in the blue tin";
+    let (r, _) = owners_rig(view);
+    let c = &r.core;
+    let dm = crate::tests_places::session(c, Some(&format!("dm:{OWNER}")));
+    turn(c, &dm, FIRST).await;
+    let titled = (c.store.get_session::<crate::session::SessionRecord>(&dm))
+        .unwrap()
+        .unwrap();
+    assert!(titled.title.is_some(), "the session has a title");
+    c.runner.memory.set_ask(index_of(c, vec![dm.clone()]));
+    let sid = session_in(c, None, &r.root);
+    turn(c, &sid, ASKED).await;
+    let q = last_call(&r);
+    let held = blocks_with(&q, FIRST);
+    let (_, text) = held.first().expect("recalled");
+    let short = crate::recall::evidence::short(&dm);
+    let line = (text.lines())
+        .find(|l| l.contains(&format!("session {short}")))
+        .unwrap_or_else(|| panic!("the header names its session: {text}"));
+    assert!(
+        line.contains("dm:") && line.contains("said "),
+        "place and time: {line}"
+    );
+    assert!(
+        !line.contains(&format!("session {short} \"")),
+        "no title: {line}"
+    );
 }
 
 /// A recalled message moved into a sealed thread is not laid; moved between two calls of one turn, it is
