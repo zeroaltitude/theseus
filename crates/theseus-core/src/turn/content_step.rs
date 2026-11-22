@@ -69,10 +69,10 @@ impl TurnRunner {
     /// the hold for the turn's last frame must not take it again (the review of round 1). A turn that fails
     /// before `finish` queues none: its written replies read "not judged then".
     ///
-    /// **Off unless the owner turns it on** (`[content_based_security] judge_replies`, false by default): a
-    /// reply's ask shares the judge's day and the daemon's ceiling with the inputs', whose judgment feeds the
-    /// injection label, and no allowance of its own can be reserved for it without changing how an input is
-    /// admitted (issue 44, round 3). Off, no reply is offered at all, and each reads "not judged then".
+    /// **On by default; the owner may turn it off** (`[content_based_security] judge_replies`). A reply's ask is
+    /// paid from the same judge day as an input's (whose judgment feeds the injection label), and replies stop
+    /// at `REPLY_SHARE_PERCENT` of the day's settled spend; they never make an input wait (their own worker, an
+    /// ordinary permit). Off, no reply is offered at all, and each reads "not judged then".
     ///
     /// Only the model's words are items: an assistant node no provider call wrote (no `correlation_id`: the
     /// personal step's fixed held reply) is the harness's own text, and is not asked about.

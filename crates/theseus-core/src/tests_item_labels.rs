@@ -26,8 +26,6 @@ fn rig(jev: &FakeJev) -> Rig {
         c.judge.total_secs = 5;
         // content.v4 (the judge rigs turn it off): this is its subject.
         c.judge.packs.remove(crate::judge::content::PACK);
-        // Replies are judged only when the owner turns it on (round 3).
-        c.content_based_security.judge_replies = true;
     })
 }
 
@@ -238,8 +236,6 @@ async fn a_clean_tool_result_reads_asked_clean() {
         inbound_only(c);
         c.judge.total_secs = 5;
         c.judge.packs.remove(crate::judge::content::PACK);
-        // Replies are judged only when the owner turns it on (round 3).
-        c.content_based_security.judge_replies = true;
         c.tools.proc_sync_secs = 5;
         c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
         c.policy
@@ -316,8 +312,6 @@ fn rig_two_replies(jev: &FakeJev, first: &str) -> Rig {
         inbound_only(c);
         c.judge.total_secs = 5;
         c.judge.packs.remove(crate::judge::content::PACK);
-        // Replies are judged only when the owner turns it on (round 3).
-        c.content_based_security.judge_replies = true;
         c.tools.proc_sync_secs = 5;
         c.tools.projects_dir = Some(std::env::temp_dir().to_string_lossy().into_owned());
         c.policy
@@ -350,8 +344,6 @@ async fn a_reply_holding_a_sensitive_name_settles_and_is_labelled_on_its_item() 
         inbound_only(c);
         c.judge.total_secs = 5;
         c.judge.packs.remove(crate::judge::content::PACK);
-        // Replies are judged only when the owner turns it on (round 3).
-        c.content_based_security.judge_replies = true;
         // The stand-in's replies read `Done: answer N.`.
         c.privacy.sensitive_names = vec!["answer".into()];
     });
@@ -535,8 +527,6 @@ async fn past_half_the_day_a_reply_is_refused_and_the_input_is_judged() {
         inbound_only(c);
         c.judge.total_secs = 5;
         c.judge.packs.remove(crate::judge::content::PACK);
-        // Replies are judged only when the owner turns it on (round 3).
-        c.content_based_security.judge_replies = true;
         c.judge.shadow_limit_usd_per_day = 1.0;
     });
     let c: &Arc<Core> = &r.core;
@@ -564,19 +554,30 @@ async fn past_half_the_day_a_reply_is_refused_and_the_input_is_judged() {
 
 // ------------------------------------------------------------ round 3
 
-/// **Off by default.** With `[content_based_security] judge_replies` unset, a turn's reply is offered to no
-/// judge and reads "not judged then"; its message is judged as ever.
+/// **On by default, off when the owner says.** By default a turn's reply is judged; with
+/// `[content_based_security] judge_replies = false` it is offered to no judge and reads "not judged then", and
+/// its message is judged as ever.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_reply_is_not_judged_unless_the_owner_turns_it_on() {
+async fn a_reply_is_judged_by_default_and_not_when_the_owner_turns_it_off() {
     let jev = FakeJev::start().unwrap();
     jev_says_personal(&jev);
+    let on = rig(&jev);
+    assert!(
+        on.core.cfg.content_based_security.judge_replies,
+        "the default"
+    );
+    let sid = session(&on.core);
+    crate::test_support::turn(&on.core, &sid, &format!("FYI, {PRIVATE} today.")).await;
+    let (_, reply) = message_and_reply(&on.core, &sid);
+    assert_eq!(landed(&on.core, &reply).await.line(), "asked, clean");
+
     let r = rig_on(texts(4), Some(&jev), |c| {
         inbound_only(c);
         c.judge.total_secs = 5;
         c.judge.packs.remove(crate::judge::content::PACK);
+        c.content_based_security.judge_replies = false;
     });
     let c: &Arc<Core> = &r.core;
-    assert!(!c.cfg.content_based_security.judge_replies, "the default");
     let sid = session(c);
     crate::test_support::turn(c, &sid, &format!("FYI, {PRIVATE} today.")).await;
     let (message, reply) = message_and_reply(c, &sid);
