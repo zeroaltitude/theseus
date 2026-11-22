@@ -204,11 +204,6 @@ impl TurnRunner {
         Ok(Ok(compiled))
     }
 
-    /// Whether this turn declined the view: it is the transcript's turn.
-    pub(super) fn view_declined_here(t: &Turn<'_>) -> bool {
-        (t.view.as_ref()).is_some_and(|f| f.turn_id == t.tc.turn_id && f.declined)
-    }
-
     /// The turn is the transcript's from now on, and the ledger says why once.
     fn view_declined(t: &mut Turn<'_>, why: Option<Fallback>) {
         let Some(why) = why else {
