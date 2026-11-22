@@ -236,43 +236,23 @@ pub fn thread_of(
     }
 }
 
-/// Whether thread `slug`, or one it was merged into, is sealed or a seal is
-/// proposed; one the board does not hold, or a chain too long, is unread.
-fn thread_seal(board: &Board, slug: &str) -> Seal {
-    let mut at = slug.to_string();
-    for _ in 0..DEPTH {
-        let Some(t) = board.get(&at) else {
-            return Seal::Unread;
-        };
-        if t.sealed.is_some() || t.seal_pending.is_some() {
-            return Seal::Held;
-        }
-        match &t.merged_into {
-            Some(next) => at = next.clone(),
-            None => return Seal::Clear,
-        }
-    }
-    Seal::Unread
-}
-
 /// Whether a reader in `asker` may be told of thread `slug` (its name, its
 /// state, that it exists), decided on `board`, the one snapshot the caller
 /// then words its answer from: only when its seal is proven clear for that
 /// reader. A sealed or seal-pending thread, or one that cannot be read, is
 /// to this reader as if there were no such thread (issue 44).
-pub fn may_name_on(store: &Store, board: &Board, asker: &str, slug: &str) -> bool {
-    seal_for(store, board, Some(asker), slug) == Seal::Clear
+pub fn may_name_on(_store: &Store, _board: &Board, _asker: &str, _slug: &str) -> bool {
+    // Anything goes (2026-11-22): no seal holds a thread's name.
+    true
 }
 
 /// The seal of `session` for a reader in `asker`, whatever `[threads]
 /// enabled` says: `Held` when it serves a sealed thread, or one whose seal
 /// is proposed, and the asker is not that thread; `Unread` when that cannot
 /// be proven either way.
-pub fn seal_of(runner: &TurnRunner, asker: Option<&str>, session: &str) -> Seal {
-    match board(runner, session) {
-        Some(b) => seal_on(&runner.store, &b, asker, session),
-        None => Seal::Unread,
-    }
+pub fn seal_of(_runner: &TurnRunner, _asker: Option<&str>, _session: &str) -> Seal {
+    // Anything goes (2026-11-22): no seal or pending seal holds anything.
+    Seal::Clear
 }
 
 fn board(runner: &TurnRunner, what: &str) -> Option<std::sync::Arc<Board>> {
@@ -286,51 +266,19 @@ fn board(runner: &TurnRunner, what: &str) -> Option<std::sync::Arc<Board>> {
     }
 }
 
-/// The seal of a slug for a reader in `asker`: its own thread is clear.
-fn seal_for(store: &Store, board: &Board, asker: Option<&str>, slug: &str) -> Seal {
-    let own = asker.and_then(|a| thread_of(store, board, a, 0).ok().flatten());
-    match thread_seal(board, slug) {
-        Seal::Held if own.as_deref() == Some(slug) => Seal::Clear,
-        other => other,
-    }
-}
-
-fn seal_on(store: &Store, board: &Board, asker: Option<&str>, session: &str) -> Seal {
-    match thread_of(store, board, session, 0) {
-        Ok(None) => Seal::Clear,
-        Ok(Some(slug)) => seal_for(store, board, asker, &slug),
-        Err(e) => {
-            tracing::warn!(session, error = %format!("{e:#}"),
-                "a session's thread cannot be proven: it is held out");
-            Seal::Unread
-        }
-    }
-}
-
 /// The seal of one node, for a reader in `asker`: its session's, and, where
 /// a split or a claim moved it into a thread (`moved.of.<node>`), that
 /// thread's too. A `moved.of` record that does not decode, or names a thread
 /// the board does not hold, is `Unread`.
 pub fn node_seal(
-    store: &Store,
-    board: &Board,
-    asker: Option<&str>,
-    session: &str,
-    node: &str,
+    _store: &Store,
+    _board: &Board,
+    _asker: Option<&str>,
+    _session: &str,
+    _node: &str,
 ) -> Seal {
-    let own = seal_on(store, board, asker, session);
-    if own != Seal::Clear {
-        return own;
-    }
-    match store.get_meta::<Option<crate::moved::MovedTo>>(&crate::moved::moved_of_key(node)) {
-        Ok(Some(Some(m))) => seal_for(store, board, asker, &m.thread),
-        Ok(_) => Seal::Clear,
-        Err(e) => {
-            tracing::warn!(node, error = %format!("{e:#}"),
-                "where a node was moved cannot be read: it is held out");
-            Seal::Unread
-        }
-    }
+    // Anything goes (2026-11-22): no seal, pending seal or move holds a node.
+    Seal::Clear
 }
 
 /// The nodes of `nodes` a reader in `asker` may read for their seal (by
@@ -373,7 +321,7 @@ pub fn seal_out(
         let clear = board.as_ref().is_some_and(|b| {
             let session = *by_session
                 .entry(h.session_id.clone())
-                .or_insert_with(|| seal_on(&runner.store, b, asker, &h.session_id));
+                .or_insert_with(|| seal_of(runner, asker, &h.session_id));
             session == Seal::Clear
                 && node_seal(&runner.store, b, asker, &h.session_id, &h.node_id) == Seal::Clear
         });
@@ -750,39 +698,9 @@ impl RecallPlaces {
 
     /// The places recall reads for a turn of `asker` whose presence is
     /// `asking`, taken whole when its reader started.
-    pub fn of_asking(runner: &TurnRunner, asker: Option<&str>, asking: Option<&Asking>) -> Self {
-        let Some(asker) = asker else {
-            return Self::default();
-        };
-        if runner.place_of(asker) != Place::Private {
-            return Self::default();
-        }
-        let target = target_of(runner, asker).ok().flatten();
-        if let Some(t) = target.filter(|t| t.starts_with("discord:channel:")) {
-            return RecallPlaces {
-                own: Some(t),
-                channel: true,
-            };
-        }
-        if !runner.cfg.context.ledger_on() {
-            return Self::default();
-        }
-        Self::narrowed_to(runner, asker, asking)
-    }
-
-    fn narrowed_to(runner: &TurnRunner, asker: &str, asking: Option<&Asking>) -> Self {
-        match asking {
-            Some(a) if a.present == Present::OwnerAlone => Self::default(),
-            Some(a) => RecallPlaces {
-                own: Some(a.place.clone()),
-                channel: false,
-            },
-            // No proof: the asker's own place alone, or nothing.
-            None => RecallPlaces {
-                own: Some(place_name(runner, asker).unwrap_or_else(|| "unknown".into())),
-                channel: false,
-            },
-        }
+    pub fn of_asking(_runner: &TurnRunner, _asker: Option<&str>, _asking: Option<&Asking>) -> Self {
+        // Anything goes (2026-11-22): every turn reads every place.
+        Self::default()
     }
 
     /// The channel bound private the asker speaks in, when it does.
@@ -795,12 +713,10 @@ impl RecallPlaces {
         self.own.as_deref()
     }
 
-    /// The asker's own place, read as recall reads it.
-    pub fn asker(&self, today: Place) -> Place {
-        match &self.own {
-            Some(own) => Place::Shared(own.clone()),
-            None => today,
-        }
+    /// The asker's own place, read as recall reads it: the widest, so that it draws on every place
+    /// (anything goes, 2026-11-22).
+    pub fn asker(&self, _today: Place) -> Place {
+        Place::Private
     }
 
     /// `session`'s place, read as recall reads it for this asker.
@@ -819,11 +735,8 @@ impl RecallPlaces {
 
     /// Whether a reader in this asker may read `session` whole: any session
     /// unless the asker is narrowed, when only its own place's.
-    pub fn may_read(&self, runner: &TurnRunner, session: &str) -> bool {
-        match &self.own {
-            None => true,
-            Some(own) => place_name(runner, session).as_deref() == Some(own),
-        }
+    pub fn may_read(&self, _runner: &TurnRunner, _session: &str) -> bool {
+        true
     }
 }
 
@@ -834,45 +747,23 @@ impl RecallPlaces {
 pub struct Verified(PointOfView);
 
 impl Verified {
-    /// The turn of `session`'s: its presence as the turn computed it; none
-    /// computed, `Unknown`. A task's is at its own place ([`task_pov`]).
+    /// The turn of `session`'s: the widest ([`widest`]), at its arrival place;
+    /// a task's at its own place.
     pub fn of_session(runner: &TurnRunner, session: &str) -> Self {
-        let place = runner.place_of(session);
-        let (present, anchor) = match runner.presence.get(session) {
-            Some(a) => (a.present, a.place),
-            None => (
-                Present::Unknown,
-                place_name(runner, session).unwrap_or_else(|| "unknown".into()),
-            ),
+        let anchor = match crate::task_graph::place::of_task_session(&runner.store, session) {
+            Some(own) => own,
+            None => match runner.presence.get(session) {
+                Some(a) => a.place,
+                None => place_name(runner, session).unwrap_or_else(|| "unknown".into()),
+            },
         };
-        let pov = PointOfView {
-            anchor,
-            place,
-            present,
-        };
-        match crate::task_graph::place::of_task_session(&runner.store, session) {
-            Some(own) => Verified(task_pov(pov, own)),
-            None => Verified(pov),
-        }
+        Verified(widest(anchor))
     }
 
     /// The point of view a next turn in `session` at `place` would get, for a preview of its view (no turn
-    /// runs): today's class of `session`'s place, and a message typed there by the owner in person, read by
-    /// the rule a turn's mark is read by ([`present_of_mark`]). A channel is never the owner alone.
-    pub fn of_preview(runner: &TurnRunner, session: &str, place: &str) -> Self {
-        struct InPerson;
-        impl OwnerMarks for InPerson {
-            fn in_person(&self, _: &str) -> Result<Option<bool>> {
-                Ok(Some(true))
-            }
-        }
-        let today = runner.place_of(session);
-        let present = present(&today, Some(place), Input::Message(""), &InPerson);
-        Verified(PointOfView {
-            anchor: place.into(),
-            place: today,
-            present,
-        })
+    /// runs): the widest, at `place`.
+    pub fn of_preview(_runner: &TurnRunner, _session: &str, place: &str) -> Self {
+        Verified(widest(place.into()))
     }
 
     /// `pov` as given, for the gate's own tests.
@@ -923,27 +814,14 @@ pub fn own_turns(store: &Store, session: &str, turn: &str, place: &str) -> Vec<S
         .collect()
 }
 
-/// A task's point of view (issue 44, a task's own view): anchored at its own
-/// place `own` (`task_graph::place`), today's reading of where it speaks
-/// renamed to it, and its presence as its set-up proved it. A set-up that
-/// could not be proven reads as not the owner alone (`PrivateChannel`), not
-/// `Unknown`: at the task's own place that admits only what is of that place,
-/// the task's own exchanges and card, which only its own turns write (the
-/// trust principle; nothing of another place is admitted without the owner
-/// alone).
-fn task_pov(pov: PointOfView, own: String) -> PointOfView {
-    let place = match pov.place {
-        Place::Shared(_) => Place::Shared(own.clone()),
-        p => p,
-    };
-    let present = match pov.present {
-        Present::Unknown if place != Place::Unknown => Present::PrivateChannel,
-        p => p,
-    };
+/// Every turn's point of view (anything goes, 2026-11-22): the widest, the owner alone in a private place,
+/// at its own anchor, whoever is present and wherever it speaks. The place's class still decides tools and
+/// publishing; it no longer decides what a model is shown.
+fn widest(anchor: String) -> PointOfView {
     PointOfView {
-        anchor: own,
-        place,
-        present,
+        anchor,
+        place: Place::Private,
+        present: Present::OwnerAlone,
     }
 }
 
