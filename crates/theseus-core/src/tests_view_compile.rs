@@ -1194,21 +1194,7 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
         // of the held source. After a narrowing steer, a next turn of the owner in person is his own
         // presence (a steer narrows the turn it lands in, not the session: addendum 18), so it may lay his
         // own words again, at most once a request; after a seal it lays nothing either.
-        for q in next_turn(&r, &sid, false).await {
-            assert!(
-                !texts(&q).contains("5519"),
-                "{case}: a next turn not opened in person lays nothing of the held source: {}",
-                texts(&q)
-            );
-        }
-        for q in next_turn(&r, &sid, true).await {
-            let laid = texts(&q).matches("5519").count();
-            assert!(
-                laid <= usize::from(steer),
-                "{case}: the owner's next turn: {}",
-                texts(&q)
-            );
-        }
+        next_turns_hold(&r, &sid, steer, &case).await;
         // A seal's own report of what had already crossed names the asking session.
         if !steer {
             let crossed = resealed_crossed(c);
@@ -1217,6 +1203,27 @@ async fn a_late_decline_keeps_only_the_admitted_items_of_a_mixed_pack() {
                 "{case}: the seal reports the note that crossed: {crossed:?}"
             );
         }
+    }
+}
+
+/// The session's next turns after a held source (addendum 18): one NOT opened by the owner in person lays
+/// nothing of it; one of the owner in person may lay his own words after a steer (at most once a request),
+/// and nothing after a seal.
+async fn next_turns_hold(r: &Rig, sid: &str, steer: bool, case: &str) {
+    for q in next_turn(r, sid, false).await {
+        assert!(
+            !texts(&q).contains("5519"),
+            "{case}: a next turn not opened in person lays nothing of the held source: {}",
+            texts(&q)
+        );
+    }
+    for q in next_turn(r, sid, true).await {
+        let laid = texts(&q).matches("5519").count();
+        assert!(
+            laid <= usize::from(steer),
+            "{case}: the owner's next turn: {}",
+            texts(&q)
+        );
     }
 }
 
