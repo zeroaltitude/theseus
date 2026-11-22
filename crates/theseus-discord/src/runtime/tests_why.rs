@@ -63,6 +63,7 @@ pub(super) fn core_at_with(
         config_gate: theseus_core::config_gate::ConfigGate::file("test"),
         toollets: vec![],
         cpu_cores: None,
+        ladder_writer: false,
     })
     .unwrap()
 }

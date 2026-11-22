@@ -390,6 +390,8 @@ pub struct Core {
     /// `import.sync.request` starts, and what starts it. One seat, so a
     /// second request while one runs is told rather than served.
     pub on_demand: crate::import::sync_run::OnDemand,
+    /// As [`Parts::ladder_writer`].
+    pub ladder_writer: bool,
 }
 
 /// The socket daemon's store, in the state dir: `<state>/store`.
@@ -464,6 +466,9 @@ pub struct Parts {
     /// host's cores, so a test of seven calls at once holds on a four-core host).
     /// The daemon sets none: a permit per core.
     pub cpu_cores: Option<usize>,
+    /// Whether an exchange's end starts the ladder's writer (`ladder::build`). The daemon's does; a
+    /// test's does not unless it asks, so the writer's model calls never take a rig's scripted answers.
+    pub ladder_writer: bool,
 }
 
 const META_LIVE_PROFILE: &str = "live_profile";
@@ -565,6 +570,7 @@ impl Core {
             config_gate,
             toollets: vec![],
             cpu_cores: None,
+            ladder_writer: true,
         })
     }
 
@@ -810,6 +816,7 @@ impl Core {
             config_gate,
             toollets,
             cpu_cores,
+            ladder_writer,
         } = parts;
         let k0 = std::time::Instant::now();
         let clock = clock_for_build();
@@ -1095,6 +1102,7 @@ impl Core {
             warmth: Default::default(),
             watches,
             on_demand: Default::default(),
+            ladder_writer,
         });
         // The tender's rows and the language servers' (L2) go one way, in order.
         let rows = ledger_rows::ordered(&core);
@@ -1707,6 +1715,7 @@ impl Parts {
             config_gate: ConfigGate::file("test"),
             toollets: vec![],
             cpu_cores: None,
+            ladder_writer: false,
         }
     }
 }

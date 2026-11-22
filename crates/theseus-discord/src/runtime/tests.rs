@@ -429,6 +429,7 @@ pub(crate) fn core_with(
         config_gate: theseus_core::config_gate::ConfigGate::file("test"),
         toollets: vec![],
         cpu_cores: None,
+        ladder_writer: false,
     })
     .unwrap()
 }
@@ -495,6 +496,7 @@ pub(super) fn core_edited(
         config_gate: theseus_core::config_gate::ConfigGate::file("test"),
         toollets: vec![],
         cpu_cores: None,
+        ladder_writer: false,
     })
     .unwrap();
     if judged {

@@ -53,7 +53,7 @@ impl JudgeService {
             return;
         }
         let Some(core) = self.core() else { return };
-        if !core.cfg.context.ledger_on() {
+        if !core.ladder_writer || !core.cfg.context.ledger_on() {
             return;
         }
         let Ok(rt) = tokio::runtime::Handle::try_current() else {

@@ -41,7 +41,9 @@ fn core_with(
     let fake = Arc::new(FakeProvider::scripted(
         lines.iter().map(|l| Scripted::text(l)).collect(),
     ));
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
+    let mut parts = crate::rpc::Parts::for_tests(cfg, fake.clone(), store);
+    parts.ladder_writer = true;
+    let core = Core::build(parts).unwrap();
     (dir, core, fake)
 }
 
