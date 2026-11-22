@@ -45,6 +45,14 @@ pub async fn ladder(
     Ok(())
 }
 
+/// `theseus ledger release-offer|release|releases|withdraw` (issue 44, step 3b): the daemon's answer, as
+/// pretty JSON (the piece's words are shown to the owner at his own terminal alone).
+pub async fn release(conn: &mut Conn, method: &str, params: serde_json::Value) -> Result<()> {
+    let v = conn.request(method, params).await?;
+    println!("{}", serde_json::to_string_pretty(&v)?);
+    Ok(())
+}
+
 /// `theseus ledger rebuild-exchanges`.
 pub async fn rebuild(conn: &mut Conn, json: bool, dry_run: bool) -> Result<()> {
     let p = serde_json::to_value(ExchangeRebuildParams { dry_run })?;

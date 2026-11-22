@@ -340,7 +340,7 @@ pub(crate) async fn answer(
         hidden: &hidden,
         moved: &moved,
         private: &private,
-        in_view: page::in_view(&core.store, session).map_err(|e| format!("{e:#}"))?,
+        in_view: page::in_view(&core.store, session, here).map_err(|e| format!("{e:#}"))?,
         words: None,
     };
     if let Some(h) = &a.open {
@@ -353,7 +353,16 @@ pub(crate) async fn answer(
                 meta: json!({"open": null, "opens": used.opens, "of": OPENS_PER_TURN}),
             });
         }
-        let text = open::open(&lens, h)?;
+        let text = match h.0.starts_with(RELEASED) {
+            // A message the owner released to this place: its words only (`crate::release`).
+            true => crate::release::opened(core, here, &h.0).ok_or_else(|| {
+                format!(
+                    "nothing is released to this place under {}",
+                    page::flat(&h.0)
+                )
+            })?,
+            false => open::open(&lens, h)?,
+        };
         return Ok(ToolOutput {
             text,
             meta: json!({"open": page::flat(&h.0), "opens": used.opens + 1, "of": OPENS_PER_TURN}),
@@ -371,18 +380,60 @@ pub(crate) async fn answer(
         fresh_held = |e: &crate::exchange::Exchange| fresh.holds(e);
         lens.moved = &fresh_held;
     }
+    let bare = bare_first(a, here) && used.looks < LOOKS_PER_TURN;
     let walked = lens
         .walk(a, before, used.looks)
         .map_err(|e| format!("{e:#}"))?;
     let resume = walked.resume.map(|at| board.keep(turn, at));
     let p = walked.page;
+    let (released, shown) = match bare {
+        true => released_lines(core, here),
+        false => (String::new(), 0),
+    };
     Ok(ToolOutput {
-        text: page::render(&p, here, used.looks, resume.as_ref()),
+        text: format!(
+            "{}{released}",
+            page::render(&p, here, used.looks, resume.as_ref())
+        ),
         meta: json!({
-            "lines": p.lines.len(), "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
+            "lines": p.lines.len() + shown, "end": p.end, "next": p.next.as_ref().or(resume.as_ref()),
             "look": used.looks + 1, "of": LOOKS_PER_TURN, "page": PAGE_EXCHANGES,
         }),
     })
+}
+
+/// What a released message's handle begins with (`crate::release`).
+const RELEASED: &str = "rel_";
+
+/// Whether a call is a bare first page of this place: no cursor or token, no other place, thing, or words. Only it
+/// lists the place's released messages, so what it lists hangs on no position in history.
+fn bare_first(a: &HistoryArgs, here: &str) -> bool {
+    let here_only = a
+        .place
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|p| p.is_empty() || p == here);
+    a.before.is_none() && here_only && a.thing.is_none() && a.words.is_none()
+}
+
+/// The released messages a bare first page lists, each its words only (cut as a line is), and how many it lists.
+fn released_lines(core: &Core, here: &str) -> (String, usize) {
+    let (shown, more) = crate::release::listed(core, here);
+    let mut out = String::new();
+    for (id, at, words) in &shown {
+        out.push_str(&format!(
+            "\n[{}] {}: \"{}\" (open: {id})",
+            crate::release::LABEL,
+            page::when(*at),
+            page::flat(&page::cut(words, 300)),
+        ));
+    }
+    if more > 0 {
+        out.push_str(&format!(
+            "\n({more} more released messages are not listed.)"
+        ));
+    }
+    (out, shown.len())
 }
 
 /// The turns the words index finds for `words` among `scope`, the sessions this point of view may read on the

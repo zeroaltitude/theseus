@@ -319,19 +319,19 @@ pub(super) fn cut(text: &str, max: usize) -> String {
     }
 }
 
-/// Where a bare call begins: the oldest exchange the model sees in full, and everything older. Read from the
-/// session's last compilation. A view's is its frozen window ([`window_start`]). A transcript's: the newest
-/// exchange it cut or cleared anything of is not seen in full, so the page begins with it; with nothing cut,
-/// the page begins before the compilation's first node (a fresh one: before it was made; none: before the
-/// session began).
-pub fn in_view(store: &Store, session: &str) -> Result<Option<Cursor>> {
-    let from = |at_ms: u64| {
-        Some(Cursor {
-            at_ms,
-            turn_id: String::new(),
-        })
+/// Where a bare call of the history of place `here` begins: the oldest exchange the model sees in full, and
+/// everything older. Read from the session's last compilation. A view's: its window's start
+/// ([`window_start`]), or the newest exchange the compiler then cleared a tool result of, whichever pages from
+/// later. A transcript's: the newest exchange it cut or cleared anything of is not seen in full, so the page
+/// begins with it; with nothing cut, the page begins before the compilation's first node (a fresh one: before
+/// it was made; none: before the session began). A view compilation whose record is absent (a later chain of
+/// a turn keeps none) is read by the transcript's rule; a record that does not read is an error.
+pub fn in_view(store: &Store, session: &str, here: &str) -> Result<Option<Cursor>> {
+    let from = |at_ms: u64| Cursor {
+        at_ms,
+        turn_id: String::new(),
     };
-    let older = |at_ms: u64| from(at_ms.saturating_sub(1));
+    let older = |at_ms: u64| Some(from(at_ms.saturating_sub(1)));
     let Some(rec) = store.get_session::<SessionRecord>(session)? else {
         return Ok(None);
     };
@@ -347,28 +347,15 @@ pub fn in_view(store: &Store, session: &str) -> Result<Option<Cursor>> {
     }
     if c.strategy == crate::compiler::view::STRATEGY {
         if let Some(v) = crate::view::record::read(store, &c.id)? {
-            return Ok(Some(window_start(&v, c.created_at_ms)));
+            let start = window_start(&v, here, c.created_at_ms);
+            return Ok(Some(match cut_start(store, &c, Some(here)) {
+                Some(cleared) => later(start, from(cleared)),
+                None => start,
+            }));
         }
     }
-    let cut = c
-        .budget
-        .iter()
-        .flat_map(|b| &b.dropped)
-        .filter(|d| d.tier != RECALL_TIER)
-        .filter_map(|d| {
-            d.node_id
-                .as_deref()
-                .or(d.range.as_ref().map(|r| r.last.as_str()))
-        })
-        .filter_map(|id| node(store, id))
-        .max_by_key(|n| n.created_at_ms);
-    if let Some(n) = cut {
-        let start = n
-            .turn_id
-            .as_deref()
-            .and_then(|t| exchange::exchange(store, t).ok().flatten())
-            .map_or(n.created_at_ms, |e| e.start_ms.max(n.created_at_ms));
-        return Ok(from(start));
+    if let Some(start) = cut_start(store, &c, None) {
+        return Ok(Some(from(start)));
     }
     let first = c
         .includes
@@ -378,15 +365,49 @@ pub fn in_view(store: &Store, session: &str) -> Result<Option<Cursor>> {
     Ok(older(first))
 }
 
-/// Where a bare call begins for a view: its window's exchanges (slot G, this place's) as its record keeps them.
-/// The newest laid in less than its whole form (a line, or words without their tool traffic) is not seen in
-/// full, so the page begins with it; with every one whole, the page begins just past the oldest, so no
-/// exchange in full sight is paged again; with no window, before the view was made.
-pub fn window_start(v: &crate::view::record::ViewRecord, made_ms: u64) -> Cursor {
+/// Where the newest exchange the compilation cut or cleared anything of begins (of place `place` only, when
+/// given and the exchange is known): none when it dropped nothing of the conversation's own.
+fn cut_start(store: &Store, c: &crate::compiler::Compilation, place: Option<&str>) -> Option<u64> {
+    let ids = (c.budget.iter())
+        .flat_map(|b| &b.dropped)
+        .filter(|d| d.tier != RECALL_TIER)
+        .filter_map(|d| {
+            d.node_id
+                .as_deref()
+                .or(d.range.as_ref().map(|r| r.last.as_str()))
+        });
+    let starts = ids.filter_map(|id| node(store, id)).filter_map(|n| {
+        let ex = (n.turn_id.as_deref()).and_then(|t| exchange::exchange(store, t).ok().flatten());
+        match (&ex, place) {
+            (Some(e), Some(p)) if e.place != p => None,
+            _ => Some(ex.map_or(n.created_at_ms, |e| e.start_ms.max(n.created_at_ms))),
+        }
+    });
+    starts.max()
+}
+
+/// Of two cursors, the one a walk (newest first, then by turn id ascending within one millisecond) pages from
+/// later: so nothing either would page is skipped.
+fn later(a: Cursor, b: Cursor) -> Cursor {
+    let a_later = a.at_ms > b.at_ms || (a.at_ms == b.at_ms && a.turn_id <= b.turn_id);
+    if a_later {
+        a
+    } else {
+        b
+    }
+}
+
+/// Where a bare call of the history of place `here` begins for a view, from its record: the window's
+/// exchanges of `here` alone (slot G; a fork's inherited exchanges of another place do not move this place's
+/// start). The newest laid in less than its whole form (a line, or words without their tool traffic) is not
+/// seen in full, so the page begins with its millisecond (which may page again a whole exchange of that same
+/// millisecond); with every one laid whole, the page begins just past the oldest; with none, just before the
+/// view was made. One cursor cannot skip every whole exchange: a whole one older than a thinned one is paged.
+pub fn window_start(v: &crate::view::record::ViewRecord, here: &str, made_ms: u64) -> Cursor {
     use crate::view::{Form, Pos, Slot, Space};
     let window = (v.shown.iter())
         .filter(|s| s.piece.slot == Slot::Here)
-        .filter(|s| matches!(s.piece.range.space, Space::Exchanges { .. }));
+        .filter(|s| matches!(&s.piece.range.space, Space::Exchanges { place } if place == here));
     // The index's own order: newest first, then by turn id ascending within one millisecond.
     let order = |a: &&Pos, b: &&Pos| a.at_ms.cmp(&b.at_ms).then(b.id.cmp(&a.id));
     let thinned = (window.clone())

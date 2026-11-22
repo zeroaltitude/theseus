@@ -13,7 +13,9 @@
 //!   tasks named is no address: nothing is called in.
 //! - **Who sees it** ([`StoreCards`]): only a point of view where the owner is
 //!   alone, as the gate computed it; a source never decides what is shown, so
-//!   the card's marks are its home place's, for the gate to check again.
+//!   the card's marks are its home place's, for the gate to check again. A
+//!   task's own turns are shown its own card, at its own place
+//!   (`task_graph::place`), whoever is present, for the gate to check too.
 
 use anyhow::Result;
 use theseus_kernel::{Execution, Kernel};
@@ -304,40 +306,77 @@ pub struct StoreCards<'a> {
 
 impl TaskCards for StoreCards<'_> {
     fn joined(&self, pov: &PointOfView, message: &str) -> Result<Vec<Ref>> {
-        if pov.present != Present::OwnerAlone {
+        let own = match &pov.anchor {
+            crate::view::Anchor::Place(p) => super::place::task_of(p),
+            crate::view::Anchor::Task(_) => None,
+        };
+        let alone = pov.present == Present::OwnerAlone;
+        if own.is_none() && !alone {
             return Ok(Vec::new());
         }
         let all = super::all(self.store)?;
+        let mut out = Vec::new();
+        if let Some(own) = own.filter(|_| pov.present != Present::Unknown) {
+            out.extend(self.card(pov, &all, own, true)?);
+        }
+        if !alone {
+            return Ok(out);
+        }
         let ids: Vec<&str> = all.iter().map(|t| t.id.as_str()).collect();
         let named = self.names.named(message)?;
-        let Some(id) = addressed(&named, self.judged.as_deref(), &ids) else {
-            return Ok(Vec::new());
+        let other = addressed(&named, self.judged.as_deref(), &ids);
+        if let Some(id) = other.filter(|id| Some(id.as_str()) != own) {
+            out.extend(self.card(pov, &all, &id, false)?);
+        }
+        Ok(out)
+    }
+}
+
+impl StoreCards<'_> {
+    /// Task `id`'s card as a source's reference: marked as its home place's, or, for the task's `own` view,
+    /// as the task's own place (its session's audience and seal).
+    fn card(
+        &self,
+        pov: &PointOfView,
+        all: &[super::TaskRecord],
+        id: &str,
+        own: bool,
+    ) -> Result<Option<Ref>> {
+        let Some(card) = read(self.store, self.kernel, id, pov.now_ms)? else {
+            return Ok(None);
         };
-        let Some(card) = read(self.store, self.kernel, &id, pov.now_ms)? else {
-            return Ok(Vec::new());
+        let Some(rec) = all.iter().find(|t| t.id == id) else {
+            return Ok(None);
         };
-        let rec = all.iter().find(|t| t.id == id).expect("listed above");
-        Ok(vec![Ref {
+        let marks = match (own, rec.session.as_deref()) {
+            (true, Some(s)) => Marks {
+                place: Some(thing_of(id)),
+                ..self.homes.marks(s)
+            },
+            (true, None) => return Ok(None),
+            (false, _) => self.homes.marks(&super::home(all, rec)),
+        };
+        Ok(Some(Ref {
             range: SourceRange {
-                space: Space::Task { task: id.clone() },
+                space: Space::Task { task: id.into() },
                 first: Pos {
                     at_ms: rec.created_at_ms,
-                    id: id.clone(),
+                    id: id.into(),
                 },
                 last: Pos {
                     at_ms: card.newest_ms(),
-                    id: id.clone(),
+                    id: id.into(),
                 },
             },
             marks: Marks {
                 outside: card.outside,
-                ..self.homes.marks(&super::home(&all, rec))
+                ..marks
             },
             sizes: card.sizes(),
-            handle: Handle(format!("{}@v{}", thing_of(&id), card.version)),
+            handle: Handle(format!("{}@v{}", thing_of(id), card.version)),
             form: Form::Whole,
             unit: None,
-        }])
+        }))
     }
 }
 

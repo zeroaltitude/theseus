@@ -9,6 +9,8 @@
 //! from the view's own [`PointOfView`]: that one may only narrow what the permit allows. So an arrival that
 //! calls itself owner-marked in a channel passes nothing from another place.
 
+use std::collections::HashSet;
+
 use theseus_memory::gate as rule;
 use theseus_memory::recall::Place;
 
@@ -16,18 +18,38 @@ use super::gate::{Admitted, Gate};
 use super::{Anchor, Audience, Piece, PointOfView, Present};
 use crate::view_gate::Verified;
 
-/// The gate the view's pieces pass, for one turn.
-pub struct Permit(Verified);
+/// The gate the view's pieces pass, for one turn; with the exchanges it reads as the turn's own history (an
+/// explicit fork's inherited run, `crate::fork::window`).
+pub struct Permit(Verified, HashSet<String>);
 
 impl Permit {
     /// The permit of the turn of `session`, as that turn computed its presence.
     pub fn for_turn(runner: &crate::turn::TurnRunner, session: &str) -> Self {
-        Permit(Verified::of_session(runner, session))
+        Self::of(Verified::of_session(runner, session))
     }
 
     /// A permit for a point of view already verified.
     pub fn of(verified: Verified) -> Self {
-        Permit(verified)
+        Permit(verified, HashSet::new())
+    }
+
+    /// This permit, reading the exchanges `turns` as the turn's own history where the owner is alone in a
+    /// private place: their place and audience pass as the anchor's, their seals and veils as they are.
+    /// Anywhere else they pass the rule as any other place's exchange does.
+    pub fn owning(mut self, turns: impl IntoIterator<Item = String>) -> Self {
+        self.1.extend(turns);
+        self
+    }
+
+    /// Whether `piece` is an exchange of the turn's own history, and the owner is alone in a private place.
+    fn own(&self, pov: &PointOfView, piece: &Piece) -> bool {
+        let r = &piece.range;
+        let rule = point_of_view(&self.0, pov);
+        matches!(r.space, super::Space::Exchanges { .. })
+            && self.1.contains(&r.first.id)
+            && self.1.contains(&r.last.id)
+            && rule.present == rule::Present::OwnerAlone
+            && rule.place == Place::Private
     }
 }
 
@@ -82,7 +104,10 @@ pub fn marks(piece: &Piece) -> rule::Marks {
 
 impl Gate for Permit {
     fn admit(&self, pov: &PointOfView, piece: Piece) -> Option<Admitted<Piece>> {
-        super::gate::admit_checked(&self.0, pov, piece)
+        match self.own(pov, &piece) {
+            true => super::gate::admit_own(&self.0, pov, piece),
+            false => super::gate::admit_checked(&self.0, pov, piece),
+        }
     }
 }
 

@@ -33,7 +33,8 @@ against a turn of the view.
 every place or by place (`assembly = { default = "transcript", places = { "<place>" = "view" } }`), a place as the
 ledger writes it. Absent, every request is the transcript's, byte for byte as before (a golden test holds it). The
 view needs `[context] ledger` on (the default); a settings file that sets a place to `view` with the ledger off does
-not load. A task's turn has no place and is always the transcript's. There is no `shadow` value: a place is
+not load. A task's turns are at the task's own place, `task:<task id>` (§7, "as built"), which the setting names
+as any other. There is no `shadow` value: a place is
 either the transcript's or the view's.
 
 **Nothing a view turn meets hands it back to the transcript.** A request over the budget is the view's to make
@@ -81,6 +82,16 @@ is sent: never a partial view. No `context.view_fallback` row is written.
   preparation, before every send, the view is checked against the gate again (§5.1, §4).
 - **The preview**: `theseus view preview PLACE` shows what the place's next turn would be given, by the turn's own
   assembler, without calling a model or writing anything (§5.1).
+- **Forks carry the run they were made from** (`crate::fork::window`). A fork's window holds the exchanges of the
+  run it inherits (each ended at the fork point) beside its place's own, with no count of their own: the window's
+  admission and the budget choose. Where the owner is alone in a private place, that inherited run is the fork's own
+  history for the place rule, whatever its source's place, a shared channel's included (the owner's word on simpler
+  privacy, 2026-11-22). Its source's seal, a seal pending, a source that cannot be read and a message moved into a
+  thread not proven clear still hold each exchange out, and every piece keeps its source's place and ids. Where
+  others are present the run passes the rule as any other place's exchange does, and a line beside the message says
+  the fork's source is not shown. **A fork is a live view of its place with an inherited prefix, not a historical
+  snapshot**: only the inherited run stops at the fork point; the place's own window, his other places and the
+  ladder show what was said since, the source's later words included where they are in reach.
 
 **The sources the view has, read from the store.** **What waits** (slot C: the pending confirmations and the
 tasks waiting on him, an id and a line each), **facts about the person** (slot B: the held person's name and
@@ -105,7 +116,7 @@ that was written as it happened or carries a mark, and only its unmarked older h
 is ever made backwards.
 
 **Not built**: the search before the first word (§6, rung 2) and the `leans_on` question; asking a task itself, and
-a task's own view (§7); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
+§7's own table for a task (a task's turns use a place's table at the task's own place: §7, "as built"); writing `did` lines and fold nodes again after a correction; the yardstick; the aside;
 step 10; and the `derived_from` edges of §3.
 
 **Numbers the plan calls settings are constants.** N (20), the ceiling (60,000), slot G's allowance (150,000),
@@ -713,6 +724,14 @@ the first word (rung 2), and `leans_on` is not asked. The judge's `fragment`, `m
   take the presence of the turn that set it up, as the gate does.
 
 ## 7. Tasks
+
+**As built** (the cut; `task_graph::place`, `turn/view_step/task.rs`): a task is its own place, `task:<task id>`.
+Its turns write exchanges there (its first turn's ask is its brief), so its window is its own earlier exchanges,
+newest N, and its ladder folds older ones as any place's does. Its opening (the brief and the arrangement's
+pieces, written before any turn) heads its window on every turn, and on the first turn the brief is the message
+it answers; its own card is laid in slot H. Its presence is its set-up's, as below; a set-up that cannot be
+proven reads as not the owner alone, which at the task's own place admits only what that place holds, its own
+exchanges and card. The table below is the design, not yet built.
 
 **A task's view** has the same assembler, gate and budgeter, another table:
 
