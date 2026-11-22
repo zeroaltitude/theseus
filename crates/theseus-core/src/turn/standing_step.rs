@@ -110,7 +110,18 @@ impl TurnRunner {
 
     /// The surface's records go in the request's tail, after the cached
     /// prefix: a plain turn on a surface with none adds nothing.
-    pub(super) fn standing_here(t: &Turn<'_>, compiled: &mut Compiled) {
+    pub(super) fn standing_here(&self, t: &mut Turn<'_>, compiled: &mut Compiled) {
+        // Admitted again on every call (issue 44): the presence and the seals
+        // of now, so a steer that narrowed the turn or a seal set since its
+        // last call leaves out what it no longer admits.
+        t.standing.here = self
+            .standing_blocks(
+                t.tc.session_id,
+                t.tc.place().class,
+                t.standing.surface,
+                t.target.persona.as_deref(),
+            )
+            .1;
         if let Some(b) = &t.standing.here {
             b.attach_here(compiled);
         }

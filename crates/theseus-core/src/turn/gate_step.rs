@@ -50,7 +50,10 @@ impl TurnRunner {
                         &task.by,
                     ));
                 }
-                Proof::SetUp(view_gate::narrowest(set_ups))
+                // A wake, a task or a report whose set-up cannot be proven
+                // reads nothing; an input with no mark stays as before.
+                let known = !t.set_ups.is_empty() || !t.woke_by.is_empty() || t.tc.task.is_some();
+                view_gate::set_up_proof(known, view_gate::narrowest(set_ups))
             }
         };
         view_gate::begin(self, sid, t.tc.turn_id, place, proof);

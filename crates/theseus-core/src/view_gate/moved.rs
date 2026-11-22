@@ -58,7 +58,7 @@ impl<'a> Moved<'a> {
     }
 
     /// Whether node `id` is held from this reader: moved into a thread not proven clear for it.
-    fn held(&self, id: &str) -> bool {
+    pub fn held(&self, id: &str) -> bool {
         if let Some(h) = self.memo.lock().ok().and_then(|m| m.get(id).copied()) {
             return h;
         }

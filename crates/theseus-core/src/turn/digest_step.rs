@@ -29,6 +29,10 @@ pub(crate) struct Digest {
     pub scope: Option<ScopeWait>,
     /// The digest this turn's requests carry.
     pub text: Option<String>,
+    /// The thread the digest was asked in: on every call after the first its
+    /// threads are admitted again (issue 44), under the presence and the
+    /// seals of now.
+    pub here: Option<String>,
     /// What was just said in the place, for a turn that runs elsewhere
     /// (`compiler::place_tail`), carried the same way.
     pub tail: Option<String>,
@@ -106,12 +110,27 @@ impl TurnRunner {
                 "embargoed": digest.as_ref().map_or(0, |d| d.embargoed),
             }),
         );
+        t.digest.here = digest.is_some().then_some(here);
         t.digest.text = digest.map(|d| d.text);
     }
 
     /// The digest and the place's last words after the request's last cache
     /// mark, their tokens counted.
-    pub(super) fn digest_line(t: &Turn<'_>, compiled: &mut Compiled) {
+    pub(super) fn digest_line(&self, t: &mut Turn<'_>, compiled: &mut Compiled) {
+        // Its threads admitted again, as they are now (issue 44): never a
+        // copy of what the first call was shown.
+        if let Some(here) = t.digest.here.clone() {
+            t.digest.text = self.threads.held().and_then(|b| {
+                let live = crate::view_gate::digest_threads(
+                    self,
+                    t.tc.session_id,
+                    &here,
+                    b.live(PlaceClass::Private),
+                );
+                let chars = self.cfg.threads.place_digest_line_chars;
+                crate::compiler::place_digest::render(&live, &here, chars).map(|d| d.text)
+            });
+        }
         for text in [&t.digest.text, &t.digest.tail].into_iter().flatten() {
             crate::task_graph::view::attach_text(&mut compiled.request, text);
             let n = (text.len() as u64).div_ceil(crate::task_graph::view::BYTES_PER_TOKEN);

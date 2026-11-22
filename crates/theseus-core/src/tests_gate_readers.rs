@@ -428,3 +428,196 @@ async fn a_tail_is_let_go_when_a_message_moved_into_a_held_thread_since() {
         "a tail made after it goes back"
     );
 }
+
+/// The core a test's model script reaches back into, set once it is built.
+type Back = std::sync::Arc<std::sync::OnceLock<std::sync::Weak<crate::Core>>>;
+
+/// What a turn's first call does between its two calls, in
+/// `the_fresh_tail_admits_its_records_again_on_every_call`.
+#[derive(Clone, Copy)]
+enum Between {
+    Steer,
+    Seal,
+}
+
+/// A record scoped to the terminal, kept from the owner's message in his
+/// DM, rides the first call's tail of his own turn at the terminal; a
+/// narrowing steer (an agent's message absorbed) or a seal of the thread its
+/// message was moved into, between that call and the next, leaves it out of
+/// the second call's tail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_fresh_tail_admits_its_records_again_on_every_call() {
+    use crate::provider::Scripted;
+    use theseus_protocol::standing::{StandingAddParams, StandingKind, StandingScope};
+    const ORDER: &str = "the north quay gauge reads in feet";
+    const ASK: &str = "check the gauge for me";
+    for between in [Between::Steer, Between::Seal] {
+        let back: Back = Default::default();
+        let hook = back.clone();
+        let desk_at: std::sync::Arc<std::sync::OnceLock<String>> = Default::default();
+        let desk_in = desk_at.clone();
+        let r = crate::tests_places::rig_setup_scripted(
+            |_| {},
+            |_| {},
+            move |req: &crate::provider::ProviderRequest| {
+                if crate::tests_places::answers_a_call(req) {
+                    return Scripted::text("Done.");
+                }
+                if !last_user(req).contains(ASK) {
+                    return Scripted::text("Noted.");
+                }
+                let core = hook.get().and_then(std::sync::Weak::upgrade).unwrap();
+                let desk = desk_in.get().unwrap();
+                match between {
+                    Between::Steer => {
+                        let m = view_gate::test_mark(&core.runner, desk, false);
+                        view_gate::steered(&core.runner, desk, Some(&m));
+                    }
+                    Between::Seal => seal_core(&core, "kelp"),
+                }
+                Scripted::tools(
+                    "Looking.",
+                    &[("k1", "proc_run", json!({"argv": ["cat", "notes-copy.md"]}))],
+                )
+            },
+        );
+        let _ = back.set(std::sync::Arc::downgrade(&r.core));
+        thread(&r, "kelp");
+        let dm = session(&r.core, Some(&format!("dm:{}", crate::tests_places::OWNER)));
+        turn_as(&r.core, &dm, "the gauge is in feet", true).await;
+        let (_, said) = r
+            .core
+            .store
+            .session_nodes(&dm)
+            .unwrap()
+            .into_iter()
+            .find(|(_, n)| crate::recall::text_of(n).contains("gauge"))
+            .unwrap();
+        if let Between::Seal = between {
+            r.core
+                .store
+                .put_meta(
+                    &crate::moved::moved_of_key(&said.id),
+                    &json!({"thread": "kelp", "split": "spl_x"}),
+                )
+                .unwrap();
+        }
+        r.core
+            .standing_add(
+                &StandingAddParams {
+                    kind: StandingKind::Preference,
+                    text: ORDER.into(),
+                    scope: StandingScope::Surface("terminal".into()),
+                    source: Some(format!("capture:{}", said.id)),
+                    ..Default::default()
+                },
+                "the CLI",
+            )
+            .unwrap();
+        let desk = session(&r.core, None);
+        let _ = desk_at.set(desk.clone());
+        turn_on_terminal(&r.core, &desk, ASK).await;
+        let calls: Vec<_> = r
+            .requests()
+            .into_iter()
+            .filter(|q| serde_json::to_string(&q.messages).unwrap().contains(ASK))
+            .collect();
+        assert!(calls.len() >= 2, "{} calls", calls.len());
+        let tail = |q: &crate::provider::ProviderRequest| {
+            serde_json::to_string(q.messages.last().unwrap()).unwrap()
+        };
+        assert!(tail(&calls[0]).contains(ORDER), "the first call carries it");
+        assert!(
+            !tail(&calls[1]).contains(ORDER),
+            "the second call leaves it out: {}",
+            tail(&calls[1])
+        );
+    }
+}
+
+/// The owner's turn at the terminal surface, marked as typed in person.
+async fn turn_on_terminal(core: &std::sync::Arc<crate::Core>, sid: &str, input: &str) {
+    use crate::session::SessionRecord;
+    let rec = core
+        .store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let mark = view_gate::test_mark(&core.runner, sid, true);
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None).with_arrival(Some(mark));
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: Some("terminal"),
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "cli".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap();
+}
+
+/// A wake set by a wake (its set-up known, its provenance absent) reads
+/// nothing of history: at the terminal, and in a channel bound private,
+/// whose shortcut would otherwise draw on the channel; the history tool reads
+/// the gate's record of it. An input with no mark, set up by nothing, keeps
+/// today's path.
+#[tokio::test]
+async fn a_wake_set_by_a_wake_reads_nothing_of_history() {
+    use crate::places::BoundPlace;
+    use crate::tests_places::LAB;
+    use crate::view_gate::{narrowest, set_up_proof, Proof, RecallPlaces};
+    const HIS: &str = "the harbour gate code is 0451";
+    let r = rig();
+    r.core.bind_places(vec![BoundPlace {
+        persona: None,
+        target: format!("discord:channel:{LAB}"),
+        name: "#lab".into(),
+        private: true,
+        guild: Some("100000000000000001".into()),
+        ceiling: None,
+    }]);
+    let home = session(&r.core, None);
+    turn_as(&r.core, &home, HIS, true).await;
+    let desk = session(&r.core, None);
+    turn_as(&r.core, &desk, "the harbour plan", true).await;
+    let lab = session(&r.core, Some(&format!("channel:{LAB}")));
+    turn_as(&r.core, &lab, "the harbour crane", true).await;
+    // A wake's turn whose set-up turn had no message: no presence found.
+    assert!(matches!(set_up_proof(true, narrowest([None])), Proof::Deny));
+    assert!(matches!(
+        set_up_proof(false, narrowest([])),
+        Proof::SetUp(None)
+    ));
+    for sid in [&desk, &lab] {
+        let place = view_gate::place_name(&r.core.runner, sid).unwrap();
+        view_gate::begin(&r.core.runner, sid, "turn_w", place, Proof::Deny);
+        let places = RecallPlaces::of(&r.core.runner, Some(sid));
+        assert_eq!(places.channel(), None, "{sid}");
+        for s in [&home, &desk, &lab] {
+            assert!(!places.may_read(&r.core.runner, s), "{sid} reads {s}");
+        }
+        let got = crate::memory_lookup::call(r.core.clone(), sid, json!({"words": "harbour"}))
+            .await
+            .map(|o| o.text)
+            .unwrap_or_else(|e| e);
+        assert!(!got.contains(HIS), "{sid}: {got}");
+        let pov = crate::history_tool::pov_of(
+            &r.core,
+            sid,
+            "turn_w",
+            None,
+            crate::places::PlaceClass::Private,
+        );
+        assert_eq!(pov.present, crate::view::Present::Unknown, "{sid}");
+    }
+}

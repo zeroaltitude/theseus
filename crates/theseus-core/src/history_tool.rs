@@ -10,10 +10,12 @@
 //! - **Narrowing**: `place` (another private place, only where the owner is alone), `thing` (its timeline in
 //!   the touch index), `words` (the words index, searched only over the sessions this point of view may read
 //!   on that timeline, then a filter on the walk).
-//! - **Who is present** ([`presence`]): the gate's reading (`view_gate::present`): owner alone only on the
-//!   terminal, the web page or the owner's direct conversation, for an input carrying his in-person mark; a
-//!   channel, private or not, is never alone; a wake's or a report's turn is not known (nothing records the
-//!   presence of the turn that set it up), so it reads nothing in a private place.
+//! - **Who is present** (`pov_of`): the gate's own record of the turn's presence (`view_gate::begin`): a
+//!   message's mark; a wake's, a task's or a report's from the turn that set it up, `Unknown` (nothing of
+//!   history) where that cannot be proven; a steer that narrowed it. Only a turn the gate holds no record of
+//!   (a restart since) is read again from its exchange ([`presence`]): owner alone only on the terminal, the
+//!   web page or the owner's direct conversation, for an input carrying his in-person mark; a channel,
+//!   private or not, is never alone; a turn no message opened is not known.
 //! - **Where** ([`anchor`]): a message's turn is anchored where the message arrived; any other turn where its
 //!   reply is delivered (`Outbox::speaks_at`, a wake's or a report's target too); a route that cannot be read
 //!   is no place, and reads nothing.
@@ -215,17 +217,15 @@ impl Board {
     }
 }
 
-/// Who is present for a turn, by the gate's reading (`view_gate::present`): the session's place by today's
-/// rule, the surface the message arrived at, and its in-person mark; a turn with no message (a wake, a report,
-/// a continuation) is not known. Never more than the turn's own class allows. The one function to swap for
-/// the gate's own when it computes the view's presence itself.
+/// Who is present for a turn the gate holds no record of, by its reading (`view_gate::present`): the
+/// session's place by today's rule, the surface the message arrived at, and its in-person mark; a turn with
+/// no message (a wake, a report, a continuation) is not known. Never more than the turn's own class allows.
 pub fn presence(
     core: &Core,
     session: &str,
     ex: Option<&Exchange>,
     class: crate::places::PlaceClass,
 ) -> Present {
-    use theseus_memory::gate::Present as G;
     let message = ex.filter(|e| e.opened_by == Opener::Message);
     let target = message.map(|e| e.place.as_str());
     let input = match message.and_then(|e| e.ask.as_deref()) {
@@ -234,13 +234,23 @@ pub fn presence(
     };
     let place = crate::view_gate::RecallPlaces::default().of_session(&core.runner, session);
     let g = crate::view_gate::present(&place, target, input, &core.store);
-    let p = match g {
+    clamped(class, of_gate(g))
+}
+
+/// The view's reading of the gate's presence.
+fn of_gate(g: theseus_memory::gate::Present) -> Present {
+    use theseus_memory::gate::Present as G;
+    match g {
         G::OwnerAlone => Present::OwnerAlone,
         G::PrivateChannel => Present::Private,
         G::Shared => Present::Shared,
         G::Open => Present::Open,
         G::Unknown => Present::Unknown,
-    };
+    }
+}
+
+/// Never more than the turn's own class allows.
+fn clamped(class: crate::places::PlaceClass, p: Present) -> Present {
     match (class, p) {
         (crate::places::PlaceClass::Shared, Present::OwnerAlone | Present::Private) => {
             Present::Shared
@@ -277,9 +287,17 @@ pub(crate) fn pov_of(
 ) -> PointOfView {
     let ex = exchange::exchange(&core.store, turn).ok().flatten();
     let here = anchor(core, session, ex.as_ref(), dir);
-    let present = match here {
-        Some(_) => presence(core, session, ex.as_ref(), class),
-        None => Present::Unknown,
+    // The gate's own record of this turn's presence first (a wake's or a
+    // report's set-up, a steer that narrowed it, a set-up denied history).
+    let gate = core
+        .runner
+        .presence
+        .get(session)
+        .filter(|a| a.turn_id() == turn);
+    let present = match (here, gate) {
+        (None, _) => Present::Unknown,
+        (Some(_), Some(a)) => clamped(class, of_gate(a.present())),
+        (Some(_), None) => presence(core, session, ex.as_ref(), class),
     };
     let person = ex
         .as_ref()

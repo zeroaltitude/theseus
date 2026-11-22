@@ -97,7 +97,7 @@ impl TurnRunner {
             &|w| crate::watch::run::shown_value(&self.kernel, w),
         );
         // The records of this turn's surface (theseus-slvl.4), in the tail too.
-        Self::standing_here(t, compiled);
+        self.standing_here(t, compiled);
         // What the observer noted of the owner's own words today, so a turn
         // asked what it has learned can name it (theseus-6f8t0, stop 5). Only
         // where the owner is alone, and never for a task's session.
@@ -131,7 +131,7 @@ impl TurnRunner {
         // A working turn's deliverable, called as the task spells it (theseus-eb4o4).
         self.deliverable_hint(t, compiled);
         // The place's other threads, for a turn that asks across them (theseus-98bz.9).
-        Self::digest_line(t, compiled);
+        self.digest_line(t, compiled);
         // The project this conversation serves, last of all (theseus-n5ui2).
         let project = crate::project::slice::attach(&self.store, &self.kernel, session, compiled);
         (tasks, project)

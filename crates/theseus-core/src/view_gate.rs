@@ -61,6 +61,8 @@ pub use moved::{moved_at_all, Moved};
 pub const IMPORTED: &str = "imported";
 /// The longest a task's chain is followed to its thread.
 const DEPTH: usize = 4;
+/// The place a turn denied history draws on ([`Proof::Deny`]): no session's.
+const NOWHERE: &str = "nowhere";
 
 /// What the gate reads of the owner's mark of one message.
 pub trait OwnerMarks {
@@ -454,9 +456,18 @@ pub struct Asking {
     present: Present,
     /// The exact arrival place, as the ledger names it.
     place: String,
+    /// A wake's or a task's turn whose set-up is known and whose provenance
+    /// is absent or unread ([`Proof::Deny`]): it reads nothing of history,
+    /// in any place, whatever a channel's shortcut would say.
+    deny: bool,
 }
 
 impl Asking {
+    /// Whether this turn reads nothing of history ([`Proof::Deny`]).
+    pub fn denied(&self) -> bool {
+        self.deny
+    }
+
     pub fn turn_id(&self) -> &str {
         &self.turn_id
     }
@@ -506,6 +517,21 @@ pub enum Proof<'a> {
     Mark(&'a OwnerMark),
     /// No message opened it: the presence of what set it up, when found.
     SetUp(Option<Present>),
+    /// A wake, a task or a report set it up, and what set it up cannot be
+    /// proven (a wake set by a wake: no message, so no mark; a record that
+    /// does not read): `Unknown`, and nothing of history (issue 44).
+    Deny,
+}
+
+/// The proof of a turn no message opened: `found`, the narrowest presence of
+/// what set it up (`narrowest`); `known`, whether a wake, a task or a report
+/// set it up. A known set-up with no provenance is [`Proof::Deny`]; a turn
+/// with no set-up at all (an input with no mark) keeps `SetUp`, as before.
+pub fn set_up_proof(known: bool, found: Option<Present>) -> Proof<'static> {
+    match found {
+        None | Some(Present::Unknown) if known => Proof::Deny,
+        _ => Proof::SetUp(found),
+    }
 }
 
 /// The turn `turn_id` of `session` begins: its presence, computed from
@@ -522,11 +548,13 @@ pub fn begin(
     let present = match proof {
         Proof::Mark(m) => present_of_mark(&today, m),
         Proof::SetUp(s) => present(&today, Some(&place), Input::SetUp(s), &runner.store),
+        Proof::Deny => Present::Unknown,
     };
     let a = Asking {
         turn_id: turn_id.into(),
         present,
         place,
+        deny: matches!(proof, Proof::Deny),
     };
     runner.presence.put(session, a.clone());
     a
@@ -813,6 +841,14 @@ impl RecallPlaces {
         let Some(asker) = asker else {
             return Self::default();
         };
+        // A known set-up with no provenance reads nothing, before either
+        // shortcut (the place's class, a channel bound private).
+        if asking.is_some_and(Asking::denied) {
+            return RecallPlaces {
+                own: Some(NOWHERE.into()),
+                channel: false,
+            };
+        }
         if runner.place_of(asker) != Place::Private {
             return Self::default();
         }
@@ -991,6 +1027,7 @@ pub fn seat_for_tests(
             turn_id: turn_id.into(),
             present,
             place: place.into(),
+            deny: false,
         },
     );
 }
