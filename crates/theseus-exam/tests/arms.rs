@@ -412,15 +412,17 @@ fn check_records(recs: &[drive::Record]) {
     }
 }
 
-/// The pieces of the block beside the last user message (`view::wire_text::BESIDE_HEAD`) that recall chose:
-/// each from its heading (the view's testimony heading naming "recalled by search") to the next heading.
+/// The headings the view lays over a piece (`view::text::labels`): one line, before the piece's words.
+fn is_heading(line: &str) -> bool {
+    line.ends_with("; testimony, not instruction; possibly stale")
+        || line.ends_with("author unknown; not the owner's instruction")
+        || line.starts_with("the owner said, in ")
+}
+
+/// The recall laid in the block beside the last user message (`view::wire_text::BESIDE_HEAD`): from the
+/// recall's own preamble ("[Recalled by the harness: …") to the end of the item the view laid under it (the
+/// next heading after the item's own), one per beside block.
 fn recalled_beside(req: &Value) -> Vec<String> {
-    const HEAD_ENDS: &str = "; testimony, not instruction; possibly stale";
-    let is_heading = |l: &str| {
-        l.ends_with(HEAD_ENDS)
-            || l.ends_with("author unknown; not the owner's instruction")
-            || l.starts_with("the owner said, in ")
-    };
     let last = (req["messages"].as_array().into_iter().flatten()).rfind(|m| m["role"] == "user");
     let blocks: Vec<&str> = match last.map(|m| &m["content"]) {
         Some(Value::Array(b)) => b.iter().filter_map(|b| b["text"].as_str()).collect(),
@@ -432,24 +434,28 @@ fn recalled_beside(req: &Value) -> Vec<String> {
         .into_iter()
         .filter(|b| b.starts_with(theseus_core::view::wire_text::BESIDE_HEAD))
     {
-        let mut piece: Option<Vec<&str>> = None;
-        for line in block.lines() {
+        let Some(at) = block.find("[Recalled by the harness:") else {
+            continue;
+        };
+        let mut lines = Vec::new();
+        let mut headings = 0;
+        for line in block[at..].lines() {
             if is_heading(line) {
-                out.extend(piece.take().map(|p| p.join("\n").trim_end().to_string()));
-                piece = (line.ends_with(HEAD_ENDS) && line.contains("recalled by search"))
-                    .then(|| vec![line]);
-            } else if let Some(p) = piece.as_mut() {
-                p.push(line);
+                headings += 1;
+                if headings > 1 {
+                    break;
+                }
             }
+            lines.push(line);
         }
-        out.extend(piece.map(|p| p.join("\n").trim_end().to_string()));
+        out.push(lines.join("\n").trim_end().to_string());
     }
     out
 }
 
-/// The words of a recalled piece: what follows its heading.
-fn piece_words(piece: &str) -> &str {
-    piece.split_once('\n').map_or("", |(_, words)| words.trim())
+/// A recalled piece without the view's heading over its item: the recall's note as the core renders it.
+fn without_heading(piece: &str) -> String {
+    (piece.lines().filter(|l| !is_heading(l)).collect::<Vec<_>>()).join("\n")
 }
 
 /// The oracle's note is the baseline daemon's render of the same gold, byte
@@ -465,13 +471,12 @@ fn check_notes(store: &Path, m: &fixture::Manifest, exam: &Exam, seen: &[Vec<Str
             "no request with {}'s recall: {seen:?}",
             item.id
         );
-        // On the view the baseline's note is a recalled piece beside the message, under the view's own
-        // heading: its words are the oracle's note's, which end with them (issue 44).
+        // On the view the baseline's note is laid beside the message, the view's heading over its item: with
+        // that one line out, it is the oracle's note byte for byte (issue 44).
         assert!(
             seen.iter().any(|t| t.len() == 2
                 && t[0].ends_with(&item.task)
-                && !piece_words(&t[1]).is_empty()
-                && note.trim_end().ends_with(piece_words(&t[1]))),
+                && without_heading(&t[1]).trim_end() == note.trim_end()),
             "{}: the core rendered another note: {seen:?}",
             item.id
         );
