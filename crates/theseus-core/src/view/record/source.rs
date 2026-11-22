@@ -8,14 +8,16 @@
 //!   range of one, and through the place's touch index for a longer one, read back at most
 //!   [`RANGE_MAX`] exchanges; a range that does not resolve whole is not shown.
 //! - Code's own text (the frame, the clock): every reader's; it has no source.
-//! - A fold node, a fact, a card, a task: no session this build can prove today, so not shown.
+//! - A named thing's card and a waiting record: the owner alone, and every session it was read from (its
+//!   `from`, ids only) readable and clear today; the facts about the person: the owner alone.
+//! - A fold node, a task: no session this build can prove today, so not shown.
 //! - A piece whose stored marks say sealed or veiled stays out (marks only grow).
 
 use std::collections::BTreeSet;
 
 use theseus_memory::gate::{PointOfView, Present, Veil};
 
-use super::super::{AtHand, Marks, SourceRange, Space};
+use super::super::{AtHand, Marks, Provenance, SourceRange, Space};
 use super::show::Source;
 use crate::exchange::{self, Root};
 use crate::turn::TurnRunner;
@@ -36,6 +38,25 @@ pub struct GateSource<'a> {
 }
 
 impl GateSource<'_> {
+    /// Whether a card's or a waiting line's provenance holds today: every session it read readable and clear
+    /// for this reader, and every exchange it read readable, its session clear, and none of its messages
+    /// moved since into a thread not proven clear (`view_gate::Moved`, read now).
+    fn proven(&self, p: &Provenance) -> bool {
+        let clear = |s: &str| {
+            let m = view_gate::session_marks(self.runner, self.asker, s, Veil::Clear);
+            crate::view::sources_names::place_reads(m.place.as_deref())
+                && Gate::check(&self.pov, &m).is_ok()
+        };
+        let moved = view_gate::Moved::read(self.runner, self.asker);
+        p.sessions.iter().all(|s| clear(s))
+            && p.exchanges
+                .iter()
+                .all(|id| match exchange::exchange(&self.runner.store, id) {
+                    Ok(Some(e)) => clear(&e.session_id) && !moved.holds(&e),
+                    _ => false,
+                })
+    }
+
     /// The sessions behind an exchange range of `place`; none when they cannot all be proven, or when a
     /// message or reply of an exchange in it was moved into a thread not proven clear for this reader
     /// (`view_gate::Moved`: the owner's inspection lifts no seal).
@@ -74,6 +95,13 @@ impl Source for GateSource<'_> {
         let place = match &range.space {
             Space::Code { .. } => return true,
             Space::Exchanges { place } => place,
+            // A named thing's card and what waits: the owner alone, and its provenance proven and clear today;
+            // the facts about the person (the owner's filing): the owner alone.
+            Space::Card { from, .. } | Space::Waiting { from, .. } => {
+                return self.pov.present == Present::OwnerAlone
+                    && from.as_ref().is_some_and(|p| self.proven(p))
+            }
+            Space::Facts { .. } => return self.pov.present == Present::OwnerAlone,
             _ => return false,
         };
         let Some(sessions) = self.sessions(place, range) else {
